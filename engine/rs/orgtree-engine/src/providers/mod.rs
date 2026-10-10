@@ -38,6 +38,10 @@ pub struct State {
     pub agy_models: Vec<String>,
     pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
     pub codex_efforts_error: Option<String>,
+    /// the first sign-in check (`discover`) has landed. Until it does, a
+    /// provider that reads as signed out has not been checked yet: staffing
+    /// surfaces say "checking sign-ins" rather than "not signed in".
+    pub probed: bool,
 }
 
 #[derive(Default)]
@@ -267,6 +271,7 @@ pub async fn discover(engine: &Engine) {
     st.openrouter = openrouter_favorites(engine);
     let prev_models = engine.providers.state.load().agy_models.clone();
     st.agy_models = prev_models;
+    st.probed = true;
     engine.providers.state.store(Arc::new(st));
     publish(engine);
 }
@@ -436,6 +441,9 @@ pub fn payload(engine: &Engine) -> Value {
     };
     json!({
         "providers": providers,
+        // the first sign-in check has not landed: an absent or signed-out
+        // provider is not known to be either yet
+        "checking": !st.probed,
         "apikey_fallback": map("apikey_fallback", false),
         "subscription_inference": map("subscription_inference", true),
     })

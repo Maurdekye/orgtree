@@ -460,7 +460,9 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
         .collect();
     let mut result = availability(engine);
     result["tiers"] = json!(tiers);
-    result["loading"] = json!(false);
+    // before the first sign-in check lands, a lane missing from `tiers` has
+    // not been checked yet: the surfaces say so instead of "not signed in"
+    result["loading"] = json!(!engine.providers.state.load().probed);
     result["generation"] = json!(0);
     result
 }

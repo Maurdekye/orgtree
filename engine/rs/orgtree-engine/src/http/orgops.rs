@@ -73,6 +73,10 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     let planned = match &b.template {
         None => None,
         Some(pick) => {
+            // never hire on a plan made before the sign-ins were checked
+            if !e.providers.state.load().probed {
+                return Err(ApiError::conflict("Orgtree is still checking the sign-ins on this computer; try again in a moment"));
+            }
             let (t, planned, blocked) = crate::http::templates::plan_pick(&e, pick, &slug, &dirs)?;
             if !blocked.is_empty() {
                 return Err(ApiError::unprocessable(format!(

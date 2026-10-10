@@ -91,11 +91,14 @@ pub struct Avail {
     pub default_account: Option<String>,
     /// when the readings were judged (resets are compared with it)
     pub now: chrono::DateTime<chrono::Utc>,
+    /// the first sign-in check has not landed: a missing Claude or Codex
+    /// tier is unchecked, not signed out
+    pub checking: bool,
 }
 
 impl Default for Avail {
     fn default() -> Self {
-        Avail { tiers: HashMap::new(), default_account: None, now: chrono::Utc::now() }
+        Avail { tiers: HashMap::new(), default_account: None, now: chrono::Utc::now(), checking: false }
     }
 }
 
@@ -348,7 +351,8 @@ pub fn avail(engine: &Engine, org_slug: &str) -> Avail {
     }
     let defaults = engine.settings.defaults();
     let eff = crate::feed::groups::effective_settings(&json!({}), &defaults);
-    Avail { tiers, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now() }
+    Avail { tiers, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now(),
+            checking: opts["loading"].as_bool().unwrap_or(false) }
 }
 
 /// One planned hire.
@@ -369,6 +373,18 @@ pub struct Planned {
     pub add_dirs: Option<Vec<Value>>,
     /// saved folders the new org does not hold
     pub dirs_dropped: Vec<String>,
+}
+
+/// Whether a tier missing from the offer is only unchecked: the first
+/// sign-in check has not landed and the tier needs a signed-in CLI.
+#[nolog]
+fn checking(av: &Avail, tier: &str) -> bool {
+    av.checking && matches!(catalog::provider_of(tier), catalog::CLAUDE | catalog::OPENAI)
+}
+
+#[nolog]
+fn checking_note(tier: &str) -> String {
+    format!("{tier}: checking the {} sign-in; this updates in a moment", catalog::provider_label(catalog::provider_of(tier)))
 }
 
 /// Resolve a template against what this machine can run. Each slot takes
@@ -397,12 +413,14 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
             let name = ch.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&s.name).to_string();
             let (tier, note) = match ch.tier.as_deref().filter(|x| !x.is_empty()) {
                 Some(x) if av.tiers.contains_key(x) => (Some(x.to_string()), (x != s.tier).then(|| "chosen by you".to_string())),
+                Some(x) if checking(av, x) => (None, Some(checking_note(x))),
                 Some(x) => (None, Some(format!("{x} cannot run on this computer now"))),
                 None => match std::iter::once(&s.tier).chain(&s.fallback).find(|x| av.tiers.contains_key(*x)) {
                     Some(x) if *x == s.tier => (Some(x.clone()), None),
                     Some(x) => (Some(x.clone()), Some(format!("{} → {x}: {} is not available", s.tier, s.tier))),
                     None if catalog::is_langserver(&s.tier) => (None, Some(format!(
                         "{} cannot run on this computer now (no language server here offers it, or its server is turned off)", s.tier))),
+                    None if checking(av, &s.tier) => (None, Some(checking_note(&s.tier))),
                     None => (None, Some(format!("{} cannot run on this computer now ({} is not signed in or turned off)",
                         s.tier, catalog::provider_label(catalog::provider_of(&s.tier))))),
                 },
@@ -794,7 +812,7 @@ mod tests {
         let mut tiers = HashMap::new();
         tiers.insert("opus".into(), offer(4.0, "claude"));
         tiers.insert("sonnet".into(), offer(2.0, "claude"));
-        Avail { tiers, default_account: None, now: chrono::Utc::now() }
+        Avail { tiers, ..Avail::default() }
     }
 
     fn bundled(id: &str) -> Template {
@@ -843,6 +861,19 @@ mod tests {
         let (p, blocked) = plan(&bundled("devteam-codex"), &Choices::default(), &claude_only(), &[]).unwrap();
         assert_eq!(blocked.len(), 4);
         assert!(p.iter().all(|x| x.tier.is_none()));
+    }
+
+    #[test]
+    fn before_the_first_sign_in_check_a_missing_lane_is_checking_not_signed_out() {
+        let checking = Avail { checking: true, ..Avail::default() };
+        let (p, blocked) = plan(&bundled("devteam-claude"), &Choices::default(), &checking, &[]).unwrap();
+        assert_eq!(blocked.len(), 4);
+        assert!(p.iter().all(|x| x.tier.is_none() && x.note.as_deref().is_some_and(|n| n.contains("checking the Claude sign-in"))));
+        let (p, _) = plan(&bundled("devteam-codex"), &Choices::default(), &checking, &[]).unwrap();
+        assert!(p.iter().all(|x| x.note.as_deref().is_some_and(|n| n.contains("checking the Codex sign-in"))));
+        // once checked, the same gap is a real "not signed in"
+        let (p, _) = plan(&bundled("devteam-claude"), &Choices::default(), &Avail::default(), &[]).unwrap();
+        assert!(p.iter().all(|x| x.note.as_deref().is_some_and(|n| n.contains("not signed in"))));
     }
 
     #[test]
