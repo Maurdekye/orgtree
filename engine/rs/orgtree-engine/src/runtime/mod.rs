@@ -53,6 +53,12 @@ pub enum AgentMsg {
     CacheKeepalive,
     /// the scheduler granted this agent a turn slot
     Slot(sched::Slot),
+    /// a language server is loading the turn's model before its CLI starts
+    /// (Some: what the desk shows; langserver::warm_plan)
+    Loading(Option<String>),
+    /// the language server could not load the turn's model: the turn fails
+    /// with the server's own words instead of hanging
+    WarmFailed(sched::Slot, String),
     Interrupt(oneshot::Sender<Value>),
     Halt(oneshot::Sender<Value>),
     Unhalt(oneshot::Sender<Value>),

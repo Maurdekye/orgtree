@@ -483,6 +483,8 @@ struct Actor {
     parked: bool,
     slot: Option<Slot>,
     waiting_since: Option<DateTime<Utc>>,
+    /// a language server loading this turn's model before its CLI starts (the desk's words)
+    loading: Option<String>,
     /// Bounded diagnostic IDs only; the durable mailbox owns the messages.
     followup_mail: Vec<String>,
     turn: Option<Turn>,
@@ -570,6 +572,7 @@ impl Actor {
             parked: false,
             slot: None,
             waiting_since: None,
+            loading: None,
             followup_mail: Vec::new(),
             turn: None,
             convo,
@@ -803,6 +806,11 @@ impl Actor {
             }
             AgentMsg::CacheKeepalive => self.start_keepalive().await?,
             AgentMsg::Slot(slot) => self.on_slot(slot).await?,
+            AgentMsg::Loading(what) => {
+                self.loading = what;
+                self.publish();
+            }
+            AgentMsg::WarmFailed(slot, why) => self.on_warm_failed(slot, why).await?,
             AgentMsg::Claude(process, v) => {
                 if self.owns_process(process) { self.on_claude(v).await?; }
             }
@@ -898,6 +906,7 @@ impl Actor {
                 // settles its cut turn now, as 3.x did before archiving: no
                 // turn may stay on record for a seat that runs none (decision 62)
                 self.stopping = true;
+                self.loading = None;
                 if self.waiting_since.take().is_some() {
                     self.engine.sched.cancel(self.id);
                 }
@@ -1119,8 +1128,21 @@ impl Actor {
         };
         let rx = self.engine.sched.want(self.org_id, self.id, lane);
         let tx = self.tx.clone();
+        // an Ollama model is loaded before the CLI asks for it: Ollama loads
+        // inside the first request and Claude Code gives up on its headers
+        // after about 5 minutes (coordinator ruling 2026-10-10)
+        let warm = if catalog::is_langserver(&tier) { crate::langserver::warm_plan(&self.engine, &tier).await } else { None };
         crate::trace::spawn(async move {
             if let Ok(slot) = rx.await {
+                if let Some(w) = warm {
+                    if crate::langserver::ollama_loaded(&w).await != Ok(true) {
+                        let _ = tx.post(AgentMsg::Loading(Some(format!("loading model on {}", w.server))));
+                        if let Err(why) = crate::langserver::ollama_load(&w).await {
+                            let _ = tx.post(AgentMsg::WarmFailed(slot, why));
+                            return;
+                        }
+                    }
+                }
                 // if the actor is gone the slot drops here and is freed
                 let _ = tx.post(AgentMsg::Slot(slot));
             }
@@ -1129,7 +1151,31 @@ impl Actor {
         Ok(())
     }
 
+    /// The language server could not load the turn's model: the slot goes
+    /// back, and the turn fails the way a CLI that never started does (its
+    /// mail stays in the mailbox; the agent and its superior are told).
+    async fn on_warm_failed(&mut self, slot: Slot, why: String) -> Result<()> {
+        drop(slot);
+        self.loading = None;
+        if self.waiting_since.take().is_none() || self.turn.is_some() || self.stopping {
+            self.publish();
+            return Ok(());
+        }
+        self.last_error = Some(why.clone());
+        tracing::warn!(agent = %self.name, error = %why, "turn could not start: its model did not load");
+        if let Ok(client) = self.engine.db.get().await {
+            let _ = client
+                .execute("UPDATE ot.agents SET last_error = $2, row_version = row_version + 1 WHERE id = $1", &[&self.id, &self.last_error])
+                .await;
+        }
+        self.launch_failed(&why).await;
+        self.publish();
+        self.changed(vec![Change::Agent(self.id)]);
+        Ok(())
+    }
+
     async fn on_slot(&mut self, slot: Slot) -> Result<()> {
+        self.loading = None;
         if self.waiting_since.take().is_none() || self.turn.is_some() || self.stopping {
             drop(slot);
             self.publish();
@@ -4561,6 +4607,7 @@ impl Actor {
             "effort_current": if busy { self.proc_effort.clone() } else { None },
             "pending_effort": if busy { self.pending_effort.clone() } else { None },
             "waiting": self.waiting_since.is_some(),
+            "loading_model": self.loading,
             "queued_for_slot": queued_for_slot,
             "responding": busy,
             "phase": if compacting { json!("compacting") } else if busy { json!("responding") } else { Value::Null },

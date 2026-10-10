@@ -83,7 +83,7 @@ pub struct Preset {
 
 pub static PRESETS: &[Preset] = &[
     Preset { id: "ollama", label: "Ollama", address: "http://127.0.0.1:11434", claude: true, codex: true,
-             note: "Ollama 0.14 or later serves both harnesses." },
+             note: "Ollama 0.14 or later serves both harnesses. If its models sit on a slow disk, start Ollama with OLLAMA_LOAD_TIMEOUT=30m: by default it gives up on a model that takes more than 5 minutes to load. On an NVIDIA card its log should name CUDA: when its GPU check times out it falls back to Vulkan, which loads a model from a hard disk far more slowly (restarting Ollama usually brings CUDA back)." },
     Preset { id: "lmstudio", label: "LM Studio", address: "http://127.0.0.1:1234", claude: true, codex: true,
              note: "LM Studio 0.4.1 or later serves both harnesses." },
     Preset { id: "llamacpp", label: "llama.cpp", address: "http://127.0.0.1:9931", claude: true, codex: true,
@@ -720,6 +720,88 @@ pub fn variant_name(model: &str, context: i64) -> String {
     let suffix = format!("-{}k", context / 1024);
     let keep: String = tag.chars().take(80 - suffix.len()).collect();
     format!("{base}:{keep}{suffix}")
+}
+
+/// A model a turn needs in the server's memory before its CLI starts
+/// (coordinator ruling 2026-10-10). Ollama loads a model inside the first
+/// request and sends no reply headers until it is in memory; Claude Code
+/// stops waiting for them after about 5 minutes, so a model that took
+/// longer to load (13 GB from a hard disk) never answered, and every retry
+/// started the load again. Holds the server's key: never serialized, and
+/// the Debug form hides it.
+pub struct Warm {
+    pub address: String,
+    pub key: Option<String>,
+    pub model: String,
+    /// the server's name, for the desk ("loading model on …")
+    pub server: String,
+}
+
+impl std::fmt::Debug for Warm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Warm")
+            .field("address", &self.address)
+            .field("key", &self.key.as_ref().map(|_| "*****"))
+            .field("model", &self.model)
+            .field("server", &self.server)
+            .finish()
+    }
+}
+
+/// The warm-up a turn on this tier needs: Ollama servers only (the other
+/// presets have no load call the lane can use). Reads the key: not logged.
+pub async fn warm_plan(engine: &Engine, tier: &str) -> Option<Warm> {
+    let (s, m) = route_of(engine, tier)?;
+    if s["preset"].as_str() != Some("ollama") {
+        return None;
+    }
+    let id = s["id"].as_str()?.to_string();
+    Some(Warm {
+        address: s["address"].as_str()?.to_string(),
+        key: key(engine, &id).await,
+        model: m["id"].as_str()?.to_string(),
+        server: s["label"].as_str().filter(|l| !l.is_empty()).unwrap_or(&id).to_string(),
+    })
+}
+
+/// Is the model in Ollama's memory now (`/api/ps`)? Uses the key: not logged.
+pub async fn ollama_loaded(w: &Warm) -> std::result::Result<bool, String> {
+    let client = reqwest::Client::builder().timeout(PROBE_TIMEOUT).user_agent(USER_AGENT).build().map_err(|e| e.to_string())?;
+    let mut req = client.get(format!("{}/api/ps", w.address.trim_end_matches('/')));
+    if let Some(k) = w.key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(k);
+    }
+    let res = req.send().await.map_err(|e| short_error(&e))?;
+    let body: Value = res.json().await.map_err(|e| short_error(&e))?;
+    Ok(body["models"].as_array().map(|ms| {
+        ms.iter().any(|m| m["name"].as_str() == Some(w.model.as_str()) || m["model"].as_str() == Some(w.model.as_str()))
+    }).unwrap_or(false))
+}
+
+/// Load the model with nothing to generate and no client time limit
+/// (Ollama's own OLLAMA_LOAD_TIMEOUT still applies). An Err carries
+/// Ollama's own words. Uses the key: not logged.
+pub async fn ollama_load(w: &Warm) -> std::result::Result<(), String> {
+    let started = std::time::Instant::now();
+    tracing::info!(server = %w.server, model = %w.model, "loading a language-server model before the turn");
+    let client = reqwest::Client::builder().user_agent(USER_AGENT).build().map_err(|e| e.to_string())?;
+    let mut req = client
+        .post(format!("{}/api/generate", w.address.trim_end_matches('/')))
+        .json(&json!({ "model": w.model, "prompt": "", "stream": false }));
+    if let Some(k) = w.key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(k);
+    }
+    let res = req.send().await.map_err(|e| format!("Ollama could not be asked to load {}: {}", w.model, short_error(&e)))?;
+    let status = res.status();
+    let body: Value = res.json().await.unwrap_or(Value::Null);
+    let failed = body["error"].as_str().map(str::to_string)
+        .or_else(|| (!status.is_success()).then(|| format!("it answered {status}")));
+    if let Some(why) = failed {
+        tracing::warn!(server = %w.server, model = %w.model, error = %why, "a language-server model did not load");
+        return Err(format!("Ollama could not load {}: {why}", w.model));
+    }
+    tracing::info!(server = %w.server, model = %w.model, secs = started.elapsed().as_secs(), "language-server model loaded");
+    Ok(())
 }
 
 /// Make a variant of an Ollama model that runs with `context` tokens: a new
