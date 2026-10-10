@@ -21,9 +21,21 @@
 // took its place: a strip that scrolls its chips at narrow widths could carry
 // an actionable error off the end of a row nobody scrolls. So the chips are
 // the part that yields and the error keeps its seat.
+//
+// QUICK CHAT SITS IN THIS STRIP (user 2026-10-10 18:48Z: "put the quick chat
+// in the footer actually" — the header's empty stretch is kept for dragging
+// the window). Three parts then, like the centred header it came from: the
+// chips, Quick chat, and the error + version. Both sides claim their own
+// controls and grow equally, so the box is centred while there is room,
+// slides off-centre at full width when one side runs out, and shrinks only
+// when neither side has free space (shell/equalsides.ts). The strip grows to
+// the box's one row (user 18:50Z: "the footer may have to be increased in
+// height"). Without Quick chat (no organization) the strip is as before.
+import type { ReactNode } from 'react'
 import { BlockIcon, EyeIcon, LanIcon, AutorenewIcon, WarnIcon } from '../icons'
 import { primedRestartChip } from '../canvas/shared'
 import { ActiveAgentSummary, costLabel, costTitle, showCost } from './treeinfo'
+import { useEqualSides } from './equalsides'
 import type { OrgListEntry, TreePayload } from '../types'
 
 export interface OrgStatusBarProps {
@@ -39,9 +51,12 @@ export interface OrgStatusBarProps {
    *  menu's About entry). `null` in a plain browser, which has no packaged
    *  version and is shown none. */
   appVersion?: string | null
+  /** Quick chat: one text box that hires, kicks off and focuses a new agent */
+  quick?: ReactNode
 }
 
-export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion }: OrgStatusBarProps) {
+export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion, quick }: OrgStatusBarProps) {
+  const centred = useEqualSides(!!quick)
   const hubs = (tree.net?.hubs ?? []).filter((h) => h.enabled && !h.hidden)
   const up = hubs.filter((h) => h.connected).length
   const queued = hubs.reduce((a, h) => a + h.queued, 0)
@@ -49,8 +64,7 @@ export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion 
     ? (hubs[0]?.name || (hubs[0]?.id === 'local' ? 'local hub' : 'hub'))
     : `${up}/${hubs.length} hubs`
   const primed = primedRestartChip(tree.primed_restart, true)
-  return (
-    <footer className="shell-statusbar" aria-label="organization status">
+  const chipRun = (
       <div className="shell-statusbar-chips">
         {/* the ledger self-audit only speaks when something is wrong; credit
             totals live on the eye's bar */}
@@ -97,6 +111,8 @@ export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion 
           </span>
         )}
       </div>
+  )
+  const endRun = <>
       {/* pinned, outside the scrolling run — see the header note */}
       {error && (
         <span className="chip bad shell-statusbar-error" role="alert" title={error}>
@@ -106,6 +122,15 @@ export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion 
       )}
       {appVersion && <span className="shell-version dim"
         title={`running Orgtree ${appVersion}`}>Orgtree {appVersion}</span>}
+  </>
+  return (
+    <footer ref={centred.head} aria-label="organization status"
+      className={'shell-statusbar' + (quick ? ' shell-statusbar-centred' : '')}>
+      {quick ? <>
+        <div className="shell-statusbar-start" ref={centred.start}>{chipRun}</div>
+        <div className="shell-statusbar-quick">{quick}</div>
+        <div className="shell-statusbar-end" ref={centred.end}>{endRun}</div>
+      </> : <>{chipRun}{endRun}</>}
     </footer>
   )
 }
