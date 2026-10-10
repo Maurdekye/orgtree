@@ -6,15 +6,22 @@
 // Measured per agent: the ticket's outcome (item status, evidence, the files,
 // the script's real output), the turn (time, tokens, errors), every tool call
 // in its transcript, and, from the server's own log, each request's new
-// prompt tokens, context in use, prefill and generation speed.
+// prompt tokens, context in use, prefill and generation speed (Ollama's log
+// gives each request's duration instead).
 //   node tools/rig/rig.mjs run tools/rig/proofs/langserver-real.mjs --url http://127.0.0.1:9931
 //        --model qwen3.6-35b-a3b --ctx 131072 --server-log <llama-server stderr log> [--only claude|codex]
 //        [--preset llamacpp] [--codex-preset <the same preset> | custom --codex-base-path v1]
+// Ollama: --preset ollama --model <name:tag> --variant [--ui <bundle>]: the model is loaded once at
+// Ollama's default window (4K on a card under 24 GB) and the lane sees it; then its 64K version is
+// made the way the settings button does (with --ui, a real click in the add form) and the agents
+// are hired on that version; afterwards Ollama must hold it with the 64K window.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { runDesktop } from '../desktop.mjs'
 import { seed } from '../fixture.mjs'
+import { RIG_DIR } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
@@ -49,6 +56,17 @@ function serverRequests(text) {
   return out
 }
 
+/** Ollama's request log lines: [GIN] date | status | duration | client | METHOD "path". */
+function ginRequests(text) {
+  const unit = { ns: 1e-9, 'µs': 1e-6, us: 1e-6, ms: 1e-3, s: 1 }
+  const out = []
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/\[GIN\][^|]*\|\s*(\d+)\s*\|\s*(?:(\d+)m)?([\d.]+)(ns|µs|us|ms|s)\s*\|[^|]*\|\s*(\w+)\s+"([^"]+)"/)
+    if (m) out.push({ status: +m[1], s: +(Number(m[2] ?? 0) * 60 + Number(m[3]) * unit[m[4]]).toFixed(3), method: m[5], path: m[6] })
+  }
+  return out
+}
+
 export default async function (rig, { flags }) {
   const p = new Proof('langserver-real')
   const URL_ = flags.url ?? 'http://127.0.0.1:9931'
@@ -60,21 +78,57 @@ export default async function (rig, { flags }) {
   const save = () => p.file('results.json', results)
 
   // ------------------------------------------------------------ the probe and the servers
-  const probe = await rig.api('POST', '/api/langservers/probe', { preset: flags.preset ?? 'llamacpp', address: URL_, harness: 'claude-code' })
+  const preset = flags.preset ?? 'llamacpp'
+  const probe = await rig.api('POST', '/api/langservers/probe', { preset, address: URL_, harness: 'claude-code' })
   results.probe = probe
   p.check('the probe reaches the real server and reads its model and window', probe.reachable === true
     && (probe.models ?? []).some(m => m.id === MODEL), probe)
-  const a = await rig.api('POST', '/api/langservers', { preset: flags.preset ?? 'llamacpp', address: URL_, harness: 'claude-code',
-    label: 'Local (Claude Code)', models: [{ id: MODEL, context: CTX }] })
+  await seed(rig, { org: { name: 'Local Model Spike' } })
+  let model = MODEL
+  let ctx = CTX
+  if (preset === 'ollama' && flags.variant) {
+    // Ollama runs a model with no window of its own at its default (4096 on a
+    // card under 24 GB): load it once the way any first request does, then make
+    // the 64K version as the settings button does (a real click with --ui)
+    const warm = await fetch(`${URL_}/api/generate`, { method: 'POST', body: JSON.stringify({ model: MODEL, prompt: 'Say OK.', stream: false, options: { num_predict: 16 } }) })
+      .then(r => r.json())
+    results.warmup = { load_ms: Math.round((warm.load_duration ?? 0) / 1e6), total_ms: Math.round((warm.total_duration ?? 0) / 1e6), error: warm.error ?? null }
+    const before = await rig.api('POST', '/api/langservers/probe', { preset, address: URL_, harness: 'claude-code' })
+    results.probe_default = before
+    const m0 = (before.models ?? []).find(m => m.id === MODEL)
+    p.check('Ollama runs the model at its default 4K window, and the lane reads that window from the server',
+      before.reachable === true && m0?.loaded_context === 4096 && (m0?.configured_context ?? null) === null, m0)
+    const version = `${MODEL.includes(':') ? MODEL : `${MODEL}:latest`}-64k`
+    if (rig.run.ui) {
+      const seen = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'langserver-settings.cjs'),
+        { preset: 'tall', args: { shot: 'ollama', address: URL_, fresh: true }, out: path.join(p.dir, 'desktop') })
+      const v = seen.value ?? {}
+      const row = (rows, id) => (rows ?? []).find(r => r.id === id)
+      results.desktop = { ok: seen.ok, found: v.found, made: v.made, error: seen.error ?? null }
+      p.check('App settings: Find models on the real Ollama offers "Create a 64K version of this model"; one click makes it and picks it',
+        seen.ok && row(v.found, MODEL)?.button === 'Create a 64K version of this model' && row(v.made, version)?.picked === true, results.desktop)
+    } else {
+      results.variant = await rig.api('POST', '/api/langservers/ollama-variant', { address: URL_, model: MODEL })
+    }
+    const after = await rig.api('POST', '/api/langservers/probe', { preset, address: URL_, harness: 'claude-code' })
+    results.probe_variant = after
+    const mv = (after.models ?? []).find(m => m.id === version)
+    p.check('Ollama lists the 64K version with its own 64K Modelfile window', mv?.configured_context === 65536, mv)
+    model = version
+    ctx = 65536
+  }
+  results.used = { model, ctx }
+  const a = await rig.api('POST', '/api/langservers', { preset, address: URL_, harness: 'claude-code',
+    label: 'Local (Claude Code)', models: [{ id: model, context: ctx }] })
   // Codex on the same preset (llama.cpp offers it since b11540), or a custom entry with its base path
-  const b = await rig.api('POST', '/api/langservers', { preset: flags['codex-preset'] ?? flags.preset ?? 'llamacpp', address: URL_, harness: 'codex-cli',
-    base_path: flags['codex-base-path'] ?? 'v1', label: 'Local (Codex)', models: [{ id: MODEL, context: CTX }] })
+  const b = await rig.api('POST', '/api/langservers', { preset: flags['codex-preset'] ?? preset, address: URL_, harness: 'codex-cli',
+    base_path: flags['codex-base-path'] ?? 'v1', label: 'Local (Codex)', models: [{ id: model, context: ctx }] })
   const tierA = Object.values(a.server?.models ?? a.models ?? {})[0]?.tier
   const tierB = Object.values(b.server?.models ?? b.models ?? {})[0]?.tier
   results.servers = { claude: { id: a.server?.id ?? a.id, tier: tierA }, codex: { id: b.server?.id ?? b.id, tier: tierB } }
   save()
 
-  await seed(rig, { org: { name: 'Local Model Spike' }, agents: [
+  await seed(rig, { agents: [
     ...(only === 'codex' ? [] : [{ name: 'lsclaude', tier: tierA, grant: 1, charter: CHARTER }]),
     ...(only === 'claude' ? [] : [{ name: 'lscodex', tier: tierB, grant: 1, charter: CHARTER }]),
   ] })
@@ -131,11 +185,22 @@ export default async function (rig, { flags }) {
         peak_context: Math.max(0, ...reqs.map(x => x.n_tokens ?? 0)), truncated: reqs.some(x => x.truncated),
         prompt_ms: Math.round(reqs.reduce((s, x) => s + x.prompt_ms, 0)), gen_ms: Math.round(reqs.reduce((s, x) => s + (x.gen_ms ?? 0), 0)) }
       p.file(`${name}-requests.json`, reqs)
+      // Ollama logs each request with its duration instead
+      const gin = ginRequests(buf.toString('utf8')).filter(x => x.path.startsWith('/v1/'))
+      if (gin.length) r.gin = { requests: gin.length, seconds: +gin.reduce((s, x) => s + x.s, 0).toFixed(1), slowest_s: Math.max(...gin.map(x => x.s)), errors: gin.filter(x => x.status >= 400).length }
     }
     save()
     p.check(`${name} (${who}): the ticket is done, the script prints 9, and the turn cost nothing`,
       r.item.status === 'done' && r.rerun?.out === '9' && r.turns.every(t => Number(t.cost_usd ?? 0) === 0),
       { item: r.item.status, rerun: r.rerun, files: r.files, turns: r.turns.length, timeout: r.timeout })
+  }
+  if (preset === 'ollama') {
+    // what Ollama holds after the tickets: the model's window, and how much of it sits in graphics memory
+    const ps = await fetch(`${URL_}/api/ps`).then(r => r.json()).catch(e => ({ error: String(e) }))
+    results.ps = ps
+    const held = (ps.models ?? []).find(m => m.name === model || m.model === model)
+    p.check('after the tickets Ollama holds the model the agents were hired on, with the window they were given',
+      held?.context_length === ctx, held && { name: held.name, context_length: held.context_length, size: held.size, size_vram: held.size_vram })
   }
   save()
   return p.summary()

@@ -3,12 +3,13 @@
 // the preset dropdown and the harness the preset allows. With `address`: the
 // form's Find models against that (Ollama-like) server, the "Create a 64K
 // version of this model" offer, and one click on it.
-// args: { agent: "<an agent on the canvas>", shot: "<prefix>", address?: "<server url>" }
+// args: { agent: "<an agent on the canvas>", shot: "<prefix>", address?: "<server url>", fresh?: true }
+// `fresh`: no org, agent or server yet (a real server's first visit): wait only for the section.
 module.exports = async (page, { args }) => {
-  await page.waitFor(`[data-copy-agent-name="${args.agent}"]`, { timeout: 30000 })
+  if (args.agent) await page.waitFor(`[data-copy-agent-name="${args.agent}"]`, { timeout: 30000 })
   await page.sleep(1500)
   await page.eval(() => window.dispatchEvent(new window.CustomEvent('orgtree:open-app-settings', { detail: { tab: 'providers' } })))
-  await page.waitFor('.ls-section .ls-server', { timeout: 20000 })
+  await page.waitFor(args.fresh ? '.ls-section' : '.ls-section .ls-server', { timeout: 20000 })
   const scrollTo = (sel) => page.eval((s) => { document.querySelector(s)?.scrollIntoView({ block: 'start' }); return true }, sel)
   // the panel's other sections finish loading after the first paint: scroll once they have
   await page.sleep(1500)
