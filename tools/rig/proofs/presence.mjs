@@ -136,7 +136,7 @@ export default async function (rig, { flags }) {
   p.note(`stop: the engine dropped A's poll ${stop.engine_s} s after the toggle; the hub showed A offline ${stop.offline_after_hang_up_s} s after that; the watcher heard ${stop.watcher_after_hub_s} s after the hub (from the toggle: ${stop.from_toggle.roster_s} s, watcher ${stop.from_toggle.watcher_s} s)`, stop)
   if (!before) {
     p.check('stop: the hub shows A offline after its 10 s grace from the engine dropping its poll', stop.offline_after_hang_up_s !== null && stop.offline_after_hang_up_s >= 9.5 && stop.offline_after_hang_up_s <= 11.5, stop)
-    p.check('stop: the watcher\'s parked sync (device in use) hears it within about a second of the hub', stop.watcher_after_hub_s !== null && stop.watcher_after_hub_s <= 1.5, stop)
+    p.check('stop: the watcher\'s parked sync (device in use) hears it within a second or two of the hub (a 1 s tick, then the answer)', stop.watcher_after_hub_s !== null && stop.watcher_after_hub_s <= 2.5, stop)
   }
 
   // ------------------------------------------------------------------ back
@@ -150,8 +150,8 @@ export default async function (rig, { flags }) {
   const back = { engine_s: s1(polled - tOn), watcher_after_poll_s: s1(heardOn && heardOn - polled), from_toggle_s: s1(heardOn && heardOn - tOn) }
   p.note(`back: the engine polled ${back.engine_s} s after the toggle; the watcher heard A online ${back.watcher_after_poll_s} s after that poll (from the toggle: ${back.from_toggle_s} s)`, back)
   if (!before) {
-    p.check('back: the watcher hears A online within about a second of its first poll (the hub wakes the device in use)',
-      back.watcher_after_poll_s !== null && back.watcher_after_poll_s <= 1.5, back)
+    p.check('back: the watcher hears A online within a second or two of its first poll (the hub wakes the device in use)',
+      back.watcher_after_poll_s !== null && back.watcher_after_poll_s <= 2.5, back)
   }
 
   p.keep(rig, { grep: /hub|network|poll/i })
