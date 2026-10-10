@@ -648,3 +648,14 @@ All entries are dated 2026-10-06 unless stated otherwise.
       on. A fresh installation defaults to on, as before.
     Proof: `tests/run-on-startup.test.mjs` (the scripts against throwaway tasks and an HKCU key),
     `tests/boot-installer.test.ps1`, `tests/unix-boot-engine.test.mjs`.
+71. **The bundled mail hub 2.1.0's first start is a one-way step; no automatic backup**
+    (user 2026-10-10 19:42Z, via the coordinator: bundle hub 2.1.0, optional UnifiedPush, in
+    4.2.0-alpha.5, with no automatic backup). The hosted hub migrates its database
+    (`orgtree_mailhub` in the bundled cluster) to schema 9 the first time 2.1.0 starts. From then
+    on a hub 2.0.x refuses that database ("the database schema is version 9, newer than this hub
+    understands"). So going back to an Orgtree that bundles hub 2.0.x leaves the hosted hub
+    stopped until a backup of the hub's database from before the upgrade is restored, losing the
+    mail that arrived since. Orgtree takes no backup for this step by itself. The hub's own notes:
+    orgtree-mailhub docs/OPERATIONS.md, Upgrades.
+    Proof: `tools/rig/proofs/mailhub-v2.mjs` (pins 2.1.0) against the hosted hub built from the
+    submodule, on a rig database a hosted hub 2.0.3 had created first.
