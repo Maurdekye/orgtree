@@ -92,23 +92,18 @@ function uiTest(name: string,
  *  hire. If that table moves, this test moves with it or fails loudly; it can
  *  no longer quietly agree with a stale copy of itself. */
 declare const __SRC_DIR__: string
-const LEDGER = path.join(__SRC_DIR__, '..', '..', '..', '..', 'engine', 'backend', 'orgtree', 'ledger.py')
+// 4.x: the backend is the Rust engine; its tier table is providers/catalog.rs (the Python ledger is frozen)
+const LEDGER = path.join(__SRC_DIR__, '..', '..', '..', '..', 'engine', 'rs', 'orgtree-engine', 'src', 'providers', 'catalog.rs')
 
 function backendSeats(): Record<string, number> {
   const src = readFileSync(LEDGER, 'utf8')
-  // `int` OR `float`: seats went fractional below $1/M on 2026-09-03 (the
-  // static tiers in this table all stayed whole, but the annotation widened
-  // so the dynamic OpenRouter half can join it). The VALUE pattern accepts a
-  // decimal for the same reason — a favorite at $0.20 seats at 0.2.
-  const m = /^TIERS:\s*Final\[dict\[str,\s*(?:int|float)\]\]\s*=\s*\{([^}]*)\}/m.exec(src)
-  assert.ok(m, `could not read TIERS out of ${LEDGER} — this test must not `
-    + 'fall back to a guess, because a guess is the bug it exists to prevent')
   const out: Record<string, number> = {}
-  for (const [, k, v] of m![1]!.matchAll(/["']?([\w-]+)["']?\s*:\s*(\d+(?:\.\d+)?)/g)) {
+  for (const [, k, v] of src.matchAll(/Tier \{ tier: "([\w-]+)", provider: \w+, seat: (\d+(?:\.\d+)?)/g)) {
     out[k!] = Number(v)
   }
   assert.ok(Object.keys(out).length >= 3,
-    `parsed only ${JSON.stringify(out)} from the backend TIERS table`)
+    `parsed only ${JSON.stringify(out)} from the backend tier table ${LEDGER} — this test must not `
+    + 'fall back to a guess, because a guess is the bug it exists to prevent')
   return out
 }
 const SEATS = backendSeats()
@@ -238,7 +233,7 @@ uiTest('§3 one voice — imperative, verb first, matching the card’s other co
       assert.doesNotMatch(s, /\(seat/,
         `the ${role} tooltip uses the old "(seat N)" label ("${s}") — the user `
         + 'asked for a minus badge, "(-1)", which reads as a price')
-      assert.match(s, /\s\(-\d+\)$/,
+      assert.match(s, /\s\(-\d+(?:\.\d+)?\)$/,
         `the ${role} tooltip does not end in a "(-N)" cost badge ("${s}")`)
     }
   })
