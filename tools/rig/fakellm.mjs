@@ -43,6 +43,18 @@
 // load that failed. Both ends of a load are logged (phase start, then loaded
 // or failed, or client-gone when the client drops the request first and the
 // load is given up). `llm.add({ name, ... })` adds a model while the server runs.
+//
+// STRICT (`strict: true`): each inference request is first turned into chat
+// messages the way a llama.cpp-style server turns it, and refused the way
+// Qwen 3.8's and Hugging Face's strict chat templates refuse a conversation:
+// a system message after the first ("System message must be at the
+// beginning."; each block of an Anthropic `system` array counts as one, the
+// strictest reading; a Responses `developer` message is a system message),
+// or two turns of one role in a row ("... roles must alternate ..."; a tool
+// call is the assistant's side, a tool result the user's). A refusal answers
+// 500 with llama.cpp's Jinja words and logs `strict_refused`. A rule with
+// `refuse: '<words>'` refuses its request that way whatever the mode.
+// Every request logs `auth_sha` (sha256 of its Authorization header, 12 hex).
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -54,7 +66,7 @@ const MODEL = 'fake-model:latest'
 const id = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`
 
 export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool = { text: 'Done.' },
-  models = [{ name: MODEL, context: 131072, running: 65536 }], bodies = null } = {}) {
+  models = [{ name: MODEL, context: 131072, running: 65536 }], bodies = null, strict = false } = {}) {
   models = models.map((m) => ({ ...m }))
   const requests = []
   const note = (r) => {
@@ -96,7 +108,39 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     x_api_key: req.headers['x-api-key'] ? '…set…' : null,
     anthropic_version: req.headers['anthropic-version'] ?? null,
     anthropic_beta: req.headers['anthropic-beta'] ?? null,
+    auth_sha: req.headers.authorization ? crypto.createHash('sha256').update(String(req.headers.authorization)).digest('hex').slice(0, 12) : null,
   })
+  // STRICT (see the header): why a strict template refuses this request, or null
+  function strictRefusal(api, b) {
+    const turns = []
+    if (api === 'messages') {
+      for (const _ of Array.isArray(b?.system) ? b.system : (b?.system ? [b.system] : [])) turns.push('system')
+      for (const m of b?.messages ?? []) turns.push(m.role === 'developer' ? 'system' : m.role)
+    } else {
+      if (b?.instructions) turns.push('system')
+      for (const it of Array.isArray(b?.input) ? b.input : []) {
+        const t = it.type ?? 'message'
+        if (t === 'message') turns.push(it.role === 'developer' ? 'system' : it.role)
+        else if (t === 'function_call' && turns.at(-1) !== 'call') turns.push('call')
+        else if (t === 'function_call_output' && turns.at(-1) !== 'result') turns.push('result')
+      }
+    }
+    if (turns.slice(1).includes('system')) return 'System message must be at the beginning.'
+    const side = turns.filter((r) => r !== 'system')
+    for (let i = 1; i < side.length; i++) {
+      if ((side[i] === 'user' || side[i] === 'assistant') && side[i] === side[i - 1])
+        return 'After the optional system message, conversation roles must alternate user/assistant/user/assistant/...'
+    }
+    return null
+  }
+  // llama.cpp's answer when the chat template raises
+  function refuse(req, res, api, b, why, lastText) {
+    note({ path: `/v1/${api}`, method: 'POST', ...auth(req), model: b?.model ?? null, strict_refused: why,
+      body_file: keepBody(`${api}-refused`, b), last_user: lastText.slice(-200) })
+    const where = 'While executing CallExpression at line 106, column 32 in source:'
+    json(res, 500, { error: { code: 500, type: 'server_error',
+      message: [where, `...{{- raise_exception('${why}') }}`, `Error: Jinja Exception: ${why}`].join(String.fromCharCode(10)) } })
+  }
 
   function route(req, res, p, body) {
     // ── Ollama's own API: what the lane's probe reads
@@ -188,6 +232,8 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const names = (b?.tools ?? []).map((t) => t.name).filter(Boolean)
     const system = typeof b?.system === 'string' ? b.system : (b?.system ?? []).map((s) => s.text ?? '').join('\n')
     const reply = pick(lastText, toolResult)
+    const refusal = reply.refuse ?? (strict ? strictRefusal('messages', b) : null)
+    if (refusal) return refuse(req, res, 'messages', b, refusal, lastText)
     // a slow server: the rule's delay before anything is sent
     if (reply.delay_ms && !waited) { setTimeout(() => messages(req, res, b, true), reply.delay_ms); return }
     note({ path: '/v1/messages', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
@@ -234,6 +280,8 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     // the call a tool result answers: its arguments pick an `afterCall` rule
     const call = toolResult ? input.find((x) => x.type === 'function_call' && x.call_id === lastItem.call_id) : null
     const reply = pick(lastText, toolResult, call?.arguments ?? '')
+    const refusal = reply.refuse ?? (strict ? strictRefusal('responses', b) : null)
+    if (refusal) return refuse(req, res, 'responses', b, refusal, lastText)
     if (reply.delay_ms && !waited) { setTimeout(() => responses(req, res, b, true), reply.delay_ms); return }
     // the usage this answer reports (Codex sums it into its thread total)
     const usage = { input_tokens: Math.ceil(JSON.stringify(b ?? {}).length / 4), input_tokens_details: { cached_tokens: 0 },
