@@ -10,7 +10,8 @@
 //!   after `NET_RETRY_MAX` in a row. A park is announced to the superior once
 //!   per episode (`_parked_announce`).
 //! - P33: background task deaths and orphans are mailed to the agent.
-//! - P36: the sender of mail that waits unread 45 s is told once.
+//! - P36: the sender of mail that waits unread 10 min is told once (3.x: 45 s;
+//!   user ruling 2026-10-10, docket delivery-unread-notices-only-after-10-minutes-un).
 //!
 //! Run counters live in `ot.agents.extra` (one short statement each) and are
 //! cleared by a turn that completes.
@@ -29,8 +30,23 @@ use crate::util::{gist, iso, now_iso};
 pub const NET_RETRY_MAX: i64 = 4;
 /// The blind recheck horizon for a balance refusal (3.x `PROBE_FLOOR`).
 pub const PROBE_FLOOR_S: i64 = 300;
-/// Mail unread this long while its recipient works tells the sender (3.x `STEER_LATE_AFTER`).
-pub const STEER_LATE_AFTER_S: i64 = 45;
+/// Mail unread this long while its recipient works tells the sender, once
+/// (3.x `STEER_LATE_AFTER` was 45 s; user ruling 2026-10-10: only after ~10 min,
+/// when the recipient may really be stuck).
+pub const STEER_LATE_AFTER_S: u64 = 600;
+
+/// `STEER_LATE_AFTER_S`, or in rig mode `ORGTREE_RIG_STEER_LATE_S` (a proof's
+/// shortened threshold). Read on every actor wake, so not logged.
+#[nolog]
+pub fn steer_late_after() -> std::time::Duration {
+    static AFTER: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    std::time::Duration::from_secs(*AFTER.get_or_init(|| {
+        crate::rig::active()
+            .then(|| std::env::var("ORGTREE_RIG_STEER_LATE_S").ok()?.trim().parse::<u64>().ok())
+            .flatten()
+            .unwrap_or(STEER_LATE_AFTER_S)
+    }))
+}
 
 /// What a failed turn is, for recovery. `None` from `classify` = terminal.
 #[derive(Debug, Clone, PartialEq)]
@@ -414,10 +430,12 @@ pub async fn task_stopped(engine: &Arc<Engine>, org_id: i64, agent_id: i64, stop
 #[logged]
 pub async fn delivery_unread(engine: &Arc<Engine>, org_id: i64, org: &str, sender: &str, recipient: &str,
                              mail_uid: &str, at: &str, waited_s: f64) {
-    let waited = dur(waited_s);
+    // the real wait in whole minutes ("10 min"); seconds only under a rig's short threshold
+    let waited = if waited_s >= 60.0 { format!("{:.0} min", waited_s / 60.0) } else { dur(waited_s) };
     let body = format!(
-        "Your mail to {recipient} is still unread after {waited}: it is in the middle of a long step and reads new \
-         mail at its next tool boundary or when its turn ends. Nothing is lost; this is only a delay."
+        "Your mail to {recipient} is still unread after {waited}: it reads new mail at its next tool boundary or \
+         when its turn ends, so a step this long may mean it is stuck. Nothing is lost. You can look at its \
+         transcript (orgtree_read_transcript) or, if it is yours to manage, interrupt it (orgtree_interrupt)."
     );
     let ev = crate::events::delivery_unread(org, recipient, mail_uid, sender, at, &waited);
     if let Err(e) = card(engine, org_id, sender, &body, ev, true).await {

@@ -714,7 +714,7 @@ impl Actor {
             }
         }
         if let (Some(_), Some(s)) = (&self.turn, self.steer_since) {
-            d = d.min(s + Duration::from_secs(recovery::STEER_LATE_AFTER_S as u64));
+            d = d.min(s + recovery::steer_late_after());
         }
         if let Some(k) = &self.keepalive {
             d = d.min(k.started + Duration::from_secs(keepalive::TIMEOUT_S));
@@ -776,7 +776,7 @@ impl Actor {
             }
         });
         if self.turn.is_some()
-            && self.steer_since.map(|s| s.elapsed() >= Duration::from_secs(recovery::STEER_LATE_AFTER_S as u64)).unwrap_or(false)
+            && self.steer_since.map(|s| s.elapsed() >= recovery::steer_late_after()).unwrap_or(false)
         {
             self.steer_late().await;
         }
@@ -2477,7 +2477,7 @@ impl Actor {
     }
 
     /// Waking mail has waited unread while this turn runs: tell each sender
-    /// once, passively (3.x steer-late, 45 s). Re-arms for younger mail.
+    /// once, passively (3.x steer-late; 10 min since 2026-10-10). Re-arms for younger mail.
     async fn steer_late(&mut self) {
         self.steer_since = None;
         let Some(admitted) = self.turn.as_ref().map(|t| t.admitted_at) else { return };
@@ -2500,7 +2500,7 @@ impl Actor {
                 return;
             }
         };
-        let late = Duration::from_secs(recovery::STEER_LATE_AFTER_S as u64);
+        let late = recovery::steer_late_after();
         for r in rows {
             let id: i64 = r.get(0);
             let waited: f64 = r.get(4);
@@ -2508,7 +2508,7 @@ impl Actor {
                 continue;
             }
             if waited < late.as_secs_f64() {
-                // re-arm: the oldest younger mail comes due at its own 45 s
+                // re-arm: the oldest younger mail comes due at its own threshold
                 let since = Instant::now().checked_sub(Duration::from_secs_f64(waited.max(0.0))).unwrap_or_else(Instant::now);
                 self.steer_since = Some(self.steer_since.map_or(since, |s| s.min(since)));
                 continue;

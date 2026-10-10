@@ -2224,10 +2224,11 @@ fn r_unread(ev: &Value) -> Option<String> {
     Some(format!(
         "Your mid-turn message to \"{nid}\" has NOT been read yet — it has been \
 waiting {waited} in its steer store. Mid-turn mail is injected when \
-the recipient's current tool call returns{poll}. Nothing is lost — it is delivered at that boundary, or at {nid}'s \
-next turn if the turn ends first. A safe boundary is requested; \
-opaque tools may defer it until they return. The tool is not \
-interrupted or repeated to deliver this mail."
+the recipient's current tool call returns{poll}, so a wait this long may mean \
+{nid} is stuck. Nothing is lost — it is delivered at that boundary, or at {nid}'s \
+next turn if the turn ends first. You can look at its transcript \
+(orgtree_read_transcript) or, if it is yours to manage, interrupt it \
+(orgtree_interrupt)."
     ))
 }
 
