@@ -80,6 +80,26 @@ module.exports = async (page, { args }) => {
       popTop: Math.round(document.querySelector('.quickchat-pop').getBoundingClientRect().top),
       headerBottom: Math.round(document.querySelector('.shell-header').getBoundingClientRect().bottom) }
   })
+  // "top level" is an option row like the agents' rows (user 2026-10-10)
+  const rowLook = async (sel) => page.eval((sel) => {
+    const row = document.querySelector(sel)
+    const name = row.querySelector('.tray-name')
+    const cs = getComputedStyle(name), rs = getComputedStyle(row)
+    const chip = row.querySelector('.tier')
+    return { weight: cs.fontWeight, color: cs.color, size: cs.fontSize, family: cs.fontFamily, h: Math.round(row.getBoundingClientRect().height),
+      bg: rs.backgroundColor, chipW: chip ? Math.round(chip.getBoundingClientRect().width) : null, eye: !!row.querySelector('.tier svg.eye'), sel: row.classList.contains('sel') }
+  }, sel)
+  const topRow = '.quickchat-pop-superior .quickchat-top'
+  const agentRow = '.quickchat-pop-superior .tray .tray-row[data-copy-agent-name="alice"]'
+  // the selection on boss first, so "top level" and alice are both at rest
+  await page.press('ArrowDown'); await page.sleep(150)
+  const agent = { selRow: await rowLook('.quickchat-pop-superior .tray .tray-row.sel'), rest: await rowLook(agentRow) }
+  const top = { rest: await rowLook(topRow) }
+  await page.hover(topRow); await page.sleep(150); top.hover = await rowLook(topRow)
+  await page.screenshot(`${args.theme}-superior-picker-top-level-hover`)
+  await page.hover(agentRow); await page.sleep(150); agent.hover = await rowLook(agentRow)
+  await page.press('ArrowUp'); await page.sleep(150); top.selRow = await rowLook(topRow)
+  const topLevel = { top, agent }
   await page.screenshot(`${args.theme}-superior-picker-beside-agents-list`)
   // filter + keys: the first match is picked with ArrowDown, Enter
   await page.type('car')
@@ -173,5 +193,36 @@ module.exports = async (page, { args }) => {
     count: document.querySelector('.shell-header .quickchat-count')?.textContent ?? null,
   }))
   await page.screenshot(`${args.theme}-after-send`)
-  return { empty, typed, look, fadeIn, strip, fadeOut, gone, wander, lists, picked, chips, afterModel, count, withFiles, fileList, name, after, errors: page.consoleErrors }
+  // narrowing the window: Quick chat keeps its full width until neither side
+  // has free space left, sliding off-centre on the way (user 2026-10-10)
+  const sweep = []
+  const widths = [...(args.widths ?? [1600, 1300, 1100, 900])]
+  for (let i = 0; i < widths.length; i++) {
+    const w = widths[i]
+    await page.resize(`${w}x900`)
+    await page.sleep(400)
+    sweep.push(await page.eval(() => {
+      const need = (el) => {
+        const cs = getComputedStyle(el), kids = [...el.children]
+        return kids.reduce((n, k) => n + k.getBoundingClientRect().width, 0) + (parseFloat(cs.columnGap) || 0) * Math.max(0, kids.length - 1)
+          + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+      }
+      const a = document.querySelector('.shell-header-start'), b = document.querySelector('.shell-header-end')
+      const q = document.querySelector('.shell-header .quickchat').getBoundingClientRect()
+      const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect()
+      const gap = parseFloat(getComputedStyle(document.querySelector('.shell-header-main, .shell-header')).columnGap) || 0
+      return { win: window.innerWidth, quick: Math.round(q.width), startFree: Math.round(ar.width - need(a)), endFree: Math.round(br.width - need(b)),
+        startNeed: need(a), endNeed: need(b), gap,
+        offCentre: Math.round((q.left + q.width / 2) - window.innerWidth / 2), overlap: q.left < ar.right - 1 || q.right > br.left + 1 }
+    }))
+    await page.screenshot(`${args.theme}-header-${w}`)
+    // after the first width: one more inside the band where only the side
+    // with fewer controls still has free space — the box slides there
+    if (i === 0) {
+      const m = sweep[0], d = Math.abs(m.endNeed - m.startNeed)
+      const full = Math.ceil(960 + m.startNeed + m.endNeed + 2 * m.gap)
+      if (d >= 4) widths.splice(1, 0, full + Math.floor(d / 2))
+    }
+  }
+  return { empty, typed, look, fadeIn, strip, fadeOut, gone, wander, topLevel, sweep, lists, picked, chips, afterModel, count, withFiles, fileList, name, after, errors: page.consoleErrors }
 }

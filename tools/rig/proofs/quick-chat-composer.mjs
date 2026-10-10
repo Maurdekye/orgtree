@@ -64,6 +64,18 @@ export default async function (rig) {
   p.check('the chips stay open with the pointer 60px below them and 60px to their side', W.at60 === true && W.at60side === true, W)
   p.check('100px away they close, fading out (a leaving copy below opacity 1, then gone)',
     W.left100 && !W.left100.picker && W.left100.leaving && W.left100.opacity < 1 && W.goneAfter, W)
+  const T = v.topLevel ?? {}
+  const sameRow = (a, b) => a && b && a.weight === b.weight && a.color === b.color && a.size === b.size && a.family === b.family && a.h === b.h
+  p.check('"top level" is an option row: the agent rows’ weight, colour, size and height', sameRow(T.top?.rest, T.agent?.rest), T)
+  p.check('...the user’s eye where an agent’s chip sits, the chip’s width', T.top?.rest?.eye && T.top.rest.chipW === T.agent?.rest?.chipW, T.top?.rest)
+  p.check('...the same hover background as an agent row', T.top?.hover?.bg === T.agent?.hover?.bg && T.top.hover.bg !== T.top.rest.bg, { top: T.top?.hover?.bg, agent: T.agent?.hover?.bg, rest: T.top?.rest?.bg })
+  p.check('...and the same selected highlight (arrow keys)', T.top?.selRow?.sel && T.agent?.selRow?.sel && T.top.selRow.bg === T.agent.selRow.bg, { top: T.top?.selRow, agent: T.agent?.selRow })
+  for (const s of v.sweep ?? []) {
+    p.check(`at ${s.win}px: full width (960) unless neither side has free space left; never overlapping`,
+      !s.overlap && (s.quick === 960 || (s.startFree <= 1 && s.endFree <= 1)), s)
+  }
+  const slide = (v.sweep ?? []).find(s => s.quick === 960 && Math.min(s.startFree, s.endFree) <= 1 && Math.max(s.startFree, s.endFree) > 1)
+  p.check('between: one side out of free space, the other not — the box keeps 960 and slides off-centre', !!slide && Math.abs(slide.offCentre) >= 1, v.sweep)
   p.check('a chip pick becomes the model (haiku)', v.afterModel?.icon === 't-haiku', v.afterModel)
   p.check('two files: a count badge of 2', v.count === '2', v.count)
   p.check('the attachments pop-over lists both files', JSON.stringify(v.fileList) === JSON.stringify(FILES.map(f => f.name)), v.fileList)
