@@ -5,6 +5,12 @@ import type { RunAsAdministratorState, UpdateCapability } from '../../../../../p
 import { SetGroup, SetRow, SetToggle } from './settingskit'
 import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../packages/contracts/notifications'
 
+/** "Run on startup" (stored as startAtLogin): one switch for everything of
+ *  Orgtree that starts without the user opening it (docket
+ *  start-at-login-off-means-nothing-of-orgtree-star). */
+export const RUN_ON_STARTUP_HINT = 'Start Orgtree quietly in the system tray when you sign in, with its background engine. '
+  + 'Off: nothing of Orgtree runs until you open it. On an installation for all users, Windows asks for permission to change this.'
+
 export function DesktopSettings() {
   const bridge = desktop()
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
@@ -41,9 +47,9 @@ export function DesktopSettings() {
   const masterOn = currentPrefs.notificationsEnabled
   return <><SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
-    <SetToggle label="start at login" checked={prefs?.startAtLogin ?? true}
+    <SetToggle label="run on startup" checked={prefs?.startAtLogin ?? true}
       disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
-      hint="Start quietly in the system tray." />
+      hint={RUN_ON_STARTUP_HINT} />
     <SetToggle label="exit when the last window closes" checked={prefs?.exitOnClose ?? false}
       disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
       hint="Closing the main window keeps your other windows open." />

@@ -32,7 +32,7 @@ test('native settings save through bridge and adopt tray changes; failure leaves
     await inAct(async () => { await flush(5) })
     const switches = [...v.el.querySelectorAll<HTMLInputElement>('input')]
     assert.deepEqual(switches.map(x => x.getAttribute('aria-label')), [
-      'start at login',
+      'run on startup',
       'exit when the last window closes',
       'automatic updates',
       'Notifications',

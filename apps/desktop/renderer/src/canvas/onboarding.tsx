@@ -21,6 +21,7 @@ import { applyTheme, THEMES } from '../themes'
 import { isVisualTheme, VISUAL_THEMES } from '../../../../../packages/contracts/visual-theme'
 import type { VisualTheme } from '../../../../../packages/contracts/visual-theme'
 import { SetToggle } from './settingskit'
+import { RUN_ON_STARTUP_HINT } from './desktopsettings'
 
 /** The gate, pure for testing: show setup only when the desktop preferences
  *  are actually loaded (null = still unknown — never flash setup at someone
@@ -150,9 +151,9 @@ export function Onboarding({ children, windowControls }: {
       </div>
 
       <div className="field-label">Startup</div>
-      <SetToggle label="start at login" checked={prefs?.startAtLogin ?? true}
+      <SetToggle label="run on startup" checked={prefs?.startAtLogin ?? true}
         disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
-        hint="Start quietly in the system tray." />
+        hint={RUN_ON_STARTUP_HINT} />
       <SetToggle label="exit when the last window closes" checked={prefs?.exitOnClose ?? false}
         disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
         hint="Off keeps agents running in the tray when the window closes." />
