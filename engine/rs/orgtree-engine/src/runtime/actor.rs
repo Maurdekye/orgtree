@@ -485,6 +485,8 @@ struct Actor {
     waiting_since: Option<DateTime<Utc>>,
     /// a language server loading this turn's model before its CLI starts (the desk's words)
     loading: Option<String>,
+    /// the task that waits for the slot and loads the model first, while one may be loading
+    warm_task: Option<tokio::task::AbortHandle>,
     /// Bounded diagnostic IDs only; the durable mailbox owns the messages.
     followup_mail: Vec<String>,
     turn: Option<Turn>,
@@ -573,6 +575,7 @@ impl Actor {
             slot: None,
             waiting_since: None,
             loading: None,
+            warm_task: None,
             followup_mail: Vec::new(),
             turn: None,
             convo,
@@ -906,7 +909,7 @@ impl Actor {
                 // settles its cut turn now, as 3.x did before archiving: no
                 // turn may stay on record for a seat that runs none (decision 62)
                 self.stopping = true;
-                self.loading = None;
+                self.cancel_warm();
                 if self.waiting_since.take().is_some() {
                     self.engine.sched.cancel(self.id);
                 }
@@ -1132,7 +1135,8 @@ impl Actor {
         // inside the first request and Claude Code gives up on its headers
         // after about 5 minutes (coordinator ruling 2026-10-10)
         let warm = if catalog::is_langserver(&tier) { crate::langserver::warm_plan(&self.engine, &tier).await } else { None };
-        crate::trace::spawn(async move {
+        let warming = warm.is_some();
+        let task = crate::trace::spawn(async move {
             if let Ok(slot) = rx.await {
                 if let Some(w) = warm {
                     if crate::langserver::ollama_loaded(&w).await != Ok(true) {
@@ -1147,8 +1151,21 @@ impl Actor {
                 let _ = tx.post(AgentMsg::Slot(slot));
             }
         });
+        // a stop or halt aborts a load in flight (cancel_warm)
+        self.warm_task = warming.then(|| task.abort_handle());
         self.publish();
         Ok(())
+    }
+
+    /// Abort a warm-up load in flight (the agent stops or halts): its request
+    /// is dropped, so the connection closes and Ollama gives the load up the
+    /// way it does for any client that has gone; the slot the task held is
+    /// freed with it.
+    fn cancel_warm(&mut self) {
+        if let Some(task) = self.warm_task.take() {
+            task.abort();
+        }
+        self.loading = None;
     }
 
     /// The language server could not load the turn's model: the slot goes
@@ -1157,6 +1174,7 @@ impl Actor {
     async fn on_warm_failed(&mut self, slot: Slot, why: String) -> Result<()> {
         drop(slot);
         self.loading = None;
+        self.warm_task = None;
         if self.waiting_since.take().is_none() || self.turn.is_some() || self.stopping {
             self.publish();
             return Ok(());
@@ -1176,6 +1194,7 @@ impl Actor {
 
     async fn on_slot(&mut self, slot: Slot) -> Result<()> {
         self.loading = None;
+        self.warm_task = None;
         if self.waiting_since.take().is_none() || self.turn.is_some() || self.stopping {
             drop(slot);
             self.publish();
@@ -4452,6 +4471,7 @@ impl Actor {
 
     async fn halt(&mut self) -> Result<Value> {
         let at = now_iso();
+        self.cancel_warm();
         if self.waiting_since.take().is_some() {
             self.engine.sched.cancel(self.id);
         }
