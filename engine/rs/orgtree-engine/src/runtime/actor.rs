@@ -2031,7 +2031,10 @@ impl Actor {
             self.flag_handoff("its previous Codex thread could not be resumed").await;
         }
         if resume.as_deref() != Some(session_id.as_str()) {
-            self.codex_total = None;
+            // a new thread counts from zero: its first turn is every call it
+            // made, not only the last (the guess for a resumed thread whose
+            // earlier total is unknown, e.g. after an engine restart)
+            self.codex_total = Some(json!({}));
             let client = self.engine.db.get().await?;
             client
                 .execute("UPDATE ot.agents SET session_id = $2, provider = $3 WHERE id = $1", &[&self.id, &session_id, &ctx.provider])
