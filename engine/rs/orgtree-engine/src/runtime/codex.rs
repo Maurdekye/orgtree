@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
@@ -38,6 +38,9 @@ pub struct CodexSpec {
     pub may_write: bool,
     pub may_shell: bool,
     pub env: Vec<(String, String)>,
+    /// Some: ask the sign-in helper to start this Codex in the user's
+    /// session; if it cannot, start it here with this (Session 0) sandbox.
+    pub host: Option<Sandbox>,
 }
 
 impl std::fmt::Debug for CodexSpec {
@@ -67,6 +70,8 @@ pub struct CodexProc {
     waiters: mpsc::UnboundedSender<(i64, oneshot::Sender<Value>)>,
     next: AtomicI64,
     child: Option<Child>,
+    /// started by the sign-in helper in the user's session (`child` is None)
+    hosted: Option<host::Hosted>,
     job: Option<winproc::ChildJob>,
     /// the thread: this agent's Codex session
     pub session_id: String,
@@ -111,6 +116,23 @@ pub fn sandbox(may_write: bool, permission_mode: &str, session0: bool) -> Sandbo
     }
 }
 
+/// A seat's sandbox, and whether its Codex is started by the sign-in helper
+/// in the user's session, where Codex's sandbox works (docket
+/// windows-sign-in-credential-helper-so-git-gh-work, phase 2). Only sandboxed
+/// seats are hosted: a bypassPermissions seat stays in Session 0, so no
+/// unsandboxed agent runs beside the user's sign-ins (ruling Q1).
+#[logged]
+pub fn seat_sandbox(engine: &Engine, may_write: bool, permission_mode: &str) -> (Sandbox, bool) {
+    let s0 = session0();
+    let own = sandbox(may_write, permission_mode, false);
+    let hosted = s0 && own.mode != "danger-full-access" && engine.credential_bridge.can_host();
+    if hosted {
+        (own, true)
+    } else {
+        (sandbox(may_write, permission_mode, s0), false)
+    }
+}
+
 /// Whether the engine runs in Windows Session 0 (the boot task), where Codex's
 /// sandbox cannot start (see `sandbox`). Read once; the session never changes.
 /// A rig run may force it with `ORGTREE_RIG_SESSION0=1|0`.
@@ -150,47 +172,72 @@ pub fn codex_effort(level: &str) -> String {
 #[logged]
 impl CodexProc {
     #[nolog]
-    pub async fn spawn(engine: Arc<Engine>, spec: CodexSpec, caller: Caller, actor: AgentTx) -> Result<CodexProc> {
-        let mut cmd = Command::new(&spec.exe);
-        // `-c` overrides are global options: they precede the subcommand
-        cmd.args(&spec.config).arg("app-server");
-        cmd.current_dir(&spec.cwd).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
+    pub async fn spawn(engine: Arc<Engine>, mut spec: CodexSpec, caller: Caller, actor: AgentTx) -> Result<CodexProc> {
         // one credential per spawn: never an inherited key, home or the engine's own secrets
-        for (k, _) in std::env::vars() {
-            if k.starts_with("ANTHROPIC_")
-                || k.starts_with("CLAUDE_CODE_")
-                || ["CLAUDECODE", "OPENAI_API_KEY", "CODEX_HOME", "ORGTREE_ACCOUNT_ID", "ORGTREE_V2_TOKEN", "ORGTREE_DATA",
-                    "ELECTRON_RUN_AS_NODE"]
-                    .contains(&k.as_str())
-            {
-                cmd.env_remove(&k);
-            }
-        }
+        let mut env: Vec<(String, String)> = std::env::vars()
+            .filter(|(k, _)| {
+                !(k.starts_with("ANTHROPIC_")
+                    || k.starts_with("CLAUDE_CODE_")
+                    || ["CLAUDECODE", "OPENAI_API_KEY", "CODEX_HOME", "ORGTREE_ACCOUNT_ID", "ORGTREE_V2_TOKEN", "ORGTREE_DATA",
+                        "ELECTRON_RUN_AS_NODE"]
+                        .contains(&k.as_str()))
+            })
+            .collect();
         if let Some(h) = &spec.codex_home {
-            cmd.env("CODEX_HOME", h);
+            env.push(("CODEX_HOME".into(), h.clone()));
         }
         if let Some(k) = &spec.api_key {
-            cmd.env("OPENAI_API_KEY", k);
+            env.push(("OPENAI_API_KEY".into(), k.clone()));
         }
-        for (k, v) in &spec.env {
-            cmd.env(k, v);
+        env.extend(spec.env.iter().cloned());
+        let mut started: Option<(Io, host::Hosted)> = None;
+        if let Some(fallback) = spec.host {
+            match host::spawn(&engine, &spec, &env).await {
+                Ok(h) => started = Some(h),
+                Err(code) => {
+                    tracing::warn!(agent = caller.agent_id, reason = %code,
+                        "the sign-in helper could not start Codex; starting it in Session 0 without the OS sandbox");
+                    spec.sandbox = fallback;
+                }
+            }
         }
-        winproc::no_window(&mut cmd);
-        winproc::own_group(&mut cmd);
-        let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
-        let job = winproc::child_job(&child);
-        let pid = child.id().unwrap_or(0);
+        let (io, child, hosted, job, pid) = match started {
+            Some((io, h)) => {
+                let job = h.job();
+                let pid = h.pid;
+                tracing::info!(agent = caller.agent_id, pid, sandbox = spec.sandbox.mode,
+                    "Codex started by the sign-in helper in the user's session");
+                (io, None, Some(h), job, pid)
+            }
+            None => {
+                let mut cmd = Command::new(&spec.exe);
+                // `-c` overrides are global options: they precede the subcommand
+                cmd.args(&spec.config).arg("app-server");
+                cmd.current_dir(&spec.cwd).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .kill_on_drop(true);
+                cmd.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
+                winproc::no_window(&mut cmd);
+                winproc::own_group(&mut cmd);
+                let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
+                let job = winproc::child_job(&child);
+                let pid = child.id().unwrap_or(0);
+                let io = Io {
+                    stdin: Box::new(child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?),
+                    stdout: Box::new(child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?),
+                    stderr: Box::new(child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?),
+                };
+                (io, Some(child), None, job, pid)
+            }
+        };
+        env.iter_mut().for_each(|(_, v)| v.clear());
         let process = uuid::Uuid::new_v4();
         tracing::info!(agent = caller.agent_id, pid, %process, provider = "Codex", "CLI started");
         if spec.sandbox.session0 {
             tracing::info!(agent = caller.agent_id, pid, sandbox = spec.sandbox.mode, approval = spec.sandbox.approval,
                 "Codex OS sandbox disabled: the engine runs in Session 0 (openai/codex#46412)");
         }
-        let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
-        let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
+        let Io { mut stdin, stdout, stderr } = io;
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(async move {
             while let Some(line) = rx.recv().await {
@@ -224,7 +271,8 @@ impl CodexProc {
             out: tx,
             waiters: wtx,
             next: AtomicI64::new(1),
-            child: Some(child),
+            child,
+            hosted,
             job,
             session_id: String::new(),
             model: spec.model.clone(),
@@ -353,6 +401,10 @@ impl CodexProc {
         if let Some(job) = &self.job {
             job.terminate();
         }
+        if let Some(h) = self.hosted.take() {
+            h.kill().await;
+            let _ = h.wait_exit(self.process, "termination requested", Duration::from_secs(5)).await;
+        }
         if let Some(mut c) = self.child.take() {
             let _ = c.start_kill();
             let _ = super::wait_exit(&mut c, self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
@@ -363,6 +415,16 @@ impl CodexProc {
     pub async fn close(&mut self) {
         let (tx, _) = mpsc::unbounded_channel();
         self.out = tx;
+        if let Some(h) = self.hosted.take() {
+            let status = h.wait_exit(self.process, "close requested", Duration::from_secs(5)).await;
+            if status.starts_with("exit status unavailable") {
+                if let Some(job) = &self.job {
+                    job.terminate();
+                }
+                h.kill().await;
+                let _ = h.wait_exit(self.process, "close required termination", Duration::from_secs(1)).await;
+            }
+        }
         if let Some(mut c) = self.child.take() {
             let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
             if status.starts_with("exit status unavailable") {
@@ -376,13 +438,211 @@ impl CodexProc {
     }
 
     pub async fn exit_status(&mut self, reason: &str) -> String {
+        if let Some(h) = &self.hosted {
+            return h.wait_exit(self.process, reason, Duration::from_secs(1)).await;
+        }
         super::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub fn alive(&mut self) -> bool {
+        if let Some(h) = &self.hosted {
+            return h.alive();
+        }
         match self.child.as_mut() {
             Some(c) => matches!(c.try_wait(), Ok(None)),
             None => false,
+        }
+    }
+}
+
+/// A Codex process's stdio, whoever started it.
+struct Io {
+    stdin: Box<dyn AsyncWrite + Unpin + Send>,
+    stdout: Box<dyn AsyncRead + Unpin + Send>,
+    stderr: Box<dyn AsyncRead + Unpin + Send>,
+}
+
+/// Codex started by the sign-in helper (phase 2 of docket
+/// windows-sign-in-credential-helper-so-git-gh-work). The engine serves the
+/// child's three stdio pipes; the helper, proven to be the interactive
+/// operator by the bridge, connects them, starts `codex.exe` with them in the
+/// user's session and keeps it in a job that ends with the helper or with
+/// this engine. The request carries the child's environment, so nothing here
+/// logs more than pids and fixed codes.
+#[cfg(windows)]
+mod host {
+    use super::*;
+    use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, STILL_ACTIVE, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_SET_QUOTA, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+    };
+
+    pub struct Hosted {
+        pub pid: u32,
+        created: u64,
+        /// SYNCHRONIZE + query (+ terminate and set-quota when granted); 0 if none
+        process: usize,
+        engine: Arc<Engine>,
+    }
+
+    impl Drop for Hosted {
+        #[nolog]
+        fn drop(&mut self) {
+            if self.process != 0 {
+                unsafe { CloseHandle(self.process as HANDLE) };
+            }
+        }
+    }
+
+    #[nolog]
+    fn serve(name: &str, inbound: bool) -> std::result::Result<NamedPipeServer, String> {
+        ServerOptions::new()
+            .first_pipe_instance(true)
+            .max_instances(1)
+            .reject_remote_clients(true)
+            .access_inbound(inbound)
+            .access_outbound(!inbound)
+            .create(name)
+            .map_err(|_| "host-pipe".to_string())
+    }
+
+    /// The helper must be the pipe's client (it opens all three before it
+    /// starts the child, so `connect` returns at once).
+    #[nolog]
+    async fn accept(p: &NamedPipeServer, helper: u32) -> std::result::Result<(), String> {
+        use std::os::windows::io::AsRawHandle;
+        tokio::time::timeout(Duration::from_secs(5), p.connect())
+            .await
+            .map_err(|_| "host-pipe".to_string())?
+            .map_err(|_| "host-pipe".to_string())?;
+        let mut client = 0;
+        if unsafe { GetNamedPipeClientProcessId(p.as_raw_handle() as _, &mut client) } == 0 || client != helper {
+            return Err("host-pipe".into());
+        }
+        Ok(())
+    }
+
+    #[nolog]
+    pub async fn spawn(
+        engine: &Arc<Engine>,
+        spec: &CodexSpec,
+        env: &[(String, String)],
+    ) -> std::result::Result<(Io, Hosted), String> {
+        let bridge = &engine.credential_bridge;
+        let helper = bridge.host_pid().ok_or("host-gone")?;
+        let base = format!(r"\\.\pipe\orgtree-codex-{}", uuid::Uuid::new_v4().simple());
+        let names = [format!("{base}-in"), format!("{base}-out"), format!("{base}-err")];
+        let stdin = serve(&names[0], false)?;
+        let stdout = serve(&names[1], true)?;
+        let stderr = serve(&names[2], true)?;
+        let mut args = spec.config.clone();
+        args.push("app-server".into());
+        let env: serde_json::Map<String, Value> = env.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
+        let request = json!({ "kind": "spawn", "exe": spec.exe, "args": args, "cwd": spec.cwd, "env": env,
+                              "pipes": { "stdin": names[0], "stdout": names[1], "stderr": names[2] } });
+        let reply = bridge.host(request).await?;
+        let r: Value = serde_json::from_slice(&reply).map_err(|_| "host-failed".to_string())?;
+        let (pid, created) = match (r["pid"].as_u64(), r["created"].as_u64()) {
+            (Some(p), Some(c)) if p > 0 => (p as u32, c),
+            _ => return Err("host-failed".into()),
+        };
+        let wait = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+        let mut process = unsafe { OpenProcess(wait | PROCESS_TERMINATE | PROCESS_SET_QUOTA, 0, pid) };
+        if process.is_null() {
+            process = unsafe { OpenProcess(wait, 0, pid) };
+        }
+        let hosted = Hosted { pid, created, process: process as usize, engine: engine.clone() };
+        let connected = async {
+            if hosted.process == 0 {
+                return Err("host-process".to_string());
+            }
+            for p in [&stdin, &stdout, &stderr] {
+                accept(p, helper).await?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(code) = connected {
+            hosted.kill().await;
+            return Err(code);
+        }
+        Ok((Io { stdin: Box::new(stdin), stdout: Box::new(stdout), stderr: Box::new(stderr) }, hosted))
+    }
+
+    #[nolog]
+    impl Hosted {
+        /// Its tree in an engine job too, when Windows lets this engine hold
+        /// one (the helper's job ends it either way).
+        pub fn job(&self) -> Option<winproc::ChildJob> {
+            (self.process != 0).then(|| winproc::ChildJob::for_process(self.process as HANDLE)).flatten()
+        }
+
+        /// The helper ends it with everything it started; if the helper is
+        /// gone, the process itself is ended here when Windows allows it.
+        pub async fn kill(&self) {
+            let asked = self
+                .engine
+                .credential_bridge
+                .host(json!({ "kind": "kill", "pid": self.pid, "created": self.created }))
+                .await;
+            if asked.is_err() && self.process != 0 {
+                unsafe { TerminateProcess(self.process as HANDLE, 1) };
+            }
+        }
+
+        pub fn alive(&self) -> bool {
+            self.process != 0 && unsafe { WaitForSingleObject(self.process as HANDLE, 0) } != WAIT_OBJECT_0
+        }
+
+        pub async fn wait_exit(&self, process: uuid::Uuid, reason: &str, timeout: Duration) -> String {
+            let handle = self.process;
+            let ms = timeout.as_millis().min(u32::MAX as u128 - 1) as u32;
+            let status = tokio::task::spawn_blocking(move || unsafe {
+                if handle == 0 {
+                    return "exit status unavailable: no process handle".to_string();
+                }
+                if WaitForSingleObject(handle as HANDLE, ms) != WAIT_OBJECT_0 {
+                    return "exit status unavailable: process has not exited".to_string();
+                }
+                let mut code = 0u32;
+                if GetExitCodeProcess(handle as HANDLE, &mut code) == 0 || code == STILL_ACTIVE as u32 {
+                    return "exit status unavailable".to_string();
+                }
+                format!("exit code: {code}")
+            })
+            .await
+            .unwrap_or_else(|_| "exit status unavailable".to_string());
+            tracing::info!(pid = self.pid, %process, reason, %status, hosted = true, "CLI exit observation");
+            status
+        }
+    }
+}
+
+/// No sign-in helper outside Windows: every Codex starts directly.
+#[cfg(not(windows))]
+mod host {
+    use super::*;
+    pub struct Hosted {
+        pub pid: u32,
+    }
+    #[nolog]
+    pub async fn spawn(_: &Arc<Engine>, _: &CodexSpec, _: &[(String, String)]) -> std::result::Result<(Io, Hosted), String> {
+        Err("host-unsupported".into())
+    }
+    #[nolog]
+    impl Hosted {
+        pub fn job(&self) -> Option<winproc::ChildJob> {
+            None
+        }
+        pub async fn kill(&self) {}
+        pub fn alive(&self) -> bool {
+            false
+        }
+        pub async fn wait_exit(&self, _: uuid::Uuid, _: &str, _: Duration) -> String {
+            "exit status unavailable".into()
         }
     }
 }
@@ -438,7 +698,7 @@ struct Policy {
 #[logged]
 async fn read_stdout(
     engine: Arc<Engine>,
-    stdout: tokio::process::ChildStdout,
+    stdout: Box<dyn AsyncRead + Unpin + Send>,
     caller: Caller,
     actor: AgentTx,
     process: uuid::Uuid,

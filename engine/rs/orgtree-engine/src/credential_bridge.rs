@@ -59,6 +59,9 @@ struct Broker {
     /// The broker process's creation time, so a reused PID is not the holder.
     created: u64,
     expires: Instant,
+    /// The sign-in helper starts Codex app-servers in the user's session
+    /// (registration `caps: ["spawn"]`); the desktop broker does not.
+    spawn: bool,
 }
 struct Grant {
     secret: String,
@@ -131,6 +134,36 @@ impl Bridge {
             .as_ref()
             .map(|b| b.expires > Instant::now())
             .unwrap_or(false)
+    }
+    /// Whether a live sign-in helper can start Codex in the user's session.
+    pub fn can_host(&self) -> bool {
+        self.broker.load().as_ref().is_some_and(|b| {
+            b.spawn
+                && b.expires > Instant::now()
+                && b.created != 0
+                && process_stamp(b.pid) == Some(b.created)
+        })
+    }
+    /// The helper's pid, which connects the pipes of a Codex it starts.
+    pub fn host_pid(&self) -> Option<u32> {
+        self.broker.load().as_ref().filter(|b| b.spawn).map(|b| b.pid)
+    }
+    /// A spawn or kill request to the sign-in helper. A spawn carries the
+    /// child's environment (its API key), so nothing here is logged; the
+    /// answer is the helper's reply or a fixed, secret-free code.
+    pub async fn host(&self, mut request: Value) -> Result<Vec<u8>, String> {
+        let broker = self
+            .broker
+            .load_full()
+            .filter(|b| b.spawn)
+            .ok_or_else(|| "host-gone".to_string())?;
+        request["diagnostics"] = json!(1);
+        match exchange(&broker, request).await {
+            Ok(reply) => Ok(reply),
+            Err(ExchangeError::Lookup(code)) => Err(code),
+            Err(ExchangeError::Busy) => Err("host-busy".into()),
+            Err(ExchangeError::Unavailable) => Err("host-gone".into()),
+        }
     }
     pub fn revoke(&self, agent: i64) {
         self.grants.pin().remove(&agent);
@@ -441,6 +474,9 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             pid,
             created: 0,
             expires: Instant::now() + Duration::from_secs(20),
+            spawn: value["caps"]
+                .as_array()
+                .is_some_and(|c| c.iter().any(|v| v == "spawn")),
         };
         if exchange(&broker, json!({"kind":"ping"}))
             .await
@@ -674,9 +710,10 @@ async fn exchange(broker: &Broker, mut request: Value) -> Result<Vec<u8>, Exchan
     request["secret"] = Value::String(broker.secret.clone());
     let mut raw = serde_json::to_vec(&request).map_err(|_| ExchangeError::Unavailable)?;
     raw.push(b'\n');
-    pipe.write_all(&raw)
-        .await
-        .map_err(|_| ExchangeError::Unavailable)?;
+    let written = pipe.write_all(&raw).await;
+    // a spawn request carries the child's environment (its API key)
+    raw.fill(0);
+    written.map_err(|_| ExchangeError::Unavailable)?;
     let mut result = Vec::new();
     pipe.take((MAX + 1) as u64)
         .read_to_end(&mut result)

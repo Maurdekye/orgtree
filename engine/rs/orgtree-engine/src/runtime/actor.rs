@@ -507,6 +507,9 @@ struct Actor {
     /// (when, ttl seconds) of the last turn that read or wrote the cache
     receipt: Option<(DateTime<Utc>, i64)>,
     reconfigured: bool,
+    /// the Codex launch's (may_write, permission mode, sandbox, hosted by the
+    /// sign-in helper), chosen once per launch so its prompt matches its mode
+    codex_seat: Option<(bool, String, codexrt::Sandbox, bool)>,
     activity: Option<(String, Option<String>)>,
     rate_limit: Option<Value>,
     /// the CLI's running session cost at the last result (its counter is cumulative)
@@ -590,6 +593,7 @@ impl Actor {
             sent_print,
             receipt,
             reconfigured: false,
+            codex_seat: None,
             activity: None,
             rate_limit: None,
             cost_seen: row.get(1),
@@ -1420,7 +1424,7 @@ impl Actor {
         let tools = &ctx.effective["tools"];
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
         let may_write = tools.get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
-        let sb = codexrt::sandbox(may_write, pm, lane == prompt::Lane::Codex && codexrt::session0());
+        let sb = if lane == prompt::Lane::Codex { self.codex_seat(may_write, pm).0 } else { codexrt::sandbox(may_write, pm, false) };
         // a read-only seat without the OS sandbox is held by the approval policy instead
         let sandbox = if sb.approval == "untrusted" { "untrusted" } else { sb.mode };
         // granted folders' CLAUDE.md; the org workspace's is org.md, delivered on its own
@@ -1961,9 +1965,26 @@ impl Actor {
     }
 
     /// Start (or keep) the agent's Codex app-server on its thread.
+    /// The Codex seat's sandbox and whether the sign-in helper hosts it: the
+    /// one chosen for this launch while its inputs hold, else a fresh choice.
+    fn codex_seat(&self, may_write: bool, pm: &str) -> (codexrt::Sandbox, bool) {
+        match &self.codex_seat {
+            Some((w, p, sb, hosted)) if *w == may_write && p == pm => (*sb, *hosted),
+            _ => codexrt::seat_sandbox(&self.engine, may_write, pm),
+        }
+    }
+
     async fn ensure_codex(&mut self, ctx: &Ctx, route: Option<&OrRoute>) -> Result<()> {
         if route.is_none() && !self.engine.settings.provider_enabled(catalog::OPENAI) {
             return Err(anyhow!("OpenAI is turned off in App settings"));
+        }
+        // decided once, before the prompt is built: a changed placement (the
+        // helper came or went) changes the prompt, so the Codex is relaunched
+        {
+            let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
+            let may_write = ctx.effective["tools"].get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
+            let (sb, hosted) = codexrt::seat_sandbox(&self.engine, may_write, pm);
+            self.codex_seat = Some((may_write, pm.to_string(), sb, hosted));
         }
         let plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
@@ -2009,7 +2030,9 @@ impl Actor {
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
         let may_write = on("edit") && pm != "plan";
-        let sandbox = codexrt::sandbox(may_write, pm, codexrt::session0());
+        let (sandbox, hosted) = self.codex_seat(may_write, pm);
+        // a hosted seat falls back to Session 0 if the helper cannot start it
+        let host = hosted.then(|| codexrt::sandbox(may_write, pm, true));
         let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
         let external: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
         let (mut config, _attached) = codexrt::mcp_overrides(&external);
@@ -2068,6 +2091,7 @@ impl Actor {
             resume: resume.clone(),
             may_write,
             may_shell: on("bash"),
+            host,
             env: {
                 let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_NODE".into(), ctx.name.clone()),
                                    ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
