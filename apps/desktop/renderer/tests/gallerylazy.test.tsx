@@ -95,6 +95,8 @@ function serve(all: DocRow[], bodies: Record<string, string> = {}) {
     ((url: string, init?: RequestInit) => {
       const path = String(url)
       if ((init?.method ?? 'GET') === 'DELETE') return ok({ ok: true, node: 'agent1' })
+      if (!path.includes('/documents')) return ok({})  // not the documents API (e.g. the app records feed)
+      if (/\/documents\/viewed$/.test(path)) return ok({})
       const one = path.match(/\/documents\/([^/?]+)$/)
       if (one) {
         const id = one[1]!

@@ -353,12 +353,12 @@ test('⑬  the agent tray lists by hierarchy, with filtered ancestors kept',
     // use position, and a filtered-out ancestor of a matching row renders as
     // a ghost — dropping it would leave the descendant's indent pointing at a
     // gap.
-    const src = code('canvas/OrgCanvas.tsx')
+    const src = code('canvas/agenttray.tsx')  // the tray rows and their walk moved here (2026-09-30)
     assert.ok(/const walk = \(id: string, depth: number\)/.test(src),
       'the tray hierarchy walk is gone — rows are no longer grouped under '
       + 'their superior')
     // the rows themselves moved to the shared list component (2026-09-30)
-    assert.ok(/paddingLeft: 8 \+ depth \* \d+/.test(code('canvas/agenttray.tsx')),
+    assert.ok(/paddingLeft: 8 \+ depth \* \d+/.test(src),
       'the depth indent is gone — hierarchy order without indentation reads '
       + 'as an arbitrary shuffle')
     assert.ok(/anyMatch/.test(src) && /ghost/.test(src),

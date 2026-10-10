@@ -27,7 +27,7 @@ test('fresh gallery opens newest visible content, preserves choices on refresh, 
   assert.match(view.el.querySelector('.mailrow.on')?.textContent ?? '', /Newest visible/)
   assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /body of new/)
   assert.equal(calls.filter(p => /\/documents\?/.test(p)).length, 1, 'reuse the first list request')
-  assert.equal(calls.filter(p => /\/documents\/[^/?]+$/.test(p)).length, 1, 'fetch only the selected body')
+  assert.equal(calls.filter(p => /\/documents\/(?!viewed$)[^/?]+$/.test(p)).length, 1, 'fetch only the selected body')
   const older = [...view.el.querySelectorAll('.mailrow')].find(r => /Older document/.test(r.textContent ?? ''))!
   await inAct(()=> (older as HTMLElement).click())
   await flush()
