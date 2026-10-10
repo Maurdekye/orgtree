@@ -22,10 +22,15 @@
 # autostart mode must log why systemd was skipped. DESKTOP_CHECK_CONFIG_MODE=775 starts
 # with ~/.config at that mode (as `mkdir -p` under umask 0002 leaves it) and puts the
 # old mode back afterwards.
-#   bash .github/ci/linux/desktop-check.sh <AppImage> <logs dir> [fresh|repair|autostart]
+# Mode unsafe-config (builds from 4.1.3 on): ~/.config is 0775, a folder Orgtree must not
+# change. The first start must refuse the engine at once and print the folder with the
+# chmod that fixes it, leaving ~/.config as it was; after that printed command, a second
+# start (same profile, the engine still running) must attach as usual.
+#   bash .github/ci/linux/desktop-check.sh <AppImage> <logs dir> [fresh|repair|autostart|unsafe-config]
 set -euo pipefail
 src=$(realpath "$1"); logs=$(realpath -m "$2"); mode=${3:-fresh}; mkdir -p "$logs"
-case $mode in fresh|repair|autostart) ;; *) echo "unknown mode $mode"; exit 2 ;; esac
+case $mode in fresh|repair|autostart|unsafe-config) ;; *) echo "unknown mode $mode"; exit 2 ;; esac
+[ "$mode" = unsafe-config ] && : "${DESKTOP_CHECK_CONFIG_MODE:=775}"
 strict=${DESKTOP_CHECK_EXPECT_PRIVATE:-}
 uid=$(id -u); export XDG_RUNTIME_DIR="/run/user/$uid"
 unit=orgtree-engine.service
@@ -36,6 +41,17 @@ shims=$(mktemp -d); budget=${DESKTOP_CHECK_BUDGET:-150}
 step() { echo "--- $*"; }
 engine_log() { find "$profile" -path '*diagnostics/logs/*.log' -type f -print0 2>/dev/null | xargs -0 -r cat 2>/dev/null; }
 mode_of() { stat -c '%a' "$1" 2>/dev/null || echo missing; }
+launch() { (umask 0002; cd "$HOME" && PATH="$shims:$PATH" setsid "$app" >>"$1" 2>&1 </dev/null &); }   # <output file>
+# the desktop's main process: from an AppImage mount, neither a Chromium child (--type=)
+# nor the engine's host (ELECTRON_RUN_AS_NODE=1)
+desktop_pids() {
+  local p
+  for p in $(pgrep -f 'mount_Orgtre[^/]*/orgtree' || true); do
+    tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -q -e '--type=' && continue
+    tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | grep -qx 'ELECTRON_RUN_AS_NODE=1' && continue
+    echo "$p"
+  done
+}
 teardown() {
   set +e
   step "teardown ($mode)"
@@ -97,8 +113,47 @@ export DISPLAY=:78
 for _ in $(seq 1 20); do [ -S /tmp/.X11-unix/X78 ] && break; sleep 0.5; done
 mkdir -p "$apps"; cp "$src" "$app"; chmod +x "$app"
 
+problems=()
+if [ "$mode" = unsafe-config ]; then
+  config_set=$(mode_of "$HOME/.config")
+  step "start of $app with umask 0002 and ~/.config at $config_set: refused at once, with the fix"
+  want_line="unsafe folder blocks the background engine: $HOME/.config (fix: chmod g-w,o-w '$HOME/.config')"
+  first=$SECONDS; launch "$logs/app-refused.out"; line=; refused_in=
+  while [ $SECONDS -lt $((first + ${DESKTOP_CHECK_REFUSE_BUDGET:-60})) ]; do
+    line=$(grep -m1 -F 'unsafe folder blocks the background engine:' "$logs/app-refused.out" 2>/dev/null || true)
+    [ -n "$line" ] && { refused_in=$((SECONDS - first)); break; }; sleep 1
+  done
+  grep -E 'boot-engine descriptor|unsafe folder' "$logs/app-refused.out" | sed 's/^/app: /' || true
+  if [ -z "$line" ]; then problems+=("no 'unsafe folder blocks the background engine' line within ${DESKTOP_CHECK_REFUSE_BUDGET:-60}s")
+  else
+    echo "refused ${refused_in} s after the start"
+    case $line in *"$want_line"*) ;; *) problems+=("the line is '$line', not '$want_line'") ;; esac
+  fi
+  [ "$(mode_of "$HOME/.config")" = "$config_set" ] || problems+=("~/.config changed from $config_set to $(mode_of "$HOME/.config")")
+  [ "$(engine_log | grep -c 'desktop REQUEST .*GET /api/desktop/status' || true)" = 0 ] || problems+=("the refused desktop polls /api/desktop/status")
+  systemctl --user is-active --quiet "$unit" || problems+=("$unit is not running after the refused start")
+  first_desktop=$(desktop_pids | tr '\n' ' ')
+  echo "the refused desktop: pid ${first_desktop:-none}; $unit $(systemctl --user is-active "$unit" 2>&1 || true)"
+  # the user's side: the printed command, then the desktop closed and started again
+  fix=${line#*(fix: }; fix=${fix%)*}
+  if [ -n "$line" ]; then
+    echo "running the printed fix: $fix"
+    sh -c "$fix" || problems+=("the printed fix failed: $fix")
+    [ "$(mode_of "$HOME/.config")" = 755 ] || problems+=("after '$fix', ~/.config is $(mode_of "$HOME/.config"), not 755")
+  fi
+  for p in $first_desktop; do kill -TERM "$p" 2>/dev/null || true; done
+  for _ in $(seq 1 20); do [ -z "$(desktop_pids)" ] && break; sleep 1; done
+  left=$(desktop_pids | tr '\n' ' '); [ -z "$left" ] || { echo "::warning::killing a desktop that did not quit: $left"; kill -KILL $left 2>/dev/null || true; sleep 2; }
+  if [ ${#problems[@]} -gt 0 ]; then
+    echo "--- the refused start's output"; grep -v -E 'appimage_extracted|Unable to revert mtime' "$logs/app-refused.out" | tail -30
+    for p in "${problems[@]}"; do echo "::error::($mode) $p"; done
+    exit 1
+  fi
+  echo "PASS ($mode): refused ${refused_in} s after the start, naming the folder and its fix; ~/.config stayed $config_set until the printed fix made it 755"
+fi
+
 step "start of $app with umask 0002 ($mode)"
-(umask 0002; cd "$HOME" && PATH="$shims:$PATH" setsid "$app" >>"$logs/app.out" 2>&1 </dev/null &)
+launch "$logs/app.out"
 verdict=; deadline=$((SECONDS + budget))
 while [ $SECONDS -lt $deadline ]; do
   if grep -q 'boot-engine descriptor rejected' "$logs/app.out" 2>/dev/null; then
@@ -113,9 +168,8 @@ if systemctl --user is-active --quiet "$unit"; then
 elif [ -e "$autostart" ]; then manager=autostart; fi
 echo "background engine: $manager${unit_umask:+ (unit UMask $unit_umask)}"
 echo "folders: $(mode_of "$profile") $profile; $(mode_of "$profile/data") $profile/data"
-grep -E 'systemd not used|data folders made private|boot-engine descriptor' "$logs/app.out" | sed 's/^/app: /' || true
+grep -E 'systemd not used|data folders made private|boot-engine descriptor|unsafe folder' "$logs/app.out" | sed 's/^/app: /' || true
 
-problems=()
 case $verdict in
   OK) echo "PASS ($mode): the desktop attached to its background engine and finished starting (it polls /api/desktop/status)" ;;
   REJECTED*) problems+=("the desktop refused its background engine: ${verdict#REJECTED: }") ;;
