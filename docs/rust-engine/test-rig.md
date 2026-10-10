@@ -10,7 +10,7 @@ runs an existing `electron.exe` in place).
 
 ```bash
 export CARGO_TARGET_DIR='E:\cargo-target\<you>'      # team rule: your own folder on E:
-node tools/rig/rig.mjs build                          # debug engine + fake CLI, under the machine-wide build lock E:\cargo-targetuild.lock (needs >= 3 GB free RAM)
+node tools/rig/rig.mjs build                          # debug engine + fake CLI, under the machine-wide build lock E:\cargo-target\build.lock (needs >= 3 GB free RAM)
 node tools/rig/rig.mjs up                             # ~20 s: run + basic fixture; prints url, token, org
 node tools/rig/rig.mjs tool alice orgtree_chart '{}'  # any tool, as any live agent
 node tools/rig/rig.mjs mail user carol "hello"        # desk mail from the user (wakes carol)
@@ -85,6 +85,7 @@ the run.
 | `canvas-resize-crash.mjs` | the canvas survives a viewport resize right after mount (finding F1); run with `up --ui <bundle>` |
 | `mailhub-v2.mjs` | Orgtree 4.0.2 against mail hub v2 through the real net client (`up --hub`): the engine hosts `orgtree-mailhub.exe` on its own role and database (that role kept out of the engine's database, at most 8 connections) and imports a v1 `hub.sqlite3` at the first start (kept; a message v1 had queued is delivered); two orgs register, long-poll, acknowledge, receipts go sent/delivered/read, an attachment round-trips; a person registered over HTTP is listed with kind person and each hub's version; replies over @net (an agent's, the org inbox panel's, a person's and one to a person) carry `reply_to` through the hub and arrive quoted (IN REPLY TO), an internal reply and its refusals; 30,000 characters, 100 KB and 40,000 characters arrive whole; the hub forgets an org and the engine registers again; `--big`: one whole 1 GiB file between the orgs, timed and sha256 checked, and refused at send with one byte of text more |
 | `mailhub-v2-desktop.mjs` | the org inbox panel against a hosted hub in the real renderer (`up --hub --ui <bundle>`, desktop script `desktop/orginbox-reply.cjs`): the reading pane quotes what an inbound hub reply answers; the pane's Reply, with a file chosen in its box, goes out as the organization naming that row (reply_to through the hub, quoted on arrival, the file byte-identical); no notice toggle for an outside sender; the mailservers tab and the canvas tile name the hub's version |
+| `rig-cleanup.mjs` | the rig itself, with `cleanup({ dryRun: true })` only (it never stops anyone's run): a restarting run, a run still being created (asked from its prepare hook) and a run crashed on purpose before its restart are never cleanup candidates, and once ready its `busy` mark is gone; in a temporary rig home of fake runs, a stopped run and a run whose `busy` mark is older than 15 minutes are candidates and a fresh mark is not, a command without `--run` picks your own newest run over a newer one of another agent and refuses when only others' runs are up, and `down --run` removes a half-made run folder; the rig cluster runs with fsync off (on with `fsync: true`) and a restart is timed |
 
 ## What keeps it safe
 
@@ -105,12 +106,20 @@ the run.
 - **The rig home** (`ORGTREE_RIG_HOME`, default `E:\orgtree-rig`) is refused inside the live data
   folder or the repository. PostgreSQL binaries are copied there once (never run from the
   installed app, whose files an installer must be able to replace). Each run gets a copy of a
-  cached `initdb` template (the engine's own `initdb` path: `up --initdb`).
+  cached `initdb` template (the engine's own `initdb` path: `up --initdb`). A run's cluster runs
+  with `fsync = off` (only the rig's, never the app's cluster; coordinator 2026-10-10): surviving an
+  OS crash is not under test, and with fsync on a busy disk a stop's checkpoint outlasts the
+  engine's wait, so the next start fsyncs the whole cluster for minutes. `up --fsync` (or
+  `startRun({ fsync: true })`) keeps it on, for a run that measures stops. An `--initdb` run's
+  cluster keeps the default.
 - **Processes**: a detached keeper (`keeper.mjs`) is the engine's parent. `rig down`, 20 minutes
   without a rig command touching the run (`--ttl`), or 120 minutes in all (`--max`) stop it
   gracefully. If the keeper dies the engine shuts down, and the engine's kill-on-close job takes
   PostgreSQL and every fake CLI with it. `rig cleanup` deletes stopped runs and kills anything
-  under the rig home that no live run owns (`--mine` also stops your live runs). The engine gets
+  under the rig home that no live run owns (`--mine` also stops your live runs). Every `up` and
+  `run` cleans up first, so a run that is down on purpose (being created, restarting, or crashed
+  by a proof before its restart) carries a `busy` mark in its run.json, which cleanup counts as
+  live for up to 15 minutes; run.json is the first thing a new run writes. The engine gets
   a clean environment: none of the host agent's `ORGTREE_*`, `CLAUDE*`, credential or Codex
   variables.
 
@@ -317,4 +326,7 @@ after seeding. Migrated templates are cached under `<rig home>\pg\template30-*` 
 - Write page scripts and scenarios with an editor, not a bash heredoc: heredocs mangle
   backslashes in regexes and Windows paths.
 - Several agents may share the rig home: `cleanup` only stops runs whose keeper is gone (or your
-  own with `--mine`), and never another live run's processes; `--dry-run` shows the plan.
+  own with `--mine`), and never another live run's processes; `--dry-run` shows the plan. A
+  command without `--run` acts on your own newest live run (by `ORGTREE_AGENT`) and refuses when
+  only other agents' runs are up, naming them. `down --run <id>` also removes a half-made run
+  folder (one whose start never wrote run.json).
