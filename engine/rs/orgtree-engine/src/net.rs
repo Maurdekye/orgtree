@@ -33,6 +33,8 @@ use tokio_util::sync::CancellationToken;
 use crate::changes::{self, Change};
 use crate::engine::Engine;
 
+mod transfers;
+
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";
 const DEFAULT_HUB_PORT: u16 = 7370;
@@ -500,6 +502,7 @@ pub fn start(engine: &Arc<Engine>) {
         tracing::info!("network mail is paused for this run (safe start)");
         return;
     }
+    transfers::start(engine);
     let eng = engine.clone();
     tokio::spawn(async move {
         loop {
@@ -930,8 +933,10 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         let client = engine.db.get().await?;
         client
             .query(
-                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind, reply_to FROM ot.org_inbox
-                  WHERE dir = 'out' AND state = 'queued' AND org_id = ANY($1) ORDER BY id LIMIT 100",
+                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind, reply_to, hub FROM ot.org_inbox i
+                  WHERE dir = 'out' AND state = 'queued' AND org_id = ANY($1)
+                    AND NOT EXISTS (SELECT 1 FROM ot.org_inbox earlier WHERE earlier.org_id=i.org_id AND earlier.peer=i.peer
+                        AND earlier.dir='out' AND earlier.state='queued' AND earlier.id<i.id) ORDER BY id LIMIT 100",
                 &[&ids],
             )
             .await?
@@ -943,7 +948,9 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         let peer = r.get::<_, String>(2).trim_start_matches("@net:").to_string();
         let last_err: Option<String> = r.get(7);
         let net_id: String = r.get::<_, Option<String>>(6).unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
-        let Some((hid, addr)) = pick_hub(engine, p, &peer) else {
+        let pinned: Option<String> = r.get(10);
+        let selected = match pinned { Some(ref id) => p.hubs.iter().find(|(h,_)| h==id).cloned(), None => pick_hub(engine,p,&peer) };
+        let Some((hid, addr)) = selected else {
             stamp(engine, org_id, row_id, last_err.as_deref(), "no mail hub is enabled for this organization", false).await?;
             continue;
         };
@@ -958,75 +965,18 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             stamp(engine, org_id, row_id, last_err.as_deref(), &format!("hub not reachable yet — {why}; retrying"), false).await?;
             continue;
         }
-        // attachments go up first, resumably: an uploaded id is kept on the row
-        let mut atts: Vec<Value> = r.get::<_, Value>(5).as_array().cloned().unwrap_or_default();
-        let mut att_ids = Vec::new();
-        let mut broken = None;
-        let mut vanished = Vec::new();
-        for a in atts.iter_mut() {
-            if let Some(id) = a["hub_id"].as_str() {
-                att_ids.push(id.to_string());
+        // Durable workers own the file I/O. Control mail and receipts never
+        // await a large upload, and a missing file holds the whole message.
+        let atts = r.get::<_, Value>(5).as_array().cloned().unwrap_or_default();
+        let att_ids = match transfers::ready(engine,org_id,row_id,&hid,&addr,&atts).await {
+            Ok(Some(ids)) => ids,
+            Ok(None) => continue,
+            Err(err) => {
+                stamp(engine,org_id,row_id,last_err.as_deref(),&err.to_string(),false).await?;
                 continue;
             }
-            let Some(path) = a["path"].as_str() else { continue };
-            let file = match tokio::fs::File::open(path).await {
-                Ok(d) => d,
-                Err(_) => {
-                    vanished.push(a["name"].as_str().unwrap_or("?").to_string());
-                    *a = Value::Null;
-                    continue;
-                }
-            };
-            let bytes = file.metadata().await?.len();
-            let limit = attachment_limit_at(&addr).await;
-            if bytes > limit.bytes {
-                broken = Some(limit.message());
-                break;
-            }
-            let up = HTTP
-                .post(format!("{addr}/api/attachments"))
-                .timeout(FILE_TIMEOUT)
-                .query(&[("name", a["name"].as_str().unwrap_or("file"))])
-                .header("X-Org-Auth", p.auth())
-                .header(reqwest::header::CONTENT_LENGTH, bytes)
-                .body(reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(file.take(bytes))))
-                .send()
-                .await;
-            match up {
-                Ok(resp) if resp.status().is_success() => {
-                    let v: Value = resp.json().await.unwrap_or(Value::Null);
-                    if let Some(id) = v["id"].as_str() {
-                        a["hub_id"] = json!(id);
-                        att_ids.push(id.to_string());
-                    }
-                }
-                Ok(resp) => {
-                    broken = Some(format!("attachment upload HTTP {}", resp.status().as_u16()));
-                    break;
-                }
-                Err(e) => {
-                    failed(engine, &addr);
-                    broken = Some(short_error(&e));
-                    break;
-                }
-            }
-        }
-        atts.retain(|a| !a.is_null());
-        let client = engine.db.get().await?;
-        if !vanished.is_empty() {
-            client.execute("INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'net_attachment_missing', '@system', $2)",
-                &[&org_id, &json!({"message": net_id, "files": vanished, "note": "Unreadable staged attachments were dropped; the message and remaining files will still be sent."})]).await?;
-            client.execute("UPDATE ot.org_inbox SET last_err = $2 WHERE id = $1", &[&row_id, &format!("attachment vanished before upload: {}", vanished.join(", "))]).await?;
-            changes::notify_id(engine, org_id, vec![Change::Events, Change::OrgInbox]);
-        }
-        client
-            .execute("UPDATE ot.org_inbox SET attachments = $2, net_id = $3 WHERE id = $1", &[&row_id, &Value::Array(atts.clone()), &net_id])
-            .await?;
-        drop(client);
-        if let Some(err) = broken {
-            stamp(engine, org_id, row_id, last_err.as_deref(), &err, true).await?;
-            continue;
-        }
+        };
+        engine.db.get().await?.execute("UPDATE ot.org_inbox SET net_id=$2 WHERE id=$1 AND net_id IS NULL", &[&row_id,&net_id]).await?;
         let res = HTTP
             .post(format!("{addr}/api/send"))
             .timeout(Duration::from_secs(30))
@@ -1264,6 +1214,13 @@ pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str) -> Result<Va
         "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to FROM ot.org_inbox WHERE uid=$1", &[&uid],
     ).await?;
     Ok(outgoing_payload(&row, &row.get::<_, String>(6), "sender.rig", vec![]))
+}
+
+#[cfg(debug_assertions)]
+#[logged]
+pub async fn rig_transfer(engine: &Arc<Engine>, org_id: i64, args: &Value) -> Result<Value> {
+    anyhow::ensure!(crate::rig::active(), "rig mode required");
+    transfers::rig_attempt(engine,org_id,args).await
 }
 
 #[cfg(debug_assertions)]

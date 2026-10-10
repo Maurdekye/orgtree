@@ -99,6 +99,7 @@ pub async fn hub_mail(
     let o = crate::http::orgs::org(&e, b["org"].as_str().unwrap_or(""))?;
     let result = match b["op"].as_str().unwrap_or("") {
         "outgoing" => crate::net::rig_outgoing(&e, o.id, b["kind"].as_str().unwrap_or("message")).await?,
+        "transfer" => crate::net::rig_transfer(&e,o.id,&b).await?,
         "inbound" => json!({"fresh":crate::domain::orginbox::deliver_inbound(
             &e, o.id, "@net:peer.rig", b["body"].as_str().unwrap_or("hub proof"), vec![],
             b["id"].as_str().unwrap_or("proof"), "rig-hub", b["reply_to"].as_str(),

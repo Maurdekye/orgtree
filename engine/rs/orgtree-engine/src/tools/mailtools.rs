@@ -223,7 +223,9 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
         let limit = if network { Some(crate::net::attachment_limit(engine, me.org_id, &out.to).await?) } else { None };
         for a in &letter.attachments {
             let Some(path) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
-            out.attachments.push(crate::domain::docs::snapshot(&presenter, path, limit.as_ref())?);
+            let owner = presenter.clone();
+            let path = path.to_owned();
+            out.attachments.push(tokio::task::spawn_blocking(move || crate::domain::docs::snapshot(&owner, &path, limit.as_ref())).await??);
         }
     }
     out.reply_to = match reply_to {

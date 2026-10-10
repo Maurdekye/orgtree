@@ -22,7 +22,7 @@ pub const SEND_MAX: u64 = 256 * 1024 * 1024;
 const TITLE_MAX: usize = 120;
 
 /// The presenting agent, with the folders it may read files from.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Presenter {
     pub id: i64,
     pub name: String,
