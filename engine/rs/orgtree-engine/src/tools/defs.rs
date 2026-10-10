@@ -67,6 +67,14 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
 
 const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
 
+/// `to` on orgtree_message / orgtree_send_notice: one recipient or a list.
+static TO: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    json!({ "anyOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10 },
+    ], "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'; or a list of up to 10 of them" })
+});
+
 static OPTIONS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
     json!({ "type": "array", "maxItems": 4,
             "description": "2-4 answer options; omit for a free-response question",
@@ -123,9 +131,12 @@ fn all() -> Vec<Value> {
              descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
              (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
              '@net:<slug>'. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
-             later turns; never wait for them.",
+             later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
+             recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
+             and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
+             result lists every recipient's outcome (refused ones are named with the reason; the rest still get it).",
             json!({
-                "to": { "type": "string", "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'" },
+                "to": TO.clone(),
                 "body": { "type": "string" },
                 "kind": { "type": "string", "enum": KINDS },
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
@@ -140,7 +151,7 @@ fn all() -> Vec<Value> {
         tool(
             "orgtree_send_notice",
             "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody.",
-            json!({ "to": { "type": "string" }, "body": { "type": "string" } }),
+            json!({ "to": TO.clone(), "body": { "type": "string" } }),
             &["to", "body"],
         ),
         tool(

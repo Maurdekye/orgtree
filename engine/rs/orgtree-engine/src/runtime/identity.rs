@@ -437,7 +437,10 @@ it with no escalation at all; that adjusts Git's ownership trust only, not OS wr
 write. Use the repository's own path, never a parent path, a wildcard, or a global config change. Read, search and plan \
 freely; when the work genuinely needs a write, raise it rather than looking for a way around. ";
 
-const TOOLS_SENTENCE: &str = "The tools: orgtree_message (reach your reports at any depth, your superior, your peers), \
+const TOOLS_SENTENCE: &str = "The tools: orgtree_message (reach your reports at any depth, your superior, your peers; \
+`to` may be a list, so one call sends the same message to several recipients — for example the user's inbox and their \
+@net: hub address — with each recipient's outcome reported back; nothing is ever forwarded on your behalf, so name every \
+recipient yourself), \
 orgtree_send_notice (same reach, but PASSIVE: it lands in the recipient's mailbox and is read at their next turn without ever \
 starting one — prefer it for FYIs and progress notes that don't warrant interrupting or waking anyone), orgtree_hire (you \
 must state a charter, folders, every tool switch and visibility — no defaults. HIRING ALONE STARTS NO ONE: a hire sits idle \
