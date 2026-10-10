@@ -17,8 +17,10 @@ export function compatibilityWorkFixture(fetcher: typeof fetch, opts: { pages?: 
         const body = await r.json() as { items?: unknown[]; archived?: unknown[]; backlogged?: unknown[]; counts?: Record<string, number>; now?: string }
         // the page route filters on the server: a legacy full list is cut here the same way (agent = the owner)
         const agent = u.searchParams.get('agent')
-        const rows = ((body[group] ?? []) as { owner?: { node?: string } }[])
-          .filter((r) => !agent || r.owner?.node === agent) as unknown[]
+        // (an agent is ANSWERABLE for the items it owns and the ones it reviews)
+        const rows = ((body[group] ?? []) as { owner?: { node?: string }; reviewer?: { node?: string } | string | null }[])
+          .filter((r) => !agent || r.owner?.node === agent
+            || (typeof r.reviewer === 'string' ? r.reviewer : r.reviewer?.node) === agent) as unknown[]
         // …and a query is a case-insensitive match on the row's slug, title and description
         const query = (u.searchParams.get('query') ?? '').toLowerCase()
         const matching = query ? (rows as Record<string, unknown>[])

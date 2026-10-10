@@ -166,10 +166,22 @@ function assertAt(actual: { x: number; y: number }, want: { x: number; y: number
   assert.ok(near(actual, want), `${msg}: at ${JSON.stringify(actual)}, want ${JSON.stringify(want)}`)
 }
 /** world point → client point through `.space`'s translate + scale */
+// jsdom's viewport is 0x0, so every pointer is "near an edge" and the drag's edge-pan (№23) shifts the camera under
+// it, and the camera centres on a zero-size screen. Give `.viewport` a real 1600x900 size before it mounts.
+function sizeViewport(): () => void {
+  const proto = (globalThis as unknown as { HTMLElement: { prototype: HTMLElement } }).HTMLElement.prototype
+  const saved = { rect: proto.getBoundingClientRect, w: Object.getOwnPropertyDescriptor(proto, 'clientWidth'), h: Object.getOwnPropertyDescriptor(proto, 'clientHeight') }
+  const isVp = (el: Element) => el.classList?.contains('viewport')
+  proto.getBoundingClientRect = function (this: HTMLElement) { return (isVp(this) ? VP : saved.rect.call(this)) as DOMRect }
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get(this: HTMLElement) { return isVp(this) ? VP.width : 0 } })
+  Object.defineProperty(proto, 'clientHeight', { configurable: true, get(this: HTMLElement) { return isVp(this) ? VP.height : 0 } })
+  return () => { proto.getBoundingClientRect = saved.rect; if (saved.w) Object.defineProperty(proto, 'clientWidth', saved.w); else delete (proto as unknown as Record<string, unknown>).clientWidth; if (saved.h) Object.defineProperty(proto, 'clientHeight', saved.h); else delete (proto as unknown as Record<string, unknown>).clientHeight }
+}
+const VP = { left: 0, top: 0, right: 1600, bottom: 900, width: 1600, height: 900, x: 0, y: 0, toJSON() {} }
 function client(el: HTMLElement, w: { x: number; y: number }) {
   const space = el.querySelector('.space') as HTMLElement
   const [vx, vy, z] = nums(space.style.transform)
-  return { clientX: vx! + w.x * z!, clientY: vy! + w.y * z! }
+  return { clientX: VP.left + vx! + w.x * z!, clientY: VP.top + vy! + w.y * z! }
 }
 
 async function mountCanvas(t: TestContext, payload: TreePayload,
@@ -188,6 +200,7 @@ async function mountCanvas(t: TestContext, payload: TreePayload,
         if (lines) notices.push({ lines, undo: typeof undo === 'function' ? undo : undefined })
       }}
       mailEvt={null} />)
+  t.after(sizeViewport())
   const v = await mountView(view(payload), (h) => h)
   t.after(() => v.unmount())
   await flush(); await advance(3000, 50); await flush()
@@ -221,7 +234,7 @@ async function settledAt(t: TestContext, payload: TreePayload, id: string) {
 }
 
 for (const mode of ['row', 'circular'] as const) {
-  for (const success of [true, false]) test(`${mode}: middle move ${success ? 'keeps its confirmed position' : 'rolls back on refusal'}`, async (t) => {
+  for (const success of [true, false]) test(`${mode}: move ${success ? 'keeps its confirmed position (last, fresh order)' : 'rolls back on refusal'}`, async (t) => {
     useFakeClock(); t.after(realClock)
     setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
     const { initial, confirmed } = orderedFixture()
@@ -233,12 +246,12 @@ for (const mode of ['row', 'circular'] as const) {
     await drag(m.el, 'x', 'target')
     assert.deepEqual(m.ops, [{ op: 'demote', node: 'x', new_parent: 'target' }])
     await advance(3000, 50)
-    assertAt(at(m.el, 'x'), want, 'pending move is already in the middle, not appended')
+    assertAt(at(m.el, 'x'), want, 'pending move already sits where the engine will put it (last among its new siblings)')
     await inAct(() => (m.el.querySelector('.tray-toggle') as HTMLElement).click())
     await flush()
     const listOrder = () => [...m.el.querySelectorAll('.tray-row')]
       .map(row => row.getAttribute('data-copy-agent-name'))
-    const movedOrder = ['old', 'target', 'left', 'x', 'child', 'right']
+    const movedOrder = ['old', 'target', 'left', 'right', 'x', 'child']
     assert.deepEqual(listOrder(), movedOrder, 'agents list follows the same preview')
     if (success) {
       await inAct(() => resolve({}))
