@@ -8025,7 +8025,8 @@ main:has(> .orgbar.native-header) > .error {
   border-color: var(--line); background: var(--panel-2); color: var(--ink-strong);
 }
 .quickchat-btn:disabled { opacity: 0.4; cursor: default; }
-.quickchat-btn .tier { flex: none; }
+/* the model id icon is the hire tokens' round chip (user 2026-10-10) */
+.quickchat-btn .tier { flex: none; width: 18px; height: 18px; border-radius: 50%; font-size: 10px; }
 .quickchat-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .quickchat-name { color: var(--dim); }
 .quickchat-attach, .quickchat-send { padding: 0 3px; font-size: 15px; }

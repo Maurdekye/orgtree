@@ -314,6 +314,8 @@ function Pop({ anchor, onClose, kind, children }: {
   const ref = useRef<HTMLDivElement | null>(null)
   const doc = anchor.ownerDocument
   const r = anchor.getBoundingClientRect()
+  // below the whole header, not just the box (the header is taller)
+  const top = Math.max(r.bottom, anchor.closest('header')?.getBoundingClientRect().bottom ?? 0) + 4
   const [left, setLeft] = useState(r.left)
   useLayoutEffect(() => {
     const w = ref.current?.offsetWidth ?? 0
@@ -338,7 +340,7 @@ function Pop({ anchor, onClose, kind, children }: {
   }, [doc, anchor])
   return createPortal(
     <div ref={ref} className={'quickchat-pop quickchat-pop-' + kind} role="dialog"
-      style={{ top: r.bottom + 6, left }}>
+      style={{ top, left }}>
       {children}
     </div>, doc.body)
 }
