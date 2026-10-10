@@ -107,10 +107,12 @@ export default async function (rig) {
     }
     const seen = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'provider-chips.cjs'), { preset: 'tall', out: path.join(p.dir, 'desktop'),
       timeout: 240000, args: { cards, q38v: Q38V, qwen: QWEN, downModel: 'llama-4-scout:latest', model0: 'model-000:7b',
-        manyMoreAfter: '+299 more', orFirst: 'claude-sonnet-5', orPickName: 'MiMo V2.6 Pro' } })
+        manyMoreAfter: '+ 299 more', orFirst: 'claude-sonnet-5', orPickName: 'MiMo V2.6 Pro' } })
     const v = seen.value ?? {}
-    p.check('the page script ran to the end without console errors', seen.ok === true && (seen.consoleErrors ?? []).length === 0,
-      { error: seen.error ?? null, consoleErrors: seen.consoleErrors ?? [] })
+    // the rig's page has no Content-Security-Policy, which Electron warns about on every run
+    const consoleErrors = (seen.consoleErrors ?? []).filter((e) => !/Electron Security Warning/.test(e))
+    p.check('the page script ran to the end without console errors', seen.ok === true && consoleErrors.length === 0,
+      { error: seen.error ?? null, consoleErrors })
     const names = (row) => (row?.chips ?? []).map((c) => c.name)
     const ons = (row) => (row?.chips ?? []).map((c) => c.on)
     const dim = (c) => Number(c.opacity) < 0.7 && c.border === 'dashed'
@@ -155,12 +157,13 @@ export default async function (rig) {
 
     const m0 = v.start?.many
     p.check('4. a server listing 302 models: its two offered chips and "+300 more"',
-      JSON.stringify(names(m0)) === JSON.stringify([QWEN, QWEN64]) && m0.more === '+300 more' && !m0.icons, m0)
+      JSON.stringify(names(m0)) === JSON.stringify([QWEN, QWEN64]) && m0.more === '+ 300 more' && !m0.icons, m0)
     p.check('4. "+300 more" opens the browser, which says it saves each change at once; an offer there is saved at once, '
       + 'without the edit form, and the card follows', v.browser?.title === 'Models on Many models · 2 offered · each change is saved at once'
       && v.browser.after === 'Models on Many models · 3 offered · each change is saved at once' && v.browser.editing === false
-      && ids(v.browser.offered).includes('model-000:7b') && JSON.stringify(ons(v.many)) === JSON.stringify([true, true, true])
-      && v.many?.more === '+299 more', { browser: v.browser, card: v.many })
+      && ids(v.browser.offered).includes('model-000:7b') && v.browser.closed === true
+      && JSON.stringify(ons(v.many)) === JSON.stringify([true, true, true])
+      && v.many?.more === '+ 299 more', { browser: v.browser, card: v.many })
 
     const r0 = v.or?.start
     p.check('5. OpenRouter with nine favorites: nine lit chips, each its card alone with the name in its tooltip; "+" alone',
@@ -177,8 +180,12 @@ export default async function (rig) {
       (rr?.favorites ?? []).length === 9 && rr.favorites.includes(FAVORITES[0]) && rr.row.icons === true
       && rr.row.chips[0]?.name === 'claude-sonnet-5' && rr.row.chips.every((c) => c.on), rr)
     p.check('5. "+" opens the picker over the canned catalog; a pick there is saved at once and adds a chip',
-      (v.or?.picked?.favorites ?? []).includes('xiaomi/mimo-v2.6-pro') && (v.or?.end?.chips ?? []).length === 10
+      (v.or?.picked?.favorites ?? []).includes('xiaomi/mimo-v2.6-pro') && v.or?.closed === true && (v.or?.end?.chips ?? []).length === 10
       && v.or.end.chips.every((c) => c.on) && v.or.end.chips.at(-1)?.name === 'mimo-v2.6-pro', { picked: v.or?.picked, end: v.or?.end })
+    const rows = [v.start?.user, v.start?.down, v.start?.ten, v.start?.many, v.or?.start, v.or?.deselected?.row]
+    const sizes = rows.flatMap((r) => (r?.chips ?? []).map((c) => `${c.height}px/${c.font}`))
+    p.check('the chips keep the compact size on both cards: 32 px tall, 12 px text (App settings\' own button style does not reach them)',
+      sizes.length > 30 && sizes.every((s) => s === '32px/12px'), [...new Set(sizes)])
     const l0 = v.light?.user
     p.check('6. the light theme shows the same chips, the withdrawn and the not offered ones dimmed',
       JSON.stringify(ons(l0)) === JSON.stringify([false, true, false, true]) && l0.chips.filter((c) => !c.on).every(dim)

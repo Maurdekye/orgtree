@@ -39,7 +39,8 @@ module.exports = async (page, { args }) => {
       chips: [...(row?.querySelectorAll('.orr-tog') ?? [])].map((x) => ({
         name: t(x.querySelector('.orr-sel-name')) || x.getAttribute('aria-label'), on: x.getAttribute('aria-pressed') === 'true',
         letter: t(x.querySelector('.orr-card')), title: x.getAttribute('title'),
-        opacity: getComputedStyle(x).opacity, border: getComputedStyle(x).borderTopStyle })),
+        opacity: getComputedStyle(x).opacity, border: getComputedStyle(x).borderTopStyle,
+        height: Math.round(x.getBoundingClientRect().height), font: getComputedStyle(x).fontSize })),
       icons: !!row?.classList.contains('icons'),
       more: row?.querySelector('.orr-more') ? t(row.querySelector('.orr-more')) : null,
       digest: host?.classList.contains('orr-toggles') ? [] : [...(host?.querySelectorAll('.acct-provenance span') ?? [])].map(t),
@@ -50,6 +51,27 @@ module.exports = async (page, { args }) => {
   const scrollTo = (sel) => page.eval((sel) => { document.querySelector(sel)?.scrollIntoView({ block: 'center' }); return true }, sel)
   // the pointer off the chips, so a screenshot and a reading show them at rest
   const away = () => page.mouse('mouseMoved', 2, 2)
+  /** click `sel` once nothing covers its centre: each change's toast stacks in the bottom right,
+   *  over a dialog's "done" for a few seconds (the first run's click landed on a toast) */
+  const press = async (sel) => {
+    await scrollTo(sel)
+    await page.eval((s) => { window.__hit = s; return true }, sel)
+    await page.waitFor(() => {
+      const el = document.querySelector(window.__hit)
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+      return !!at && (at === el || el.contains(at))
+    }, { timeout: 30000 })
+    await page.click(sel)
+  }
+  /** tag the button whose text is `text` inside `scope`, so `press` can find it */
+  const tagButton = (scope, text, tag) => page.eval(({ scope, text, tag }) => {
+    document.querySelectorAll(`[${tag}]`).forEach((e) => e.removeAttribute(tag))
+    const b = [...document.querySelectorAll(`${scope} button`)].find((x) => (x.innerText || '').trim() === text)
+    b?.setAttribute(tag, '1')
+    return !!b
+  }, { scope, text, tag })
   /** click the chip `name` on a row, then wait until it reads `on` and the write is over */
   const tap = async (key, name, on) => {
     const found = await page.eval(({ key, name }) => {
@@ -64,7 +86,7 @@ module.exports = async (page, { args }) => {
     }, { key, name })
     if (!found) throw new Error(`no chip ${name} on ${key}`)
     await page.sleep(300)
-    await page.click('[data-chip-target]')
+    await press('[data-chip-target]')
     await page.eval((want) => { window.__want = want; return true }, { key, name, on })
     await page.waitFor(() => {
       const { key, name, on } = window.__want
@@ -110,9 +132,7 @@ module.exports = async (page, { args }) => {
   await page.screenshot('4-ten-offered-icons')
 
   // 5. 302 models: "+300 more" opens the browser, which saves each change at once
-  await scrollTo('[data-chips="many"] .orr-more')
-  await page.sleep(300)
-  await page.click('[data-chips="many"] .orr-more')
+  await press('[data-chips="many"] .orr-more')
   await page.waitFor(() => document.querySelectorAll('.ls-browser .orr-row').length >= 25, { timeout: 30000 })
   await page.sleep(500)
   const title = () => page.eval(() => (document.querySelector('.ls-browser h3')?.innerText || '').replace(/\s+/g, ' ').trim())
@@ -122,18 +142,20 @@ module.exports = async (page, { args }) => {
     row?.querySelector('button.ls-offer')?.setAttribute('data-offer-target', '1')
     return true
   }, args.model0)
-  await page.click('[data-offer-target]')
+  await press('[data-offer-target]')
   await page.waitFor(() => /3 offered/.test(document.querySelector('.ls-browser h3')?.innerText || '')
     && !document.querySelector('[data-offer-target]')?.disabled, { timeout: 15000 })
   res.browser.after = await title()
   res.browser.editing = await page.eval(() => !!document.querySelector('.ls-edit'))
   res.browser.offered = await offered(args.cards.many)
   await page.screenshot('5-browser-saves-at-once')
-  await page.click({ selector: '.ls-browser .orr-pager button', text: '^done$', regex: true })
+  await tagButton('.ls-browser .orr-pager', 'done', 'data-done-target')
+  await press('[data-done-target]')
   await page.waitFor('.ls-browser', { timeout: 10000, gone: true }).catch(() => null)
+  res.browser.closed = await page.eval(() => !document.querySelector('.ls-browser'))
   // the card asks the server about its known models again (one more now): wait for that answer
   await page.eval((more) => { window.__more = more; return true }, args.manyMoreAfter)
-  await page.waitFor(() => (document.querySelector('[data-chips="many"] .orr-more')?.innerText || '').trim() === window.__more,
+  await page.waitFor(() => (document.querySelector('[data-chips="many"] .orr-more')?.innerText || '').replace(/\s+/g, ' ').trim() === window.__more,
     { timeout: 15000 }).catch(() => null)
   await away()
   res.many = await read('many')
@@ -152,9 +174,7 @@ module.exports = async (page, { args }) => {
   await tap('openrouter', args.orFirst, true)
   res.or.reselected = { row: await read('openrouter'), favorites: await favorites() }
   // "+" opens the picker; a pick there adds a chip
-  await scrollTo('[data-chips="openrouter"] .orr-more')
-  await page.sleep(300)
-  await page.click('[data-chips="openrouter"] .orr-more')
+  await press('[data-chips="openrouter"] .orr-more')
   await page.waitFor(() => document.querySelectorAll('.orr-picker .orr-row').length > 0, { timeout: 15000 })
   await page.sleep(500)
   await page.screenshot('8-openrouter-picker')
@@ -166,11 +186,13 @@ module.exports = async (page, { args }) => {
   }, args.orPickName)
   if (!picked) throw new Error(`no picker row ${args.orPickName}`)
   await page.sleep(300)
-  await page.click('[data-pick-target]')
+  await press('[data-pick-target]')
   await page.waitFor(() => document.querySelector('[data-pick-target]')?.getAttribute('aria-pressed') === 'true', { timeout: 15000 })
   res.or.picked = { favorites: await favorites() }
-  await page.click({ selector: '.orr-picker .orr-pager button', text: '^done$', regex: true })
+  await tagButton('.orr-picker .orr-pager', 'done', 'data-done-target')
+  await press('[data-done-target]')
   await page.waitFor('.orr-picker', { timeout: 10000, gone: true }).catch(() => null)
+  res.or.closed = await page.eval(() => !document.querySelector('.orr-picker'))
   await away()
   res.or.end = await read('openrouter')
   await scrollTo('[data-chips="openrouter"]')
