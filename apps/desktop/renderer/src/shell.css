@@ -144,7 +144,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 1 640px;
+  flex: 0 1 960px;   /* 50% wider than alpha.3's 640px (user 2026-10-10) */
   min-width: 200px;
   -webkit-app-region: drag;
 }

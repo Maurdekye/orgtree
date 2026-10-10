@@ -222,6 +222,8 @@ test('the model picker is the hire chips; the effort bar sets the effort', async
   localStorage.clear(); providers(['claude'])
   const view = await mount([], [])
   try {
+    const order = [...view.el.querySelectorAll('.quickchat-btn')].map(b => b.className.match(/quickchat-(model|superior)/)?.[1]).filter(Boolean)
+    assert.deepEqual(order, ['model', 'superior'], 'the model and the new name come before the superior')
     await click(view.el.querySelector('.quickchat-model'))
     const chips = [...document.querySelectorAll<HTMLButtonElement>('.quickchat-pop .hsof button')]
     assert.ok(chips.length >= 3, 'every offered tier is a chip')
@@ -229,6 +231,9 @@ test('the model picker is the hire chips; the effort bar sets the effort', async
     await click(chips.find(b => b.classList.contains('t-sonnet'))!)
     assert.equal(shown(view.el).model, 'sonnet')
     assert.equal(document.querySelector('.quickchat-pop'), null)
+    assert.ok(document.querySelector('.quickchat-leaving[aria-hidden] .hsof'), 'the chips fade out as a leaving copy')
+    await wait(220)
+    assert.equal(document.querySelector('.quickchat-leaving'), null, 'the leaving copy goes after the fade')
     const track = view.el.querySelector<HTMLElement>('.effort-bar-track')!
     await inAct(async () => {
       track.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'End', bubbles: true }))

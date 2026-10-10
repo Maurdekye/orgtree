@@ -43,6 +43,8 @@ export const TOP_LEVEL_LABEL = 'top level'
 export type AgentListSource = (query: string) => { map: Map<string, CanvasNode>; rows: TrayRow[] }
 
 type PopKind = 'superior' | 'model' | 'files'
+/** the canvas hire strip's fade (`.hsof` opacity transition, styles.css) */
+const FADE_MS = 150
 
 export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
   slug: string
@@ -86,6 +88,18 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
     setPop(p => p?.kind === kind ? null : { kind, anchor })
   }
   const close = () => setPop(null)
+  // the model pop-out fades out like the canvas hire strip: a non-interactive
+  // copy stays for the length of the fade after the picker itself has closed
+  const [ghost, setGhost] = useState<HTMLElement | null>(null)
+  const wasModel = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const was = wasModel.current
+    wasModel.current = pop?.kind === 'model' ? pop.anchor : null
+    if (!was || pop?.kind === 'model') return
+    setGhost(was)
+    const t = setTimeout(() => setGhost(null), FADE_MS)
+    return () => clearTimeout(t)
+  }, [pop])
 
   // the name the agent will get, previewed as the user types — by the same
   // rule `send` uses (a collision with a name this window has not seen still
@@ -168,18 +182,18 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
             e.preventDefault(); void send()
           }
         }} />
-      <button type="button" className="quickchat-btn quickchat-superior"
-        title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
-        aria-expanded={pop?.kind === 'superior'} onClick={open('superior')}>
-        {supNode?.tier && <TierIcon tier={supNode.tier} />}
-        <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
-      </button>
       <button type="button" className="quickchat-btn quickchat-model"
         title={tier ? `model for the new agent: ${tierLabel(tier)}`
           + (preview ? ` — it will be named ${preview}` : '') : 'no model is available to hire'}
         aria-expanded={pop?.kind === 'model'} onClick={open('model')}>
         {tier ? <TierIcon tier={tier} /> : <span className="quickchat-label">no model</span>}
         {preview && <span className="quickchat-label quickchat-name">{preview}</span>}
+      </button>
+      <button type="button" className="quickchat-btn quickchat-superior"
+        title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
+        aria-expanded={pop?.kind === 'superior'} onClick={open('superior')}>
+        {supNode?.tier && <TierIcon tier={supNode.tier} />}
+        <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
       </button>
       <EffortBar compact value={effort} level={effort || orgDefault}
         title={`effort for the new agent: ${effort || `org default${orgDefault ? ` (${orgDefault})` : ''}`}`
@@ -211,6 +225,11 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
             soleHire selected={tier} {...hires} />
         </Pop>
       )}
+      {ghost && pop?.kind !== 'model' && (
+        <Pop anchor={ghost} onClose={() => {}} kind="model" leaving>
+          <SpawnChips onSpawn={() => {}} seats={seats} soleHire selected={tier} {...hires} />
+        </Pop>
+      )}
       {pop?.kind === 'files' && (
         <Pop anchor={pop.anchor} onClose={close} kind="files">
           <ul className="quickchat-files">
@@ -234,7 +253,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
   )
 }
 
-/** a model's round id icon, as on hire tokens and Agents List rows */
+/** a model's id icon: the tier badge cards and Agents List rows wear */
 function TierIcon({ tier }: { tier: string }) {
   return <span className={'tier t-' + tier} title={tierLabel(tier)}>{TIER_LETTER[tier] ?? '?'}</span>
 }
@@ -308,22 +327,27 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
 
 /** an overlay below the header, in the anchor's own window; outside press
  *  or Escape closes it */
-function Pop({ anchor, onClose, kind, children }: {
-  anchor: HTMLElement; onClose: () => void; kind: PopKind; children: ReactNode
+function Pop({ anchor, onClose, kind, leaving, children }: {
+  anchor: HTMLElement; onClose: () => void; kind: PopKind; leaving?: boolean; children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const doc = anchor.ownerDocument
   const r = anchor.getBoundingClientRect()
   // below the whole header, not just the box (the header is taller)
   const top = Math.max(r.bottom, anchor.closest('header')?.getBoundingClientRect().bottom ?? 0) + 4
+  // the model chips hang centred under their button, as the hire strip hangs
+  // centred under its card; the lists open from the button's left edge
+  const centred = kind === 'model'
   const [left, setLeft] = useState(r.left)
   useLayoutEffect(() => {
     const w = ref.current?.offsetWidth ?? 0
     const vw = doc.documentElement.clientWidth || (doc.defaultView?.innerWidth ?? 0)
-    if (w && vw) setLeft(Math.max(8, Math.min(r.left, vw - w - 8)))
-  }, [doc, r.left])
+    const want = centred ? r.left + r.width / 2 - w / 2 : r.left
+    if (w && vw) setLeft(Math.max(8, Math.min(want, vw - w - 8)))
+  }, [doc, r.left, r.width, centred])
   const closeRef = useRef(onClose); closeRef.current = onClose
   useEffect(() => {
+    if (leaving) return
     const down = (e: Event) => {
       const t = e.target as Node
       if (!ref.current?.contains(t) && !anchor.contains(t)) closeRef.current()
@@ -337,9 +361,10 @@ function Pop({ anchor, onClose, kind, children }: {
       doc.removeEventListener('pointerdown', down, true)
       doc.removeEventListener('keydown', key, true)
     }
-  }, [doc, anchor])
+  }, [doc, anchor, leaving])
   return createPortal(
-    <div ref={ref} className={'quickchat-pop quickchat-pop-' + kind} role="dialog"
+    <div ref={ref} className={(leaving ? 'quickchat-leaving' : 'quickchat-pop') + ' quickchat-pop-' + kind}
+      role={leaving ? undefined : 'dialog'} aria-hidden={leaving || undefined}
       style={{ top, left }}>
       {children}
     </div>, doc.body)
