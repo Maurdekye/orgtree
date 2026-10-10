@@ -3,8 +3,13 @@
 // section 8 decides what passes.
 // mode "chips": the canvas cards of agents on language-server models: each
 //   chip's letter, tooltip and colours, and a screenshot. Then Quick chat's
-//   model menu, once now and again (same page, no reload) until it lists
+//   model picker, once now and again (same page, no reload) until it lists
 //   `want`: the proof offers that model once `quickchat-before.png` exists.
+//   The picker is the hire chips (SpawnChips), one button per tier, each
+//   named by its tooltip (`hire a <model> · <server> (-N)`), so those are
+//   what it lists. It is the same picker wherever Quick chat sits: upward
+//   from a v3 window's footer, downward from a header, as on this page (no
+//   desktop bridge here, so Quick chat sits in the header).
 // mode "loading": the agent's desk while its server loads the model: the
 //   banner's words and a screenshot.
 // args: { mode: 'chips', agents: [names], want: '<model id>' } | { mode: 'loading', agent }
@@ -37,18 +42,25 @@ module.exports = async (page, { args }) => {
   })), args.agents)
   await page.screenshot('chips-canvas')
 
-  // Quick chat's model menu, now; the proof offers `want` once this screenshot exists
+  // Quick chat's model picker, now; the proof offers `want` once this screenshot exists
   await page.eval(() => { window.__rigSamePage = 'yes'; return true })
+  const POP = '.quickchat-pop.quickchat-pop-model'   // the open picker, not its fading copy (.quickchat-leaving)
   const menu = async () => {
     await page.click('.quickchat-model')
-    await page.waitFor('.ctxmenu[role="menu"]')
+    await page.waitFor(`${POP} .hsof button`)
     await page.sleep(300)
-    return page.eval(() => [...document.querySelectorAll('.ctxmenu[role="menu"] button.ctxmenu-item')]
-      .map((b) => (b.innerText || '').trim()))
+    return page.eval((pop) => [...document.querySelectorAll(`${pop} .hsof button`)]
+      .map((b) => (b.title || '').trim()), POP)
+  }
+  // the model button toggles its picker: make sure Escape closed it, so the
+  // next click opens it again rather than closing it
+  const shut = async () => {
+    await page.press('Escape')
+    await page.waitFor(POP, { gone: true, timeout: 5000 })
   }
   const before = await menu()
   await page.screenshot('quickchat-before')
-  await page.press('Escape')
+  await shut()
   const t0 = Date.now()
   let after = null
   while (Date.now() - t0 < 90000) {
@@ -57,10 +69,10 @@ module.exports = async (page, { args }) => {
     if (items.some((i) => i.includes(args.want))) {
       after = items
       await page.screenshot('quickchat-after')
-      await page.press('Escape')
+      await shut()
       break
     }
-    await page.press('Escape')
+    await shut()
   }
   const samePage = await page.eval(() => window.__rigSamePage === 'yes')
   return { chips, before, after, waited_ms: after ? Date.now() - t0 : null, samePage }
