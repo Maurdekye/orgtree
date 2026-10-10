@@ -119,6 +119,7 @@ test('with no history: Opus, the org default effort, top level; Enter hires, kic
     assert.deepEqual(ops, [{ op: 'hire', name: 'write-release-notes', tier: 'opus', parent: null,
       grant: 50, kickoff: 'Write the release notes for 4.2', kickoff_kind: 'message' }])
     assert.ok(!('charter' in ops[0]!) && !('effort' in ops[0]!), 'no charter, effort follows the org')
+    assert.ok(!('audiences' in ops[0]!), 'a top-level agent already writes to the user')
     assert.deepEqual(hired, ['write-release-notes'])
     assert.equal(box.value, '', 'the box clears after a hire')
   } finally { await view.unmount(); localStorage.clear() }
@@ -173,6 +174,7 @@ test('a manual hire and a manual effort pick become the defaults; a stale superi
     await type(box, 'boss')
     await enter(box)
     assert.equal(ops[0]!.parent, 'boss')
+    assert.deepEqual((ops[0] as { audiences?: string[] }).audiences, ['user'], 'a report can answer the user who started it')
     assert.equal(ops[0]!.grant, 0, 'a report draws on its superior, like the hire sheet')
     assert.equal(ops[0]!.effort, 'max')
     assert.equal(ops[0]!.name, 'boss-2', 'never the name of an existing agent')

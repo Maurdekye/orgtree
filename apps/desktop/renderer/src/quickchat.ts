@@ -159,12 +159,16 @@ export function quickChatName(message: string, taken: (name: string) => boolean)
 }
 
 /** the hire op Quick chat sends: the kickoff rides the hire, so hiring and
- *  starting are one engine transaction. NO CHARTER (user 2026-10-09). */
+ *  starting are one engine transaction. NO CHARTER (user 2026-10-09).
+ *  THE USER WHO STARTED IT CAN BE ANSWERED (user 2026-10-10): an agent with a
+ *  superior gets a user audience in the same transaction, before its first
+ *  turn; a top-level agent already writes to the user. */
 export function quickChatHire(c: { message: string; name: string; tier: string;
   effort: string; superior: QuickSuperior; grant: number }) {
   return {
     op: 'hire', name: c.name, tier: c.tier, parent: c.superior, grant: c.grant,
     ...(c.effort ? { effort: c.effort } : {}),
+    ...(c.superior !== null ? { audiences: ['user'] } : {}),
     kickoff: c.message, kickoff_kind: 'message',
   }
 }
