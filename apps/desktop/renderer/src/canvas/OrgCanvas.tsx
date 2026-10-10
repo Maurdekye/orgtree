@@ -2894,6 +2894,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // desk, a click or keystroke in a pinned desk window, the Attention panel —
   // the per-window button-colour selection (buttoncolours.ts), which only
   // ever names agents; it clears when focus leaves, the last one is kept here.
+  // RETIRING THE FOCUSED DESK returns the camera to the whole-org fit (user
+  // 2026-10-10), whoever retired it — this watches the tree, not the click.
+  // `liveDesk` is the last agent desk the camera sat on while it was live; a
+  // different desk (or the overview) replaces it, so only the focused agent's
+  // own retirement moves the camera.
+  const liveDesk = useRef<string | null>(null)
+  useEffect(() => {
+    const prev = liveDesk.current
+    if (prev && (map.get(prev)?.state ?? 'archived') === 'archived') {
+      liveDesk.current = null
+      fitAll()
+    }
+    const cur = camDesk && map.get(camDesk)
+    liveDesk.current = cur && cur.state !== 'archived' ? camDesk : null
+  }, [map, camDesk, fitAll])
   const hudFit = () => fitAll()
   const hudSwitchboard = () => centerOn(USER)
   const [lastDesk, setLastDesk] = useState<string | null>(null)
