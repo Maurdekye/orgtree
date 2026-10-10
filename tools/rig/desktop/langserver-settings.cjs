@@ -6,8 +6,10 @@ module.exports = async (page, { args }) => {
   await page.waitFor(`[data-copy-agent-name="${args.agent}"]`, { timeout: 30000 })
   await page.sleep(1500)
   await page.eval(() => window.dispatchEvent(new window.CustomEvent('orgtree:open-app-settings', { detail: { tab: 'providers' } })))
-  await page.waitFor('.ls-section', { timeout: 20000 })
+  await page.waitFor('.ls-section .ls-server', { timeout: 20000 })
   const scrollTo = (sel) => page.eval((s) => { document.querySelector(s)?.scrollIntoView({ block: 'start' }); return true }, sel)
+  // the panel's other sections finish loading after the first paint: scroll once they have
+  await page.sleep(1500)
   await scrollTo('.ls-section')
   await page.sleep(800)
   await page.screenshot(`${args.shot}-servers`)

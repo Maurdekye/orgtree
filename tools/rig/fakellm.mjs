@@ -114,6 +114,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const system = typeof b?.system === 'string' ? b.system : (b?.system ?? []).map((s) => s.text ?? '').join('\n')
     const reply = pick(lastText, toolResult)
     note({ path: '/v1/messages', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
+      body_chars: JSON.stringify(b ?? {}).length,
       max_tokens: b?.max_tokens ?? null, thinking: b?.thinking ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, system_chars: system.length,
       messages: msgs.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
@@ -155,6 +156,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const names = (b?.tools ?? []).map((t) => t.name ?? t.function?.name).filter(Boolean)
     const reply = pick(lastText, toolResult)
     note({ path: '/v1/responses', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
+      body_chars: JSON.stringify(b ?? {}).length,
       store: b?.store ?? null, reasoning: b?.reasoning ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, instructions_chars: String(b?.instructions ?? '').length,
       items: input.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
