@@ -48,8 +48,8 @@ const MULTI_MARK_USAGE: RegisteredAccountUsage = {
     auth: 'authenticated',
     state: 'limited',
     marks: {
-      fable: { until: 1789216200, provenance: 'inferred' },
-      pooled: { until: 1789216200, provenance: 'inferred' },
+      fable: { until: 4102444800, provenance: 'inferred' },
+      pooled: { until: 4102444800, provenance: 'inferred' },
     },
   },
 }
@@ -116,7 +116,7 @@ test('StandingMarks component: renders null when absent and wraps entries in .st
   const vSingle = await mountView(
     <StandingMarks standing={{
       auth: 'ok', state: 'limited',
-      marks: { fable: { until: 1789216200, provenance: 'inferred' } },
+      marks: { fable: { until: 4102444800, provenance: 'inferred' } },
     }} />, (el) => el)
   const containerSingle = vSingle.el.querySelector('.standing-marks')
   assert.ok(containerSingle, 'single mark is wrapped in .standing-marks')
@@ -124,6 +124,24 @@ test('StandingMarks component: renders null when absent and wraps entries in .st
   assert.equal(notesSingle.length, 1)
   assert.match(notesSingle[0]!.textContent ?? '', /fable limited until/)
   assert.match(notesSingle[0]!.textContent ?? '', /\(inferred\)/)
+
+  // A mark whose time has passed is not shown (user 2026-10-10: claude-5 read
+  // "default limited until" a day after the limit ran out)
+  const vExpired = await mountView(
+    <StandingMarks standing={{
+      auth: 'ok', state: 'ready',
+      marks: { default: { until: Math.floor(Date.now() / 1000) - 3600, provenance: 'observed' } },
+    }} />, (el) => el)
+  assert.equal(vExpired.el.children.length, 0, 'an expired mark renders nothing')
+  const vMixed = await mountView(
+    <StandingMarks standing={{
+      auth: 'ok', state: 'limited',
+      marks: { default: { until: Math.floor(Date.now() / 1000) - 3600, provenance: 'observed' },
+               fable: { until: 4102444800, provenance: 'inferred' } },
+    }} />, (el) => el)
+  const mixed = vMixed.el.querySelectorAll('.standing-mark')
+  assert.equal(mixed.length, 1, 'only the mark still in force is shown')
+  assert.match(mixed[0]!.textContent ?? '', /fable limited until/)
 
   // Multiple marks (e.g. Fable + pooled) render as sibling paragraphs inside one .standing-marks group
   const vMulti = await mountView(

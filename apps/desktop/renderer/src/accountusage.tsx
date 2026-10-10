@@ -20,7 +20,8 @@ type PerAccountUsage = RegisteredAccountUsage
  *  a mark (and its observed/inferred provenance) identically */
 export function StandingMarks({ standing }: { standing?: AccountStanding }) {
   if (!standing) return null
-  const entries = Object.entries(standing.marks)
+  // a limit whose time has passed limits nothing: never "limited until" the past
+  const entries = Object.entries(standing.marks).filter(([, m]) => m.until * 1000 > Date.now())
   if (!entries.length) return null
   return <div className="standing-marks">
     {entries.map(([pool, m]) =>
