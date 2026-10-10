@@ -75,11 +75,23 @@ ask before building. The steps were:
    `package.json` and both top-level `version` fields of `package-lock.json`; commit the engine
    bump and the app bump separately (`Rust engine: version X`, `Orgtree X`).
 2. Announce the build to the org before delivery, so agents commit and end their turns.
-3. Build the engine with `ORGTREE_RELEASE_BUILD=1` and `ORGTREE_BUILD_COMMIT=<short sha>` set
-   (`cargo build --release` in `engine/rs`); the packaging preflight rejects a dev engine and a
-   dirty tree.
-4. `npm run package:win` with `ELECTRON_RUN_AS_NODE` cleared; the installer lands in `release/`.
-5. Copy `Orgtree Setup X.exe` to the user's Downloads folder and tell the user.
+3. `bash tools/alpha-build.sh X "Orgtree Setup X.exe"` does the rest on the D: SSD (since
+   2026-10-10; E: is slow). It waits for the machine-wide build lock in queue order, checks out
+   the committed tip in the detached build worktree `D:\orgtree-work\worktrees\coordinator-build`
+   (created when missing; `npm ci` when `package-lock.json` changed; `engine/runtime` and the
+   PostgreSQL payload are staged once from a provisioned checkout, each with its own checks),
+   and builds `--release --locked -j 2` into `D:\orgtree-work\cargo-target\<name>`: the engine
+   with `ORGTREE_RELEASE_BUILD=1` and `ORGTREE_BUILD_COMMIT=<short sha>`, then the mail hub from
+   the pinned `engine/mailhub`. It copies both to the fixed paths the packager reads
+   (`engine/rs/target/release`, `engine/mailhub/target/release`; emptied first), checks their
+   versions and the commit stamp, and runs `npm run package:win -- --publish never` with
+   `ELECTRON_RUN_AS_NODE` cleared. Then it checks that the package carries exactly those exes and
+   copies the installer to `E:\Libraries\Downloads`, comparing hashes. The log markers and the
+   settings are in the script's header; `DRY_RUN=1` stops after the package preflight.
+   By hand, do not skip the hub: `package:win` packages whatever exe sits in
+   `engine/mailhub/target/release`, and the preflight checks only that the hub's *source* is
+   pinned (alpha.4 shipped hub 2.0.0 while the pin was 2.0.3).
+4. Tell the user.
 
 ## Testing notes
 
