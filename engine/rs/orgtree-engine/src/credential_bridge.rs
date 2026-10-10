@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const NO_DESKTOP: &str = "Orgtree credential bridge: the Orgtree desktop app isn't open in a signed-in Windows session: ask the user to sign in to Windows and open the Orgtree app [no-desktop].";
+const NO_DESKTOP: &str = "Orgtree credential bridge: nothing in a signed-in Windows session is serving credentials: ask the user to sign in to Windows, or to open the Orgtree app if they are signed in [no-desktop].";
 pub const UNAVAILABLE: &str = "Open Orgtree in your signed-in Windows session to restore git/GitHub access. Agents keep running; no engine restart is needed.";
 const MAX: usize = 65536;
 const PIPE_WAIT: Duration = Duration::from_secs(1);
@@ -33,6 +33,8 @@ enum Fail {
     Busy,
     Unavailable,
     Lookup(String),
+    /// Another live broker holds the lease (registration only).
+    Held,
 }
 impl From<()> for Fail {
     #[nolog]
@@ -54,6 +56,8 @@ struct Broker {
     pipe: String,
     secret: String,
     pid: u32,
+    /// The broker process's creation time, so a reused PID is not the holder.
+    created: u64,
     expires: Instant,
 }
 struct Grant {
@@ -324,13 +328,14 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
         )
             .into_response(),
         Err(fail) => (
-            StatusCode::SERVICE_UNAVAILABLE,
+            if matches!(fail, Fail::Held) { StatusCode::CONFLICT } else { StatusCode::SERVICE_UNAVAILABLE },
             [("cache-control", "no-store")],
             match fail {
                 Fail::Denied => "Orgtree credential bridge: this process's credential capability is no longer valid; a new turn or CLI process gets a fresh one [denied].".to_string(),
                 Fail::Busy => "Orgtree credential bridge: busy or timed out; retry in a moment [busy].".to_string(),
                 Fail::Unavailable => NO_DESKTOP.to_string(),
                 Fail::Lookup(reason) => describe(&reason),
+                Fail::Held => "Orgtree credential bridge: another signed-in broker holds the bridge [held].".to_string(),
             },
         )
             .into_response(),
@@ -403,10 +408,38 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             return Err(Fail::Denied);
         }
         let pid = u32::try_from(value["pid"].as_u64().ok_or(())?).map_err(|_| ())?;
-        let broker = Broker {
+        let slot = &engine.credential_bridge.broker;
+        let current = slot.load_full();
+        // One broker at a time (the desktop or the sign-in helper). Only the
+        // holder, proven by its pipe and secret, may release the slot.
+        if value["release"].as_bool() == Some(true) {
+            if let Some(c) = current
+                .as_ref()
+                .filter(|c| c.pipe == pipe && c.pid == pid && equal(&c.secret, secret))
+            {
+                let previous = slot.compare_and_swap(&current, None);
+                if previous.as_ref().map(|p| Arc::ptr_eq(p, c)).unwrap_or(false) {
+                    tracing::info!(pid, "Credential broker released the bridge");
+                    publish_availability(engine);
+                }
+            }
+            return Ok(b"released".to_vec());
+        }
+        // A live lease whose broker process still runs keeps the slot; the
+        // other broker retries on its next poll. No flapping between the two.
+        if current.as_ref().is_some_and(|c| {
+            c.pipe != pipe
+                && c.expires > Instant::now()
+                && c.created != 0
+                && process_stamp(c.pid) == Some(c.created)
+        }) {
+            return Err(Fail::Held);
+        }
+        let mut broker = Broker {
             pipe: pipe.into(),
             secret: secret.into(),
             pid,
+            created: 0,
             expires: Instant::now() + Duration::from_secs(20),
         };
         if exchange(&broker, json!({"kind":"ping"}))
@@ -416,10 +449,21 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
         {
             return Err(Fail::Denied);
         }
-        engine
-            .credential_bridge
-            .broker
-            .store(Some(Arc::new(broker)));
+        // The ping proved `pid` serves the pipe as the interactive operator.
+        broker.created = process_stamp(pid).unwrap_or(0);
+        let fresh = Arc::new(broker);
+        let previous = slot.compare_and_swap(&current, Some(fresh.clone()));
+        let swapped = match (&*previous, &current) {
+            (Some(p), Some(c)) => Arc::ptr_eq(p, c),
+            (None, None) => true,
+            _ => false,
+        };
+        if !swapped {
+            return Err(Fail::Held);
+        }
+        if current.as_ref().map(|c| c.pipe != fresh.pipe).unwrap_or(true) {
+            tracing::info!(pid, "Credential broker took the bridge");
+        }
         publish_availability(engine);
         return Ok(b"ready".to_vec());
     }
