@@ -1,5 +1,5 @@
 // Proof: orgtree_work / orgtree_ask calls that name a docket ticket show an inline ticket link beside the call;
-//   a click opens that ticket in the docket; a list call has none; an unknown slug stays plain text.
+//   an unknown slug has no link; a click opens that ticket in the docket; a list call has none; an unknown slug stays plain text.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/tool-ticket-links.mjs --ui <bundle>
 
 import path from 'node:path'

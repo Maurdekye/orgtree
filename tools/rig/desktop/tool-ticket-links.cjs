@@ -19,7 +19,8 @@ module.exports = async (page) => {
   r.createLinked = work.some(x => /create/.test(x.text) && x.chips.includes('proof-ticket'))
   r.updateLinked = work.some(x => /update|proof-ticket/.test(x.text) && x.chips.filter(c => c === 'proof-ticket').length === 1 && !/create/.test(x.text))
   r.listNone = work.some(x => /list/.test(x.text) && !x.chips.length && !x.plain.length)
-  r.unknownPlain = work.some(x => x.plain.includes('no-such-ticket-zz') && !x.chips.includes('no-such-ticket-zz'))
+  // an unknown slug fails the call: the row shows the error text and no link
+  r.unknownNoLink = work.some(x => /no-such-ticket-zz/.test(x.text) && !x.chips.length)
   await page.screenshot('1-rows')
   await page.click({ selector: '.tool-refs .tool-ticket', text: 'rig-smoke-item' })
   await page.waitFor(() => /Rig smoke item/.test(document.body.innerText) && !!document.querySelector('.docket-modal'), { timeout: 20000 })
