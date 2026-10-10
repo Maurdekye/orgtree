@@ -500,6 +500,10 @@ export interface TreeNode {
    *  then. null/absent otherwise. The desk shows a banner pointing at the
    *  setting. */
   queued_for_slot?: TurnSlotQueued | null
+  /** Set while a language server loads this turn's model before its CLI
+   *  starts ("loading model on Ollama"; coordinator ruling 2026-10-10): a
+   *  model read from a slow disk can take minutes. null/absent otherwise. */
+  loading_model?: string | null
   responding: boolean
   phase: string | null
   /** WHICH account actually served this node's last turn, captured at spawn
@@ -1397,7 +1401,9 @@ export interface OpenRouterHarness {
 export interface LangServerDoc {
   servers: LangServer[]
   presets: LangServerPreset[]
-  seat: number
+  /** a new server's seat price (each server sets its own) */
+  default_seat: number
+  max_seat: number
   /** below this window an agent's own prompt leaves no room to work */
   min_context: number
   /** the window a model gets when neither the server nor the user names one */
@@ -1447,10 +1453,19 @@ export interface LangServer {
   /** what the harness is pointed at */
   base_url: string
   max_agents: number
+  /** credits each agent on this server's models holds */
+  seat: number
   enabled: boolean
   key_set: boolean
   models: Record<string, LangServerModel>
   created_at: string
+}
+/** one org's agents brought to a server's new seat price (PATCH reply) */
+export interface LangServerRepriced {
+  org: string
+  repriced?: { node: string, from: number, to: number }[]
+  /** why that org's agents kept their old seats (no room in their superiors' grants) */
+  error?: string
 }
 /** POST /api/langservers/probe — what a server says about itself */
 export interface LangServerProbe {

@@ -1570,6 +1570,17 @@ export function TurnSlotQueuedBanner({ queued, live }: {
   </div>
 }
 
+/** A language server loading this turn's model before its CLI starts: a
+ *  large model read from a slow disk takes minutes, and the desk says so
+ *  rather than looking stuck (coordinator ruling 2026-10-10). */
+export function ModelLoadingBanner({ loading, live }: { loading?: string | null; live: boolean }) {
+  if (!live || !loading) return null
+  return <div className="slot-queued-warning" role="status">
+    <span>{`${loading.charAt(0).toUpperCase()}${loading.slice(1)}: the turn starts as soon as the model is in memory `
+      + '(a large model read from a slow disk can take several minutes).'}</span>
+  </div>
+}
+
 /* click-to-copy for the React-rendered pres (filepre/respre/diffpre) — same
    .codewrap/.code-copy contract as the md() pipeline, so the one delegated
    click listener in shared.ts serves both. The listener swaps the button's
@@ -4033,6 +4044,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         live={node.state === 'live'} />
       <TurnSlotQueuedBanner queued={node.queued_for_slot}
         live={node.state === 'live'} />
+      <ModelLoadingBanner loading={node.loading_model} live={node.state === 'live'} />
       {/* `processActive`, not `turnActive`: the mid-turn banner is about a
           STEER WINDOW, which only exists while a turn is genuinely running.
           A queued or compacting agent has no window to miss. */}

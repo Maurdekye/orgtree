@@ -20,7 +20,7 @@ import type {
   EventsPayload, FsPayload,
   HireDefaultsRequest, HistoryPayload, HostPayload,
   InboxPayload, MailEntry,
-  LangServer, LangServerDoc, LangServerProbe,
+  LangServer, LangServerDoc, LangServerProbe, LangServerRepriced,
   McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
   OrgInboxEntry, OrgNetReveal, ProvidersPayload, ReorderRequest,
@@ -976,7 +976,7 @@ export interface LangServerModelPick {
 }
 export const addLangServer = (body: {
   preset: string, address: string, harness: string, label?: string,
-  base_path?: string, max_agents?: number, key?: string, models?: LangServerModelPick[],
+  base_path?: string, max_agents?: number, seat?: number, key?: string, models?: LangServerModelPick[],
 }): Promise<{ server: LangServer, doc: LangServerDoc }> =>
   req('/api/langservers', {
     method: 'POST',
@@ -984,9 +984,9 @@ export const addLangServer = (body: {
     body: JSON.stringify(body),
   })
 export const updateLangServer = (id: string, body: {
-  label?: string, address?: string, base_path?: string, max_agents?: number,
+  label?: string, address?: string, base_path?: string, max_agents?: number, seat?: number,
   enabled?: boolean, models?: LangServerModelPick[],
-}): Promise<{ server: LangServer, doc: LangServerDoc }> =>
+}): Promise<{ server: LangServer, doc: LangServerDoc, repriced?: LangServerRepriced[] }> =>
   req(`/api/langservers/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

@@ -974,6 +974,8 @@ export interface CanvasNode {
   waiting?: boolean
   /** queued behind the machine-wide concurrent-turn limit (see TreeNode) */
   queued_for_slot?: TreeNode['queued_for_slot']
+  /** a language server loading this turn's model first (see TreeNode) */
+  loading_model?: TreeNode['loading_model']
   responding?: boolean
   phase?: string | null
   /** which account actually served the last turn (resolved at spawn) */

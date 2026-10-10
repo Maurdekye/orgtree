@@ -118,12 +118,19 @@ export const langServerDoc = (d: unknown): LangServerDoc | null => {
   return {
     servers: Array.isArray(x.servers) ? x.servers.filter((s) => s && typeof s === 'object' && s.models && typeof s.models === 'object') : [],
     presets: Array.isArray(x.presets) ? x.presets.filter((p) => p && Array.isArray(p.harnesses)) : [],
-    seat: typeof x.seat === 'number' ? x.seat : 0.1,
+    default_seat: typeof x.default_seat === 'number' ? x.default_seat : 1,
+    max_seat: typeof x.max_seat === 'number' ? x.max_seat : 100,
     min_context: typeof x.min_context === 'number' ? x.min_context : 65536,
     default_context: typeof x.default_context === 'number' ? x.default_context : 65536,
     user_enabled: x.user_enabled !== false,
   }
 }
+
+/** a seat price as the input may hold it: 0 to the engine's maximum, two decimals */
+const clampSeat = (n: number, doc: LangServerDoc): number =>
+  Number.isFinite(n) ? Math.round(Math.min(doc.max_seat, Math.max(0, n)) * 100) / 100 : doc.default_seat
+const seatHint = (doc: LangServerDoc): string =>
+  `Credits each agent on this server's models holds from its superior's grant (0 makes them free; ${doc.default_seat} by default).`
 
 const probeFacts = (m: LangServerProbeModel): string => [
   m.parameters, m.quantization, fmtBytes(m.size),
@@ -215,6 +222,7 @@ interface AddBody {
   label?: string
   base_path?: string
   max_agents?: number
+  seat?: number
   key?: string
   models?: LangServerModelPick[]
 }
@@ -239,6 +247,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
   const [typed, setTyped] = useState('')
   const [ctxSize, setCtxSize] = useState(doc.default_context)
   const [maxAgents, setMaxAgents] = useState(1)
+  const [seat, setSeat] = useState(doc.default_seat)
   const [probing, setProbing] = useState(false)
   const [probe, setProbe] = useState<LangServerProbe | null>(null)
   const [picked, setPicked] = useState<Record<string, number>>({})
@@ -290,7 +299,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
   const submit = () => onAdd({
     preset: presetId, address, harness, label: label.trim() || undefined,
     base_path: custom ? basePath.trim() || undefined : undefined,
-    max_agents: maxAgents, key: key.trim() || undefined, models,
+    max_agents: maxAgents, seat, key: key.trim() || undefined, models,
   })
 
   return (
@@ -355,6 +364,10 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
         hint="How many agents may run a turn on this server at the same time; the others wait. One GPU serves only a few.">
         <input type="number" aria-label="agents at once" min={1} max={64} value={maxAgents} disabled={busy}
           onChange={(e) => setMaxAgents(Math.min(64, Math.max(1, Number(e.target.value) || 1)))} />
+      </SetRow>
+      <SetRow label="Seat price" hint={seatHint(doc)}>
+        <input type="number" aria-label="seat price" min={0} max={doc.max_seat} step={0.5} value={seat} disabled={busy}
+          onChange={(e) => setSeat(clampSeat(Number(e.target.value), doc))} />
       </SetRow>
       <SetRow label="Name" hint="How this server is named in menus (optional).">
         <input type="text" aria-label="server name" value={label} placeholder={preset?.label} disabled={busy}
@@ -463,6 +476,17 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
 
   const patch = (body: Parameters<typeof updateLangServer>[1], ok: string) =>
     run(updateLangServer(s.id, body), ok, (v) => v.doc)
+  // a new price reaches the agents already on this server's models: say how many, and where it could not
+  const repriceTo = (seat: number) => {
+    let said = `${s.label}: seat ${seat}`
+    return run(updateLangServer(s.id, { seat }).then((v) => {
+      const moved = (v.repriced ?? []).reduce((n, o) => n + (o.repriced?.length ?? 0), 0)
+      const stuck = (v.repriced ?? []).filter((o) => o.error)
+      if (moved) said += ` · ${moved} agent${moved === 1 ? '' : 's'} repriced`
+      if (stuck.length) said += ` · kept old seats in ${stuck.map((o) => `${o.org} (${o.error})`).join(', ')}`
+      return v
+    }), '', (v) => v.doc).then((ok) => { if (ok) toast([said]); return ok })
+  }
   const check = () => {
     setProbing(true)
     probeLangServer({ server: s.id })
@@ -544,6 +568,14 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
           onBlur={(e) => {
             const n = Math.min(64, Math.max(1, Number(e.target.value) || 1))
             if (n !== s.max_agents) void patch({ max_agents: n }, `${s.label}: ${n} agent${n === 1 ? '' : 's'} at once`)
+          }} />
+      </SetRow>
+      <SetRow label="Seat price" hint={seatHint(doc)}>
+        <input type="number" aria-label="seat price" min={0} max={doc.max_seat} step={0.5} defaultValue={s.seat}
+          key={s.seat} disabled={busy}
+          onBlur={(e) => {
+            const n = clampSeat(Number(e.target.value), doc)
+            if (n !== s.seat) void repriceTo(n)
           }} />
       </SetRow>
       <SetRow label="API key"
