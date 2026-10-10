@@ -71,6 +71,7 @@ import type { WireStyles, Wire } from './glwires'
 import { AgentTray, trayRows } from './agenttray'
 import { agentRows } from '../attention/AgentDeskPanel'
 import type { TrayRow } from './agenttray'
+import type { AgentListSource } from '../QuickChatBox'
 import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
@@ -134,9 +135,10 @@ export interface OrgCanvasProps {
    *  inherited visibility, which also PRESERVES LAYOUT: the camera, the
    *  springs and `posOf` survive the switch. */
   canvasContent?: 'shown' | 'hidden'
-  /** filled with "the live agents in the order the Agents List on screen
-   *  shows them" — Quick chat's superior menu reads it (App owns the ref) */
-  agentListOrder?: { current: (() => string[]) | null }
+  /** filled with the Agents List on screen (its map and rows, in its
+   *  order, for a filter) — Quick chat's superior picker reads it (App owns
+   *  the ref) */
+  agentList?: { current: AgentListSource | null }
   /** open the user's inbox, optionally jumped to a specific mail id */
   onInbox?: (jump?: string) => void
   /** open the work docket at ONE item — a tool chip's docket link */
@@ -421,7 +423,7 @@ const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
-  renderOrgSlot, canvasContent = 'shown', agentListOrder }: OrgCanvasProps) {
+  renderOrgSlot, canvasContent = 'shown', agentList }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
@@ -1227,13 +1229,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         const pb = posOf(b.id) ?? { x: 0, y: 0 }
         return pa.y - pb.y || pa.x - pb.x
       }
-  // Quick chat's superior menu lists live agents in the order the Agents List
-  // on screen does: the Attention drawer's while that view is presented, the
-  // canvas tray's otherwise. Read at the moment the menu opens.
-  if (agentListOrder) agentListOrder.current = () =>
-    (worldHidden ? agentRows(mapRef.current, posOf)
-      : trayRows(mapRef.current, { compare: canvasTrayCompare() }))
-      .filter((r) => !r.ghost).map((r) => r.node.id)
+  // Quick chat's superior picker IS the Agents List on screen: the Attention
+  // drawer's rows while that view is presented, the canvas tray's
+  // otherwise. Read while the picker is open.
+  if (agentList) agentList.current = (query) => ({
+    map: mapRef.current,
+    rows: worldHidden ? agentRows(mapRef.current, posOf, { query })
+      : trayRows(mapRef.current, { query, compare: canvasTrayCompare() }),
+  })
 
   // ---------------------------------------------- wires: geometry + sparks
   // (the seg builders assert posOf: every caller pre-checks both endpoints)

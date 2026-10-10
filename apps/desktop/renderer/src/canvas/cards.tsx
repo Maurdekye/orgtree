@@ -611,11 +611,13 @@ interface SpawnChipsProps {
   zoom?: number
   expanded?: boolean
   onToggleExpanded?: () => void
+  /** the tier already chosen, drawn as selected (Quick chat's model picker) */
+  selected?: string
 }
 
-function SpawnChips({ onSpawn, seats, side, soleHire,
+export function SpawnChips({ onSpawn, seats, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, zoom,
-  expanded = false, onToggleExpanded }: SpawnChipsProps) {
+  expanded = false, onToggleExpanded, selected }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
   const chip = (t: string, letter: string | undefined) => {
@@ -625,7 +627,9 @@ function SpawnChips({ onSpawn, seats, side, soleHire,
     // `or-…` tier id (user ask 2026-09-03)
     const name = tierLabel(t)
     return (
-      <button key={t} className={'t-' + t + (legacyMark(t) ? ' legacy' : '')} data-first-use={soleHire ? 'token' : undefined}
+      <button key={t} className={'t-' + t + (legacyMark(t) ? ' legacy' : '') + (selected === t ? ' sel' : '')}
+        aria-pressed={selected === undefined ? undefined : selected === t}
+        data-first-use={soleHire && selected === undefined ? 'token' : undefined}
         title={
           // ONE SHAPE FOR ALL THREE (user request 2026-08-28: "make them
           // more concise; just 3-5 words at most", "for subordinate,

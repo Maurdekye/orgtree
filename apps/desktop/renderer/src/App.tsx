@@ -52,7 +52,7 @@ import { setOrgView, useOrgView } from './attention/mode'
 import { useModeRestore } from './attention/moderestore'
 import { useButtonColours } from './buttoncolours'
 import type { OrgView } from './attention/mode'
-import { QuickChat } from './QuickChatBox'
+import { QuickChat, type AgentListSource } from './QuickChatBox'
 import { AttentionView } from './attention/AttentionView'
 import type { AttentionNotificationFocus } from './attention/AttentionQueue'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
@@ -515,8 +515,8 @@ export default function App() {
   // Quick chat: the agent it just hired, focused once the tree carries it
   // (the canvas cannot centre on a card it has not laid out yet)
   const [quickFocus, setQuickFocus] = useState<string | null>(null)
-  // the canvas fills this with the Agents List's order, for the superior menu
-  const agentListOrder = useRef<(() => string[]) | null>(null)
+  // the canvas fills this with the Agents List, for Quick chat's superior picker
+  const agentList = useRef<AgentListSource | null>(null)
   useEffect(() => {
     if (!quickFocus || !tree) return
     if (!flatNodes(tree).has(quickFocus)) return
@@ -1453,7 +1453,7 @@ export default function App() {
                 <ShellHeader menu={shellMenu} title={tree.name}
                   modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
                   quick={<QuickChat slug={slug} tree={tree} op={op} toast={toast}
-                    onHired={setQuickFocus} listOrder={agentListOrder} />}
+                    onHired={setQuickFocus} agentList={agentList} />}
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — icons only, named by aria-label */}
@@ -1508,7 +1508,7 @@ export default function App() {
                   </span>
                 </span>
                 <QuickChat slug={slug} tree={tree} op={op} toast={toast}
-                  onHired={setQuickFocus} listOrder={agentListOrder} />
+                  onHired={setQuickFocus} agentList={agentList} />
                 {/* MOBILE-ONLY merged status chip (D-125 orgbar ruling): live
                     count · working · frozen in one glance; tapping it opens
                     the same ⋯ panel. display:none on desktop (.mob-only). */}
@@ -1721,7 +1721,7 @@ export default function App() {
                        the tree, which is the whole reason it can be believed */
                     treeStatus={treeStatus} />
                 ) : undefined}
-                agentListOrder={agentListOrder}
+                agentList={agentList}
                 focusAgent={focusAgent}
                 onFocusAgentHandled={() => setFocusAgent(null)}
                 openMailAt={mailJump}
