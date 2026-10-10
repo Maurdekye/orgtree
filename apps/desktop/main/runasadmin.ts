@@ -69,7 +69,14 @@ export function elevatedWriteScript(enabled: boolean): string {
  *  elevated, waits for it and returns its exit code; a declined prompt exits
  *  UAC_CANCELLED. */
 export function elevationArgs(enabled: boolean): string[] {
-  const encoded = Buffer.from(elevatedWriteScript(enabled), 'utf16le').toString('base64')
+  return elevatedArgs(elevatedWriteScript(enabled))
+}
+
+/** The NON-elevated command that asks Windows (UAC) to run `script` in an
+ *  elevated, hidden PowerShell, waits for it and returns its exit code; a
+ *  declined prompt exits UAC_CANCELLED. */
+export function elevatedArgs(script: string): string[] {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64')
   const launcher = [
     'try {',
     `  $p = Start-Process -FilePath '${POWERSHELL}' -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${encoded}'`,

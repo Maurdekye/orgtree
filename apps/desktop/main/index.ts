@@ -44,7 +44,8 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, startBootTask, writeRunAsAdministrator } from './runasadmin'
-import { ensureBootEngine, loginShellPath, privateDataFolders } from './unixboot'
+import { readStartupTasks, writeRunOnStartup } from './runonstartup'
+import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
@@ -554,6 +555,40 @@ else {
     notifications.configure(next)
     broadcastAll({ type: 'preferences', data: next }); return next
   }
+  // "RUN ON STARTUP" (the stored key stays startAtLogin; docket
+  // start-at-login-off-means-nothing-of-orgtree-star, the user 2026-10-10:
+  // "if i have start on boot disabled, then nothing should run at all on boot
+  // ever until i manually start orgtree"). One switch for everything of Orgtree
+  // that starts without the user opening it: this window's sign-in entry, and
+  // on an all-users Windows installation the boot engine and credential helper
+  // tasks (runonstartup.ts: a Windows permission prompt), on macOS and Linux the
+  // background engine's login registration (unixboot.ts). A running engine is
+  // left running; the change applies from the next start.
+  let unixBootInputs: BootInputs | null = null
+  const changeRunOnStartup = async (enabled: boolean) => {
+    if (process.platform === 'win32' && app.isPackaged) {
+      const tasks = await readStartupTasks()
+      if (!tasks) throw new Error('Orgtree could not read its startup tasks, so "run on startup" was not changed.')
+      if (tasks.boot !== null && tasks.boot !== enabled) await writeRunOnStartup(enabled)
+    } else if (unixBootInputs) {
+      if (enabled) {
+        const outcome = await enableBootEngine(unixBootInputs)
+        if (outcome.error) throw new Error(`The background engine could not be set to start at login (${outcome.manager}): ${outcome.error}`)
+      } else await disableBootEngine(unixBootInputs)
+    }
+    return setPreferences({ startAtLogin: enabled })
+  }
+  /** What the switch shows is what really starts: on an all-users Windows
+   *  installation the boot task's state wins over a stored value that
+   *  disagrees (an administrator changed the task, or an older version left
+   *  it running while the switch said off). */
+  const reconcileRunOnStartup = async () => {
+    if (process.platform !== 'win32' || !app.isPackaged) return
+    const tasks = await readStartupTasks().catch(() => null)
+    if (!tasks || tasks.boot === null || tasks.boot === preferences.get().startAtLogin) return
+    console.warn(`run on startup: the boot task is ${tasks.boot ? 'enabled' : 'disabled'}, so the switch shows ${tasks.boot ? 'on' : 'off'}`)
+    setPreferences({ startAtLogin: tasks.boot })
+  }
   const setEffectiveTheme = (value: unknown) => {
     if (!isVisualTheme(value)) throw new Error('Unknown visual theme')
     effectiveTheme = value
@@ -672,7 +707,12 @@ else {
         sendTo(record.id, { type: 'phone-panel', data: {} })
       })() } },
       { type: 'separator' },
-      { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
+      { label: 'Run on startup', type: 'checkbox', checked: prefs.startAtLogin, click: item => {
+        void changeRunOnStartup(item.checked).catch((error: Error) => {
+          rebuildTray()
+          void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
+        })
+      } },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
       { label: 'Notifications', submenu: [
         { label: 'Notifications', type: 'checkbox' as const, checked: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ notificationsEnabled: item.checked }) },
@@ -1601,6 +1641,7 @@ else {
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     loginPreference()
+    void reconcileRunOnStartup()
     tray = new Tray(runtimeIcon())
     // primary click = the org activity list; double-click keeps opening the
     // app itself (second click of the pair dismisses the just-shown popup)
@@ -1743,7 +1784,18 @@ else {
     // these windows. See revealPopout for why the order matters.
     handle('desktop:popout-focus', (caller, name) => { revealPopout(caller.popouts.window(name)) })
     handleApp('desktop:preferences', () => preferences.get())
-    handleApp('desktop:set-preferences', value => setPreferences(value))
+    handleApp('desktop:set-preferences', async value => {
+      // The startup switch changes what starts at boot first (a Windows
+      // permission prompt, the engine's login registration); only once that
+      // has happened may the stored value change.
+      const patch = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+      if (patch && typeof patch.startAtLogin === 'boolean' && patch.startAtLogin !== preferences.get().startAtLogin) {
+        const { startAtLogin, ...rest } = patch
+        const next = await changeRunOnStartup(startAtLogin as boolean)
+        return Object.keys(rest).length ? setPreferences(rest) : next
+      }
+      return setPreferences(value)
+    })
     handleApp('desktop:set-effective-theme', value => setEffectiveTheme(value))
     handle('desktop:show', caller => revealWindow(caller))
     handleApp('desktop:quit', () => { app.quit() })
@@ -1925,9 +1977,17 @@ else {
         const folders = privateDataFolders(engineOptions.dataRoot, app.getPath('userData'))
         if (folders.tightened.length) console.warn(`data folders made private (0700): ${folders.tightened.join(', ')}`)
         if (folders.error) console.warn(`data folders could not be made private: ${folders.error}`)
-        const boot = await ensureBootEngine({ platform: process.platform, home: os.homedir(), appId: identity.appId,
+        unixBootInputs = { platform: process.platform, home: os.homedir(), appId: identity.appId,
           engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot,
-          shellPath: await loginShellPath() })
+          shellPath: await loginShellPath() }
+        // "Run on startup" off: nothing of Orgtree starts at login. A host
+        // still running from earlier is left to serve this session (the
+        // caller attaches to it); otherwise the caller starts its own engine.
+        if (!preferences.get().startAtLogin) {
+          await disableBootEngine(unixBootInputs)
+          return false
+        }
+        const boot = await ensureBootEngine(unixBootInputs)
         if (boot.error) console.warn(`background engine (${boot.manager}): ${boot.error}`)
         if (boot.systemdSkipped) console.warn(`background engine: systemd not used (${boot.systemdSkipped})`)
         if (!boot.started) return false

@@ -189,6 +189,38 @@ test('Linux without systemd --user: the autostart entry is written and this sess
   assert.deepEqual(a.detached, [boot.bootCommand(appImage)])
 })
 
+// "Run on startup" (docket start-at-login-off-means-nothing-of-orgtree-star):
+// the switch changes what starts at the NEXT login and touches nothing that
+// runs now. Turning it on mid-session must not start a second engine (the
+// session already has one); turning it off must not stop the one serving it.
+test('run on startup on: registered for the next login, nothing started now', async () => {
+  const label = 'gui/501/com.maurdekye.orgtree.engine'
+  const m = fakeIo()
+  assert.deepEqual(await boot.enableBootEngine(mac, m.io), { manager: 'launchd', file: boot.bootFile(mac, 'launchd'), changed: true, started: false })
+  assert.deepEqual(m.calls, [`write ${boot.bootFile(mac, 'launchd')}`], 'macOS: only the agent file is written; launchd loads it at login')
+  assert.equal(m.files[boot.bootFile(mac, 'launchd')], boot.launchAgentPlist(mac))
+  assert.ok(!m.calls.some(c => c.includes(label)), 'no launchctl call: nothing loaded, kicked or booted out now')
+  const s = fakeIo({}, { [boot.bootFile(deb, 'autostart')]: 'old' })
+  assert.equal((await boot.enableBootEngine(deb, s.io)).started, false)
+  assert.deepEqual(s.calls, ['systemctl --user show-environment', `write ${boot.bootFile(deb, 'systemd')}`, 'systemctl --user daemon-reload',
+    'systemctl --user enable orgtree-engine.service', `remove ${boot.bootFile(deb, 'autostart')}`], 'systemd: enabled, never started or restarted')
+  const a = fakeIo({ 'systemctl --user show-environment': { code: 1, stdout: '', stderr: 'Failed to connect to bus' } })
+  const r = await boot.enableBootEngine(deb, a.io)
+  assert.equal(r.manager, 'autostart')
+  assert.equal(a.files[boot.bootFile(deb, 'autostart')], boot.autostartEntry(deb))
+  assert.deepEqual(a.detached, [], 'the autostart path starts no host now')
+})
+
+test('run on startup off: nothing starts at the next login, and a running host is left running', async () => {
+  const m = fakeIo({}, { [boot.bootFile(mac, 'launchd')]: 'x' })
+  await boot.disableBootEngine(mac, m.io)
+  assert.deepEqual(m.calls, [`remove ${boot.bootFile(mac, 'launchd')}`], 'macOS: the agent file goes; no bootout (that would stop the host)')
+  const l = fakeIo({}, { [boot.bootFile(deb, 'autostart')]: 'x' })
+  await boot.disableBootEngine(deb, l.io)
+  assert.deepEqual(l.calls, ['systemctl --user disable orgtree-engine.service', `remove ${boot.bootFile(deb, 'autostart')}`])
+  assert.ok(!l.calls.some(c => c.includes('--now') || c.includes(' stop ')), 'Linux: disabled without --now; the running unit keeps running')
+})
+
 test('removing undoes every registration', async () => {
   const m = fakeIo({}, { [boot.bootFile(mac, 'launchd')]: 'x' })
   await boot.removeBootEngine(mac, m.io)

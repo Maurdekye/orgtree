@@ -381,6 +381,61 @@ export async function ensureBootEngine(o: BootInputs, io: BootIo = realIo): Prom
   } catch (e) { return { manager: 'autostart', file, changed, started: false, error: (e as Error).message } }
 }
 
+/** "Run on startup" turned on mid-session: register the host for the next
+ *  login WITHOUT starting it now. An engine already serves this session (the
+ *  desktop's own, or a host), and a second one would find the data root
+ *  taken. launchd reads ~/Library/LaunchAgents at login; systemd starts an
+ *  enabled unit at login; the autostart entry is read at login. Never throws. */
+export async function enableBootEngine(o: BootInputs, io: BootIo = realIo): Promise<BootOutcome> {
+  if (o.platform === 'darwin') {
+    const file = bootFile(o, 'launchd')
+    const text = launchAgentPlist(o)
+    const changed = io.read(file) !== text
+    try {
+      if (changed) io.write(file, text)
+      return { manager: 'launchd', file, changed, started: false }
+    } catch (e) { return { manager: 'launchd', file, changed, started: false, error: (e as Error).message } }
+  }
+  const probe = await systemctl(io, ['show-environment'], 10000)
+    .catch((e: Error) => ({ code: -1, stdout: '', stderr: e.message }))
+  if (probe.code === 0) {
+    const file = bootFile(o, 'systemd')
+    const text = systemdUnit(o)
+    const changed = io.read(file) !== text
+    try {
+      if (changed) {
+        io.write(file, text)
+        await systemctl(io, ['daemon-reload'], 30000)
+      }
+      const e = await systemctl(io, ['enable', SYSTEMD_UNIT], 30000)
+      if (e.code !== 0) return { manager: 'systemd', file, changed, started: false, error: `systemctl enable: ${failed(e)}` }
+      io.remove(bootFile(o, 'autostart'))
+      return { manager: 'systemd', file, changed, started: false }
+    } catch (err) { return { manager: 'systemd', file, changed, started: false, error: (err as Error).message } }
+  }
+  const file = bootFile(o, 'autostart')
+  const text = autostartEntry(o)
+  const changed = io.read(file) !== text
+  try {
+    if (changed) io.write(file, text)
+    return { manager: 'autostart', file, changed, started: false, systemdSkipped: `systemctl --user show-environment: ${failed(probe)}` }
+  } catch (e) { return { manager: 'autostart', file, changed, started: false, error: (e as Error).message } }
+}
+
+/** "Run on startup" off: nothing starts at the next login, and a host that
+ *  is running now is left running (the session it serves keeps its engine).
+ *  macOS: the agent's file goes, so launchd does not load it at the next
+ *  login (a loaded agent stays until then). Linux: the unit is disabled
+ *  without --now, and the autostart entry goes. Never throws. */
+export async function disableBootEngine(o: Pick<BootInputs, 'platform' | 'home' | 'appId'>, io: BootIo = realIo): Promise<void> {
+  if (o.platform === 'darwin') {
+    io.remove(bootFile(o, 'launchd'))
+    return
+  }
+  await systemctl(io, ['disable', SYSTEMD_UNIT], 30000).catch(() => undefined)
+  io.remove(bootFile(o, 'autostart'))
+}
+
 /** Remove every registration this module may have made. */
 export async function removeBootEngine(o: Pick<BootInputs, 'platform' | 'home' | 'appId'>, io: BootIo = realIo): Promise<void> {
   if (o.platform === 'darwin') {
