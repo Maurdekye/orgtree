@@ -8185,3 +8185,14 @@ main:has(> .orgbar.native-header) > .error {
 .ls-variant { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 2px 0 0 21px; font-size: 11.5px; }
 .ls-variant .mono { font-size: 11px; }
+
+/* resolved scope / credit requests (events/answered.tsx): the answered-card look */
+.resolved-rows { list-style: none; margin: 0; padding: 0; }
+.resolved-row { display: flex; align-items: baseline; gap: 7px; padding: 2px 0; font-size: 11.5px; }
+.resolved-mark { flex: none; width: 14px; text-align: center; font-weight: 700; }
+.resolved-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.resolved-verdict { flex: none; font-size: 10.5px; font-weight: 600; }
+.resolved-row.tone-ok .resolved-mark, .resolved-row.tone-ok .resolved-verdict { color: var(--ok); }
+.resolved-row.tone-no .resolved-mark, .resolved-row.tone-no .resolved-verdict { color: var(--bad); }
+.resolved-row.tone-part .resolved-mark, .resolved-row.tone-part .resolved-verdict { color: var(--warn); }
+.resolved-row.tone-skip { opacity: .6; }

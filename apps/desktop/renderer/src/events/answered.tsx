@@ -1,4 +1,4 @@
-import type { AnsweredQ, AnswerAsk, AnswerBatch, AskOption, BatchQ, Section } from '../generated/events'
+import type { AnsweredQ, AnswerAsk, AnswerBatch, AskOption, BatchQ, Section, SectionCredit, SectionScope } from '../generated/events'
 
 /** One question as the mini card draws it: every option the card offered with
  *  the chosen ones marked, or the typed answer when it offered none. */
@@ -67,3 +67,68 @@ export function batchAskQuestions(event: AnswerBatch): MiniQuestion[] {
   return event.sections.filter((s): s is Extract<Section, { kind: 'ask' }> => s.kind === 'ask')
     .flatMap(s => s.questions.map(miniFromBatch))
 }
+
+const DECISION: Record<string, { mark: string; word: string; tone: 'ok' | 'no' | 'part' | 'skip' }> = {
+  approve: { mark: '✓', word: 'Granted', tone: 'ok' },
+  'approve (partial)': { mark: '✓', word: 'Granted in part', tone: 'part' },
+  'approve (clamped — not in effect)': { mark: '!', word: 'Approved, but not in effect', tone: 'part' },
+  deny: { mark: '✕', word: 'Denied', tone: 'no' },
+  skip: { mark: '–', word: 'Undecided — may be asked again', tone: 'skip' },
+}
+const CREDIT: Record<string, { word: string; tone: 'ok' | 'no' | 'part' | 'skip' }> = {
+  approved: { word: 'Approved', tone: 'ok' },
+  counter: { word: 'Counter-offer granted', tone: 'part' },
+  reduced: { word: 'Granted, reduced', tone: 'part' },
+  declined: { word: 'Declined', tone: 'no' },
+  denied: { word: 'Denied', tone: 'no' },
+  skipped: { word: 'Undecided', tone: 'skip' },
+}
+
+function ScopeCard({ section }: { section: SectionScope }) {
+  const n = section.decisions.length
+  return <details className="answered-card resolved-card" open data-kind="scope">
+    <summary>Scope request · {n} item{n === 1 ? '' : 's'}</summary>
+    <ul className="resolved-rows">
+      {section.decisions.map((d, i) => {
+        const v = DECISION[d.decision] ?? { mark: '?', word: d.decision, tone: 'skip' as const }
+        return <li key={i} className={'resolved-row tone-' + v.tone} data-decision={d.decision}>
+          <span className="resolved-mark" aria-hidden="true">{v.mark}</span>
+          <span className="resolved-label">{d.label}</span>
+          <span className="resolved-verdict">{v.word}</span>
+        </li>
+      })}
+    </ul>
+  </details>
+}
+
+function CreditCard({ section }: { section: SectionCredit }) {
+  const v = CREDIT[section.outcome] ?? { word: section.outcome, tone: 'skip' as const }
+  return <details className="answered-card resolved-card" open data-kind="credit">
+    <summary>Credit request</summary>
+    <ul className="resolved-rows">
+      <li className={'resolved-row tone-' + v.tone} data-outcome={section.outcome}>
+        <span className="resolved-mark" aria-hidden="true">{v.tone === 'ok' || v.tone === 'part' ? '✓' : v.tone === 'no' ? '✕' : '–'}</span>
+        <span className="resolved-label">
+          {section.old} → {section.asked} credits asked
+          {section.granted !== null && section.granted !== section.asked ? `, ${section.granted} granted` : ''}
+        </span>
+        <span className="resolved-verdict">{v.word}</span>
+      </li>
+    </ul>
+    {section.now !== null && <div className="answered-note"><span className="dim">Grant now: </span>{section.now}</div>}
+  </details>
+}
+
+/** The credit and scope parts of a resolved request, in the same card
+ *  language as the answered questions (no field dump, no bracket text). */
+export function ResolvedSections({ event }: { event: AnswerBatch }) {
+  return <>{event.sections.map((s, i) =>
+    s.kind === 'scope' ? <ScopeCard key={i} section={s} />
+    : s.kind === 'credit' ? <CreditCard key={i} section={s} />
+    : s.kind === 'skipped' ? <details key={i} className="answered-card resolved-card" open>
+        <summary>Skipped question</summary><div className="answered-q"><div className="answered-qtext">{s.question}</div></div></details>
+    : null)}</>
+}
+
+/** every section kind the mini cards draw, so the generic field is empty */
+export const resolvedSectionKinds = ['ask', 'scope', 'credit', 'skipped']

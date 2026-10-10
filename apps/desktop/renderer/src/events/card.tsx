@@ -14,7 +14,7 @@ import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
 import { md } from '../canvas/shared'
-import { AnsweredAsk, AnsweredCard, batchAskQuestions } from './answered'
+import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 
 const FAMILY_MARK: Record<Family, string> = {
   ordinary: 'Message', linked_reply: 'Reply', assignment: 'Assignment', review: 'Review',
@@ -126,12 +126,13 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     && event.object.id === event.actor.id
   // Answered questions draw as a shrunken question card instead of a field dump.
   const answeredAsk = event.variant === 'answer.ask'
+  const resolvedBatch = event.variant === 'answer.batch'
   const askQuestions = event.variant === 'answer.batch' ? batchAskQuestions(event) : []
   const body = view.fields.filter(f => f.placement === 'body'
     && !(answeredAsk && ['questions', 'text'].includes(f.key)))
-    .map(f => f.key === 'sections' && askQuestions.length > 0 && Array.isArray(f.value)
-      ? { ...f, value: f.value.filter(sec => !(record(sec) && sec.kind === 'ask')) } : f)
-    .filter(f => !(f.key === 'sections' && askQuestions.length > 0 && Array.isArray(f.value) && f.value.length === 0))
+    .map(f => f.key === 'sections' && Array.isArray(f.value)
+      ? { ...f, value: f.value.filter(sec => !(record(sec) && typeof sec.kind === 'string' && resolvedSectionKinds.includes(sec.kind))) } : f)
+    .filter(f => !(f.key === 'sections' && Array.isArray(f.value) && f.value.length === 0))
   // The mini card says answered/dismissed and how many questions itself.
   const header = view.fields.filter(f => f.placement === 'header'
     && !(answeredAsk && (f.key === 'single' || (f.key === 'dismissed' && f.value === false))))
@@ -142,6 +143,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   const bodyContent = <div className="event-body">
     {event.variant === 'answer.ask' && <AnsweredAsk event={event} />}
     {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} />}
+    {event.variant === 'answer.batch' && <ResolvedSections event={event} />}
     <Fields fields={body} {...content} profile={profile} org={org} actor={actor} /></div>
   const heading = <>
       <span className="event-family" aria-label={FAMILY_MARK[view.family]} title={FAMILY_MARK[view.family]}>{FAMILY_ICON[view.family]}</span>
@@ -158,7 +160,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     </>
   if (part === 'header') return heading
   const contents = <>
-    {(body.length > 0 || answeredAsk || askQuestions.length > 0) && (preview && !answeredAsk && askQuestions.length === 0
+    {(body.length > 0 || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch
       ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
     {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
       <summary>Context</summary>
