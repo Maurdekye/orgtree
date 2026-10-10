@@ -267,8 +267,8 @@ export default async function (rig) {
       // the bundle's CSS is minified, so #ffffff may read #fff
       const hex6 = s => String(s ?? '').toLowerCase().replace(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/, '#$1$1$2$2$3$3')
       p.check('the lane accent is the gold on the dark theme and the deep gold on the light one, its ink dark and white; the tier colour stays gold',
-        seen.ok && hex6(v.dark?.accent) === '#d6a823' && hex6(v.dark?.ink) === '#17191d' && hex6(v.light?.accent) === '#4d3a02'
-        && hex6(v.light?.ink) === '#ffffff' && hex6(v.dark?.tier) === '#d6a823' && hex6(v.light?.tier) === '#d6a823',
+        seen.ok && hex6(v.dark?.accent) === '#cda206' && hex6(v.dark?.ink) === '#17191d' && hex6(v.light?.accent) === '#4d3a02'
+        && hex6(v.light?.ink) === '#ffffff' && hex6(v.dark?.tier) === '#cda206' && hex6(v.light?.tier) === '#cda206',
         { dark: v.dark, light: v.light })
       // every tier chip is grey on a dark backing in the light themes (styles.css); this lane's too
       p.check('on the light theme a language-server tier chip gets the dark backing every tier chip gets',

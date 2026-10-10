@@ -8020,14 +8020,18 @@ main:has(> .orgbar.native-header) > .error {
 .answered-skipped { font-size: 11px; }
 /* ── THE LANGUAGE SERVER LANE (2026-10-10) ────────────────────────────────
    Agents on the user's own model servers (App settings → Providers →
-   Language Server). One lane colour, gold, kept by coordinator ruling
-   2026-10-10 on condition that its contrast passes in both themes. The
-   per-tier chip and card-edge rules are GENERATED (shared.ts
+   Language Server). One lane colour, gold #cda206 (coordinator rulings
+   2026-10-10: keep the gold if its contrast passes in both themes; then
+   swap #d6a823 for #cda206, ΔE 4.3 away, which clears its neighbours:
+   ΔE 16.3 from --tier-fable #e8b04b, floor 15, where #d6a823 was 12.2; and
+   8.4 or more from every neighbour under simulated protanopia, deuteranopia
+   and tritanopia, floor 8, where #d6a823 was 5.8 from fable and 5.5 from
+   sol). The per-tier chip and card-edge rules are GENERATED (shared.ts
    `langserverTierCss`), since the tiers are the models the user offers.
    ⚠ MEASURED (WCAG 2, 2026-10-10). On the dark surfaces the gold reads at
-   5.88–9.48:1 (charcoal and obsidian bg/panel/panel-2/input). On the light
-   ones it FAILED, at 1.71–2.21:1, and white text on a gold fill fails
-   everywhere (2.21:1). No single colour can pass 4.5:1 on #252526 and on
+   5.43–8.77:1 (charcoal and obsidian bg/panel/panel-2/input). On the light
+   ones it FAILS, at 1.85–2.40:1, and white text on a gold fill fails
+   everywhere (2.40:1). No single colour can pass 4.5:1 on #252526 and on
    #ffffff at once, so:
    - --tier-langserver is the identity colour of the tier chips and card
      edges. It stays gold in every theme, like every other tier colour (on
@@ -8038,11 +8042,8 @@ main:has(> .orgbar.native-header) > .error {
      8.43:1 or more on every light and solarized surface, and ΔE 20.4 from
      the light --warn #805b0b. The plain darker gold sits on --warn.
    - --prov-langserver-ink is the text on an accent fill: dark on the gold
-     (7.95:1), white on the deep gold (10.93:1).
-   Not acted on (the gold was ruled): #d6a823 is ΔE 12.2 from --tier-fable
-   #e8b04b (floor 15) and 5.8 under tritanopia (floor 8). #cda206, ΔE 4.3
-   from it, would clear both. */
-:root { --prov-langserver: #d6a823; --tier-langserver: #d6a823; --prov-langserver-ink: #17191d; }
+     (7.35:1), white on the deep gold (10.93:1). */
+:root { --prov-langserver: #cda206; --tier-langserver: #cda206; --prov-langserver-ink: #17191d; }
 :root:is(.contrast-light, .contrast-solarized-light) { --prov-langserver: #4d3a02; --prov-langserver-ink: #ffffff; }
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
   .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
