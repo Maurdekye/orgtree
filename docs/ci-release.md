@@ -273,8 +273,8 @@ signature, so updates there stay manual.
   - **Setup:** this commit is packaged twice, as N = X.Y.Z and N+1 = X.Y.(Z+1), with
     a loopback feed in place of GitHub's. Nothing else is changed in the app.
   - **Install:** N goes to `~/Applications/Orgtree-<N>.AppImage` and starts with FUSE,
-    a virtual display and systemd --user. There is no agent CLI, so the "No agent
-    harness" notice stays open throughout.
+    a virtual display, systemd --user and umask 0002 as on Ubuntu (N+1 inherits it).
+    There is no agent CLI, so the "No agent harness" notice stays open throughout.
   - **The update itself:** nothing is clicked. The app's own automatic path does the
     rest.
   - **Passes when:**
@@ -283,7 +283,9 @@ signature, so updates there stay manual.
       run from N+1, and nothing of N runs;
     - the engine answers;
     - N's desktop exited cleanly;
-    - `update-log.json` records the in-place handoff and the relaunch.
+    - `update-log.json` records the in-place handoff and the relaunch;
+    - `~/.config/Orgtree v2` and its `data` folder are 0700 and the unit carries
+      `UMask=0077`, at N's start and after N+1's relaunch.
   - **Also reported:** whether the download was differential, and every `systemctl`
     call the app made.
 - Linux: the AppImage's start as on a stock Ubuntu desktop
