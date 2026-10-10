@@ -30,6 +30,7 @@ export function layoutPick(choice: LayoutChoice, plan: TemplatePlan | null): Tem
 }
 
 const PROVIDER_ORDER = ['claude', 'openai', 'google', 'openrouter']
+const SIGN_IN: Record<string, string> = { claude: 'Claude', openai: 'Codex', google: 'Antigravity', openrouter: 'OpenRouter' }
 
 function MiniTree({ t }: { t: TemplateSummary | null }) {
   if (!t) {
@@ -144,7 +145,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
               {a.dirs_dropped.length > 0 && <div className="tp-note">
                 folders not in this organization: {a.dirs_dropped.join(', ')}</div>}
             </td>
-            <td className="dim">{a.account === 'primary' ? `${a.provider} sign-in` : a.account ?? '—'}</td>
+            <td className="dim">{a.account === 'primary' ? `${SIGN_IN[a.provider ?? ''] ?? a.provider} sign-in` : a.account ?? '—'}</td>
             <td><span className="tp-chip">{a.charter}</span></td>
             <td className="num">{a.tier ? (a.depth === 0 ? `${a.grant}` : `${a.seat} + ${a.grant}`) : '—'}</td>
             <td>{a.depth > 0 && <button type="button" className="tp-x" title={`Leave ${a.name} out`}
