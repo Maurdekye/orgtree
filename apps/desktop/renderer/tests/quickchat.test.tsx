@@ -81,6 +81,18 @@ test('the name comes from the message words only, unique, always valid', () => {
   assert.ok(long.length <= 30 && /^[a-z0-9][a-z0-9-]*$/.test(long), long)
 })
 
+test('a colon ends the name: the words before the first one, else the whole message', () => {
+  const none = () => false
+  assert.equal(quickChatName('Release notes: summarise the attached files for the team', none), 'release-notes')
+  assert.equal(quickChatName('Bug triage: login fails: see logs', none), 'bug-triage', 'the FIRST colon')
+  assert.equal(quickChatName('Please fix the parser: it drops commas', none), 'fix-parser', 'filler words still drop')
+  assert.equal(quickChatName(': fix the login bug', none), 'fix-login-bug', 'nothing before it: the old rule')
+  assert.equal(quickChatName('please: fix the login bug', none), 'fix-login-bug', 'only filler before it: the old rule')
+  assert.equal(quickChatName('?? : fix the login bug', none), 'fix-login-bug')
+  assert.equal(quickChatName('Fix the login bug\nnotes: later', none), 'fix-login-bug', 'a colon on a later line leaves the first line')
+  assert.equal(quickChatName('Deploy: now', n => n === 'deploy'), 'deploy-2', 'still unique')
+})
+
 test('the model with no history prefers Opus, then Sol, then Flash, then anything offered', () => {
   assert.equal(quickChatTier(undefined, ['haiku', 'sonnet', 'opus', 'sol']), 'opus')
   assert.equal(quickChatTier(undefined, ['luna', 'sol', 'flash']), 'sol')
@@ -128,6 +140,23 @@ test('the model control shows the id icon, then the icon plus the name the agent
     assert.equal(name(), 'boss-2', 'the preview avoids existing names, like the hire does')
     await click(view.el.querySelector('.quickchat-send'))
     assert.equal(ops[0]!.name, 'boss-2', 'the preview is the name given')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('with a colon the preview and the hire use the words before it; the agent gets the whole prompt', async () => {
+  localStorage.clear(); providers(['claude'])
+  const ops: OpRequest[] = [], hired: string[] = []
+  const view = await mount(ops, hired)
+  try {
+    const box = view.el.querySelector<HTMLInputElement>('.quickchat-input')!
+    const prompt = 'Release notes: summarise the attached files for the team'
+    await type(box, prompt)
+    await wait(200)
+    assert.equal(view.el.querySelector('.quickchat-model .quickchat-name')?.textContent, 'release-notes')
+    await enter(box)
+    assert.equal(ops[0]!.name, 'release-notes')
+    assert.equal((ops[0] as { kickoff?: string }).kickoff, prompt, 'the prompt is sent whole')
+    assert.deepEqual(hired, ['release-notes'])
   } finally { await view.unmount(); localStorage.clear() }
 })
 

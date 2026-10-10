@@ -119,15 +119,26 @@ const RESERVED = new Set(['user', 'system', 'engine', 'org', 'net'])
 const MAX_WORDS = 3
 const MAX_LEN = 30
 
+/** the lowercase ascii words of a text's first line */
+function lineWords(text: string): string[] {
+  const firstLine = text.trim().split(/\r?\n/)[0] ?? ''
+  return firstLine.toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .split(/[^a-z0-9]+/).filter(Boolean)
+}
+
 /** THE NAME RULE (user 2026-10-09 22:34Z): from the message's words only, no
  *  model in it. Up to three meaningful words of the first line, lowercase,
  *  joined by '-', at most 30 characters; `taken` makes it unique with a
- *  numeric suffix. Always a name the engine's `valid_name` accepts. */
+ *  numeric suffix. Always a name the engine's `valid_name` accepts.
+ *  A COLON ENDS THE NAME (user 2026-10-10): with a colon in the message the
+ *  words come from the text before the first one ("release notes: summarise
+ *  them" → release-notes); with no meaningful word before it (nothing, or only
+ *  filler like "please:"), the rule above applies to the whole message. The message itself is always sent whole. */
 export function quickChatName(message: string, taken: (name: string) => boolean): string {
-  const firstLine = message.trim().split(/\r?\n/)[0] ?? ''
-  const words = firstLine.toLowerCase()
-    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
-    .split(/[^a-z0-9]+/).filter(Boolean)
+  const colon = message.indexOf(':')
+  const head = colon >= 0 ? lineWords(message.slice(0, colon)) : []
+  const words = head.some(w => !STOP.has(w)) ? head : lineWords(message)
   const meaningful = words.filter(w => !STOP.has(w))
   const pick = (meaningful.length ? meaningful : words).slice(0, MAX_WORDS)
   let base = ''
