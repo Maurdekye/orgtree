@@ -153,6 +153,13 @@ const tierTitle = (t: ProviderTier): string =>
 const CHIP_DESELECT = 'click to deselect: it can no longer be hired; agents already on it keep running'
 const CHIP_RESELECT = 'click to select it again'
 
+/** the chips already shown keep their places (the current record of each
+ *  favorite, or the last one seen of a deselected model); new favorites follow */
+const keepPlaces = (prev: ProviderTier[], tiers: ProviderTier[]): ProviderTier[] => {
+  const now = new Map(tiers.map((t) => [t.model, t]))
+  return [...prev.map((t) => now.get(t.model) ?? t), ...tiers.filter((t) => !prev.some((p) => p.model === t.model))]
+}
+
 /** the whole section: head (label, switch), key row, favorites row, picker */
 export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   setPickerOpen, onChanged }: {
@@ -205,15 +212,11 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   const harness = doc?.harness
   const favorites = doc?.tiers ?? []
   // the chips as shown since the section opened: a model deselected here or in
-  // the picker keeps its place, dimmed, and a new favorite joins at the end
-  const [shown, setShown] = useState<ProviderTier[]>([])
-  useEffect(() => {
-    if (!doc) return
-    setShown((prev) => {
-      const now = new Map(doc.tiers.map((t) => [t.model, t]))
-      return [...prev.map((t) => now.get(t.model) ?? t), ...doc.tiers.filter((t) => !prev.some((p) => p.model === t.model))]
-    })
-  }, [doc])
+  // the picker keeps its place, dimmed, and a new favorite joins at the end.
+  // Merged while rendering too, so the first paint already has every chip.
+  const [seen, setSeen] = useState<ProviderTier[]>([])
+  useEffect(() => { if (doc) setSeen((prev) => keepPlaces(prev, doc.tiers)) }, [doc])
+  const shown = keepPlaces(seen, favorites)
   const standing = doc ? standingOf(doc) : []
   // line 1's verdict word, and the tone it reads in
   const verdict = doc?.connected ? 'connected'
