@@ -11,7 +11,7 @@
 //   llm.requests       → every request seen (path, auth headers, model, tools, …)
 //   await llm.close()
 //
-//   node tools/rig/fakellm.mjs [--port N] [--log file]   (prints "listening <url>")
+//   node tools/rig/fakellm.mjs [--port N] [--log file] [--bodies dir]   (prints "listening <url>")
 //
 // THE SCRIPT. `rules` are tried in order against each inference request;
 // the first whose `match` substrings all occur in the request's LAST user
@@ -23,6 +23,12 @@
 //   { match: ['TOKEN'], text: 'Slow', delay_ms: 3000 }   (a slow server: waits before answering)
 // `tool` names the orgtree tool; the fake calls it by whatever name the
 // harness offered it under (Claude Code: `mcp__orgtree__orgtree_status`).
+//
+// `bodies: '<dir>'` also writes every inference request's whole body there
+// (`<n>-messages.json`, `<n>-responses.json`), for checks on exactly what a
+// harness sent. A model's `num_ctx` is the window its Modelfile sets (shown
+// by /api/show like Ollama shows it); `POST /api/create` (`from` +
+// `parameters`) adds a model the way Ollama does, and is logged.
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -34,11 +40,20 @@ const MODEL = 'fake-model:latest'
 const id = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`
 
 export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool = { text: 'Done.' },
-  models = [{ name: MODEL, context: 131072, running: 65536 }] } = {}) {
+  models = [{ name: MODEL, context: 131072, running: 65536 }], bodies = null } = {}) {
+  models = models.map((m) => ({ ...m }))
   const requests = []
   const note = (r) => {
     requests.push(r)
     if (log) fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), ...r }) + '\n')
+  }
+  let bodyCount = 0
+  const keepBody = (api, b) => {
+    if (!bodies) return null
+    fs.mkdirSync(bodies, { recursive: true })
+    const file = path.join(bodies, `${String(++bodyCount).padStart(3, '0')}-${api}.json`)
+    fs.writeFileSync(file, JSON.stringify(b ?? null, null, 1))
+    return path.basename(file)
   }
   const server = http.createServer((req, res) => {
     const chunks = []
@@ -79,7 +94,21 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     if (p === '/api/show') {
       const m = models.find((x) => x.name === body?.model)
       if (!m) return json(res, 404, { error: `model '${body?.model}' not found` })
-      return json(res, 200, { model_info: { 'fake.context_length': m.context }, capabilities: m.capabilities ?? ['completion', 'tools'] })
+      // Ollama lists a Modelfile's parameters as aligned "name value" lines
+      const params = [m.num_ctx ? `num_ctx                        ${m.num_ctx}` : null,
+        'stop                           "<|im_end|>"'].filter(Boolean).join('\n')
+      return json(res, 200, { model_info: { 'fake.context_length': m.context }, parameters: params,
+        capabilities: m.capabilities ?? ['completion', 'tools'] })
+    }
+    if (p === '/api/create' && req.method === 'POST') {
+      note({ path: p, method: req.method, model: body?.model ?? null, from: body?.from ?? null,
+        parameters: body?.parameters ?? null, stream: body?.stream ?? null })
+      const from = models.find((x) => x.name === body?.from)
+      if (!body?.model) return json(res, 400, { error: 'model is required' })
+      if (!from) return json(res, 404, { error: `model '${body?.from}' not found` })
+      const made = { ...from, name: body.model, running: null, num_ctx: body.parameters?.num_ctx ?? from.num_ctx }
+      models = [...models.filter((x) => x.name !== made.name), made]
+      return json(res, 200, { status: 'success' })
     }
     if (p === '/api/ps') {
       return json(res, 200, { models: models.filter((m) => m.running).map((m) => ({ name: m.name, model: m.name, context_length: m.running })) })
@@ -117,7 +146,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     // a slow server: the rule's delay before anything is sent
     if (reply.delay_ms && !waited) { setTimeout(() => messages(req, res, b, true), reply.delay_ms); return }
     note({ path: '/v1/messages', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
-      body_chars: JSON.stringify(b ?? {}).length,
+      body_chars: JSON.stringify(b ?? {}).length, body_file: keepBody('messages', b),
       max_tokens: b?.max_tokens ?? null, thinking: b?.thinking ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, system_chars: system.length,
       messages: msgs.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
@@ -160,7 +189,9 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const reply = pick(lastText, toolResult)
     if (reply.delay_ms && !waited) { setTimeout(() => responses(req, res, b, true), reply.delay_ms); return }
     note({ path: '/v1/responses', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
-      body_chars: JSON.stringify(b ?? {}).length,
+      body_chars: JSON.stringify(b ?? {}).length, body_file: keepBody('responses', b),
+      // each tool as type:name — a `custom` tool (freeform apply_patch) is one Ollama refuses
+      tool_types: (b?.tools ?? []).filter((t) => !String(t.name ?? '').includes('orgtree_')).map((t) => `${t.type}:${t.name ?? ''}`),
       store: b?.store ?? null, reasoning: b?.reasoning ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, instructions_chars: String(b?.instructions ?? '').length,
       items: input.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
@@ -219,6 +250,6 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : undefined }
-  const llm = await startFakeLlm({ port: Number(arg('--port') ?? 0), log: arg('--log') ?? null })
+  const llm = await startFakeLlm({ port: Number(arg('--port') ?? 0), log: arg('--log') ?? null, bodies: arg('--bodies') ?? null })
   console.log(`listening ${llm.url}`)
 }
