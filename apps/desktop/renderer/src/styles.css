@@ -6605,16 +6605,20 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    `--chip-lane` is the lane's colour: OpenRouter's, the gold on a server. */
 .orr-toggles { --chip-lane: var(--prov-openrouter); cursor: default; }
 .orr-toggles:hover, .orr-toggles:focus-visible { border-color: var(--line); background: transparent; }
-.orr-tog, .orr-more { min-height: 32px; padding: 2px 8px 2px 3px; color: inherit; font: inherit;
-  font-size: 12px; cursor: pointer; }
-.orr-tog:not(.on) { opacity: .55; border-style: dashed; background: transparent; }
-.orr-tog:hover, .orr-tog:focus-visible, .orr-more:hover, .orr-more:focus-visible, .orr-more.on {
+/* the row's class in front of every chip rule: App settings' `.settings button`
+   (14px text, 7px 15px padding) outranks a single class, and blew the chips up
+   to 40px (rig screenshot 2026-10-10) */
+.orr-toggles .orr-tog, .orr-toggles .orr-more { min-height: 32px; padding: 2px 8px 2px 3px; border-radius: 8px;
+  color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.orr-toggles .orr-tog:not(.on) { opacity: .55; border-style: dashed; background: transparent; }
+.orr-toggles .orr-tog:hover, .orr-toggles .orr-tog:focus-visible, .orr-toggles .orr-more:hover,
+.orr-toggles .orr-more:focus-visible, .orr-toggles .orr-more.on {
   opacity: 1; outline: none; border-color: var(--chip-lane);
   background: color-mix(in srgb, var(--chip-lane) 12%, var(--panel)); }
-.orr-tog:not(.on):hover, .orr-tog:not(.on):focus-visible { opacity: .85; }
-.orr-tog:disabled { cursor: progress; }
+.orr-toggles .orr-tog:not(.on):hover, .orr-toggles .orr-tog:not(.on):focus-visible { opacity: .85; }
+.orr-toggles .orr-tog:disabled { cursor: progress; }
 .orr-toggles.icons .orr-tog { padding: 2px; }
-.orr-more { justify-content: center; min-width: 32px; padding: 2px 9px; border-style: dashed;
+.orr-toggles .orr-more { justify-content: center; min-width: 32px; padding: 2px 9px; border-style: dashed;
   color: var(--dim); font-weight: 600; }
 .orr-more-text { font-weight: 400; }
 .orr-search { width: 100%; box-sizing: border-box; }
