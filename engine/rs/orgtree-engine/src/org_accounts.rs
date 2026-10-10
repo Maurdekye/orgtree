@@ -32,7 +32,9 @@ pub fn ids_of(v: &Value) -> HashSet<String> {
     v.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).take(MAX_IDS).collect()
 }
 
-/// Read every org's list (at boot, and after a bulk change).
+/// Read every org's list (at boot, and after a bulk change). Capped at
+/// 10000 orgs with a list: past that, the rest load as "everything allowed"
+/// until their settings are next saved (`set`).
 #[logged]
 pub async fn load(engine: &Engine) -> anyhow::Result<()> {
     let client = engine.db.get().await?;
@@ -53,13 +55,16 @@ pub async fn load(engine: &Engine) -> anyhow::Result<()> {
 /// One org's list changed (its settings were saved).
 #[logged]
 pub fn set(org_slug: &str, ids: HashSet<String>) {
-    let mut sets: Sets = (**DISABLED.load()).clone();
-    if ids.is_empty() {
-        sets.remove(org_slug);
-    } else {
-        sets.insert(org_slug.to_string(), ids);
-    }
-    DISABLED.store(Arc::new(sets));
+    // compare-and-swap: two orgs saving at once must not drop each other's list
+    DISABLED.rcu(|cur| {
+        let mut sets: Sets = (**cur).clone();
+        if ids.is_empty() {
+            sets.remove(org_slug);
+        } else {
+            sets.insert(org_slug.to_string(), ids.clone());
+        }
+        sets
+    });
 }
 
 /// May `org_slug` use the lane `lane`? `None` is the user's own app surface,
@@ -211,12 +216,19 @@ pub async fn leave(engine: &Arc<Engine>, org_id: i64, org_slug: &str, agent_id: 
             }
         }
     }
-    let provider = catalog::provider_of(tier);
-    let error = format!(
-        "{lane} is not used by the org {org_slug}, and it allows no other {} account this agent could run on; \
-         tick one in Org settings › Accounts (or move the agent to another tier)",
-        catalog::provider_label(provider)
-    );
+    let error = if lane == catalog::OPENROUTER {
+        format!("this org ({org_slug}) does not use the OpenRouter lane; \
+                 tick it in Org settings › Accounts (or move the agent to another tier)")
+    } else if let Some(server) = lane.strip_prefix("langserver:") {
+        format!("this org ({org_slug}) does not use the language server {server}; \
+                 tick it in Org settings › Accounts (or move the agent to another tier)")
+    } else {
+        format!(
+            "{lane} is not used by the org {org_slug}, and it allows no other {} account this agent could run on; \
+             tick one in Org settings › Accounts (or move the agent to another tier)",
+            catalog::provider_label(catalog::provider_of(tier))
+        )
+    };
     let rec = json!({ "at": crate::util::now_iso(), "until": null, "error": error, "limit": false, "cause": CAUSE,
                       "account": lane,
                       "wake_text": "Your org's account list now has an account for you. Continue where you left off." });
@@ -263,24 +275,35 @@ async fn to_primary(engine: &Arc<Engine>, org_id: i64, agent_id: i64, why: &str)
 /// nothing is allowed).
 #[logged]
 pub async fn recheck(engine: &Arc<Engine>, org_id: i64) {
-    let rows: anyhow::Result<Vec<tokio_postgres::Row>> = async {
-        let c = engine.db.get().await?;
-        Ok(c.query(
-            "SELECT id, frozen FROM ot.agents WHERE org_id = $1 AND state = 'live' AND frozen ->> 'cause' = $2 LIMIT 500",
-            &[&org_id, &CAUSE],
-        ).await?)
-    }.await;
-    let rows = match rows {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(org = org_id, error = %format!("{e:#}"), "agents frozen for want of an allowed account could not be read");
-            return;
+    // bounded batches in id order until none are left; the cursor moves past
+    // an agent that could not be released, so it is never read twice
+    let mut after = 0i64;
+    loop {
+        let rows: anyhow::Result<Vec<tokio_postgres::Row>> = async {
+            let c = engine.db.get().await?;
+            Ok(c.query(
+                "SELECT id, frozen FROM ot.agents WHERE org_id = $1 AND state = 'live' AND frozen ->> 'cause' = $2 AND id > $3
+                 ORDER BY id LIMIT 500",
+                &[&org_id, &CAUSE, &after],
+            ).await?)
+        }.await;
+        let rows = match rows {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(org = org_id, error = %format!("{e:#}"), "agents frozen for want of an allowed account could not be read");
+                return;
+            }
+        };
+        let done = rows.len() < 500;
+        for r in rows {
+            let (id, rec): (i64, Value) = (r.get(0), r.get(1));
+            after = id;
+            if let Err(e) = crate::runtime::freeze::thaw_matching(engine, org_id, id, Some(&rec)).await {
+                tracing::warn!(agent = id, error = %format!("{e:#}"), "could not release an agent frozen for want of an allowed account");
+            }
         }
-    };
-    for r in rows {
-        let (id, rec): (i64, Value) = (r.get(0), r.get(1));
-        if let Err(e) = crate::runtime::freeze::thaw_matching(engine, org_id, id, Some(&rec)).await {
-            tracing::warn!(agent = id, error = %format!("{e:#}"), "could not release an agent frozen for want of an allowed account");
+        if done {
+            return;
         }
     }
 }

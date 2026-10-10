@@ -329,8 +329,10 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     if let Some(ids) = patch.get(crate::org_accounts::KEY) {
         crate::org_accounts::set(&o.slug, crate::org_accounts::ids_of(ids));
         // an agent bound to a lane switched off moves at its next turn; one
-        // frozen because nothing was left is let go to look again
-        crate::org_accounts::recheck(&e, o.id).await;
+        // frozen because nothing was left is let go to look again (off the
+        // save's own path: the reply does not wait for it)
+        let (eng, org_id) = (e.clone(), o.id);
+        tokio::spawn(async move { crate::org_accounts::recheck(&eng, org_id).await });
         crate::accounts::publish(&e);
     }
     let eff = effective_settings(&stored, &e.settings.defaults());
