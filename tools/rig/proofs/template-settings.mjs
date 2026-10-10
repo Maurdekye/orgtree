@@ -23,6 +23,9 @@ export default async function (rig) {
   const tpDir = path.join(rig.data, 'rig-home', '.orgtree', 'templates')
   const read = (f) => JSON.parse(fs.readFileSync(path.join(tpDir, f), 'utf8'))
   const settingsOf = (slug) => rig.one(`SELECT settings AS s FROM ot.orgs WHERE slug = '${slug}' AND state = 'active'`)?.s ?? null
+  // jsonb keeps no key order: compare as sorted JSON
+  const canon = (v) => JSON.stringify(v, (_, x) => x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x)
   const attempt = (f) => f.then((r) => ({ ok: true, r }), (e) => ({ ok: false, status: e.status, detail: e.body?.detail ?? e.message }))
   for (let i = 0; i < 120; i++) {
     const tiers = (await rig.api('GET', `/api/orgs/${rig.org}/staffing-options`)).tiers.map((t) => t.tier)
@@ -44,7 +47,7 @@ export default async function (rig) {
   const keys = Object.keys(f1?.settings ?? {}).sort()
   p.check('1 Save as template keeps exactly the org-set portable settings',
     s1.ok && JSON.stringify(keys) === JSON.stringify(Object.keys(set).sort())
-      && Object.entries(set).every(([k, v]) => JSON.stringify(f1.settings[k]) === JSON.stringify(v)), { settings: f1?.settings })
+      && Object.entries(set).every(([k, v]) => canon(f1.settings[k]) === canon(v)), { settings: f1?.settings })
   const raw = s1.ok ? fs.readFileSync(path.join(tpDir, 'settings-layout.json'), 'utf8') : ''
   p.check('1 nothing of this computer: no folders, account for new agents, disabled accounts or hubs anywhere in the file',
     s1.ok && !raw.includes(work.replace(/\\/g, '\\\\')) && !/"dirs"|default_account|disabled_accounts|net_hub/.test(raw), { len: raw.length })
@@ -56,7 +59,7 @@ export default async function (rig) {
   const c = await attempt(rig.api('POST', '/api/orgs', { name: 'From Settings', dirs: [], template: { id: 'settings-layout' } }))
   const got = settingsOf('from-settings')
   p.check('2 the new org has the template settings',
-    c.ok && got && Object.entries(set).every(([k, v]) => JSON.stringify(got[k]) === JSON.stringify(v)), { c: c.ok ? c.r.slug : c, got })
+    c.ok && got && Object.entries(set).every(([k, v]) => canon(got[k]) === canon(v)), { c: c.ok ? c.r.slug : c, got })
   p.check('2 and no folders or account binding from the source org',
     c.ok && JSON.stringify(got?.dirs) === '[]' && !('default_account' in (got ?? {})), got)
 
