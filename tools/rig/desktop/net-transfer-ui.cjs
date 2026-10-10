@@ -26,7 +26,7 @@ module.exports = async (page,{args}) => {
   await page.click({selector:'.desk-tabpanel '+card(args.mine)+' button',text:'Cancel transfer'})
   await page.waitFor('.desk-tabpanel '+card(args.mine)+'[data-transfer-state="cancelled"]')
   await page.click({selector:'.desk-tabpanel '+card(args.mine)+' button',text:'Remove file and send'})
-  await page.waitFor('.desk-tabpanel '+card(args.mine),{gone:true})
+  await page.waitFor('.desk-tabpanel '+card(args.mine)+'[data-transfer-state="removed"]')
   await page.screenshot('agent-inbox-removed')
   return {progress,visible,retryCancelRemove:true}
 }
