@@ -15,8 +15,10 @@ on:
 
 permissions: {contents: read}
 
+# TEST ONLY (never merge): the published v4.1.3 AppImage, strict, all four starts.
 env:
-  CHECK_TAG: v4.1.1
+  CHECK_TAG: v4.1.3
+  DESKTOP_CHECK_EXPECT_PRIVATE: '1'
 
 jobs:
   check:
@@ -57,6 +59,10 @@ jobs:
       - name: Desktop-like start - autostart fallback (systemctl --user fails)
         if: success() || failure()
         run: bash .github/ci/linux/desktop-check.sh dl/Orgtree-*.AppImage build/desktop-check/autostart autostart
+
+      - name: Desktop-like start - ~/.config writable by the group (refused with the fix, then fixed)
+        if: success() || failure()
+        run: bash .github/ci/linux/desktop-check.sh dl/Orgtree-*.AppImage build/desktop-check/unsafe-config unsafe-config
 
       - name: Logs on failure
         if: failure()
