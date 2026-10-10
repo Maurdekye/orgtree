@@ -23,6 +23,7 @@ export default async function (rig) {
       const r = await runDesktop(rig, path.join(here, '../desktop/effort-selects.cjs'), { args: { org: rig.org, theme, agent: 'eve' }, out: path.join(evidence, theme), timeout: 150000 })
       const v = r.value ?? {}
       p.check(`${theme}: agent settings shows the bar, not a dropdown (shots in ${evidence})`, r.ok !== false && (v.agentRest ?? []).length > 0, JSON.stringify(r).slice(0, 600))
+      p.check(`${theme}: hovering does not move the pip`, v.pipBefore != null && v.pipBefore === v.pipHover, [v.pipBefore, v.pipHover])
       p.check(`${theme}: a click between dots sets a level; a second click on it clears to inherit`,
         !!v.agentAfterClick?.[0]?.pinned && v.agentAfterClear?.[0]?.pinned === '', v)
       p.check(`${theme}: the org default is the bar too`, Array.isArray(v.orgDefault) && v.orgDefault.length > 0, v.orgDefault)

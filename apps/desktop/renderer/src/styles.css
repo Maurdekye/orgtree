@@ -5804,29 +5804,33 @@ svg.MuiSvgIcon-root {
 .effort-bar { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; flex: none; align-self: center; }
 .effort-bar-label { font-size: 11px; color: var(--dim); white-space: nowrap; text-align: center; }
 .effort-bar-track {
-  position: relative; width: 132px; height: 24px; cursor: pointer; touch-action: none;
-  border-radius: 6px; outline: none; user-select: none;
+  position: relative; width: 140px; height: 24px; cursor: pointer; touch-action: none;
+  border-radius: 12px; outline: none; user-select: none;
 }
 .effort-bar.compact .effort-bar-track { width: 96px; height: 100%; min-height: 24px; }
 .effort-bar.compact { flex-direction: row; align-self: stretch; }
 .effort-bar-track:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--provider-accent, var(--accent)) 55%, transparent); }
 .effort-bar.disabled .effort-bar-track { cursor: default; opacity: .5; }
 .effort-bar-rail, .effort-bar-fill {
-  position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px;
+  position: absolute; top: 50%; height: 20px; margin-top: -10px; border-radius: 10px;
 }
-.effort-bar-rail { left: 8px; right: 8px; background: #3f3f46; }
-.effort-bar-fill { left: 8px; background: var(--provider-accent, var(--accent)); }
-.effort-bar.inherited .effort-bar-fill { opacity: .45; }
+.effort-bar-rail { left: 0; right: 0; background: #3f3f46; }
+.effort-bar-fill { left: 0; background: color-mix(in srgb, var(--provider-accent, var(--accent)) 55%, #3f3f46); }
+.effort-bar.inherited .effort-bar-fill { opacity: .6; }
 .effort-bar-dot {
-  position: absolute; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
-  background: #5a5a63; pointer-events: none;
+  position: absolute; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%;
+  background: #6b6b75; pointer-events: none;
 }
-.effort-bar-dot.below { background: var(--provider-accent, var(--accent)); }
-.effort-bar-dot.on {
-  width: 14px; height: 14px; margin: -7px 0 0 -7px; background: #d9d9e8;
-  box-shadow: 0 0 0 2px var(--panel-2, #1d1d22), 0 0 0 3px var(--provider-accent, var(--accent));
+.effort-bar-dot.below { background: color-mix(in srgb, var(--provider-accent, var(--accent)) 35%, #fff); }
+/* the pip sits INSIDE the bar (12px in a 20px rail); it moves only on a press or drag, and glides when it does */
+.effort-bar-pip {
+  position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: #f1f1f8; pointer-events: none; box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  transition: left .15s ease-in-out;
 }
-.effort-bar-track:hover .effort-bar-dot.on, .effort-bar.dragging .effort-bar-dot.on { background: #fff; }
+.effort-bar-fill { transition: width .15s ease-in-out; }
+.effort-bar.dragging .effort-bar-pip, .effort-bar.dragging .effort-bar-fill { transition: none; }
+@media (prefers-reduced-motion: reduce) { .effort-bar-pip, .effort-bar-fill { transition: none; } }
 
 /* №12: read-only bearer transcript inside the lineage panel */
 .lin-read {
@@ -8077,7 +8081,7 @@ main:has(> .orgbar.native-header) > .error {
   background: var(--accent); color: var(--panel); font-size: 10px; font-weight: 700;
 }
 .quickchat .effort-bar.compact { align-self: center; }
-.quickchat .effort-bar.compact .effort-bar-track { width: 72px; height: 22px; min-height: 22px; }
+.quickchat .effort-bar.compact .effort-bar-track { width: 84px; height: 22px; min-height: 22px; }
 .quickchat-pop {
   position: fixed;
   z-index: 1000;

@@ -28,6 +28,14 @@ module.exports = async (page, { args }) => {
   await page.sleep(300)
   await page.screenshot('agent-settings-rest')
   out.agentRest = await bars()
+  // hover must not move the pip
+  const pipX = () => page.eval(() => { const p = [...document.querySelectorAll('.effort-bar-pip')].pop(); return p ? Math.round(p.getBoundingClientRect().left) : null })
+  const hb = await page.eval(() => { const t = [...document.querySelectorAll('.effort-bar-track')].pop(); const b = t.getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2, w: b.width } })
+  out.pipBefore = await pipX()
+  await page.hover({ x: hb.x + hb.w * 0.95, y: hb.y })
+  await page.sleep(400)
+  out.pipHover = await pipX()
+  await page.screenshot('agent-settings-hover')
   // click a level anywhere along the bar (between dots): selects the nearest
   const r = await page.eval(() => { const t = [...document.querySelectorAll('.effort-bar-track')].pop(); const b = t.getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2, w: b.width } })
   await page.click({ x: r.x + r.w * 0.8, y: r.y })

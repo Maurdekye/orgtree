@@ -43,11 +43,11 @@ export function EffortBar({ value, level, label, title, onSet, disabled, compact
   const moved = useRef(false)
   const at = (e: PointerEvent): number => {
     const r = track.current?.getBoundingClientRect()
-    if (!r || r.width <= 16) return Math.max(idx, 0)
-    return nearestLevel((e.clientX - r.left - 8) / (r.width - 16))
+    if (!r || r.width <= 20) return Math.max(idx, 0)
+    return nearestLevel((e.clientX - r.left - 10) / (r.width - 20))
   }
   const preview = drag ?? hover
-  const shown = preview ?? idx
+  const shown = drag ?? idx
   const name = EFFORT_LEVELS[shown] ?? ''
   const text = preview !== null && EFFORT_LEVELS[preview]
     ? `Effort (${EFFORT_LEVELS[preview]})`
@@ -65,7 +65,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled, compact
     e.preventDefault()
     if (next !== pinned) onSet(EFFORT_LEVELS[next]!)
   }
-  const pct = (i: number) => `calc(8px + (100% - 16px) * ${i / (EFFORT_LEVELS.length - 1)})`
+  const pct = (i: number) => `calc(10px + (100% - 20px) * ${i / (EFFORT_LEVELS.length - 1)})`
   return (
     <div className={'effort-bar' + (compact ? ' compact' : '') + (disabled ? ' disabled' : '') + (drag !== null ? ' dragging' : '')
       + (pinned < 0 ? ' inherited' : '')} title={compact && preview !== null ? text : title}>
@@ -99,11 +99,11 @@ export function EffortBar({ value, level, label, title, onSet, disabled, compact
         }}
         onPointerCancel={() => setDrag(null)}>
         <span className="effort-bar-rail" />
-        {shown >= 0 && <span className="effort-bar-fill" style={{ width: `calc((100% - 16px) * ${shown / (EFFORT_LEVELS.length - 1)})` }} />}
+        {shown >= 0 && <span className="effort-bar-fill" style={{ width: `calc(10px + (100% - 20px) * ${shown / (EFFORT_LEVELS.length - 1)})` }} />}
         {EFFORT_LEVELS.map((l, i) => (
-          <span key={l} className={'effort-bar-dot' + (i === shown ? ' on' : '') + (i < shown ? ' below' : '')}
-            style={{ left: pct(i) }} data-level={l} />
+          <span key={l} className={'effort-bar-dot' + (i < shown ? ' below' : '')} style={{ left: pct(i) }} data-level={l} />
         ))}
+        {shown >= 0 && <span className="effort-bar-pip" style={{ left: pct(shown) }} data-level={EFFORT_LEVELS[shown]} />}
       </div>
     </div>
   )
