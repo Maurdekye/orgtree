@@ -3143,7 +3143,7 @@ impl Actor {
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                         let input = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
                         if let Some(tools) = row["tools"].as_array_mut() {
-                            tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input }));
+                            tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": now_iso() }));
                         }
                         t.tools.insert(id.clone(), key.clone());
                         (*seq, row.clone())
@@ -3177,6 +3177,7 @@ impl Actor {
                                 }
                                 chip["result"] = json!(clipped);
                                 chip["result_lines"] = json!(result.lines().count());
+                                chip["ended_at"] = json!(now_iso());
                                 if truncated {
                                     chip["truncated"] = json!(true);
                                 }
@@ -3306,7 +3307,7 @@ impl Actor {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                         let chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input),
-                            "input": input, "input_source": input_source });
+                            "input": input, "input_source": input_source, "started_at": now_iso() });
                         if let Some(tools) = row["tools"].as_array_mut() {
                             tools.push(chip);
                         }
@@ -3332,6 +3333,7 @@ impl Actor {
                             chip["input_source"] = json!(input_source);
                             chip["result"] = json!(clipped);
                             chip["result_lines"] = json!(text.lines().count());
+                            chip["ended_at"] = json!(now_iso());
                             if truncated {
                                 chip["truncated"] = json!(true);
                             }
@@ -3615,7 +3617,7 @@ impl Actor {
                         let name = block["name"].as_str().unwrap_or("tool").to_string();
                         crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
                         let input = block["input"].clone();
-                        let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input });
+                        let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": now_iso() });
                         if name == "TodoWrite" {
                             chip["todos"] = input["todos"].clone();
                         }
@@ -3676,6 +3678,7 @@ impl Actor {
                     for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(tid.as_str())) {
                         chip["result"] = json!(clipped);
                         chip["result_lines"] = json!(text.lines().count());
+                            chip["ended_at"] = json!(now_iso());
                         if truncated {
                             chip["truncated"] = json!(true);
                         }
