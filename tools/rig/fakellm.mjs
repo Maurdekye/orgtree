@@ -41,7 +41,8 @@
 // once), and the model then runs at its `num_ctx` (else 4096); a model with
 // `load_error` answers 500 with that text instead, the way Ollama reports a
 // load that failed. Both ends of a load are logged (phase start, then loaded
-// or failed). `llm.add({ name, ... })` adds a model while the server runs.
+// or failed, or client-gone when the client drops the request first and the
+// load is given up). `llm.add({ name, ... })` adds a model while the server runs.
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -145,7 +146,13 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
         return json(res, 200, { model: m.name, created_at: new Date().toISOString(), response: '', done: true, done_reason: 'load' })
       }
       if (m.running && !m.load_error) return finish()
-      setTimeout(finish, m.load_ms ?? 0)
+      const timer = setTimeout(finish, m.load_ms ?? 0)
+      // a client that goes before the load ends (Ollama then gives the load up)
+      res.on('close', () => {
+        if (res.writableFinished) return
+        clearTimeout(timer)
+        note({ path: p, method: req.method, phase: 'client-gone', model: m.name })
+      })
       return
     }
     if (p === '/v1/models') return json(res, 200, { object: 'list', data: models.map((m) => ({ id: m.name, object: 'model' })) })

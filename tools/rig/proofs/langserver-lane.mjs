@@ -45,7 +45,8 @@
 //   8e. Ollama loads the model before the CLI starts: /api/ps, then a load-only request
 //       that waits out the whole load (--load-ms, 45 s by default; over 6 minutes for the
 //       hand-in), "loading model on <server>" on the desk meanwhile, then Claude Code; a
-//       load that fails fails the turn with Ollama's own words, once, and tells the user.
+//       load that fails fails the turn with Ollama's own words, once, and tells the user;
+//       a halt during a load drops the load request and frees the server's slot.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/langserver-lane.mjs [--ui <dir>] [--load-ms N]
 
 import { spawn } from 'node:child_process'
@@ -118,6 +119,7 @@ export default async function (rig, { flags = {} } = {}) {
       { match: ['PROOF-LS-WARM2'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-WARM2-DONE' } },
       { match: ['PROOF-LS-WARM'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-WARM-DONE' } },
       { match: ['PROOF-LS-BROKEN'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-BROKEN-DONE' } },
+      { match: ['PROOF-LS-AFTERHALT'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-AFTERHALT-DONE' } },
     ],
   })
   try {
@@ -485,7 +487,29 @@ export default async function (rig, { flags = {} } = {}) {
       && seen3.some(r => r.path === '/api/generate' && r.phase === 'failed') && !seen3.some(r => r.path === '/v1/messages' && r.model === BROKEN)
       && told.length === 1 && told[0].body.includes(OOM) && rig.turns('lsbroken').length === 0,
       { last_error: errK, requests: brief(seen3), told, turns: rig.turns('lsbroken') })
-    p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex|lsslow|lsbroken|lscross|lssame|language-server|reprice/ })
+    // a halt during the load gives it up (coordinator note 10:25Z): the request is dropped, the
+    // server sees its client go, the desk's words clear, and the server's one slot is free again
+    const STOPPY = 'stoppy-model:latest'
+    llm.add({ name: STOPPY, context: 131072, num_ctx: 65536, load_ms: 600000 })
+    const dst = await rig.api('PATCH', `/api/langservers/${dsv.server?.id}`, { models: [{ id: STOPPY, offered: true, context: 65536 }] })
+    await rig.op({ op: 'hire', name: 'lshalt', tier: dst.server?.models?.[STOPPY]?.tier, grant: 1, title: 'halted while its model loads' })
+    const mark4 = llm.requests.length
+    await rig.userMail('lshalt', 'PROOF-LS-HALT: report done with orgtree_status.')
+    const loading4 = await rig.waitFor(async () => (await detail('lshalt'))?.loading_model ?? null,
+      { what: 'lshalt\'s model to start loading', timeout: 60000, every: 300 }).catch(() => null)
+    await rig.op({ op: 'halt', nodes: ['lshalt'] })
+    const gone = await rig.waitFor(() => llm.requests.slice(mark4).find(r => r.path === '/api/generate' && r.phase === 'client-gone' && r.model === STOPPY) ?? null,
+      { what: 'the load request to be dropped', timeout: 30000, every: 250 }).catch(() => null)
+    const after4 = await detail('lshalt')
+    await rig.userMail('lsslow', 'PROOF-LS-AFTERHALT: report done with orgtree_status.')
+    const freed = await rig.waitFor(() => (status('lsslow')?.summary === 'PROOF-LS-AFTERHALT-DONE' ? true : null),
+      { what: 'a turn on the same one-at-a-time server after the halt', timeout: 120000, every: 1000 }).catch(() => false)
+    await turnOver('lsslow')
+    p.check('8e. halting an agent while its model loads drops the load request (the server sees its client go), clears the desk\'s words, and frees the server\'s slot',
+      loading4 === 'loading model on Fake slow (Claude Code)' && !!gone && (after4?.loading_model ?? null) === null && freed === true
+      && !llm.requests.slice(mark4).some(r => r.path === '/v1/messages' && r.model === STOPPY),
+      { loading4, gone, after: after4?.loading_model ?? null, next_turn_on_the_server: freed })
+    p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex|lsslow|lsbroken|lscross|lssame|lshalt|language-server|reprice/ })
   } finally {
     await llm.close()
   }
