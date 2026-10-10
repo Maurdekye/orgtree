@@ -254,15 +254,30 @@ export function electronExe(explicit) {
 // ------------------------------------------------------------ runs
 
 export function runsDir(home = rigHome()) { return path.join(home, 'runs') }
+// Windows refuses to open or replace a file another process (a reader, often a
+// virus scanner) holds for a moment: run.json reads and writes retry for up to
+// a second (a keeper died of one unretried EPERM, 2026-10-10).
+const TRANSIENT = new Set(['EPERM', 'EACCES', 'EBUSY'])
+function retrying(fn) {
+  for (let i = 0; ; i++) {
+    try { return fn() } catch (e) {
+      if (i >= 40 || !TRANSIENT.has(e.code)) throw e
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+  }
+}
 export function readRun(dir) {
-  try { return JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8')) } catch { return null }
+  try { return JSON.parse(retrying(() => fs.readFileSync(path.join(dir, 'run.json'), 'utf8'))) } catch { return null }
 }
 export function writeRun(dir, patch) {
-  const cur = readRun(dir) || {}
-  const next = { ...cur, ...patch, statusAt: new Date().toISOString() }
+  const file = path.join(dir, 'run.json')
+  const cur = readRun(dir)
+  // a merge over an unread file would keep only the patch (token, url and pids lost)
+  if (!cur && fs.existsSync(file)) throw new Error(`${file} cannot be read; not replacing it`)
+  const next = { ...(cur || {}), ...patch, statusAt: new Date().toISOString() }
   const tmp = path.join(dir, `run.json.${process.pid}.tmp`)
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2))
-  fs.renameSync(tmp, path.join(dir, 'run.json'))
+  retrying(() => fs.renameSync(tmp, file))
   return next
 }
 export function listRuns(home = rigHome()) {
@@ -682,6 +697,9 @@ export async function cleanup({ mine = false, everyone = false, dryRun = false }
   const out = []
   const live = []
   for (const { dir, run } of listRuns()) {
+    // a run.json that exists but cannot be read now (held open for a moment)
+    // says nothing about the run: leave it alone
+    if (!run && !everyone && fs.existsSync(path.join(dir, 'run.json'))) { live.push(dir); out.push({ dir, kept: 'run.json unreadable' }); continue }
     // a run another agent is still creating has no keeper yet (it copies its
     // cluster first): a young `starting` run is live, not an orphan
     const young = run?.status === 'starting' && Date.now() - Date.parse(run.created ?? 0) < 5 * 60 * 1000
