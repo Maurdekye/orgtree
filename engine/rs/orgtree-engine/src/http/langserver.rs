@@ -43,6 +43,8 @@ pub struct AddBody {
     #[serde(default)]
     max_agents: Option<i64>,
     #[serde(default)]
+    seat: Option<f64>,
+    #[serde(default)]
     key: Option<String>,
     #[serde(default)]
     models: Vec<ModelPick>,
@@ -57,6 +59,7 @@ impl std::fmt::Debug for AddBody {
             .field("harness", &self.harness)
             .field("base_path", &self.base_path)
             .field("max_agents", &self.max_agents)
+            .field("seat", &self.seat)
             .field("key", &self.key.as_ref().map(|_| "*****"))
             .field("models", &self.models)
             .finish()
@@ -75,6 +78,7 @@ pub async fn add(State(e): State<Arc<Engine>>, Json(b): Json<AddBody>) -> ApiRes
             harness: b.harness,
             base_path: b.base_path,
             max_agents: b.max_agents,
+            seat: b.seat,
             key: b.key,
             models: b.models.into_iter().map(|m| (m.id, m.context.unwrap_or(0))).collect(),
         },
@@ -95,6 +99,8 @@ pub struct PatchBody {
     #[serde(default)]
     max_agents: Option<i64>,
     #[serde(default)]
+    seat: Option<f64>,
+    #[serde(default)]
     enabled: Option<bool>,
     #[serde(default)]
     models: Vec<ModelPick>,
@@ -112,13 +118,16 @@ pub async fn update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b
             address: b.address,
             base_path: b.base_path,
             max_agents: b.max_agents,
+            seat: b.seat,
             enabled: b.enabled,
             models: b.models.into_iter().map(|m| (m.id, m.offered, m.context, m.label)).collect(),
         },
     )
     .await?;
+    // a new price reaches the agents already on this server's models
+    let repriced = if b.seat.is_some() { langserver::reprice_everywhere(&e).await } else { Vec::new() };
     langserver::publish(&e);
-    Ok(Json(serde_json::json!({ "server": rec, "doc": langserver::doc(&e) })))
+    Ok(Json(serde_json::json!({ "server": rec, "doc": langserver::doc(&e), "repriced": repriced })))
 }
 
 #[derive(Deserialize)]

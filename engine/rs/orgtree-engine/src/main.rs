@@ -230,6 +230,17 @@ async fn run_with_cluster(
     phone::start(&engine);
     net::start(&engine);
     runtime::recover(&engine).await;
+    // language-server seats follow their server's price (the flat 0.10 of
+    // 4.2.0-alpha.1 becomes the default 1 on the first start after it)
+    tokio::spawn({
+        let engine = engine.clone();
+        async move {
+            let out = langserver::reprice_everywhere(&engine).await;
+            if !out.is_empty() {
+                tracing::info!(changes = %serde_json::Value::Array(out), "language-server seats repriced");
+            }
+        }
+    });
     runtime::warm_all(&engine);
     runtime::watchdogs::start(&engine).await;
     // a safe start holds the automatic wakes back unless a rig run asked for them

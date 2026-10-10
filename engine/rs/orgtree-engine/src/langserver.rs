@@ -16,6 +16,7 @@
 //! never returned to a window and never logged.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -50,9 +51,12 @@ pub const MAX_OUTPUT: i64 = 8_192;
 /// How long a harness waits for a slow local server (a cold prefill of a
 /// long prompt on a partly offloaded model can take minutes).
 pub const SLOW_MS: i64 = 30 * 60 * 1000;
-/// The seat price of a language-server tier (the floor every free model
-/// pays; the coordinator decides the final figure).
-pub const SEAT: f64 = crate::providers::catalog::SEAT_FLOOR;
+/// A server's seat price when the user has not set one: every model it
+/// offers costs this many credits per agent (user ruling 2026-10-10: "1 by
+/// default", 0 allowed; it replaced a flat 0.10 for every server).
+pub const DEFAULT_SEAT: f64 = 1.0;
+/// The highest seat price a server may charge.
+pub const MAX_SEAT: f64 = 100.0;
 /// The window of the Ollama variant the settings button makes ("Create a
 /// 64K version of this model", coordinator ruling 2026-10-10).
 pub const VARIANT_CONTEXT: i64 = 65_536;
@@ -175,7 +179,7 @@ pub fn tiers(engine: &Engine) -> Vec<(String, f64, String, String, String)> {
             }
             let (Some(tier), Some(id)) = (m["tier"].as_str(), m["id"].as_str()) else { continue };
             let label = m["label"].as_str().filter(|l| !l.is_empty()).unwrap_or(id).to_string();
-            out.push((tier.to_string(), SEAT, id.to_string(), label, server_label.clone()));
+            out.push((tier.to_string(), server_seat(&s), id.to_string(), label, server_label.clone()));
         }
     }
     out
@@ -194,6 +198,53 @@ pub fn base_url(server: &Value) -> String {
         return if path.is_empty() { address } else { format!("{address}/{path}") };
     }
     if harness == "codex-cli" { format!("{address}/v1") } else { address }
+}
+
+/// A server's seat price: the user's figure, else DEFAULT_SEAT (servers
+/// added before the setting existed included).
+#[logged]
+pub fn server_seat(server: &Value) -> f64 {
+    server["seat"].as_f64().filter(|s| s.is_finite() && *s >= 0.0).unwrap_or(DEFAULT_SEAT)
+}
+
+/// The seat price of a language-server tier: its server's (None when no
+/// server offers it now).
+#[logged]
+pub fn seat_of_tier(engine: &Engine, tier: &str) -> Option<f64> {
+    route_of(engine, tier).map(|(s, _)| server_seat(&s))
+}
+
+/// Check a seat price from the add form or a server card: 0 to MAX_SEAT,
+/// kept to two decimals.
+#[logged]
+fn check_seat(seat: f64) -> Result<f64> {
+    if !seat.is_finite() || !(0.0..=MAX_SEAT).contains(&seat) {
+        crate::refuse!(BadRequest, "a seat price is between 0 and {MAX_SEAT}");
+    }
+    Ok((seat * 100.0).round() / 100.0)
+}
+
+/// Bring every live agent on a language-server model to its server's seat
+/// price, org by org (after a price change in the settings, and once at
+/// start: the move from the old flat 0.10 to the default 1). Each org runs
+/// it as its own `reprice` op; one that cannot make room is reported and
+/// keeps its agents' old seats until the next price change or start.
+#[logged]
+pub async fn reprice_everywhere(engine: &Arc<Engine>) -> Vec<Value> {
+    let mut out = Vec::new();
+    for org in engine.orgs.all() {
+        match crate::domain::ops::run(engine, &org, crate::domain::ops::Actor::User, &json!({ "op": "reprice" })).await {
+            Ok(v) if v["repriced"].as_array().map(|a| !a.is_empty()).unwrap_or(false) => {
+                out.push(json!({ "org": org.slug, "repriced": v["repriced"] }));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "language-server seats not repriced");
+                out.push(json!({ "org": org.slug, "error": format!("{e:#}") }));
+            }
+        }
+    }
+    out
 }
 
 /// The window an agent on this model gets: the user's figure, else what
@@ -302,6 +353,8 @@ pub struct NewServer {
     pub harness: String,
     pub base_path: Option<String>,
     pub max_agents: Option<i64>,
+    /// the seat price of every model it offers (None: DEFAULT_SEAT)
+    pub seat: Option<f64>,
     pub key: Option<String>,
     /// models to offer at once: (model id, context or 0)
     pub models: Vec<(String, i64)>,
@@ -316,6 +369,7 @@ impl std::fmt::Debug for NewServer {
             .field("harness", &self.harness)
             .field("base_path", &self.base_path)
             .field("max_agents", &self.max_agents)
+            .field("seat", &self.seat)
             .field("key", &self.key.as_ref().map(|_| "*****"))
             .field("models", &self.models)
             .finish()
@@ -337,6 +391,7 @@ pub async fn add_server(engine: &Engine, b: NewServer) -> Result<Value> {
         crate::refuse!(Conflict, "{}", choice["why"].as_str().unwrap_or("that harness cannot drive this server"));
     }
     let max_agents = b.max_agents.unwrap_or(1);
+    let seat = check_seat(b.seat.unwrap_or(DEFAULT_SEAT))?;
     if !(1..=64).contains(&max_agents) {
         crate::refuse!(BadRequest, "agents at once is between 1 and 64");
     }
@@ -353,7 +408,7 @@ pub async fn add_server(engine: &Engine, b: NewServer) -> Result<Value> {
     let rec = json!({
         "id": id, "preset": p.id, "label": label, "address": address, "harness": b.harness,
         "api": api_of(&b.harness), "base_path": b.base_path.as_deref().map(str::trim).unwrap_or(""),
-        "max_agents": max_agents, "enabled": true, "key_set": b.key.as_deref().map(|k| !k.trim().is_empty()).unwrap_or(false),
+        "max_agents": max_agents, "seat": seat, "enabled": true, "key_set": b.key.as_deref().map(|k| !k.trim().is_empty()).unwrap_or(false),
         "models": models, "created_at": iso(chrono::Utc::now()),
     });
     if b.key.is_some() {
@@ -389,6 +444,8 @@ pub struct ServerPatch {
     pub address: Option<String>,
     pub base_path: Option<String>,
     pub max_agents: Option<i64>,
+    /// a new seat price for every model it offers (existing seats follow: reprice_everywhere)
+    pub seat: Option<f64>,
     pub enabled: Option<bool>,
     /// per model id: offered, the window to use (0 = the detected one), a new label
     pub models: Vec<(String, Option<bool>, Option<i64>, Option<String>)>,
@@ -415,6 +472,9 @@ pub async fn update_server(engine: &Engine, id: &str, patch: ServerPatch) -> Res
             crate::refuse!(BadRequest, "agents at once is between 1 and 64");
         }
         p.insert("max_agents".into(), json!(n));
+    }
+    if let Some(s) = patch.seat {
+        p.insert("seat".into(), json!(check_seat(s)?));
     }
     if let Some(e) = patch.enabled {
         p.insert("enabled".into(), json!(e));
@@ -489,6 +549,7 @@ pub fn doc(engine: &Engine) -> Value {
         .into_iter()
         .map(|mut s| {
             s["base_url"] = json!(base_url(&s));
+            s["seat"] = json!(server_seat(&s));
             if let Some(models) = s["models"].as_object_mut() {
                 for m in models.values_mut() {
                     let ctx = context_of(m);
@@ -500,7 +561,7 @@ pub fn doc(engine: &Engine) -> Value {
         })
         .collect();
     json!({
-        "servers": list, "presets": presets, "seat": SEAT, "min_context": MIN_CONTEXT, "default_context": DEFAULT_CONTEXT,
+        "servers": list, "presets": presets, "default_seat": DEFAULT_SEAT, "max_seat": MAX_SEAT, "min_context": MIN_CONTEXT, "default_context": DEFAULT_CONTEXT,
         "user_enabled": engine.settings.provider_enabled(crate::providers::catalog::LANGSERVER),
     })
 }

@@ -388,8 +388,8 @@ fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
         return Ok(seat);
     }
     if catalog::is_langserver(tier) {
-        if crate::langserver::route_of(engine, tier).is_some() {
-            return Ok(crate::langserver::SEAT);
+        if let Some(seat) = crate::langserver::seat_of_tier(engine, tier) {
+            return Ok(seat);
         }
         refuse!(NotFound, "{tier} is not a model of any language server this app knows (App settings › Providers › Language Server)");
     }
@@ -481,6 +481,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "self_subjugate" => self_subjugate(engine, org, &tx, actor, req, fx).await?,
         "retool" => retool(engine, org, &tx, actor, req, fx, false).await?,
         "moves" => moves(engine, org, &tx, actor, req, fx).await?,
+        "reprice" => reprice(engine, org, &tx, actor, fx).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
     };
     if op == "hire" || op == "rehire" {
@@ -1598,6 +1599,53 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     fx.reconfigure.push(n.id);
     fx.events = true;
     Ok(json!({ "node": n.name, "tier": tier, "cascaded": raised, "warnings": warnings }))
+}
+
+/// Bring this org's live agents on language-server models to their
+/// server's seat price (a price set in App settings, or the move from the
+/// old flat 0.10 to the default 1). The price is the server's own: the op
+/// takes none from the request. A rise makes room the way a model switch
+/// does (the org's credit cascade, refused when there is none); a fall
+/// frees the difference.
+#[logged]
+async fn reprice(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, fx: &mut Effects) -> Result<Value> {
+    let prefix = format!("{}%", crate::langserver::TIER_PREFIX);
+    let rows = tx
+        .query(
+            "SELECT id, name, parent_id, seat::float8, tier FROM ot.agents
+              WHERE org_id = $1 AND state = 'live' AND tier LIKE $2 ORDER BY id FOR UPDATE",
+            &[&org.id, &prefix],
+        )
+        .await?;
+    let mut repriced = Vec::new();
+    let mut caps_now: Option<OrgCaps> = None;
+    for r in rows {
+        let (id, name, parent, old, tier): (i64, String, Option<i64>, f64, String) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
+        let Some(seat) = crate::langserver::seat_of_tier(engine, &tier) else { continue };
+        if (seat - old).abs() < 1e-9 {
+            continue;
+        }
+        let raised = if seat > old {
+            if caps_now.is_none() {
+                caps_now = Some(caps(engine, tx, org.id).await?);
+            }
+            let c = caps_now.as_ref().expect("caps loaded above");
+            ensure_room(tx, actor, parent, seat - old, c.cascade_alloc, c.max_top, fx).await?
+        } else {
+            Vec::new()
+        };
+        tx.execute("UPDATE ot.agents SET seat = $2::float8::numeric, row_version = row_version + 1 WHERE id = $1", &[&id, &seat]).await?;
+        event(tx, org.id, "reprice", actor, Some(id), json!({ "node": name, "tier": tier, "seat_old": old, "seat": seat, "cascaded": raised }), fx).await?;
+        fx.agents.insert(id);
+        if let Some(p) = parent {
+            fx.agents.insert(p);
+        }
+        repriced.push(json!({ "node": name, "from": old, "to": seat }));
+    }
+    if !repriced.is_empty() {
+        fx.events = true;
+    }
+    Ok(json!({ "repriced": repriced }))
 }
 
 #[logged]
