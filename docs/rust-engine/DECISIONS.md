@@ -657,9 +657,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
     stopped until a backup of the hub's database from before the upgrade is restored, losing the
     mail that arrived since. Orgtree takes no backup for this step by itself. The hub's own notes:
     orgtree-mailhub docs/OPERATIONS.md, Upgrades.
-    Going back, the engine keeps running: its hosting page says the hub process exited (the reason
-    is in mailhub/hub.log) and an @net send is refused at once, because without its hub the
-    restarted engine knows no peer.
+    Going back, the engine keeps running: the Mail hub panel says the hub process exited with the
+    reason from mailhub/hub.log ("the database schema is version 9, newer than this hub
+    understands"), and an @net send is refused at once saying this computer's mail hub is not
+    running (without its hub the restarted engine knows no peer).
     Proof: `tools/rig/proofs/mailhub-upgrade.mjs --from <a 2.0.3 build>` (the hosted hub 2.0.3,
     then 2.1.0 built from the submodule on the same rig database: schema 8 to 9, addresses and
     messages kept, mail both ways; 2.0.3 again refuses the database and leaves it as it was;

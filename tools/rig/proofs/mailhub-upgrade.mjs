@@ -15,11 +15,15 @@
 //            sent before, with its receipts
 //   after    new mail both ways arrives; receipts go read
 //   back     the older binary again (going back to an older Orgtree): its
-//            hosted hub refuses the newer database and exits (hub.log says
-//            why) and leaves it as it was; the engine keeps running, and an
-//            @net send is answered at once (refused: without its hub the
-//            restarted engine knows no peer); with the newer binary again
-//            the hub is healthy, nothing was lost, and mail flows again
+//            hosted hub refuses the newer database and exits and leaves it
+//            as it was; the Mail hub panel's error carries hub.log's reason;
+//            the engine keeps running, and an @net send is refused at once
+//            saying this computer's mail hub is not running; with the newer
+//            binary again the hub is healthy, nothing was lost, and mail
+//            flows again
+//   killed   a hub killed from outside leaves no reason of its own: the
+//            error says it exited without borrowing the earlier run's reason
+//            from hub.log
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/mailhub-upgrade.mjs --from <older orgtree-mailhub.exe> [--to <newer orgtree-mailhub.exe>]
 
 import { spawnSync } from 'node:child_process'
@@ -149,7 +153,9 @@ export default async function (rig, { flags }) {
   const why = logSince(at)
   p.check('going back to the older binary: the hosted hub refuses the newer database and exits; hub.log says why',
     /newer than this hub understands/.test(why) && !hubProc(), { error: refused.error, log: why.split(/\r?\n/).filter(l => /newer than/.test(l)).slice(0, 2) })
-  p.note(`what the hosting page shows after going back: ${refused.error}`)
+  p.check('the Mail hub panel\'s error names hub.log\'s reason (not a guess about the port)',
+    /^the hub process exited \(code 1\): could not prepare the database: the database schema is version \d+, newer than this hub understands/.test(refused.error)
+      && !/another service may already hold port/.test(refused.error), refused.error)
   p.check('the database was left as it was (still the new schema, same addresses and messages)',
     schema() === schemaNew && JSON.stringify(ids()) === JSON.stringify(ids0) && JSON.stringify(msgs()) === JSON.stringify(msgs2),
     { schema: schema(), messages: msgs2.length })
@@ -159,9 +165,9 @@ export default async function (rig, { flags }) {
   t0 = Date.now()
   const s4 = await rig.tool('boss', 'orgtree_message', { to: `@net:${nB}`, body: 'PROOF-UP-4 while the hub is down' })
   const answeredMs = Date.now() - t0
-  p.check('the engine keeps working without its hub: the org answers (no hub connected) and an @net send is answered at once, not left hanging',
-    !(down.net?.hubs ?? []).some(h => h.connected) && answeredMs < 10000 && !inRow(B, 'PROOF-UP-4%'), { ok: s4.ok, answer: s4.text, ms: answeredMs })
-  p.note(`an @net send while the hub is down after going back answers (ok=${s4.ok}): ${s4.text}`)
+  p.check('the engine keeps working without its hub: the org answers (no hub connected) and an @net send is refused at once, saying this computer\'s mail hub is not running',
+    !(down.net?.hubs ?? []).some(h => h.connected) && answeredMs < 10000 && !s4.ok && /^this computer's mail hub is not running, so @net:/.test(s4.text)
+      && !inRow(B, 'PROOF-UP-4%'), { ok: s4.ok, answer: s4.text, ms: answeredMs })
   t0 = Date.now()
   await rig.restart({ hub: NEW })
   await healthy(newV)
@@ -172,6 +178,19 @@ export default async function (rig, { flags }) {
   p.check(`with the newer binary again the hub is healthy (${newV}, schema ${schema()}), nothing was lost, and mail flows again`,
     s5.ok && schema() === schemaNew && JSON.stringify(ids()) === JSON.stringify(ids0)
       && msgs2.every(m => msgs().some(n => n.id === m.id && n.state === m.state)), { ms: Date.now() - t0 })
+
+  // ------------------------------------------------------------- killed
+  // hub.log still ends this run's part with nothing fatal, and holds the older
+  // hub's refusal from before: the error must not borrow that
+  const pid = hubProc()
+  spawnSync('taskkill', ['/F', '/PID', pid], { windowsHide: true })
+  const killed = await rig.waitFor(async () => {
+    const h = await hosting()
+    return !h.status?.running && h.error ? h : null
+  }, { what: 'the engine to notice the hub was killed', timeout: 60000 })
+  p.check('a hub killed from outside: the error says it exited, without borrowing the earlier run\'s reason from hub.log',
+    /^\d+$/.test(pid) && /^the hub process exited \(code [^)]*\) — see mailhub\/hub\.log/.test(killed.error) && !/newer than/.test(killed.error)
+      && /newer than this hub understands/.test(fs.readFileSync(hubLog, 'utf8')), killed.error)
 
   p.keep(rig, { agents: ['boss', 'zoe'], grep: /mail hub|network|hub/i })
   return p.summary()
