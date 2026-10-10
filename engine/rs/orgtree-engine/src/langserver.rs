@@ -39,11 +39,11 @@ pub const KEY_ENV: &str = "ORGTREE_LANGSERVER_KEY";
 pub const NO_KEY: &str = "orgtree-local";
 /// A model's window when neither the server nor the user names one.
 pub const DEFAULT_CONTEXT: i64 = 65_536;
-/// Below this an agent's own prompt (identity, tools, the turn envelope)
-/// leaves almost no room to work. INFERRED from the prompt sizes (about
-/// 35-40K tokens for Claude Code at the start of a session); the spike
-/// measures the real figure.
-pub const MIN_CONTEXT: i64 = 32_768;
+/// Below this an agent has almost no room to work. MEASURED in the GPU
+/// spike (2026-10-10, llama.cpp): a turn starts at 35.5K tokens on Claude
+/// Code and 28.6K on Codex (identity, tools, the turn envelope), and one
+/// small ticket peaked at 38.9K and 34.7K (coordinator ruling: 64K).
+pub const MIN_CONTEXT: i64 = 65_536;
 /// Output tokens a local model may write per reply: Claude Code assumes
 /// 32000 for a model it does not know, which a 64K window cannot spare.
 pub const MAX_OUTPUT: i64 = 8_192;
@@ -82,8 +82,8 @@ pub static PRESETS: &[Preset] = &[
              note: "Ollama 0.14 or later serves both harnesses." },
     Preset { id: "lmstudio", label: "LM Studio", address: "http://127.0.0.1:1234", claude: true, codex: true,
              note: "LM Studio 0.4.1 or later serves both harnesses." },
-    Preset { id: "llamacpp", label: "llama.cpp", address: "http://127.0.0.1:9931", claude: true, codex: false,
-             note: "llama-server's Responses API is incomplete (its streamed events lack fields Codex reads), so only Claude Code is offered. Builds before b11521 listen on port 8080." },
+    Preset { id: "llamacpp", label: "llama.cpp", address: "http://127.0.0.1:9931", claude: true, codex: true,
+             note: "Codex needs llama-server b11540 or later: the Responses API of older builds lacks fields Codex reads. Builds before b11521 listen on port 8080." },
     Preset { id: "vllm", label: "vLLM", address: "http://127.0.0.1:8000", claude: true, codex: true,
              note: "Serve each model under a name without \"/\" (--served-model-name): Claude Code cannot use names that contain one. With Codex, a reasoning model may fail: vLLM refuses the reasoning items Codex sends back." },
     Preset { id: "custom", label: "Custom…", address: "", claude: true, codex: true,
