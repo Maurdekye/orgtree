@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tools/rig/rig.mjs: the safe test rig (docs/rust-engine/test-rig.md).
 //
-//   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR
+//   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR (build lock in queue order, handed on after)
 //   node tools/rig/rig.mjs up [--fixture basic|<file>|none] [--name n] [--ttl min] [--max min]
 //                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]] [--fsync]
 //   node tools/rig/rig.mjs status|down [--run id] [--keep]     down --run also removes a half-made run folder
@@ -70,8 +70,9 @@ async function up(flags) {
 
 function build() {
   const target = cargoTarget()
-  // the machine-wide build lock and its RAM floor (team rule), held for this one build
-  return withBuildLock(`rig build into ${target}`, () => {
+  // the machine-wide build lock in queue order and its RAM floor (team rules), held for this one build;
+  // `lock` says where it went afterwards (to the next queued agent, who must be told)
+  const { result, lock } = withBuildLock(`rig build into ${target}`, () => {
     const env = { ...process.env, CARGO_TARGET_DIR: target }
     for (const [what, cwd, args] of [
       ['engine', path.join(REPO, 'engine', 'rs'), ['build', '-j', '2', '-p', 'orgtree-engine']],
@@ -83,6 +84,7 @@ function build() {
     }
     return { engine: path.join(target, 'debug', 'orgtree-engine.exe'), fakecli: path.join(target, 'debug', 'orgtree-fakecli.exe') }
   })
+  return { ...result, lock }
 }
 
 async function main() {

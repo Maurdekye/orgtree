@@ -1,7 +1,7 @@
 // tools/rig/lib.mjs: the test rig's shared library (docs/rust-engine/test-rig.md).
 //
 // A rig run is one throwaway data root under ORGTREE_RIG_HOME (default
-// E:\orgtree-rig) holding its own PostgreSQL cluster, a debug engine in rig
+// D:\orgtree-work\rig\<agent>) holding its own PostgreSQL cluster, a debug engine in rig
 // mode (SAFE_START, fake home, fake CLIs, /api/rig/tool) kept alive by a
 // small keeper process, the fake CLI's scenario and logs. Nothing here reads
 // or writes the live data folder, the live cluster or the user's profile.
@@ -19,15 +19,36 @@ export const RIG_DIR = path.dirname(fileURLToPath(import.meta.url))
 export const REPO = path.resolve(RIG_DIR, '..', '..')
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const PG_VERSION = '18.6-4'
+/** Ephemeral work (build output, the build lock, rig runs) lives on the SSD
+ * (team rule 2026-10-10: E: is a slow disk holding only the repositories). */
+export const WORK_ROOT = 'D:\\orgtree-work'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const lower = p => path.resolve(p).toLowerCase().replace(/[\\/]+$/, '')
 const inside = (child, parent) => lower(child) === lower(parent) || lower(child).startsWith(lower(parent) + '\\')
 
+/** Every agent's rig home sits in here, one folder each (D:\orgtree-work\rig\<agent>). */
+export const RIG_HOMES = path.join(WORK_ROOT, 'rig')
+/** What the rig itself keeps in a home: any other folder holding runs or pg is another rig home. */
+const HOME_FOLDERS = new Set(['runs', 'pg', 'bin', 'evidence', 'legacy', 'tmp', 'ui'])
+
+/** The rig home: ORGTREE_RIG_HOME, else the caller's own folder in RIG_HOMES
+ * (on a machine without D:\orgtree-work, E:\orgtree-rig or the temp folder).
+ * A home never holds another agent's: cleanup kills what runs in its home
+ * that none of its runs own, so the shared parent, or any folder with
+ * another rig home inside it, is refused. */
 export function rigHome() {
   const fromEnv = process.env.ORGTREE_RIG_HOME
-  const home = fromEnv ? path.resolve(fromEnv) : fs.existsSync('E:\\') ? 'E:\\orgtree-rig' : path.join(os.tmpdir(), 'orgtree-rig')
+  const home = fromEnv ? path.resolve(fromEnv)
+    : fs.existsSync(WORK_ROOT) ? path.join(RIG_HOMES, me().replace(/[^A-Za-z0-9._-]+/g, '-'))
+    : fs.existsSync('E:\\') ? 'E:\\orgtree-rig' : path.join(os.tmpdir(), 'orgtree-rig')
   assertSafeRoot(home)
+  if (lower(home) === lower(RIG_HOMES)) throw new Error(`refusing ${home} as a rig home: every agent's rig home is in it; use ${RIG_HOMES}\\<agent>`)
+  let children = []
+  try { children = fs.readdirSync(home, { withFileTypes: true }) } catch {}
+  const others = children.filter(e => e.isDirectory() && !HOME_FOLDERS.has(e.name.toLowerCase())
+    && ['runs', 'pg'].some(sub => fs.existsSync(path.join(home, e.name, sub))))
+  if (others.length) throw new Error(`refusing ${home} as a rig home: other rig homes are inside it (${others.map(e => e.name).join(', ')}), and its cleanup would kill their processes`)
   return home
 }
 
@@ -67,9 +88,9 @@ export function processes(where) {
 
 const psQuote = s => `'${String(s).replace(/'/g, "''")}'`
 
-/** Every process whose executable lives under `dir` (engine copies, postgres, fake CLIs). */
-export function processesUnder(dir) {
-  return processes(`$_.ExecutablePath -and $_.ExecutablePath.ToLower().StartsWith(${psQuote(lower(dir) + '\\')})`)
+/** Every process whose executable lives under one of `dirs` (engine copies, postgres, fake CLIs). */
+export function processesUnder(...dirs) {
+  return processes(dirs.map(d => `($_.ExecutablePath -and $_.ExecutablePath.ToLower().StartsWith(${psQuote(lower(d) + '\\')}))`).join(' -or '))
 }
 
 export function alive(pid) {
@@ -88,44 +109,169 @@ export function freeRamGB() {
   return Number(out) / 1024 / 1024
 }
 
-/** One heavy build at a time machine-wide (team rule 2026-10-09): the lock
- * is a folder (mkdir is atomic) holding owner.txt (who, UTC, what), removed
- * the moment the build ends, failed or not. An owner.txt older than 30
- * minutes is stale and may be removed. With the lock held, a build needs
- * BUILD_RAM_GB free. */
-export const BUILD_LOCK = process.env.ORGTREE_BUILD_LOCK || 'E:\\cargo-target\\build.lock'
+/** One heavy build at a time machine-wide, in queue order (team rules
+ * 2026-10-09 and 2026-10-10). The lock is a folder (mkdir is atomic) holding
+ * owner.txt ("<name> <UTC> <what>"); agents waiting for it line up in
+ * build.queue.txt beside it, one name per line.
+ * - A free lock is taken only when the queue is empty or names the caller
+ *   first, and the caller's line goes. A lock whose owner.txt already names
+ *   the caller (handed over, or claimed by the caller's own watchdog) is the
+ *   caller's: it builds under it.
+ * - When the build ends, failed or not, the lock goes to the first queued
+ *   name (owner.txt rewritten, its line dropped; the rig cannot send org
+ *   mail, so the caller must tell that agent "build lock is yours") or, with
+ *   nobody waiting, the folder goes. A lock someone else took meanwhile is
+ *   left alone.
+ * - An owner.txt older than 30 minutes with no build process alive in the
+ *   build folder is stale: it is cleared and goes by the queue the same way.
+ * - A lock folder whose owner.txt starts with MOVED marks where the lock used
+ *   to live: it is never taken, cleared or written.
+ * - A build needs BUILD_RAM_GB free, checked before a free lock is taken (a
+ *   caller short of RAM stays first) and before building under a held one
+ *   (which the caller keeps). */
 export const BUILD_RAM_GB = 3
 const BUILD_LOCK_STALE_MS = 30 * 60 * 1000
 
-export function withBuildLock(what, fn) {
-  const owner = path.join(BUILD_LOCK, 'owner.txt')
-  const take = () => {
-    try { fs.mkdirSync(BUILD_LOCK); return true } catch (e) { if (e.code === 'EEXIST') return false; throw e }
+/** The lock folder (ORGTREE_BUILD_LOCK names another) and the queue beside it. */
+export function buildLockPaths() {
+  const lock = path.resolve(process.env.ORGTREE_BUILD_LOCK || path.join(WORK_ROOT, 'cargo-target', 'build.lock'))
+  return { lock, owner: path.join(lock, 'owner.txt'), queue: path.join(path.dirname(lock), 'build.queue.txt') }
+}
+
+const sameName = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
+
+/** The queue's names, first first (blank lines and CR/LF endings tolerated). */
+export function buildQueue(queue = buildLockPaths().queue) {
+  let text = ''
+  try { text = fs.readFileSync(queue, 'utf8') } catch (e) { if (e.code !== 'ENOENT') throw e }
+  return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+}
+
+/** Drops the first line naming `name`; every other line stays as it was. */
+function dropFromQueue(queue, name) {
+  let text
+  try { text = fs.readFileSync(queue, 'utf8') } catch (e) { if (e.code === 'ENOENT') return false; throw e }
+  const lines = text.split(/(?<=\n)/)
+  const i = lines.findIndex(l => sameName(l.trim(), name))
+  if (i < 0) return false
+  lines.splice(i, 1)
+  fs.writeFileSync(queue, lines.join(''))
+  return true
+}
+
+/** owner.txt's text and time (the folder's while owner.txt is not written yet); null when there is no lock. */
+function lockOwner({ lock, owner }) {
+  try { return { text: fs.readFileSync(owner, 'utf8').trim(), at: fs.statSync(owner).mtimeMs } } catch {}
+  try { return { text: '', at: fs.statSync(lock).mtimeMs } } catch { return null }
+}
+
+/** Build processes alive in `dir`: a cargo or rustc naming it on its command
+ * line (rustc's --out-dir does), or anything running from under it (build
+ * scripts, test binaries). */
+export function buildProcessesIn(dir) {
+  return processes(`($_.ExecutablePath -and $_.ExecutablePath.ToLower().StartsWith(${psQuote(lower(dir) + '\\')})) -or `
+    + `($_.Name -match '^(cargo|rustc)\\.exe$' -and $_.CommandLine -and $_.CommandLine.ToLower().Contains(${psQuote(lower(dir))}))`)
+}
+
+const handedLine = next => `HANDED THE BUILD LOCK TO ${next}: send ${next} an orgtree_message "build lock is yours" now (team rule)`
+
+/** Takes the lock for `name` in queue order: 'taken' or 'held' (already the caller's), else throws why not. */
+function acquireBuildLock(paths, name, ramShort) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const cur = lockOwner(paths)
+    if (!cur) {
+      const queue = buildQueue(paths.queue)
+      if (queue.length && !sameName(queue[0], name)) {
+        throw new Error(`the build lock is free but ${queue[0]} is first in ${paths.queue}: append ${name} to it once and wait your turn (team rule)`)
+      }
+      const short = ramShort()
+      if (short) throw new Error(`${short}; the lock was not taken`)
+      try { fs.mkdirSync(paths.lock) } catch (e) { if (e.code === 'EEXIST') continue; throw e }
+      fs.writeFileSync(paths.owner, `${name} ${new Date().toISOString()} taking the lock\n`)
+      if (queue.length) dropFromQueue(paths.queue, name)
+      return 'taken'
+    }
+    if (/^MOVED\b/.test(cur.text)) throw new Error(`${paths.lock} is a marker, not a lock (never take or remove it): ${cur.text}`)
+    if (sameName(cur.text.split(/\s+/)[0], name)) {
+      const short = ramShort()
+      if (short) throw new Error(`${short}; you still hold the build lock (${paths.lock}): build when RAM frees, or hand it over`)
+      return 'held'
+    }
+    const age = Date.now() - cur.at
+    if (age < BUILD_LOCK_STALE_MS) throw new Error(`the build lock is held (${cur.text || 'no owner.txt yet'}): wait for ${paths.lock} to go, in queue order`)
+    const dir = path.dirname(paths.lock)
+    const busy = buildProcessesIn(dir)
+    if (busy.length) {
+      throw new Error(`the build lock looks stale (owner.txt ${Math.round(age / 60000)} min old: ${cur.text}) but build processes are alive in ${dir}: `
+        + busy.map(p => `${p.Name} ${p.ProcessId}`).join(', ') + '; leave it')
+    }
+    const queue = buildQueue(paths.queue)
+    if (!queue.length || sameName(queue[0], name)) {
+      // the stale lock would come to the caller anyway: clear it and take it in queue order
+      fs.rmSync(paths.lock, { recursive: true, force: true })
+      console.error(`build lock: cleared a stale lock (${Math.round(age / 60000)} min old: ${cur.text})`)
+      continue
+    }
+    fs.writeFileSync(paths.owner, `${queue[0]} ${new Date().toISOString()} handed over by ${name} (stale lock of: ${cur.text})\n`)
+    dropFromQueue(paths.queue, queue[0])
+    console.error(`build lock: ${handedLine(queue[0])}`)
+    throw new Error(`the build lock was stale and went to ${queue[0]}, first in the queue (${handedLine(queue[0])}); append ${name} to the queue once and wait your turn`)
   }
-  if (!take()) {
-    let who = '', at
-    try { who = fs.readFileSync(owner, 'utf8').trim(); at = fs.statSync(owner).mtimeMs } catch { at = fs.statSync(BUILD_LOCK).mtimeMs }
-    if (Date.now() - at < BUILD_LOCK_STALE_MS) throw new Error(`the build lock is held (${who || 'no owner.txt yet'}): wait for ${BUILD_LOCK} to go`)
-    fs.rmSync(BUILD_LOCK, { recursive: true, force: true })
-    if (!take()) throw new Error(`someone took the build lock while a stale one was cleared: wait for ${BUILD_LOCK} to go`)
+  throw new Error(`the build lock kept changing hands: wait for ${paths.lock} to go, in queue order`)
+}
+
+/** Gives up the lock written as `mine`: to the first queued name, or removed when nobody waits. */
+function releaseBuildLock(paths, name, mine) {
+  const cur = lockOwner(paths)
+  if (!cur || cur.text !== mine) {
+    const left = `the build lock is no longer ${name}'s (${cur ? cur.text || 'no owner.txt' : 'gone'}): left as it is`
+    console.error(`build lock: ${left}`)
+    return left
   }
-  try {
-    fs.writeFileSync(owner, `${me()} ${new Date().toISOString()} ${what}\n`)
-    const free = freeRamGB()
-    if (free < BUILD_RAM_GB) throw new Error(`only ${free.toFixed(1)} GB RAM free; team rule: build with the lock held and at least ${BUILD_RAM_GB} GB free`)
-    return fn()
-  } finally {
-    fs.rmSync(BUILD_LOCK, { recursive: true, force: true })
+  const queue = buildQueue(paths.queue)
+  if (!queue.length) {
+    fs.rmSync(paths.lock, { recursive: true, force: true })
+    return 'released (nobody queued)'
   }
+  const next = queue[0]
+  dropFromQueue(paths.queue, next)
+  if (sameName(next, name)) {
+    fs.writeFileSync(paths.owner, `${name} ${new Date().toISOString()} kept: first in the queue again\n`)
+    return `kept: ${name} was first in the queue again`
+  }
+  fs.writeFileSync(paths.owner, `${next} ${new Date().toISOString()} handed over by ${name}\n`)
+  console.error(`build lock: ${handedLine(next)}`)
+  return handedLine(next)
+}
+
+/** Runs `fn` holding the build lock (see above): { result, lock } where
+ * `lock` says where the lock went afterwards. */
+export function withBuildLock(what, fn, { freeRam = freeRamGB } = {}) {
+  const paths = buildLockPaths()
+  const name = me()
+  const ramShort = () => {
+    const free = freeRam()
+    return free < BUILD_RAM_GB ? `only ${free.toFixed(1)} GB RAM free; team rule: build with the lock held and at least ${BUILD_RAM_GB} GB free` : null
+  }
+  const how = acquireBuildLock(paths, name, ramShort)
+  const mine = `${name} ${new Date().toISOString()} ${what}${how === 'held' ? ' (under a lock handed over or claimed earlier)' : ''}`.trim()
+  fs.writeFileSync(paths.owner, mine + '\n')
+  let result
+  try { result = fn() } catch (e) { releaseBuildLock(paths, name, mine); throw e }
+  return { result, lock: releaseBuildLock(paths, name, mine) }
 }
 
 // ------------------------------------------------------------ binaries
 
 export function cargoTarget() {
   const t = process.env.CARGO_TARGET_DIR
-  if (!t) throw new Error('set CARGO_TARGET_DIR to your own folder on E: (team rule), e.g. E:\\cargo-target\\<agent>')
-  if (/^c:/i.test(path.resolve(t))) throw new Error(`CARGO_TARGET_DIR is on drive C: (${t}); team rule: keep cargo output on E:`)
-  return path.resolve(t)
+  const onD = fs.existsSync(WORK_ROOT)
+  const example = onD ? `${WORK_ROOT}\\cargo-target\\<agent>` : 'E:\\cargo-target\\<agent>'
+  if (!t) throw new Error(`set CARGO_TARGET_DIR to your own build folder (team rule), e.g. ${example}`)
+  const resolved = path.resolve(t)
+  if (/^c:/i.test(resolved)) throw new Error(`CARGO_TARGET_DIR is on drive C: (${t}); team rule: build output never goes on C:, e.g. ${example}`)
+  if (onD && /^e:/i.test(resolved)) throw new Error(`CARGO_TARGET_DIR is on drive E: (${t}); team rule 2026-10-10: E: holds only the repositories, build output goes in ${example}`)
+  return resolved
 }
 
 export function engineExe(explicit) {
@@ -188,6 +334,11 @@ function mainRepo() {
   return r.status === 0 ? path.dirname(r.stdout.trim()) : null
 }
 
+/** The rust-engine integration checkout, in its home on D: (2026-10-10) or its old one beside the main repository. */
+function integrationCheckouts(main) {
+  return [path.join(WORK_ROOT, 'worktrees', 'rust-engine'), main && path.join(main, '.worktrees', 'rust-engine')].filter(Boolean)
+}
+
 /** PostgreSQL binaries, copied once into the rig home (never run in place:
  * a running postgres.exe would block an installer from replacing its own). */
 export function pgBin(home) {
@@ -198,7 +349,7 @@ export function pgBin(home) {
     process.env.ORGTREE_RIG_PG_SOURCE,
     path.join(REPO, 'engine', 'postgresql'),
     main && path.join(main, 'engine', 'postgresql'),
-    main && path.join(main, '.worktrees', 'rust-engine', 'engine', 'postgresql'),
+    ...integrationCheckouts(main).map(d => path.join(d, 'engine', 'postgresql')),
     'C:\\Program Files\\Orgtree\\resources\\engine\\postgresql',
   ].filter(Boolean)
   const source = sources.find(s => fs.existsSync(path.join(s, 'bin', 'postgres.exe')) && fs.existsSync(path.join(s, 'bin', 'initdb.exe')))
@@ -236,7 +387,8 @@ export function pgTemplate(home, bin) {
 /** The renderer bundle the scratch engine serves. */
 export function uiDir(explicit) {
   const main = mainRepo()
-  const candidates = [explicit, process.env.ORGTREE_RIG_UI, path.join(REPO, 'dist', 'renderer'), 'C:\\Program Files\\Orgtree\\resources\\ui', main && path.join(main, '.worktrees', 'rust-engine', 'dist', 'renderer')]
+  const candidates = [explicit, process.env.ORGTREE_RIG_UI, path.join(REPO, 'dist', 'renderer'), 'C:\\Program Files\\Orgtree\\resources\\ui',
+    ...integrationCheckouts(main).map(d => path.join(d, 'dist', 'renderer'))]
   return candidates.filter(Boolean).find(d => fs.existsSync(path.join(d, 'index.html'))) || null
 }
 
@@ -245,7 +397,7 @@ export function electronExe(explicit) {
   const main = mainRepo()
   const candidates = [explicit, process.env.ORGTREE_RIG_ELECTRON, path.join(REPO, 'node_modules', 'electron', 'dist', 'electron.exe'),
     main && path.join(main, 'node_modules', 'electron', 'dist', 'electron.exe'),
-    main && path.join(main, '.worktrees', 'rust-engine', 'node_modules', 'electron', 'dist', 'electron.exe')]
+    ...integrationCheckouts(main).map(d => path.join(d, 'node_modules', 'electron', 'dist', 'electron.exe'))]
   const exe = candidates.filter(Boolean).find(p => fs.existsSync(p))
   if (!exe) throw new Error('no electron.exe found; set ORGTREE_RIG_ELECTRON')
   return exe
@@ -715,12 +867,15 @@ export async function cleanup({ mine = false, everyone = false, dryRun = false }
     if (!stop) { live.push(dir); out.push({ dir, kept: `live (${run?.by ?? '?'})` }); continue }
     out.push(dryRun ? { dir, wouldStop: true } : await stopRun(dir, { keep: false, timeout: 30000 }))
   }
-  // Anything still running from the rig home that no live run owns (a
-  // crashed run's postgres runs from the shared binary cache). Ownership
+  // Anything still running from the rig's own folders that no live run owns
+  // (a crashed run's postgres runs from the shared binary cache). Only runs
+  // and pg: another agent's rig home may sit inside this one (for example
+  // D:\orgtree-work\rig\<agent>), and its processes are not ours. Ownership
   // follows the process tree: a postgres backend's command line names no data
   // folder, only its postmaster's does, so a live run's backends must be
   // recognised through their parents or they would be killed.
-  const procs = processesUnder(rigHome())
+  const home = rigHome()
+  const procs = processesUnder(path.join(home, 'runs'), path.join(home, 'pg'))
   const byPid = new Map(procs.map(p => [p.ProcessId, p]))
   const mentions = p => { const t = `${p.ExecutablePath ?? ''} ${p.CommandLine ?? ''}`.toLowerCase(); return live.some(d => t.includes(lower(d))) }
   const owned = p => {
