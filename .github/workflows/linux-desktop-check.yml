@@ -1,0 +1,58 @@
+# A published Orgtree AppImage's first start on a stock-Ubuntu-like session (a D-Bus
+# session bus, user services with umask 0002): .github/ci/linux/desktop-check.sh.
+# Downloads the public AppImage of one release and builds nothing. Runs on a push to
+# ci-test/orgtree-linux-desktop (checking CHECK_TAG) and, once on the default branch, by
+# hand for any tag: gh workflow run linux-desktop-check.yml -f tag=v4.1.1
+name: linux-desktop-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {type: string, required: true, description: 'release tag, e.g. v4.1.1'}
+  push:
+    branches: ['ci-test/orgtree-linux-desktop']
+
+permissions: {contents: read}
+
+env:
+  CHECK_TAG: v4.1.1
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends xvfb xauth libfuse2 dbus
+
+      - name: systemd --user (lingering, as a logged-in desktop user has it)
+        run: |
+          sudo loginctl enable-linger "$USER"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for _ in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
+          systemctl --user show-environment >/dev/null
+
+      - name: Download the release's AppImage
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${INPUT_TAG:-$CHECK_TAG}"; v="${tag#v}"
+          mkdir -p dl
+          curl -fsSL -o "dl/Orgtree-$v.AppImage" "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Orgtree-$v.AppImage"
+          ls -l dl; sha256sum dl/*
+
+      - name: First start on a desktop-like session
+        run: bash .github/ci/linux/desktop-check.sh dl/Orgtree-*.AppImage build/desktop-check
+
+      - name: Logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-desktop-check-logs
+          path: build/desktop-check/
+          if-no-files-found: ignore
+          retention-days: 7
