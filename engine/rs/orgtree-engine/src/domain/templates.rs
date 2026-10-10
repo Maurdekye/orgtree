@@ -37,7 +37,21 @@ pub struct Template {
     /// (user 2026-10-10 19:31Z); the org's own picks win once made
     #[serde(default)]
     pub quick_chat: Option<Value>,
+    /// org-wide settings for the new org (user 2026-10-10 19:40Z): only
+    /// `ORG_SETTINGS` keys
+    #[serde(default)]
+    pub settings: Option<serde_json::Map<String, Value>>,
 }
+
+/// The org settings a template may carry: every Org settings key except
+/// this computer's own (folders `dirs`, `default_account`,
+/// `disabled_accounts`, hubs), the inert `headless`, and `quick_chat` (its
+/// own part).
+pub const ORG_SETTINGS: &[&str] = &[
+    "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "permission_mode",
+    "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire", "cascade_alloc",
+    "org_inbox_multi_holder", "account_fallback_default",
+];
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Slot {
@@ -327,6 +341,11 @@ pub fn validate(t: &Template) -> Vec<String> {
     if let Some(q) = &t.quick_chat {
         if let Err(e) = quick_chat(q) {
             p.push(e);
+        }
+    }
+    for k in t.settings.iter().flat_map(|s| s.keys()) {
+        if !ORG_SETTINGS.contains(&k.as_str()) {
+            p.push(format!("a template cannot set the org setting '{k}'"));
         }
     }
     p
@@ -649,6 +668,9 @@ pub struct Include {
     /// Quick chat's defaults for this org (what it shows now)
     #[serde(default = "yes")]
     pub quick_chat: bool,
+    /// the org-wide settings the org set itself (`ORG_SETTINGS` only)
+    #[serde(default = "yes")]
+    pub settings: bool,
 }
 
 #[nolog]
@@ -658,7 +680,7 @@ fn yes() -> bool {
 
 impl Default for Include {
     fn default() -> Self {
-        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true }
+        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true }
     }
 }
 
@@ -681,7 +703,8 @@ pub struct Row {
 /// whose superior is not live is placed at the top level.
 #[logged]
 pub fn from_rows(
-    id: &str, name: &str, description: Option<&str>, rows: &[Row], org_md: Option<String>, quick: Option<&Value>, inc: &Include,
+    id: &str, name: &str, description: Option<&str>, rows: &[Row], org_md: Option<String>, quick: Option<&Value>, settings: &Value,
+    inc: &Include,
 ) -> Value {
     let live: HashSet<i64> = rows.iter().map(|r| r.id).collect();
     let top: Vec<&Row> = rows.iter().filter(|r| r.parent.is_none_or(|p| !live.contains(&p))).collect();
@@ -732,6 +755,15 @@ pub fn from_rows(
         }
         if q.as_object().is_some_and(|o| !o.is_empty()) {
             t["quick_chat"] = q;
+        }
+    }
+    // only what the org set itself: app-wide defaults stay app-wide
+    if inc.settings {
+        let s: serde_json::Map<String, Value> = settings.as_object().into_iter().flatten()
+            .filter(|(k, v)| ORG_SETTINGS.contains(&k.as_str()) && !v.is_null())
+            .map(|(k, v)| (k.clone(), v.clone())).collect();
+        if !s.is_empty() {
+            t["settings"] = Value::Object(s);
         }
     }
     t
@@ -826,9 +858,9 @@ mod tests {
     #[test]
     fn a_saved_description_is_optional() {
         let rows = vec![row(1, None, "lead", "opus", 1.0, 2.0)];
-        let blank = from_rows("t", "T", Some("  "), &rows, None, None, &Include::default());
+        let blank = from_rows("t", "T", Some("  "), &rows, None, None, &Value::Null, &Include::default());
         assert!(blank.get("description").is_none());
-        let given = from_rows("t", "T", Some(" Our team "), &rows, None, None, &Include::default());
+        let given = from_rows("t", "T", Some(" Our team "), &rows, None, None, &Value::Null, &Include::default());
         assert_eq!(given["description"], "Our team");
     }
 
@@ -843,7 +875,7 @@ mod tests {
     fn a_saved_layout_round_trips_through_the_plan() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 20.0), row(2, Some(1), "dev", "sonnet", 2.0, 3.0),
                         row(3, Some(1), "qa", "sonnet", 2.0, 0.0)];
-        let v = from_rows("my-team", "My team", Some("  "), &rows, Some("org rules".into()), None, &Include::default());
+        let v = from_rows("my-team", "My team", Some("  "), &rows, Some("org rules".into()), None, &Value::Null, &Include::default());
         assert!(v["agents"][0]["account"].is_null() && v["agents"][0]["add_dirs"].is_null());
         assert_eq!(v["org_md"], "org rules");
         let t: Template = serde_json::from_value(v).unwrap();
@@ -859,7 +891,7 @@ mod tests {
     fn saved_folders_are_clamped_and_accounts_are_preferences() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
         let inc = Include { accounts: true, folders: true, ..Include::default() };
-        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, None, &inc)).unwrap();
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, None, &Value::Null, &inc)).unwrap();
         assert_eq!(t.agents[0].account.as_deref(), Some("claude-5"));
         let (p, _) = plan(&t, &Choices::default(), &claude_only(), &[json!({ "path": "E:\\other", "mode": "rw" })]).unwrap();
         assert_eq!(p[0].dirs_dropped, vec!["E:\\x".to_string()]);
@@ -873,8 +905,8 @@ mod tests {
     #[test]
     fn unticked_groups_are_left_out() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
-        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false, quick_chat: false };
-        let v = from_rows("t", "T", None, &rows, Some("x".into()), None, &inc);
+        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false, quick_chat: false, settings: false };
+        let v = from_rows("t", "T", None, &rows, Some("x".into()), None, &Value::Null, &inc);
         let a = &v["agents"][0];
         assert!(a["charter"].is_null() && a["effort"].is_null() && a["tools"].is_null() && v["org_md"].is_null());
         assert_eq!(a["spare"], 0.0);
@@ -918,7 +950,7 @@ mod tests {
     fn a_language_server_slot_is_valid_and_bills_no_account() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 1.0), row(2, Some(1), "local", "ls-ollama-qwen3-8-27b", 0.1, 0.0)];
         let inc = Include { accounts: true, ..Include::default() };
-        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, None, &inc)).unwrap();
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, None, &Value::Null, &inc)).unwrap();
         assert!(validate(&t).is_empty(), "{:?}", validate(&t));
         let mut av = claude_only();
         av.tiers.insert("ls-ollama-qwen3-8-27b".into(), offer(0.1, "langserver"));
@@ -1037,16 +1069,35 @@ mod tests {
     fn a_saved_template_carries_quick_chat_unless_unticked() {
         let rows = vec![row(1, None, "boss", "opus", 4.0, 10.0), row(2, Some(1), "dev", "sonnet", 2.0, 0.0)];
         let q = json!({ "superior": "dev", "tier": "sonnet", "effort": "high" });
-        let v = from_rows("t", "T", None, &rows, None, Some(&q), &Include::default());
+        let v = from_rows("t", "T", None, &rows, None, Some(&q), &Value::Null, &Include::default());
         assert_eq!(v["quick_chat"], q);
         let gone = json!({ "superior": "archived-one", "tier": "opus" });
-        let v = from_rows("t", "T", None, &rows, None, Some(&gone), &Include::default());
+        let v = from_rows("t", "T", None, &rows, None, Some(&gone), &Value::Null, &Include::default());
         assert_eq!(v["quick_chat"], json!({ "superior": null, "tier": "opus" }));
         let inc = Include { quick_chat: false, ..Include::default() };
-        assert!(from_rows("t", "T", None, &rows, None, Some(&q), &inc).get("quick_chat").is_none());
-        assert!(from_rows("t", "T", None, &rows, None, None, &Include::default()).get("quick_chat").is_none());
-        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, Some(&q), &Include::default())).unwrap();
+        assert!(from_rows("t", "T", None, &rows, None, Some(&q), &Value::Null, &inc).get("quick_chat").is_none());
+        assert!(from_rows("t", "T", None, &rows, None, None, &Value::Null, &Include::default()).get("quick_chat").is_none());
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, Some(&q), &Value::Null, &Include::default())).unwrap();
         assert!(validate(&t).is_empty());
+    }
+
+    #[test]
+    fn a_saved_template_carries_the_org_set_settings_but_nothing_of_this_computer() {
+        let rows = vec![row(1, None, "boss", "opus", 4.0, 10.0)];
+        let settings = json!({ "dirs": [{ "path": "C:/work", "mode": "rw" }], "default_account": "claude-5",
+            "disabled_accounts": ["openai-1"], "headless": false, "quick_chat": { "tier": "opus" },
+            "max_top_grant": 40, "default_effort": "high", "permission_mode": "default", "cascade_hire": false,
+            "default_top_grant": null });
+        let v = from_rows("t", "T", None, &rows, None, None, &settings, &Include::default());
+        assert_eq!(v["settings"], json!({ "max_top_grant": 40, "default_effort": "high", "permission_mode": "default", "cascade_hire": false }));
+        let inc = Include { settings: false, ..Include::default() };
+        assert!(from_rows("t", "T", None, &rows, None, None, &settings, &inc).get("settings").is_none());
+        assert!(from_rows("t", "T", None, &rows, None, None, &json!({ "dirs": [] }), &Include::default()).get("settings").is_none());
+        let t: Template = serde_json::from_value(v).unwrap();
+        assert!(validate(&t).is_empty());
+        let mut t2 = t.clone();
+        t2.settings.as_mut().unwrap().insert("dirs".into(), json!([]));
+        assert!(validate(&t2).iter().any(|p| p.contains("'dirs'")));
     }
 
     #[test]
