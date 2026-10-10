@@ -31,6 +31,7 @@ mod import_dogmemo;
 mod import_failures;
 mod importer;
 mod langserver;
+mod lsproxy;
 mod launch;
 mod mailhub;
 mod migrate;

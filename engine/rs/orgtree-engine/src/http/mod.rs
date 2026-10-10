@@ -275,6 +275,9 @@ async fn api_not_found(req: Request) -> Response {
 /// the request's id. Each request is logged as its own request (decision 34):
 /// REQUEST and RESPONSE lines with masked bodies, and HEADERS when verbose.
 async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> Response {
+    if crate::lsproxy::route(req.uri().path()) {
+        return crate::lsproxy::dispatch(State(engine), req).await;
+    }
     if crate::credential_bridge::route(req.uri().path()) {
         return crate::credential_bridge::dispatch(State(engine), req).await;
     }

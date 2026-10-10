@@ -937,8 +937,12 @@ where
 /// What a language-server seat needs before it can launch.
 pub struct Route {
     pub server: String,
+    /// where the harness is pointed: the engine's pass-through to the
+    /// server (lsproxy), which hands it on in the shape strict chat
+    /// templates accept
     pub base_url: String,
-    /// the server's key, or NO_KEY (a secret: never logged)
+    /// the key the harness sends: this boot's pass-through secret (never
+    /// logged); the pass-through gives the server its own key
     pub key: String,
     pub model: String,
     pub context: i64,
@@ -974,10 +978,9 @@ pub async fn route(engine: &Engine, tier: &str) -> Result<Route> {
     if s["enabled"].as_bool() == Some(false) {
         anyhow::bail!("the language server {} is turned off in App settings › Providers", s["label"].as_str().unwrap_or(&id));
     }
-    let key = key(engine, &id).await.unwrap_or_else(|| NO_KEY.to_string());
     Ok(Route {
-        base_url: base_url(&s),
-        key,
+        base_url: crate::lsproxy::base(engine, &id),
+        key: crate::lsproxy::secret().to_string(),
         model: m["id"].as_str().unwrap_or("").to_string(),
         context: context_of(&m),
         codex: s["harness"].as_str() == Some("codex-cli"),
@@ -1006,7 +1009,7 @@ pub const CLAUDE_ENV_REMOVE: &[&str] = &[
 /// assumes 200K for a model it does not know), a reply size the window can
 /// spare, to leave out request fields a local server may refuse, and to
 /// wait for a slow server.
-#[logged]
+#[nolog]
 pub fn claude_env(r: &Route) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = vec![
         ("ANTHROPIC_BASE_URL".into(), r.base_url.clone()),

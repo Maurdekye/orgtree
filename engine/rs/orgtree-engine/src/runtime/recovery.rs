@@ -145,6 +145,9 @@ pub fn classify(error: &str, res: &Value, gateway: bool, died_in_flight: bool) -
             return match s {
                 401 => Some(Class::Auth),
                 402 => Some(Class::Balance),
+                // a chat template that refused the conversation refuses it on
+                // every retry: a real error the user reads, never a freeze
+                s if s >= 500 && crate::lsproxy::is_template_error(error) => None,
                 s if s >= 500 => Some(Class::Net(format!("the provider answered {s}"))),
                 _ => None,
             };
