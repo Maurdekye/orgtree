@@ -29,8 +29,10 @@ export function layoutPick(choice: LayoutChoice, plan: TemplatePlan | null): Tem
   }
 }
 
-const PROVIDER_ORDER = ['claude', 'openai', 'google', 'openrouter']
-const SIGN_IN: Record<string, string> = { claude: 'Claude', openai: 'Codex', google: 'Antigravity', openrouter: 'OpenRouter' }
+const PROVIDER_ORDER = ['claude', 'openai', 'google', 'openrouter', 'langserver']
+const SIGN_IN: Record<string, string> = {
+  claude: 'Claude', openai: 'Codex', google: 'Antigravity', openrouter: 'OpenRouter', langserver: 'Language Server',
+}
 
 function MiniTree({ t }: { t: TemplateSummary | null }) {
   if (!t) {

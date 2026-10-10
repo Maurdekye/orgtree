@@ -1466,6 +1466,9 @@ export interface LangServerProbeModel {
   max_context?: number | null
   /** the window it runs with now (loaded models only) */
   loaded_context?: number | null
+  /** Ollama: the window its Modelfile sets (num_ctx) — what every request
+   *  that names none gets, whatever OLLAMA_CONTEXT_LENGTH says */
+  configured_context?: number | null
   size?: number | null
   parameters?: string | null
   quantization?: string | null

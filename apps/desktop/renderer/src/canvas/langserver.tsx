@@ -22,12 +22,17 @@
 // and silently cuts a longer prompt; an agent's own prompt alone is tens of
 // thousands of tokens. So every model row shows the window agents are told,
 // lets the user set it, and warns below the backend's floor.
+//
+// AN OLLAMA MODEL CAN CARRY ITS OWN WINDOW (coordinator ruling 2026-10-10):
+// never made automatically, but a model found on an Ollama server whose
+// Modelfile sets no 64K window offers "Create a 64K version of this model",
+// which says before the click that it adds an entry to the user's Ollama.
 
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  addLangServer, getLangServers, probeLangServer, removeLangServer, setLangServerKey,
-  updateLangServer,
+  addLangServer, createOllamaVariant, getLangServers, probeLangServer, removeLangServer,
+  setLangServerKey, updateLangServer,
 } from '../api'
 import type { LangServerModelPick } from '../api'
 import { useAppValue } from '../appfeed'
@@ -54,12 +59,54 @@ export const fmtTokens = (n: number | null | undefined): string => {
 const fmtBytes = (n: number | null | undefined): string | null =>
   n == null || n <= 0 ? null : n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)} MB`
 
-/** the window a model found on a server should start with: the one it runs
- *  with now, else the default (never more than it was trained for) */
+/** the window a model found on a server should start with: the one its
+ *  Modelfile sets (Ollama: every request that names none gets it), else the
+ *  one it runs with now, else the default (never more than it was trained for) */
 const startWindow = (m: LangServerProbeModel, dflt: number): number => {
+  if (m.configured_context && m.configured_context > 0) return m.configured_context
   if (m.loaded_context && m.loaded_context > 0) return m.loaded_context
   if (m.max_context && m.max_context > 0) return Math.min(m.max_context, dflt)
   return dflt
+}
+
+/** the window of the version the button makes (langserver.rs VARIANT_CONTEXT) */
+const VARIANT_CONTEXT = 65536
+
+/** the name the 64K version gets: the window added to the tag
+ *  (`qwen3.8:27b` → `qwen3.8:27b-64k`); mirrors langserver.rs `variant_name` */
+export const variantName = (model: string): string => {
+  const m = model.trim()
+  const at = m.lastIndexOf('/') + 1
+  const colon = m.slice(at).lastIndexOf(':')
+  const [base, tag] = colon >= 0 ? [m.slice(0, at + colon), m.slice(at + colon + 1)] : [m, 'latest']
+  return `${base}:${tag.slice(0, 76)}-64k`
+}
+
+/** an Ollama model whose Modelfile sets no 64K window, that was trained for
+ *  one, and has no 64K version on the server yet */
+export const wantsVariant = (m: LangServerProbeModel, all: LangServerProbeModel[]): boolean =>
+  !(m.configured_context && m.configured_context >= VARIANT_CONTEXT)
+  && !(m.max_context && m.max_context < VARIANT_CONTEXT)
+  && !all.some((x) => x.id === variantName(m.id))
+
+/** "Create a 64K version of this model": says what it adds to the user's
+ *  Ollama before the click, and does nothing without one */
+function VariantButton({ model, busy, onCreate }: {
+  model: string
+  busy: boolean
+  onCreate: () => Promise<unknown>
+}) {
+  const [working, setWorking] = useState(false)
+  return (
+    <div className="ls-variant">
+      <button type="button" className="acct-secondary-btn" disabled={busy || working}
+        onClick={() => { setWorking(true); void onCreate().finally(() => setWorking(false)) }}>
+        {working ? 'creating…' : 'Create a 64K version of this model'}</button>
+      <span className="dim">
+        adds <span className="mono">{variantName(model)}</span> to your Ollama: the same model with its own
+        64K window, nothing downloaded</span>
+    </div>
+  )
 }
 
 /** the document as this section reads it: an older engine (no such route)
@@ -81,6 +128,7 @@ export const langServerDoc = (d: unknown): LangServerDoc | null => {
 const probeFacts = (m: LangServerProbeModel): string => [
   m.parameters, m.quantization, fmtBytes(m.size),
   m.max_context ? `trained for ${fmtTokens(m.max_context)}` : null,
+  m.configured_context ? `its Modelfile sets ${fmtTokens(m.configured_context)}` : null,
   m.loaded_context ? `running with ${fmtTokens(m.loaded_context)}` : null,
   m.tools === false ? 'no tool use declared' : null,
 ].filter(Boolean).join(' · ')
@@ -220,6 +268,20 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setProbing(false))
   }
+  // the 64K version takes the original's place in what will be offered
+  const makeVariant = (m: LangServerProbeModel) =>
+    createOllamaVariant({ address, key: key.trim() || undefined, model: m.id })
+      .then((r) => {
+        setProbe(r.probe)
+        setPicked((cur) => {
+          const next = { ...cur }
+          delete next[m.id]
+          next[r.created] = r.context
+          return next
+        })
+        toast([`created ${r.created} in your Ollama`])
+      })
+      .catch((e: Error) => toast([`error: ${e.message}`]))
   const typedIds = typed.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
   const models: LangServerModelPick[] = [
     ...Object.entries(picked).map(([id, context]) => ({ id, context })),
@@ -319,7 +381,10 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
             if (w == null) delete next[m.id]
             else next[m.id] = w
             return next
-          })} />
+          })}
+          variant={presetId === 'ollama' && wantsVariant(m, probe.models)
+            ? <VariantButton model={m.id} busy={busy} onCreate={() => makeVariant(m)} />
+            : null} />
       ))}
       <div className="ls-actions">
         <button type="button" className="acct-secondary-btn" disabled={busy || !address.trim() || !harnessOk}
@@ -333,13 +398,15 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
 }
 
 /** one model the server listed: offer it (with the window agents are told) or not */
-function ProbeModelRow({ m, doc, busy, ctx, onPick }: {
+function ProbeModelRow({ m, doc, busy, ctx, onPick, variant }: {
   m: LangServerProbeModel
   doc: LangServerDoc
   busy: boolean
   /** the window, when picked */
   ctx: number | undefined
   onPick: (ctx: number | null) => void
+  /** the 64K-version button, for an Ollama model that wants one */
+  variant?: ReactNode
 }) {
   const on = ctx != null
   return (
@@ -351,6 +418,7 @@ function ProbeModelRow({ m, doc, busy, ctx, onPick }: {
       </label>
       <span className="dim ls-model-facts">{probeFacts(m)}</span>
       {on && <WindowInput value={ctx} min={doc.min_context} busy={busy} onChange={(w) => onPick(w)} />}
+      {variant}
     </div>
   )
 }
@@ -405,6 +473,17 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
   const save = () => {
     void patch({ label, address, ...(s.preset === 'custom' ? { base_path: basePath } : {}) },
       `saved ${label}`).then((ok) => { if (ok) setEditing(false) })
+  }
+  // after a check: the 64K-version button for an Ollama model that wants one;
+  // the version it makes is listed below with the others found, to offer
+  const variantFor = (id: string): ReactNode => {
+    const found = probe?.reachable ? probe.models : []
+    const m = found.find((x) => x.id === id)
+    if (s.preset !== 'ollama' || !m || !wantsVariant(m, found)) return null
+    return <VariantButton model={id} busy={busy} onCreate={() =>
+      createOllamaVariant({ server: s.id, model: id })
+        .then((r) => { setProbe(r.probe); toast([`created ${r.created} in your Ollama: offer it below`]) })
+        .catch((e: Error) => toast([`error: ${e.message}`]))} />
   }
 
   return (
@@ -486,7 +565,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
         {!models.length && <p className="dim acct-prov-note">
           No model offered yet. Use ↻ to ask the server which models it has.</p>}
         {models.map((m) => (
-          <ModelRow key={m.id} m={m} doc={doc} busy={busy}
+          <ModelRow key={m.id} m={m} doc={doc} busy={busy} variant={variantFor(m.id)}
             onOffer={(v) => { void patch({ models: [{ id: m.id, offered: v }] }, `${m.label} ${v ? 'offered' : 'withdrawn'}`) }}
             onWindow={(w) => { void patch({ models: [{ id: m.id, context: w }] }, `${m.label}: ${fmtTokens(w)} tokens`) }} />
         ))}
@@ -500,6 +579,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
                 void patch({ models: [{ id: m.id, context: startWindow(m, doc.default_context), offered: true }] },
                   `${m.id} offered`)
               }}>offer</button>
+            {variantFor(m.id)}
           </div>
         ))}
       </div>
@@ -507,12 +587,14 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
   )
 }
 
-function ModelRow({ m, doc, busy, onOffer, onWindow }: {
+function ModelRow({ m, doc, busy, onOffer, onWindow, variant }: {
   m: LangServerModel
   doc: LangServerDoc
   busy: boolean
   onOffer: (offered: boolean) => void
   onWindow: (w: number) => void
+  /** the 64K-version button, after a check found it wants one */
+  variant?: ReactNode
 }) {
   const [w, setW] = useState(m.context_in_use)
   useEffect(() => { setW(m.context_in_use) }, [m.context_in_use])
@@ -531,6 +613,7 @@ function ModelRow({ m, doc, busy, onOffer, onWindow }: {
           title={`An agent's own prompt needs about ${fmtTokens(doc.min_context)} tokens before it can work`}>
           too small for an agent</span>}
       </span>
+      {variant}
     </div>
   )
 }

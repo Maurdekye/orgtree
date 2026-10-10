@@ -38,7 +38,7 @@ export function QuickChat({ slug, tree, op, toast, onHired }: {
     if (!providers) return []
     const of = (id: string) => hireOf(providers.providers.find(p => p.id === id))
     return hireTierChoices({ claudeHire: of('claude'), codexHire: of('openai'),
-      antigravityHire: of('google'), openrouterHire: of('openrouter') })
+      antigravityHire: of('google'), openrouterHire: of('openrouter'), langserverHire: of('langserver') })
       .filter(c => c.offer === 'offer').map(c => c.tier)
   }, [providers])
   const nodes = useMemo(() => flatNodes(tree), [tree])

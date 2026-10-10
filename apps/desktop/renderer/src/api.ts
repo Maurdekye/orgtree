@@ -1012,6 +1012,17 @@ export const probeLangServer = (body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+/** "Create a 64K version of this model": adds `<model>-64k` to the user's
+ *  Ollama (the same weights with its own window; nothing is downloaded) and
+ *  answers with the server's models again. Only ever on the user's click. */
+export const createOllamaVariant = (body: {
+  server?: string, address?: string, key?: string, model: string,
+}): Promise<{ created: string, context: number, probe: LangServerProbe }> =>
+  req('/api/langservers/ollama-variant', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 export const getRuntimeSettings = (): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime')
 export const setAntigravityClaudeEnabled = (antigravity_claude_enabled: boolean): Promise<RuntimeSettingsPayload> =>
