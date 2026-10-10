@@ -248,7 +248,7 @@ fn all() -> Vec<Value> {
             "Read or clear an account's capacity mark (the record that its usage limit is used up until a reset \
              time). `inspect` lists every stored mark with its pool, reset time, age, provenance and the `expected` \
              values a clear must send back. `clear` removes one mark only if it still matches `expected`; otherwise \
-             it answers `changed`, `missing` or `expired` and writes nothing. Clearing the pooled/default mark also \
+             it answers `changed` or `missing` and writes nothing (an expired mark is removed too). Clearing the pooled/default mark also \
              removes an inferred `fable` mark with the same reset time. Each clear is audited. It adds no capacity and \
              resumes nobody: `frozen_here` names agents that still need orgtree_unstick. Works on any account your org can see.",
             json!({

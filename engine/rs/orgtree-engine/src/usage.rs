@@ -939,6 +939,7 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
     }
     if due(last, "usage_history_prune", 3600) {
         crate::usage_history::prune(engine).await;
+        crate::account_marks::prune(engine).await;
         last.insert("usage_history_prune", Instant::now());
     }
     if due(last, "registered", open_every) {

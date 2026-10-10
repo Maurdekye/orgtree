@@ -200,6 +200,25 @@ async fn refreshed(engine: &Engine, result: anyhow::Result<u64>) {
     }
 }
 
+/// Delete marks whose horizon passed more than a day ago, a small batch at a
+/// time. A mark that has just passed stays a while, so `inspect` can still
+/// show it as expired; one from days ago is only clutter.
+#[logged]
+pub async fn prune(engine: &Engine) {
+    let result: anyhow::Result<u64> = async {
+        let client = engine.db.get().await?;
+        Ok(client.execute(
+            "DELETE FROM ot.account_marks WHERE ctid IN (
+               SELECT ctid FROM ot.account_marks WHERE until < now() - interval '1 day' LIMIT 500)",
+            &[],
+        ).await?)
+    }.await;
+    if let Ok(n) = &result {
+        if *n > 0 { tracing::info!(pruned = n, "expired account marks pruned"); }
+    }
+    refreshed(engine, result).await;
+}
+
 // ------------------------------------------------------------ manual clear (3.x parity F01)
 
 /// The fable mark a pooled/default mark carries when it was inferred with it.
@@ -313,7 +332,8 @@ fn with(mut v: Value, extra: Value) -> Value {
 }
 
 /// Remove ONE stored mark only if it is still exactly `expected` (3.x
-/// `registry.clear_mark`). `changed`, `missing` and `expired` write nothing.
+/// `registry.clear_mark`). `changed` and `missing` write nothing; an expired
+/// mark is deleted like an active one (user 2026-10-10), `was_expired` saying so.
 /// Clearing pooled/default also removes an inferred fable companion with the
 /// same horizon; any other fable mark is kept and reported. The delete and its
 /// audit row commit in ONE transaction. Adds no capacity and resumes no agent.
@@ -352,9 +372,9 @@ pub async fn clear(
     if !mark.matches(expected) {
         return Ok(with(base, serde_json::json!({ "result": "changed", "current": mark.snapshot() })));
     }
-    if mark.until <= Utc::now() {
-        return Ok(with(base, serde_json::json!({ "result": "expired", "current": mark.snapshot() })));
-    }
+    // an expired mark limits nothing any more; clearing it just removes the
+    // record (user 2026-10-10: a refusal left it on the card for good)
+    let expired = mark.until <= Utc::now();
     let mut cleared = serde_json::Map::new();
     let mut kept = serde_json::Map::new();
     cleared.insert(pool.to_string(), mark.snapshot());
@@ -394,5 +414,5 @@ pub async fn clear(
     tx.commit().await?;
     drop(client);
     refreshed(engine, Ok(1)).await;
-    Ok(with(base, serde_json::json!({ "result": "cleared", "cleared": cleared, "kept": kept, "audit": entry })))
+    Ok(with(base, serde_json::json!({ "result": "cleared", "was_expired": expired, "cleared": cleared, "kept": kept, "audit": entry })))
 }

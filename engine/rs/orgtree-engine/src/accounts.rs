@@ -375,6 +375,8 @@ pub fn row(a: &AccountInfo, bound: Vec<Value>, now: DateTime<Utc>) -> Value {
     let marks: serde_json::Map<String, Value> = a
         .marks
         .iter()
+        // a limit whose time has passed is not a standing: never shown as one
+        .filter(|(_, (until, _))| *until > now)
         .map(|(pool, (until, prov))| (pool.clone(), json!({ "until": until.timestamp(), "provenance": prov })))
         .collect();
     let harness = match a.provider.as_str() {
