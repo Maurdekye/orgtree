@@ -2180,6 +2180,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         ? [...surfaceDocument.querySelectorAll<HTMLElement>('[data-native-event]')]
           .find(el => el.dataset.nativeEvent === durable)
         : undefined)
+    if (element) leaveBottom()
     element?.scrollIntoView?.({ block: 'center' })
   }
   const renderReply = (wire: unknown) => {
@@ -2281,6 +2282,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     stickRef.current = v
     setShowJump(!v)   // only on a real flip — useChangedState, not an updater
   }
+  // A programmatic jump away from the tail ("jump to your message", a reply
+  // link) must release bottom follow FIRST, the way an upward wheel does.
+  // While stuck, the scroll event of the jump itself ran pin() and put the
+  // view straight back at the bottom (user 2026-10-10: the jump to the last
+  // sent message "jumps for one frame, then returns"); it only worked from a
+  // view that had already been scrolled up. Follow resumes when the reader
+  // scrolls back down to the tail or uses "jump to bottom".
+  const leaveBottom = () => { scrollIntent.current = null; setStuck(false) }
   const noteScrollIntent = (direction: -1 | 1) => {
     // Cover asynchronous default scrolling and touch/trackpad momentum; this
     // timestamp does not schedule a timer or keep a closed desk alive.
@@ -3556,6 +3565,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 const el = scroller.current
                 const tr = pinSeq == null ? null : userRowEls.current.get(pinSeq)
                 if (!el || !tr) return
+                leaveBottom()
                 const pad = e.currentTarget.offsetHeight + 12
                 const target = () => el.scrollTop + tr.getBoundingClientRect().top
                   - el.getBoundingClientRect().top - pad
