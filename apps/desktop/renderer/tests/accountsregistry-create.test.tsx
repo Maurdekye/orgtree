@@ -56,7 +56,7 @@ test('three provider headers own add controls and account rows, with one registr
   const { calls } = await setup(t)
   assert.equal(document.querySelectorAll('.acct-provider-head button:not(.set-toggle)').length >= 3, true)
   for (const provider of ['claude', 'openai', 'google']) assert.ok(button(lane(provider), 'Add secondary account'))
-  assert.equal(lane('claude').querySelectorAll('.account-row').length, 1)
+  assert.equal(lane('claude').querySelectorAll('.account-row').length, 2)  // the native sign-in (default) + the registry row — decision 41
   assert.match(lane('claude').textContent!, /existing-claude/)
   assert.doesNotMatch(lane('claude').textContent!, /existing-codex/)
   assert.match(lane('openai').textContent!, /existing-codex/)
@@ -150,5 +150,5 @@ test('refresh queries stable account id but reports its displayed label', async 
   state.alien = false
   await inAct(async () => { button(document.body, 'retry').click(); await flush() })
   assert.doesNotMatch(document.body.textContent!, /Could not load the account list/)
-  assert.equal(lane('claude').querySelectorAll('.account-row').length, 1)
+  assert.equal(lane('claude').querySelectorAll('.account-row').length, 2)  // the native sign-in (default) + the registry row — decision 41
  })
