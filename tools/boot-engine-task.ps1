@@ -38,7 +38,10 @@ function Get-BootRecord {
     try {
         $key = $hive.OpenSubKey($script:BootRecordKey)
         if ($null -eq $key) { return $null }
-        try { Assert-BootRegistryKey $key; return @{ InstallDir=$key.GetValue('InstallDir'); OperatorSid=$key.GetValue('OperatorSid'); Id=$key.GetValue('Id') } }
+        # RunOnStartup: the operator's "Run on startup" (1 on, 0 off), written by
+        # the desktop's switch through a permission prompt and by Prepare; absent
+        # on installations from before it existed.
+        try { Assert-BootRegistryKey $key; return @{ InstallDir=$key.GetValue('InstallDir'); OperatorSid=$key.GetValue('OperatorSid'); Id=$key.GetValue('Id'); RunOnStartup=$key.GetValue('RunOnStartup') } }
         finally { $key.Dispose() }
     } finally { $hive.Dispose() }
 }
@@ -49,7 +52,11 @@ function Save-BootRecord($Record) {
         $acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)')
         # Supplying security on CREATE avoids an intermediate writable record.
         $key = $hive.CreateSubKey($script:BootRecordKey, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, $acl)
-        try { Assert-BootRegistryKey $key; foreach ($name in @('InstallDir','OperatorSid','Id')) { $key.SetValue($name, [string]$Record[$name], 'String') } }
+        try {
+            Assert-BootRegistryKey $key
+            foreach ($name in @('InstallDir','OperatorSid','Id')) { $key.SetValue($name, [string]$Record[$name], 'String') }
+            if ($null -ne $Record['RunOnStartup']) { $key.SetValue('RunOnStartup', [int]$Record['RunOnStartup'], 'DWord') }
+        }
         finally { $key.Dispose() }
     } finally { $hive.Dispose() }
 }
@@ -83,14 +90,39 @@ function Get-OperatorDataRoot([string]$Sid) {
         } finally { $users.Dispose() }
     } catch { $value = $null }
     if ($value) { return [string]$value }
+    $profilePath = Get-OperatorProfile $Sid
+    if (-not $profilePath) { return $null }
+    return (Join-Path $profilePath 'AppData\Roaming\Orgtree v2\data')
+}
+function Get-OperatorProfile([string]$Sid) {
     $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')
     try {
         $key = $hive.OpenSubKey("SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$Sid")
         if ($null -eq $key) { return $null }
-        try { $profilePath = [string]$key.GetValue('ProfileImagePath') } finally { $key.Dispose() }
+        try { return [string]$key.GetValue('ProfileImagePath') } finally { $key.Dispose() }
     } finally { $hive.Dispose() }
-    if (-not $profilePath) { return $null }
-    return (Join-Path $profilePath 'AppData\Roaming\Orgtree v2\data')
+}
+# The operator's own "Run on startup" from before it was recorded here: the
+# desktop stores it as startAtLogin in desktop-settings.json. The file is the
+# user's own, and agents can write it; that is acceptable for this one value,
+# which only decides whether the user's own engine starts at boot and grants
+# nothing. $null when it cannot be read.
+function Get-OperatorStartupChoice([string]$Sid) {
+    try {
+        $profilePath = Get-OperatorProfile $Sid
+        if (-not $profilePath) { return $null }
+        return Read-StartupChoice (Join-Path $profilePath 'AppData\Roaming\Orgtree v2\desktop-settings.json')
+    } catch { return $null }
+}
+# startAtLogin from a desktop-settings.json: $true, $false, or $null for a
+# missing file, unreadable JSON or no boolean value.
+function Read-StartupChoice([string]$File) {
+    try {
+        if (-not [IO.File]::Exists($File)) { return $null }
+        $value = ([IO.File]::ReadAllText($File) | ConvertFrom-Json).startAtLogin
+        if ($value -is [bool]) { return $value }
+        return $null
+    } catch { return $null }
 }
 # Ask the background engine to stop the way the window does: POST
 # /api/desktop/shutdown with the token from the boot host's attach descriptor.
@@ -160,6 +192,12 @@ function Assert-BootRecord($Record, [string]$InstallDir) {
     if (-not [guid]::TryParse($Record.Id, [ref]$id) -or $id -eq [guid]::Empty) { throw 'Invalid boot ownership record.' }
 }
 function Get-BootMarker($Record) { return "com.maurdekye.orgtree.boot.v1:$($Record.Id)" }
+# "Run on startup" (docket start-at-login-off-means-nothing-of-orgtree-star):
+# off, both tasks are registered disabled and nothing of Orgtree starts at boot
+# or sign-in. Absent (an installation from before the choice was recorded)
+# counts as on, the desktop's default.
+function Test-RunOnStartup($Record) { return ($null -eq $Record['RunOnStartup'] -or [int]$Record['RunOnStartup'] -ne 0) }
+function Get-StartupEnabledText($Record) { if (Test-RunOnStartup $Record) { return 'true' } return 'false' }
 function Read-BootXml([string]$Text) {
     $settings = [Xml.XmlReaderSettings]::new()
     $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
@@ -209,6 +247,7 @@ function New-BootTaskXml($Record) {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>S4U</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><Arguments /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-BootMarker $Record
+    $doc.Task.Settings.Enabled = Get-StartupEnabledText $Record
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
     $doc.Task.Actions.Exec.Command = [string]$paths.Python
     $doc.Task.Actions.Exec.Arguments = '"'+$paths.Host+'"'
@@ -236,6 +275,7 @@ function New-HelperTaskXml($Record) {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><LogonTrigger><Enabled>true</Enabled><UserId /></LogonTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-HelperMarker $Record
+    $doc.Task.Settings.Enabled = Get-StartupEnabledText $Record
     $doc.Task.Triggers.LogonTrigger.UserId = $Record.OperatorSid
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
     $doc.Task.Actions.Exec.Command = [string](Get-HelperPath $Record.InstallDir)
@@ -401,6 +441,16 @@ function Invoke-BootLifecycle {
         if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir }
         # Existing operator remains authoritative during alternate-admin updates.
     }
+    # Run on startup (docket start-at-login-off-means-nothing-of-orgtree-star):
+    # an installation that has not recorded the operator's choice yet takes it
+    # from their own setting, else on. Never from the task's state: an update
+    # disables the task while it replaces files, so a disabled task may only be
+    # an update that did not finish.
+    if ($Action -eq 'Prepare' -and $null -eq $record['RunOnStartup']) {
+        $choice = Get-OperatorStartupChoice $record.OperatorSid
+        if ($null -eq $choice) { $choice = $true }
+        $record['RunOnStartup'] = [int][bool]$choice
+    }
     Assert-BootDesktopClosed $InstallDir
     Stop-OwnedHelperTask $folder $record $InstallDir
     switch ($Action) {
@@ -432,7 +482,10 @@ function Invoke-BootLifecycle {
             # attachment after losing the data-root lock to this newly started host.
             # Fresh install and update both start the host; do not ship without
             # Fable's startup/attach race handling and its packaged acceptance.
-            $null = $registered.Run($null)
+            # With "Run on startup" off the task is registered disabled and not
+            # started: nothing of Orgtree runs until the user opens it.
+            $runs = Test-RunOnStartup $record
+            if ($runs) { $null = $registered.Run($null) }
             # The sign-in credential broker ships with the native engine only.
             # Started now as well when the operator is signed in; otherwise at
             # their next sign-in. Its Run failing never fails the install.
@@ -442,7 +495,7 @@ function Invoke-BootLifecycle {
                 if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir; $helperFlags = 20 }
                 $helperTask = Register-HelperTask $folder (New-HelperTaskXml $record) $helperFlags $record.OperatorSid $sddl
                 Assert-OwnedHelperTask $helperTask $record $InstallDir
-                try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" }
+                if ($runs) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
             }
         }
     }

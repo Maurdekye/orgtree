@@ -63,6 +63,9 @@ function Request-BootEngineShutdown($Record,[string]$InstallDir) {
     return $script:engineAnswers
 }
 function Get-OperatorDataRoot([string]$Sid) { throw 'The operator data folder must not be read by these tests' }
+# The operator's own "Run on startup" from desktop-settings.json: none unless a test sets one.
+$script:operatorChoice=$null
+function Get-OperatorStartupChoice([string]$Sid) { return $script:operatorChoice }
 
 # Per-user positive path: no machine lookup at all, even with a foreign task.
 Invoke-BootLifecycle Prepare -InstallMode CurrentUser
@@ -270,6 +273,40 @@ foreach ($legacyXml in @($xml.Replace('<Priority>5</Priority>',''),$xml.Replace(
     Assert ($updatedXml.Task.Settings.Priority -eq '5') 'Upgrade retained the legacy task priority'
     Assert ($script:events -contains 'register:20' -and $script:events -contains 'run') 'Legacy task was not updated and launched'
 }
+
+# Run on startup (docket start-at-login-off-means-nothing-of-orgtree-star). An
+# update records the operator's own choice when none is recorded yet; off
+# registers both tasks disabled and starts neither.
+$script:record.Remove('RunOnStartup'); $script:operatorChoice=$false; $script:events.Clear()
+Invoke-BootLifecycle Prepare $dir $sid
+Assert ($script:record['RunOnStartup'] -eq 0) 'Prepare did not record the operator''s Run on startup off'
+Invoke-BootLifecycle Register $dir
+Assert ((Read-BootXml $script:task.Xml).Task.Settings.Enabled -eq 'false') 'The boot task was registered enabled with Run on startup off'
+Assert ((Read-BootXml $script:helper.Xml).Task.Settings.Enabled -eq 'false') 'The helper task was registered enabled with Run on startup off'
+Assert (-not ($script:events -contains 'run') -and -not ($script:events -contains 'helper-run')) 'A task was started with Run on startup off'
+# A recorded choice (the switch writes it) wins over the settings file.
+$script:operatorChoice=$true; $script:events.Clear()
+Invoke-BootLifecycle Prepare $dir $sid
+Assert ($script:record['RunOnStartup'] -eq 0) 'A recorded Run on startup off was overridden'
+$script:record['RunOnStartup']=1; $script:events.Clear()
+Invoke-BootLifecycle Prepare $dir $sid
+Invoke-BootLifecycle Register $dir
+Assert ((Read-BootXml $script:task.Xml).Task.Settings.Enabled -eq 'true' -and $script:events -contains 'run' -and $script:events -contains 'helper-run') 'Run on startup on did not register and start both tasks'
+# Never taken from the task itself: an update that stopped half way leaves it disabled.
+$script:record.Remove('RunOnStartup'); $script:operatorChoice=$null; $script:task.Enabled=$false; $script:events.Clear()
+Invoke-BootLifecycle Prepare $dir $sid
+Assert ($script:record['RunOnStartup'] -eq 1) 'A task left disabled by an unfinished update was read as Run on startup off'
+Invoke-BootLifecycle Register $dir
+# The settings file itself: only a boolean startAtLogin counts.
+$settings=Join-Path $root 'desktop-settings.json'
+foreach ($case in @(@('{"startAtLogin":false,"exitOnClose":true}',$false),@('{"startAtLogin":true}',$true),@('{"exitOnClose":true}',$null),@('{"startAtLogin":"false"}',$null),@('not json',$null))) {
+    [IO.File]::WriteAllText($settings,$case[0])
+    $read=Read-StartupChoice $settings
+    Assert ($(if ($null -eq $case[1]) { $null -eq $read } else { $read -is [bool] -and $read -eq $case[1] })) "Settings file $($case[0]) read as $read"
+}
+[IO.File]::Delete($settings)
+Assert ($null -eq (Read-StartupChoice $settings)) 'A missing settings file must read as no choice'
+
 $script:events.Clear()
 Invoke-BootLifecycle Remove $dir
 Assert ($null -eq $script:record -and $null -eq $script:task) 'Uninstall did not remove own task/record'
