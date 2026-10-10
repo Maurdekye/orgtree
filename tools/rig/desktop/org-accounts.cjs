@@ -27,7 +27,11 @@ module.exports = async (page) => {
   await page.sleep(800)
   await page.screenshot('usage-org-show-all')
   out.usageAll = await state('.usage-modal')
-  await page.click('.usage-history-btn')
+  // the first click outside only closes Usage; open Usage history once it is gone
+  await page.press('Escape')
+  await page.sleep(500)
+  if (await page.eval(() => !!document.querySelector('.usage-modal'))) await page.click('.usage-history-btn')
+  await page.eval(() => document.querySelector('.usage-history-btn').click())
   await page.waitFor('.usage-history-modal', { timeout: 15000 })
   await page.sleep(2000)
   await page.screenshot('history-org')

@@ -71,7 +71,7 @@ export default async function (rig) {
 
   // two agents before any change: one on B, one on the default sign-in
   const onB = await hire({ name: 'bea', tier: 'haiku', account: B })
-  const onP = await hire({ name: 'pia', tier: 'haiku' })
+  const onP = await hire({ name: 'pia', tier: 'haiku', parent: 'boss' })
   p.check('before: hires on B and on the default sign-in are accepted', onB.ok && onP.ok, { onB, onP })
   await rig.userMail('bea', 'first turn on B')
   await rig.waitTurns('bea', 1)
@@ -84,12 +84,13 @@ export default async function (rig) {
   const refused = await hire({ name: 'zed', tier: 'haiku', account: B })
   p.check('a hire on B is refused, naming the allowed Claude accounts',
     !refused.ok && /not used by the org/.test(refused.e) && /claude\/primary/.test(refused.e), refused)
-  const tool = await rig.tool('boss', 'orgtree_hire', { name: 'zed', tier: 'haiku', account: B, grant: 0, charter: 'x' })
+  const tool = await rig.tool('boss', 'orgtree_hire', { name: 'zed', tier: 'haiku', account: B, grant: 0, charter: 'x',
+    add_dirs: [], tools: { bash: false, web: false, edit: false, subagents: false, mcp: [] }, org_visibility: 'self' })
   p.check('the agent tool refuses it too', !tool.ok && /not used by the org/.test(tool.text ?? ''), tool)
   const choices = await rig.api('GET', `/api/accounts?org=${rig.org}`)
   p.check("B is not among the org's account choices", !choices.accounts.some(a => a.id === B), choices.accounts.map(a => a.id))
   const cont = await rig.tool('boss', 'orgtree_continue_on', { node: 'pia', account: B })
-  p.check('continue-on (and so the fallback) will not use B', !cont.ok, cont)
+  p.check('continue-on (and so the fallback) will not use B', !cont.ok && /not used by the org/.test(cont.text ?? ''), cont)
 
   // ---------------------------------------------------------------- 3. bea moves at its next turn
   await rig.userMail('bea', 'second turn, after B was unticked')
