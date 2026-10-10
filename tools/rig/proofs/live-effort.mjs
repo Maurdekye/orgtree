@@ -19,7 +19,7 @@
 //   An effort-only retool restarts nobody else: kid (ada's report) keeps its
 //   parked CLI.
 //   With --ui, the desk as the user sees it: after boss's retool mid-turn the
-//   desk shows no next-turn effort card, and the composer's effort dots set
+//   desk shows no next-turn effort card, and the composer's effort bar set
 //   low with the toast "sent to the running agent".
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/live-effort.mjs [--ui <bundle>]
 

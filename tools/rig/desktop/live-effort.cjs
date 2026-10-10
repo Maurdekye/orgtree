@@ -1,6 +1,6 @@
 // live-effort.mjs's desk stage: the agent's turn is running. Boss retools her
 // effort to max (the rig's tool route, as boss's CLI would), then the user
-// sets low with the composer's effort dots. Reports what the desk shows after
+// sets low with the composer's effort bar. Reports what the desk shows after
 // each (next-turn effort cards, the effort button) and the toast; the proof
 // decides what passes.
 module.exports = async (page, { args }) => {
@@ -24,7 +24,9 @@ module.exports = async (page, { args }) => {
   const afterRetool = await read()
   await page.screenshot('after-retool')
   await page.click('.cc-eff')
-  await page.click('.eff-pop .eff-dot[title="low"]')
+  await page.waitFor('.eff-pop .effort-bar-track')
+  const bar = await page.eval(() => { const b = document.querySelector('.eff-pop .effort-bar-track').getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2 } })
+  await page.click({ x: bar.x + 4, y: bar.y })  // the left end of the effort bar = low
   const toast = await page.waitFor(() => [...document.querySelectorAll('.toast')].map(t => t.textContent.trim())
     .find(t => t.includes('thinking effort: low')) || null, { timeout: 10000 })
   await page.sleep(1500)
