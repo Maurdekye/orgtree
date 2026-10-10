@@ -100,13 +100,20 @@ async function shutdown(reason) {
   log('stopping:', reason)
   writeRun(dir, { status: 'stopping', reason })
   const cur = readRun(dir)
+  // The keeper is the engine's caller: it kills the engine tree (PostgreSQL
+  // with it) this long after asking it to stop, as the desktop and the
+  // background host do after their own budgets. run.json `stopKillMs` sets
+  // it (pg-stop.mjs measures a stop under each caller's budget).
+  const killMs = Number(cur?.stopKillMs) || 45000
+  const asked = Date.now()
   if (cur?.url) {
     try {
       await fetch(cur.url + '/api/desktop/shutdown', { method: 'POST', headers: { [TOKEN_HEADER]: run.token }, signal: AbortSignal.timeout(5000) })
     } catch (e) { log('shutdown request failed:', e.message) }
   } else killTree(engine.pid)
-  // the engine stops PostgreSQL itself (pg_ctl -m fast, up to 30 s)
-  setTimeout(() => { if (alive(engine.pid)) { log('engine did not stop in time; killing'); killTree(engine.pid) } }, 45000).unref()
+  setTimeout(() => {
+    if (alive(engine.pid)) { log(`engine did not stop in ${killMs} ms; killing`); killTree(engine.pid) }
+  }, Math.max(0, asked + killMs - Date.now())).unref()
 }
 
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK', 'SIGHUP']) process.on(sig, () => shutdown(`signal ${sig}`))
