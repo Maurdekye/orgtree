@@ -14,7 +14,7 @@ use crate::changes::{self, Change};
 use crate::engine::Engine;
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
-use crate::util::iso;
+use crate::util::{iso, iso_opt};
 
 #[logged]
 pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, String)>) -> ApiResult<Json<Value>> {
@@ -22,7 +22,7 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, 
     let client = e.db.get().await?;
     let r = client
         .query_opt(
-            "SELECT uid, node_name, title, coalesce(body, ''), at, format, bytes FROM ot.documents WHERE org_id = $1 AND uid = $2",
+            "SELECT uid, node_name, title, coalesce(body, ''), at, format, bytes, viewed_at FROM ot.documents WHERE org_id = $1 AND uid = $2",
             &[&o.id, &did],
         )
         .await?
@@ -30,6 +30,7 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, 
     Ok(Json(json!({
         "id": r.get::<_, String>(0), "node": r.get::<_, String>(1), "title": r.get::<_, String>(2),
         "body": r.get::<_, String>(3), "at": iso(r.get(4)), "format": r.get::<_, String>(5), "bytes": r.get::<_, i32>(6),
+        "viewed_at": iso_opt(r.get(7)),
     })))
 }
 
@@ -50,6 +51,52 @@ pub async fn dismiss(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Stri
         changes::notify(&e, &o, vec![Change::Documents(a)]);
     }
     Ok(Json(json!({ "ok": true, "node": node })))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ViewedMark {
+    id: String,
+    at: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ViewedBody {
+    marks: Vec<ViewedMark>,
+}
+
+/// The user opened these documents; each mark is the `at` the card had then.
+/// Only ever moves a mark forward, so a stale window or the one-time push of
+/// an old localStorage record cannot un-read a card.
+#[logged]
+pub async fn viewed(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(body): Json<ViewedBody>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    if body.marks.len() > 5000 {
+        return Err(ApiError::bad_request("at most 5000 marks at a time"));
+    }
+    let mut agents: Vec<i64> = Vec::new();
+    let client = e.db.get().await?;
+    for m in &body.marks {
+        let Some(at) = crate::util::parse_ts(&m.at) else { continue };
+        let rows = client
+            .query(
+                "UPDATE ot.documents SET viewed_at = $3 WHERE org_id = $1 AND uid = $2 AND (viewed_at IS NULL OR viewed_at < $3)
+                 RETURNING agent_id",
+                &[&o.id, &m.id, &at],
+            )
+            .await?;
+        for r in rows {
+            if let Some(a) = r.get::<_, Option<i64>>(0) {
+                if !agents.contains(&a) {
+                    agents.push(a);
+                }
+            }
+        }
+    }
+    drop(client);
+    if !agents.is_empty() {
+        changes::notify(&e, &o, agents.into_iter().map(Change::Documents).collect());
+    }
+    Ok(Json(json!({ "ok": true })))
 }
 
 #[derive(Deserialize, Debug)]
@@ -105,7 +152,7 @@ async fn list_page(
 ) -> ApiResult<Json<Value>> {
     let rows = client
         .query(
-            "SELECT d.uid, d.node_name, d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier
+            "SELECT d.uid, d.node_name, d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at
                FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
               WHERE d.org_id = $1 AND ($2 = '' OR d.node_name = $2)
               ORDER BY d.id DESC OFFSET $3 LIMIT $4",
@@ -121,7 +168,8 @@ async fn list_page(
         .map(|r| {
             json!({ "id": r.get::<_, String>(0), "node": r.get::<_, String>(1), "title": r.get::<_, String>(2),
                     "at": iso(r.get(3)), "format": r.get::<_, String>(4), "bytes": r.get::<_, i32>(5), "evicted": false,
-                    "node_state": r.get::<_, String>(6), "tier": r.get::<_, Option<String>>(7) })
+                    "node_state": r.get::<_, String>(6), "tier": r.get::<_, Option<String>>(7),
+                    "viewed_at": iso_opt(r.get(8)) })
         })
         .collect();
     let next = if offset + (docs.len() as i64) < total { Some(offset + docs.len() as i64) } else { None };

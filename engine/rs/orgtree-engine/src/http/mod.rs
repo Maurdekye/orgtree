@@ -83,6 +83,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/org_inbox/upload_limit", get(orginbox::upload_limit))
         .route("/api/orgs/{slug}/audiences", get(dogs::audiences_get).post(dogs::audiences_post))
         .route("/api/orgs/{slug}/documents", get(docs::list))
+        .route("/api/orgs/{slug}/documents/viewed", post(docs::viewed))
         .route("/api/orgs/{slug}/documents/{did}", get(docs::get).delete(docs::dismiss))
         .route("/api/orgs/{slug}/documents/{did}/mockup", get(docs::mockup))
         .route("/api/orgs/{slug}/documents/{did}/download", get(docs::download))

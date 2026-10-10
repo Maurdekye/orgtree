@@ -248,6 +248,8 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
                     if let Some(obj) = d.as_object_mut() {
                         let at = ts(&obj.get("at").cloned().unwrap_or(Value::Null));
                         obj.insert("at".into(), at);
+                        let viewed = ts(&obj.get("viewed_at").cloned().unwrap_or(Value::Null));
+                        obj.insert("viewed_at".into(), viewed);
                     }
                     d
                 })
