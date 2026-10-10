@@ -21,6 +21,10 @@ const PEEK_MAX: Duration = Duration::from_secs(900);
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const USER_AGENT: &str = concat!("orgtree-engine/", env!("CARGO_PKG_VERSION"));
 const NOT_YET: &str = "usage unavailable; start a turn on this account to see usage";
+/// The `provider` a host lane's readout carries: 3.x's display names
+/// (codex_limits.py / antigravity_limits.py), not the provider ids.
+pub const CODEX_NAME: &str = "Codex";
+pub const AGY_NAME: &str = "Antigravity";
 
 /// Antigravity has one native sign-in. Only its model family's windows apply.
 /// Missing/stale readings remain unknown; an observed unexpired full window refuses.
@@ -415,7 +419,9 @@ pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bo
         },
     };
     out["account"] = json!(account);
-    out["provider"] = json!("openai");
+    // 3.x parity: the host lane reads under its display name (codex_limits.py
+    // "Codex"); a registered row keeps its id (`registered` overwrites it)
+    out["provider"] = json!(CODEX_NAME);
     out["label"] = json!(email.clone().unwrap_or_else(|| "signed-in account".into()));
     out["email"] = json!(email);
     out["observed_at"] = json!(iso(Utc::now()));
@@ -530,7 +536,7 @@ pub async fn antigravity(engine: &Engine, force: bool) -> Value {
         },
     };
     out["account"] = json!("google/primary");
-    out["provider"] = json!("google");
+    out["provider"] = json!(AGY_NAME);
     match out["email"].as_str().map(str::to_string) {
         Some(email) => {
             out["label"] = json!(email);

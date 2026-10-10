@@ -411,7 +411,7 @@ pub async fn usage_codex(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -
 
 #[logged]
 pub async fn peek_codex(State(e): State<Arc<Engine>>) -> Json<Value> {
-    Json(e.usage.peek(&usage::codex_key(None), "openai"))
+    Json(e.usage.peek(&usage::codex_key(None), usage::CODEX_NAME))
 }
 
 #[logged]
@@ -423,7 +423,7 @@ pub async fn usage_agy(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> 
 
 #[logged]
 pub async fn peek_agy(State(e): State<Arc<Engine>>) -> Json<Value> {
-    Json(e.usage.peek("agy", "google"))
+    Json(e.usage.peek("agy", usage::AGY_NAME))
 }
 
 #[logged]
