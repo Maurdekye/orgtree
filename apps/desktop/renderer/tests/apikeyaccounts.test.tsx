@@ -106,12 +106,11 @@ test('a key account that never ran says so instead of reading as zero spent', as
   assert.match(text, /off/, 'a disabled row says it is excluded from routing')
 })
 
-test('the fallback toggle appears only with an enabled key account; inference is always offered', async t => {
+test('the fallback toggle appears only with an enabled key account', async t => {
+  // (the per-provider "use subscriptions for inference" switch is now an active checkbox on every account: PLAN H3, decision 41)
   await setup(t, [account('sub-only')])
   assert.equal(toggle('claude', /fall back to Claude API-key accounts/), undefined,
     'nothing to route to yet')
-  assert.ok(toggle('claude', /use signed-in Claude subscription accounts/),
-    'the inference control does not depend on key accounts')
 })
 
 test('a DISABLED key account still does not raise the fallback toggle', async t => {
@@ -131,12 +130,4 @@ test('an enabled key account raises the fallback toggle, off by default, and wri
   assert.deepEqual(JSON.parse(put.body), { enabled: true })
 })
 
-test('subscription inference can be turned off per provider', async t => {
-  const { calls } = await setup(t, [keyAccount('claude-key')])
-  const t1 = toggle('claude', /use signed-in Claude subscription accounts/)!
-  assert.equal(t1.checked, true, 'on unless explicitly disabled')
-  await inAct(async () => { t1.click(); await flush() })
-  const put = calls.filter(c => c.method === 'PUT').at(-1)!
-  assert.match(put.url, /\/api\/providers\/claude\/subscription-inference$/)
-  assert.deepEqual(JSON.parse(put.body), { enabled: false })
-})
+// (removed: the per-provider subscription-inference switch became a per-account active checkbox — PLAN H3, decision 41)
