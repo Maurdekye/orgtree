@@ -22,6 +22,7 @@ const ORG_KEYS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "default_account",
     "permission_mode", "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire",
     "cascade_alloc", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
+    "quick_chat",
 ];
 
 /// Settings of removed features: accepted and ignored (the UI no longer shows them).
@@ -131,6 +132,8 @@ async fn sweep_top_grants(
 fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Value> {
     let bad = |why: String| Err(ApiError::unprocessable(why));
     match key {
+        // Quick chat's starting choices in this org (set by a template)
+        "quick_chat" => crate::domain::templates::quick_chat(v).map_err(ApiError::unprocessable),
         // the lanes this org may not use (Org settings › Accounts)
         "disabled_accounts" => match v.as_array() {
             Some(ids) if ids.len() <= crate::org_accounts::MAX_IDS
@@ -183,6 +186,39 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
         "max_top_grant" | "default_top_grant" | "compact_at" if !v.is_number() => bad(format!("{key} must be a number")),
         _ => Ok(v.clone()),
     }
+}
+
+/// A template's org-wide settings, checked as Org settings checks them, for
+/// the org created from it. Only the portable keys
+/// (`templates::ORG_SETTINGS`): a template never carries this computer's
+/// folders, accounts or hubs.
+#[logged]
+pub fn template_settings(e: &Engine, m: &Map<String, Value>) -> Result<Map<String, Value>, String> {
+    let mut out = Map::new();
+    for (k, v) in m {
+        if !crate::domain::templates::ORG_SETTINGS.contains(&k.as_str()) {
+            return Err(format!("a template cannot set the org setting '{k}'"));
+        }
+        if v.is_null() || (matches!(k.as_str(), "max_top_grant" | "default_top_grant") && v.as_f64().is_some_and(|c| c < 0.0)) {
+            continue;
+        }
+        let v = checked(e, None, k, v).map_err(|err| err.detail)?;
+        match k.as_str() {
+            "compact_at" if !v.as_f64().is_some_and(|c| (50.0..=95.0).contains(&c)) => {
+                return Err("compact_at is a percentage between 50 and 95".into());
+            }
+            "auto_cheap_compact" => {
+                let current = effective_settings(&Value::Null, &e.settings.defaults())["auto_cheap_compact"].clone();
+                if let Some(acc) = crate::settings::cheap_compact(&v, &current, true)? {
+                    out.insert(k.clone(), acc);
+                }
+            }
+            _ => {
+                out.insert(k.clone(), v);
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Every running agent of the org restarts its CLI before its next turn.

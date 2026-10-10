@@ -92,7 +92,20 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
             Some((t, planned))
         }
     };
-    let settings = json!({ "dirs": dirs });
+    let mut settings = json!({ "dirs": dirs });
+    if let Some((t, planned)) = &planned {
+        // the template's org-wide settings, checked as Org settings checks them
+        if let Some(s) = &t.settings {
+            let s = crate::http::settings::template_settings(&e, s)
+                .map_err(|why| ApiError::unprocessable(format!("the template's org settings: {why}")))?;
+            for (k, v) in s {
+                settings[k] = v;
+            }
+        }
+        if let Some(q) = crate::domain::templates::quick_chat_for(t, planned) {
+            settings["quick_chat"] = q;
+        }
+    }
     let auto = b.net_autoconnect.unwrap_or(true);
     let net = json!({ "autoconnect": auto, "hubs": crate::net::hub_entries(&e, auto, &b.net_hubs) });
     let uuid = uuid::Uuid::new_v4();
