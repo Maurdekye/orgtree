@@ -109,6 +109,8 @@ export default async function (rig) {
     await call({ action: 'drain' })
     proof.check('restarted attachment gates delivery until complete', requests.sends === 3)
 
+    proof.check('success and temporary retry produce no failure notice or mail',rig.sql('SELECT id FROM ot.net_transfer_failures').length===0 &&
+      rig.sql("SELECT id FROM ot.mail WHERE extra ? 'transfer_failure'").length===0)
     const missing = await call({ action: 'plan', bytes: 1234, missing: true })
     await call({ action: 'attempt', id: missing.id })
     await call({ action: 'drain' })

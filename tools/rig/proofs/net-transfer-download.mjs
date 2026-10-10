@@ -50,6 +50,7 @@ export default async function(rig) {
         c.response.destroy()
         await call({action:'workers'})
       } else if(change==='cancel') {
+        proof.check('successful downloads produce no failure notifications',rig.sql('SELECT id FROM ot.net_transfer_failures').length===0)
         const job=rig.one(`SELECT id FROM ot.net_incoming WHERE net_id='${id}'`)
         const tool=await rig.tool('rhea','orgtree_transfers',{action:'get',id:job.id})
         proof.check('outside inbox holder can inspect incoming checkpoint',tool.ok && tool.json.transfers[0].files[0].confirmed===checkpoint,tool)
