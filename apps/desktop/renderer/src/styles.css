@@ -8030,8 +8030,9 @@ main:has(> .orgbar.native-header) > .error {
    everywhere (2.21:1). No single colour can pass 4.5:1 on #252526 and on
    #ffffff at once, so:
    - --tier-langserver is the identity colour of the tier chips and card
-     edges. It stays gold in every theme, like every other tier colour (the
-     chips keep a dark backing on light surfaces: 5.88:1).
+     edges. It stays gold in every theme, like every other tier colour (on
+     the light surfaces every tier chip, this one too, is drawn grey on a
+     dark backing: the rule near the top of this file).
    - --prov-langserver is the lane ACCENT that paints desk text, badges and
      borders. On the light surfaces it is the same hue deepened, #4d3a02:
      8.43:1 or more on every light and solarized surface, and ΔE 20.4 from
