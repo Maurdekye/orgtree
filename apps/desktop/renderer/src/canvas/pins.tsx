@@ -540,6 +540,15 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
     // west/north must not walk the window across the screen
     if (w < PIN_MIN_W) { if (g.edge.includes('w')) x = g.o.x + g.o.w - PIN_MIN_W; w = PIN_MIN_W }
     if (h < PIN_MIN_H) { if (g.edge.includes('n')) y = g.o.y + g.o.h - PIN_MIN_H; h = PIN_MIN_H }
+    // the DRAGGED side stops at the view's edge; the opposite side never
+    // moves. Without this, the keep-in-view clamp below shifted the whole
+    // window back inside, so pulling a flush side outward slid the other one.
+    if (size && size.w > 0 && size.h > 0) {
+      if (g.edge.includes('w') && x < 0) { w += x; x = 0 }
+      if (g.edge.includes('n') && y < 0) { h += y; y = 0 }
+      if (g.edge.includes('e')) w = Math.min(w, size.w - x)
+      if (g.edge.includes('s')) h = Math.min(h, size.h - y)
+    }
     return clampRect({ x, y, w, h }, size)
   }
   const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => {
