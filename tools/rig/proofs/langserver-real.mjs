@@ -9,7 +9,7 @@
 // prompt tokens, context in use, prefill and generation speed.
 //   node tools/rig/rig.mjs run tools/rig/proofs/langserver-real.mjs --url http://127.0.0.1:9931
 //        --model qwen3.6-35b-a3b --ctx 131072 --server-log <llama-server stderr log> [--only claude|codex]
-//        [--preset llamacpp] [--codex-preset custom --codex-base-path v1]
+//        [--preset llamacpp] [--codex-preset <the same preset> | custom --codex-base-path v1]
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -66,7 +66,8 @@ export default async function (rig, { flags }) {
     && (probe.models ?? []).some(m => m.id === MODEL), probe)
   const a = await rig.api('POST', '/api/langservers', { preset: flags.preset ?? 'llamacpp', address: URL_, harness: 'claude-code',
     label: 'Local (Claude Code)', models: [{ id: MODEL, context: CTX }] })
-  const b = await rig.api('POST', '/api/langservers', { preset: flags['codex-preset'] ?? 'custom', address: URL_, harness: 'codex-cli',
+  // Codex on the same preset (llama.cpp offers it since b11540), or a custom entry with its base path
+  const b = await rig.api('POST', '/api/langservers', { preset: flags['codex-preset'] ?? flags.preset ?? 'llamacpp', address: URL_, harness: 'codex-cli',
     base_path: flags['codex-base-path'] ?? 'v1', label: 'Local (Codex)', models: [{ id: MODEL, context: CTX }] })
   const tierA = Object.values(a.server?.models ?? a.models ?? {})[0]?.tier
   const tierB = Object.values(b.server?.models ?? b.models ?? {})[0]?.tier

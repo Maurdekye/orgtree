@@ -299,7 +299,7 @@ export default async function (rig) {
     // llama.cpp serves Codex too (measured on b11540), and the window floor is 64K
     const lsDoc = await rig.api('GET', '/api/langservers')
     const llama = (lsDoc.presets ?? []).find(x => x.id === 'llamacpp')
-    p.check('the llama.cpp preset offers Codex too, and its note says Codex needs b11540 or later',
+    p.check('the llama.cpp preset offers Codex too, and its note says Codex was tested with b11540',
       llama?.codex === true && (llama.harnesses ?? []).find(h => h.id === 'codex-cli')?.available === true && /b11540/.test(llama.note ?? ''), llama)
     const lc = await rig.api('POST', '/api/langservers', { preset: 'llamacpp', address: llm.url, harness: 'codex-cli', label: 'llama.cpp (Codex)',
       models: [{ id: MODEL, context: 49152 }, { id: OTHER, context: 65536 }] })
