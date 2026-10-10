@@ -15,6 +15,9 @@ export default async function (rig) {
   let loseCompletion = false
   let statusFailure = false
   let statusGone = false
+  let holdPatch = false
+  let releasePatch
+  let heldPatches = 0
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost')
@@ -44,6 +47,10 @@ export default async function (rig) {
         if (s.complete) {
           if (s.hash.digest('hex') !== s.expected) return reply(422, { offset: 0 })
           if (loseCompletion) { loseCompletion = false; return reply(500, {}) }
+        }
+        if (holdPatch) {
+          heldPatches++
+          await new Promise(resolve => { releasePatch = resolve })
         }
         return reply(200, { id: s.id, bytes: s.bytes, offset: s.offset, complete: s.complete })
       }
@@ -108,10 +115,31 @@ export default async function (rig) {
     const held = rig.one(`SELECT state,attachments FROM ot.org_inbox WHERE id=${missing.inbox}`)
     proof.check('missing snapshot holds all mail and keeps the attachment manifest', row(missing.id).state === 'failed' &&
       held.state === 'queued' && held.attachments.length === 1 && requests.sends === 3, row(missing.id))
-    proof.note('This slice proves outgoing persistence/resume and send gating. Incoming workers, controls, failure notices and renderer remain separate slices.')
+    // Exercise the actual production scheduler, including a real engine restart
+    // while its first PATCH response is withheld. The loopback hub retains bytes.
+    holdPatch = true
+    const worker = await call({ action: 'plan', bytes: 9 * 1024 * 1024 })
+    const waiting = await call({ action: 'plan', bytes: 1024 })
+    const patchCount = requests.patches
+    await call({ action: 'workers' })
+    await rig.waitFor(() => heldPatches === 1, { what: 'production worker reaches the hub', timeout: 30000 })
+    proof.check('one active upload per hub keeps the next job queued', row(waiting.id).state === 'queued' &&
+      ['uploading', 'preparing'].includes(row(worker.id).state))
+    const workerSession = row(worker.id).session_id
+    await rig.restart()
+    holdPatch = false
+    releasePatch()
+    await call({ action: 'workers' })
+    await rig.waitFor(() => row(worker.id).state === 'complete' && row(waiting.id).state === 'complete',
+      { what: 'production workers resume after engine restart', timeout: 30000 })
+    proof.check('restart reclaims active jobs and resumes the confirmed hub offset',
+      row(worker.id).session_id === workerSession && requests.patches - patchCount === 3 && row(worker.id).attempt === 2,
+      { worker: row(worker.id), patches: requests.patches - patchCount })
+    proof.note('Measured actual production scheduler per-hub exclusion and graceful engine restart with PATCH response withheld. No hard process kill, second-hub global limit, incoming/UI/control/failure-notice proof yet.')
     proof.keep(rig, { grep: /transfer|upload/ })
     return proof.summary()
   } finally {
+    if (releasePatch) releasePatch()
     server.closeAllConnections()
     await new Promise(resolve => server.close(resolve))
   }
