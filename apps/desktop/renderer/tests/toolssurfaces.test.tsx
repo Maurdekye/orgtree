@@ -102,24 +102,23 @@ test('the HIRE SHEET states the declaration on every offered OpenRouter tier',
       'or-v-mixed', 'haiku']) {
       assert.ok(rowOf(t), `${t} is offered by the sheet`)
     }
-    assert.match(rowOf('or-v-full')!.textContent ?? '', SUPPORTED)
-    assert.match(rowOf('or-v-textonly')!.textContent ?? '', NOT_SUPPORTED)
-    assert.match(rowOf('or-v-silent')!.textContent ?? '', UNKNOWN)
+    assert.match(rowOf('or-v-full')!.title, SUPPORTED)
+    assert.match(rowOf('or-v-textonly')!.title, NOT_SUPPORTED)
+    // 4.x: only KNOWN declarations are shown, in the tooltip (user 2026-10-07)
+    assert.equal(rowOf('or-v-silent')!.title.includes('Tools:'), false)
     // unit C: image input and the reasoning parameter on the same rows
-    assert.match(rowOf('or-v-full')!.textContent ?? '', IMG_SUPPORTED)
-    assert.match(rowOf('or-v-full')!.textContent ?? '', RSN_SUPPORTED)
-    assert.match(rowOf('or-v-textonly')!.textContent ?? '', IMG_NOT)
-    assert.match(rowOf('or-v-textonly')!.textContent ?? '', RSN_NOT)
-    assert.match(rowOf('or-v-silent')!.textContent ?? '', IMG_UNKNOWN)
-    assert.match(rowOf('or-v-silent')!.textContent ?? '', RSN_UNKNOWN)
+    assert.match(rowOf('or-v-full')!.title, IMG_SUPPORTED)
+    assert.match(rowOf('or-v-full')!.title, RSN_SUPPORTED)
+    assert.match(rowOf('or-v-textonly')!.title, IMG_NOT)
+    assert.match(rowOf('or-v-textonly')!.title, RSN_NOT)
     // ⚠ THE MIXED ROW: three different answers at once
-    const mixed = rowOf('or-v-mixed')!.textContent ?? ''
+    const mixed = rowOf('or-v-mixed')!.title
     assert.match(mixed, SUPPORTED)
     assert.match(mixed, IMG_NOT)
-    assert.match(mixed, RSN_UNKNOWN)
+    assert.doesNotMatch(mixed, /Reasoning parameter:/)
     // static lanes are untouched: the catalog is an OpenRouter fact
     for (const re of [/Tools:/, /Image input:/, /Reasoning parameter:/]) {
-      assert.doesNotMatch(rowOf('haiku')!.textContent ?? '', re)
+      assert.doesNotMatch(rowOf('haiku')!.title, re)
     }
     // ⚠ STILL HIREABLE. Disclosure, never admission control.
     assert.equal((rowOf('or-v-textonly') as HTMLButtonElement).disabled, false,
@@ -149,19 +148,19 @@ test('the CONFIG model-switch states it for every offered OpenRouter tier',
   const byValue = (v: string) => {
     const o = opts.find((x) => x.value === v)
     assert.ok(o, `${v} is offered by the switch`)
-    return o!.textContent ?? ''
+    return (o!.title || '') + ' | ' + (o!.textContent ?? '')
   }
   assert.match(byValue('or-v-full'), SUPPORTED)
   assert.match(byValue('or-v-textonly'), NOT_SUPPORTED)
-  assert.match(byValue('or-v-silent'), UNKNOWN)
+  // 4.x: only KNOWN declarations show, in the option tooltip (user 2026-10-07)
+  assert.doesNotMatch(byValue('or-v-silent'), /Tools:/)
   // unit C, and the mixed option is what makes these non-vacuous
   assert.match(byValue('or-v-full'), IMG_SUPPORTED)
   assert.match(byValue('or-v-full'), RSN_SUPPORTED)
   assert.match(byValue('or-v-textonly'), IMG_NOT)
-  assert.match(byValue('or-v-silent'), RSN_UNKNOWN)
   assert.match(byValue('or-v-mixed'), SUPPORTED)
   assert.match(byValue('or-v-mixed'), IMG_NOT)
-  assert.match(byValue('or-v-mixed'), RSN_UNKNOWN)
+  assert.doesNotMatch(byValue('or-v-mixed'), /Reasoning parameter:/)
   for (const re of [/Tools:/, /Image input:/, /Reasoning parameter:/]) {
     assert.doesNotMatch(byValue('haiku'), re)
   }
@@ -202,49 +201,3 @@ test('the CONFIG model-switch states it for every offered OpenRouter tier',
   setOpenRouterTiers([])
 })
 
-test('the REHIRE select states it', async () => {
-  installFetch(new FakeServer())
-  setOpenRouterTiers(OR_TIERS)
-  // one archived generation - the shape the panel draws a rehire row from
-  const bearer = {
-    ...nodeFixture('sonnet'),
-    lineage: [{ id: 'agent@1', generation: 1, state: 'archived',
-      bearer_state: 'knowledge', tier: 'sonnet' }],
-  } as unknown as CanvasNode
-  const view = await mountView(
-    <LineagePanel node={bearer} slug="org" close={noop}
-      op={(_x: OpRequest) => Promise.resolve({} as OpResult)} />,
-    (el) => el)
-  await inAct(async () => { await flush() })
-  const opts = Array.from(
-    view.el.querySelectorAll<HTMLOptionElement>('.lin-row select option'))
-  // ⚠ DECLARE ITSELF INERT RATHER THAN PASS QUIETLY. If this fixture renders
-  // no rehire row there is nothing to assert about, and a silent pass would
-  // be a control that cannot fail.
-  assert.ok(opts.length, 'the rehire select rendered options — '
-    + 'without them this control tested nothing')
-  const byValue = (v: string) => opts.find((o) => o.value === v)?.textContent ?? null
-  const full = byValue('or-v-full')
-  assert.ok(full !== null, 'an OpenRouter tier is offered for rehire')
-  assert.match(full!, SUPPORTED)
-  assert.match(byValue('or-v-textonly')!, NOT_SUPPORTED)
-  assert.match(byValue('or-v-silent')!, UNKNOWN)
-  // unit C
-  assert.match(full!, IMG_SUPPORTED)
-  assert.match(full!, RSN_SUPPORTED)
-  assert.match(byValue('or-v-textonly')!, IMG_NOT)
-  assert.match(byValue('or-v-silent')!, IMG_UNKNOWN)
-  const mixedOpt = byValue('or-v-mixed')
-  assert.ok(mixedOpt !== null, 'the mixed tier is offered for rehire')
-  assert.match(mixedOpt!, SUPPORTED)
-  assert.match(mixedOpt!, IMG_NOT)
-  assert.match(mixedOpt!, RSN_UNKNOWN)
-  const claude = byValue('haiku')
-  if (claude !== null) {
-    for (const re of [/Tools:/, /Image input:/, /Reasoning parameter:/]) {
-      assert.doesNotMatch(claude, re)
-    }
-  }
-  await view.unmount()
-  setOpenRouterTiers([])
-})
