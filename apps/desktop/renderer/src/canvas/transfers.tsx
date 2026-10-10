@@ -12,7 +12,7 @@ const labels: Record<string, string> = {
   failed: 'Failed', cancelled: 'Cancelled', complete: 'Complete', removed: 'Removed from message',
 }
 
-function Bytes({ file, done }: {file: TransferFile; done: boolean}) {
+function Bytes({ file, done, direction }: {file: TransferFile; done: boolean; direction: 'upload' | 'download'}) {
   const total = file.total
   const confirmed = Math.max(0, file.confirmed)
   return <div className="transfer-file">
@@ -20,7 +20,7 @@ function Bytes({ file, done }: {file: TransferFile; done: boolean}) {
     <progress aria-label={`${file.name} confirmed bytes`} max={total && total > 0 ? total : 1}
       value={done ? (total && total > 0 ? total : 1) : total == null ? undefined : Math.min(confirmed, total)} />
     <small>{fmtBytes(confirmed)}{total == null ? ' confirmed · total unknown' : ` of ${fmtBytes(total)} confirmed`}
-      {file.processed > confirmed && ` · ${fmtBytes(file.processed)} sent`}</small>
+      {file.processed > confirmed && ` · ${fmtBytes(file.processed)} ${direction === 'upload' ? 'sent' : 'received'}`}</small>
     {file.restart_reason && <small>{file.restart_reason}</small>}
   </div>
 }
@@ -39,7 +39,7 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
     const poll = async () => {
       let active = false
       try {
-        const data = await getMailTransfers(slug, agent, stop.signal)
+        const data = await getMailTransfers(slug, agent, AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]))
         if (stop.signal.aborted) return
         setRows(data.transfers)
         setError(null)
@@ -77,10 +77,10 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
     {expanded && <div className="transfer-list">{shown.map(t => {
       const files: TransferFile[] = t.files ?? [{id:t.id, name:t.name ?? 'Attachment', total:t.total ?? null,
         confirmed:t.confirmed ?? 0, processed:t.processed ?? 0}]
-      return <article className="transfer-card" data-transfer-id={t.id} data-transfer-state={t.state} key={t.id}>
+      return <article className="transfer-card" data-transfer-id={t.id} data-transfer-state={t.state} data-transfer-attempt={t.attempt} key={t.id}>
         <div className="transfer-heading"><strong>{t.direction === 'upload' ? 'To' : 'From'} {t.peer}</strong>
           <span className={t.state === 'failed' ? 'err' : 'dim'}>{labels[t.state] ?? t.state}</span></div>
-        {files.map(f => <Bytes key={f.id} file={f} done={t.state === 'complete' || !!f.complete} />)}
+        {files.map(f => <Bytes key={f.id} file={f} direction={t.direction} done={t.state === 'complete' || !!f.complete} />)}
         {t.error && <small className="transfer-error">{t.error}</small>}
         <div className="transfer-actions">
           {canRetry.has(t.state) && <button disabled={busy !== null} onClick={() => void change(t.id, 'retry')}>Retry</button>}
