@@ -119,7 +119,7 @@ export const langServerDoc = (d: unknown): LangServerDoc | null => {
     servers: Array.isArray(x.servers) ? x.servers.filter((s) => s && typeof s === 'object' && s.models && typeof s.models === 'object') : [],
     presets: Array.isArray(x.presets) ? x.presets.filter((p) => p && Array.isArray(p.harnesses)) : [],
     seat: typeof x.seat === 'number' ? x.seat : 0.1,
-    min_context: typeof x.min_context === 'number' ? x.min_context : 32768,
+    min_context: typeof x.min_context === 'number' ? x.min_context : 65536,
     default_context: typeof x.default_context === 'number' ? x.default_context : 65536,
     user_enabled: x.user_enabled !== false,
   }
@@ -434,7 +434,7 @@ function WindowInput({ value, min, busy, onChange }: {
       <input type="number" aria-label="context window in tokens" min={1024} step={1024} value={value}
         disabled={busy} onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} />
       <span className="dim">tokens</span>
-      {value < min && <span className="ask-warn" title={`An agent's own prompt needs about ${fmtTokens(min)} tokens before it can work`}>
+      {value < min && <span className="ask-warn" title={`An agent's own prompt takes about 35K tokens, so it needs a window of at least ${fmtTokens(min)} to work`}>
         too small for an agent</span>}
     </span>
   )
@@ -610,7 +610,7 @@ function ModelRow({ m, doc, busy, onOffer, onWindow, variant }: {
           onBlur={() => { if (w > 0 && w !== m.context_in_use) onWindow(w) }} />
         <span className="dim">tokens</span>
         {w < doc.min_context && <span className="ask-warn"
-          title={`An agent's own prompt needs about ${fmtTokens(doc.min_context)} tokens before it can work`}>
+          title={`An agent's own prompt takes about 35K tokens, so it needs a window of at least ${fmtTokens(doc.min_context)} to work`}>
           too small for an agent</span>}
       </span>
       {variant}
