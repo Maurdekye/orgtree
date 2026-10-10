@@ -381,7 +381,8 @@ pub fn codex_key(home: Option<&str>) -> String {
 /// One Codex login's rate limits (`home` None: the machine's own `~/.codex`).
 #[logged]
 pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
-    if let Some(v) = crate::rig::usage("openai", home) {
+    let rig_url = crate::rig::codex_usage_url();
+    if let Some(v) = rig_url.is_none().then(|| crate::rig::usage("openai", home)).flatten() {
         if let Some(ms) = v["rig_delay_ms"].as_u64() {
             tokio::time::sleep(Duration::from_millis(ms)).await;
         }
@@ -398,25 +399,38 @@ pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bo
         }
     }
     let (_, email, _) = crate::providers::codex_identity(home.map(PathBuf::from).as_ref());
-    let exe = match engine.providers.codex_path() {
-        Some(p) => Some(p),
-        None => tokio::task::spawn_blocking(crate::providers::locate_codex).await.ok().flatten().map(|(p, _)| p),
-    };
     let observed = Utc::now();
-    let mut out = match exe {
-        None => json!({ "available": false, "error": "the Codex CLI is not installed", "reauth_evidence": "not_connected" }),
-        Some(exe) => match crate::runtime::codex::probe(&exe, home).await {
-            Ok((account_doc, limits)) => {
-                let mut v = codex_limits(&limits);
-                if account_doc.is_null() {
-                    v["reauth_required"] = json!(true);
-                    v["reauth_evidence"] = json!("not_connected");
-                    v["error"] = json!("Codex is not signed in for this account");
-                }
-                v
-            }
-            Err(e) => json!({ "available": false, "error": NOT_YET, "detail": gist(&format!("{e:#}"), 300) }),
-        },
+    // codex's own `/status` source over HTTPS: no codex process at all
+    // (docket urgent-orgtree-s-hard-killing-of-codex-processes)
+    let dir = home.map(PathBuf::from).unwrap_or_else(crate::providers::codex_default_home);
+    let http = fetch_codex(&dir, rig_url.as_deref().unwrap_or(CODEX_USAGE_URL)).await;
+    let fallback = match &http {
+        Ok(_) => false,
+        Err(why) => {
+            tracing::info!(account, why = %why, "Codex usage over HTTPS unavailable");
+            engine.usage.cooling(&appserver_key(&key)).is_none()
+        }
+    };
+    let exe = if fallback {
+        match engine.providers.codex_path() {
+            Some(p) => Some(p),
+            None => tokio::task::spawn_blocking(crate::providers::locate_codex).await.ok().flatten().map(|(p, _)| p),
+        }
+    } else {
+        None
+    };
+    let mut out = match (http, exe) {
+        (Ok(v), _) => v,
+        (Err(why), None) if !fallback => json!({ "available": false, "error": NOT_YET,
+            "detail": format!("{why}; the next read through the Codex app-server is at most every {} min",
+                              APPSERVER_EVERY.as_secs() / 60) }),
+        (Err(_), None) => json!({ "available": false, "error": "the Codex CLI is not installed", "reauth_evidence": "not_connected" }),
+        (Err(_), Some(exe)) => {
+            // the rare fallback: an app-server (ended gracefully), then none
+            // for this login again until APPSERVER_EVERY has passed
+            engine.usage.cooldown.pin().insert(appserver_key(&key), Instant::now() + APPSERVER_EVERY);
+            appserver_reading(&exe, home).await
+        }
     };
     out["account"] = json!(account);
     // 3.x parity: the host lane reads under its display name (codex_limits.py
@@ -426,7 +440,135 @@ pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bo
     out["email"] = json!(email);
     out["observed_at"] = json!(iso(Utc::now()));
     crate::account_marks::profile_usage(engine, "openai", home, observed, &out).await;
+    if !out["available"].as_bool().unwrap_or(false) && out.get("reauth_required").is_none() {
+        // a miss between app-server fallbacks: keep the last good bars (dated),
+        // with why they are not fresh, as the Claude lane does
+        if let Some(mut prev) = engine.usage.fresh(&key, Duration::MAX).filter(|p| p["available"].as_bool().unwrap_or(false)) {
+            prev["error"] = out["error"].clone();
+            prev["detail"] = out["detail"].clone();
+            return prev;
+        }
+    }
     engine.usage.put(&key, &out);
+    out
+}
+
+/// The fallback read: a short-lived app-server (`runtime::codex::probe`,
+/// which ends it gracefully).
+#[logged]
+async fn appserver_reading(exe: &Path, home: Option<&str>) -> Value {
+    match crate::runtime::codex::probe(exe, home).await {
+        Ok((account_doc, limits)) => {
+            let mut v = codex_limits(&limits);
+            if account_doc.is_null() {
+                v["reauth_required"] = json!(true);
+                v["reauth_evidence"] = json!("not_connected");
+                v["error"] = json!("Codex is not signed in for this account");
+            }
+            v
+        }
+        Err(e) => json!({ "available": false, "error": NOT_YET, "detail": gist(&format!("{e:#}"), 300) }),
+    }
+}
+
+/// Codex's rate limits as its own `/status` reads them (the endpoint and its
+/// fields are the ones the installed codex.exe carries).
+const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
+
+/// The app-server read is only the fallback, and at most this often per login.
+const APPSERVER_EVERY: Duration = Duration::from_secs(30 * 60);
+
+#[nolog]
+fn appserver_key(key: &str) -> String {
+    format!("appserver:{key}")
+}
+
+/// The ChatGPT sign-in a Codex home holds: (access token, account id).
+/// `Ok(None)`: no auth.json at all (signed out). Not logged: it holds a token.
+#[nolog]
+fn codex_sign_in(dir: &Path) -> std::result::Result<Option<(String, Option<String>)>, String> {
+    let Ok(bytes) = std::fs::read(dir.join("auth.json")) else { return Ok(None) };
+    let doc: Value = serde_json::from_slice(&bytes).map_err(|_| "auth.json is not readable JSON".to_string())?;
+    let tokens = doc.get("tokens").filter(|t| t.is_object())
+        .ok_or_else(|| "this Codex login is an API key, which has no ChatGPT usage".to_string())?;
+    let token = tokens.get("access_token").and_then(Value::as_str).filter(|t| !t.is_empty())
+        .ok_or_else(|| "auth.json holds no access token".to_string())?;
+    Ok(Some((token.to_string(), tokens.get("account_id").and_then(Value::as_str).map(str::to_string))))
+}
+
+/// One Codex home's usage over HTTPS, as `codex()` reports it. `Err`: no
+/// answer that settles it (the caller may fall back to the app-server).
+#[logged]
+async fn fetch_codex(dir: &Path, url: &str) -> std::result::Result<Value, String> {
+    let (token, account_id) = match codex_sign_in(dir)? {
+        Some(s) => s,
+        None => return Ok(json!({ "available": false, "error": "Codex is not signed in for this account",
+                                  "reauth_required": true, "reauth_evidence": "not_connected" })),
+    };
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(USER_AGENT).build()
+        .map_err(|e| e.to_string())?;
+    let mut req = client.get(url).bearer_auth(&token).header("accept", "application/json");
+    if let Some(id) = &account_id {
+        req = req.header("ChatGPT-Account-Id", id);
+    }
+    let resp = req.send().await;
+    drop(token);
+    let resp = resp.map_err(|e| gist(&e.to_string(), 300))?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    if status != 200 {
+        return Err(format!("HTTP {status}"));
+    }
+    let raw: Value = serde_json::from_str(&body).map_err(|_| "the usage answer is not JSON".to_string())?;
+    let v = codex_limits(&wham_rate_limits(&raw));
+    if v["available"] != json!(true) {
+        return Err("the usage answer carries no rate limits".into());
+    }
+    Ok(v)
+}
+
+/// `/wham/usage` in the app-server's `account/rateLimits/read` shape, so
+/// `codex_limits` reads both: `rate_limit` is the main `codex` limit,
+/// `additional_rate_limits[]` the per-feature ones.
+#[logged]
+fn wham_rate_limits(raw: &Value) -> Value {
+    let window = |w: &Value| if w.is_object() {
+        json!({ "usedPercent": w["used_percent"].as_f64(),
+                "windowDurationMins": w["limit_window_seconds"].as_i64().map(|s| s / 60),
+                "resetsAt": w["reset_at"].as_i64() })
+    } else {
+        Value::Null
+    };
+    let c = &raw["credits"];
+    let credits = if c.is_object() {
+        let balance = match &c["balance"] {
+            Value::Number(n) => json!(n.to_string()),
+            other => other.clone(),
+        };
+        json!({ "hasCredits": c["has_credits"], "unlimited": c["unlimited"], "balance": balance })
+    } else {
+        Value::Null
+    };
+    let snapshot = |id: &str, name: Option<&str>, rl: &Value| json!({
+        "limitId": id, "limitName": name, "planType": raw["plan_type"],
+        "primary": window(&rl["primary_window"]), "secondary": window(&rl["secondary_window"]),
+        "rateLimitReachedType": if rl["limit_reached"] == json!(true) || rl["allowed"] == json!(false) { json!("rate_limit") } else { Value::Null },
+        "credits": credits,
+    });
+    let mut out = json!({});
+    if raw["rate_limit"].is_object() {
+        out["rateLimits"] = snapshot("codex", None, &raw["rate_limit"]);
+    }
+    let mut by = serde_json::Map::new();
+    for extra in raw["additional_rate_limits"].as_array().into_iter().flatten() {
+        let Some(id) = extra["metered_feature"].as_str().or_else(|| extra["limit_name"].as_str()) else { continue };
+        if extra["rate_limit"].is_object() {
+            by.insert(id.to_string(), snapshot(id, extra["limit_name"].as_str(), &extra["rate_limit"]));
+        }
+    }
+    if !by.is_empty() {
+        out["rateLimitsByLimitId"] = Value::Object(by);
+    }
     out
 }
 
@@ -1136,4 +1278,42 @@ Your turns run on {selected_lane} (tier {tier}): the user's own model server. It
     text.push_str("\n[END PROVIDER USAGE]");
     let key = format!("{selected_lane}\n{tier}\n{}\n{}", roster.join("|"), key_lines.join("\n"));
     (text, key)
+}
+
+#[cfg(test)]
+mod wham_tests {
+    use super::{codex_limits, wham_rate_limits};
+    use serde_json::json;
+
+    /// `/wham/usage` (the fields the installed codex.exe reads) reaches the
+    /// same bars, plan and credits the app-server's shape did.
+    #[test]
+    fn wham_usage_reads_like_the_app_server() {
+        let raw = json!({
+            "plan_type": "prolite",
+            "rate_limit": { "allowed": true, "limit_reached": false,
+                "primary_window": { "used_percent": 12, "limit_window_seconds": 18000, "reset_after_seconds": 600, "reset_at": 1_900_000_000 },
+                "secondary_window": { "used_percent": 92.5, "limit_window_seconds": 604800, "reset_after_seconds": 9000, "reset_at": 1_900_500_000 } },
+            "credits": { "has_credits": true, "unlimited": false, "balance": 7 },
+            "additional_rate_limits": [ { "limit_name": "GPT-5 Codex Spark", "metered_feature": "codex_spark",
+                "rate_limit": { "allowed": true, "limit_reached": true,
+                    "primary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": 1_900_600_000 } } } ],
+        });
+        let v = codex_limits(&wham_rate_limits(&raw));
+        assert_eq!(v["available"], json!(true));
+        assert_eq!(v["plan"], json!("Pro Lite"));
+        assert_eq!(v["credits"]["balance"], json!(7.0));
+        let limits = v["limits"].as_array().unwrap();
+        assert_eq!(limits.len(), 3);
+        assert_eq!((limits[0]["kind"].as_str(), limits[0]["percent"].as_f64()), (Some("session"), Some(12.0)));
+        assert_eq!((limits[1]["kind"].as_str(), limits[1]["percent"].as_f64()), (Some("weekly_all"), Some(92.5)));
+        assert_eq!(limits[2]["kind"], json!("weekly_scoped"));
+        assert_eq!(limits[2]["model"], json!("GPT-5 Codex Spark"));
+        assert_eq!(limits[2]["is_active"], json!(true));
+    }
+
+    #[test]
+    fn no_rate_limits_is_not_available() {
+        assert_eq!(codex_limits(&wham_rate_limits(&json!({ "plan_type": "free" })))["available"], json!(false));
+    }
 }

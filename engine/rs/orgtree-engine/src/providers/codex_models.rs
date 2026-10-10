@@ -73,17 +73,14 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
     crate::winproc::own_group(&mut cmd);
     let mut child = cmd.spawn().context("start Codex capability discovery")?;
     let job = crate::winproc::child_job(&child);
-    let mut input = child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow!("Codex has no stdin"))?;
-    let mut lines = BufReader::new(
-        child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("Codex has no stdout"))?,
-    )
-    .lines();
+    // nothing may drop the child (kill_on_drop) or its job (kill-on-close)
+    // before stop_gracefully: either is a hard kill
+    let grace = crate::runtime::codex::PROBE_GRACE;
+    let (Some(mut input), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        crate::runtime::stop_gracefully(&mut child, job.as_ref(), "capability discovery", "no stdio", grace).await;
+        bail!("Codex has no stdio");
+    };
+    let mut lines = BufReader::new(stdout).lines();
     let read = async {
         request(
             &mut input,
@@ -148,10 +145,14 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
         bail!("model/list exceeded 20 pages")
     };
     let result = tokio::time::timeout(Duration::from_secs(25), read).await;
-    if let Some(job) = &job {
-        job.terminate();
-    }
-    let _ = child.start_kill();
-    let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+    // never a hard kill first: close its input and let it exit
+    drop(input);
+    let reason = match &result {
+        Ok(Ok(_)) => "discovery answered",
+        Ok(Err(_)) => "discovery failed",
+        Err(_) => "discovery timed out",
+    };
+    crate::runtime::stop_gracefully(&mut child, job.as_ref(), "capability discovery", reason, grace).await;
+    drop(job);
     result.map_err(|_| anyhow!("Codex capability discovery timed out"))?
 }

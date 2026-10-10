@@ -972,7 +972,14 @@ pub fn mcp_overrides(servers: &serde_json::Map<String, Value>) -> (Vec<String>, 
     (out, attached)
 }
 
+/// How long a short-lived app-server gets to exit by itself once its stdin
+/// closes, before it is terminated (docket
+/// urgent-orgtree-s-hard-killing-of-codex-processes: a codex killed with a
+/// call in flight to lsass is the public trigger of lsass's RPCRT4 crash).
+pub const PROBE_GRACE: Duration = Duration::from_secs(5);
+
 /// A short-lived app-server's read of one login: (account, rate limits).
+/// Only the fallback now: `usage::codex` reads the same limits over HTTPS.
 #[logged]
 pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, Value)> {
     let mut cmd = Command::new(exe);
@@ -996,8 +1003,9 @@ pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, 
     winproc::own_group(&mut cmd);
     let mut child = cmd.spawn().with_context(|| format!("could not start {}", exe.display()))?;
     let job = winproc::child_job(&child);
-    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+    // from here on nothing returns before stop_gracefully: dropping the child
+    // (kill_on_drop) or its job (kill-on-close) would be a hard kill
+    let (mut stdin, stdout) = (child.stdin.take(), child.stdout.take());
     let frames = [
         json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
                 "params": { "clientInfo": { "name": "orgtree", "title": "Orgtree", "version": env!("CARGO_PKG_VERSION") },
@@ -1006,11 +1014,12 @@ pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, 
         json!({ "jsonrpc": "2.0", "id": 2, "method": "account/read", "params": { "refreshToken": false } }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "account/rateLimits/read", "params": null }),
     ];
-    for f in frames {
-        stdin.write_all(format!("{f}\n").as_bytes()).await?;
-    }
-    stdin.flush().await?;
-    let read = async {
+    let work = async {
+        let (Some(input), Some(stdout)) = (stdin.as_mut(), stdout) else { return Err(anyhow!("the Codex app-server has no stdio")) };
+        for f in frames {
+            input.write_all(format!("{f}\n").as_bytes()).await?;
+        }
+        input.flush().await?;
         let mut lines = BufReader::new(stdout).lines();
         let (mut account, mut limits): (Option<Value>, Option<Result<Value>>) = (None, None);
         while let Ok(Some(l)) = lines.next_line().await {
@@ -1029,14 +1038,19 @@ pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, 
                 break;
             }
         }
-        (account, limits)
+        Ok::<_, anyhow::Error>((account, limits))
     };
-    let got = tokio::time::timeout(Duration::from_secs(25), read).await;
-    if let Some(j) = &job {
-        j.terminate();
-    }
-    let _ = child.start_kill();
-    let (account, limits) = got.map_err(|_| anyhow!("the Codex app-server did not answer in time"))?;
+    let got = tokio::time::timeout(Duration::from_secs(25), work).await;
+    drop(stdin);
+    let reason = match &got {
+        Ok(Ok(_)) => "probe answered",
+        Ok(Err(_)) => "probe failed",
+        Err(_) => "probe timed out",
+    };
+    let who = format!("usage probe ({})", home.unwrap_or("default login"));
+    crate::runtime::stop_gracefully(&mut child, job.as_ref(), &who, reason, PROBE_GRACE).await;
+    drop(job);
+    let (account, limits) = got.unwrap_or_else(|_| Err(anyhow!("the Codex app-server did not answer in time")))?;
     let limits = limits.ok_or_else(|| anyhow!("the Codex app-server closed without answering"))??;
     Ok((account.unwrap_or(Value::Null), limits))
 }

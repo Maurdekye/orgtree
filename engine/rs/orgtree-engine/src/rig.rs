@@ -212,6 +212,18 @@ pub fn canned_reading(v: &serde_json::Value) -> bool {
     v["error"] != NO_PROBE
 }
 
+/// Codex usage over HTTPS in rig mode: the URL in
+/// `<root>/rig-home/rig-usage/openai-http.json` (`{"url": "http://127.0.0.1:..."}`),
+/// a proof's loopback stand-in for chatgpt.com's `/wham/usage`. With it the
+/// Codex lane takes the real read (auth.json, HTTP, app-server fallback)
+/// instead of a canned reading. None outside rig mode or without the file.
+#[logged]
+pub fn codex_usage_url() -> Option<String> {
+    let home = RIG.get().cloned().flatten()?;
+    let b = std::fs::read(home.join("rig-usage").join("openai-http.json")).ok()?;
+    serde_json::from_slice::<serde_json::Value>(&b).ok()?["url"].as_str().map(str::to_string)
+}
+
 /// The OpenRouter key check in rig mode: what
 /// `<root>\rig-home\rig-usage\openrouter-key.json` says — `{"status": 200,
 /// "data": {...}}` (the key is accepted) or `{"status": 401}` (refused) — and

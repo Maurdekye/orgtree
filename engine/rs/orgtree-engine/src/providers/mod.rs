@@ -202,6 +202,12 @@ pub(crate) fn claude_identity(config_dir: Option<&PathBuf>) -> (bool, Option<Str
     (connected || email.is_some(), email)
 }
 
+/// The machine's own Codex home (`~/.codex`).
+#[logged]
+pub(crate) fn codex_default_home() -> PathBuf {
+    home().join(".codex")
+}
+
 #[logged]
 pub(crate) fn codex_identity(home_dir: Option<&PathBuf>) -> (bool, Option<String>, Option<String>) {
     let dir = home_dir.cloned().unwrap_or_else(|| home().join(".codex"));
