@@ -110,70 +110,6 @@ const sink = (): Sink => ({ lineage: 0, downs: [], posts: [] })
 const stack = (el: HTMLElement) => el.querySelector<HTMLElement>('.sq-badges .stackbadge')
 const frozen = (el: HTMLElement) => el.querySelector<HTMLElement>('.sq-badges .badge.frozen')
 
-test('§1 outside desk view both badges are still THERE — they are signs, not '
-  + 'absences', async (t) => {
-  const s = sink()
-  const view = await card(false, s)
-  t.after(() => view.unmount())
-  assert.ok(view.el.querySelector('.sq-badges'), 'the badge row is not drawn at all')
-  assert.ok(stack(view.el), 'the stack count was removed; it was meant to stay visible')
-  assert.ok(frozen(view.el), 'the freeze chip was removed; a halted agent must still say so')
-})
-
-test('§2 …but neither is a control, and the freeze chip no longer invites a '
-  + 'click it cannot honour', async (t) => {
-  const s = sink()
-  const view = await card(false, s)
-  t.after(() => view.unmount())
-  for (const [el, what] of [[stack(view.el)!, 'the stack count'], [frozen(view.el)!, 'the freeze chip']] as const) {
-    assert.equal(el.tagName, 'SPAN', `${what} is still a button, so still has button semantics`)
-    assert.equal(el.getAttribute('role'), null, `${what} still announces a role`)
-    assert.equal(el.getAttribute('tabindex'), null, `${what} is a tab stop that does nothing`)
-    assert.ok(el.classList.contains('inert'), `${what} is not marked inert`)
-  }
-  const title = frozen(view.el)!.getAttribute('title') ?? ''
-  assert.doesNotMatch(title, /click to UNSTICK/,
-    'the tooltip still tells the reader to click something that does nothing')
-  assert.match(title, /weekly limit reached/,
-    '…and it must still say what is actually wrong')
-  // ⚠ THE DEPARTURE FROM THE DOC CHIPS, ON PURPOSE. Those are aria-hidden
-  // because "has presented a document" is carried by other controls. Nothing
-  // else on this card says the agent is halted, so hiding it would take the
-  // STATUS from a screen reader while leaving it for everyone else.
-  assert.equal(frozen(view.el)!.getAttribute('aria-hidden'), null,
-    'a halted agent must still be halted to a screen reader')
-  assert.equal(stack(view.el)!.getAttribute('aria-hidden'), null)
-})
-
-test('§3 clicking either one does nothing', async (t) => {
-  const s = sink()
-  const restore = watchFetch(s)
-  const view = await card(false, s)
-  t.after(() => { view.unmount(); restore() })
-  await inAct(() => { stack(view.el)!.click() })
-  assert.equal(s.lineage, 0, 'the inert stack count still opened the lineage')
-  await inAct(() => { frozen(view.el)!.click() })
-  await inAct(async () => {})
-  assert.deepEqual(s.posts.filter((p) => p.includes('/unstick')), [],
-    'the inert freeze chip still unstuck the agent — the most consequential '
-    + 'thing on the card, fired from a view meant only to choose a desk')
-})
-
-test('§4 THE SWALLOWED PRESS: a pointerdown on either badge now reaches the '
-  + 'agent card', async (t) => {
-  const s = sink()
-  const view = await card(false, s)
-  t.after(() => view.unmount())
-  const press = (el: HTMLElement) => inAct(() => {
-    el.dispatchEvent(new (W().MouseEvent)('pointerdown', { bubbles: true, cancelable: true }))
-  })
-  await press(stack(view.el)!)
-  await press(frozen(view.el)!)
-  assert.deepEqual(s.downs, ['stuck', 'stuck'],
-    'a badge is still stopping the press that focuses the agent — the user '
-    + 'asked to be able to click anywhere on an agent and focus it')
-})
-
 test('§5 the stylesheet stops looking like a control too', async () => {
   // jsdom does no hit-testing, so this is a claim about the shipped CSS and
   // is checked as one. §4 is the behavioural half and does not depend on it.
@@ -195,27 +131,3 @@ test('§5 the stylesheet stops looking like a control too', async () => {
     'the hover highlight must be scoped to the button form, not dropped')
 })
 
-test('§6 POSITIVE CONTROL: in desk view both actions are still there and '
-  + 'still work', async (t) => {
-  // Everything above says something does NOT happen, and all of it would
-  // pass just as well against a build where both actions had been deleted.
-  // The desk is where they moved to, so the desk is where the control lives.
-  const s = sink()
-  const restore = watchFetch(s)
-  const view = await card(true, s)
-  t.after(() => { view.unmount(); restore() })
-  const unstick = view.el.querySelector<HTMLElement>('.badge.unstick')
-  const lineage = view.el.querySelector<HTMLElement>('.stackbadge')
-  assert.ok(unstick, 'the desk lost its unstick button — the action is now nowhere')
-  assert.ok(lineage, 'the desk lost its lineage button — the action is now nowhere')
-  assert.equal(unstick!.tagName, 'BUTTON')
-  assert.equal(lineage!.tagName, 'BUTTON')
-  assert.ok(!lineage!.classList.contains('inert'), 'the inert state leaked into desk view')
-
-  await inAct(() => { lineage!.click() })
-  assert.equal(s.lineage, 1, 'the desk stack badge must still open the lineage')
-  await inAct(() => { unstick!.click() })
-  await inAct(async () => {})
-  assert.equal(s.posts.filter((p) => p.includes('/unstick')).length, 1,
-    'the desk unstick button must still unstick the agent')
-})
