@@ -37,6 +37,7 @@ the run.
 | `import-30.mjs` | first-start import of a synthetic 3.1.0 store (the `orgtree` database the released 3.0.9/3.1.0 leave, migrations from git at `v3.1.0`); an unmarked org stays out; a broken org keeps nothing, is named in the org list, retries without restoring an account the user removed, and imports once repaired; an unreadable `public.orgs` never stops the engine |
 | `import-3x.mjs` | first-start import of a synthetic 3.2 store (the 3.2 alpha layout) with a row in every section; an older alpha schema (0015) imports in full; a broken store keeps nothing, is named in the log, ot.kv, the app feed and the org list, retries, and imports in full once repaired; an unreadable registry never stops the engine |
 | `openrouter-lane.mjs` | agents on the OpenRouter lane (key and favorite carried over from a 3.x `openrouter\state.json`; the gateway's key check scripted through `rig-home\rig-usage\openrouter-key.json`): a 401 parks with the OpenRouter remedy and the panel stops saying "connected" at once; the fourth 402 parks with the balance remedy; a key check without credit fields does not crash the panel's document |
+| `langserver-lane.mjs` | the Language Server lane with the REAL harnesses (`--real-cli`: the installed Claude Code and Codex, their home the run's fake one) against `fakellm.mjs`, a scripted server that answers like Ollama and streams Anthropic Messages and OpenAI Responses: the settings probe reads models and windows; one server per harness on one address; each agent's scripted `orgtree_status` call reaches the engine; what reached the server (model, the lane's placeholder key, the orgtree tools, a reply size the window can spare); turns cost 0, `local` |
 | `input-panics.mjs` | inputs from outside that used to panic the engine: non-object tool arguments, NULLs in a 3.2 store's folder and list tables, a foreign file name in `diagnostics\logs` |
 | `turn-failures.mjs` | after a failed turn (3.x parity): a Codex turn stopped by a usage limit keeps its mail in the freeze (`resume_texts`) and is given it again at the automatic wake and after `orgtree_unstick`, and its reset sends nobody a weekly-Fable notice; consecutive failed turns (Codex and Claude, and turns the idle limit killed) are reported to the superior once, and a completed turn makes the next failure news again; a Codex turn's mail is delivered once `turn/start` was accepted (a provider that keeps failing does not get a growing batch), while a refused `turn/start` gives it back |
 | `agy-lane.mjs` | flash agents on the fake `agy`: a normal turn (an orgtree tool through the engine's mcp-bridge, a native tool, tokens summed over responses), mid-turn mail through the PostInvocation hook, a seat without shell rights denied by the PreToolUse hook, an interrupt, the CLI dying mid-turn (the retry resumes the conversation), a quota wall frozen until its own "Resets in" countdown (keeping the request), the same countdown anchored once (kept while ahead, the 5-minute probe floor once stale, forgotten after a completed turn), the 3.x limit words, a refused model pin, the conversation resumed after an engine restart |
@@ -245,6 +246,15 @@ release first, else the submodule's release build) is copied into the run, gets
 a free loopback port and the name "rig hub", and the run's network mail reaches
 it and no other hub (`rig.hubUrl`); without it network mail stays off. The wakes fire after 20 minutes without activity, so a script back-dates the agents' turns,
 status and wake stamps with `rig.exec` rather than waiting (see `reminders.mjs`).
+
+`up --real-cli` (or `{ 'real-cli': true }` from a script's `setup()`) runs the INSTALLED Claude Code and
+Codex as the agents' CLIs instead of the fake (copies of `claude.exe` from its npm package and of Codex's
+bin folder; `ORGTREE_RIG_REAL_CLAUDE` / `ORGTREE_RIG_REAL_CODEX` name others). Every child's `USERPROFILE`
+and `HOME` is the run's fake home, and a fixture may hire only language-server tiers (`ls-…`): any other
+tier would run the installed CLI on whatever login it finds. Point such agents at `tools/rig/fakellm.mjs`
+(`startFakeLlm({ rules })`), a scripted server that answers like Ollama and streams Anthropic Messages
+and OpenAI Responses, so no model, GPU or account is involved (see `langserver-lane.mjs`). A fixture's
+`langservers: [...]` adds servers (`POST /api/langservers`) before its agents are hired.
 
 Before and after: `ORGTREE_RIG_ENGINE=<exe>` makes every run of a script (and the runs it starts)
 use that engine instead of your build, so keep a copy of the integration build's debug engine and
