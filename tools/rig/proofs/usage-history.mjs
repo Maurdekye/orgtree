@@ -151,9 +151,11 @@ export default async function (rig) {
   fs.mkdirSync(usageDir, { recursive: true })
   const put = (name, r) => fs.writeFileSync(path.join(usageDir, `${name}.json`), JSON.stringify(r))
   const later = h => new Date(Date.now() + h * 3600e3).toISOString()
-  const claudeReading = (session, weekly, email) => ({ available: true, email, limits: [
+  // the default login's reading continues its seeded windows (same reset
+  // times, a little higher), so it is not recorded as a reset
+  const claudeReading = (session, weekly, email, weekReset = 72) => ({ available: true, email, limits: [
     { kind: 'session', group: 'session', percent: session, resets_at: later(3), is_active: false, model: null },
-    { kind: 'weekly_all', group: 'weekly_all', percent: weekly, resets_at: later(72), is_active: true, model: null },
+    { kind: 'weekly_all', group: 'weekly_all', percent: weekly, resets_at: later(weekReset), is_active: true, model: null },
   ] })
   const codexReading = (five, week, email) => ({ available: true, label: email, email, limits: [
     { kind: 'session', group: 'primary', percent: five, resets_at: later(4), label: '5 h' },
@@ -164,7 +166,7 @@ export default async function (rig) {
   const homeD = path.join(rig.data, 'rig-home', 'codex-d')
   fs.mkdirSync(homeD, { recursive: true })
   const D = (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'imported', path: homeD })).id
-  put('claude', claudeReading(12, 57, 'rig-primary@example.invalid'))
+  put('claude', claudeReading(40, 56, 'rig-primary@example.invalid', 1.2 * 24))
   put('claude@claude-c', claudeReading(7, 59, 'rig-c@example.invalid'))
   put('openai', codexReading(5, 30, 'rig-codex@example.invalid'))
   put('openai@codex-d', codexReading(40, 92, 'rig-codex-d@example.invalid'))

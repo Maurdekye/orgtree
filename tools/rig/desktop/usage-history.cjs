@@ -40,7 +40,7 @@ module.exports = async (page, { args }) => {
     }
     await page.screenshot(shot.name)
     out.shots.push(await page.eval(() => ({
-      text: (document.querySelector('.usage-history-modal')?.innerText || '').replace(/\s+/g, ' ').slice(0, 8000),
+      text: (document.querySelector('.usage-history-modal')?.innerText || '').replace(/\s+/g, ' '),
       cards: document.querySelectorAll('.uh-card').length,
       accounts: document.querySelectorAll('.uh-account').length,
       lines: document.querySelectorAll('.uh-line').length,
