@@ -83,7 +83,7 @@ pub static PRESETS: &[Preset] = &[
     Preset { id: "lmstudio", label: "LM Studio", address: "http://127.0.0.1:1234", claude: true, codex: true,
              note: "LM Studio 0.4.1 or later serves both harnesses." },
     Preset { id: "llamacpp", label: "llama.cpp", address: "http://127.0.0.1:9931", claude: true, codex: true,
-             note: "Codex needs llama-server b11540 or later: the Responses API of older builds lacks fields Codex reads. Builds before b11521 listen on port 8080." },
+             note: "Codex was tested with llama-server b11540; older builds' Responses API lacked fields Codex reads. Builds before b11521 listen on port 8080." },
     Preset { id: "vllm", label: "vLLM", address: "http://127.0.0.1:8000", claude: true, codex: true,
              note: "Serve each model under a name without \"/\" (--served-model-name): Claude Code cannot use names that contain one. With Codex, a reasoning model may fail: vLLM refuses the reasoning items Codex sends back." },
     Preset { id: "custom", label: "Custom…", address: "", claude: true, codex: true,
