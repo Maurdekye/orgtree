@@ -583,7 +583,7 @@ pub fn publish(engine: &Engine) {
 /// any model: reachable, version, and per model its id, size, the window it
 /// was trained for and, when loaded, the window it runs with. Not logged:
 /// the key may be part of the request.
-pub async fn probe(preset_id: &str, address: &str, key: Option<&str>, harness: &str, base_path: Option<&str>) -> Value {
+pub async fn probe(preset_id: &str, address: &str, key: Option<&str>, harness: &str, base_path: Option<&str>, only: &[String]) -> Value {
     let address = match normalize_address(address) {
         Ok(a) => a,
         Err(e) => return json!({ "reachable": false, "error": format!("{e:#}"), "models": [] }),
@@ -601,7 +601,7 @@ pub async fn probe(preset_id: &str, address: &str, key: Option<&str>, harness: &
         r
     };
     let result: std::result::Result<Value, String> = match preset_id {
-        "ollama" => probe_ollama(&client, &address, &get).await,
+        "ollama" => probe_ollama(&client, &address, &get, only).await,
         "lmstudio" => probe_lmstudio(&address, &get).await,
         "llamacpp" => probe_llamacpp(&address, &get).await,
         _ => {
@@ -619,6 +619,15 @@ pub async fn probe(preset_id: &str, address: &str, key: Option<&str>, harness: &
     match result {
         Ok(mut v) => {
             v["reachable"] = json!(true);
+            // a check of some models only (the server card's windows): the rest are
+            // left out, and `listed` still says how many the server lists
+            if !only.is_empty() {
+                let listed = v["listed"].as_u64().or_else(|| v["models"].as_array().map(|a| a.len() as u64));
+                if let Some(list) = v["models"].as_array_mut() {
+                    list.retain(|m| m["id"].as_str().map(|id| only.iter().any(|o| o == id)).unwrap_or(false));
+                }
+                v["listed"] = json!(listed);
+            }
             v
         }
         Err(e) => json!({ "reachable": false, "error": e, "models": [] }),
@@ -649,10 +658,11 @@ fn short_error(e: &reqwest::Error) -> String {
     }
 }
 
-async fn probe_ollama<F>(client: &reqwest::Client, address: &str, get: &F) -> std::result::Result<Value, String>
+async fn probe_ollama<F>(client: &reqwest::Client, address: &str, get: &F, only: &[String]) -> std::result::Result<Value, String>
 where
     F: Fn(String) -> reqwest::RequestBuilder,
 {
+    use futures::StreamExt;
     let version = fetch_json(get(format!("{address}/api/version"))).await?;
     let tags = fetch_json(get(format!("{address}/api/tags"))).await?;
     // the windows of the models loaded right now (OLLAMA_CONTEXT_LENGTH or a Modelfile's num_ctx)
@@ -664,15 +674,32 @@ where
         .iter()
         .filter_map(|m| Some((m["name"].as_str()?.to_string(), m["context_length"].as_i64()?)))
         .collect();
-    let mut models = Vec::new();
-    for m in tags["models"].as_array().cloned().unwrap_or_default() {
-        let Some(name) = m["name"].as_str().or_else(|| m["model"].as_str()) else { continue };
-        // the trained window and the capabilities, from the model's own metadata
-        let show = client.post(format!("{address}/api/show")).json(&json!({ "model": name })).send().await;
-        let show: Value = match show {
-            Ok(r) if r.status().is_success() => r.json().await.unwrap_or(Value::Null),
+    let named: Vec<(String, Value)> = tags["models"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|m| Some((m["name"].as_str().or_else(|| m["model"].as_str())?.to_string(), m)))
+        .collect();
+    let total = named.len();
+    let listed: Vec<(String, Value)> = named.into_iter().filter(|(name, _)| only.is_empty() || only.iter().any(|o| o == name)).collect();
+    // the trained window and the capabilities, from each model's own metadata:
+    // eight questions at a time (a server may list hundreds), answers in list order. The requests
+    // are built first: a stream over borrowed entries makes the handler's future fail its Send check.
+    let requests: Vec<reqwest::RequestBuilder> =
+        listed.iter().map(|(name, _)| client.post(format!("{address}/api/show")).json(&json!({ "model": name }))).collect();
+    let shows: Vec<Value> = futures::stream::iter(requests.into_iter().map(|req| async move {
+        match req.send().await {
+            Ok(r) if r.status().is_success() => r.json::<Value>().await.unwrap_or(Value::Null),
             _ => Value::Null,
-        };
+        }
+    }))
+    .buffered(8)
+    .collect()
+    .await;
+    let mut models = Vec::new();
+    for ((name, m), show) in listed.iter().zip(shows) {
+        let name = name.as_str();
         let trained = show["model_info"]
             .as_object()
             .and_then(|info| info.iter().find(|(k, _)| k.ends_with(".context_length")).and_then(|(_, v)| v.as_i64()));
@@ -691,7 +718,7 @@ where
         }));
     }
     Ok(json!({
-        "version": version["version"], "models": models,
+        "version": version["version"], "models": models, "listed": total,
         "note": "Ollama runs a model with the window its Modelfile sets (num_ctx), else with OLLAMA_CONTEXT_LENGTH (4096 by default on cards under 24 GB), and silently cuts longer prompts: set it to at least 65536, or create a 64K version of a model below.",
     }))
 }

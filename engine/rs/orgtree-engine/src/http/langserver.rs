@@ -173,6 +173,9 @@ pub struct ProbeBody {
     base_path: Option<String>,
     #[serde(default)]
     key: Option<String>,
+    /// only these models (the server card's window check); empty: every model
+    #[serde(default)]
+    only: Vec<String>,
 }
 
 impl std::fmt::Debug for ProbeBody {
@@ -184,6 +187,7 @@ impl std::fmt::Debug for ProbeBody {
             .field("harness", &self.harness)
             .field("base_path", &self.base_path)
             .field("key", &self.key.as_ref().map(|_| "*****"))
+            .field("only", &self.only)
             .finish()
     }
 }
@@ -228,7 +232,7 @@ pub async fn ollama_variant(State(e): State<Arc<Engine>>, Json(b): Json<VariantB
         None => (b.address.clone().unwrap_or_default(), b.key.clone()),
     };
     let name = langserver::create_ollama_variant(&address, key.as_deref(), &b.model, langserver::VARIANT_CONTEXT).await?;
-    let probe = langserver::probe("ollama", &address, key.as_deref(), "claude-code", None).await;
+    let probe = langserver::probe("ollama", &address, key.as_deref(), "claude-code", None, &[]).await;
     Ok(Json(serde_json::json!({ "created": name, "context": langserver::VARIANT_CONTEXT, "probe": probe })))
 }
 
@@ -245,6 +249,7 @@ pub async fn probe(State(e): State<Arc<Engine>>, Json(b): Json<ProbeBody>) -> Ap
             key.as_deref(),
             s["harness"].as_str().unwrap_or("claude-code"),
             s["base_path"].as_str(),
+            &b.only,
         )
         .await;
         return Ok(Json(v));
@@ -255,6 +260,7 @@ pub async fn probe(State(e): State<Arc<Engine>>, Json(b): Json<ProbeBody>) -> Ap
         b.key.as_deref(),
         b.harness.as_deref().unwrap_or("claude-code"),
         b.base_path.as_deref(),
+        &b.only,
     )
     .await;
     Ok(Json(v))
