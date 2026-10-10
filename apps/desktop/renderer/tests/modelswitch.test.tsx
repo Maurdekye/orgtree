@@ -182,7 +182,7 @@ test('the header summary counts every provider family', async (t: TestContext) =
     (el) => el,
   )
   t.after(async () => { await view.unmount(); realClock() })
-  assert.match(view.el.textContent ?? '', /7 live · 1 active/, 'a busy node is an ACTIVE turn (Working is the reported status)')
+  assert.match(view.el.textContent ?? '', /1\/7/, 'a busy node is an ACTIVE turn (the chip reads active/live: 1/7)')
   assert.deepEqual(
     [...view.el.querySelectorAll<HTMLBRElement>('.agents b')]
       .map((b) => [b.className, b.textContent]),
@@ -214,8 +214,10 @@ configTest('an OpenRouter tier is named by its model, never by its or- slug (use
       // missing or reverted to the slug.
       const header = (el.querySelector('h3')?.textContent ?? '')
         + ' ' + (el.querySelector('.modalpin-subtitle')?.textContent ?? '')
-      assert.match(header, /claude-sonnet-5 · configuration/,
-        'the header names the model')
+      // 4.2: the header shows the agent's name and a tier badge; the model's name is the badge's tooltip
+      const icon = el.querySelector<HTMLElement>('.agent-model-icon')
+      assert.match(icon?.title ?? '', /claude-sonnet-5/, 'the header badge names the model')
+      assert.doesNotMatch(header + (icon?.title ?? ''), /or-anthropic/, 'and never the or- slug')
       const own = option(el, TIER)
       assert.ok(own, 'listed under its tier id — the value the op sends is untouched')
       assert.match(own.textContent?.trim() ?? '', /^claude-sonnet-5 · seat 2/, 'the option reads the label')
