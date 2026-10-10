@@ -53,6 +53,7 @@ import { useModeRestore } from './attention/moderestore'
 import { useButtonColours } from './buttoncolours'
 import type { OrgView } from './attention/mode'
 import { QuickChat, type AgentListSource } from './QuickChatBox'
+import { useQuickChatPosition } from './quickchat'
 import { AttentionView } from './attention/AttentionView'
 import type { AttentionNotificationFocus } from './attention/AttentionQueue'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
@@ -518,6 +519,9 @@ export default function App() {
   const [quickFocus, setQuickFocus] = useState<string | null>(null)
   // the canvas fills this with the Agents List, for Quick chat's superior picker
   const agentList = useRef<AgentListSource | null>(null)
+  // App settings › Display › Quick chat position: the header (default), the
+  // footer, or nowhere
+  const quickAt = useQuickChatPosition()
   useEffect(() => {
     if (!quickFocus || !tree) return
     if (!flatNodes(tree).has(quickFocus)) return
@@ -1224,6 +1228,12 @@ export default function App() {
       // `quiet`: the caller reports this failure itself (OpOptions)
       .catch((e: Error) => { if (!opts?.quiet) toast([`error: ${e.message}`]); throw e }),
     [slug, toast, refreshTree, refreshOrgs])
+  // one Quick chat, placed in the header or the footer by `quickAt`
+  const quickChat = tree && slug
+    ? <QuickChat slug={slug} tree={tree} op={op} toast={toast}
+        onHired={setQuickFocus} agentList={agentList}
+        label={v3 && viewMode === 'attention' ? 'New chat' : 'Quick chat'} />
+    : null
 
   // ⚠ NO `setShowSettings(false)` HERE ANY MORE. It existed so that opening
   // organization B would not show A's settings panel - a real hazard while
@@ -1453,6 +1463,7 @@ export default function App() {
               {v3 ? (
                 <ShellHeader menu={shellMenu} title={tree.name}
                   modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
+                  quick={quickAt === 'top' ? quickChat : undefined}
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — icons only, named by aria-label */}
@@ -1771,8 +1782,7 @@ export default function App() {
                   rule, tooltip and click-through intact (shell/statusbar.tsx) */}
               {v3 && <OrgStatusBar tree={tree} orgs={orgs} error={error}
                 appVersion={appVersion}
-                quick={<QuickChat slug={slug} tree={tree} op={op} toast={toast}
-                  onHired={setQuickFocus} agentList={agentList} />}
+                quick={quickAt === 'bottom' ? quickChat : undefined}
                 onOpenConnections={() => {
                   setSettingsInitialTab('mailserver')
                   if (!showSettings) toggleSurface('org-settings', showSettings, setShowSettings)

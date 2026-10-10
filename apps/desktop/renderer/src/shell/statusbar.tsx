@@ -22,15 +22,15 @@
 // an actionable error off the end of a row nobody scrolls. So the chips are
 // the part that yields and the error keeps its seat.
 //
-// QUICK CHAT SITS IN THIS STRIP (user 2026-10-10 18:48Z: "put the quick chat
-// in the footer actually" — the header's empty stretch is kept for dragging
-// the window). Three parts then, like the centred header it came from: the
+// QUICK CHAT SITS IN THIS STRIP WHEN ITS POSITION IS BOTTOM (App settings ›
+// Display; user 2026-10-10 18:48Z put it here, 19:23Z made the place a
+// setting with Top the default). Three parts then, like the centred header it came from: the
 // chips, Quick chat, and the error + version. Both sides claim their own
 // controls and grow equally, so the box is centred while there is room,
 // slides off-centre at full width when one side runs out, and shrinks only
 // when neither side has free space (shell/equalsides.ts). The strip grows to
 // the box's one row (user 18:50Z: "the footer may have to be increased in
-// height"). Without Quick chat (no organization) the strip is as before.
+// height"). Without Quick chat here the strip is as before.
 import type { ReactNode } from 'react'
 import { BlockIcon, EyeIcon, LanIcon, AutorenewIcon, WarnIcon } from '../icons'
 import { primedRestartChip } from '../canvas/shared'

@@ -1,7 +1,8 @@
 // quickchat.ts — Quick chat's memory and its pure rules (docket
 // `quick-prompt-hire-kick-off-and-focus-an-agent-fr`).
 //
-// Quick chat is the header text box: type, press Enter, and a new agent is
+// Quick chat is the text box in the header (or the footer — its position is a
+// Display setting, below): type, press Enter, and a new agent is
 // hired, kicked off with the message and focused. Its three buttons — model,
 // effort, superior — FOLLOW THE USER'S LAST MANUAL CHOICES (user 2026-10-01):
 //   model    = the model of the last hire made by hand;
@@ -23,6 +24,7 @@
 // rules live in `quickChatName` and `quickChatHire` so they are one-line
 // swaps if the rulings change.
 
+import { useSyncExternalStore } from 'react'
 import { EFFORT_LEVELS } from './canvas/effort'
 
 /** null = top level: no superior. */
@@ -172,3 +174,32 @@ export function quickChatHire(c: { message: string; name: string; tier: string;
     kickoff: c.message, kickoff_kind: 'message',
   }
 }
+
+/* WHERE QUICK CHAT SITS (user 2026-10-10 19:23Z: "make the position of quick
+   chat (top, bottom, none) a display option in app wide settings"; 19:24Z:
+   "make it the top by default"). App-wide, in App settings › Display; kept in
+   localStorage like the other display choices, so it survives restarts and
+   reaches every open window at once (a `storage` event in the others).
+     top    — the window header, centred (the default; also when never set);
+     bottom — the footer status strip, centred the same way;
+     none   — hidden everywhere (the Attention view then has no new-chat box). */
+export type QuickChatPosition = 'top' | 'bottom' | 'none'
+export const QUICK_CHAT_POSITION_KEY = 'orgtree-quickchat-position'
+export function quickChatPosition(): QuickChatPosition {
+  try {
+    const v = localStorage.getItem(QUICK_CHAT_POSITION_KEY)
+    return v === 'bottom' || v === 'none' ? v : 'top'
+  } catch { return 'top' }
+}
+const positionSubs = new Set<() => void>()
+export function setQuickChatPosition(v: QuickChatPosition): void {
+  try { localStorage.setItem(QUICK_CHAT_POSITION_KEY, v) } catch { /* private mode */ }
+  for (const fn of [...positionSubs]) fn()
+}
+function subscribePosition(fn: () => void): () => void {
+  positionSubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { positionSubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const useQuickChatPosition = (): QuickChatPosition =>
+  useSyncExternalStore(subscribePosition, quickChatPosition)

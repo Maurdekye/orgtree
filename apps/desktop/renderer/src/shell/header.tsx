@@ -16,8 +16,10 @@
 // tooltip instead. All of them share one frame — border, background, size —
 // and one corner count badge, so the row reads as a set.
 //
-// QUICK CHAT IS NOT HERE EITHER (user 2026-10-10 18:48Z): it lives in the
-// footer, so the header's empty stretch stays free for dragging the window.
+// QUICK CHAT SITS HERE ONLY WHEN ITS POSITION IS TOP (App settings › Display,
+// user 2026-10-10 19:23Z; Top is the default). Bottom moves it to the footer
+// (shell/statusbar.tsx) and None hides it. Either way the header's empty
+// stretch stays a window drag region.
 //
 // THE KILLSWITCH HAS ITS OWN SLOT, `guard`, to the LEFT of that row (user
 // 2026-09-29). Arming it expands STOP ALL leftward into the empty gap, so the
@@ -26,6 +28,7 @@ import { type ReactNode } from 'react'
 import { UpdateNotice } from '../update-notice'
 import { WindowControls } from '../window-controls'
 import { desktop } from '../desktop'
+import { useEqualSides } from './equalsides'
 
 export interface ShellHeaderProps {
   /** the compact app menu — present in every view */
@@ -36,6 +39,11 @@ export interface ShellHeaderProps {
   title: string
   /** the prominent Canvas/Attention toggle. Organization windows only. */
   modes?: ReactNode
+  /** Quick chat: one text box that hires, kicks off and focuses a new agent.
+   *  Organization windows only, and only while App settings › Display ›
+   *  Quick chat position is Top (the default); Bottom puts it in the footer
+   *  (shell/statusbar.tsx), None hides it. */
+  quick?: ReactNode
   /** the familiar direct action buttons. Organization windows only. */
   actions?: ReactNode
   /** the killswitch, placed just LEFT of `actions` so its expansion grows
@@ -47,7 +55,41 @@ export interface ShellHeaderProps {
   version?: string | null
 }
 
-export function ShellHeader({ menu, title, modes, actions, guard, version }: ShellHeaderProps) {
+export function ShellHeader({ menu, title, modes, quick, actions, guard, version }: ShellHeaderProps) {
+  const refresh = !desktop() && (
+    <button type="button" className="iconbtn" title="refresh app view"
+      aria-label="refresh app view" onClick={() => window.location.reload()}>
+      <span aria-hidden="true">⟳</span>
+    </button>
+  )
+  const centred = useEqualSides(!!quick)
+  // QUICK CHAT IS CENTRED IN THE WHOLE BAR (user 2026-10-10): three parts —
+  // start, Quick chat, end (window controls included) — where start and end
+  // grow equally from nothing, so the box sits in the middle of the header
+  // while both sides have room; then it slides off-centre at full width, and
+  // only shrinks once no free space is left on either side — never before a
+  // side gives up its controls, so it never overlaps them (shell.css
+  // `.shell-header-centred`).
+  if (quick) return (
+    <header ref={centred.head}
+      className={'shell-header shell-header-centred' + (desktop() ? ' native-header' : '')}>
+      <div className="shell-header-start" ref={centred.start}>
+        {menu}
+        <h2 className="shell-header-title" title={title}>{title}</h2>
+        {version && <span className="shell-version dim"
+          title={`running Orgtree ${version}`}>Orgtree {version}</span>}
+        {modes && <div className="shell-header-modes">{modes}</div>}
+      </div>
+      <div className="shell-header-quick">{quick}</div>
+      <div className="shell-header-end" ref={centred.end}>
+        {guard && <div className="shell-header-guard">{guard}</div>}
+        {actions && <div className="shell-header-actions">{actions}</div>}
+        <UpdateNotice />
+        {refresh}
+        <WindowControls />
+      </div>
+    </header>
+  )
   return (
     <header className={'shell-header' + (desktop() ? ' native-header' : '')}>
       <div className="shell-header-main">

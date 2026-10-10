@@ -10,6 +10,7 @@ import { legacyAppBackend } from './appfeed-fixture'
 import { QuickChat, type AgentListSource } from '../src/QuickChatBox'
 import {
   quickChatName, quickChatTier, rememberEffort, rememberHire,
+  quickChatPosition, setQuickChatPosition, QUICK_CHAT_POSITION_KEY,
 } from '../src/quickchat'
 import type { OpRequest, TreePayload } from '../src/types'
 import { trayRows } from '../src/canvas/agenttray'
@@ -91,6 +92,19 @@ test('a colon ends the name: the words before the first one, else the whole mess
   assert.equal(quickChatName('?? : fix the login bug', none), 'fix-login-bug')
   assert.equal(quickChatName('Fix the login bug\nnotes: later', none), 'fix-login-bug', 'a colon on a later line leaves the first line')
   assert.equal(quickChatName('Deploy: now', n => n === 'deploy'), 'deploy-2', 'still unique')
+})
+
+test('the Quick chat position is Top by default, kept, and only top/bottom/none', () => {
+  localStorage.clear()
+  assert.equal(quickChatPosition(), 'top', 'never set: the header')
+  setQuickChatPosition('bottom')
+  assert.equal(quickChatPosition(), 'bottom')
+  assert.equal(localStorage.getItem(QUICK_CHAT_POSITION_KEY), 'bottom', 'kept across restarts')
+  setQuickChatPosition('none')
+  assert.equal(quickChatPosition(), 'none')
+  localStorage.setItem(QUICK_CHAT_POSITION_KEY, 'sideways')
+  assert.equal(quickChatPosition(), 'top', 'anything else reads as the default')
+  localStorage.clear()
 })
 
 test('the model with no history prefers Opus, then Sol, then Flash, then anything offered', () => {

@@ -46,6 +46,7 @@ import type { StartView } from './shared'
 import { AutorenewIcon } from '../icons'
 import { AboutSection, StartupWindowsSetting, useAppVersion } from '../shell/general'
 import { DefaultsForm } from '../shell/defaults'
+import { setQuickChatPosition, useQuickChatPosition, type QuickChatPosition } from '../quickchat'
 import { EngineDebugToggle } from './enginedebug'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
@@ -398,6 +399,26 @@ const START_VIEW_OPTIONS: [StartView, string][] = [
   ['switchboard', 'the switchboard'],
   ['remember', 'where I left off'],
 ]
+/* WHERE QUICK CHAT SITS (user 2026-10-10 19:23Z; Top by default, 19:24Z).
+   App-wide and live in every window; the hint says what each choice means,
+   including that None leaves the Attention view with no new-chat box. */
+const QUICK_CHAT_POSITIONS: [QuickChatPosition, string, string][] = [
+  ['top', 'Top', 'in the window header, centred — the empty header around it still drags the window'],
+  ['bottom', 'Bottom', 'in the footer status strip, centred — the header stays empty for dragging the window'],
+  ['none', 'None', 'hidden everywhere — the Attention view then has no box for starting a new chat'],
+]
+function QuickChatPositionSetting() {
+  const at = useQuickChatPosition()
+  return (
+    <SetRow label="Quick chat position" hint={QUICK_CHAT_POSITIONS.find(([v]) => v === at)?.[2]}>
+      <select aria-label="Quick chat position" value={at}
+        onChange={(e) => setQuickChatPosition(e.target.value as QuickChatPosition)}>
+        {QUICK_CHAT_POSITIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+      </select>
+    </SetRow>
+  )
+}
+
 function StartupView() {
   const mode = useStartView()
   const zoom = useStartZoom()
@@ -836,6 +857,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <SetGroup title="Desk"><ChartLayoutSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Typing">
         <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>
           <select aria-label="Enter key" value={enterKey ?? runtime?.enter_key_behavior ?? 'send'}

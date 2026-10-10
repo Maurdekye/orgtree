@@ -1,4 +1,5 @@
-// shell/equalsides.ts — the centred-bar rule for the shell's Quick chat row.
+// shell/equalsides.ts — the centred-bar rule for the bar holding Quick chat
+// (the header or the footer, per App settings › Display › Quick chat position).
 import { useLayoutEffect, useRef } from 'react'
 
 /** Each side of a centred bar claims ITS OWN controls as its minimum width —
@@ -7,7 +8,7 @@ import { useLayoutEffect, useRef } from 'react'
  *  the other keeps the rest, so the box slides off-centre at full width and
  *  only shrinks once neither side has free space left (user 2026-10-10: "it
  *  should keep its full width until the free space on both sides is gone").
- *  The footer's Quick chat row uses it (shell/statusbar.tsx).
+ *  Used by whichever bar holds Quick chat (shell/header.tsx, shell/statusbar.tsx).
  *  Measured from the controls themselves (their widths do not depend on the
  *  side's), so the observer cannot feed back into itself. */
 export function useEqualSides(on: boolean) {

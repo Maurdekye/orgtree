@@ -51,7 +51,7 @@ const FADE_MS = 150
 /** how far the pointer may stray from the model chips (or their button) before they close */
 const LEAVE_PX = 70
 
-export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
+export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = 'Quick chat' }: {
   slug: string
   tree: TreePayload
   op: (body: OpRequest, opts?: { quiet?: boolean }) => Promise<OpResult>
@@ -60,6 +60,9 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
   onHired: (id: string) => void
   /** the Agents List on screen; absent = the tree's own order */
   agentList?: { current: AgentListSource | null }
+  /** what the box calls itself: "New chat" in the Attention view, where it is
+   *  the only way to start one (user 2026-10-10 19:25Z), else "Quick chat" */
+  label?: string
 }) {
   const [memo, setMemo] = useState(() => readQuickChat(slug))
   useEffect(() => {
@@ -178,8 +181,9 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault() }}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addFiles(e.dataTransfer.files) } }}>
       <input className="quickchat-input" value={text} disabled={busy}
-        placeholder="Quick chat — message a new agent, Enter to hire"
-        aria-label="Quick chat message"
+        placeholder={`${label} — message a new agent, Enter to hire`}
+        title={`${label} — message a new agent, Enter to hire`}
+        aria-label={`${label} message`}
         onChange={(e) => setText(e.target.value)}
         onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files) } }}
         onKeyDown={(e) => {

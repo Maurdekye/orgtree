@@ -109,6 +109,51 @@
 
 .shell-header-gap { flex: 1; min-width: 8px; }
 
+/* QUICK CHAT, CENTRED (user 2026-10-10: "make the quick chat entry
+ * centered"). An organization window's bar is three parts. Start and end both
+ * grow from a zero basis by the same factor, so while each has room for its
+ * own controls they are equally wide and Quick chat sits in the exact middle
+ * of the bar — window controls included, which is why they live inside the
+ * end part here. When the window narrows, a side that is down to its own
+ * controls stops shrinking and the other side gives up its free space, so the
+ * box slides off-centre at full width; only when neither side has free space
+ * left does Quick chat shrink (to a floor), and it never overlaps a side's
+ * controls (user 2026-10-10: keep the full width until both sides' free space
+ * is gone). */
+.shell-header.shell-header-centred { padding: 0; gap: 10px; }
+.shell-header-start,
+.shell-header-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  /* each side's own controls, measured (header.tsx useEqualSides) */
+  min-width: var(--shell-start-min, max-content);
+  -webkit-app-region: drag;
+}
+/* the same padding on both sides, so equal growth means equal widths (the
+ * end side's is never seen: its controls sit at its right edge) */
+.shell-header-start,
+.shell-header-end { padding-left: 8px; }
+.shell-header-end { justify-content: flex-end; align-self: stretch; min-width: var(--shell-end-min, max-content); }
+.shell-header-start .shell-header-title { flex: 0 1 auto; }
+.shell-header-start button,
+.shell-header-end button,
+.shell-header-end [role='menuitem'],
+.shell-header-start [role='radio'],
+.shell-header-quick button,
+.shell-header-quick input { -webkit-app-region: no-drag; }
+.shell-header-quick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 960px;   /* 50% wider than alpha.3's 640px (user 2026-10-10) */
+  min-width: 200px;
+  -webkit-app-region: drag;
+}
+.shell-header-quick .quickchat { flex: 1 1 auto; max-width: none; }
+.shell-header-end > .window-controls { align-self: stretch; height: auto; margin-left: 0; }
+
 .shell-header-actions {
   display: flex;
   align-items: center;
@@ -193,7 +238,13 @@
 @container shellheader (max-width: 760px) {
   .shell-header-main { gap: 4px; }
   .shell-header-gap { min-width: 0; }
-  .shell-header > .window-controls .window-control { flex-basis: 34px; width: 34px; }
+  .shell-header-quick { min-width: 160px; }
+  .shell-header-quick .quickchat-btn { max-width: 72px; }
+  .shell-header-quick .quickchat .effort-bar.compact .effort-bar-track { width: 44px; }
+  .shell-header-start, .shell-header-end, .shell-header.shell-header-centred { gap: 4px; }
+  .shell-header-start, .shell-header-end { padding-left: 4px; }
+  .shell-header > .window-controls .window-control,
+  .shell-header-end > .window-controls .window-control { flex-basis: 34px; width: 34px; }
 }
 
 .shell-header > .window-controls {
@@ -459,8 +510,8 @@ main.solo:has(> .shell-header) > .canvas-stage > .viewport {
   overflow: hidden;
 }
 
-/* QUICK CHAT IN THE STRIP (user 2026-10-10 18:48Z; it left the header so the
- * header's empty stretch stays a window drag region). Three parts: the chips,
+/* QUICK CHAT IN THE STRIP, when App settings › Display › Quick chat position
+ * is Bottom (user 2026-10-10 18:48Z / 19:23Z). Three parts: the chips,
  * Quick chat, the error + version. Start and end grow from a zero basis by the
  * same factor, each claiming its own controls as its minimum (measured,
  * shell/equalsides.ts), so the box is centred while both have room, slides
