@@ -10,6 +10,11 @@ description = "Orgtree engine: agent runtime, storage, feeds and the desktop's w
 name = "orgtree-engine"
 path = "src/main.rs"
 
+# The sign-in credential broker (Windows, no window): src/credential_broker.rs
+[[bin]]
+name = "orgtree-credential-broker"
+path = "src/credential_broker.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }
