@@ -346,11 +346,11 @@ rig('§11 the match readout counts only the enabled views', async (k) => {
   const el = await k.mount()
   assert.equal(countText(el), '', 'silent until there is a query')
   await type(el, 'search')
-  // 2 active rows are searchable; the archived one is not, because its box is
-  // off — and the denominator must not count it either
-  assert.equal(countText(el), '1 of 2 match')
+  // 4.x: the readout is the server's match count over the ENABLED groups — the archived hit is not counted
+  // while its box is off (there is no "N of M" denominator any more)
+  assert.equal(countText(el), '1 match')
   await tick(archivedBox(el))
-  assert.equal(countText(el), '2 of 3 match')
+  assert.equal(countText(el), '2 match')
 })
 
 // ===========================================================================
@@ -700,31 +700,6 @@ rig('§21 Enter opens the top result without leaving the box', async (k) => {
 // WHAT A KEYSTROKE COSTS
 // ===========================================================================
 
-test('§22 typing issues NO request — the searched fields are already resident',
-     async (t: TestContext) => {
-  useFakeClock()
-  forgetArrangement()
-  let open: { unmount: () => Promise<void> } | null = null
-  t.after(async () => { try { await open?.unmount() } finally { realClock() } })
-  const many = Array.from({ length: 40 }, (_, i) =>
-    mkItem({ slug: `ticket-${i}`, title: `Ticket ${i}`,
-             objective: `Objective number ${i}.` }))
-  const calls = mock(many)
-  const view = await mountView(
-    <DocketModal slug="org1" toast={() => {}} close={() => {}} jumpTo={null}
-      tree={TREE} />, (host) => host)
-  open = view
-  await flush()
-  const before = calls.length
-  for (const q of ['t', 'ti', 'tic', 'tick', 'ticke', 'ticket', 'ticket 1']) {
-    await type(view.el, q)
-  }
-  assert.equal(calls.length, before,
-               'a keystroke is a filter over resident data, never a fetch')
-  assert.ok(rows(view.el).length > 0 && rows(view.el).length < many.length,
-            'and it did actually narrow the list')
-})
-
 test('§23 a large docket stays responsive: one pass per keystroke over '
      + 'already-built text', () => {
   // ⚠ THE DESCRIPTIONS ARE BIG ON PURPOSE. If the item text were rebuilt per
@@ -758,3 +733,4 @@ test('§23 a large docket stays responsive: one pass per keystroke over '
   assert.ok(ms < 1500,
             `${queries.length * 3} queries over ${N} items took ${ms.toFixed(1)}ms`)
 })
+// (§22 'typing issues NO request' was removed with the full-list docket: search is a server request now, docketpaged §2)

@@ -341,41 +341,6 @@ uiTest('§9 clicking a mention selects, reveals and marks the item it names',
       'clickable-docket-references')
   })
 
-uiTest('§10 a link to a HIDDEN BACKLOG item turns its group on and shows the row',
-  async (mount) => {
-    const hidden = mkItem({ slug: 'nested-docket-items',
-      title: 'Expandable docket items', status: 'backlogged' })
-    const urls = mockServer({
-      items: [mkItem({ slug: 'explain-unavailable-actions', title: 'A',
-        objective: 'design lives in nested-docket-items' })],
-      archived: [], backlogged: [hidden],
-    })
-    const el = await mount(modal())
-    await flush()
-
-    // PRECONDITION, ASSERTED: the row really is hidden to start with, so the
-    // reveal below is doing something. Without this the test would pass on a
-    // panel that showed the backlog all along.
-    assert.equal(backlogBox(el).checked, false)
-    assert.deepEqual(names(el), ['explain-unavailable-actions'])
-    // The light reference index links the hidden item without fetching its
-    // group. Following the link then loads and reveals that group.
-    assert.ok(urls.every((u) => !u.includes('backlogged=1')),
-      'closed backlog must not be fetched before its reference is followed')
-
-    await openFirst(el)
-    assert.equal(refs(el).length, 1, 'a hidden item was not linkable')
-    await inAct(() => refs(el)[0]!.click())
-    await flush()
-
-    assert.equal(backlogBox(el).checked, true, 'the hidden group stayed hidden')
-    assert.ok(urls.some((u) => u.includes('backlogged=1')),
-      'following the reference must fetch the hidden group')
-    assert.ok(names(el).includes('nested-docket-items'),
-      'the revealed row never appeared in the list')
-    assert.match(pane(el)?.textContent ?? '', /Expandable docket items/)
-  })
-
 uiTest('§10b the same for an ARCHIVED item', async (mount) => {
   const gone = mkItem({ slug: 'old-finished-thing',
     title: 'Old finished thing', status: 'done', archived: true })
@@ -1062,3 +1027,4 @@ uiTest('§32b CONTROL — a node inbox for somebody this org does not have is '
     assert.deepEqual(opened,
       [{ kind: 'mail', org: 'org1', box: 'user', id: 'm8' }])
   })
+// (§10 'a link to a HIDDEN BACKLOG item' was removed with the full-list reference index: hidden items are reached by exact lookup, docketpaged §3)

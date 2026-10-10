@@ -19,9 +19,14 @@ export function compatibilityWorkFixture(fetcher: typeof fetch, opts: { pages?: 
         const agent = u.searchParams.get('agent')
         const rows = ((body[group] ?? []) as { owner?: { node?: string } }[])
           .filter((r) => !agent || r.owner?.node === agent) as unknown[]
+        // …and a query is a case-insensitive match on the row's slug, title and description
+        const query = (u.searchParams.get('query') ?? '').toLowerCase()
+        const matching = query ? (rows as Record<string, unknown>[])
+          .filter((r) => JSON.stringify([r.slug, r.title, r.objective, r.done_so_far, r.working_on_next,
+            r.blocked_reason, (r.manual_attention as { reason?: string } | null)?.reason]).toLowerCase().includes(query)) : rows
         const size = (g: 'items' | 'archived' | 'backlogged') => (body[g] ?? []).length
         const totals = { items: size('items'), archived: size('archived'), backlogged: size('backlogged') }
-        const page = { format: 'orgtree.work-page/v1', group, rows, total: rows.length, totals, matched: totals,
+        const page = { format: 'orgtree.work-page/v1', group, rows: matching, total: matching.length, totals, matched: totals,
           counts: body.counts, next_offset: null, revision: 'compat', at: body.now ?? '2026-09-05T10:00:00.000Z' }
         return { ok: true, status: 200, headers: r.headers, json: async () => page } as unknown as Response
       })
