@@ -1,7 +1,7 @@
 /** Existing UI suites model the legacy full-list fixture. Keep that contract
  * explicit: new routes request whole-reader compatibility instead of treating
  * an old mock body as a valid foreground page. Native paging has its own tests. */
-export function compatibilityWorkFixture(fetcher: typeof fetch): typeof fetch {
+export function compatibilityWorkFixture(fetcher: typeof fetch, opts: { pages?: boolean } = {}): typeof fetch {
   return ((url: RequestInfo | URL, init?: RequestInit) => {
     if (/\/work-items-foreground(?:\?|$)|\/work-item-references(?:\?|$)/.test(String(url))) {
       return Promise.resolve({ status: 409, ok: false, headers: new Headers(),
@@ -9,7 +9,7 @@ export function compatibilityWorkFixture(fetcher: typeof fetch): typeof fetch {
     }
     // the docket reads through the paged route (2ac256a); a legacy full-list mock answers it as ONE complete page
     const text = String(url)
-    if (/\/work-items-page\?/.test(text)) {
+    if (opts.pages !== false && /\/work-items-page\?/.test(text)) {
       const u = new URL(text, 'http://localhost')
       const group = (u.searchParams.get('group') ?? 'items') as 'items' | 'archived' | 'backlogged'
       const legacy = text.replace('/work-items-page?', '/work-items?archived=1&backlogged=1&_page=')

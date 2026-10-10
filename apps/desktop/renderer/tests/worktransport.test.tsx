@@ -53,6 +53,18 @@ const fixture = () => {
     const path = String(url)
     calls.push(path)
     const ok = (body: unknown) => ({ ok: true, status: 200, headers: new Headers(), json: async () => body })
+    if (path.includes('/work-items-page?')) {
+      // 2ac256a: one page per group, light rows
+      const q = new URL(path, 'http://localhost').searchParams
+      const group = q.get('group') ?? 'items'
+      // `attention=1` is the Attention queue's read: every item holding a manual flag, whatever its group
+      const rows = q.get('attention') === '1' ? [light(hidden)]
+        : group === 'items' ? [light(item)] : group === 'backlogged' ? [light(hidden)] : []
+      return Promise.resolve(ok({ format: 'orgtree.work-page/v1', group, rows, total: rows.length,
+        totals: { items: 1, backlogged: 1, archived: 0 }, matched: { items: 1, backlogged: 1, archived: 0 },
+        counts: { active: 1, attention: 1, backlogged: 1, archived: 0 },
+        next_offset: null, revision: `r${item.rev}`, at: '2026-09-01T00:00:00.000Z' }))
+    }
     if (path.includes('/work-items-view')) return Promise.resolve(ok({
       revision: `r${item.rev}`, items: [light(item)],
       ...(path.includes('backlogged=1') ? { backlogged: [light(hidden)] } : {}),
@@ -66,7 +78,7 @@ const fixture = () => {
       return Promise.resolve(answer)
     }
     return original(url, init)
-  }) as typeof fetch)
+  }) as typeof fetch, { pages: false })
   return { slug, item, hidden, node, tree, refs, calls, pending, setHold: (value: boolean) => { hold = value } }
 }
 const settle = () => inAct(() => flush(10))
@@ -82,8 +94,8 @@ for (const kind of ['docket', 'agent', 'team', 'desk'] as const) test(`${kind} u
   const m = await mountView(view, el => el)
   t.after(async () => { await m.unmount(); resetConvos() })
   await settle()
-  assert.ok(f.calls.some(p => p.endsWith('/work-items-view')))
-  assert.ok(!f.calls.some(p => p.includes('archived=1') || p.includes('backlogged=1')))
+  assert.ok(f.calls.some(p => p.includes('/work-items-page?') && p.includes('group=items')), 'the open group is read as a page')
+  assert.ok(!f.calls.some(p => p.includes('group=archived') || p.includes('group=backlogged')), 'closed groups are not requested')
   assert.ok(!f.calls.some(p => /\/work-items\/[^/]+$/.test(p)))
   if (kind === 'desk') {
     const tab = [...m.el.querySelectorAll('button')].find(b => b.textContent?.toLowerCase().includes('docket'))
@@ -116,12 +128,12 @@ test('hidden deep link reveals group and Attention retains its manual flag witho
   await settle()
   assert.match(attention.el.querySelector('[data-attn-detail="ticket"]')?.textContent ?? '',
     /Hidden item/, 'and its full title in the docket pane')
-  assert.ok(!f.calls.some(p => p.includes('backlogged=1')), 'without loading the backlog')
+  assert.ok(!f.calls.some(p => p.includes('group=backlogged')), 'without loading the backlog')
   const docket = await mountView(<DocketModal slug={f.slug} tree={f.tree} toast={noop} close={noop}
     jumpTo="hidden" jumpSeq={1} />, el => el)
   t.after(() => docket.unmount())
   await settle()
-  assert.ok(f.calls.some(p => p.includes('backlogged=1')))
+  assert.ok(f.calls.some(p => p.includes('group=backlogged')))
   assert.ok(f.calls.some(p => p.endsWith('/work-items/hidden')))
   assert.match(docket.el.textContent ?? '', /DECISION REQUIRED/)
 })

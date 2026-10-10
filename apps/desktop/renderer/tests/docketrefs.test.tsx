@@ -755,7 +755,8 @@ uiTest('§28 a @doc token opens the reader, on the id the token named',
     // ⚠ THE EXACT GET, NOT "a reader appeared". One request, for THAT id —
     // the whole reason this panel may open documents without holding a list
     // of them is that the fetch itself is the lookup.
-    assert.deepEqual(served.docUrls.map((u) => u.split('/').pop()), ['d1'])
+    // (a `viewed` mark rides after the open — the unread bookkeeping — and is not a document GET)
+    assert.deepEqual(served.docUrls.map((u) => u.split('/').pop()).filter((id) => id !== 'viewed'), ['d1'])
   })
 
 uiTest('§29 CONTROL — a document this org does not have is reported BY THE '
