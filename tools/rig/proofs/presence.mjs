@@ -1,7 +1,9 @@
-// Proof: presence through the real engine and the hub it hosts (hub v2.0.2;
-// docket hubchat-shows-an-org-as-online-while-its-orgtree). An org whose
-// engine stops polling shows offline to a Hubchat-style watcher within the
-// hub's 10 s grace, and online again as soon as it polls.
+// Proof: presence through the real engine and the hub it hosts (hub v2.0.2,
+// last seen v2.0.3; docket hubchat-shows-an-org-as-online-while-its-orgtree,
+// hub-v2-0-3-presence-follow-ups-fresh-last-seen-i). An org whose engine
+// stops polling shows offline to a Hubchat-style watcher within the hub's
+// 10 s grace, with its last call as "last seen", and online again as soon as
+// it polls.
 //   stop   the Connections toggle (auto-connect off) takes this computer's
 //          hub out of A's list; the engine cancels A's poller, dropping its
 //          parked long poll: the same cancellation an engine shutdown makes
@@ -9,7 +11,9 @@
 //   watch  a person registered over HTTP with one device reported in use
 //          (POST /api/devices/active), parked in /api/sync (wait 55) as
 //          Hubchat parks: when does an answer stop listing A? when does the
-//          hub's roster say A is offline?
+//          hub's roster say A is offline? does that answer carry A's roster
+//          entry with last_seen its last call (v2.0.3)? A polls once more
+//          after the watcher has its entry, so the two times differ
 //   back   auto-connect on again: when does the watcher hear A is back?
 // Times are taken from the engine's own log (when its poller ended) and the
 // hub's request log (A's first poll back), so the engine's reaction to the
@@ -19,7 +23,7 @@
 // a kill (the connection closes) is the same hang-up; see the hub's
 // tools/verify-docker.py and its scratch probe.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/presence.mjs --hub <orgtree-mailhub.exe> [--before]
-//   --before: a hub older than v2.0.2; the times are reported, not judged
+//   --before: a hub older than v2.0.3; the times and last_seen are reported, not judged
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -49,13 +53,15 @@ function pollerEnds(rig) {
   return out
 }
 
-/** When the hub answered polls of `slug` (its request log, UTC). */
-function hubPolls(rig, slug) {
+/** When the hub answered calls of `slug` (its request log, UTC), polls only
+ * unless `any`. */
+function hubCalls(rig, slug, any = false) {
   return fs.readFileSync(path.join(rig.run.data, 'mailhub', 'hub.log'), 'utf8').split('\n')
     .map(l => { try { return JSON.parse(l) } catch { return null } })
-    .filter(j => j && j.path === '/api/poll' && (j.slugs ?? []).includes(slug))
+    .filter(j => j && (any || j.path === '/api/poll') && (j.slugs ?? []).includes(slug))
     .map(j => Date.parse(j.ts))
 }
+const hubPolls = (rig, slug) => hubCalls(rig, slug)
 
 export default async function (rig, { flags }) {
   const before = !!flags.before
@@ -99,7 +105,9 @@ export default async function (rig, { flags }) {
     reg.status === 200 && act.status === 200 && await online(aSlug), { a: aSlug, watcher: w.slug, register: reg.status, active: act.status })
 
   /** Park the watcher's sync until an answer says `want` (A listed or not):
-   * when that answer came (ms since the epoch), or null. */
+   * when that answer came (ms since the epoch), or null; the answer itself is
+   * left in `heardAnswer`. */
+  let heardAnswer = null
   const hear = async (want, limitMs) => {
     const end = Date.now() + limitMs
     for (;;) {
@@ -107,7 +115,10 @@ export default async function (rig, { flags }) {
       if (left <= 0) return null
       const s = await call('POST', '/api/sync', wAuth, { device_id: 'w-desk', cursor, wait: Math.min(55, Math.ceil(left / 1000)) }, left + 30000)
       cursor = s.json?.cursor ?? cursor
-      if (Array.isArray(s.json?.online) && s.json.online.includes(aSlug) === want) return Date.now()
+      if (Array.isArray(s.json?.online) && s.json.online.includes(aSlug) === want) {
+        heardAnswer = s.json
+        return Date.now()
+      }
     }
   }
   const rosterFlip = async (want, limitMs) => {
@@ -118,6 +129,11 @@ export default async function (rig, { flags }) {
     }
     return null
   }
+
+  // A polls once more after the watcher has its roster entry, so the
+  // last_seen the watcher holds and A's real last call differ (v2.0.3)
+  const tHas = Date.now()
+  await rig.waitFor(() => hubPolls(rig, aSlug).some(t => t > tHas + 1000) || null, { what: 'A to poll again after the watcher synced', timeout: 40000 })
 
   // ------------------------------------------------------------------ stop
   const limit = before ? 170000 : 60000
@@ -137,6 +153,21 @@ export default async function (rig, { flags }) {
   if (!before) {
     p.check('stop: the hub shows A offline after its 10 s grace from the engine dropping its poll', stop.offline_after_hang_up_s !== null && stop.offline_after_hang_up_s >= 9.5 && stop.offline_after_hang_up_s <= 11.5, stop)
     p.check('stop: the watcher\'s parked sync (device in use) hears it within a second or two of the hub (a 1 s tick, then the answer)', stop.watcher_after_hub_s !== null && stop.watcher_after_hub_s <= 2.5, stop)
+  }
+  // v2.0.3: the answer that reported A gone carries A's roster entry with
+  // last_seen A's last call (before: no entry; the watcher kept the older one)
+  const calls = hubCalls(rig, aSlug, true).filter(t => t <= hangUp + 1000)
+  const lastCall = calls.length ? Math.max(...calls) : null
+  const entry = (heardAnswer?.roster ?? []).find(r => r.slug === aSlug) ?? null
+  const seenAt = entry?.last_seen ? Date.parse(entry.last_seen) : null
+  const seen = {
+    entry: entry !== null, last_seen: entry?.last_seen ?? null, last_call: lastCall && new Date(lastCall).toISOString(),
+    from_last_call_s: seenAt === null || lastCall === null ? null : s1(seenAt - lastCall), age_at_answer_s: seenAt === null || !heardOff ? null : s1(heardOff - seenAt),
+  }
+  p.note(`last seen: the answer that reported A gone ${seen.entry ? `carried A's entry, last_seen ${seen.from_last_call_s} s from A's last call and ${seen.age_at_answer_s} s old` : 'carried no entry for A'}`, seen)
+  if (!before) {
+    p.check('stop: that answer carries A\'s roster entry with last_seen its last call, newer than the one the watcher had (v2.0.3)',
+      seenAt !== null && lastCall !== null && Math.abs(seenAt - lastCall) <= 1500 && seenAt > tHas, seen)
   }
 
   // ------------------------------------------------------------------ back
