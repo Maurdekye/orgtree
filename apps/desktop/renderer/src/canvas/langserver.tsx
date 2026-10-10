@@ -62,6 +62,22 @@ const startWindow = (m: LangServerProbeModel, dflt: number): number => {
   return dflt
 }
 
+/** the document as this section reads it: an older engine (no such route)
+ *  or a stub answering another route's shape must not take the whole
+ *  settings panel down with it */
+export const langServerDoc = (d: unknown): LangServerDoc | null => {
+  if (!d || typeof d !== 'object') return null
+  const x = d as Partial<LangServerDoc>
+  return {
+    servers: Array.isArray(x.servers) ? x.servers.filter((s) => s && typeof s === 'object' && s.models && typeof s.models === 'object') : [],
+    presets: Array.isArray(x.presets) ? x.presets.filter((p) => p && Array.isArray(p.harnesses)) : [],
+    seat: typeof x.seat === 'number' ? x.seat : 0.1,
+    min_context: typeof x.min_context === 'number' ? x.min_context : 32768,
+    default_context: typeof x.default_context === 'number' ? x.default_context : 65536,
+    user_enabled: x.user_enabled !== false,
+  }
+}
+
 const probeFacts = (m: LangServerProbeModel): string => [
   m.parameters, m.quantization, fmtBytes(m.size),
   m.max_context ? `trained for ${fmtTokens(m.max_context)}` : null,
@@ -85,16 +101,16 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
-    getLangServers().then((d) => { setDoc(d); setErr(null) })
+    getLangServers().then((d) => { setDoc(langServerDoc(d)); setErr(null) })
       .catch((e: Error) => setErr(e.message))
   }, [])
-  useEffect(() => { if (pushed) setDoc(pushed) }, [pushed])
+  useEffect(() => { const next = langServerDoc(pushed); if (next) setDoc(next) }, [pushed])
 
   /** one write: busy while it runs, the answer's doc adopted, a toast */
   const run = <T,>(p: Promise<T>, ok: string, docOf: (v: T) => LangServerDoc): Promise<boolean> => {
     setBusy(true)
     return p.then((v) => {
-      setDoc(docOf(v)); setErr(null)
+      setDoc(langServerDoc(docOf(v))); setErr(null)
       if (ok) toast([ok])
       onChanged?.()
       return true
@@ -109,7 +125,7 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
         Language Server
         <span className="dim"> · models on your own servers</span>
         <span className="set-head-right">
-          <button type="button" className="acct-secondary-btn" disabled={busy || adding || !doc}
+          <button type="button" className="acct-secondary-btn" disabled={busy || adding || !doc?.presets.length}
             title="add a model server: Ollama, LM Studio, llama.cpp, vLLM or a custom one"
             onClick={() => setAdding(true)}>Add server</button>
         </span>

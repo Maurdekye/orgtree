@@ -109,6 +109,7 @@ import { SenderChip } from './canvas/senderchip'
 import { AgentName } from './canvas/identity'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
+import { langServerDoc } from './canvas/langserver'
 import { invalidateStaffingOptions, prefetchStaffingOptions } from './canvas/staffingoptions'
 import { StandingMarks } from './accountusage'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
@@ -2251,7 +2252,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
         : <div className="dim">usage unavailable until refresh succeeds</div>}
     </div> })
   }
-  for (const srv of (langservers?.servers ?? []).filter((x) => x.enabled)) {
+  for (const srv of (langServerDoc(langservers)?.servers ?? []).filter((x) => x.enabled)) {
     const offered = Object.values(srv.models).filter((m) => m.offered).map((m) => m.label)
     cards.push({ provider: 'langserver', node: <div className="usage-acct" key={'langserver:' + srv.id}>
       <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">Language Server</span>
