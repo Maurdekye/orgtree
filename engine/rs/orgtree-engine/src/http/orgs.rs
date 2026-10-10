@@ -34,11 +34,17 @@ pub async fn list(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
         )
         .await?;
     let working = crate::runtime::working_by_org(&e);
+    let mut attention: HashMap<i64, i64> = HashMap::new();
+    for r in &rows {
+        let id: i64 = r.get(0);
+        attention.insert(id, crate::domain::notices::attention_count(&client, id).await?);
+    }
     Ok(Json(Value::Array(
         rows.iter()
             .map(|r| {
                 let id: i64 = r.get(0);
                 json!({
+                    "attention": attention.get(&id).copied().unwrap_or(0),
                     "slug": r.get::<_, String>(1), "name": r.get::<_, String>(2),
                     "created": iso_opt(r.get(3)), "nodes": r.get::<_, i64>(4), "live": r.get::<_, i64>(5),
                     "cost_usd_total": r.get::<_, f64>(6),

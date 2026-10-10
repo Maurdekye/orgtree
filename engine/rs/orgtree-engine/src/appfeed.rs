@@ -368,6 +368,7 @@ async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value,
         "nodes": counts.get::<_, i64>(0),
         "live": counts.get::<_, i64>(1),
         "cost_usd_total": counts.get::<_, f64>(2),
+        "attention": crate::domain::notices::attention_count(&client, org_id).await?,
     });
     let notices = crate::domain::notices::for_org(&client, org_id, &slug).await?;
     let orgv = json!({ "id": org_id, "uuid": org.get::<_, String>(1), "slug": slug });
