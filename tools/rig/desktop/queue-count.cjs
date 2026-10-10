@@ -27,6 +27,7 @@ module.exports = async (page, { args }) => {
   const three = await sep()
   r.threeWaiting = three === '3 queued / undelivered'
   await page.screenshot('2-three')
+  r.liveUpdate = live
   r.detail = { one, three, liveUpdate: live, bubbles: await page.eval(() => document.querySelectorAll('.pending').length) }
   return r
 }

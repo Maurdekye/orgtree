@@ -2718,6 +2718,17 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (force) setStuck(true)
     return refreshConvo(slug, node.id, { force })
   }, [slug, node.id])
+  // The tree's own count of this agent's waiting mail moves the moment mail is
+  // queued for it. A halted or idle agent runs no turn, so no stream frame
+  // says so and the open desk kept its old pending list (and its separator's
+  // count) until a reload; a change in that count refetches the transcript.
+  const waitingMail = node.mail_pending ?? 0
+  const waitingSeen = useRef(waitingMail)
+  useEffect(() => {
+    if (waitingSeen.current === waitingMail) return
+    waitingSeen.current = waitingMail
+    void refreshConvo(slug, node.id)
+  }, [waitingMail, slug, node.id])
   // ⭐ WHERE A PENDING BUBBLE BELONGS IS A QUESTION ABOUT WHOSE TURN IT IS.
   // `delivering` + `via:'turn'` means the mailbox has already handed this
   // message to the turn that is running now: it is that turn's QUESTION, and
