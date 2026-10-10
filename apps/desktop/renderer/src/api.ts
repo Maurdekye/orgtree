@@ -1434,3 +1434,16 @@ export const getEngineStats = (): Promise<EngineStats> =>
 
 export const documentDownloadUrl = (slug: string, id: string): string =>
   `/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(id)}/download`
+
+export interface TransferFile {
+  id: string; name: string; total: number | null; processed: number; confirmed: number
+  complete?: boolean; restart_reason?: string | null
+}
+export interface MailTransfer extends Partial<TransferFile> {
+  id: string; direction: 'upload' | 'download'; message_id: string; peer: string
+  state: string; error?: string | null; attempt: number; files?: TransferFile[]
+}
+export const getMailTransfers = (slug: string, agent?: string, signal?: AbortSignal): Promise<{transfers: MailTransfer[]}> =>
+  req(`/api/orgs/${slug}/transfers${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`, {signal})
+export const changeMailTransfer = (slug: string, id: string, action: 'retry' | 'cancel' | 'remove'): Promise<{transfers: MailTransfer[]}> =>
+  req(`/api/orgs/${slug}/transfers/${encodeURIComponent(id)}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})

@@ -15,6 +15,7 @@ import {
   orgInboxSend, orgInboxUpload, uploadFile,
 } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
+import { TransferPanel } from './transfers'
 import {
   AttachIcon, CloseIcon, DownloadIcon, EditIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon,
@@ -1231,6 +1232,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
   }, [box])
   return (
     <div className="mailwrap" ref={mailbox.ref} onFocusCapture={mailbox.onFocus}>
+      <TransferPanel slug={slug} agent={nid} />
       <MailFolders folder={folder} setFolder={setFolder}
         unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
           - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier} />
@@ -1568,6 +1570,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
           </div>
         )}
         {tab === 'mail' ? (<>
+          <TransferPanel slug={slug} />
           <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
             <AudienceFold
               ids={holders.filter((h) => map.get(h)?.state === 'live')}
