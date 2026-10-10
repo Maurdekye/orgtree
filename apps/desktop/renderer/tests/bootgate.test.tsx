@@ -78,6 +78,7 @@ async function openWindow(treeAnswer: 'ok' | 'fail') {
   const treeHeld = new Promise<void>(resolve => { answerTree = resolve })
   class Socket {
     readyState = 1
+    send(_message: string) {}
     onmessage: ((event: { data: string }) => void) | null = null
     close() { this.readyState = 3 }
   }

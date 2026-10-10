@@ -29,6 +29,7 @@ test('App fetch initializes live desk metadata and App disposal clears it', asyn
   const sockets: Socket[] = []
   class Socket {
     readyState = 1
+    send(_message: string) {}
     onmessage: ((event: { data: string }) => void) | null = null
     constructor() { sockets.push(this) }
     close() { this.readyState = 3 }

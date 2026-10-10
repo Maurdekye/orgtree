@@ -97,6 +97,7 @@ async function mountApp(o: { noticePages?: number; detailFails?: number } = {}):
   const sockets: Socket[] = []
   class Socket {
     readyState = 1
+    send(_message: string) {}
     onmessage: ((event: { data: string }) => void) | null = null
     constructor() { sockets.push(this) }
     close() { this.readyState = 3 }

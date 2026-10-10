@@ -44,6 +44,7 @@ test('a user\'s scope or account save re-reads the tree at once, not after the p
   let reads = 0
   class Socket {
     readyState = 1
+    send(_message: string) {}
     onmessage: ((event: { data: string }) => void) | null = null
     close() { this.readyState = 3 }
   }
