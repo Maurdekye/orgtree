@@ -8105,6 +8105,9 @@ main:has(> .orgbar.native-header) > .error {
    canvas eye that stands for the user */
 .quickchat-user-mark { padding: 0 2px; }
 .quickchat-user-mark .eye { width: 100%; height: auto; }
+/* the canvas eye's strokes are drawn for 62px; at chip size they need weight */
+.quickchat-user-mark .eye path { stroke-width: 4; }
+.quickchat-user-mark .eye .iris { stroke-width: 3; }
 .quickchat-empty { padding: 4px 8px; color: var(--dim); font-size: 12px; }
 /* the model picker IS the canvas hire strip (user 2026-10-10): no panel
    behind it, the families centred into the same symmetric pyramid, and the
