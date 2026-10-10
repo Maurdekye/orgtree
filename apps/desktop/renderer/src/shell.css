@@ -109,15 +109,43 @@
 
 .shell-header-gap { flex: 1; min-width: 8px; }
 
-/* Quick chat takes the free middle of the bar and yields first when the
- * window narrows; the gap after it still pushes the actions right */
+/* QUICK CHAT, CENTRED (user 2026-10-10: "make the quick chat entry
+ * centered"). An organization window's bar is three parts. Start and end both
+ * grow from a zero basis by the same factor, so while each has room for its
+ * own controls they are equally wide and Quick chat sits in the exact middle
+ * of the bar — window controls included, which is why they live inside the
+ * end part here. When the window narrows, Quick chat shrinks (to a floor)
+ * before either side gives up its controls, so it never overlaps them; a side
+ * whose controls outgrow its half only pushes the box off-centre. */
+.shell-header.shell-header-centred { padding: 0; gap: 10px; }
+.shell-header-start,
+.shell-header-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: max-content;
+  -webkit-app-region: drag;
+}
+.shell-header-start { padding-left: 8px; }
+.shell-header-end { justify-content: flex-end; align-self: stretch; }
+.shell-header-start .shell-header-title { flex: 0 1 auto; }
+.shell-header-start button,
+.shell-header-end button,
+.shell-header-end [role='menuitem'],
+.shell-header-start [role='radio'],
+.shell-header-quick button,
+.shell-header-quick input { -webkit-app-region: no-drag; }
 .shell-header-quick {
   display: flex;
   align-items: center;
-  flex: 1 1 420px;
-  max-width: 640px;
-  min-width: 180px;
+  justify-content: center;
+  flex: 0 1 640px;
+  min-width: 200px;
+  -webkit-app-region: drag;
 }
+.shell-header-quick .quickchat { flex: 1 1 auto; max-width: none; }
+.shell-header-end > .window-controls { align-self: stretch; height: auto; margin-left: 0; }
 
 .shell-header-actions {
   display: flex;
@@ -203,9 +231,11 @@
 @container shellheader (max-width: 760px) {
   .shell-header-main { gap: 4px; }
   .shell-header-gap { min-width: 0; }
-  .shell-header-quick { min-width: 120px; }
+  .shell-header-quick { min-width: 160px; }
   .shell-header-quick .quickchat-btn { max-width: 72px; }
-  .shell-header > .window-controls .window-control { flex-basis: 34px; width: 34px; }
+  .shell-header-start, .shell-header-end, .shell-header.shell-header-centred { gap: 4px; }
+  .shell-header > .window-controls .window-control,
+  .shell-header-end > .window-controls .window-control { flex-basis: 34px; width: 34px; }
 }
 
 .shell-header > .window-controls {

@@ -48,6 +48,36 @@ export interface ShellHeaderProps {
 }
 
 export function ShellHeader({ menu, title, modes, quick, actions, guard, version }: ShellHeaderProps) {
+  const refresh = !desktop() && (
+    <button type="button" className="iconbtn" title="refresh app view"
+      aria-label="refresh app view" onClick={() => window.location.reload()}>
+      <span aria-hidden="true">⟳</span>
+    </button>
+  )
+  // QUICK CHAT IS CENTRED IN THE WHOLE BAR (user 2026-10-10): three parts —
+  // start, Quick chat, end (window controls included) — where start and end
+  // grow equally from nothing, so the box sits in the middle of the header
+  // at any width; it shrinks before either side gives up its controls, so it
+  // never overlaps them (shell.css `.shell-header-centred`).
+  if (quick) return (
+    <header className={'shell-header shell-header-centred' + (desktop() ? ' native-header' : '')}>
+      <div className="shell-header-start">
+        {menu}
+        <h2 className="shell-header-title" title={title}>{title}</h2>
+        {version && <span className="shell-version dim"
+          title={`running Orgtree ${version}`}>Orgtree {version}</span>}
+        {modes && <div className="shell-header-modes">{modes}</div>}
+      </div>
+      <div className="shell-header-quick">{quick}</div>
+      <div className="shell-header-end">
+        {guard && <div className="shell-header-guard">{guard}</div>}
+        {actions && <div className="shell-header-actions">{actions}</div>}
+        <UpdateNotice />
+        {refresh}
+        <WindowControls />
+      </div>
+    </header>
+  )
   return (
     <header className={'shell-header' + (desktop() ? ' native-header' : '')}>
       <div className="shell-header-main">
@@ -56,7 +86,6 @@ export function ShellHeader({ menu, title, modes, quick, actions, guard, version
         {version && <span className="shell-version dim"
           title={`running Orgtree ${version}`}>Orgtree {version}</span>}
         {modes && <div className="shell-header-modes">{modes}</div>}
-        {quick && <div className="shell-header-quick">{quick}</div>}
         <span className="shell-header-gap" />
         {guard && <div className="shell-header-guard">{guard}</div>}
         {actions && <div className="shell-header-actions">{actions}</div>}
