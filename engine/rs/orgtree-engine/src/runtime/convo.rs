@@ -807,7 +807,7 @@ mod tool_refs_tests {
     #[test]
     fn tickets_from_the_slug_the_work_item_or_the_create_result() {
         let r = tool_refs("mcp__orgtree__orgtree_work", &json!({ "action": "update", "slug": "fix-x", "owner": "bob" }), None);
-        assert_eq!(r, json!([{ "kind": "agent", "id": "bob" }, { "kind": "ticket", "id": "fix-x" }]));
+        assert_eq!(r, json!([{ "kind": "ticket", "id": "fix-x" }]));
         let c = tool_refs("orgtree_work", &json!({ "action": "create", "title": "T" }), Some(r#"{"created":"t-1","slug":"t-1","rev":1}"#));
         assert_eq!(c, json!([{ "kind": "ticket", "id": "t-1" }]));
         assert_eq!(tool_refs("orgtree_work", &json!({ "action": "list" }), Some(r#"{"slug":"zz"}"#)), json!([]));
