@@ -14,7 +14,7 @@ const base = (modern: boolean, qs: AskQuestion[] = [first, second], rev=1): AskI
   kind:modern?'batch':'question', rev, revs:{ask:rev},
   ...(modern?{tabs:qs.map(q=>({kind:'question',...q}))}:{questions:qs}) })
 const card = (a:AskInfo, slug='mine') => <StrictMode><AskCard ask={a} slug={slug} toast={()=>{}}/></StrictMode>
-const input = (el:HTMLElement) => el.querySelector('.ask-free-response-input, .ask-other') as HTMLInputElement | null
+const input = (el:HTMLElement) => el.querySelector('.ask-free-response-input, .ask-other') as HTMLInputElement | HTMLTextAreaElement | null
 async function click(el:HTMLElement, selector:string, label?:string) {
   const b=Array.from(el.querySelectorAll<HTMLButtonElement>(selector)).find(b=>label==null||b.textContent?.trim()===label)
   assert.ok(b,selector+' '+label)
@@ -23,7 +23,7 @@ async function click(el:HTMLElement, selector:string, label?:string) {
 async function type(el:HTMLElement,text:string) {
   const field=input(el);assert.ok(field)
   await inAct(()=>{
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(field,text)
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field),'value')!.set!.call(field,text)
     field.dispatchEvent(new Event('input',{bubbles:true}))
   })
 }

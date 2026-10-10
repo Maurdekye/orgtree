@@ -32,6 +32,7 @@ test('App reads the selected foreground tree and re-reads it when a mounted sele
   const selections: string[][] = []
   class Socket {
     readyState = 1
+    send(_message: string) {}
     onmessage: ((event: { data: string }) => void) | null = null
     close() { this.readyState = 3 }
   }

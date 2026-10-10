@@ -57,7 +57,7 @@ async function setup(t: TestContext, mode: 'attention' | 'canvas' = 'attention')
     const key = this.closest('[data-attn-row]')?.getAttribute('data-attn-row')
     if (key) scrolled.push(key)
   }
-  class Socket { readyState = 1; close() { this.readyState = 3 } }
+  class Socket { readyState = 1; send(_message: string) {} close() { this.readyState = 3 } }
   Object.assign(globals, { WebSocket: Socket, history: window.history,
     CustomEvent: window.CustomEvent, DocumentFragment: window.DocumentFragment })
   const fan = eventFanout()
