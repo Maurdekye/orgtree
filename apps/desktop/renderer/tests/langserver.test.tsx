@@ -3,8 +3,11 @@
 // its offered models as chips), ✎ is a draft that Save sends and Cancel
 // drops, the models are chosen in a browser that holds hundreds, and the
 // window a server really runs is said wherever it differs from the one
-// agents are told. Driven through the rendered controls against a scripted
-// fetch.
+// agents are told. Since 2026-10-10 evening ("i should be able to click to
+// change the models available without editing the entry"): a click on a
+// card's chip offers or withdraws the model at once, a short list shows every
+// model, a long one stays behind "+", and more than eight offered are cards
+// alone. Driven through the rendered controls against a scripted fetch.
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -31,19 +34,31 @@ const OFFERED: LangServerProbeModel[] = [
     tools: true, capabilities: ['completion', 'tools', 'thinking'], configured_context: 65536 },
 ]
 
-function server(): LangServer {
-  const model = (id: string, tier: string) => ({ id, tier, label: id, offered: true, context: 65536,
-    context_in_use: 65536, too_small: false })
+/** the user's own Ollama (2026-10-10): two Qwen 3.6 models offered, two Qwen 3.8 ones not */
+const Q38 = 'qwen3.8-27b:latest'
+const Q38V = 'qwen3.8-27b:latest-64k'
+const SHORT: LangServerProbeModel[] = [...OFFERED,
+  { id: Q38, size: 10.2e9, max_context: 262144, family: 'qwen3', parameters: '27B', quantization: 'IQ3_XXS',
+    tools: true, capabilities: ['completion', 'tools', 'thinking'] },
+  { id: Q38V, size: 10.2e9, max_context: 262144, family: 'qwen3', parameters: '27B', quantization: 'IQ3_XXS',
+    tools: true, capabilities: ['completion', 'tools', 'thinking'], configured_context: 65536 },
+]
+
+const stored = (id: string, offered = true) => ({ id, tier: `ls-ollama-${id}`, label: id, offered, context: 65536,
+  context_in_use: 65536, too_small: false })
+
+function server(ids: string[] = [LATEST, V64]): LangServer {
   return {
     id: 'ollama', preset: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', harness: 'claude-code',
     api: 'anthropic', base_path: '', base_url: 'http://127.0.0.1:11434', max_agents: 1, seat: 1, enabled: true,
     key_set: false, created_at: '2026-10-10T08:00:00Z',
-    models: { [LATEST]: model(LATEST, 'ls-ollama-qwen3-6-35b-a3b-latest'), [V64]: model(V64, 'ls-ollama-qwen3-6-35b-a3b-latest-64k') },
+    models: Object.fromEntries(ids.map((id) => [id, stored(id)])),
   }
 }
 
-function stubFetch(seen: Seen[]) {
-  const s = server()
+/** a scripted engine: the server lists `list` (302 models by default), or does not answer */
+function stubFetch(seen: Seen[], opts: { list?: LangServerProbeModel[], down?: boolean, offered?: string[] } = {}) {
+  const s = server(opts.offered)
   const doc = (): LangServerDoc => ({
     servers: [s],
     presets: [{ id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', claude: true, codex: true,
@@ -61,9 +76,10 @@ function stubFetch(seen: Seen[]) {
     if (path === '/api/langservers' && method === 'GET') payload = doc()
     else if (path === '/api/langservers/probe') {
       const only = (body?.only as string[] | undefined) ?? []
-      const all = [...OFFERED, ...MANY]
-      payload = { reachable: true, version: '0.40.2', listed: all.length,
-        models: only.length ? all.filter((m) => only.includes(m.id)) : all }
+      const all = opts.list ?? [...OFFERED, ...MANY]
+      payload = opts.down
+        ? { reachable: false, error: 'nothing is answering at that address (is the server running?)', models: [] }
+        : { reachable: true, version: '0.40.2', listed: all.length, models: only.length ? all.filter((m) => only.includes(m.id)) : all }
     } else if (path === '/api/langservers/ollama' && method === 'PATCH') {
       const b = body as Record<string, unknown>
       for (const k of ['label', 'address', 'max_agents', 'seat', 'enabled'] as const) {
@@ -125,13 +141,17 @@ test('§1 a server is one read-only line: name · preset · harness · address, 
     assert.deepEqual(digest.slice(0, 5), ['on', '1 at once', '2 models', 'key: none', 'seat 1'])
     assert.ok(digest.includes('answering · version 0.40.2 · 302 models on the server'), digest.join(' | '))
     assert.equal(card.querySelectorAll('input, select, textarea').length, 0, 'nothing is editable before ✎')
-    const chips = [...card.querySelectorAll('.ls-favs .ls-chip')]
+    const chips = [...card.querySelectorAll('.ls-toggles .orr-tog')]
     assert.deepEqual(chips.map((c) => c.querySelector('.orr-card')?.textContent), ['Q', 'Q'], 'letters from the models')
     assert.deepEqual(chips.map((c) => c.querySelector('.orr-sel-name')?.textContent), [LATEST, V64])
-    assert.equal(chips[0]!.getAttribute('title'), `${LATEST} · agents are told 64K`)
-    // the check asked about the offered models only, and loaded nothing
-    const check = seen.find((r) => r.path === '/api/langservers/probe')
-    assert.deepEqual(check?.body, { server: 'ollama', only: [LATEST, V64] })
+    assert.deepEqual(chips.map((c) => c.getAttribute('aria-pressed')), ['true', 'true'], 'both offered: lit')
+    assert.equal(chips[0]!.getAttribute('title'), `${LATEST} · agents are told 64K\n`
+      + 'click to withdraw it: no new hires on it; agents already on it keep running')
+    assert.equal(card.querySelector('.ls-toggles .orr-more')?.textContent, '+300 more',
+      'a list longer than the row holds stays behind "+"')
+    // the check asked about the models the card knows only, and loaded nothing
+    const checks = seen.filter((r) => r.path === '/api/langservers/probe')
+    assert.deepEqual(checks.map((r) => r.body), [{ server: 'ollama', only: [LATEST, V64] }], 'one check: 302 is too many to list')
     const lines = [...card.querySelectorAll('.ls-mismatch-line')].map((x) => x.textContent)
     assert.deepEqual(lines, [`${LATEST}: the server runs it with 4K, but agents are told 64K`],
       'the plain model runs at 4K (Ollama /api/ps); the 64K version agrees')
@@ -219,5 +239,132 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
     await click([...view.el.querySelectorAll('.ls-edit button')].find((b) => b.textContent === 'Save'))
     const patch = seen.find((r) => r.method === 'PATCH')
     assert.deepEqual(patch?.body, { models: [{ id: LATEST, offered: false }, { id: 'model-000:7b', offered: true, context: 32768 }] })
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+const chipsOf = (el: Element) => [...el.querySelectorAll<HTMLButtonElement>('.ls-toggles .orr-tog')]
+const nameOf = (c: Element) => c.querySelector('.orr-sel-name')?.textContent ?? c.getAttribute('aria-label')
+const chipNamed = (el: Element, id: string) => chipsOf(el).find((c) => nameOf(c) === id)
+const pressed = (el: Element) => chipsOf(el).map((c) => [nameOf(c), c.getAttribute('aria-pressed')])
+
+test('§4 a click on a chip withdraws its model at once, and a second click offers it again with the window it had; '
+  + 'nothing opens, and the server is not asked again', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen)
+  const toasts: string[][] = []
+  const view = await mountSection(toasts)
+  try {
+    const probes = () => seen.filter((r) => r.path === '/api/langservers/probe').length
+    const patches = () => seen.filter((r) => r.method === 'PATCH').map((r) => r.body)
+    const before = probes()
+    await click(chipNamed(view.el, LATEST))
+    assert.deepEqual(patches(), [{ models: [{ id: LATEST, offered: false }] }])
+    assert.deepEqual(pressed(view.el), [[LATEST, 'false'], [V64, 'true']], 'withdrawn: dimmed, in its place')
+    assert.deepEqual(toasts.at(-1), [`${LATEST} is withdrawn: no new hires on it; agents already on it keep running`])
+    assert.equal(view.el.querySelector('.ls-edit'), null, 'no edit form')
+    assert.equal(view.el.querySelector('[role="dialog"]'), null, 'no browser')
+    const digest = [...view.el.querySelectorAll('.acct-provenance span')].map((x) => x.textContent)
+    assert.ok(digest.includes('1 model'), digest.join(' | '))
+    await click(chipNamed(view.el, LATEST))
+    assert.deepEqual(patches()[1], { models: [{ id: LATEST, offered: true }] }, 'a known model keeps its window')
+    assert.deepEqual(pressed(view.el), [[LATEST, 'true'], [V64, 'true']])
+    assert.deepEqual(toasts.at(-1), [`${LATEST} is offered to new hires`])
+    assert.equal(probes(), before, 'switching a known model asks the server nothing')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§5 a server listing at most 12 models shows them all, the ones not offered dimmed; a click offers one '
+  + 'with the window it would start with in the browser', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { list: SHORT })
+  const toasts: string[][] = []
+  const view = await mountSection(toasts)
+  try {
+    const checks = seen.filter((r) => r.path === '/api/langservers/probe').map((r) => r.body)
+    assert.deepEqual(checks, [{ server: 'ollama', only: [LATEST, V64] }, { server: 'ollama' }],
+      'the known models first; the server lists 4, so the whole list next')
+    assert.deepEqual(pressed(view.el), [[LATEST, 'true'], [V64, 'true'], [Q38, 'false'], [Q38V, 'false']])
+    assert.equal(chipNamed(view.el, Q38)!.getAttribute('title'),
+      `${Q38} · qwen3 · 27B · IQ3_XXS · 10.2 GB · trained for 256K · thinking\nclick to offer it to new hires`)
+    assert.equal(view.el.querySelector('.ls-toggles .orr-more')?.textContent, '+', 'nothing hidden: "+" alone, for the browser')
+    await click(chipNamed(view.el, Q38V))
+    assert.deepEqual(seen.filter((r) => r.method === 'PATCH').map((r) => r.body),
+      [{ models: [{ id: Q38V, offered: true, context: 65536 }] }], 'the window its Modelfile sets')
+    assert.deepEqual(pressed(view.el), [[LATEST, 'true'], [V64, 'true'], [Q38, 'false'], [Q38V, 'true']])
+    assert.deepEqual(toasts.at(-1), [`${Q38V} is offered to new hires`])
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§6 a server that is not answering: the models the card knows can still be switched; no "+"', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { down: true })
+  const view = await mountSection([])
+  try {
+    assert.ok(view.el.querySelector('.acct-dead')?.textContent?.startsWith('not answering'), 'the digest says so')
+    assert.deepEqual(pressed(view.el), [[LATEST, 'true'], [V64, 'true']])
+    assert.equal(view.el.querySelector('.ls-toggles .orr-more'), null, 'nothing to browse')
+    await click(chipNamed(view.el, V64))
+    assert.deepEqual(seen.filter((r) => r.method === 'PATCH').map((r) => r.body), [{ models: [{ id: V64, offered: false }] }])
+    assert.deepEqual(pressed(view.el), [[LATEST, 'true'], [V64, 'false']])
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§7 more than eight offered: the chips are their cards alone, the name in the tooltip and the label; '
+  + 'at eight the names come back', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { offered: MANY.slice(0, 10).map((m) => m.id) })
+  const view = await mountSection([])
+  try {
+    const row = () => view.el.querySelector('.ls-toggles')!
+    assert.ok(row().classList.contains('icons'), 'ten offered: icons only')
+    assert.equal(row().querySelectorAll('.orr-sel-name').length, 0, 'no names')
+    assert.equal(chipsOf(view.el).length, 10)
+    assert.equal(chipsOf(view.el)[0]!.getAttribute('aria-label'), 'model-000:7b')
+    assert.ok(chipsOf(view.el)[0]!.getAttribute('title')?.startsWith('model-000:7b · agents are told 64K\n'))
+    assert.equal(row().querySelector('.orr-more')?.textContent, '+292 more')
+    await click(chipNamed(view.el, 'model-000:7b'))
+    assert.ok(row().classList.contains('icons'), 'nine offered: still icons only')
+    await click(chipNamed(view.el, 'model-001:7b'))
+    assert.ok(!row().classList.contains('icons'), 'eight offered: names')
+    assert.equal(row().querySelectorAll('.orr-sel-name').length, 10, 'every chip named, the two withdrawn dimmed')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§8 "+" opens the browser saving at once: an offer when clicked, a window when its field is left or Enter is '
+  + 'pressed, a withdrawal at its ✕; the card follows', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen)
+  const toasts: string[][] = []
+  const view = await mountSection(toasts)
+  try {
+    await click(view.el.querySelector('.ls-toggles .orr-more'))
+    const dialog = view.el.querySelector('[role="dialog"]')!
+    assert.ok(dialog, 'the browser opens')
+    assert.equal(view.el.querySelector('.ls-edit'), null, 'without the edit form')
+    const h3 = () => dialog.querySelector('h3')?.textContent
+    assert.equal(h3(), 'Models on Ollama · 2 offered · each change is saved at once')
+    const patches = () => seen.filter((r) => r.method === 'PATCH').map((r) => r.body)
+    const rowOf = (id: string) => [...dialog.querySelectorAll('.orr-row')].find((r) => r.querySelector('b')?.textContent === id)
+    await click(rowOf('model-000:7b')?.querySelector('button.ls-offer'))
+    assert.deepEqual(patches(), [{ models: [{ id: 'model-000:7b', offered: true, context: 32768 }] }], 'sent at once')
+    assert.equal(h3(), 'Models on Ollama · 3 offered · each change is saved at once')
+    const field = () => rowOf('model-000:7b')!.querySelector<HTMLInputElement>('input')!
+    await typeInto(field(), '65536')
+    assert.equal(patches().length, 1, 'typing sends nothing')
+    assert.ok(!rowOf('model-000:7b')!.textContent?.includes('too small for an agent'), 'the typed window is judged')
+    await inAct(async () => {
+      field().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await flush(8)
+    })
+    assert.deepEqual(patches()[1], { models: [{ id: 'model-000:7b', offered: true, context: 65536 }] }, 'Enter sends it')
+    assert.deepEqual(toasts.at(-1), ['model-000:7b: agents are told 64K'])
+    await typeInto(field(), '131072')
+    await inAct(async () => { field().dispatchEvent(new window.FocusEvent('focusout', { bubbles: true })); await flush(8) })
+    assert.deepEqual(patches()[2], { models: [{ id: 'model-000:7b', offered: true, context: 131072 }] }, 'leaving the field sends it')
+    await click(dialog.querySelector(`.orr-selected button[aria-label="withdraw ${LATEST}"]`))
+    assert.deepEqual(patches()[3], { models: [{ id: LATEST, offered: false }] })
+    await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'done'))
+    assert.equal(view.el.querySelector('[role="dialog"]'), null, 'done closes it')
+    assert.deepEqual(pressed(view.el), [['model-000:7b', 'true'], [LATEST, 'false'], [V64, 'true']], 'the card follows')
   } finally { await view.unmount(); delete g.fetch }
 })

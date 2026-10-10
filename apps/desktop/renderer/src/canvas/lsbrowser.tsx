@@ -8,8 +8,10 @@
 // model carries the window agents are told, and says so where the server
 // really runs it with another one.
 //
-// Nothing here is saved: every pick goes to `onPick`, and the add form or the
-// server card's edit form keeps it as a draft until its own Save.
+// Nothing here is saved: every pick goes to `onPick`. The add form or the
+// server card's edit form keeps it as a draft until its own Save; opened from
+// the card's "+" (`live`), the card saves each pick at once, and a window when
+// its field is left or Enter is pressed rather than at every keystroke.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -35,9 +37,11 @@ const SIZE_STEPS = [4e9, 8e9, 16e9, 24e9, 48e9]
 
 interface Row { id: string, m: LangServerProbeModel | null }
 
-export function LangServerBrowser({ title, models, missing, picked, minContext, defaultContext, ollama, busy,
+export function LangServerBrowser({ title, live, models, missing, picked, minContext, defaultContext, ollama, busy,
   reading, error, variant, onPick, onClose }: {
   title: string
+  /** each pick is saved at once (the server card's "+"), not kept in a draft */
+  live?: boolean
   /** what the server lists (the latest probe) */
   models: LangServerProbeModel[]
   /** offered models the server no longer lists: shown, so they can be withdrawn */
@@ -115,7 +119,7 @@ export function LangServerBrowser({ title, models, missing, picked, minContext, 
     <PinFrame dialogLabel="Language Server model selection" kind="langserver-browser" title={title}
       panel="settings orr-picker ls-browser" close={onClose} pinnable={false}>
       <h3>{title}
-        <span className="dim"> · {offered.length} offered</span></h3>
+        <span className="dim"> · {offered.length} offered{live ? ' · each change is saved at once' : ''}</span></h3>
       <BrowserSelected busy={busy} label="offered models"
         empty="nothing offered yet: search below and offer the models that can be hired"
         removeVerb="withdraw"
@@ -210,7 +214,8 @@ export function LangServerBrowser({ title, models, missing, picked, minContext, 
                 {mismatch && <span className="ask-warn ls-mismatch">{mismatch}</span>}
               </span>
               {on && w != null
-                ? <WindowInput id={r.id} value={w} min={minContext} busy={busy} onChange={(v) => onPick(r.id, v)} />
+                ? <WindowInput id={r.id} value={w} min={minContext} busy={busy} live={live}
+                  onChange={(v) => onPick(r.id, v)} />
                 : <span />}
               <button type="button" className="ls-offer" aria-pressed={on}
                 disabled={busy || (!on && !r.m)}
@@ -228,20 +233,33 @@ export function LangServerBrowser({ title, models, missing, picked, minContext, 
   )
 }
 
-/** the window agents are told, with the floor below which an agent cannot work */
-function WindowInput({ id, value, min, busy, onChange }: {
+/** the window agents are told, with the floor below which an agent cannot
+ *  work. `live`: held here while typed, sent when the field is left or Enter
+ *  is pressed (each sent value is saved) */
+function WindowInput({ id, value, min, busy, live, onChange }: {
   id: string
   value: number
   min: number
   busy: boolean
+  live?: boolean
   onChange: (w: number) => void
 }) {
+  const [typed, setTyped] = useState<string | null>(null)
+  const tokens = (s: string): number => Math.max(0, Number(s) || 0)
+  const shown = typed == null ? value : tokens(typed)
+  const send = () => {
+    if (typed != null && tokens(typed) !== value) onChange(tokens(typed))
+    setTyped(null)
+  }
   return (
     <span className="ls-window">
-      <input type="number" aria-label={`${id} context window in tokens`} min={1024} step={1024} value={value}
-        disabled={busy} onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} />
+      <input type="number" aria-label={`${id} context window in tokens`} min={1024} step={1024}
+        value={typed ?? value} disabled={busy}
+        onChange={(e) => (live ? setTyped(e.target.value) : onChange(tokens(e.target.value)))}
+        onBlur={live ? send : undefined}
+        onKeyDown={live ? (e) => { if (e.key === 'Enter') send() } : undefined} />
       <span className="dim">tokens</span>
-      {value < min && <span className="ask-warn"
+      {shown < min && <span className="ask-warn"
         title={`An agent's own prompt takes about 35K tokens, so it needs a window of at least ${fmtTokens(min)} to work`}>
         too small for an agent</span>}
     </span>

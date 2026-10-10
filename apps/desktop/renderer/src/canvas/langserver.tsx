@@ -26,6 +26,17 @@
 //
 // MODELS ARE CHOSEN IN A BROWSER (lsbrowser.tsx): a server may list hundreds.
 //
+// A CLICK ON A MODEL'S CHIP OFFERS OR WITHDRAWS IT AT ONCE (user 2026-10-10:
+// "i should be able to click to change the models available without editing
+// the entry"). The card's chips are every model it knows (offered ones lit,
+// withdrawn ones dimmed in place) plus, when the server lists at most
+// ROW_MAX models, the ones nobody has offered yet, dimmed. A longer list stays
+// behind the last chip, "+N more", which opens the browser saving each change
+// at once. Withdrawing only stops new hires: agents on the model keep running
+// (route() does not look at `offered`). Without an answer from the server the
+// known models can still be switched. More than eight offered and the chips
+// are their cards alone (modelbrowser.tsx ToggleChips, as on OpenRouter).
+//
 // THE WINDOW IS THE TRAP. A local server runs each model with a context window
 // it chose (Ollama: 4096 tokens on cards under 24 GB unless told otherwise)
 // and silently cuts a longer prompt; an agent's own prompt alone is tens of
@@ -52,8 +63,10 @@ import type {
   LangServer, LangServerDoc, LangServerPreset, LangServerProbe, LangServerProbeModel, ProviderInfo,
 } from '../types'
 import { LangServerBrowser } from './lsbrowser'
-import { ModelCard } from './modelbrowser'
-import { fmtTokens, LANE_CARD_COLOR, monogram, startWindow, variantName, wantsVariant, windowMismatch } from './lsmodels'
+import { CHIP_NAMES_MAX, ModelCard, ToggleChips } from './modelbrowser'
+import {
+  fmtTokens, LANE_CARD_COLOR, monogram, probeFacts, startWindow, variantName, wantsVariant, windowMismatch,
+} from './lsmodels'
 import { SetRow, SetToggle } from './settingskit'
 
 export { fmtTokens, variantName, wantsVariant } from './lsmodels'
@@ -105,6 +118,10 @@ const clampSeat = (n: number, doc: LangServerDoc): number =>
 const seatHint = (doc: LangServerDoc): string =>
   `Credits each agent on this server's models holds from its superior's grant (0 makes them free; ${doc.default_seat} by default).`
 const clampAgents = (n: number): number => Math.min(64, Math.max(1, Math.round(Number(n) || 1)))
+
+/** what the toast says after a model is offered or withdrawn on the card */
+const offeredSaid = (id: string): string => `${id} is offered to new hires`
+const withdrawnSaid = (id: string): string => `${id} is withdrawn: no new hires on it; agents already on it keep running`
 
 /** offer (a window) or withdraw (null) one model in a draft of picks */
 const withPick = (cur: Record<string, number>, id: string, w: number | null): Record<string, number> => {
@@ -187,35 +204,35 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
 
 type Runner = <T>(p: Promise<T>, ok: string, docOf: (v: T) => LangServerDoc) => Promise<boolean>
 
-/** the offered models as chips — where the OpenRouter section has its
- *  favorites row. With `onOpen` it is the button that opens the browser;
- *  without, a plain row in a server's summary. */
+/** the models a draft offers (the add form, ✎) as chips on the button that
+ *  opens the browser; more than CHIP_NAMES_MAX and they are their cards alone */
 function ModelChips({ ids, windows, hint, label, onOpen, open }: {
   ids: string[]
   /** the window agents are told, per model (the chip's tooltip) */
   windows: Record<string, number>
   hint: string
   label: string
-  onOpen?: () => void
+  onOpen: () => void
   open?: boolean
 }) {
-  const chips = ids.map((id) => (
-    <span key={id} className="orr-sel ls-chip" title={`${id} · agents are told ${fmtTokens(windows[id])}`}>
-      <ModelCard letter={monogram(id)} color={LANE_CARD_COLOR} />
-      <span className="orr-sel-name">{id}</span>
-    </span>
-  ))
-  if (!onOpen) {
-    return <div className="orr-favs ls-favs static" role="group" aria-label={label}>
-      {chips}{hint && <span className="orr-hint">{hint}</span>}</div>
-  }
+  const iconsOnly = ids.length > CHIP_NAMES_MAX
   return (
-    <button type="button" className={'orr-favs ls-favs' + (open ? ' on' : '')}
+    <button type="button" className={'orr-favs ls-favs' + (open ? ' on' : '') + (iconsOnly ? ' icons' : '')}
       aria-haspopup="dialog" aria-expanded={!!open} aria-label={label} onClick={onOpen}>
-      {chips}<span className="orr-hint">{hint}</span>
+      {ids.map((id) => (
+        <span key={id} className="orr-sel ls-chip" title={`${id} · agents are told ${fmtTokens(windows[id])}`}>
+          <ModelCard letter={monogram(id)} color={LANE_CARD_COLOR} />
+          {!iconsOnly && <span className="orr-sel-name">{id}</span>}
+        </span>
+      ))}
+      <span className="orr-hint">{hint}</span>
     </button>
   )
 }
+
+/** a server listing at most this many models shows them all on its card;
+ *  a longer list stays behind "+N more" (the browser) */
+const ROW_MAX = 12
 
 /** per offered model, where the server runs another window than agents are told */
 function MismatchLines({ items }: { items: { id: string, text: string }[] }) {
@@ -464,33 +481,47 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
   const ollama = s.preset === 'ollama'
   const recorded = Object.values(s.models)
   const offered = recorded.filter((m) => m.offered).sort((a, b) => a.id.localeCompare(b.id))
-  const offeredIds = offered.map((m) => m.id)
   const told = Object.fromEntries(offered.map((m) => [m.id, m.context_in_use]))
+  const recordedIds = recorded.map((m) => m.id).sort((a, b) => a.localeCompare(b))
 
-  // what the server itself says about the offered models (their real windows):
-  // asked when the card shows and by ⟳; it loads no model
+  // what the server itself says about the models the card knows (their real
+  // windows) and, when it lists at most ROW_MAX, about all of them, each a
+  // chip: asked when the card shows and by ⟳; it loads no model
   const [check, setCheck] = useState<LangServerProbe | null>(null)
+  /** `check` describes every model the server lists, not only the known ones */
+  const [whole, setWhole] = useState(false)
   const [checking, setChecking] = useState(false)
   const checkNow = () => {
     setChecking(true)
-    probeLangServer({ server: s.id, only: offeredIds.length ? offeredIds : undefined })
-      .then(setCheck)
+    const only = recordedIds.length ? recordedIds : undefined
+    probeLangServer({ server: s.id, only })
+      .then((p) => {
+        const listed = p.listed ?? p.models.length
+        if (only && p.reachable && listed <= ROW_MAX && listed > p.models.length) {
+          return probeLangServer({ server: s.id }).then((all) => { setCheck(all); setWhole(all.reachable) })
+        }
+        setCheck(p); setWhole(p.reachable && (!only || listed <= p.models.length))
+      })
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setChecking(false))
   }
-  const offeredKey = offeredIds.join('\n')
-  useEffect(() => { if (offeredIds.length) checkNow() }, [s.id, s.address, offeredKey])
+  const recordedKey = recordedIds.join('\n')
+  useEffect(() => { checkNow() }, [s.id, s.address, recordedKey])
 
-  // ✎: the draft, and the browser over the server's whole list
+  // ✎: the draft; and the browser over the server's whole list, for the draft
+  // or, from the card's "+", saving each change at once
   const [draft, setDraft] = useState<Draft | null>(null)
   const [browsing, setBrowsing] = useState(false)
   const [found, setFound] = useState<LangServerProbe | null>(null)
   const [finding, setFinding] = useState(false)
   const edit = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d))
-  const startEdit = () => setDraft({
-    label: s.label, address: s.address, basePath: s.base_path, enabled: s.enabled, maxAgents: s.max_agents,
-    seat: s.seat, key: '', forgetKey: false, picked: { ...told },
-  })
+  const startEdit = () => {
+    setBrowsing(false)
+    setDraft({
+      label: s.label, address: s.address, basePath: s.base_path, enabled: s.enabled, maxAgents: s.max_agents,
+      seat: s.seat, key: '', forgetKey: false, picked: { ...told },
+    })
+  }
   const cancel = () => { setDraft(null); setBrowsing(false) }
   const find = () => {
     setFinding(true)
@@ -499,7 +530,46 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setFinding(false))
   }
-  const openBrowser = () => { setBrowsing(true); if (!found) find() }
+  const openBrowser = () => {
+    setBrowsing(true)
+    if (!found) {
+      if (whole && check?.reachable) setFound(check)
+      else find()
+    }
+  }
+
+  // the card's chips: a click offers or withdraws a model at once
+  const said = check?.reachable ? check.models : null
+  const listed = check?.reachable ? check.listed ?? check.models.length : null
+  const fresh = whole && said && listed != null && listed <= ROW_MAX ? said.filter((m) => !(m.id in s.models)) : []
+  // a withdrawn model the server no longer lists is left out once it answers
+  const chipIds = [
+    ...recorded.filter((m) => m.offered || !said || said.some((x) => x.id === m.id)).map((m) => m.id),
+    ...fresh.map((m) => m.id),
+  ].sort((a, b) => a.localeCompare(b))
+  const shownListed = said ? chipIds.filter((id) => said.some((m) => m.id === id)).length : 0
+  const more = said ? Math.max(0, (whole ? said.length : listed ?? 0) - shownListed) : 0
+  const chipTitle = (id: string, on: boolean): string => {
+    const pm = said?.find((m) => m.id === id)
+    const about = on ? `agents are told ${fmtTokens(told[id])}` : pm ? probeFacts(pm) : ''
+    return `${id}${about ? ` · ${about}` : ''}\n${on ? 'click to withdraw it: no new hires on it; agents already on it keep running'
+      : 'click to offer it to new hires'}`
+  }
+  /** offer a model (a known one keeps its window; a new one starts with the
+   *  window the browser would give it) or withdraw it */
+  const toggle = (id: string, on: boolean) => {
+    const pm = said?.find((m) => m.id === id)
+    const pick: LangServerModelPick = on ? { id, offered: false }
+      : id in s.models ? { id, offered: true }
+      : { id, offered: true, context: pm ? startWindow(pm, doc.default_context) : doc.default_context }
+    void run(updateLangServer(s.id, { models: [pick] }), on ? withdrawnSaid(id) : offeredSaid(id), (v) => v.doc)
+  }
+  /** the browser opened from "+": each offer, withdrawal and window is saved at once */
+  const pickNow = (id: string, w: number | null) => {
+    const pick: LangServerModelPick = w == null ? { id, offered: false } : { id, offered: true, context: w }
+    const msg = w == null ? withdrawnSaid(id) : id in told ? `${id}: agents are told ${fmtTokens(w)}` : offeredSaid(id)
+    void run(updateLangServer(s.id, { models: [pick] }), msg, (v) => v.doc)
+  }
   // on a server the version is listed with the others found, to offer (ruling 2026-10-10)
   const makeVariant = (m: LangServerProbeModel) =>
     createOllamaVariant({ server: s.id, model: m.id })
@@ -554,9 +624,8 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
     cancel()
   }
 
-  const shown = check?.reachable ? check.models : []
-  const mismatches = check?.reachable ? offered.flatMap((m) => {
-    const pm = shown.find((x) => x.id === m.id)
+  const mismatches = said ? offered.flatMap((m) => {
+    const pm = said.find((x) => x.id === m.id)
     const text = pm ? windowMismatch(m.context_in_use, pm, ollama) : 'the server no longer lists it'
     return text ? [{ id: m.id, text }] : []
   }) : []
@@ -564,7 +633,6 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
     s.enabled ? 'on' : 'off', `${s.max_agents} at once`,
     `${offered.length} model${offered.length === 1 ? '' : 's'}`, `key: ${s.key_set ? 'set' : 'none'}`, `seat ${s.seat}`,
   ]
-  const listed = check?.listed ?? null
 
   return (
     <div className={'ls-server' + (s.enabled ? '' : ' ls-off') + (draft ? ' ls-editing' : '')}>
@@ -604,8 +672,21 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
         </div>
       </div>
       {!draft && (
-        <ModelChips ids={offeredIds} windows={told} label={`${s.label} models`}
-          hint={offered.length ? '' : 'no model offered yet: ✎ to choose'} />
+        <ToggleChips busy={busy} label={`${s.label} models`} className="ls-toggles"
+          chips={chipIds.map((id) => {
+            const on = s.models[id]?.offered === true
+            return {
+              key: id, letter: monogram(id), color: LANE_CARD_COLOR, label: id, on,
+              title: chipTitle(id, on), onToggle: () => toggle(id, on),
+            }
+          })}
+          more={said ? {
+            text: more ? `${more} more` : undefined,
+            title: (more ? `${more} more model${more === 1 ? '' : 's'} on the server. ` : '')
+              + 'Browse the server’s models: search, filters, the window agents are told; each change is saved at once',
+            open: browsing, onClick: openBrowser,
+          } : undefined}
+          hint={chipIds.length ? '' : said ? (said.length || more ? '' : 'the server lists no models') : 'no model offered yet'} />
       )}
       {!draft && <MismatchLines items={mismatches} />}
       {draft && (
@@ -657,16 +738,17 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
           </div>
         </div>
       )}
-      {draft && browsing && (
-        <LangServerBrowser title={`Models on ${draft.label.trim() || s.label}`}
+      {browsing && (
+        <LangServerBrowser title={`Models on ${draft?.label.trim() || s.label}`} live={!draft}
           models={found?.reachable ? found.models : []}
-          missing={found?.reachable ? Object.keys(draft.picked).filter((id) => !found.models.some((m) => m.id === id)) : []}
-          picked={draft.picked} minContext={doc.min_context} defaultContext={doc.default_context}
+          missing={found?.reachable
+            ? Object.keys(draft ? draft.picked : told).filter((id) => !found.models.some((m) => m.id === id)) : []}
+          picked={draft ? draft.picked : told} minContext={doc.min_context} defaultContext={doc.default_context}
           ollama={ollama} busy={busy} reading={finding}
           error={found && !found.reachable ? found.error ?? 'the server did not answer' : null}
           variant={(m) => ollama && wantsVariant(m, found?.models ?? [])
             ? <VariantButton model={m.id} busy={busy} onCreate={() => makeVariant(m)} /> : null}
-          onPick={(id, w) => setDraft((d) => (d ? { ...d, picked: withPick(d.picked, id, w) } : d))}
+          onPick={draft ? (id, w) => setDraft((d) => (d ? { ...d, picked: withPick(d.picked, id, w) } : d)) : pickNow}
           onClose={() => setBrowsing(false)} />
       )}
     </div>
