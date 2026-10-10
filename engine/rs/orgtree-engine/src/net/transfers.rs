@@ -49,7 +49,7 @@ pub(super) async fn ready(engine: &Engine, org: i64, inbox: i64, hub: &str, addr
         tx.execute(
             "INSERT INTO ot.net_transfers (id,org_id,inbox_id,file_no,hub,address,source,total,state,result_id,confirmed,processed)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $9::text IS NULL THEN 'queued' ELSE 'complete' END,$9,
-                CASE WHEN $9::text IS NULL THEN 0 ELSE $8 END,CASE WHEN $9::text IS NULL THEN 0 ELSE $8 END)
+                CASE WHEN $9::text IS NULL THEN 0::bigint ELSE $8::bigint END,CASE WHEN $9::text IS NULL THEN 0::bigint ELSE $8::bigint END)
             ON CONFLICT (inbox_id,file_no) DO NOTHING",
             &[&id, &org, &inbox, &(index as i32), &hub, &address, &crate::util::pg_json(file).as_ref(), &total, &result],
         )
