@@ -40,7 +40,7 @@ const LOADING = 'Loading current staffing choices…'
  *  produces exactly this sequence from a scrambled organization. Change either
  *  side alone and one of the two files fails. */
 const PUBLISHED = ['haiku', 'sonnet', 'opus', 'fable', 'luna', 'terra', 'sol',
-                   'astra', 'flash', 'pro', 'argon', 'barium']
+                   'astra', 'flash', 'pro', 'argon', 'barium', 'carbon']
 
 /** The model-switch dropdown's own order (modals.tsx): Claude, then Codex, then
  *  Antigravity, then the OpenRouter favorites, each family in the sequence its
@@ -215,7 +215,8 @@ test('the published order IS the model-switch list order', async t => {
   // and ordered by tier within each.
   assert.deepEqual(PUBLISHED, MODEL_SWITCH.filter(t => PUBLISHED.includes(t)))
   assert.deepEqual(PUBLISHED.filter(t => TIERS.includes(t)), TIERS)
-  assert.deepEqual(PUBLISHED.filter(t => ANTIGRAVITY_TIERS.includes(t)), ANTIGRAVITY_TIERS)
+  // (agy-sonnet / agy-opus are conditional tiers this fixture does not publish)
+  assert.deepEqual(PUBLISHED.filter(t => ANTIGRAVITY_TIERS.includes(t)), ANTIGRAVITY_TIERS.filter(t => PUBLISHED.includes(t)))
   const d = await docket(t, ['one'])
   await d.openOn('one')
   await inAct(() => {
