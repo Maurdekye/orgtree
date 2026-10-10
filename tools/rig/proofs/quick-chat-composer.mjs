@@ -60,6 +60,10 @@ export default async function (rig) {
   p.check('the chips are the canvas hire tokens (same round chip)', S.chipRadius === '50%', S.chipRadius)
   p.check('it fades in (opacity below 1 on its first frames, 1 once open)', v.fadeIn !== null && v.fadeIn < 1 && S.opacity === 1, { first: v.fadeIn, open: S.opacity })
   p.check('it fades out after a pick: a leaving copy below opacity 1, then gone', v.fadeOut?.leaving && v.fadeOut.opacity < 1 && !v.fadeOut.picker && v.gone, { ...v.fadeOut, gone: v.gone })
+  const W = v.wander ?? {}
+  p.check('the chips stay open with the pointer 60px below them and 60px to their side', W.at60 === true && W.at60side === true, W)
+  p.check('100px away they close, fading out (a leaving copy below opacity 1, then gone)',
+    W.left100 && !W.left100.picker && W.left100.leaving && W.left100.opacity < 1 && W.goneAfter, W)
   p.check('a chip pick becomes the model (haiku)', v.afterModel?.icon === 't-haiku', v.afterModel)
   p.check('two files: a count badge of 2', v.count === '2', v.count)
   p.check('the attachments pop-over lists both files', JSON.stringify(v.fileList) === JSON.stringify(FILES.map(f => f.name)), v.fileList)

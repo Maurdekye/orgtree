@@ -121,6 +121,31 @@ module.exports = async (page, { args }) => {
   }))))
   await page.sleep(400)
   const gone = await page.eval(() => !document.querySelector('.quickchat-leaving'))
+  // the pointer wandering off closes the chips: real mouse moves from the button
+  await page.hover('.shell-header .quickchat-model')
+  await page.click('.shell-header .quickchat-model')
+  await page.waitFor('.quickchat-pop.quickchat-pop-model .hsof button', { timeout: 10000 })
+  await page.sleep(250)
+  const geo = await page.eval(() => {
+    const r = document.querySelector('.quickchat-pop.quickchat-pop-model').getBoundingClientRect()
+    return { x: Math.round(r.left + r.width / 2), bottom: Math.round(r.bottom), right: Math.round(r.right), y: Math.round(r.top + r.height / 2) }
+  })
+  const openNow = () => page.eval(() => !!document.querySelector('.quickchat-pop.quickchat-pop-model'))
+  await page.hover({ x: geo.x, y: geo.bottom + 60 })
+  await page.sleep(200)
+  const at60 = await openNow()
+  await page.hover({ x: geo.right + 60, y: geo.y })
+  await page.sleep(200)
+  const at60side = await openNow()
+  await page.screenshot(`${args.theme}-model-picker-pointer-60px-below`)
+  await page.hover({ x: geo.x, y: geo.bottom + 100 })
+  const left100 = await page.eval(() => new Promise(res => requestAnimationFrame(() => res({
+    picker: !!document.querySelector('.quickchat-pop.quickchat-pop-model'),
+    leaving: !!document.querySelector('.quickchat-leaving .hsof'),
+    opacity: (() => { const h = document.querySelector('.quickchat-leaving .hsof'); return h ? +getComputedStyle(h).opacity : null })(),
+  }))))
+  await page.sleep(400)
+  const wander = { geo, at60, at60side, left100, goneAfter: await page.eval(() => !document.querySelector('.quickchat-leaving')) }
   const afterModel = await model()
   // two files, the way choosing them in the picker hands the input
   await page.eval((files) => {
@@ -148,5 +173,5 @@ module.exports = async (page, { args }) => {
     count: document.querySelector('.shell-header .quickchat-count')?.textContent ?? null,
   }))
   await page.screenshot(`${args.theme}-after-send`)
-  return { empty, typed, look, fadeIn, strip, fadeOut, gone, lists, picked, chips, afterModel, count, withFiles, fileList, name, after, errors: page.consoleErrors }
+  return { empty, typed, look, fadeIn, strip, fadeOut, gone, wander, lists, picked, chips, afterModel, count, withFiles, fileList, name, after, errors: page.consoleErrors }
 }
