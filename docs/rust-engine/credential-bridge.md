@@ -236,3 +236,51 @@ processes may carry the boot task's BATCH token, which the engine rightly
 refuses. Measured 2026-10-10: synthetic git credential through engine and
 broker, gh and github.com lookups reaching the user's store, git ls-remote,
 handover both ways, idle cost, `[no-desktop]` without a broker, task deleted.
+
+### Codex launches in the user's session (decision 68, phase 2, 2026-10-10)
+
+In Session 0 (the boot task) Codex's Windows sandbox cannot start its command
+runner (openai/codex#46412), so the engine runs Codex there without it
+(`codexrt::sandbox`). While the sign-in helper is up, it starts sandboxed
+Codex seats in the user's session instead, where the sandbox works.
+
+- **Who is hosted:** in Session 0, a seat whose sandbox is `read-only` or
+  `workspace-write`, when the bridge holder registered `caps: ["spawn"]` (only
+  the helper does; the desktop broker never hosts) and its process is alive
+  (`Bridge::can_host`, `codexrt::seat_sandbox`). A `bypassPermissions` seat
+  stays in Session 0, so no unsandboxed agent runs beside the user's sign-ins.
+- **A launcher, not a relay:** the engine creates the child's three stdio
+  pipes (`\.\pipe\orgtree-codex-<hex>-in|out|err`, first instance, one
+  instance, remote clients rejected) and sends `{kind:"spawn", exe, args, cwd,
+  env, pipes}` over the bridge pipe. The helper starts only an absolute path
+  named `codex.exe`, opens the pipes as a client after checking that the
+  attached engine serves them, starts the child suspended with those three
+  handles as its only inherited ones, puts it in a kill-on-close job, resumes
+  it, and answers `{pid, created}`. The engine checks that the helper is the
+  client of all three pipes. JSON-RPC then flows engine ↔ Codex directly.
+  The request carries the child's environment (its API key and credential
+  capability), so neither side logs more than pids and fixed codes.
+- **Ending:** stop/halt asks the helper to `kill` (pid plus creation time),
+  which ends the job: Codex and everything it started. If the helper is gone
+  the engine ends the process itself when Windows lets it. The helper ends
+  every hosted child of an engine that has exited (pid plus creation time,
+  checked each 5 s tick),
+  and its jobs close with it: signing out ends hosted seats, whose next turn
+  starts in Session 0 without the OS sandbox.
+- **Fallback:** if the helper cannot start a hosted seat (gone, busy, refused,
+  pipe check failed), the engine logs `the sign-in helper could not start
+  Codex` with the code and starts it itself with the Session 0 sandbox.
+- **Logs:** `Codex started by the sign-in helper in the user's session` per
+  hosted launch; the Session 0 launches keep their `Codex OS sandbox
+  disabled` line. The helper's log notes `hosting N Codex process(es)`.
+
+Proof: `tools/rig/proofs/codex-host.mjs` (real Codex, fake model, `--session0
+1`, helper through the temporary interactive task). Measured 2026-10-10: a
+hosted write seat's Codex is the helper's child in session 1, told
+workspace-write, its sandboxed shell write and apply_patch land; a hosted
+read-only seat's write is denied by the sandbox; a bypass seat is the engine's
+child; halting a hosted seat ends its Codex; killing the helper ends the
+hosted Codex and the seat's next turn runs in Session 0 mode. Not measured in
+the rig: an engine really in Session 0 (that rig engine ran in session 1 with
+Session 0 forced), the helper's sweep after an engine exit, and whether the
+engine's own job could be nested on a hosted child.

@@ -573,3 +573,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
       access; Windows does not allow it.
     Details and proof: `credential-bridge.md` (Sign-in credential helper),
     `tools/rig/proofs/credential-broker.mjs`.
+    - **Phase 2 (coordinator 2026-10-10 09:35Z):** while the helper runs, the Session 0
+      engine has it start sandboxed Codex seats in the user's session, where Codex's
+      sandbox works (openai/codex#46412). bypassPermissions seats stay in Session 0; only
+      the helper hosts, never the desktop broker; hosted seats' MCP servers run in the
+      user's session; signing out ends hosted seats, whose next turn starts in Session 0
+      without the sandbox; a launch the helper cannot make falls back to Session 0.
+      Details: `credential-bridge.md` (Codex launches in the user's session),
+      `tools/rig/proofs/codex-host.mjs`.
