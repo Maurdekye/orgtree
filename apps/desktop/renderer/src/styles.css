@@ -1011,7 +1011,9 @@ button.badge.audience-fold.alert {
 .sq.mini:focus-within .sq-far-name,
 .sq.mini:focus-visible .sq-far-name {
   opacity: 1;
-  max-width: 180px;
+  /* wide enough for any agent name: the reveal animates max-width, so this
+     is a ceiling, not a design width — 180px cut long names with an ellipsis */
+  max-width: 600px;
   padding: 3px 8px;
   border-color: var(--line);
 }
