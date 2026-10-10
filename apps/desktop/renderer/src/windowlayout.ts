@@ -256,6 +256,7 @@ export const PINNED_MODAL_MINS = MODAL_MIN_OVERRIDES
 const EXCLUDED_MODAL_KINDS = new Set([
   'draft-scope',
   'openrouter-picker',
+  'langserver-browser',
   'advanced-org',
 ])
 

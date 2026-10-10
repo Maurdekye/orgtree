@@ -8158,32 +8158,53 @@ main:has(> .orgbar.native-header) > .error {
 }
 .tray-row.prov-langserver { --accent: var(--prov-langserver); }
 .acct-provider-head.prov-langserver { border-bottom-color: color-mix(in srgb, var(--prov-langserver) 45%, var(--line)); }
-/* the settings section: one card per server, its models as rows */
-.ls-server, .ls-add { margin-top: 8px; padding: 6px 10px 8px;
-  border: 1px solid var(--line); border-radius: 8px; }
-.ls-add { border-color: color-mix(in srgb, var(--prov-langserver) 50%, var(--line)); }
-.ls-server.ls-off { border-style: dashed; }
+/* the settings section (user 2026-10-10: "it should look similar to
+   openrouter"): a server is the OpenRouter key row — name · preset · harness ·
+   address with ⟳ ✎ ✕, its digest under it — and its offered models are chips
+   where OpenRouter has its favorites. The add form and ✎'s draft are boxed. */
+.ls-server { margin-top: 6px; }
 .ls-server.ls-off .ls-server-head b { color: var(--dim); }
-.ls-server-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap;
-  font-size: 13px; padding: 2px 0 4px; }
+.ls-server-head { font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
 .ls-server-head .mono { font-size: 11.5px; }
-.ls-server-tools { margin-left: auto; display: flex; gap: 4px; align-self: center; }
+.ls-server-row .acct-btn.on { color: var(--prov-langserver); }
+.ls-add { margin-top: 8px; padding: 6px 10px 8px; border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--prov-langserver) 50%, var(--line)); }
+.ls-edit { margin-left: var(--acct-rail); }
 .ls-find, .ls-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 6px 0; font-size: 12px; }
-.ls-models { padding: 4px 0 0; }
-.ls-model { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 4px 0; font-size: 12.5px; }
-.ls-model + .ls-model { border-top: 1px solid var(--line-soft); }
-.ls-model-pick { display: flex; align-items: center; gap: 6px; cursor: pointer; min-width: 0; }
-.ls-model-pick input { flex: none; width: 15px; height: 15px; margin: 0;
-  accent-color: var(--prov-langserver); }
-.ls-model-facts { font-size: 11.5px; }
-.ls-window { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+/* the offered models: the favorites row's chips, in the lane's gold */
+.ls-favs { margin-top: 4px; }
+.ls-add .ls-favs { margin-left: 0; }
+.ls-favs:hover, .ls-favs:focus-visible, .ls-favs.on { border-color: var(--prov-langserver);
+  background: color-mix(in srgb, var(--prov-langserver) 10%, transparent); }
+.ls-favs.static { cursor: default; }
+.ls-favs.static:hover { border-color: var(--line); background: transparent; }
+.ls-chip { font-size: 12px; }
+.ls-edit-models { padding: 4px 0; }
+/* where the server runs another window than agents are told */
+.ls-mismatches { margin: 4px 0 0 var(--acct-rail); font-size: 11.5px; }
+.ls-add .ls-mismatches { margin-left: 0; }
+.ls-mismatch-line + .ls-mismatch-line { margin-top: 2px; }
+.ls-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.ls-check input { accent-color: var(--prov-langserver); margin: 0; }
+/* the model browser (lsbrowser.tsx) in the OpenRouter picker's frame. Its
+   rows are not buttons (an offered one holds a window field), so the row does
+   not take the pointer, and the lane's gold replaces OpenRouter's. */
+.ls-filters { gap: 8px 14px; }
+.ls-count { margin: 2px 0 0; }
+.orr-list .ls-brow { cursor: default; padding: 4px 8px; }
+.ls-brow:hover, .ls-brow:focus-within { border-color: var(--prov-langserver); }
+.ls-brow.on { border-color: color-mix(in srgb, var(--prov-langserver) 60%, var(--line));
+  background: color-mix(in srgb, var(--prov-langserver) 12%, transparent); }
+.ls-brow .orr-name .ls-mismatch { font-size: 11.5px; white-space: normal; }
+.ls-brow .ls-offer { font-size: 12px; font-weight: 700; min-width: 6.5em; padding: 3px 8px; }
+.ls-brow.on .ls-offer { color: var(--prov-langserver); }
+.ls-brow .ls-variant { grid-column: 2 / -1; }
+.ls-window { display: inline-flex; align-items: center; gap: 6px; }
 .ls-window input { width: 7.5em; font-size: 12px; padding: 3px 6px; }
-/* "Create a 64K version of this model": its own line under the model, with
-   what it adds to the user's Ollama said beside it */
-.ls-variant { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 2px 0 0 21px; font-size: 11.5px; }
+/* "Create a 64K version of this model", with what it adds to the user's Ollama said beside it */
+.ls-variant { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; }
 .ls-variant .mono { font-size: 11px; }
 
 /* resolved scope / credit requests (events/answered.tsx): the answered-card look */

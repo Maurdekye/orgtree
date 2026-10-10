@@ -1006,6 +1006,8 @@ export const removeLangServer = (id: string): Promise<LangServerDoc> =>
 export const probeLangServer = (body: {
   server?: string, preset?: string, address?: string, harness?: string,
   base_path?: string, key?: string,
+  /** only these models (a server card's window check); absent: every model */
+  only?: string[],
 }): Promise<LangServerProbe> =>
   req('/api/langservers/probe', {
     method: 'POST',

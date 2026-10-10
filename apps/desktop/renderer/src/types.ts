@@ -1474,6 +1474,8 @@ export interface LangServerProbe {
   version?: string | null
   note?: string
   models: LangServerProbeModel[]
+  /** how many models the server lists (a check of some models only lists those) */
+  listed?: number | null
 }
 export interface LangServerProbeModel {
   id: string
@@ -1488,6 +1490,10 @@ export interface LangServerProbeModel {
   parameters?: string | null
   quantization?: string | null
   tools?: boolean | null
+  /** Ollama: the model family (qwen35moe, llama…) */
+  family?: string | null
+  /** Ollama: what the model can do (completion, tools, thinking, vision…) */
+  capabilities?: string[] | null
 }
 /** one catalog row as the picker shows it (prices per MILLION tokens) */
 export interface OpenRouterModel {
