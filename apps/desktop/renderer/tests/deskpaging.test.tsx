@@ -229,16 +229,16 @@ test('§6 the desk OFFERS the retry, and pressing it asks again', async (t: Test
   await advance(200)
   s.fail = null
 
-  const button = retry()
-  assert.ok(button, 'a failed page left the reader nothing to press')
-  assert.match(button!.textContent ?? '', /retry/i)
-
+  // 4.x: a failed page retries ITSELF every 5 s while a desk shows the conversation (convo.ts HISTORY_RETRY_MS) and
+  // the status line says so, instead of leaving a button
+  const status = () => v.el.querySelector('.loadolder-status')?.textContent ?? ''
+  assert.match(status(), /retrying/i, 'a failed page tells the reader it is retrying')
   const before = s.requests.filter(r => r.before).length
-  await inAct(async () => { button!.click(); await flush(8) })
-  await advance(200)
+  await advance(5200)
   assert.ok(s.requests.filter(r => r.before).length > before,
-    'pressing retry did not ask for the page again')
-  assert.equal(retry(), null, 'the retry stayed on screen after it succeeded')
+    'the failed page was not asked for again on its own')
+  await inAct(async () => { await flush(8) })
+  assert.doesNotMatch(status(), /retrying/i, 'the retry note stayed on screen after the page loaded')
 })
 
 // ───────── §9 a failed page must not smuggle back the short-window frame
