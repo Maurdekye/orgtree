@@ -230,8 +230,10 @@ async fn set_key(engine: &Engine, server: &str, key: Option<&str>) -> Result<()>
 #[logged]
 pub fn harnesses(engine: &Engine, preset_id: &str) -> Vec<Value> {
     let p = preset(preset_id);
-    let claude = engine.providers.claude_path().is_some();
-    let codex = engine.providers.codex_path().is_some();
+    // discovery runs in the background after start: before it has, look
+    // for the CLI the way a launch does
+    let claude = engine.providers.claude_path().is_some() || crate::providers::locate_claude().is_some();
+    let codex = engine.providers.codex_path().is_some() || crate::providers::locate_codex().is_some();
     let opt = |id: &str, label: &str, installed: bool, served: bool| {
         let why = if !installed {
             format!("{label} is not installed on this machine")
