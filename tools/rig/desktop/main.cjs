@@ -73,6 +73,7 @@ function driver(win) {
              tag: e.tagName.toLowerCase(), cls: String(e.className || '').slice(0, 120), text: (e.innerText || '').trim().slice(0, 120) }
   }, typeof target === 'string' ? { selector: target } : target instanceof RegExp ? { text: target.source, flags: target.flags, regex: true } : target)
 
+  let held = null
   const page = {
     win, consoleErrors, shots,
     /** raw CDP, e.g. Page.addScriptToEvaluateOnNewDocument before a goto */
@@ -98,8 +99,13 @@ function driver(win) {
       throw new Error(`waitFor ${gone ? 'gone ' : ''}${JSON.stringify(target instanceof RegExp ? String(target) : target)} timed out after ${timeout} ms`)
     },
     async mouse(type, x, y, { button = 'left', clickCount = 1, modifiers = 0 } = {}) {
-      const buttons = type === 'mousePressed' ? (button === 'right' ? 2 : 1) : 0
-      await cdp('Input.dispatchMouseEvent', { type, x, y, button: type === 'mouseMoved' ? 'none' : button, buttons, clickCount, modifiers })
+      // a move while a button is held carries that button (a drag: without it the page sees a button-less move
+      // and releases pointer capture)
+      if (type === 'mousePressed') held = button
+      const down = type === 'mouseMoved' && held
+      const buttons = type === 'mousePressed' || down ? ((down ? held : button) === 'right' ? 2 : 1) : 0
+      await cdp('Input.dispatchMouseEvent', { type, x, y, button: type === 'mouseMoved' ? (down ? held : 'none') : button, buttons, clickCount, modifiers })
+      if (type === 'mouseReleased') held = null
     },
     /** The target's box once it has stopped moving (cards spring into place). */
     async settled(target, opts = {}) {
