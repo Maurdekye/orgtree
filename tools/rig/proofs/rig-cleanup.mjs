@@ -10,18 +10,20 @@
 //   candidates and a fresh mark is not; a command without --run picks the
 //   caller's own newest run over a newer one of another agent, and refuses
 //   when only other agents' runs are up; `down --run` removes a half-made run
-//   folder (no run.json)
+//   folder (no run.json); a process running from the home's runs folder is a
+//   stray, one from elsewhere in the home is not, and a home with another
+//   agent's rig home inside it is refused
 //   the rig cluster runs with fsync off (on with fsync: true), and a restart
 //   is timed
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/rig-cleanup.mjs
 
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { RIG_DIR, cleanup, pickRun, readRun, rigHome, startRun } from '../lib.mjs'
+import { RIG_DIR, cleanup, pickRun, processesUnder, readRun, rigHome, startRun } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
@@ -93,7 +95,8 @@ export default async function (rig) {
     crashed === false && !back.error && !after.busy && liveAgain === false, { crashed, restart: back, busy: after.busy ?? null, candidate_after: liveAgain })
 
   // ------------------------------------------------------------ controls in a temporary rig home
-  const home = path.join(rigHome(), `proof-home-${process.pid}`)
+  // under tmp: a folder of the rig's own, so this home never looks like it holds another rig home
+  const home = path.join(rigHome(), 'tmp', `proof-home-${process.pid}`)
   try {
     const r = spawnSync(process.execPath, [SELF, '--temp-home'], { encoding: 'utf8', windowsHide: true, timeout: 180000,
       env: { ...process.env, ORGTREE_RIG_HOME: home } })
@@ -107,6 +110,10 @@ export default async function (rig) {
       p.check('without --run a command picks the caller\'s own newest run over a newer one of another agent', got.picked === 'mine', got)
       p.check('without --run it refuses when only other agents\' runs are up, and names them', /another-agent/.test(got.othersOnly ?? '') && !got.othersOnlyPicked, got)
       p.check('`down --run` removes a half-made run folder', got.halfGone === true, got)
+      p.check('a process running from the rig home\'s runs folder that no live run owns is a stray', got.strayOurs === true, got)
+      p.check('a process running from elsewhere in the home (its tmp folder) is not', got.strayElsewhere === false, got)
+      p.check('a home with another agent\'s rig home inside it is refused, so its cleanup never sweeps that home',
+        /other rig homes are inside it/.test(got.nestedRefused ?? ''), got)
     }
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
 
@@ -139,7 +146,30 @@ if (process.argv[1] && same(process.argv[1], SELF) && process.argv.includes('--t
   fs.mkdirSync(path.join(half, 'data'), { recursive: true })
   fs.writeFileSync(path.join(half, 'data', '.orgtree-rig-root'), '{}')
   const down = spawnSync(process.execPath, [path.join(RIG_DIR, 'rig.mjs'), 'down', '--run', path.basename(half)], { encoding: 'utf8', windowsHide: true, timeout: 120000 })
+  // strays: a copy of node running from this home's runs folder is one; a
+  // copy running from elsewhere in the home (its tmp folder) is not
+  const home = rigHome()
+  const runCopy = rel => {
+    const exe = path.join(home, rel)
+    fs.mkdirSync(path.dirname(exe), { recursive: true })
+    fs.copyFileSync(process.execPath, exe)
+    return spawn(exe, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', windowsHide: true })
+  }
+  const gone = c => new Promise(resolve => (c.exitCode !== null || c.signalCode !== null ? resolve() : c.once('exit', resolve)))
+  const ours = runCopy(path.join('runs', 'proofstray-20261010-000000-0007', 'bin', 'stray.exe'))
+  const elsewhere = runCopy(path.join('tmp', 'proof-elsewhere', 'bin', 'other.exe'))
+  let strays = []
+  try {
+    for (let i = 0; i < 60 && processesUnder(home).length < 2; i++) await new Promise(resolve => setTimeout(resolve, 250))
+    strays = (await cleanup({ dryRun: true })).strays.map(s => s.pid)
+  } finally { ours.kill(); elsewhere.kill(); await Promise.all([gone(ours), gone(elsewhere)]) }
+  // another agent's rig home inside this one: the home is refused, so no cleanup sweeps it
+  fs.mkdirSync(path.join(home, 'another-agent', 'runs'), { recursive: true })
+  let nestedRefused = null
+  try { await cleanup({ dryRun: true }) } catch (e) { nestedRefused = e.message }
+  fs.rmSync(path.join(home, 'another-agent'), { recursive: true, force: true })
   console.log(JSON.stringify({
+    strayOurs: strays.includes(ours.pid), strayElsewhere: strays.includes(elsewhere.pid), nestedRefused,
     home: rigHome(), stopped: wouldStop(stopped), expired: wouldStop(expired), fresh: wouldStop(fresh),
     picked: same(pickedDir, mine) ? 'mine' : pickedDir.startsWith('error') ? pickedDir : path.basename(pickedDir),
     othersOnly, othersOnlyPicked: othersOnlyPicked && path.basename(othersOnlyPicked),
