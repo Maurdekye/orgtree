@@ -758,7 +758,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
         {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
           <div className='acct-provider-tier-title'>Model tiers</div>
           {p.tiers.filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
-            <span className={'tier t-' + t.tier}>{t.letter}</span>
+            <span className={'tier t-' + t.tier} title={tierLabel(t.tier)}>{t.letter}</span>
             <span className='acct-provider-tier-name'>{(t.name ?? tierLabel(t.tier)) + legacyMark(t.tier)}</span>
             <span className='acct-provider-tier-model'>{t.model}</span>
             <span className='acct-provider-tier-seat'>seat {t.seat}</span>

@@ -4130,7 +4130,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={() => centerOn(e.n.id)}>
           {e.side === 'l' && <ChevronLeftIcon fontSize="inherit" />}
-          <span className={'tier t-' + e.n.tier}>{TIER_LETTER[e.n.tier!] ?? '?'}</span>
+          <span className={'tier t-' + e.n.tier} title={tierLabel(e.n.tier ?? '')}>{TIER_LETTER[e.n.tier!] ?? '?'}</span>
           <QueuedModelBadge node={e.n} />
           <span className="ej-name">{e.n.id}</span>
           {e.n.busy && <DestinationBusy tier={e.n.tier} />}
@@ -4312,7 +4312,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           <MaybePortal>
             <div className="mobsheet">
               <header className="mobsheet-head">
-                <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier ?? ''] ?? '?'}</span>
+                <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier ?? ''] ?? '?'}</span>
                 <b className="ms-name" data-copy-agent-name={n.id}>{n.id}</b>
                 <TrayStatus node={n} turn={sheetLastTurn} live={n.state === 'live'} />
                 <span className="spacer" />

@@ -1577,7 +1577,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }
           return (
             <button key={id} data-copy-agent-name={id} {...agentNavProps(id)} className={'pile-row' + (id === pile.front ? ' on' : '')}
               onClick={() => onPick(id)}>
-              <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+              <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               <span className="pile-name">{id}</span>
               {n.bearer_state && <span className="badge dim">{n.bearer_state}</span>}
               {n.busy && <span className="badge">{stateLabel('active')}</span>}

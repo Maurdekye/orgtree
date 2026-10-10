@@ -1745,7 +1745,7 @@ export function NavChip({ n, dir, onJump }:
         {dir === 'up' ? <ArrowUpIcon fontSize="inherit" /> : <ArrowDownIcon fontSize="inherit" />}
         {eye
           ? <><EyeIcon fontSize="inherit" /> switchboard</>
-          : <><span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+          : <><span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               {n.id}</>}
         {n.busy && <DestinationBusy tier={n.tier} />}
         {(n.mail_pending ?? 0) > 0 &&
@@ -4397,7 +4397,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
         {gens.map((b) => (
           <div key={b.id}>
             <div data-copy-agent-name={b.id} className={'lin-row' + (b.state === 'archived' ? '' : ' live')}>
-              <span className={'tier t-' + b.tier}>{TIER_LETTER[b.tier] ?? '?'}</span>
+              <span className={'tier t-' + b.tier} title={tierLabel(b.tier)}>{TIER_LETTER[b.tier] ?? '?'}</span>
               <div className="lin-id">
                 <b className="mono">{b.id}</b>
                 <span className="dim">

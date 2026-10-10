@@ -25,7 +25,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { agentNavProps } from './agentnav'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
-import { TIER_LETTER } from './shared'
+import { TIER_LETTER, tierLabel } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
 import { agentReferences } from '../api'
 import type { TreePayload } from '../types'
@@ -408,7 +408,7 @@ export function RefChip({ r, onOpen }: {
   // tier means no icon and a working control: an unknown model is not an
   // unknown agent.
   const icon = r.ref.kind === 'agent' && r.tier
-    ? <span className={'tier t-' + r.tier}>{TIER_LETTER[r.tier] ?? '?'}</span>
+    ? <span className={'tier t-' + r.tier} title={tierLabel(r.tier)}>{TIER_LETTER[r.tier] ?? '?'}</span>
     : null
   // ⚠ AT THE DESTINATION IT IS IDENTITY, NOT A ROUTE: real, resolvable, and
   // nowhere to go, so it keeps its icon and loses its control.

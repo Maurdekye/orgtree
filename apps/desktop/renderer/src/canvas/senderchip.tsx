@@ -20,7 +20,7 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
   if (!n) return <b>{id}</b>
   const chip = (
     <span data-copy-agent-name={id} className={'sender ' + (n?.state ?? '')} title={n ? `${tierLabel(n.tier)} · ${n.state}` : id}>
-      {n && <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier] ?? '?'}</span>}
+      {n && <span className={'tier t-' + n.tier} title={tierLabel(n.tier)}>{TIER_LETTER[n.tier] ?? '?'}</span>}
       <b>{id}</b>
     </span>
   )

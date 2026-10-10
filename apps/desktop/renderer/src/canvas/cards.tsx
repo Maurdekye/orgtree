@@ -1061,7 +1061,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
               the same height with equal gaps (user ruling); the gear is
               always visible and stages the pre-hire permissions */}
           <div className="df-head">
-            <span className={'tier t-' + draft.tier}>{TIER_LETTER[draft.tier]}</span>
+            <span className={'tier t-' + draft.tier} title={tierLabel(draft.tier)}>{TIER_LETTER[draft.tier]}</span>
             <input className="df-name" placeholder="name…" value={name}
               // focus WITHOUT scroll: autoFocus on an element inside the
               // world transform made the browser scroll the overflow:hidden
@@ -1604,7 +1604,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     return (
       <div data-copy-agent-name={node.id} className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
-          <span className={'tier t-' + node.tier}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span className={'tier t-' + node.tier} title={tierLabel(node.tier ?? '')}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <MapModeIndicator node={node} />
           {(dogs ?? 0) > 0 && <span className={'map-dogs' + ((oneShotDogs ?? 0) > 0 ? ' oneshot' : '')}
             aria-label={`${dogs} watchdog${dogs === 1 ? '' : 's'}${(oneShotDogs ?? 0) > 0
@@ -1685,7 +1685,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             status groups separate prevents long names and status controls from
             stealing the context wheel's hit area. */}
         <div className="sq-title">
-          <span className={'tier t-' + node.tier}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span className={'tier t-' + node.tier} title={tierLabel(node.tier ?? '')}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <span ref={nameRef} className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
           {fullNameAt && (
             <span className="name-full" aria-hidden="true"

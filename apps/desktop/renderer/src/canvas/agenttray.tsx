@@ -16,7 +16,7 @@ import { QueuedModelBadge } from './nextturn'
 import type { HTMLAttributes, MouseEvent as ReactMouseEvent, ReactNode, Ref } from 'react'
 import type { NodeStatus } from '../types'
 import type { CanvasNode } from './shared'
-import { ago, DRAFT, providerOf, TIER_LETTER, USER } from './shared'
+import { ago, DRAFT, providerOf, TIER_LETTER, tierLabel, USER } from './shared'
 import { ContextWheel, TrayStatus } from './desk'
 import type { RefRoutes } from './reflinks'
 import { Written } from './reflinks'
@@ -147,7 +147,7 @@ export function AgentTray({
             <div className="tray-primary">
               <button type="button" className="tray-main" title={`go to ${n.id}`}
                 {...mainProps?.(n)}>
-                <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+                <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier!] ?? '?'}</span>
                 <QueuedModelBadge node={n} />
                 <span className="tray-name"
                   title={charterLine(n) || n.id}>{n.id}</span>
