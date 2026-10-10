@@ -84,6 +84,12 @@ export default async function(rig) {
       await call({action:'receive',message})
       proof.check(`${id}: repeated envelope does not duplicate delivery`,inbox(id).length===1 && rig.sql(`SELECT id FROM ot.mail WHERE net_id='${id}'`).length===1)
     }
+    await call({action:'notifications'})
+    for(const id of ['cancel-bytes','bad-range']) {
+      const job=rig.one(`SELECT id FROM ot.net_incoming WHERE net_id='${id}'`)
+      const mail=rig.sql(`SELECT recipient_kind,recipient_name FROM ot.mail WHERE extra->>'transfer_id'='${job.id}'`)
+      proof.check(`${id}: one user notice and one holder mail for failure`,mail.length===2 && mail.some(m=>m.recipient_kind==='user') && mail.some(m=>m.recipient_name==='rhea'),mail)
+    }
     proof.keep(rig,{grep:/incoming|download|transfer/})
     proof.note('Real engine, PostgreSQL, streamed loopback HTTP and engine restart. Incoming holder inspection/cancel/retry measured; renderer/failure notifications and device/1GiB/hard-kill proof remain.')
     return proof.summary()
