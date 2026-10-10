@@ -110,6 +110,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     anthropic_beta: req.headers['anthropic-beta'] ?? null,
     auth_sha: req.headers.authorization ? crypto.createHash('sha256').update(String(req.headers.authorization)).digest('hex').slice(0, 12) : null,
   })
+  const reminder = (t) => String(t ?? '').trimStart().startsWith('<system-reminder>')
   // STRICT (see the header): why a strict template refuses this request, or null
   function strictRefusal(api, b) {
     const turns = []
@@ -229,18 +230,20 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const parts = Array.isArray(last?.content) ? last.content : [{ type: 'text', text: String(last?.content ?? '') }]
     const toolResult = parts.some((c) => c.type === 'tool_result')
     const lastText = parts.filter((c) => c.type === 'text').map((c) => c.text).join('\n')
+    // the user's own words for the log: reminder parts (Claude Code's, the engine's) left out
+    const said = parts.filter((c) => c.type === 'text' && !reminder(c.text)).map((c) => c.text).join('\n')
     const names = (b?.tools ?? []).map((t) => t.name).filter(Boolean)
     const system = typeof b?.system === 'string' ? b.system : (b?.system ?? []).map((s) => s.text ?? '').join('\n')
     const reply = pick(lastText, toolResult)
     const refusal = reply.refuse ?? (strict ? strictRefusal('messages', b) : null)
-    if (refusal) return refuse(req, res, 'messages', b, refusal, lastText)
+    if (refusal) return refuse(req, res, 'messages', b, refusal, said)
     // a slow server: the rule's delay before anything is sent
     if (reply.delay_ms && !waited) { setTimeout(() => messages(req, res, b, true), reply.delay_ms); return }
     note({ path: '/v1/messages', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
       body_chars: JSON.stringify(b ?? {}).length, body_file: keepBody('messages', b),
       max_tokens: b?.max_tokens ?? null, thinking: b?.thinking ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, system_chars: system.length,
-      messages: msgs.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
+      messages: msgs.length, tool_result: toolResult, last_user: said.slice(-200), reply })
     const input = Math.ceil((JSON.stringify(b ?? {}).length) / 4)
     const block = reply.tool
       ? { type: 'tool_use', id: id('toolu'), name: toolName(names, reply.tool), input: {} }
@@ -276,12 +279,13 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const toolResult = lastItem?.type === 'function_call_output'
     const text = (c) => (typeof c === 'string' ? c : (c ?? []).map((p) => p.text ?? '').join('\n'))
     const lastText = toolResult ? '' : text(lastItem?.content)
+    const said = toolResult ? '' : text(Array.isArray(lastItem?.content) ? lastItem.content.filter((p) => !reminder(p.text)) : lastItem?.content)
     const names = (b?.tools ?? []).map((t) => t.name ?? t.function?.name).filter(Boolean)
     // the call a tool result answers: its arguments pick an `afterCall` rule
     const call = toolResult ? input.find((x) => x.type === 'function_call' && x.call_id === lastItem.call_id) : null
     const reply = pick(lastText, toolResult, call?.arguments ?? '')
     const refusal = reply.refuse ?? (strict ? strictRefusal('responses', b) : null)
-    if (refusal) return refuse(req, res, 'responses', b, refusal, lastText)
+    if (refusal) return refuse(req, res, 'responses', b, refusal, said)
     if (reply.delay_ms && !waited) { setTimeout(() => responses(req, res, b, true), reply.delay_ms); return }
     // the usage this answer reports (Codex sums it into its thread total)
     const usage = { input_tokens: Math.ceil(JSON.stringify(b ?? {}).length / 4), input_tokens_details: { cached_tokens: 0 },
@@ -294,7 +298,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
       tool_types: (b?.tools ?? []).filter((t) => !String(t.name ?? '').includes('orgtree_')).map((t) => `${t.type}:${t.name ?? ''}`),
       store: b?.store ?? null, reasoning: b?.reasoning ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, instructions_chars: String(b?.instructions ?? '').length,
-      items: input.length, tool_result: toolResult, last_user: lastText.slice(-200), reply,
+      items: input.length, tool_result: toolResult, last_user: said.slice(-200), reply,
       tool_call: call?.arguments ?? null, tool_output: toolResult ? text(lastItem.output).slice(0, 2000) : null })
     const respId = id('resp')
     const created = Math.floor(Date.now() / 1000)

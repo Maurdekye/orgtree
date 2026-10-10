@@ -216,9 +216,13 @@ export default async function (rig, { flags = {} } = {}) {
       { catFiles, entry: entry0 && { ...entry0, base_instructions: `<${String(entry0.base_instructions).length} chars>` } })
     const prompt = fs.readFileSync(path.join(REPO, 'engine', 'rs', 'orgtree-engine', 'assets', 'codex-default-instructions.md'), 'utf8')
       .replace(/\r\n/g, '\n')
+    // the server's one system message: the catalog's prompt first, then Codex's
+    // developer message (the engine's pass-through puts it there, engine lsproxy.rs)
+    const x0Body = x0?.body_file ? JSON.parse(fs.readFileSync(path.join(p.dir, 'bodies', x0.body_file), 'utf8')) : null
+    const sentFirst = String(x0Body?.instructions ?? '').replace(/\r\n/g, '\n').startsWith(prompt)
     p.check('Codex ran with it: its instructions are the catalog\'s (Codex\'s own default prompt), and hosted web search is off',
-      !!x0 && x0.instructions_chars === prompt.length && Array.isArray(x0.tool_types) && !x0.tool_types.some(t => t.startsWith('web_search')),
-      x0 && { instructions_chars: x0.instructions_chars, want: prompt.length, tool_types: x0.tool_types })
+      !!x0 && sentFirst && Array.isArray(x0.tool_types) && !x0.tool_types.some(t => t.startsWith('web_search')),
+      x0 && { instructions_chars: x0.instructions_chars, starts_with_catalog_prompt: sentFirst, prompt_chars: prompt.length, tool_types: x0.tool_types })
     // the same Codex, run directly: the warning without the catalog, none with it
     const bare = await codexDirect(rig, p, llm, { catalog: null, token: 'PROOF-LS-DIRECT-BARE' })
     const withCat = catPath ? await codexDirect(rig, p, llm, { catalog: catPath, token: 'PROOF-LS-DIRECT-CATALOG' }) : null
