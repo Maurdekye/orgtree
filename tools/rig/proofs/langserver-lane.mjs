@@ -30,6 +30,10 @@
 //      "model metadata not found" without the catalog and not with it;
 //   5c. a layout saved from this org (language-server agents) is a usable
 //      template whose preview plans those slots on their tiers.
+// The GPU spike's rulings (coordinator, 2026-10-10 07:12Z):
+//   7. Codex's first turn on a new thread records every call's tokens (the
+//      sums the server reported, not only the last call's); the llama.cpp
+//      preset offers Codex; a window under 64K is "too small for an agent".
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/langserver-lane.mjs [--ui <dir>]
 
 import { spawn } from 'node:child_process'
@@ -279,6 +283,33 @@ export default async function (rig) {
     const creates = llm.requests.filter(r => r.path === '/api/create')
     p.check(`nothing else ever asked the server to create a model: ${clicks} requests, one per request made`,
       creates.length === clicks && creates.every(c => c.parameters?.num_ctx === 65536 && c.stream === false && c.model === `${c.from}-64k`), creates)
+
+    // ------------------------------------------------------------ 7. the GPU spike's rulings (coordinator, 2026-10-10 07:12Z)
+    // Codex counts tokens for its whole thread; the first turn of a new thread
+    // is every call that turn made (the engine used to keep only the last):
+    // the turn's tokens are the sums of the usage the server reported to it
+    const first = rig.one(`SELECT t.input_tokens::int8 AS input, t.cache_read::int8 AS cached, t.toks::int8 AS toks,
+                                  extract(epoch FROM t.started_at)::float8 AS s, extract(epoch FROM t.ended_at)::float8 AS e
+                             FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.name = 'lscodex' ORDER BY t.id LIMIT 1`)
+    const served = codexReq.filter(r => first && Date.parse(r.at) / 1000 >= first.s && Date.parse(r.at) / 1000 <= first.e)
+    const sum = k => served.reduce((n, r) => n + (r[k] ?? 0), 0)
+    p.check('Codex\'s first turn on a new thread records every call it made: its tokens are the sums the server reported',
+      served.length >= 2 && Number(first.input) + Number(first.cached) === sum('usage_in') && Number(first.toks) === sum('usage_out'),
+      { turn: first, calls: served.length, server_in: sum('usage_in'), server_out: sum('usage_out') })
+    // llama.cpp serves Codex too (measured on b11540), and the window floor is 64K
+    const lsDoc = await rig.api('GET', '/api/langservers')
+    const llama = (lsDoc.presets ?? []).find(x => x.id === 'llamacpp')
+    p.check('the llama.cpp preset offers Codex too, and its note says Codex needs b11540 or later',
+      llama?.codex === true && (llama.harnesses ?? []).find(h => h.id === 'codex-cli')?.available === true && /b11540/.test(llama.note ?? ''), llama)
+    const lc = await rig.api('POST', '/api/langservers', { preset: 'llamacpp', address: llm.url, harness: 'codex-cli', label: 'llama.cpp (Codex)',
+      models: [{ id: MODEL, context: 49152 }, { id: OTHER, context: 65536 }] })
+    const lcModels = lc.server?.models ?? {}
+    const lcRow = (lc.doc?.servers ?? []).find(s => s.id === lc.server?.id)
+    p.check('a llama.cpp server takes Codex (its base ends in /v1), and below 64K a window is "too small for an agent"',
+      lc.doc?.min_context === 65536 && lcRow?.base_url === `${llm.url}/v1` && lcRow?.models?.[MODEL]?.too_small === true
+      && lcRow?.models?.[OTHER]?.too_small === false && Object.keys(lcModels).length === 2,
+      { min_context: lc.doc?.min_context, server: lcRow && { base_url: lcRow.base_url, models: lcRow.models } })
+    await rig.api('DELETE', `/api/langservers/${lc.server?.id}`)
     p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex/ })
   } finally {
     await llm.close()

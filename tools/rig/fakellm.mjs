@@ -44,8 +44,9 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
   models = models.map((m) => ({ ...m }))
   const requests = []
   const note = (r) => {
-    requests.push(r)
-    if (log) fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), ...r }) + '\n')
+    const at = new Date().toISOString()
+    requests.push({ at, ...r })
+    if (log) fs.appendFileSync(log, JSON.stringify({ at, ...r }) + '\n')
   }
   let bodyCount = 0
   const keepBody = (api, b) => {
@@ -188,7 +189,12 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const names = (b?.tools ?? []).map((t) => t.name ?? t.function?.name).filter(Boolean)
     const reply = pick(lastText, toolResult)
     if (reply.delay_ms && !waited) { setTimeout(() => responses(req, res, b, true), reply.delay_ms); return }
+    // the usage this answer reports (Codex sums it into its thread total)
+    const usage = { input_tokens: Math.ceil(JSON.stringify(b ?? {}).length / 4), input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 8, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 0 }
+    usage.total_tokens = usage.input_tokens + usage.output_tokens
     note({ path: '/v1/responses', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
+      usage_in: usage.input_tokens, usage_out: usage.output_tokens,
       body_chars: JSON.stringify(b ?? {}).length, body_file: keepBody('responses', b),
       // each tool as type:name — a `custom` tool (freeform apply_patch) is one Ollama refuses
       tool_types: (b?.tools ?? []).filter((t) => !String(t.name ?? '').includes('orgtree_')).map((t) => `${t.type}:${t.name ?? ''}`),
@@ -196,9 +202,6 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, instructions_chars: String(b?.instructions ?? '').length,
       items: input.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
     const respId = id('resp')
-    const usage = { input_tokens: Math.ceil(JSON.stringify(b ?? {}).length / 4), input_tokens_details: { cached_tokens: 0 },
-      output_tokens: 8, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 0 }
-    usage.total_tokens = usage.input_tokens + usage.output_tokens
     const created = Math.floor(Date.now() / 1000)
     const base = { id: respId, object: 'response', created_at: created, model: b?.model, output: [] }
     let item
