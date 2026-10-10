@@ -141,7 +141,7 @@ test('①  ONE modal: a single overlay, no advanced disclosure, and every '
     const labels = tabs(view.el).map((t) => t.textContent?.trim())
     assert.equal(labels[0]?.startsWith('Basic'), true)
     assert.deepEqual(labels,
-      ['Basic', 'Hire defaults', 'Policies', 'Connections', 'Autonomy',
+      ['Basic', 'Hire defaults', 'Policies', 'Connections', 'Autonomy', 'Accounts',
         'History'])
     assert.equal(tabs(view.el)[0]!.getAttribute('aria-selected'), 'true')
 
@@ -193,10 +193,9 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     await setField(view.el.querySelector<HTMLInputElement>(
       'input[aria-label="top-level grant cap"]')!, '77')
 
-    // edit on Policies
+    // edit on Policies (the Fable policies were dropped with the feature, DECISIONS 31): flip a cost-bubbling switch
     await open(view.el, 'Policies')
-    await setField(view.el.querySelector<HTMLSelectElement>(
-      'select[aria-label="fable weekly-limit policy"]')!, 'opus')
+    await inAct(async () => { view.el.querySelector<HTMLInputElement>('input[aria-label="hires bubble their cost up the chain"]')!.click() })
 
     // wander, then come back — both edits survive, because the panels are
     // hidden rather than unmounted
@@ -205,8 +204,8 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     assert.equal(view.el.querySelector<HTMLInputElement>(
       'input[aria-label="top-level grant cap"]')!.value, '77')
     await open(view.el, 'Policies')
-    assert.equal(view.el.querySelector<HTMLSelectElement>(
-      'select[aria-label="fable weekly-limit policy"]')!.value, 'opus')
+    assert.equal(view.el.querySelector<HTMLInputElement>(
+      'input[aria-label="hires bubble their cost up the chain"]')!.checked, false)
 
     // one save carries BOTH, from whichever tab you happen to be on
     seen.length = 0
@@ -218,7 +217,7 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     assert.ok(settings, 'save did not POST the settings')
     const body = settings!.body as Record<string, unknown>
     assert.equal(body.max_top_grant, 77)
-    assert.equal(body.fable_limit_policy, 'opus')
+    assert.equal(body.cascade_hire, false)
     assert.equal(closed.length, 1, 'a successful save closes the panel')
   } finally { await view.unmount(); delete g.fetch }
 })
@@ -230,61 +229,12 @@ test('④  the tab set follows the org: an '
   let m = await mountOrg({ net: null })
   try {
     assert.deepEqual(tabs(m.view.el).map((t) => t.textContent?.trim()),
-      ['Basic', 'Hire defaults', 'Policies', 'Autonomy', 'History'])
+      ['Basic', 'Hire defaults', 'Policies', 'Autonomy', 'Accounts', 'History'])
   } finally { await m.view.unmount() }
 
 })
 
-test('⑥  content-filter policy: auto-autopsy reveals model selector without fable and saves chosen model', async () => {
-  const seen: { method: string; path: string; body: unknown }[] = []
-  stubFetch(seen)
-  const { view, closed } = await mountOrg()
-  try {
-    await open(view.el, 'Policies')
-    const policySelect = view.el.querySelector<HTMLSelectElement>(
-      'select[aria-label="fable content-filter policy"]')
-    assert.ok(policySelect, 'policy select not found')
-
-    const options = [...policySelect.options].map((o) => o.value)
-    assert.ok(options.includes('auto-autopsy'), 'auto-autopsy not in policy options')
-
-    // While policy is halt, autopsy model select is not rendered
-    assert.equal(view.el.querySelector('select[aria-label="autopsy model"]'), null)
-
-    // Switch policy to auto-autopsy
-    await setField(policySelect, 'auto-autopsy')
-
-    // Now autopsy model select is revealed
-    const modelSelect = view.el.querySelector<HTMLSelectElement>(
-      'select[aria-label="autopsy model"]')
-    assert.ok(modelSelect, 'autopsy model select not revealed')
-
-    // Fable must NOT be among the choices
-    const modelOptions = [...modelSelect.options].map((o) => o.value)
-    assert.equal(modelOptions.includes('fable'), false, 'fable must not be selectable as autopsy model')
-    assert.ok(modelOptions.includes('opus'), 'opus should be offered')
-    assert.ok(modelOptions.includes('sonnet'), 'sonnet should be offered')
-
-    // Select sonnet
-    await setField(modelSelect, 'sonnet')
-
-    // Click save
-    seen.length = 0
-    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
-    await inAct(async () => { save.click(); await flush(12) })
-
-    const settings = seen.find((r) => r.method === 'POST'
-      && r.path === '/api/orgs/acme/settings')
-    assert.ok(settings, 'save did not POST settings')
-    const body = settings!.body as Record<string, unknown>
-    assert.equal(body.fable_filter_policy, 'auto-autopsy')
-    assert.equal(body.fable_filter_model, 'sonnet')
-    assert.equal(closed.length, 1)
-  } finally { await view.unmount(); delete g.fetch }
-})
-
-
+// ⑥ (the Fable content-filter / autopsy policy) was dropped with the feature: DECISIONS 31.
 
 test('legacy excluded fields cannot reintroduce disk or fallback controls', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
@@ -347,7 +297,7 @@ test('⑦  Hire defaults displays current registered MCP servers while wildcard 
     assert.deepEqual(chips, ['filesystem', 'github', 'memory'])
 
     // Checklist is not rendered while wildcard is active (only 4 default tool checkboxes + 1 allMcp checkbox)
-    assert.equal(view.el.querySelectorAll('label.checkline input[type="checkbox"]').length, 5)
+    assert.equal(view.el.querySelectorAll('.set-row input[type="checkbox"]').length, 5)
 
     // Uncheck all registered servers
     await inAct(async () => { allBox.click(); await flush(20) })
@@ -357,7 +307,7 @@ test('⑦  Hire defaults displays current registered MCP servers while wildcard 
     assert.equal(view.el.querySelector('.hire-mcp-current'), null)
 
     // McpChecklist is now visible with individual checkboxes
-    const checklines = [...view.el.querySelectorAll('label.checkline')]
+    const checklines = [...view.el.querySelectorAll('label.set-row')]
     const serverLabels = checklines.map((l) => l.querySelector('.mono')?.textContent?.trim()).filter(Boolean)
     assert.deepEqual(serverLabels, ['filesystem', 'github', 'memory'])
 
