@@ -265,8 +265,32 @@ export interface BootIo {
   write(file: string, text: string): void
   remove(file: string): void
   uid(): number
+  /** this process's environment (process.env when absent) */
+  env?: NodeJS.ProcessEnv
   /** start the host now, outside any service manager (the autostart fallback) */
   detach(c: BootCommand): void
+}
+
+/** Chromium sets DBUS_SESSION_BUS_ADDRESS=disabled: in the desktop when the
+ *  session has no D-Bus session bus (measured on the Linux CI runner). Every
+ *  child inherits it, and `systemctl --user` then refuses ("Failed to connect
+ *  to bus") instead of reaching the user manager through $XDG_RUNTIME_DIR.
+ *  Only that value is dropped, and only for the children started here; the
+ *  desktop's own environment is left as Chromium set it. */
+export const busDisabled = (env: NodeJS.ProcessEnv) => env.DBUS_SESSION_BUS_ADDRESS === 'disabled:'
+
+export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (!busDisabled(env)) return env
+  const { DBUS_SESSION_BUS_ADDRESS: _dropped, ...rest } = env
+  return rest
+}
+
+/** `systemctl --user ...`, through `env -u` when the bus address is disabled:
+ *  the shared Runner has no environment parameter. */
+function systemctl(io: BootIo, args: string[], timeoutMs: number) {
+  return busDisabled(io.env ?? process.env)
+    ? io.runner('env', ['-u', 'DBUS_SESSION_BUS_ADDRESS', 'systemctl', '--user', ...args], timeoutMs)
+    : io.runner('systemctl', ['--user', ...args], timeoutMs)
 }
 
 export const realIo: BootIo = {
@@ -280,7 +304,7 @@ export const realIo: BootIo = {
   remove: file => { fs.rmSync(file, { force: true }) },
   uid: () => process.getuid?.() ?? -1,
   detach: c => {
-    const child = spawn(c.program, c.args, { detached: true, stdio: 'ignore', env: { ...process.env, ...c.env } })
+    const child = spawn(c.program, c.args, { detached: true, stdio: 'ignore', env: { ...childEnv(process.env), ...c.env } })
     child.on('error', () => { /* the desktop starts its own engine instead */ })
     child.unref()
   },
@@ -326,7 +350,7 @@ export async function ensureBootEngine(o: BootInputs, io: BootIo = realIo): Prom
       return { manager: 'launchd', file, changed, started: k.code === 0, ...(k.code === 0 ? {} : { error: `launchctl kickstart: ${failed(k)}` }) }
     } catch (e) { return { manager: 'launchd', file, changed, started: false, error: (e as Error).message } }
   }
-  const probe = await io.runner('systemctl', ['--user', 'show-environment'], 10000)
+  const probe = await systemctl(io, ['show-environment'], 10000)
     .catch((e: Error) => ({ code: -1, stdout: '', stderr: e.message }))
   const systemd = probe.code === 0
   if (systemd) {
@@ -336,12 +360,12 @@ export async function ensureBootEngine(o: BootInputs, io: BootIo = realIo): Prom
     try {
       if (changed) {
         io.write(file, text)
-        await io.runner('systemctl', ['--user', 'daemon-reload'], 30000)
+        await systemctl(io, ['daemon-reload'], 30000)
       }
-      const e = await io.runner('systemctl', ['--user', 'enable', SYSTEMD_UNIT], 30000)
+      const e = await systemctl(io, ['enable', SYSTEMD_UNIT], 30000)
       if (e.code !== 0) return { manager: 'systemd', file, changed, started: false, error: `systemctl enable: ${failed(e)}` }
       // a changed unit restarts onto the new command; an unchanged one only starts if stopped
-      const s = await io.runner('systemctl', ['--user', changed ? 'restart' : 'start', SYSTEMD_UNIT], 30000)
+      const s = await systemctl(io, [changed ? 'restart' : 'start', SYSTEMD_UNIT], 30000)
       io.remove(bootFile(o, 'autostart'))
       return { manager: 'systemd', file, changed, started: s.code === 0, ...(s.code === 0 ? {} : { error: `systemctl start: ${failed(s)}` }) }
     } catch (err) { return { manager: 'systemd', file, changed, started: false, error: (err as Error).message } }
@@ -364,8 +388,8 @@ export async function removeBootEngine(o: Pick<BootInputs, 'platform' | 'home' |
     io.remove(bootFile(o, 'launchd'))
     return
   }
-  await io.runner('systemctl', ['--user', 'disable', '--now', SYSTEMD_UNIT], 30000).catch(() => undefined)
+  await systemctl(io, ['disable', '--now', SYSTEMD_UNIT], 30000).catch(() => undefined)
   io.remove(bootFile(o, 'systemd'))
-  await io.runner('systemctl', ['--user', 'daemon-reload'], 30000).catch(() => undefined)
+  await systemctl(io, ['daemon-reload'], 30000).catch(() => undefined)
   io.remove(bootFile(o, 'autostart'))
 }
