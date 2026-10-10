@@ -129,7 +129,7 @@ function quietServer() {
 }
 
 const heads = (el: HTMLElement) =>
-  [...el.querySelectorAll('.overlay h3')].map((h) => h.textContent ?? '')
+  [...document.querySelectorAll('h3')].map((h) => h.textContent ?? '')
 
 uiTest('§3 a NODE box pointer opens that node\'s inbox, once', async (mount) => {
   quietServer()
@@ -210,7 +210,7 @@ uiTest('§5b a DOCUMENT pointer opens the reader on that id, once',
         slug="mine" toast={noop} mailEvt={null}
         openDocAt="d7" onOpenDocHandled={() => { handled += 1 }} />)
     await flush()
-    assert.ok(el.querySelector('.gallery-modal'), 'the document reader opened')
+    assert.ok(document.querySelector('.gallery-modal'), 'the document reader opened')
     assert.equal(handled, 1, 'the pointer is consumed exactly once')
   })
 
