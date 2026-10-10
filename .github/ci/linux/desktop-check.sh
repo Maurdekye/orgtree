@@ -44,7 +44,7 @@ teardown() {
   for _ in $(seq 1 30); do pgrep -f 'orgtree-engine|mount_Orgtre' >/dev/null || break; sleep 1; done
   pkill -KILL -f 'orgtree-engine|mount_Orgtre|orgtree-mailhub' 2>/dev/null
   [ -n "${xvfbpid:-}" ] && kill "$xvfbpid"
-  [ -n "${buspid:-}" ] && kill "$buspid"
+  [ -n "${buspid:-}" ] && { kill "$buspid"; sleep 1; rm -f "$XDG_RUNTIME_DIR/bus"; }
   rm -rf "$shims" "$app"
 }
 
@@ -55,10 +55,18 @@ echo "user $(id -un) ($uid), primary group $(id -gn) ($(id -g)); this shell's um
 [ "$svc_umask" = 0002 ] || echo "::warning::user services here get umask $svc_umask, not Ubuntu's 0002 for a user with a private group"
 if [ -e "$profile" ]; then mv "$profile" "$logs/earlier-profile"; echo "moved an earlier profile aside"; fi
 [ -e "$HOME/.config/systemd/user/$unit" ] && { echo "::error::$unit is already registered"; exit 1; }
-dbus-daemon --session --address="unix:path=$XDG_RUNTIME_DIR/bus" --nofork --nopidfile >"$logs/dbus.out" 2>&1 & buspid=$!
+# The session bus: the user manager's own if one answers (dbus-user-session), else a
+# dbus-daemon of ours; a socket nobody answers on is a leftover and goes.
 trap teardown EXIT
-for _ in $(seq 1 20); do [ -S "$XDG_RUNTIME_DIR/bus" ] && break; sleep 0.5; done
-[ -S "$XDG_RUNTIME_DIR/bus" ] || { echo "::error::no session bus at $XDG_RUNTIME_DIR/bus"; exit 1; }
+bus_answers() { DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus" timeout 5 busctl --user list >/dev/null 2>&1; }
+if bus_answers; then echo "session bus: the one already at $XDG_RUNTIME_DIR/bus"
+else
+  rm -f "$XDG_RUNTIME_DIR/bus"
+  dbus-daemon --session --address="unix:path=$XDG_RUNTIME_DIR/bus" --nofork --nopidfile >"$logs/dbus.out" 2>&1 & buspid=$!
+  for _ in $(seq 1 20); do bus_answers && break; sleep 0.5; done
+  echo "session bus: dbus-daemon --session (pid $buspid)"
+fi
+bus_answers || { echo "::error::no session bus answers at $XDG_RUNTIME_DIR/bus"; exit 1; }
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 # a user of Orgtree has an agent CLI
 printf '#!/bin/sh\nexit 0\n' >"$shims/claude"; chmod +x "$shims/claude"
@@ -112,7 +120,7 @@ if [ -n "$strict" ]; then
   [ "$mode" != autostart ] || grep -q 'systemd not used' "$logs/app.out" || problems+=("the app did not say why it skipped systemd")
 fi
 if [ ${#problems[@]} -gt 0 ]; then
-  echo "--- $unit"; systemctl --user status "$unit" --no-pager 2>&1 | head -12
+  echo "--- $unit"; systemctl --user status "$unit" --no-pager 2>&1 | head -12 || true
   echo "--- the app's output"; grep -v -E 'appimage_extracted|Unable to revert mtime' "$logs/app.out" | tail -30
   for p in "${problems[@]}"; do echo "::error::($mode) $p"; done
   exit 1
