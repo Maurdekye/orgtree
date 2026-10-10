@@ -615,6 +615,14 @@ interface SpawnChipsProps {
   selected?: string
 }
 
+/** a hire badge's seat cost: `(-N)`, the user's own notation, and `(free)`
+ *  for a tier that seats at no cost (a language server priced 0), never
+ *  `(-0)` (coordinator ruling 2026-10-10) */
+const costBadge = (seat: number): string => {
+  const n = fmtCredits(seat)
+  return n === '0' ? '(free)' : `(-${n})`
+}
+
 export function SpawnChips({ onSpawn, seats, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, zoom,
   expanded = false, onToggleExpanded, selected }: SpawnChipsProps) {
@@ -656,7 +664,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
           `hire ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
             + (soleHire ? ''
               : ` ${side === 'top' ? 'superior' : side ? 'coworker' : 'subordinate'}`)
-            + ` (-${fmtCredits(seat)})` + legacyMark(t)}
+            + ` ${costBadge(seat)}` + legacyMark(t)}
         onClick={(e) => { e.stopPropagation(); onSpawn(t) }}>
         {letter}
       </button>
@@ -670,7 +678,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
                    reason: string | null, seat: number) => (
     <button key={t} disabled className={'t-' + t + ' codex-preview'}
       title={`${tierLabel(t)} — ${label}; `
-        + (reason ?? 'hiring is not enabled yet') + ` (-${fmtCredits(seat)})`}>
+        + (reason ?? 'hiring is not enabled yet') + ` ${costBadge(seat)}`}>
       {letter}
     </button>
   )

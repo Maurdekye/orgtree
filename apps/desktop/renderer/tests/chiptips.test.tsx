@@ -502,3 +502,60 @@ uiTest('§7 an ordinary agent card keeps its role words',
     assert.match(t.superior, /\bsuperior\b/, `("${t.superior}")`)
   })
 
+// ===================================================================== §9
+// A TIER THAT COSTS NOTHING (coordinator ruling 2026-10-10). A language
+// server may be priced 0, and its badge then read `(-0)`: a minus badge for
+// nothing. It reads `(free)` instead, wherever the strip renders: the three
+// sets on a card, Quick chat's model picker (the lone set with a selection),
+// and the disabled chip of a family that cannot hire yet. A priced tier
+// beside it keeps its `(-N)`, so this is not a badge that stopped quoting.
+
+uiTest('§9 a tier that seats at no cost says (free), never (-0), on every strip',
+  async ({ mount }) => {
+    const { SpawnChips } = await import('../src/canvas/cards')
+    const { setLangServerTiers } = await import('../src/canvas/shared')
+    const FREE = 'ls-ollama-free-model-latest', PAID = 'ls-ollama-paid-model-7b'
+    setLangServerTiers([
+      { tier: FREE, provider: 'langserver', seat: 0, model: 'free-model:latest', letter: 'F',
+        label: 'free-model:latest', name: 'free-model:latest · Local' },
+      { tier: PAID, provider: 'langserver', seat: 1, model: 'paid-model:7b', letter: 'P',
+        label: 'paid-model:7b', name: 'paid-model:7b · Local' },
+    ])
+    try {
+      const offer = { enabled: true, installed: true, reason: null }
+      const strip = async (el: React.ReactElement) => {
+        const { el: host } = await mount(el)
+        await flush()
+        const title = (t: string) => host.querySelector(`button.t-${t}`)?.getAttribute('title') ?? null
+        const all = [...host.querySelectorAll('button')].map((b) => b.getAttribute('title') ?? '')
+        return { free: title(FREE), paid: title(PAID), all }
+      }
+      const seen = {
+        subordinate: await strip(<SpawnChips onSpawn={noop} seats={{}} langserverHire={offer} />),
+        coworker: await strip(<SpawnChips onSpawn={noop} seats={{}} side="left" langserverHire={offer} />),
+        superior: await strip(<SpawnChips onSpawn={noop} seats={{}} side="top" langserverHire={offer} />),
+        quickChat: await strip(<SpawnChips onSpawn={noop} seats={{}} soleHire selected={PAID}
+          langserverHire={offer} />),
+      }
+      const role = { subordinate: ' subordinate', coworker: ' coworker', superior: ' superior', quickChat: '' }
+      for (const [where, s] of Object.entries(seen)) {
+        const r = role[where as keyof typeof role]
+        assert.equal(s.free, `hire a free-model:latest · Local${r} (free)`,
+          `${where}: a tier priced 0 must say "(free)" — got "${s.free}"`)
+        assert.equal(s.paid, `hire a paid-model:7b · Local${r} (-1)`,
+          `${where}: the priced tier beside it must keep its minus badge — got "${s.paid}"`)
+        assert.ok(!s.all.some((t) => /\(-0\)/.test(t)),
+          `${where}: no badge may quote "(-0)" — got ${JSON.stringify(s.all)}`)
+      }
+      // a family that cannot hire yet renders disabled chips with the same cost badge
+      const out = await strip(<SpawnChips onSpawn={noop} seats={{}}
+        langserverHire={{ enabled: false, installed: true, reason: 'no server answers' }} />)
+      assert.equal(out.free, 'free-model:latest · Local — Language Server; no server answers (free)',
+        `the disabled chip of a tier priced 0 must say "(free)" too — got "${out.free}"`)
+      assert.equal(out.paid, 'paid-model:7b · Local — Language Server; no server answers (-1)',
+        `the disabled chip of a priced tier keeps "(-1)" — got "${out.paid}"`)
+    } finally {
+      setLangServerTiers([])
+    }
+  })
+
