@@ -7,6 +7,9 @@
 //      <plan>"; no card is headed or planned with a raw id ("openai", "google").
 //   2. The Antigravity card is headed "Antigravity".
 //   3. The credits line stays on the account that reports credits.
+//   4. The engine's Codex and Antigravity peeks carry "Codex" / "Antigravity"
+//      (3.x parity; the canned readings keep "openai"/"google" so the panel is
+//      also shown to cope with the raw ids).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/usage-labels.mjs (with ORGTREE_RIG_UI)
 
 import fs from 'node:fs'
@@ -45,6 +48,11 @@ export default async function (rig) {
     await rig.api('GET', r).catch(() => null)
   }
   p.note('D usage (engine)', await rig.api('GET', `/api/accounts/${D}/usage`).catch(e => e.message))
+  // the engine's host-lane peeks carry 3.x's display names (the full reading
+  // sets the same constant after a live probe, which a canned reading skips)
+  const peeks = { codex: await rig.api('GET', '/api/codex/usage/peek'), agy: await rig.api('GET', '/api/antigravity/usage/peek') }
+  p.check('the Codex and Antigravity peeks read "Codex" and "Antigravity"', peeks.codex?.provider === 'Codex'
+    && peeks.agy?.provider === 'Antigravity', peeks)
   if (!rig.run.ui) throw Error('usage-labels needs a UI bundle (ORGTREE_RIG_UI)')
   const ui = await runDesktop(rig, page, { preset: 'wide', out: path.join(p.dir, 'desktop') })
   const cards = ui.value?.cards ?? []
