@@ -1,8 +1,9 @@
 // App settings › Providers › Language Server, as the user sees it: the
-// server cards a proof added, then the add form opened from "Add server" with
-// the preset dropdown and the harness the preset allows. With `address`: the
-// form's Find models against that (Ollama-like) server, the "Create a 64K
-// version of this model" offer, and one click on it.
+// server cards a proof added (one line each, the offered models as chips),
+// then the add form opened from "Add server" with the preset dropdown and the
+// harness the preset allows. With `address`: the form's Find models against
+// that (Ollama-like) server, which opens the model browser, the "Create a 64K
+// version of this model" offer in it, and one click on it.
 // args: { agent: "<an agent on the canvas>", shot: "<prefix>", address?: "<server url>", fresh?: true }
 // `fresh`: no org, agent or server yet (a real server's first visit): wait only for the section.
 module.exports = async (page, { args }) => {
@@ -23,7 +24,7 @@ module.exports = async (page, { args }) => {
       head: text(sec?.querySelector('.set-group-head')),
       servers: [...(sec?.querySelectorAll('.ls-server') ?? [])].map((s) => ({
         head: text(s.querySelector('.ls-server-head')),
-        models: [...s.querySelectorAll('.ls-model')].map(text),
+        models: [...s.querySelectorAll('.ls-chip .orr-sel-name')].map(text),
       })),
       form: text(sec?.querySelector('.ls-add')),
       presets: [...(sec?.querySelectorAll('.ls-add select[aria-label="kind of server"] option') ?? [])].map(text),
@@ -44,28 +45,29 @@ module.exports = async (page, { args }) => {
   await page.press('a', { modifiers: 2 })
   await page.type(args.address)
   await page.click({ selector: '.ls-add button', text: '^Find models$', regex: true })
-  await page.waitFor('.ls-add .ls-variant button', { timeout: 20000 })
-  const rows = () => page.eval(() => [...document.querySelectorAll('.ls-add .ls-model')].map((r) => ({
-    id: (r.querySelector('.ls-model-pick .mono')?.innerText || '').trim(),
-    picked: !!r.querySelector('.ls-model-pick input')?.checked,
-    facts: (r.querySelector('.ls-model-facts')?.innerText || '').trim(),
+  // several models: the browser opens on its own
+  await page.waitFor('.ls-browser .ls-variant button', { timeout: 20000 })
+  const rows = () => page.eval(() => [...document.querySelectorAll('.ls-browser .orr-row')].map((r) => ({
+    id: (r.querySelector('.orr-name b')?.innerText || '').trim(),
+    picked: r.querySelector('button.ls-offer')?.getAttribute('aria-pressed') === 'true',
+    facts: (r.querySelector('.orr-name .dim')?.innerText || '').trim(),
     button: (r.querySelector('.ls-variant button')?.innerText || '').trim() || null,
     hint: (r.querySelector('.ls-variant .dim')?.innerText || '').replace(/\s+/g, ' ').trim() || null,
   })))
-  await scrollTo('.ls-add .ls-find')
   await page.sleep(800)
   await page.screenshot(`${args.shot}-variant-offer`)
   const found = await rows()
   // the click: the version is made, listed (a model not there before), and picked
   await page.eval((known) => { window.__lsKnown = known; return true }, found.map((r) => r.id))
-  await page.click({ selector: '.ls-add .ls-variant button', text: '^Create a 64K version of this model$', regex: true })
-  await page.waitFor(() => [...document.querySelectorAll('.ls-add .ls-model .ls-model-pick .mono')]
+  await page.click({ selector: '.ls-browser .ls-variant button', text: '^Create a 64K version of this model$', regex: true })
+  await page.waitFor(() => [...document.querySelectorAll('.ls-browser .orr-row .orr-name b')]
     .some((e) => !window.__lsKnown.includes(e.innerText.trim())), { timeout: 30000 })
   await page.sleep(800)
-  await scrollTo('.ls-add .ls-find')
-  await page.sleep(500)
   await page.screenshot(`${args.shot}-variant-made`)
   const made = await rows()
+  // done: back in the form, the picks shown as chips
+  await page.click({ selector: '.ls-browser .orr-pager button', text: '^done$', regex: true })
+  await page.waitFor('.ls-browser', { timeout: 10000, gone: true }).catch(() => null)
   // the lane colours as each theme computes them, and the light theme seen
   const colours = () => page.eval(() => {
     const css = getComputedStyle(document.documentElement)

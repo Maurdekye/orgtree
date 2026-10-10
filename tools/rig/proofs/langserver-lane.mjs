@@ -47,6 +47,12 @@
 //       hand-in), "loading model on <server>" on the desk meanwhile, then Claude Code; a
 //       load that fails fails the turn with Ollama's own words, once, and tells the user;
 //       a halt during a load drops the load request and frees the server's slot.
+// The user's second round (2026-10-10 08:48–08:50Z), on a fake server listing 302 models:
+//   9.  Find models answers in a few seconds; a check of the offered models asks about those
+//       only; with the UI: a server is one read-only line with a digest and its models as
+//       chips, and says where the server runs another window than agents are told; ✎ opens
+//       a draft; the models browser (25 a page, offered first, search, filters); offer and
+//       withdraw touch only the draft; Cancel drops it; Save sends it.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/langserver-lane.mjs [--ui <dir>] [--load-ms N]
 
 import { spawn } from 'node:child_process'
@@ -509,6 +515,70 @@ export default async function (rig, { flags = {} } = {}) {
       loading4 === 'loading model on Fake slow (Claude Code)' && !!gone && (after4?.loading_model ?? null) === null && freed === true
       && !llm.requests.slice(mark4).some(r => r.path === '/v1/messages' && r.model === STOPPY),
       { loading4, gone, after: after4?.loading_model ?? null, next_turn_on_the_server: freed })
+    // ------------------------------------------------------------ 9. the user's second round (2026-10-10 08:48–08:50Z)
+    // a server listing 302 models: the browser, the compact card, the real window
+    const QWEN = 'qwen3.6-35b-a3b:latest', QWEN64 = 'qwen3.6-35b-a3b:latest-64k'
+    const qwenCaps = ['completion', 'tools', 'thinking']
+    const llm2 = await startFakeLlm({ log: path.join(p.dir, 'fakellm-302.jsonl'), models: [
+      // Ollama runs the plain model at its 4K default; the 64K version's Modelfile sets 65536
+      { name: QWEN, context: 262144, running: 4096, size: 13.2e9, family: 'qwen35moe', params: '34.7B', quant: 'IQ3_XXS', capabilities: qwenCaps },
+      { name: QWEN64, context: 262144, num_ctx: 65536, size: 13.2e9, family: 'qwen35moe', params: '34.7B', quant: 'IQ3_XXS', capabilities: qwenCaps },
+      ...Array.from({ length: 300 }, (_, i) => ({ name: `model-${String(i).padStart(3, '0')}:7b`, context: [32768, 65536, 131072, 262144][i % 4],
+        size: (1 + (i % 30)) * 1e9, params: '7B', capabilities: ['completion', ...(i % 2 ? [] : ['tools']), ...(i % 3 ? [] : ['thinking'])] })),
+    ] })
+    try {
+      const t9 = Date.now()
+      const all302 = await rig.api('POST', '/api/langservers/probe', { preset: 'ollama', address: llm2.url, harness: 'claude-code' })
+      const probeMs = Date.now() - t9
+      const many = await rig.api('POST', '/api/langservers', { preset: 'ollama', address: llm2.url, harness: 'claude-code',
+        label: 'Many models (Claude Code)', models: [{ id: QWEN, context: 65536 }, { id: QWEN64, context: 65536 }] })
+      const only = await rig.api('POST', '/api/langservers/probe', { server: many.server?.id, only: [QWEN, QWEN64] })
+      p.check(`9. Find models on a server listing 302 models answers in ${(probeMs / 1000).toFixed(1)} s; a check of the offered models asks about those only and still says how many the server lists`,
+        all302.reachable === true && (all302.models ?? []).length === 302 && probeMs < 20000
+        && (only.models ?? []).map(m => m.id).join() === [QWEN, QWEN64].join() && only.listed === 302
+        && only.models.find(m => m.id === QWEN)?.loaded_context === 4096 && only.models.find(m => m.id === QWEN64)?.configured_context === 65536,
+        { probe_ms: probeMs, models: (all302.models ?? []).length, only: only.models?.map(m => ({ id: m.id, loaded: m.loaded_context, configured: m.configured_context })), listed: only.listed })
+      if (rig.run.ui) {
+        const seen = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'langserver-batch2.cjs'),
+          { preset: 'tall', args: { label: 'Many models (Claude Code)' }, out: path.join(p.dir, 'desktop-batch2'), timeout: 240000 })
+        const v = seen.value ?? {}
+        const sm = v.summary ?? {}
+        p.check('9. a server is one read-only line: name · preset · harness · address with ⟳ ✎ ✕ (icons only), the digest '
+          + '"on · 1 at once · 2 models · key: none · seat 1" and whether it answers, its models as chips, nothing editable',
+          seen.ok && sm.head === `Many models (Claude Code) · Ollama · Claude Code · ${llm2.url}` && (sm.buttons ?? []).length === 3
+          && sm.buttons.every(b => b.text === '' && b.icon) && ['on', '1 at once', '2 models', 'key: none', 'seat 1'].every((d, i) => sm.digest?.[i] === d)
+          && (sm.digest ?? []).includes('answering · version 0.40.2-fake · 302 models on the server')
+          && (sm.chips ?? []).map(c => `${c.letter} ${c.name}`).join() === `Q ${QWEN},Q ${QWEN64}` && sm.editable === 0,
+          { summary: sm, error: seen.error ?? null })
+        p.check('9. the card says where the server runs another window: the plain model runs with 4K while agents are told 64K; the 64K version agrees',
+          seen.ok && JSON.stringify(sm.mismatches) === JSON.stringify([`${QWEN}: the server runs it with 4K, but agents are told 64K`]), sm.mismatches)
+        p.check('9. ✎ opens the draft: name, address, the offer toggle, agents at once, seat price, API key, and the models row',
+          seen.ok && ['server name', 'server address', 'agents at once', 'seat price', 'API key'].every(l => (v.form?.inputs ?? []).includes(l))
+          && v.form?.toggle === true && v.form?.models === true, v.form)
+        p.check('9. the browser holds the 302 models: 25 a page, the offered ones first, and the plain model\'s row says it runs with 4K',
+          seen.ok && v.pageOne?.title === 'Models on Many models (Claude Code) · 2 offered' && v.pageOne?.count === '302 models on the server'
+          && v.pageOne?.pager === '1–25 of 302' && (v.pageOne?.names ?? []).length === 25 && v.pageOne.names[0] === QWEN && v.pageOne.names[1] === QWEN64
+          && /the server runs it with 4K, but agents are told 64K/.test(v.pageOne?.mismatch ?? ''), v.pageOne)
+        const num = n => Number(String(n).slice(6, 9))
+        p.check('9. a search narrows the list ("model-29": 10 models), and the thinking + trained-for-256K filters keep only such models',
+          seen.ok && JSON.stringify(v.searched?.names) === JSON.stringify(Array.from({ length: 10 }, (_, i) => `model-29${i}:7b`))
+          && v.searched?.count === '10 of 302 models match' && /^\d+ of 302 models match$/.test(v.filtered?.count ?? '')
+          && (v.filtered?.names ?? []).length > 2 && v.filtered.names.every(n => n === QWEN || n === QWEN64 || num(n) % 12 === 3),
+          { searched: v.searched, filtered: v.filtered })
+        const after = (await rig.api('GET', '/api/langservers')).servers?.find(x => x.id === many.server?.id)
+        const offeredNow = Object.values(after?.models ?? {}).filter(m => m.offered).map(m => m.id).sort()
+        p.check('9. offer and withdraw change only the draft; Cancel drops it (the server is unchanged); Save then sends a new seat price',
+          seen.ok && v.picked?.title === 'Models on Many models (Claude Code) · 2 offered' && JSON.stringify(v.picked?.chips) === JSON.stringify([QWEN64, 'model-000:7b'])
+          && JSON.stringify(v.draftChips) === JSON.stringify([QWEN64, 'model-000:7b']) && JSON.stringify(v.afterCancel) === JSON.stringify([QWEN, QWEN64])
+          && JSON.stringify(offeredNow) === JSON.stringify([QWEN, QWEN64]) && after?.seat === 2 && (v.saved ?? []).includes('seat 2'),
+          { picked: v.picked, draftChips: v.draftChips, afterCancel: v.afterCancel, offeredNow, seat: after?.seat, saved: v.saved })
+      } else {
+        p.note('no renderer bundle for this run (--ui): section 9\'s card, form and browser were skipped')
+      }
+      await rig.api('DELETE', `/api/langservers/${many.server?.id}`)
+    } finally {
+      await llm2.close()
+    }
     p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex|lsslow|lsbroken|lscross|lssame|lshalt|language-server|reprice/ })
   } finally {
     await llm.close()

@@ -103,8 +103,8 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     if (p === '/api/version') return json(res, 200, { version: '0.40.2-fake' })
     if (p === '/api/tags') {
       note({ path: p, method: req.method })
-      return json(res, 200, { models: models.map((m) => ({ name: m.name, model: m.name, size: 1_000_000_000,
-        details: { family: 'fake', parameter_size: '1B', quantization_level: 'Q4_K_M' } })) })
+      return json(res, 200, { models: models.map((m) => ({ name: m.name, model: m.name, size: m.size ?? 1_000_000_000,
+        details: { family: m.family ?? 'fake', parameter_size: m.params ?? '1B', quantization_level: m.quant ?? 'Q4_K_M' } })) })
     }
     if (p === '/api/show') {
       const m = models.find((x) => x.name === body?.model)
