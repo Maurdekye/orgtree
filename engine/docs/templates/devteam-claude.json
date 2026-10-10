@@ -3,6 +3,7 @@
   "name": "devteam (claude)",
   "description": "A small development team on Claude: a coordinator (Opus) who plans and reviews, an implementer (Opus) who builds, a redteam reviewer (Opus) who tries to break the work, and a curator (Sonnet) who keeps notes and docs tidy.",
   "version": 1,
+  "quick_chat": { "superior": "coordinator", "tier": "opus" },
   "agents": [
     {
       "name": "coordinator", "tier": "opus", "charter": { "preset": "coordinator" }, "spare": 10,

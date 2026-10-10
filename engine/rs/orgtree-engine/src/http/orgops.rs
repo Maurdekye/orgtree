@@ -92,7 +92,10 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
             Some((t, planned))
         }
     };
-    let settings = json!({ "dirs": dirs });
+    let mut settings = json!({ "dirs": dirs });
+    if let Some(q) = planned.as_ref().and_then(|(t, planned)| crate::domain::templates::quick_chat_for(t, planned)) {
+        settings["quick_chat"] = q;
+    }
     let auto = b.net_autoconnect.unwrap_or(true);
     let net = json!({ "autoconnect": auto, "hubs": crate::net::hub_entries(&e, auto, &b.net_hubs) });
     let uuid = uuid::Uuid::new_v4();

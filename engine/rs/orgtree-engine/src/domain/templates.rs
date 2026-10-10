@@ -33,6 +33,10 @@ pub struct Template {
     pub org_md: Option<String>,
     #[serde(default)]
     pub agents: Vec<Slot>,
+    /// Quick chat's starting superior, model and effort in the new org
+    /// (user 2026-10-10 19:31Z); the org's own picks win once made
+    #[serde(default)]
+    pub quick_chat: Option<Value>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -320,7 +324,63 @@ pub fn validate(t: &Template) -> Vec<String> {
             p.push(format!("{}: only a top-level agent may carry a first message", s.name));
         }
     }
+    if let Some(q) = &t.quick_chat {
+        if let Err(e) = quick_chat(q) {
+            p.push(e);
+        }
+    }
     p
+}
+
+/// Quick chat defaults as stored (an org setting, a template field): an
+/// object holding only the fields that are set. `superior` null = top level
+/// and `effort` '' = the org's default effort are real choices, kept.
+#[logged]
+pub fn quick_chat(v: &Value) -> Result<Value, String> {
+    let o = v.as_object().ok_or("quick_chat is an object of superior, tier and effort")?;
+    let mut out = serde_json::Map::new();
+    for (k, x) in o {
+        match k.as_str() {
+            "superior" => match x {
+                Value::Null => {
+                    out.insert(k.clone(), Value::Null);
+                }
+                Value::String(n) => {
+                    let n = crate::domain::ops::valid_name(n).map_err(|e| format!("quick_chat superior: {e}"))?;
+                    out.insert(k.clone(), json!(n));
+                }
+                _ => return Err("quick_chat superior is an agent name or null (top level)".into()),
+            },
+            "tier" => match x.as_str() {
+                Some(t) if catalog::tier(t).is_some() || catalog::is_openrouter(t) || catalog::is_langserver(t) => {
+                    out.insert(k.clone(), json!(t));
+                }
+                Some(t) => return Err(format!("quick_chat: unknown tier '{t}'")),
+                None => return Err("quick_chat tier is a tier name".into()),
+            },
+            "effort" => match x.as_str() {
+                Some(e) if e.is_empty() || catalog::EFFORTS.contains(&e) => {
+                    out.insert(k.clone(), json!(e));
+                }
+                _ => return Err(format!("quick_chat effort must be '' (the org default) or one of {}", catalog::EFFORTS.join(", "))),
+            },
+            other => return Err(format!("quick_chat has no field '{other}'")),
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+/// A template's Quick chat defaults for the org created from it: the
+/// superior follows its slot's final name, and one the layout no longer
+/// holds (removed, or never in it) is top level.
+#[logged]
+pub fn quick_chat_for(t: &Template, planned: &[Planned]) -> Option<Value> {
+    let mut q = quick_chat(t.quick_chat.as_ref()?).ok()?;
+    if let Some(s) = q.get("superior").and_then(Value::as_str).map(str::to_string) {
+        let found = planned.iter().find(|p| p.slot.name.eq_ignore_ascii_case(&s)).map(|p| p.name.clone());
+        q["superior"] = found.map_or(Value::Null, |n| json!(n));
+    }
+    Some(q)
 }
 
 /// What this machine can staff now, from the staffing options every hire
@@ -586,6 +646,9 @@ pub struct Include {
     pub accounts: bool,
     #[serde(default)]
     pub folders: bool,
+    /// Quick chat's defaults for this org (what it shows now)
+    #[serde(default = "yes")]
+    pub quick_chat: bool,
 }
 
 #[nolog]
@@ -595,7 +658,7 @@ fn yes() -> bool {
 
 impl Default for Include {
     fn default() -> Self {
-        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false }
+        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true }
     }
 }
 
@@ -617,7 +680,9 @@ pub struct Row {
 /// Build a template from an org's live agents (in sibling order). An agent
 /// whose superior is not live is placed at the top level.
 #[logged]
-pub fn from_rows(id: &str, name: &str, description: Option<&str>, rows: &[Row], org_md: Option<String>, inc: &Include) -> Value {
+pub fn from_rows(
+    id: &str, name: &str, description: Option<&str>, rows: &[Row], org_md: Option<String>, quick: Option<&Value>, inc: &Include,
+) -> Value {
     let live: HashSet<i64> = rows.iter().map(|r| r.id).collect();
     let top: Vec<&Row> = rows.iter().filter(|r| r.parent.is_none_or(|p| !live.contains(&p))).collect();
     #[nolog]
@@ -657,6 +722,17 @@ pub fn from_rows(id: &str, name: &str, description: Option<&str>, rows: &[Row], 
     }
     if inc.org_md {
         if let Some(md) = org_md.filter(|m| !m.trim().is_empty()) { t["org_md"] = json!(md); }
+    }
+    // a superior the saved layout does not hold is saved as top level
+    if let Some(mut q) = quick.filter(|_| inc.quick_chat).and_then(|q| quick_chat(q).ok()) {
+        if let Some(s) = q.get("superior").and_then(Value::as_str) {
+            if !rows.iter().any(|r| r.name == s) {
+                q["superior"] = Value::Null;
+            }
+        }
+        if q.as_object().is_some_and(|o| !o.is_empty()) {
+            t["quick_chat"] = q;
+        }
     }
     t
 }
@@ -750,9 +826,9 @@ mod tests {
     #[test]
     fn a_saved_description_is_optional() {
         let rows = vec![row(1, None, "lead", "opus", 1.0, 2.0)];
-        let blank = from_rows("t", "T", Some("  "), &rows, None, &Include::default());
+        let blank = from_rows("t", "T", Some("  "), &rows, None, None, &Include::default());
         assert!(blank.get("description").is_none());
-        let given = from_rows("t", "T", Some(" Our team "), &rows, None, &Include::default());
+        let given = from_rows("t", "T", Some(" Our team "), &rows, None, None, &Include::default());
         assert_eq!(given["description"], "Our team");
     }
 
@@ -767,7 +843,7 @@ mod tests {
     fn a_saved_layout_round_trips_through_the_plan() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 20.0), row(2, Some(1), "dev", "sonnet", 2.0, 3.0),
                         row(3, Some(1), "qa", "sonnet", 2.0, 0.0)];
-        let v = from_rows("my-team", "My team", Some("  "), &rows, Some("org rules".into()), &Include::default());
+        let v = from_rows("my-team", "My team", Some("  "), &rows, Some("org rules".into()), None, &Include::default());
         assert!(v["agents"][0]["account"].is_null() && v["agents"][0]["add_dirs"].is_null());
         assert_eq!(v["org_md"], "org rules");
         let t: Template = serde_json::from_value(v).unwrap();
@@ -783,7 +859,7 @@ mod tests {
     fn saved_folders_are_clamped_and_accounts_are_preferences() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
         let inc = Include { accounts: true, folders: true, ..Include::default() };
-        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, &inc)).unwrap();
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, None, &inc)).unwrap();
         assert_eq!(t.agents[0].account.as_deref(), Some("claude-5"));
         let (p, _) = plan(&t, &Choices::default(), &claude_only(), &[json!({ "path": "E:\\other", "mode": "rw" })]).unwrap();
         assert_eq!(p[0].dirs_dropped, vec!["E:\\x".to_string()]);
@@ -797,8 +873,8 @@ mod tests {
     #[test]
     fn unticked_groups_are_left_out() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
-        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false };
-        let v = from_rows("t", "T", None, &rows, Some("x".into()), &inc);
+        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false, quick_chat: false };
+        let v = from_rows("t", "T", None, &rows, Some("x".into()), None, &inc);
         let a = &v["agents"][0];
         assert!(a["charter"].is_null() && a["effort"].is_null() && a["tools"].is_null() && v["org_md"].is_null());
         assert_eq!(a["spare"], 0.0);
@@ -842,7 +918,7 @@ mod tests {
     fn a_language_server_slot_is_valid_and_bills_no_account() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 1.0), row(2, Some(1), "local", "ls-ollama-qwen3-8-27b", 0.1, 0.0)];
         let inc = Include { accounts: true, ..Include::default() };
-        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, &inc)).unwrap();
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, None, &inc)).unwrap();
         assert!(validate(&t).is_empty(), "{:?}", validate(&t));
         let mut av = claude_only();
         av.tiers.insert("ls-ollama-qwen3-8-27b".into(), offer(0.1, "langserver"));
@@ -914,6 +990,63 @@ mod tests {
         let (p, _) = plan(&bundled("devteam-claude"), &Choices::default(), &av, &[]).unwrap();
         assert_eq!(p[0].account.as_deref(), Some("claude-5"));
         assert_eq!(p[3].account.as_deref(), Some("primary"));
+    }
+
+    #[test]
+    fn quick_chat_defaults_keep_explicit_choices_and_refuse_bad_ones() {
+        let q = quick_chat(&json!({ "superior": null, "effort": "" })).unwrap();
+        assert_eq!(q, json!({ "superior": null, "effort": "" }));
+        assert_eq!(quick_chat(&json!({})).unwrap(), json!({}));
+        assert!(quick_chat(&json!({ "tier": "nope" })).is_err());
+        assert!(quick_chat(&json!({ "effort": "huge" })).is_err());
+        assert!(quick_chat(&json!({ "position": "top" })).is_err());
+        assert!(quick_chat(&json!("opus")).is_err());
+        let mut t = bundled("devteam-claude");
+        t.quick_chat = Some(json!({ "tier": "nope" }));
+        assert!(validate(&t).iter().any(|p| p.contains("unknown tier 'nope'")));
+    }
+
+    #[test]
+    fn the_built_ins_start_quick_chat_on_their_coordinator() {
+        assert_eq!(bundled("devteam-claude").quick_chat, Some(json!({ "superior": "coordinator", "tier": "opus" })));
+        assert_eq!(bundled("devteam-codex").quick_chat, Some(json!({ "superior": "coordinator", "tier": "sol" })));
+    }
+
+    #[test]
+    fn the_quick_chat_superior_follows_a_rename_and_falls_back_to_top_level() {
+        let t = bundled("devteam-claude");
+        let (p, _) = plan(&t, &Choices::default(), &claude_only(), &[]).unwrap();
+        assert_eq!(quick_chat_for(&t, &p), Some(json!({ "superior": "coordinator", "tier": "opus" })));
+        let mut ch = Choices::default();
+        ch.overrides.insert("coordinator".into(), SlotChoice { tier: None, name: Some("boss".into()) });
+        let (p, _) = plan(&t, &ch, &claude_only(), &[]).unwrap();
+        assert_eq!(quick_chat_for(&t, &p).unwrap()["superior"], json!("boss"));
+        let mut t2 = t.clone();
+        t2.quick_chat = Some(json!({ "superior": "curator" }));
+        let mut ch = Choices::default();
+        ch.removed.push("curator".into());
+        let (p, _) = plan(&t2, &ch, &claude_only(), &[]).unwrap();
+        assert_eq!(quick_chat_for(&t2, &p), Some(json!({ "superior": null })));
+        t2.quick_chat = Some(json!({ "superior": "ghost", "effort": "" }));
+        assert_eq!(quick_chat_for(&t2, &p), Some(json!({ "superior": null, "effort": "" })));
+        t2.quick_chat = None;
+        assert_eq!(quick_chat_for(&t2, &p), None);
+    }
+
+    #[test]
+    fn a_saved_template_carries_quick_chat_unless_unticked() {
+        let rows = vec![row(1, None, "boss", "opus", 4.0, 10.0), row(2, Some(1), "dev", "sonnet", 2.0, 0.0)];
+        let q = json!({ "superior": "dev", "tier": "sonnet", "effort": "high" });
+        let v = from_rows("t", "T", None, &rows, None, Some(&q), &Include::default());
+        assert_eq!(v["quick_chat"], q);
+        let gone = json!({ "superior": "archived-one", "tier": "opus" });
+        let v = from_rows("t", "T", None, &rows, None, Some(&gone), &Include::default());
+        assert_eq!(v["quick_chat"], json!({ "superior": null, "tier": "opus" }));
+        let inc = Include { quick_chat: false, ..Include::default() };
+        assert!(from_rows("t", "T", None, &rows, None, Some(&q), &inc).get("quick_chat").is_none());
+        assert!(from_rows("t", "T", None, &rows, None, None, &Include::default()).get("quick_chat").is_none());
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, Some(&q), &Include::default())).unwrap();
+        assert!(validate(&t).is_empty());
     }
 
     #[test]

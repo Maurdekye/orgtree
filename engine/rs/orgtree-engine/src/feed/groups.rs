@@ -89,6 +89,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "default_account": settings["default_account"],
                 "permission_mode": settings["permission_mode"],
                 "default_effort": settings["default_effort"],
+                "quick_chat": settings.get("quick_chat").cloned().unwrap_or(Value::Null),
                 "effort_default": catalog::DEFAULT_EFFORT,
                 "prefer_reserve_default": engine.settings.get().get("prefer_reserve_default").and_then(Value::as_bool).unwrap_or(true),
                 "auto_resume": settings["auto_resume"],

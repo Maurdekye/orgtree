@@ -102,6 +102,9 @@ pub struct SaveBody {
     include: Include,
     #[serde(default)]
     replace: bool,
+    /// what Quick chat shows for this org now (the renderer keeps its memory)
+    #[serde(default)]
+    quick_chat: Option<Value>,
 }
 
 /// `POST /api/orgs/{slug}/template`: save the org's live layout as a template
@@ -131,7 +134,7 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
         charter: r.get(7), team_charter: r.get(8), scope: r.get(9),
     }).collect();
     let org_md = std::fs::read(e.cfg.workspace_dir(&o.slug).join("org.md")).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
-    let t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, &b.include);
+    let t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, b.quick_chat.as_ref(), &b.include);
     let parsed: templates::Template = serde_json::from_value(t.clone()).map_err(|x| ApiError::internal(x.to_string()))?;
     let problems = templates::validate(&parsed);
     let body = serde_json::to_string_pretty(&t).map_err(|x| ApiError::internal(x.to_string()))?;
