@@ -15,7 +15,9 @@
 // everything in this module is pure so the whole surface is testable
 // without Electron.
 
-export interface OrgActivityRow { slug: string; name: string; working: number; live: number }
+export interface OrgActivityRow { slug: string; name: string; working: number; live: number
+  /** open questions + unread urgent mail + attention-flagged tickets (engine `attention`) */
+  attention: number }
 export interface Rect { x: number; y: number; width: number; height: number }
 import { themeAccent, type VisualTheme } from '../../../packages/contracts/visual-theme'
 
@@ -43,7 +45,8 @@ export function orgActivityRows(raw: unknown): OrgActivityRow[] | null {
     // This scriptless popup can only open orgs. Retry lives in the renderer
     // org list, so unavailable orgs must not become tray navigation links.
     if (row.state === 'unavailable') continue
-    out.push({ slug: row.slug, name: row.name || row.slug, working, live: row.live as number })
+    const attention = Number.isInteger(row.attention) && (row.attention as number) > 0 ? row.attention as number : 0
+    out.push({ slug: row.slug, name: row.name || row.slug, working, live: row.live as number, attention })
   }
   return out
 }
@@ -95,9 +98,12 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     : rows.length === 0
       ? '<div class="empty">No organizations yet.</div>'
       : '<div class="list">' + rows.map(r =>
-        `<a class="row" href="${TRAY_NAV_PREFIX}${escapeHtml(r.slug)}"` +
-        ` title="${escapeHtml(r.name)} — ${r.working} active / ${r.live} hired">` +
-        `<span class="act">${r.working > 0 ? AUTORENEW_SVG : ''}</span>` +
+        `<a class="row${r.attention > 0 ? ' attn' : ''}" href="${TRAY_NAV_PREFIX}${escapeHtml(r.slug)}"` +
+        ` title="${escapeHtml(r.name)} — ${r.working} active / ${r.live} hired` +
+        `${r.attention > 0 ? ` — ${r.attention} need${r.attention === 1 ? 's' : ''} your attention` : ''}">` +
+        // an org with things waiting on the user: its number takes the spinner's cell
+        `<span class="act">${r.attention > 0 ? `<b class="badge">${r.attention > 99 ? '99+' : r.attention}</b>`
+          : r.working > 0 ? AUTORENEW_SVG : ''}</span>` +
         `<span class="name">${escapeHtml(r.name)}</span>` +
         `<span class="ct">${r.working}/${r.live}</span></a>`).join('') + '</div>'
   return '<!doctype html><html><head><meta charset="utf-8">' +
@@ -106,7 +112,7 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     `:root{color-scheme:dark;--accent:${accent}}*{box-sizing:border-box;margin:0;padding:0}` +
     'html,body{background:#181818;color:#dedede;overflow-x:hidden}' +
     'body{font:13px \'Segoe UI\',system-ui,sans-serif;border:1px solid #333;padding:5px}' +
-    `.list{display:grid;grid-template-columns:18px minmax(0,1fr) max-content;line-height:${TRAY_ROW_H - 10}px}` +
+    `.list{display:grid;grid-template-columns:minmax(18px,max-content) minmax(0,1fr) max-content;line-height:${TRAY_ROW_H - 10}px}` +
     '.row{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:center;' +
     'border-radius:6px;padding:5px 0;color:inherit;text-decoration:none;cursor:default}' +
     '.row>span{padding:0 5px;white-space:nowrap;min-width:0}' +
@@ -115,6 +121,10 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     '.name{overflow:hidden;text-overflow:ellipsis}' +
     '.ct{text-align:right;font-variant-numeric:tabular-nums;color:#9a9a9a}' +
     '.act{display:inline-flex;align-items:center;justify-content:center}' +
+    '.row.attn{background:color-mix(in srgb,var(--accent) 14%,transparent);color:#fff}' +
+    '.row.attn .name{font-weight:600}' +
+    '.badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;' +
+    'border-radius:8px;background:var(--accent);color:#181818;font-size:10.5px;font-weight:700;line-height:1}' +
     '.spin{display:inline-block;line-height:1;color:var(--accent);animation:actspin 1.6s linear infinite;flex:none}' +
     '@keyframes actspin{to{transform:rotate(360deg)}}' +
     `.empty{height:${TRAY_ROW_H}px;display:flex;align-items:center;padding:0 7px;` +

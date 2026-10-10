@@ -17,8 +17,8 @@ await build({ entryPoints: ['apps/desktop/main/traylist.ts'], outfile: out, bund
 const { orgActivityRows, trayListHtml, trayNavigationSlug, popupBounds, TRAY_NAV_PREFIX, TRAY_ROW_H, TRAY_LIST_W, AUTORENEW_SVG } = req(out)
 
 const rows = [
-  { slug: 'alpha', name: 'Alpha Org', working: 2, live: 5 },
-  { slug: 'idle-org', name: 'Idle', working: 0, live: 3 },
+  { slug: 'alpha', name: 'Alpha Org', working: 2, live: 5, attention: 0 },
+  { slug: 'idle-org', name: 'Idle', working: 0, live: 3, attention: 0 },
 ]
 
 test('org rows validate the admin listing and refuse malformed payloads whole', () => {
@@ -28,10 +28,10 @@ test('org rows validate the admin listing and refuse malformed payloads whole', 
   ]), rows, 'extra listing fields pass through as the two tray counts')
   // a deliberately working-less row reads as idle
   assert.deepEqual(orgActivityRows([{ slug: 'pub', name: 'P', live: 1 }]),
-    [{ slug: 'pub', name: 'P', working: 0, live: 1 }])
+    [{ slug: 'pub', name: 'P', working: 0, live: 1, attention: 0 }])
   // an empty name falls back to the slug rather than a blank row
   assert.deepEqual(orgActivityRows([{ slug: 'x', name: '', live: 0 }]),
-    [{ slug: 'x', name: 'x', working: 0, live: 0 }])
+    [{ slug: 'x', name: 'x', working: 0, live: 0, attention: 0 }])
   assert.deepEqual(orgActivityRows([]), [])
   // all-or-nothing: one bad row must not silently drop organizations
   for (const bad of [null, {}, 'x', [null], [{ name: 'n', live: 1 }],
@@ -43,7 +43,17 @@ test('org rows validate the admin listing and refuse malformed payloads whole', 
   }
   // a negative or fractional working count never becomes a spinner claim
   assert.deepEqual(orgActivityRows([{ slug: 'a', name: 'n', live: 1, working: -2 }]),
-    [{ slug: 'a', name: 'n', working: 0, live: 1 }])
+    [{ slug: 'a', name: 'n', working: 0, live: 1, attention: 0 }])
+})
+
+test('an org with things waiting on the user is lit and shows its number in place of the spinner', () => {
+  const [busy] = orgActivityRows([{ slug: 'q', name: 'Q', working: 2, live: 4, attention: 3 }])
+  assert.equal(busy.attention, 3)
+  const html = trayListHtml([busy, { ...busy, slug: 'calm', name: 'Calm', working: 0, attention: 0 }])
+  assert.match(html, /<a class="row attn" href="[^"]*q"[^>]*3 need your attention">.*?<b class="badge">3<\/b>/)
+  assert.doesNotMatch(html.split('open/calm')[1] ?? '', /badge">|row attn/)
+  assert.equal((html.match(/<svg class="spin"/g) ?? []).length, 0, 'the number replaces the spinner')
+  assert.equal(orgActivityRows([{ slug: 'a', name: 'n', live: 1, attention: -1 }])[0].attention, 0)
 })
 
 test('unavailable orgs never become tray navigation links', () => {

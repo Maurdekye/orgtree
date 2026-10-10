@@ -96,9 +96,9 @@ test('the sidebar rows and the tray tooltip carry the same n/m active-hired voca
   // column — and since `show-current-organization-statuses-immediately` it is
   // ALSO gated on the snapshot being current, because an animation claiming a
   // turn is executing NOW may not run on a remembered count
-  assert.match(rows, /\{current && \(o\.working \?\? 0\) > 0 &&\s+<span className="working-ct"/)
+  assert.match(rows, /\{attn === 0 && current && \(o\.working \?\? 0\) > 0 &&\s+<span className="working-ct"/)
   const css = read('apps/desktop/renderer/src/styles.css')
-  assert.match(css, /\.org \{\r?\n  display: grid; grid-template-columns: 14px minmax\(0, 1fr\) max-content auto;/)
+  assert.match(css, /\.org \{\r?\n  display: grid; grid-template-columns: minmax\(14px, max-content\) minmax\(0, 1fr\) max-content auto;/)
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /\$\{stats\.activeAgents\} active \/ \$\{stats\.totalAgents\} hired/)
   // and the backend total the tooltip sums is HIRED agents, not every node
