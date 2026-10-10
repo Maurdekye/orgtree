@@ -18,7 +18,7 @@ module.exports = async (page, { args }) => {
   const items = await page.eval(() => [...document.querySelectorAll('.ctxmenu[role="menu"] button.ctxmenu-item')].map((b) => (b.innerText || '').trim()))
   out.menu = items
   const desk = items.find((t) => /desk/i.test(t))
-  if (desk) await page.click({ selector: 'button.ctxmenu-item', text: `^${desk.replace(/[.*+?^${}()|[\]\]/g, (c) => '\' + c)}$`, regex: true })
+  if (desk) await page.click({ selector: 'button.ctxmenu-item', text: '^' + desk.replace(/[^A-Za-z0-9 ]/g, '.') + '$', regex: true })
   await page.waitFor(`button[aria-label="settings for ${args.agent}"]`, { timeout: 30000 })
   await page.click(`button[aria-label="settings for ${args.agent}"]`)
   await page.waitFor('.effort-bar', { timeout: 20000 })
