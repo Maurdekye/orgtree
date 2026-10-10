@@ -528,8 +528,8 @@ pub async fn transfers(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
     let value = match action {
         "list" => crate::net::control::inspect(engine,actor.org_id,Some(actor.id),None).await?,
         "get" => crate::net::control::inspect(engine,actor.org_id,Some(actor.id),Some(need_str(args,"id")?)).await?,
-        "retry" | "cancel" => crate::net::control::change(engine,actor.org_id,Some(actor.id),need_str(args,"id")?,action).await?,
-        _ => crate::refuse!(BadRequest,"action must be list, get, retry or cancel"),
+        "retry" | "cancel" | "remove" => crate::net::control::change(engine,actor.org_id,Some(actor.id),need_str(args,"id")?,action).await?,
+        _ => crate::refuse!(BadRequest,"action must be list, get, retry, cancel or remove"),
     };
     Done::json(&value)
 }

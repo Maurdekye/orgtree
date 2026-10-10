@@ -48,13 +48,29 @@ pub(super) async fn running(e: &Engine, id: &str) -> Result<bool> {
 
 #[logged]
 pub async fn change(e: &Engine, org: i64, actor: Option<i64>, id: &str, action: &str) -> Result<Value> {
-    if !matches!(action,"retry"|"cancel") { crate::refuse!(BadRequest,"action must be retry or cancel"); }
+    if !matches!(action,"retry"|"cancel"|"remove") { crate::refuse!(BadRequest,"action must be retry, cancel or remove"); }
     let visible = inspect(e,org,actor,Some(id)).await?;
     let upload = visible["transfers"][0]["direction"] == "upload";
     // Retrying waits until the previous request has actually dropped its file
     // handles. A cancelled request cannot race the next writer on Windows.
-    if action == "retry" && e.net.transfer_stops.pin().contains_key(id) {
+    if action != "cancel" && e.net.transfer_stops.pin().contains_key(id) {
         crate::refuse!(BadRequest,"transfer is still stopping; retry in a moment");
+    }
+    if action == "remove" {
+        if !upload { crate::refuse!(BadRequest,"only a failed or cancelled outgoing file can be removed; incoming messages keep every file"); }
+        let mut c = e.db.get().await?;
+        let tx = c.transaction().await?;
+        let Some(row) = tx.query_opt("UPDATE ot.net_transfers t SET state='removed',error=NULL,updated_at=now() FROM ot.org_inbox i WHERE t.id=$1 AND t.org_id=$2 AND t.state IN ('failed','cancelled') AND i.id=t.inbox_id AND i.state='queued' RETURNING t.inbox_id,t.file_no", &[&id,&org]).await? else {
+            crate::refuse!(BadRequest,"only a failed or cancelled outgoing file can be removed");
+        };
+        // Keep the manifest indices stable for all remaining jobs. The marked
+        // entry is retained privately for auditing, excluded from presentation.
+        let path = vec![row.get::<_,i32>(1).to_string(), "transfer_removed".into()];
+        tx.execute("UPDATE ot.org_inbox SET attachments=jsonb_set(attachments,$2,'true'::jsonb),last_err=NULL WHERE id=$1", &[&row.get::<_,i64>(0),&path]).await?;
+        tx.commit().await?;
+        changes::notify_id(e,org,vec![Change::OrgInbox]);
+        kick(e);
+        return inspect(e,org,actor,Some(id)).await;
     }
     let sql = match (upload,action) {
         (true,"cancel") => "UPDATE ot.net_transfers SET state='cancelled',error='cancelled intentionally; retry or remove this file to send',updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('queued','retry_wait','preparing','uploading','confirming','failed','paused')",

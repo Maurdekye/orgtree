@@ -39,7 +39,8 @@ pub fn entry(r: &Value) -> Value {
     if let Some(e) = r.get("last_err").filter(|v| !v.is_null()) {
         o.insert("last_err".into(), e.clone());
     }
-    let att = r.get("attachments").cloned().unwrap_or(json!([]));
+    let att = Value::Array(r["attachments"].as_array().into_iter().flatten()
+        .filter(|a| a["transfer_removed"] != true).cloned().collect());
     if att.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
         o.insert("attachments".into(), att);
     }

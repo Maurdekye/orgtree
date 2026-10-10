@@ -61,6 +61,7 @@ pub(super) async fn ready(engine: &Engine, org: i64, inbox: i64, hub: &str, addr
     let mut ids = Vec::new();
     for r in rows {
         let state: String = r.get(0);
+        if state == "removed" { continue; }
         if r.get::<_, String>(2) != address {
             return Err(permanent("the transfer's hub address changed; restore that hub or retry on the new hub"));
         }

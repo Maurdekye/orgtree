@@ -8,7 +8,7 @@ CREATE TABLE ot.net_transfers (
     address text NOT NULL,
     source jsonb NOT NULL,
     state text NOT NULL DEFAULT 'queued' CHECK (state IN
-        ('queued','preparing','uploading','confirming','retry_wait','paused','complete','failed','cancelled')),
+        ('queued','preparing','uploading','confirming','retry_wait','paused','complete','failed','cancelled','removed')),
     total bigint NOT NULL CHECK (total >= 0),
     processed bigint NOT NULL DEFAULT 0 CHECK (processed >= 0),
     confirmed bigint NOT NULL DEFAULT 0 CHECK (confirmed >= 0),
