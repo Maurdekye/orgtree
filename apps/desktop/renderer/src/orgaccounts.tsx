@@ -6,6 +6,7 @@
 // The engine enforces it everywhere it picks an account; this only edits the
 // list. Saves at once, like Autonomy: a refusal is instant feedback.
 import { useCallback, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { getOrgAccounts, saveSettings } from './api'
 import type { OrgAccountLane } from './types'
 import { SetToggle } from './canvas/settingskit'
@@ -65,4 +66,39 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
       })}
     </div>
   )
+}
+
+/** The Usage panels opened from an org window (user 2026-10-10): that org's
+ *  allowed accounts by default, with a "Show all accounts" toggle that brings
+ *  back the others greyed and labelled "not used by this org". Home (no org)
+ *  shows every account and no toggle. Lanes are the board's names. */
+export function useOrgLaneFilter(org: string | null | undefined) {
+  const [off, setOff] = useState<Set<string> | null>(null)
+  const [showAll, setShowAll] = useState(false)
+  useEffect(() => {
+    if (!org) { setOff(null); return }
+    let live = true
+    getOrgAccounts(org)
+      .then((r) => { if (live) setOff(new Set(r.accounts.filter((l) => !l.allowed).map((l) => l.id))) })
+      .catch(() => { if (live) setOff(null) })
+    return () => { live = false }
+  }, [org])
+  /** 'shown', 'greyed' (switched off, but the toggle is on), or 'hidden' */
+  const view = (lane: string): 'shown' | 'greyed' | 'hidden' =>
+    !off?.has(lane) ? 'shown' : showAll ? 'greyed' : 'hidden'
+  const toggle = org && off && off.size > 0
+    ? <label className="org-lanes-toggle dim">
+        <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+        {' '}Show all accounts ({off.size} not used by this org)
+      </label>
+    : null
+  return { view, toggle }
+}
+
+/** A card the toggle brought back: greyed, saying why. */
+export function NotUsedHere({ children }: { children: ReactNode }) {
+  return <div className="org-lane-off" aria-label="not used by this org">
+    <div className="org-lane-note dim">not used by this org</div>
+    {children}
+  </div>
 }

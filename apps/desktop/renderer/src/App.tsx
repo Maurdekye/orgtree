@@ -141,7 +141,7 @@ import { bindRoomSocket } from './streamrooms'
 // every tier picker reads the runtime tier registries during render: fill
 // them as the providers payload arrives, before any consumer re-renders
 onAppValue('providers', syncProviderRegistries)
-import { OrgAccountsTab } from './orgaccounts'
+import { NotUsedHere, OrgAccountsTab, useOrgLaneFilter } from './orgaccounts'
 
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
@@ -1840,10 +1840,10 @@ export default function App() {
         <DefaultsPanel toast={toast} close={() => setShowDefaults(false)} />
       )}
       {showUsage && (
-        <UsageModal toast={toast} close={() => setShowUsage(false)} />
+        <UsageModal toast={toast} org={slug} close={() => setShowUsage(false)} />
       )}
       {showUsageHistory && (
-        <UsageHistoryModal close={() => setShowUsageHistory(false)} />
+        <UsageHistoryModal org={slug} close={() => setShowUsageHistory(false)} />
       )}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}
@@ -2136,7 +2136,10 @@ function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; 
   </div>
 }
 
-export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn }) {
+export function UsageModal({ close, toast, org }: { close: () => void; toast: ToastFn; org?: string | null }) {
+  // opened from an org window: that org's accounts, the rest behind a toggle
+  // (user 2026-10-10); from Home, every account
+  const lanes = useOrgLaneFilter(org)
   // ⚠ EVERY registered account, primary first then fallbacks in priority
   // order (user ruling 2026-08-25) — one section of bars per account. The
   // bar markup itself lives in UsageBars (canvas/accounts.tsx) so this modal
@@ -2203,9 +2206,9 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
    *  keeps its component identity — and with it the polled readout, the
    *  in-flight latch and the age ticker inside it. Grouping must not cost a
    *  refetch. */
-  const cards: { provider: string; node: ReactElement }[] = []
+  const cards: { provider: string; lane: string; node: ReactElement }[] = []
   if (shown.claude && (claude.value || claude.failure || claude.pending)) {
-    cards.push({ provider: 'claude', node: <div className="usage-acct" key="host:claude">
+    cards.push({ provider: 'claude', lane: 'claude/primary', node: <div className="usage-acct" key="host:claude">
       <UsageAcctHead label="Claude Code" parts={[usageIdentity('default',
         claude.value?.email || primaryEmail(registry ?? [], 'claude', hostIdentity),
         multipleAccounts('claude'))]}
@@ -2222,7 +2225,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
     </div> })
   }
   if (shown.openai && (codex.value || codex.failure || codex.pending)) {
-    cards.push({ provider: 'openai', node: <div className="usage-acct" key={'host:openai:' + (codex.value?.account ?? 'codex')}>
+    cards.push({ provider: 'openai', lane: 'openai/primary', node: <div className="usage-acct" key={'host:openai:' + (codex.value?.account ?? 'codex')}>
       <UsageAcctHead label={codex.value?.provider ?? 'Codex'}
         parts={[usageIdentity('default', hostEmail('openai', codex.value), multipleAccounts('openai'))]}
         provider="Codex" state={codex} />
@@ -2234,7 +2237,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
     </div> })
   }
   if (shown.google && (agy.value || agy.failure || agy.pending)) {
-    cards.push({ provider: 'google', node: <div className="usage-acct" key={'host:google:' + (agy.value?.account ?? 'antigravity')}>
+    cards.push({ provider: 'google', lane: 'google/primary', node: <div className="usage-acct" key={'host:google:' + (agy.value?.account ?? 'antigravity')}>
       <UsageAcctHead label={agy.value?.provider ?? 'Antigravity'}
         parts={[usageIdentity('default', hostEmail('google', agy.value), multipleAccounts('google'))]}
         provider="Antigravity" state={agy} />
@@ -2251,7 +2254,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
     </div> })
   }
   if (shown.openrouter && (orr.value || orr.failure || orr.pending)) {
-    cards.push({ provider: 'openrouter', node: <div className="usage-acct" key={'host:openrouter:' + (orr.value?.account ?? 'openrouter')}>
+    cards.push({ provider: 'openrouter', lane: 'openrouter', node: <div className="usage-acct" key={'host:openrouter:' + (orr.value?.account ?? 'openrouter')}>
       <UsageAcctHead label={orr.value?.provider ?? 'OpenRouter'}
         parts={[orr.value?.label]} provider="OpenRouter" state={orr} />
       {orr.value
@@ -2261,7 +2264,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   }
   for (const srv of (langServerDoc(langservers)?.servers ?? []).filter((x) => x.enabled)) {
     const offered = Object.values(srv.models).filter((m) => m.offered).map((m) => m.label)
-    cards.push({ provider: 'langserver', node: <div className="usage-acct" key={'langserver:' + srv.id}>
+    cards.push({ provider: 'langserver', lane: 'langserver:' + srv.id, node: <div className="usage-acct" key={'langserver:' + srv.id}>
       <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">Language Server</span>
         <span className="dim"> · {srv.label}</span></span></div>
       <div className="dim">local · no usage limit · {srv.max_agents} agent{srv.max_agents === 1 ? '' : 's'} at once
@@ -2269,7 +2272,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
     </div> })
   }
   for (const r of registered) {
-    cards.push({ provider: r.provider, node: <RegisteredAccountSection key={r.id}
+    cards.push({ provider: r.provider, lane: r.id, node: <RegisteredAccountSection key={r.id}
       row={r} multiple={multipleAccounts(r.provider)} /> })
   }
   return (
@@ -2285,7 +2288,12 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           && !(shown.openrouter && (orr.value || orr.failure || orr.pending))
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
-          {groupByProvider(cards).map((c) => c.node)}
+          {lanes.toggle}
+          {groupByProvider(cards).map((c) => {
+            const v = lanes.view(c.lane)
+            return v === 'hidden' ? null
+              : v === 'greyed' ? <NotUsedHere key={'off:' + c.lane}>{c.node}</NotUsedHere> : c.node
+          })}
           {registryError && !registry && <div className="dim">
             registered accounts unavailable: {registryError}</div>}
           </div>}

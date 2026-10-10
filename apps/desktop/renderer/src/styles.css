@@ -8251,3 +8251,9 @@ main:has(> .orgbar.native-header) > .error {
 .resolved-row.tone-no .resolved-mark, .resolved-row.tone-no .resolved-verdict { color: var(--bad); }
 .resolved-row.tone-part .resolved-mark, .resolved-row.tone-part .resolved-verdict { color: var(--warn); }
 .resolved-row.tone-skip { opacity: .6; }
+
+/* accounts an org does not use, brought back by "Show all accounts" (user 2026-10-10) */
+.org-lanes-toggle { display: block; margin: 4px 0 10px; font-size: 12px; }
+.org-lane-off { opacity: .45; }
+.org-lane-off .org-lane-note { font-size: 11px; font-style: italic; margin-bottom: 2px; }
+.org-accounts-group { margin-top: 10px; }
