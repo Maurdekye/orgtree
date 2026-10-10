@@ -494,7 +494,9 @@ export function HireDefaultsTab({ tree, slug, toast, close,
           </select>
         </SetRow>
         <SetRow label="account for NEW agents"
-          hint={account ? undefined : "Uses each hire's default account."}>
+          hint={account
+            ? 'new agents are hired on this account unless a hire picks another; existing agents keep theirs'
+            : "Uses each hire's default account."}>
           <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
             host={hostIdentity}
             label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />

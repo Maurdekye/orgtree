@@ -7944,8 +7944,18 @@ main:has(> .orgbar.native-header) > .error {
 .sq:has(.next-turn) .sq-head { flex-shrink: 0; }
 .sq:not(.desk) .next-turn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 
-/* an account picker inside a settings row: no extra margin, narrower column */
-.set-control .account-choice { margin: 0; width: min(22rem, 100%); }
+/* an account picker inside a settings row: no extra margin, and a FIXED
+   width. It was min(22rem, 100%) — a percentage of an auto-sized grid column,
+   so a longer account label (or the "Use machine default" button appearing
+   beside it) widened the column past the panel edge and cut the button off.
+   A long label now ellipsizes (the select's title carries it whole), and the
+   row's control wraps the button under the picker before anything is cut. */
+.set-control .account-choice { margin: 0; width: 17rem; max-width: 100%; flex: 0 1 auto; }
+.set-control:has(> .account-choice) { flex-wrap: wrap; justify-content: flex-end;
+  row-gap: 6px; min-width: 0; max-width: 100%; }
+@media (max-width: 460px) {
+  .set-control:has(> .account-choice) { justify-content: flex-start; }
+}
 .set-foot { margin: 8px 0 0; font-size: 11.5px; }
 .set-control .account-choice-identity { display: none; } /* the picker already shows it; kept in the DOM as its description */
 .host-hub .set-block p { margin: 0; }
