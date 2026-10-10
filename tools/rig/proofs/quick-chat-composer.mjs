@@ -86,11 +86,20 @@ export default async function (rig) {
   const [agent] = rig.sql(`SELECT a.tier, b.name AS parent, a.scratch_dir FROM ot.agents a LEFT JOIN ot.agents b ON b.id = a.parent_id WHERE a.name = '${name}'`)
   p.check(`the agent is hired under the preview's name (${name}), haiku, under carol`,
     agent && agent.tier === 'haiku' && agent.parent === 'carol', agent)
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id WHERE a.name = '${name}'`).length >= 1,
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id WHERE a.name = '${name}' AND m.sender = '@user'`).length >= 1,
     { what: 'its first mail', timeout: 30000 }).catch(() => {})
   const mail = rig.sql(`SELECT m.body, m.sender, m.attachments::text AS att FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
-                         WHERE a.name = '${name}' ORDER BY m.created_at`)
-  p.check('its first mail is the prompt, from the user', mail[0]?.body === PROMPT && mail[0]?.sender === '@user', mail)
+                         WHERE a.name = '${name}' AND m.sender = '@user' ORDER BY m.created_at`)
+  p.check('its first mail from the user is the prompt', mail[0]?.body === PROMPT && mail[0]?.sender === '@user', mail)
+  // the user who started it can be answered: a user audience from the hire,
+  // before its first turn (user 2026-10-10)
+  const aud = rig.sql(`SELECT au.granted_at::text AS at, (SELECT min(t.started_at)::text FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.name = '${name}') AS first_turn,
+                        au.granted_at <= coalesce((SELECT min(t.started_at) FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.name = '${name}'), now()) AS before
+                        FROM ot.audiences au WHERE au.grantee = '${name}' AND au.grantor = '@user' AND au.revoked_at IS NULL`)
+  p.check('it holds a user audience from the hire, granted before its first turn', aud.length === 1 && aud[0].before === true, aud)
+  const reply = await rig.tool(name, 'orgtree_message', { to: 'user', body: 'QC-REPLY: hello, I am on it' })
+  const toUser = rig.sql(`SELECT state, recipient_kind FROM ot.mail WHERE sender = '${name}' AND body LIKE 'QC-REPLY%'`)
+  p.check('its reply to the user is accepted and lands in the user’s inbox', reply.ok && toUser.length === 1 && toUser[0].recipient_kind === 'user', { text: reply.text, toUser })
   let att = []
   try { att = JSON.parse(mail[0]?.att ?? '[]') } catch { /* checked below */ }
   p.check('the first mail carries both files', JSON.stringify(att.map(a => a.name)) === JSON.stringify(FILES.map(f => f.name)), att)
