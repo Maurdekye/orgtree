@@ -45,6 +45,20 @@ module.exports = async (page, { args }) => {
   await page.click({ x: r.x + r.w * 0.8, y: r.y })
   out.agentAfterClear = await bars()
   await page.screenshot('agent-settings-cleared')
+  // a model with fewer levels (or none): switch the model select and read the bar
+  out.staffing = await page.eval(async (org) => { try { const r = await fetch(`/api/orgs/${encodeURIComponent(org)}/staffing-options`); const j = await r.json(); return (j.tiers || []).map((t) => [t.tier, (t.efforts || []).length]) } catch (e) { return String(e) } }, args.org)
+  const odd = Array.isArray(out.staffing) ? out.staffing.filter(([, n]) => n < 5).sort((a, b) => b[1] - a[1]) : []
+  for (const [tier, n] of odd.slice(0, 2)) {
+    await page.eval((t) => {
+      const sel = document.querySelector('select.model-switch')
+      const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
+      set.call(sel, t); sel.dispatchEvent(new Event('change', { bubbles: true }))
+    }, tier)
+    await page.sleep(600)
+    await page.eval(() => [...document.querySelectorAll('.effort-bar')].pop()?.scrollIntoView({ block: 'center' }))
+    await page.screenshot('model-' + tier + '-' + n)
+    ;(out.limited = out.limited || {})[tier] = await page.eval(() => { const b = [...document.querySelectorAll('.effort-bar')].pop(); const t = b.querySelector('.effort-bar-track'); return { dots: b.querySelectorAll('.effort-bar-dot').length, disabled: t.getAttribute('aria-disabled'), title: b.title, label: b.querySelector('.effort-bar-label')?.innerText } })
+  }
   await page.press('Escape')
   // 2. org default in App settings
   await page.sleep(500)

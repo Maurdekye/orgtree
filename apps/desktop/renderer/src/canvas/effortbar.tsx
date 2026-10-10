@@ -18,7 +18,7 @@ export function nearestLevel(frac: number, count = EFFORT_LEVELS.length): number
   return Math.round(f * (count - 1))
 }
 
-export function EffortBar({ value, level, label, title, onSet, disabled, compact, inheritLabel }: {
+export function EffortBar({ value, level, label, title, onSet, disabled: disabledProp, compact, inheritLabel, levels: levelsProp }: {
   /** the level set on this agent/form itself; '' = inheriting */
   value: string
   /** the level that will actually be used (value, else the inherited one) */
@@ -34,46 +34,61 @@ export function EffortBar({ value, level, label, title, onSet, disabled, compact
   inheritLabel?: string
   /** one row, no label above (Quick chat's header): the level is in the tooltip and aria-valuetext */
   compact?: boolean
+  /** the levels the model supports (a prefix-ordered subset of EFFORT_LEVELS); [] = no effort setting, the bar is
+   *  disabled; undefined = all of them. A stored level above the top shows clamped to the top. */
+  levels?: readonly string[]
 }) {
+  const LV = levelsProp ? EFFORT_LEVELS.filter((l) => levelsProp.includes(l)) : EFFORT_LEVELS
+  const none = LV.length === 0
+  const disabled = disabledProp || none
+  const clamp = (v: string): number => {
+    const i = LV.indexOf(v)
+    if (i >= 0) return i
+    const rank = EFFORT_LEVELS.indexOf(v)
+    if (rank < 0 || none) return -1
+    let best = 0
+    LV.forEach((l, j) => { if (EFFORT_LEVELS.indexOf(l) <= rank) best = j })
+    return best
+  }
   const track = useRef<HTMLDivElement | null>(null)
-  const pinned = EFFORT_LEVELS.indexOf(value)
-  const idx = pinned >= 0 ? pinned : EFFORT_LEVELS.indexOf(level)
+  const pinned = clamp(value)
+  const idx = pinned >= 0 ? pinned : clamp(level)
   const [hover, setHover] = useState<number | null>(null)
   const [drag, setDrag] = useState<number | null>(null)
   const moved = useRef(false)
   const at = (e: PointerEvent): number => {
     const r = track.current?.getBoundingClientRect()
     if (!r || r.width <= 20) return Math.max(idx, 0)
-    return nearestLevel((e.clientX - r.left - 10) / (r.width - 20))
+    return nearestLevel((e.clientX - r.left - 10) / (r.width - 20), LV.length)
   }
   const preview = drag ?? hover
   const shown = drag ?? idx
-  const name = EFFORT_LEVELS[shown] ?? ''
-  const text = preview !== null && EFFORT_LEVELS[preview]
-    ? `Effort (${EFFORT_LEVELS[preview]})`
+  const name = LV[shown] ?? ''
+  const text = none ? 'No effort setting' : preview !== null && LV[preview]
+    ? `Effort (${LV[preview]})`
     : label ?? (pinned < 0 && inheritLabel ? `${inheritLabel}${name ? ` (${name})` : ''}` : `Effort${name ? ` (${name})` : ''}`)
   const key = (e: KeyboardEvent) => {
     if (disabled) return
     const from = idx >= 0 ? idx : 0
     let next: number | null = null
     if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = Math.max(0, from - 1)
-    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = Math.min(EFFORT_LEVELS.length - 1, from + 1)
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = Math.min(LV.length - 1, from + 1)
     else if (e.key === 'Home') next = 0
-    else if (e.key === 'End') next = EFFORT_LEVELS.length - 1
+    else if (e.key === 'End') next = LV.length - 1
     else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); if (pinned >= 0) onSet(''); return }
     if (next === null) return
     e.preventDefault()
-    if (next !== pinned) onSet(EFFORT_LEVELS[next]!)
+    if (next !== pinned) onSet(LV[next]!)
   }
-  const pct = (i: number) => `calc(10px + (100% - 20px) * ${i / (EFFORT_LEVELS.length - 1)})`
+  const pct = (i: number) => `calc(10px + (100% - 20px) * ${LV.length > 1 ? i / (LV.length - 1) : 0})`
   return (
-    <div className={'effort-bar' + (compact ? ' compact' : '') + (disabled ? ' disabled' : '') + (drag !== null ? ' dragging' : '')
-      + (pinned < 0 ? ' inherited' : '')} title={compact && preview !== null ? text : title}>
+    <div className={'effort-bar' + (none ? ' none' : '') + (compact ? ' compact' : '') + (disabled ? ' disabled' : '') + (drag !== null ? ' dragging' : '')
+      + (pinned < 0 ? ' inherited' : '')} title={none ? 'This model has no effort setting' : compact && preview !== null ? text : title}>
       {!compact && <div className="effort-bar-label">{text}</div>}
       <div className="effort-bar-track" ref={track} role="slider" tabIndex={disabled ? -1 : 0}
-        aria-label="Thinking effort" aria-valuemin={0} aria-valuemax={EFFORT_LEVELS.length - 1}
+        aria-label="Thinking effort" aria-valuemin={0} aria-valuemax={LV.length - 1}
         aria-valuenow={Math.max(idx, 0)} aria-valuetext={name || 'not set'}
-        aria-disabled={disabled || undefined} data-effort-pinned={pinned >= 0 ? EFFORT_LEVELS[pinned] : ''}
+        aria-disabled={disabled || undefined} data-effort-pinned={pinned >= 0 ? LV[pinned] : ''}
         onKeyDown={key}
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return
@@ -95,15 +110,15 @@ export function EffortBar({ value, level, label, title, onSet, disabled, compact
           e.currentTarget.releasePointerCapture?.(e.pointerId)
           setDrag(null)
           if (i === pinned && !moved.current) onSet('')
-          else if (i !== pinned) onSet(EFFORT_LEVELS[i]!)
+          else if (i !== pinned) onSet(LV[i]!)
         }}
         onPointerCancel={() => setDrag(null)}>
         <span className="effort-bar-rail" />
-        {shown >= 0 && <span className="effort-bar-fill" style={{ width: `calc(10px + (100% - 20px) * ${shown / (EFFORT_LEVELS.length - 1)})` }} />}
-        {EFFORT_LEVELS.map((l, i) => (
+        {shown >= 0 && <span className="effort-bar-fill" style={{ width: `calc(10px + (100% - 20px) * ${(LV.length > 1 ? shown / (LV.length - 1) : 0)})` }} />}
+        {LV.map((l, i) => (
           <span key={l} className={'effort-bar-dot' + (i < shown ? ' below' : '')} style={{ left: pct(i) }} data-level={l} />
         ))}
-        {shown >= 0 && <span className="effort-bar-pip" style={{ left: pct(shown) }} data-level={EFFORT_LEVELS[shown]} />}
+        {shown >= 0 && <span className="effort-bar-pip" style={{ left: pct(shown) }} data-level={LV[shown]} />}
       </div>
     </div>
   )

@@ -5809,7 +5809,9 @@ svg.MuiSvgIcon-root {
 }
 .effort-bar.compact .effort-bar-track { width: 96px; height: 100%; min-height: 24px; }
 .effort-bar.compact { flex-direction: row; align-self: stretch; }
-.effort-bar-track:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--provider-accent, var(--accent)) 55%, transparent); }
+.effort-bar-track:focus-visible { box-shadow: 0 0 0 2px rgba(255, 255, 255, .28); }  /* keyboard focus only, neutral (never the orange accent) */
+.effort-bar.none { filter: grayscale(1); }
+.effort-bar.none .effort-bar-label { opacity: .6; }
 .effort-bar.disabled .effort-bar-track { cursor: default; opacity: .5; }
 .effort-bar-rail, .effort-bar-fill {
   position: absolute; top: 50%; height: 20px; margin-top: -10px; border-radius: 10px;

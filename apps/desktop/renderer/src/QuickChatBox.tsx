@@ -21,6 +21,7 @@ import { AgentTray, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
 import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
+import { tierEffortLevels } from './canvas/staffingoptions'
 import {
   ALL_TIER_SEAT, hireOf, hireTierChoices, TIER_LETTER, tierLabel, type CanvasNode,
 } from './canvas/shared'
@@ -135,7 +136,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
         const name = quickChatName(message, n => taken.has(n))
         let born: string
         try {
-          const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort, superior, grant })
+          const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = tierEffortLevels(slug, tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant })
           const r = await op(carry.length ? bare : { ...bare, kickoff, kickoff_kind }, { quiet: true })
           born = typeof r?.node === 'string' && r.node ? r.node : name
         } catch (e) {
@@ -195,7 +196,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
         {supNode?.tier && <TierIcon tier={supNode.tier} />}
         <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
       </button>
-      <EffortBar compact value={effort} level={effort || orgDefault}
+      <EffortBar compact value={effort} level={effort || orgDefault} levels={tierEffortLevels(slug, tier)}
         title={`effort for the new agent: ${effort || `org default${orgDefault ? ` (${orgDefault})` : ''}`}`
           + ' — click the chosen level again for the org default'}
         onSet={rememberEffort} disabled={busy} />

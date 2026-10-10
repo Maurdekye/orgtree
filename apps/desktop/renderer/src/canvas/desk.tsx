@@ -18,6 +18,7 @@ import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge } from './effort'
 import { EffortBar } from './effortbar'
+import { tierEffortLevels } from './staffingoptions'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -4166,7 +4167,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             if (enterKey.sends(e)) { e.preventDefault(); send() }
           }} />
         <EffortButton value={node.scope?.effort ?? ''}
-          effective={node.effort_effective ?? ''}
+          effective={node.effort_effective ?? ''} levels={tierEffortLevels(slug, node.tier)}
           onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
             // Quick chat's effort follows the last level selected by hand
             .then((r) => { rememberEffort(lvl); toast([effortChangeToast(node.id, lvl, r)]) })
@@ -4978,8 +4979,8 @@ function SysLine({ m }: { m: ChatMessage }) {
 // not for haiku — so it worked on the agent I happened to test and nowhere
 // else. The lesson is in §7 of docs/state-architecture-review.md: read the
 // value that CAUSES the behaviour, not one that correlates with it.)
-function EffortButton({ value, effective, onSet }:
-{ value: string; effective?: string
+function EffortButton({ value, effective, levels, onSet }:
+{ value: string; effective?: string; levels?: string[]
   onSet: (lvl: string) => Promise<unknown> | void }) {
   const [open, setOpen] = useState(false)
   // OPTIMISTIC (user report 2026-08-03: "a lag of around 3-5 seconds when i
@@ -5032,7 +5033,7 @@ function EffortButton({ value, effective, onSet }:
       </button>
       {open && (
         <span className="eff-pop">
-          <EffortSwitch value={pending ?? value} level={shown}
+          <EffortSwitch value={pending ?? value} level={shown} levels={levels}
             why={(pending ?? value) ? 'set here' : 'inherited'}
             onSet={(lvl) => {
               setPending(lvl)
@@ -5051,15 +5052,15 @@ function EffortButton({ value, effective, onSet }:
   )
 }
 
-function EffortSwitch({ value, level, why, onSet }:
-{ value: string; level: string; why: string; onSet: (lvl: string) => void }) {
+function EffortSwitch({ value, level, why, levels, onSet }:
+{ value: string; level: string; why: string; levels?: string[]; onSet: (lvl: string) => void }) {
   // the track lights at the level that will actually be USED so it always says
   // what will happen; `pinned` is what a click can clear, which is only the
   // node's own setting — clicking an unpinned dot pins it rather than clearing
   // nothing. `why` is the caller's one description of where the level came
   // from, so the button and the popover can never word it differently.
   return (
-    <EffortBar value={value} level={level}
+    <EffortBar value={value} level={level} levels={levels}
       label={`Effort${level ? ` (${level}${value ? '' : ` — ${why}`})` : ''}`}
       title={`thinking effort — ${level || 'unset'} (${why})`
         + `; click or drag along the bar to set, click the active level to clear back to inherit. ${EFFORT_CHANGE_HELP}`}

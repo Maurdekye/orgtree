@@ -32,7 +32,7 @@ import { ModalOverPins, PinFrame } from './modalpin'
 import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel } from './settingskit'
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
-import { peekStaffingOptions } from './staffingoptions'
+import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { accountProvider, accountValue, primaryAccount } from '../accountidentity'
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
@@ -703,7 +703,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
         <div className="field-label">thinking effort</div>
-        <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
+        <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'} levels={tierEffortLevels(tree.slug, draft.tier)}
           inheritLabel="inherit — org default" title={EFFORT_CHANGE_HELP} onSet={setEffort} />
         <div className="field-label">account</div>
         {/* ⚠ ELIGIBLE ACCOUNTS ONLY (user ruling 2026-09-15), read from the
@@ -1235,7 +1235,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         )}
 
 
-        <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
+        <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'} levels={tierEffortLevels(tree.slug, model)}
           inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
 
         {/* Primary is selectable even if no registry row exists. */}

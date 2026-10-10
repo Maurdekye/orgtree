@@ -125,6 +125,15 @@ export function peekStaffingOptions(org: string): StaffingOptions | undefined {
   return held.get(staffingOptionsPath(org))?.value as StaffingOptions | undefined
 }
 
+/** The effort levels `tier` really supports, from the staffing options the org
+ *  already loaded (the engine's per-tier `efforts`): `[]` = the model has no
+ *  effort setting at all, undefined = not known (not loaded yet, or the tier is not
+ *  offered here), in which case the bar shows every level. */
+export function tierEffortLevels(org: string, tier: string | undefined | null): string[] | undefined {
+  if (!tier) return undefined
+  return peekStaffingOptions(org)?.tiers.find((t) => t.tier === tier)?.efforts
+}
+
 /** Begin loading ONE ticket's staffing context, from a docket row's hover or
  *  focus — before the right-click that opens its menu. */
 export function prefetchQuickStaff<T>(path: string): Promise<T> {
