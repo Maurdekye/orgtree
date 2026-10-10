@@ -34,6 +34,7 @@ use crate::engine::Engine;
 mod transfers;
 mod incoming;
 pub mod control;
+mod failures;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";

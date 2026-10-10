@@ -150,6 +150,9 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
     let mut incoming_first = false;
     let mut active = HashSet::<String>::new();
     loop {
+        if let Err(err) = failures::dispatch(e).await {
+            tracing::warn!(error=%format!("{err:#}"), "transfer failure notification deferred");
+        }
         while tasks.len() < 2 {
             incoming_first = !incoming_first;
             match claim_work(e, &active, incoming_first).await {
@@ -411,27 +414,24 @@ async fn upload(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> {
 
 #[logged]
 async fn settle(e: &Engine, job: &Job, outcome: Result<String>) -> Result<()> {
-    let c = e.db.get().await?;
+    let mut c = e.db.get().await?;
+    let tx = c.transaction().await?;
     match outcome {
         Ok(id) => {
-            c.execute(
-                "UPDATE ot.net_transfers SET state='complete',processed=total,confirmed=total,result_id=$2,error=NULL,updated_at=now() WHERE id=$1 AND state IN ('preparing','uploading','confirming')",
-                &[&job.id, &id],
-            )
-            .await?;
+            tx.execute("UPDATE ot.net_transfers SET state='complete',processed=total,confirmed=total,result_id=$2,error=NULL,updated_at=now() WHERE id=$1 AND state IN ('preparing','uploading','confirming')", &[&job.id,&id]).await?;
         }
         Err(err) => {
             let state = if err.is::<Permanent>() { "failed" } else { "retry_wait" };
             let error = err.downcast_ref::<reqwest::Error>().map(short_error).unwrap_or_else(|| crate::util::gist(&err.to_string(), 300));
             let delay = (2i32.pow((job.attempt as u32).min(8))).min(300);
-            c.execute(
-                "UPDATE ot.net_transfers SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1 AND state IN ('preparing','uploading','confirming')",
-                &[&job.id, &state, &error, &(delay as f64)],
-            )
-            .await?;
-            c.execute("UPDATE ot.org_inbox SET last_err=$2 WHERE id=$1 AND state='queued'", &[&job.inbox, &error]).await?;
+            let n = tx.execute("UPDATE ot.net_transfers SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1 AND state IN ('preparing','uploading','confirming')", &[&job.id,&state,&error,&(delay as f64)]).await?;
+            if n > 0 {
+                tx.execute("UPDATE ot.org_inbox SET last_err=$2 WHERE id=$1 AND state='queued'", &[&job.inbox,&error]).await?;
+                if state == "failed" { failures::record(&tx,job.org,&job.id,true,&error).await?; }
+            }
         }
     }
+    tx.commit().await?;
     drop(c);
     changes::notify_id(e, job.org, vec![Change::OrgInbox]);
     kick(e);
@@ -458,6 +458,10 @@ pub(super) async fn rig_attempt(e: &Arc<Engine>, org: i64, args: &Value) -> Resu
         hubs: vec![("rig-transfer".into(), address.into())],
         registered: HashSet::from(["rig-transfer".into()]),
     };
+    if args["action"] == "notifications" {
+        failures::dispatch(e).await?;
+        return Ok(json!({"ok":true}));
+    }
     if args["action"] == "workers" {
         anyhow::ensure!(offline(), "worker proof requires network-offline rig");
         e.net.parts.store(Arc::new(vec![part]));
@@ -482,7 +486,7 @@ pub(super) async fn rig_attempt(e: &Arc<Engine>, org: i64, args: &Value) -> Resu
             tokio::fs::write(&path, vec![b'x'; total as usize]).await?;
         }
         let files = vec![json!({"path":path.to_string_lossy(),"name":"proof.bin","bytes":total})];
-        let (uid, _) = queue_row(e, org, "peer.rig", "transfer proof", "user", "message", &files, None).await?;
+        let (uid, _) = queue_row(e, org, "peer.rig", "transfer proof", args["by"].as_str().unwrap_or("user"), "message", &files, None).await?;
         let c = e.db.get().await?;
         let inbox: i64 = c.query_one("SELECT id FROM ot.org_inbox WHERE uid=$1", &[&uid]).await?.get(0);
         drop(c);

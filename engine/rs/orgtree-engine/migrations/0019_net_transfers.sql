@@ -61,3 +61,19 @@ CREATE TABLE ot.net_downloads (
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE(incoming_id,file_no)
 );
+
+ALTER TABLE ot.net_transfers ADD COLUMN cancelled_by text;
+ALTER TABLE ot.net_incoming ADD COLUMN cancelled_by text;
+-- One open failure episode per message; notification mail and notified_at
+-- commit together. Resolved episodes remain as audit history.
+CREATE TABLE ot.net_transfer_failures (
+    id text PRIMARY KEY,
+    org_id bigint NOT NULL REFERENCES ot.orgs(id) ON DELETE CASCADE,
+    message_key text NOT NULL,
+    detail jsonb NOT NULL,
+    resolved boolean NOT NULL DEFAULT false,
+    notified_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX net_transfer_failure_open ON ot.net_transfer_failures(message_key) WHERE NOT resolved;
+CREATE INDEX net_transfer_failure_pending ON ot.net_transfer_failures(created_at) WHERE notified_at IS NULL;

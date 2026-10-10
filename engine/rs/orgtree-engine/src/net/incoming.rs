@@ -259,13 +259,14 @@ pub(super) async fn settle(e: &Engine, job: &Job, outcome: Result<String>) -> Re
         }
     };
     let delay = (2i32.pow((job.attempt as u32).min(8))).min(300) as f64;
-    e.db.get()
-        .await?
-        .execute(
-            "UPDATE ot.net_incoming SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1 AND state IN ('downloading','delivering')",
-            &[&job.id, &state, &error, &delay],
-        )
-        .await?;
+    let mut c = e.db.get().await?;
+    let tx = c.transaction().await?;
+    let n = tx.execute("UPDATE ot.net_incoming SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1 AND state IN ('downloading','delivering')", &[&job.id,&state,&error,&delay]).await?;
+    if n > 0 && state == "failed" {
+        failures::record(&tx,job.org,&job.id,false,error.as_deref().unwrap_or("download failed")).await?;
+    }
+    tx.commit().await?;
+    drop(c);
     changes::notify_id(e, job.org, vec![Change::OrgInbox]);
     kick(e);
     Ok(())

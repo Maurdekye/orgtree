@@ -67,19 +67,29 @@ pub async fn change(e: &Engine, org: i64, actor: Option<i64>, id: &str, action: 
         // entry is retained privately for auditing, excluded from presentation.
         let path = vec![row.get::<_,i32>(1).to_string(), "transfer_removed".into()];
         tx.execute("UPDATE ot.org_inbox SET attachments=jsonb_set(attachments,$2,'true'::jsonb),last_err=NULL WHERE id=$1", &[&row.get::<_,i64>(0),&path]).await?;
+        failures::resolve(&tx,id,true).await?;
         tx.commit().await?;
         changes::notify_id(e,org,vec![Change::OrgInbox]);
         kick(e);
         return inspect(e,org,actor,Some(id)).await;
     }
     let sql = match (upload,action) {
-        (true,"cancel") => "UPDATE ot.net_transfers SET state='cancelled',error='cancelled intentionally; retry or remove this file to send',updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('queued','retry_wait','preparing','uploading','confirming','failed','paused')",
-        (false,"cancel") => "UPDATE ot.net_incoming SET state='cancelled',error='cancelled intentionally; retry to receive this message',updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('queued','retry_wait','downloading','failed')",
-        (true,_) => "UPDATE ot.net_transfers SET state='queued',error=NULL,next_at=now(),updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('failed','cancelled','retry_wait','paused')",
-        (false,_) => "UPDATE ot.net_incoming SET state='queued',error=NULL,next_at=now(),updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('failed','cancelled','retry_wait')",
+        (true,"cancel") => "UPDATE ot.net_transfers SET state='cancelled',cancelled_by=$3,error='cancelled intentionally; retry or remove this file to send',updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('queued','retry_wait','preparing','uploading','confirming','failed','paused')",
+        (false,"cancel") => "UPDATE ot.net_incoming SET state='cancelled',cancelled_by=$3,error='cancelled intentionally; retry to receive this message',updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('queued','retry_wait','downloading','failed')",
+        (true,_) => "UPDATE ot.net_transfers SET state='queued',cancelled_by=NULL,error=NULL,next_at=now(),updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('failed','cancelled','retry_wait','paused')",
+        (false,_) => "UPDATE ot.net_incoming SET state='queued',cancelled_by=NULL,error=NULL,next_at=now(),updated_at=now() WHERE id=$1 AND org_id=$2 AND state IN ('failed','cancelled','retry_wait')",
     };
-    let n = e.db.get().await?.execute(sql,&[&id,&org]).await?;
+    let mut c = e.db.get().await?;
+    let tx = c.transaction().await?;
+    let by = actor.map(|n| format!("agent:{n}")).unwrap_or_else(|| "user".into());
+    let n = if action == "cancel" { tx.execute(sql,&[&id,&org,&by]).await? }
+        else { tx.execute(sql,&[&id,&org]).await? };
     if n == 0 { crate::refuse!(BadRequest,"transfer is already complete, delivering, or not available for this action"); }
+    if action == "cancel" && actor.is_some() {
+        failures::record(&tx,org,id,upload,"cancelled by an agent").await?;
+    } else if action == "retry" { failures::resolve(&tx,id,upload).await?; }
+    tx.commit().await?;
+    drop(c);
     if action == "cancel" {
         if let Some(stop) = e.net.transfer_stops.pin().get(id) { stop.cancel(); }
     }
