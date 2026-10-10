@@ -148,10 +148,15 @@ export function miniFromAskInfo(ask: AskInfo): { questions: MiniQuestion[]; note
   const ownSel = flat(own?.selected)
   const ownText = own?.text?.trim() || null
   let used = false
-  const questions = tabs.map((t) => {
+  // the batch route stores its whole body as the card's answer: {answers: [one per tab], ...}
+  const batch = (own as { answers?: unknown } | undefined)?.answers
+  const questions = tabs.map((t, i) => {
     const options = (t.options ?? []).map(o => typeof o === 'string' ? { label: o } : o)
     let selected = flat(t.answer)
+    if (selected.length === 0 && Array.isArray(batch)) selected = flat(batch[i])
     if (selected.length === 0 && tabs.length === 1) selected = ownSel
+    // a card with several tabs answered through the question route: one list of picks per tab
+    if (selected.length === 0 && tabs.length > 1 && Array.isArray(own?.selected)) selected = flat((own.selected as unknown[])[i])
     // a "typed" reply: the pick is not among the offered options, or none were offered
     let typed: string | null = null
     if (options.length === 0) typed = selected.join(' · ') || (tabs.length === 1 ? ownText : null)
