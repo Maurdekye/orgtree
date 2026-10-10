@@ -742,3 +742,39 @@ pub async fn store_images(client: &Client, agent_id: i64, tool_id: &str, images:
         .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tool_refs_tests {
+    use super::tool_refs;
+    use serde_json::json;
+
+    #[test]
+    fn message_names_agents_not_the_user_or_addresses() {
+        let r = tool_refs("mcp__orgtree__orgtree_message", &json!({ "to": "alice", "body": "x" }), None);
+        assert_eq!(r, json!([{ "kind": "agent", "id": "alice" }]));
+        assert_eq!(tool_refs("orgtree_message", &json!({ "to": "user" }), None), json!([]));
+        assert_eq!(tool_refs("orgtree_message", &json!({ "to": "@org:other" }), None), json!([]));
+    }
+
+    #[test]
+    fn several_agents_and_no_duplicates() {
+        let r = tool_refs("orgtree_halt", &json!({ "node": "a", "nodes": ["b", "a", "c"] }), None);
+        assert_eq!(r, json!([{ "kind": "agent", "id": "a" }, { "kind": "agent", "id": "b" }, { "kind": "agent", "id": "c" }]));
+    }
+
+    #[test]
+    fn watchdog_id_from_the_argument_or_the_create_result() {
+        let r = tool_refs("orgtree_watchdog", &json!({ "action": "pause", "id": "build-watch" }), None);
+        assert_eq!(r, json!([{ "kind": "watchdog", "id": "build-watch" }]));
+        let created = tool_refs("orgtree_watchdog", &json!({ "action": "create", "name": "x" }), Some(r#"{"id":"x","status":"armed"}"#));
+        assert_eq!(created, json!([{ "kind": "watchdog", "id": "x" }]));
+        assert_eq!(tool_refs("orgtree_watchdog", &json!({ "action": "create" }), None), json!([]));
+        assert_eq!(tool_refs("orgtree_watchdog", &json!({ "action": "list" }), None), json!([]));
+    }
+
+    #[test]
+    fn other_tools_have_no_refs() {
+        assert_eq!(tool_refs("Bash", &json!({ "command": "ls" }), None), json!([]));
+        assert_eq!(tool_refs("orgtree_work", &json!({ "action": "update", "owner": "bob" }), None), json!([]));
+    }
+}
