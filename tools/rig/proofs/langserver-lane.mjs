@@ -51,9 +51,11 @@ export default async function (rig) {
       label: 'Fake (Codex)', models: [{ id: MODEL, context: 65536 }] })
     const tierA = Object.values(a.server?.models ?? {})[0]?.tier
     const tierB = Object.values(b.server?.models ?? {})[0]?.tier
-    p.check('one server per harness on the same address, each model a tier', tierA === 'ls-ollama-fake-model-latest'
-      && tierB === 'ls-ollama-2-fake-model-latest' && a.server.base_url === llm.url && b.server.base_url === `${llm.url}/v1`,
-    { a: a.server, b: b.server })
+    const listed = id => (b.doc?.servers ?? []).find(s => s.id === id)
+    p.check('one server per harness on the same address, each model a tier, each harness pointed at its API',
+      tierA === 'ls-ollama-fake-model-latest' && tierB === 'ls-ollama-2-fake-model-latest'
+      && listed(a.server?.id)?.base_url === llm.url && listed(b.server?.id)?.base_url === `${llm.url}/v1`,
+    { a: listed(a.server?.id), b: listed(b.server?.id) })
     const prov = await rig.api('GET', '/api/providers')
     const entry = (prov.providers ?? []).find(x => x.id === 'langserver')
     p.check('the providers payload carries the lane with both tiers, hireable', entry?.hire_enabled === true
@@ -72,7 +74,9 @@ export default async function (rig) {
       await rig.userMail(name, `${token}: report done with orgtree_status.`)
       const st = await rig.waitFor(() => (status(name)?.summary === `${token}-DONE` ? status(name) : null),
         { what: `${name}'s orgtree_status from the fake server's tool call`, timeout: 180000 }).catch(() => null)
-      p.check(`${name}: the server's tool call reached the engine (status done)`, st?.status === 'done', { status: status(name), last_error: rig.agentRow(name)?.last_error })
+      // "done" is a report, stored as idle with its summary (tools/mailtools.rs status)
+      p.check(`${name}: the server's tool call reached the engine (its done report is on record)`,
+        st?.summary === `${token}-DONE` && st?.status === 'idle', { status: status(name), last_error: rig.agentRow(name)?.last_error })
       await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.name = '${name}' AND t.ended_at IS NULL`).length === 0,
         { what: `${name}'s turn to end`, timeout: 120000 }).catch(() => null)
     }
