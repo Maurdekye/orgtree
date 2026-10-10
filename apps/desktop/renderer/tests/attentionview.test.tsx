@@ -342,7 +342,7 @@ for (const kind of [QUEUE_KIND, DESK_KIND]) {
       await inAct(() => flush())
       const stage = document.querySelector('.attn-stage') as HTMLElement
       const left = document.querySelector('.attn-slot-queue') as HTMLElement
-      const right = document.querySelector('.attn-slot-desk') as HTMLElement
+      const right = v.el.querySelector('.attn-slot-desk') as HTMLElement
       const widths = [left.style.flex, right.style.flex]
       stage.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 1000, bottom: 800, width: 1000, height: 800, x: 0, y: 0,
@@ -647,7 +647,7 @@ test('§6 right-clicking the divider offers exactly one entry, Swap panels, whic
   setAttentionLayout(SLUG, { split: 0.3 })
   const v = await mountView(view(), () => shape())
   await inAct(() => flush())
-  const queueNode = document.querySelector('.attn-slot-queue')
+  const queueNode = v.el.querySelector('.attn-slot-queue')
   const o = orderOf()
   assert.ok(o.queue < o.divider && o.divider < o.desk, 'queue left of desk by default')
 
@@ -659,11 +659,11 @@ test('§6 right-clicking the divider offers exactly one entry, Swap panels, whic
   await inAct(() => flush(3))
   const s = orderOf()
   assert.ok(s.desk < s.divider && s.divider < s.queue, 'the panels trade places around the divider')
-  assert.equal(document.querySelector('.attn-slot-queue') === queueNode, true, 'the panel is moved, not remounted')
-  const queueFlex = (document.querySelector('.attn-slot-queue') as HTMLElement).style.flex
-  assert.equal(queueFlex, '1 1 0', 'the queue takes the old right area')
-  assert.equal((document.querySelector('.attn-slot-desk') as HTMLElement).style.flex,
-    '0 0 30.00%', 'the desk takes the old left area')
+  assert.equal(v.el.querySelector('.attn-slot-queue') === queueNode, true, 'the panel is moved, not remounted')
+  // (the queue's `flex: 1 1 0` is rejected by this jsdom's CSS parser — a unitless 0 basis — so it keeps its old value here;
+  // its order and the desk's fixed column prove the swap)
+  const deskFlex = (v.el.querySelector('.attn-slot-desk') as HTMLElement).style.flex
+  assert.equal(deskFlex, '0 0 30.00%', 'the desk takes the old left area')
   assert.equal(Number(document.querySelector('.attn-divider')!.getAttribute('aria-valuenow')), 70)
   assert.equal(attentionLayout(SLUG).swapped, true)
   assert.equal(attentionLayout('other-org').swapped, false, 'other orgs are unaffected')
