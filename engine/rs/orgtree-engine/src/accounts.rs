@@ -65,12 +65,20 @@ impl AccountInfo {
     /// inside its origin org (3.x registry.list_accounts / validate_binding,
     /// user ruling: legacy org keys keep their org restriction). `None` is the
     /// user's own app surface, which sees every row.
+    ///
+    /// The org's own account list (Org settings › Accounts) narrows it too:
+    /// a lane the org switched off is not available to it anywhere.
     #[nolog]
     pub fn available_to(&self, org_slug: Option<&str>) -> bool {
-        match (self.origin_org.as_deref().filter(|o| !o.is_empty()), org_slug) {
-            (None, _) | (_, None) => true,
-            (Some(origin), Some(org)) => origin == org,
+        match org_slug {
+            None => true,
+            Some(org) => self.available_origin(org) && crate::org_accounts::allowed(Some(org), &crate::org_accounts::lane_of(self)),
         }
+    }
+    /// The legacy org-key rule alone (an org's switched-off lanes aside).
+    #[nolog]
+    pub fn available_origin(&self, org_slug: &str) -> bool {
+        self.origin_org.as_deref().filter(|o| !o.is_empty()).is_none_or(|origin| origin == org_slug)
     }
 }
 

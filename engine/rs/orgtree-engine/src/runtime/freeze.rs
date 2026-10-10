@@ -185,7 +185,7 @@ pub async fn thaw(engine: &Arc<Engine>, org_id: i64, agent_id: i64, only_due: bo
 }
 
 #[logged]
-async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expected: Option<&Value>) -> Result<bool> {
+pub async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expected: Option<&Value>) -> Result<bool> {
     let client = engine.db.get().await?;
     // One short statement. A timer for an older freeze can never erase a new
     // refusal, nor a manual clear followed by a new freeze.

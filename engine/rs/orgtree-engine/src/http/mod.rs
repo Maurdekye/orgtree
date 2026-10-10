@@ -71,6 +71,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
         .route("/api/orgs/{slug}/retry", post(orgops::retry))
         .route("/api/orgs/{slug}/settings", post(settings::save_org))
+        .route("/api/orgs/{slug}/accounts-allowed", get(settings::accounts_allowed))
         .route("/api/orgs/{slug}/asks/{aid}/answer", post(asks::answer))
         .route("/api/orgs/{slug}/credit-requests", post(asks::credit))
         .route("/api/orgs/{slug}/nodes/{nid}/batch", post(asks::batch))

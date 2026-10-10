@@ -359,8 +359,25 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
             refuse!(BadRequest, "{prefix}/primary cannot serve {provider}");
         }
     }
+    // the org's account list (Org settings › Accounts): an OpenRouter or
+    // language-server tier is its lane, an explicit primary the default login
+    if let Some(lane) = crate::org_accounts::tier_lane(engine, tier) {
+        if !crate::org_accounts::allowed(Some(org_slug), &lane) {
+            refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, org_slug, &lane, provider));
+        }
+    }
+    if crate::accounts::choice(raw) == crate::accounts::Choice::Primary {
+        let lane = crate::org_accounts::primary(provider);
+        if !crate::org_accounts::allowed(Some(org_slug), &lane) {
+            refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, org_slug, &lane, provider));
+        }
+    }
     if let crate::accounts::Choice::Account(id) = crate::accounts::choice(raw) {
         let view = engine.accounts.view();
+        // a lane the org switched off is refused, naming the ones it allows
+        if let Some(a) = view.get(&id).filter(|a| a.available_origin(org_slug) && !a.available_to(Some(org_slug))) {
+            refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, org_slug, &crate::org_accounts::lane_of(a), &a.provider));
+        }
         // a legacy org key is refused exactly like an id that does not exist
         let Some(a) = view.get(&id).filter(|a| a.available_to(Some(org_slug))) else { refuse!(NotFound, "no account {id}") };
         if a.provider != provider {
@@ -854,10 +871,21 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     } else {
         caps.settings["default_account"].as_str().filter(|raw| validate_account(engine, &org.slug, &tier, Some(raw)).is_ok())
     };
-    let account = match crate::accounts::choice(selected) {
+    let mut account = match crate::accounts::choice(selected) {
         crate::accounts::Choice::Account(a) => Some(a),
         _ => None,
     };
+    // the default login switched off for this org: an omitted account is
+    // placed on the best one it allows (ruling 2026-10-10); an explicit
+    // primary was refused above
+    let provider = catalog::provider_of(&tier);
+    if account.is_none() && crate::org_accounts::tier_lane(engine, &tier).is_none()
+        && !crate::org_accounts::allowed(Some(&org.slug), &crate::org_accounts::primary(provider)) {
+        match (explicit, crate::org_accounts::best_allowed(engine, &org.slug, &tier)) {
+            (None, Some(best)) => account = Some(best),
+            _ => refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, &org.slug, &crate::org_accounts::primary(provider), provider)),
+        }
+    }
     let parent_id = parent.as_ref().map(|p| p.id);
     let order: f64 = tx
         .query_one(

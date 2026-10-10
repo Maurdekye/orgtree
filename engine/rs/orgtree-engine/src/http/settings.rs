@@ -21,7 +21,7 @@ use crate::runtime::AgentMsg;
 const ORG_KEYS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "default_account",
     "permission_mode", "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire",
-    "cascade_alloc", "org_inbox_multi_holder", "account_fallback_default", "headless",
+    "cascade_alloc", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
 ];
 
 /// Settings of removed features: accepted and ignored (the UI no longer shows them).
@@ -131,6 +131,16 @@ async fn sweep_top_grants(
 fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Value> {
     let bad = |why: String| Err(ApiError::unprocessable(why));
     match key {
+        // the lanes this org may not use (Org settings › Accounts)
+        "disabled_accounts" => match v.as_array() {
+            Some(ids) if ids.len() <= crate::org_accounts::MAX_IDS
+                && ids.iter().all(|i| i.as_str().is_some_and(|s| !s.trim().is_empty() && s.len() <= 200)) => {
+                let mut ids: Vec<String> = crate::org_accounts::ids_of(v).into_iter().collect();
+                ids.sort();
+                Ok(json!(ids))
+            }
+            _ => bad(format!("disabled_accounts is a list of at most {} account ids", crate::org_accounts::MAX_IDS)),
+        },
         "permission_mode" => match v.as_str() {
             Some(m) if scope::PM_LEVELS.contains(&m) => Ok(v.clone()),
             _ => bad(format!("permission_mode must be one of {}", scope::levels_text(scope::PM_LEVELS))),
@@ -315,6 +325,13 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     changes::notify(&e, &o, vec![Change::Org, Change::Events]);
     if patch.contains_key("dirs") || patch.contains_key("permission_mode") {
         reconfigure_org(&e, o.id).await?;
+    }
+    if let Some(ids) = patch.get(crate::org_accounts::KEY) {
+        crate::org_accounts::set(&o.slug, crate::org_accounts::ids_of(ids));
+        // an agent bound to a lane switched off moves at its next turn; one
+        // frozen because nothing was left is let go to look again
+        crate::org_accounts::recheck(&e, o.id).await;
+        crate::accounts::publish(&e);
     }
     let eff = effective_settings(&stored, &e.settings.defaults());
     Ok(Json(json!({ "dirs": eff["dirs"], "warnings": warnings })))
@@ -935,4 +952,13 @@ pub async fn fs(Query(q): Query<FsQuery>) -> ApiResult<Json<Value>> {
     dirs.sort_by(|a, b| a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase()));
     let parent = path.parent().map(|p| p.to_string_lossy().to_string()).filter(|p| !p.is_empty());
     Ok(Json(json!({ "path": path.to_string_lossy(), "parent": parent, "dirs": dirs, "home": home })))
+}
+
+/// `GET /api/orgs/{slug}/accounts-allowed`: every account lane this org could
+/// be given (the default sign-ins, registered logins, OpenRouter, language
+/// servers) and whether it may use it (Org settings › Accounts).
+#[logged]
+pub async fn accounts_allowed(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(json!({ "org": o.slug, "accounts": crate::org_accounts::lanes(&e, &o.slug) })))
 }

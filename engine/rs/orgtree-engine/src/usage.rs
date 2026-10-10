@@ -1010,6 +1010,9 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     if crate::providers::openrouter_key_set(engine) {
         lanes.push(("openrouter".into(), "openrouter".into(), None));
     }
+    // only the accounts this org may use: an agent never plans onto one it
+    // switched off (Org settings › Accounts)
+    lanes.retain(|(lane, _, _)| crate::org_accounts::allowed(Some(org_slug), lane));
     let mut lines: Vec<String> = Vec::new();
     let mut key_lines: Vec<String> = Vec::new();
     let mut roster: Vec<String> = Vec::new();
@@ -1093,6 +1096,9 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     // the user's own model servers: no usage window, only an agents-at-once cap
     for srv in crate::langserver::servers(engine).iter().filter(|s| s["enabled"].as_bool() != Some(false)) {
         let lane = format!("langserver:{}", srv["id"].as_str().unwrap_or(""));
+        if !crate::org_accounts::allowed(Some(org_slug), &lane) {
+            continue;
+        }
         let star = if lane == selected_lane { "*" } else { "" };
         let cap = srv["max_agents"].as_i64().unwrap_or(1);
         roster.push(format!("{lane} ({}, local)", gist(srv["label"].as_str().unwrap_or(""), 40)));

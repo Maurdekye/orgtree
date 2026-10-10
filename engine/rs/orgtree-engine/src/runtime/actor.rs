@@ -1621,11 +1621,14 @@ impl Actor {
             }
         }
         // a legacy org key never serves another org's turn (3.x parity F02)
-        if let Some(a) = acc.filter(|a| !a.available_to(Some(&ctx.org_slug))) {
+        if let Some(a) = acc.filter(|a| !a.available_origin(&ctx.org_slug)) {
             return Err(anyhow!(
                 "the account {} is an org key restricted to another organization; move this agent to another account",
                 a.id
             ));
+        }
+        if let Some(lane) = crate::org_accounts::barred(&self.engine, &ctx.org_slug, &ctx.tier, ctx.account.as_deref()) {
+            return Err(anyhow!("{lane} is not used by this org (Org settings › Accounts); the agent moves at its next turn"));
         }
         if crate::accounts::active(&self.engine, &ctx.provider, acc) {
             return Ok(());
@@ -2540,6 +2543,15 @@ impl Actor {
         let admitted_at = Utc::now();
         let mut ctx = self.load_ctx().await?;
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
+            return Ok(false);
+        }
+        // a lane the org switched off serves no new turn: the agent moves to
+        // one it allows (or freezes, saying none is left) before any mail is
+        // claimed, and admission is tried again (the account list, user 2026-10-10)
+        if let Some(lane) = crate::org_accounts::barred(&self.engine, &ctx.org_slug, &ctx.tier, ctx.account.as_deref()) {
+            crate::org_accounts::leave(&self.engine, self.org_id, &ctx.org_slug, self.id, &ctx.tier, ctx.account.as_deref(), &lane).await;
+            self.reconfigured = self.proc.is_some();
+            self.retry_admission();
             return Ok(false);
         }
         let mut client = self.engine.db.get().await?;

@@ -35,6 +35,7 @@ mod mailhub;
 mod migrate;
 mod net;
 mod openrouter;
+mod org_accounts;
 mod orgs;
 mod pg;
 mod phone;
@@ -220,6 +221,9 @@ async fn run_with_cluster(
     appfeed::start(&engine, app_inbox);
     // orgs a first-start import could not copy: one line each in the org list
     import_failures::publish(&engine).await;
+    if let Err(e) = org_accounts::load(&engine).await {
+        tracing::warn!(error = %format!("{e:#}"), "the orgs' account lists could not be read; every account is allowed until they are");
+    }
     accounts::start(&engine).await;
     openrouter::import_legacy(&engine).await;
     providers::start(&engine);

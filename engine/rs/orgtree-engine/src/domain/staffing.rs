@@ -72,6 +72,14 @@ fn accountless(provider: &str) -> bool {
     provider == catalog::OPENROUTER || provider == catalog::LANGSERVER
 }
 
+/// `host_ready`, and the org has not switched that lane off (its provider's
+/// own login, or the OpenRouter / language-server lane of an accountless tier).
+#[logged]
+fn host_for(engine: &Engine, org_slug: &str, tier: &str, provider: &str) -> bool {
+    let lane = crate::org_accounts::tier_lane(engine, tier).unwrap_or_else(|| crate::org_accounts::primary(provider));
+    host_ready(engine, provider) && crate::org_accounts::allowed(Some(org_slug), &lane)
+}
+
 /// Whether a hire that names no account can run `provider`: the host login
 /// is signed in and subscriptions may serve inference (an OpenRouter seat
 /// bills the stored key).
@@ -181,7 +189,7 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
             if !request {
                 let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, &org.slug) };
                 // the user's hard rule: never a model on a login whose window it spends is at 100%
-                let host = host_ready(engine, t.provider)
+                let host = host_for(engine, &org.slug, &t.tier, t.provider)
                     && (accountless(t.provider)
                         || crate::usage::at_limit(engine, default_login(engine, org_default.as_deref(), &t.tier).as_ref(), &t.tier).is_none());
                 if accounts.is_empty() && !host {
@@ -450,7 +458,7 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
         .into_iter()
         .filter_map(|t| {
             let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
-            let host = host_ready(engine, t.provider);
+            let host = host_for(engine, org_slug, &t.tier, t.provider);
             if accounts.is_empty() && !host {
                 return None;
             }
