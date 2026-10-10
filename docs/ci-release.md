@@ -286,6 +286,21 @@ signature, so updates there stay manual.
     - `update-log.json` records the in-place handoff and the relaunch.
   - **Also reported:** whether the download was differential, and every `systemctl`
     call the app made.
+- Linux: the AppImage's start as on a stock Ubuntu desktop
+  (`.github/ci/linux/desktop-check.sh`):
+  - **Setup:** a D-Bus session bus, and umask 0002 for the session and for
+    systemd --user's services. That is what Ubuntu's pam_umask gives a user with a
+    private group, and the runner's user manager does the same (measured).
+  - **Three starts:** fresh; over folders a 4.1.1 install left at 0775; and through
+    the autostart fallback.
+  - **Each must show:**
+    - the desktop attaches to its background engine and finishes starting;
+    - `~/.config/Orgtree v2` and its `data` folder are 0700;
+    - the systemd unit carries `UMask=0077`.
+  - **Why:** 4.1.1's systemd-started engine created its data folder 0775, and the
+    desktop refused it as "writable by others" and never finished starting (measured
+    on the runner). `.github/workflows/linux-desktop-check.yml` runs the same checks
+    on any published AppImage.
 
 **Not there yet** (both platforms):
 - No automatic updates on macOS or for the Linux `.deb`; download those by hand. The
