@@ -137,3 +137,24 @@ test('§2.2 series render per account; a filter hides the others', async () => {
     await view.unmount()
   } finally { f.restore() }
 })
+
+test('§2.3 the Orgtree menu lists "Usage history…" right under "Usage…" and it opens the panel', async () => {
+  const { OrgtreeMenu } = await import('../src/shell/menu')
+  let opened = 0
+  const view = await mountView(<OrgtreeMenu orgs={[]} freshness={'fresh' as never} ageMs={0} error={null}
+    currentOrg={null} onOpenOrg={() => {}} onNewWindow={() => {}} onCreateOrg={() => {}} onUsage={() => {}}
+    onUsageHistory={() => { opened++ }} onAppSettings={() => {}} />, (el) => el)
+  await inAct(async () => {
+    (view.el.querySelector('.shell-menu-button') as HTMLButtonElement).click()
+    await flush(2)
+  })
+  const items = [...view.el.querySelectorAll('[role="menuitem"]')].map((e) => (e.textContent ?? '').trim())
+  const at = items.findIndex((t) => t.startsWith('Usage history'))
+  assert.ok(at > 0 && items[at - 1]!.startsWith('Usage…'), items.join(' | '))
+  await inAct(async () => {
+    (view.el.querySelectorAll('[role="menuitem"]')[at] as HTMLButtonElement).click()
+    await flush(2)
+  })
+  assert.equal(opened, 1)
+  await view.unmount()
+})

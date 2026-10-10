@@ -218,7 +218,8 @@ function fmtChange(s: UsageHistorySeries, v: number | null): string {
 }
 
 const WINDOW_NAMES: Record<string, string> = {
-  session: 'Session', weekly_all: 'Weekly', weekly: 'Weekly', credits: 'Credit balance', spend: 'Metered spend',
+  session: 'Session', weekly_all: 'Weekly', weekly: 'Weekly', weekly_scoped: 'Weekly (one model)',
+  credits: 'Credit balance', spend: 'Metered spend',
 }
 export function seriesTitle(s: UsageHistorySeries): string {
   const base = s.label || WINDOW_NAMES[s.window] || s.window
@@ -281,6 +282,14 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
   const yTicks = s.kind === 'percent' ? [0, 50, 100] : [0, top / 2, top]
   const ticks = timeTicks(from, to)
   const path = (seg: Pt[]) => seg.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('')
+  // every recorded reset gets its hairline, but only resets far enough
+  // apart get a word: 5-hour windows on a week's axis would print a smear
+  let lastLabel = -Infinity
+  const resetMarks = m.resets.filter((r) => r.t >= from).map((r) => {
+    const label = x(r.t) - lastLabel >= 40 && x(r.t) <= x(now) - 30
+    if (label) lastLabel = x(r.t)
+    return { t: r.t, label }
+  })
   const hatch = `uh-hatch-${m.key.replace(/[^a-z0-9]/gi, '')}`
 
   // the hover readout: the measured point nearest the pointer, or the
@@ -341,16 +350,16 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
             )
           })}
           <line className="uh-now" x1={x(now)} x2={x(now)} y1={PAD.t} y2={H_CHART - PAD.b} />
-          {m.resets.filter((r) => r.t >= from).map((r) => (
+          {resetMarks.map((r) => (
             <g key={r.t}>
               <line className="uh-reset" x1={x(r.t)} x2={x(r.t)} y1={PAD.t} y2={H_CHART - PAD.b} />
-              <text className="uh-axis" x={x(r.t) + 3} y={PAD.t + 8}>reset</text>
+              {r.label && <text className="uh-axis" x={x(r.t) + 3} y={PAD.t + 8}>reset</text>}
             </g>
           ))}
           {m.nextReset != null && m.nextReset <= to && (
             <g>
               <line className="uh-next-reset" x1={x(m.nextReset)} x2={x(m.nextReset)} y1={PAD.t} y2={H_CHART - PAD.b} />
-              <text className="uh-axis" x={x(m.nextReset) - 3} y={PAD.t + 8} textAnchor="end">next reset</text>
+              <text className="uh-axis" x={x(m.nextReset) - 3} y={H_CHART - PAD.b - 4} textAnchor="end">next reset</text>
             </g>
           )}
           {m.segments.map((seg, i) => seg.length > 1

@@ -96,7 +96,7 @@ import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord
 import { KillSwitch } from './KillSwitch'
 import {
   AutorenewIcon, BlockIcon, CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, EyeIcon, LanIcon,
-  DataUsageIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HearingIcon, HomeIcon, LockIcon,
+  DataUsageIcon, ShowChartIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HearingIcon, HomeIcon, LockIcon,
   LockOpenIcon, MailIcon, MenuIcon, PlayIcon, PublicIcon, SettingsIcon,
   StopIcon, StorageIcon, WarnIcon,
 } from './icons'
@@ -1662,6 +1662,11 @@ export default function App() {
                   title={usageAlert?.title ?? usageTitle(provPresence)}
                   onClick={toggleUsage}>
                   <DataUsageIcon fontSize="inherit" /></button>
+                {/* a browser has no Orgtree menu, where Usage history sits
+                    under Usage; it gets the same door beside the usage button */}
+                <button className="iconbtn usage-history-btn" title="Usage history" aria-label="Usage history"
+                  onClick={toggleUsageHistory}>
+                  <ShowChartIcon fontSize="inherit" /></button>
                 {/* gear-only (user 2026-09-10 header cleanup): Settings is
                     the door to Connections, History and Autonomy now, so it
                     keeps just the icon */}
