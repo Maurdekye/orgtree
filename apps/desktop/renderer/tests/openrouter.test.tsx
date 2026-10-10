@@ -1,8 +1,11 @@
 // The OpenRouter section of App settings → Providers (user spec 2026-09-02):
 // key entry → favorites row of monogram cards → model-selection modal with
 // search, paged results (card · full name · vendor · $/1M in and out) and
-// select/deselect. Driven through the rendered controls against a scripted
-// fetch — the key is only ever SENT, and the section renders nothing of it.
+// select/deselect. Since 2026-10-10 the favorites row is chips a click
+// switches (a deselected one stays, dimmed, until the section closes) and a
+// "+" that opens the modal; more than eight are cards alone. Driven through
+// the rendered controls against a scripted fetch — the key is only ever SENT,
+// and the section renders nothing of it.
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -167,18 +170,20 @@ test('§1 no key: the section offers key entry and nothing else; setting it '
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('§2 the favorites row opens the picker; search, select and deselect '
+test('§2 the favorites row\'s "+" opens the picker; search, select and deselect '
   + 'drive PUT /favorites and the monogram cards', async () => {
   const seen: Seen[] = []
   stubFetch(seen, { keySet: true })
   const picker = { open: false }
   let view = await mountSection(picker)
   try {
-    const row = view.el.querySelector<HTMLButtonElement>('.orr-favs')!
-    assert.ok(row, 'favorites row present')
-    assert.equal(row.getAttribute('aria-haspopup'), 'dialog')
-    await inAct(async () => { row.click() })
-    assert.equal(picker.open, true, 'the row asks the panel to open the picker')
+    assert.ok(view.el.querySelector('.orr-favs'), 'favorites row present')
+    const plus = view.el.querySelector<HTMLButtonElement>('.orr-favs .orr-more')!
+    assert.ok(plus, 'the row ends in "+"')
+    assert.equal(plus.getAttribute('aria-haspopup'), 'dialog')
+    assert.equal(plus.textContent, '+pick the models that can be hired', 'no favorite yet: "+" says what it is for')
+    await inAct(async () => { plus.click() })
+    assert.equal(picker.open, true, '"+" asks the panel to open the picker')
   } finally { await view.unmount() }
   // remount with the picker open (the panel owns that state)
   view = await mountSection({ open: true })
@@ -220,11 +225,12 @@ test('§2 the favorites row opens the picker; search, select and deselect '
     await inAct(async () => { narrowed[0]!.click(); await flush(10) })
     const put = seen.find((r) => r.method === 'PUT' && r.path === '/api/openrouter/favorites')
     assert.deepEqual(put?.body, { id: 'openai/gpt-5.6-luna', selected: true })
-    const cards = view.el.querySelectorAll('.orr-favs .orr-card')
-    assert.equal(cards.length, 1, 'the favorites row grew a card')
-    assert.equal(cards[0]!.textContent, 'G')
-    assert.match(cards[0]!.getAttribute('title') ?? '', /^gpt-5\.6-luna · GPT-5\.6 Luna — openai · /,
-      'the card tooltip leads with the label, then the name, then the vendor once')
+    const chips = view.el.querySelectorAll('.orr-favs .orr-tog')
+    assert.equal(chips.length, 1, 'the favorites row grew a chip')
+    assert.equal(chips[0]!.querySelector('.orr-card')?.textContent, 'G')
+    assert.equal(chips[0]!.querySelector('.orr-sel-name')?.textContent, 'gpt-5.6-luna')
+    assert.match(chips[0]!.getAttribute('title') ?? '', /^gpt-5\.6-luna · GPT-5\.6 Luna — openai · /,
+      'the chip tooltip leads with the label, then the name, then the vendor once')
     // …and the shared registry learned the runtime tier + letter + name
     assert.deepEqual(openrouterTierIds(), ['or-openai-gpt-5-6-luna'])
     assert.equal(TIER_LETTER['or-openai-gpt-5-6-luna'], 'G')
@@ -237,7 +243,8 @@ test('§2 the favorites row opens the picker; search, select and deselect '
     await inAct(async () => { selectedRow.click(); await flush(10) })
     const put2 = seen.filter((r) => r.path === '/api/openrouter/favorites').at(-1)
     assert.deepEqual(put2?.body, { id: 'openai/gpt-5.6-luna', selected: false })
-    assert.equal(view.el.querySelectorAll('.orr-favs .orr-card').length, 0)
+    assert.equal(view.el.querySelectorAll('.orr-favs .orr-tog.on').length, 0, 'no favorite left')
+    assert.equal(view.el.querySelectorAll('.orr-favs .orr-tog').length, 1, 'its chip stays, dimmed')
     assert.equal(tierLabel('or-openai-gpt-5-6-luna'), 'gpt-5.6-luna',
       'a tier once seen keeps its name after deselection (a node may still run on it)')
   } finally { await view.unmount(); delete g.fetch }
@@ -295,7 +302,7 @@ test('§2b the SELECTED list on the modal (user ask 2026-09-03): every favorite 
     assert.equal(rows()[0]!.textContent?.includes('✓ selected'), false)
     assert.deepEqual(chips().map((c) => c.querySelector('.orr-sel-name')?.textContent), ['kimi-k3'],
       'gone from the selected list too')
-    assert.equal(view.el.querySelectorAll('.orr-favs .orr-card').length, 1, 'favorites row shrank')
+    assert.equal(view.el.querySelectorAll('.orr-favs .orr-tog.on').length, 1, 'favorites row shrank')
     assert.ok(view.el.querySelector('[role="dialog"] h3')?.textContent?.includes('1 selected'))
 
     // 2 · deselect from the LIST: the ✕ on kimi, never searched for
@@ -308,15 +315,62 @@ test('§2b the SELECTED list on the modal (user ask 2026-09-03): every favorite 
     assert.ok(view.el.querySelector('.orr-selected .dim')?.textContent?.includes('nothing selected yet'),
       'the empty state says so')
     assert.deepEqual(rows().map(isOn), [false, false, false], "kimi's search row reads deselected")
-    assert.equal(view.el.querySelectorAll('.orr-favs .orr-card').length, 0)
+    assert.equal(view.el.querySelectorAll('.orr-favs .orr-tog.on').length, 0)
 
     // 3 · and back: select from a search row → appears in the list
     await inAct(async () => { rows()[1]!.click() })
     await until(() => chips().length === 1, 'the select to land')
     assert.deepEqual(chips().map((c) => c.querySelector('.orr-sel-name')?.textContent), ['gpt-5.6-luna'])
     assert.deepEqual(rows().map(isOn), [false, true, false])
-    assert.equal(view.el.querySelectorAll('.orr-favs .orr-card').length, 1)
+    assert.equal(view.el.querySelectorAll('.orr-favs .orr-tog.on').length, 1)
   } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§2c a click on a favorite\'s chip deselects it at once; it stays in its place, dimmed, and a second '
+  + 'click selects it again (user 2026-10-10: change the models without the edit form)', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { keySet: true, favorites: ['anthropic/claude-sonnet-5', 'moonshotai/kimi-k3'] })
+  const view = await mountSection({ open: false })
+  const chips = () => [...view.el.querySelectorAll<HTMLButtonElement>('.orr-favs .orr-tog')]
+  const state = () => chips().map((c) => [c.querySelector('.orr-sel-name')?.textContent, c.getAttribute('aria-pressed')])
+  const puts = () => seen.filter((r) => r.path === '/api/openrouter/favorites').map((r) => r.body)
+  try {
+    assert.deepEqual(state(), [['claude-sonnet-5', 'true'], ['kimi-k3', 'true']])
+    assert.match(chips()[0]!.title, /\nclick to deselect: it can no longer be hired; agents already on it keep running$/)
+    assert.equal(view.el.querySelector('.orr-favs .orr-more')?.textContent, '+', 'favorites exist: "+" alone')
+    await inAct(async () => { chips()[0]!.click(); await flush(10) })
+    assert.deepEqual(puts(), [{ id: 'anthropic/claude-sonnet-5', selected: false }], 'saved at once')
+    assert.deepEqual(state(), [['claude-sonnet-5', 'false'], ['kimi-k3', 'true']], 'dimmed, in its place')
+    assert.match(chips()[0]!.title, /\nclick to select it again$/)
+    assert.equal(view.el.querySelector('[role="dialog"]'), null, 'nothing opens')
+    await inAct(async () => { chips()[0]!.click(); await flush(10) })
+    assert.deepEqual(puts()[1], { id: 'anthropic/claude-sonnet-5', selected: true })
+    assert.deepEqual(state(), [['claude-sonnet-5', 'true'], ['kimi-k3', 'true']],
+      'selected again, still in its place (the engine appends it; the row does not jump)')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§2d more than eight favorites: the chips are their cards alone, each name in its tooltip and label; '
+  + 'at eight the names come back', async () => {
+  const extra: OpenRouterModel[] = Array.from({ length: 7 }, (_, i) => ({
+    id: `probe/m${i}`, name: `M ${i}`, label: `m${i}`, vendor: 'probe', prompt: 1, completion: 2, cache_read: 0,
+    context: 100000, tools: true, free: false, letter: 'M', color: '#cccccc' }))
+  CATALOG.push(...extra)
+  const seen: Seen[] = []
+  stubFetch(seen, { keySet: true, favorites: CATALOG.map((m) => m.id) })
+  const view = await mountSection({ open: false })
+  const row = () => view.el.querySelector('.orr-favs')!
+  try {
+    assert.ok(row().classList.contains('icons'), 'ten favorites: icons only')
+    assert.equal(row().querySelectorAll('.orr-tog').length, 10)
+    assert.equal(row().querySelectorAll('.orr-sel-name').length, 0, 'no names')
+    assert.equal(row().querySelector('.orr-tog')?.getAttribute('aria-label'), 'claude-sonnet-5')
+    for (let i = 0; i < 2; i++) {
+      await inAct(async () => { row().querySelector<HTMLButtonElement>('.orr-tog.on')!.click(); await flush(10) })
+    }
+    assert.ok(!row().classList.contains('icons'), 'eight favorites: names again')
+    assert.equal(row().querySelectorAll('.orr-sel-name').length, 10, 'the two deselected stay, dimmed and named')
+  } finally { await view.unmount(); delete g.fetch; CATALOG.splice(-7) }
 })
 
 test('§3 tierLabel: a static tier is its own name; an OpenRouter tier is its model — '
@@ -461,7 +515,7 @@ async () => {
     assert.match(unknownRow.querySelector('.orr-price')?.textContent ?? '', /— in ·\s+— out/)
     assert.doesNotMatch(unknownRow.querySelector('.orr-price')?.textContent ?? '', /free|\$0/)
     assert.equal(freeRow.querySelector('.orr-price')?.textContent?.trim(), 'free')
-    const favoriteTitle = view.el.querySelector('.orr-favs .orr-card')?.getAttribute('title') ?? ''
+    const favoriteTitle = view.el.querySelector('.orr-favs .orr-tog')?.getAttribute('title') ?? ''
     assert.match(favoriteTitle, /— in \/ — out per 1M · incomplete catalog pricing/)
     assert.doesNotMatch(favoriteTitle, /\$0 in/)
   } finally {
