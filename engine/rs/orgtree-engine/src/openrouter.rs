@@ -255,14 +255,13 @@ fn card(raw: &Value, favorites: &[String]) -> Value {
     let tools = if declared { Some(params.contains(&"tools")) } else { None };
     let reasoning = if declared { Some(params.contains(&"reasoning")) } else { None };
     let image = raw.pointer("/architecture/input_modalities").and_then(Value::as_array).map(|a| a.iter().any(|m| m == "image"));
-    let first = label.split([':', '-', '_', '.', '/', ' ']).find(|t| !t.is_empty()).unwrap_or("?");
     let mut out = json!({
         "id": id, "name": name, "label": label, "vendor": vendor,
         "prompt": prompt.unwrap_or(0.0), "completion": completion.unwrap_or(0.0), "cache_read": cache_read.unwrap_or(0.0),
         "context": raw["context_length"].as_i64().unwrap_or(0), "tools": tools, "image": image, "reasoning": reasoning,
         "free": id.ends_with(":free") || (prompt == Some(0.0) && completion == Some(0.0)),
         "created": raw["created"].as_i64().unwrap_or(0),
-        "letter": first.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "?".into()),
+        "letter": crate::providers::catalog::monogram(&label),
         "color": color_of(&vendor), "accent": null, "selected": favorites.contains(&id),
     });
     if !unknown.is_empty() {

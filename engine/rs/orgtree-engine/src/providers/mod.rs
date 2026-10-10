@@ -414,7 +414,7 @@ pub fn payload(engine: &Engine) -> Value {
         let tiers: Vec<Value> = crate::langserver::tiers(engine)
             .into_iter()
             .map(|(t, s, m, label, server)| {
-                json!({ "tier": t, "provider": catalog::LANGSERVER, "seat": s, "model": m, "letter": "L",
+                json!({ "tier": t, "provider": catalog::LANGSERVER, "seat": s, "model": m, "letter": catalog::monogram(&label),
                         "label": label, "name": format!("{label} · {server}") })
             })
             .collect();

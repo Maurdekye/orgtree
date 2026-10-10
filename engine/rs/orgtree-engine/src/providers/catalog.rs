@@ -128,6 +128,16 @@ pub fn tier(name: &str) -> Option<&'static Tier> {
     TIERS.iter().find(|t| t.tier == name)
 }
 
+/// The letter on a runtime tier's chip: the first letter of the first word
+/// of its model's label (`claude-sonnet-5` → C, `qwen3.6-35b-a3b:latest` →
+/// Q), the rule OpenRouter favorites have used since they were added; `?`
+/// for a label without one. The lane's colour marks the lane, not the letter.
+#[logged]
+pub fn monogram(label: &str) -> String {
+    let first = label.split([':', '-', '_', '.', '/', ' ']).find(|t| !t.is_empty()).unwrap_or("?");
+    first.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "?".into())
+}
+
 pub fn is_openrouter(tier: &str) -> bool {
     tier.starts_with("or-")
 }
