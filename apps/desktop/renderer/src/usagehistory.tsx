@@ -14,13 +14,13 @@
 // its title names it — no legend box.
 //
 // WHAT IS NEVER DRAWN AS CONSUMPTION:
-// - a missing reading: the line BREAKS — where the engine was not running
-//   (no row for longer than the hourly keepalive allows), where the account
-//   was unavailable, or where a window reported no number. Nothing marks the
-//   gap (user 2026-10-10: "don't mark unavailable zones on the graph ... just
-//   omit the datapoints"); the line simply stops and starts again, never
-//   joined across it, so no straight line stands in for time nobody measured.
-//   Nothing missing is ever drawn as 0.
+// - a missing reading: where the engine was not running, where the account
+//   was unavailable, or where a window reported no number, there is simply no
+//   point. Nothing marks the gap and the line joins the readings on either
+//   side of it (user 2026-10-10: "don't mark unavailable zones on the graph
+//   ... just omit the datapoints"; "connect the datapoints between the missing
+//   zones with a line"). Nothing missing is ever drawn as 0, and the average
+//   counts only the time readings covered, never the gap.
 // - a reset: the line breaks at the recorded reset, which is marked with a
 //   solid hairline, and "change" is measured from the last reset on.
 //
@@ -31,7 +31,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getUsageHistory } from './api'
-import type { UsageHistory, UsageHistoryRange, UsageHistoryReset, UsageHistorySeries, UsageHistoryState } from './api'
+import type { UsageHistory, UsageHistoryRange, UsageHistoryReset, UsageHistorySeries } from './api'
 import { PinFrame } from './canvas/modalpin'
 import { ShowChartIcon } from './icons'
 import { fmtDay, fmtHm, fmtStamp, fmtWhen } from './timefmt'
@@ -54,15 +54,12 @@ const PROVIDERS: Record<string, string> = {
 export const providerName = (p: string): string => PROVIDERS[p] ?? p
 
 export interface Pt { t: number; v: number }
-export interface Span { from: number; to: number; state: string; detail: string | null }
 export interface SeriesModel {
   key: string
   series: UsageHistorySeries
-  /** the measured line, broken at every gap and reset */
+  /** the measured line, broken only at resets (joined across gaps) */
   segments: Pt[][]
   resets: { t: number; prev: number | null; next: number | null }[]
-  /** where the account could not be read (it breaks the line; never drawn) */
-  unavailable: Span[]
   nextReset: number | null
   projection: { from: Pt; to: Pt; hits: 'limit' | 'empty' | null } | null
   /** why there is no projection, when there is none */
@@ -89,24 +86,6 @@ const ms = (iso: string | null | undefined): number | null => {
   return Number.isFinite(t) ? t : null
 }
 
-/** Each account's spans of not-ok availability, from the state CHANGES the
- *  engine sends. A span still open at the end runs to `until`. */
-export function unavailableSpans(states: UsageHistoryState[], until: number): Map<string, Span[]> {
-  const out = new Map<string, Span[]>()
-  const open = new Map<string, Span>()
-  for (const s of [...states].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))) {
-    const at = Date.parse(s.at)
-    const cur = open.get(s.account)
-    if (cur) { cur.to = at; open.delete(s.account) }
-    if (s.state !== 'ok') {
-      const span = { from: at, to: until, state: s.state, detail: s.detail }
-      open.set(s.account, span)
-      out.set(s.account, [...(out.get(s.account) ?? []), span])
-    }
-  }
-  return out
-}
-
 /** Least-squares slope (value per ms) through the points, or null. */
 export function slope(pts: Pt[]): number | null {
   if (pts.length < 2) return null
@@ -119,9 +98,9 @@ export function slope(pts: Pt[]): number | null {
   return den > 0 ? num / den : null
 }
 
-/** Turn one series' buckets, resets and its account's availability into what
- *  the chart draws and the statistics it shows. Pure, so it is tested alone. */
-export function modelSeries(series: UsageHistorySeries, resets: UsageHistoryReset[], unavailable: Span[],
+/** Turn one series' buckets and resets into what the chart draws and the
+ *  statistics it shows. Pure, so it is tested alone. */
+export function modelSeries(series: UsageHistorySeries, resets: UsageHistoryReset[],
   opts: { now: number; since: number; until: number; gapMs: number }): SeriesModel {
   const key = seriesKey(series)
   const pts: Pt[] = []
@@ -139,9 +118,8 @@ export function modelSeries(series: UsageHistorySeries, resets: UsageHistoryRese
   let seg: Pt[] = []
   for (const p of pts) {
     const prev = seg.at(-1)
-    const breaks = prev && (p.t - prev.t > opts.gapMs
-      || unavailable.some((u) => u.from < p.t && u.to > prev.t)
-      || rs.some((r) => r.t > prev.t && r.t <= p.t))
+    // only a reset breaks the line: a fall to a new window is not drawn
+    const breaks = prev && rs.some((r) => r.t > prev.t && r.t <= p.t)
     if (breaks) { segments.push(seg); seg = [] }
     seg.push(p)
   }
@@ -153,13 +131,16 @@ export function modelSeries(series: UsageHistorySeries, resets: UsageHistoryRese
   const current = pts.at(-1) ?? null
   const first = pts[0] ?? null
   // time-weighted: a recorded value holds until the next reading of its
-  // segment (the engine only writes a row when the value changes)
+  // segment (the engine only writes a row when the value changes), but not
+  // across a gap — nothing was read there, so it does not count
   let area = 0
   let span = 0
   for (const s of segments) {
     for (let i = 0; i + 1 < s.length; i++) {
-      area += s[i]!.v * (s[i + 1]!.t - s[i]!.t)
-      span += s[i + 1]!.t - s[i]!.t
+      const dt = s[i + 1]!.t - s[i]!.t
+      if (dt > opts.gapMs) continue
+      area += s[i]!.v * dt
+      span += dt
     }
   }
   const avg = span > 0 ? area / span : pts.length ? pts.reduce((a, p) => a + p.v, 0) / pts.length : null
@@ -196,7 +177,7 @@ export function modelSeries(series: UsageHistorySeries, resets: UsageHistoryRese
     projection = { from: startPt, to, hits }
   }
   return {
-    key, series, segments, resets: rs, unavailable, nextReset, projection, noProjection,
+    key, series, segments, resets: rs, nextReset, projection, noProjection,
     stats: {
       readings: values.reduce((a, b) => a + b.n, 0), current, first,
       min: mins.length ? Math.min(...mins) : null, max: maxs.length ? Math.max(...maxs) : null,
@@ -469,10 +450,8 @@ export function UsageHistoryModal({ close }: { close: () => void }) {
     // a series re-records hourly when nothing changes; longer than that
     // (plus a probe's cadence) without a row means nothing was read
     const gapMs = Math.max((data.keepalive_min + 15) * 60_000, 2 * data.bucket_s * 1000)
-    const down = unavailableSpans(data.states, until)
-    const models = data.series.map((s) => modelSeries(s, data.resets, down.get(s.account) ?? [],
-      { now, since, until, gapMs }))
-    return { since, until, now, models, to: until + (until - since) * FUTURE_SHARE, down }
+    const models = data.series.map((s) => modelSeries(s, data.resets, { now, since, until, gapMs }))
+    return { since, until, now, models, to: until + (until - since) * FUTURE_SHARE }
   }, [data, range])
 
   const series = data?.series ?? []

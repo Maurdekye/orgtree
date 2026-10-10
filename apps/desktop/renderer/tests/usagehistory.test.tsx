@@ -12,7 +12,7 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { modelSeries, seriesTitle, unavailableSpans, UsageHistoryModal } from '../src/usagehistory'
+import { modelSeries, seriesTitle, UsageHistoryModal } from '../src/usagehistory'
 import type { UsageHistory, UsageHistoryBucket, UsageHistorySeries } from '../src/api'
 
 const H = 3_600_000
@@ -30,31 +30,28 @@ const series = (points: UsageHistoryBucket[], over: Partial<UsageHistorySeries> 
 })
 const OPTS = { now: NOW, since: NOW - 24 * H, until: NOW, gapMs: 75 * 60_000 }
 
-test('§1.1 a time gap longer than the keepalive breaks the line', () => {
+test('§1.1 a time gap is joined across, but the average counts only covered time', () => {
   const s = series([bucket(NOW - 10 * H, 5), bucket(NOW - 9.5 * H, 8),
     bucket(NOW - 3 * H, 20), bucket(NOW - 2.5 * H, 25)])
-  const m = modelSeries(s, [], [], OPTS)
-  assert.equal(m.segments.length, 2, 'the 6.5 h hole is a gap, not a line')
+  const m = modelSeries(s, [], OPTS)
+  assert.equal(m.segments.length, 1, 'user 2026-10-10: connect the points on either side of the gap')
   assert.equal(m.stats.min, 5)
   assert.equal(m.stats.max, 25)
+  assert.ok(m.stats.avg != null && m.stats.avg > 10, `the 8 % before the 6.5 h hole is not held across it (avg ${m.stats.avg})`)
 })
 
-test('§1.2 an unavailable span breaks the line even when the points are close', () => {
-  const s = series([bucket(NOW - 2 * H, 10), bucket(NOW - 1.5 * H, 12)])
-  const spans = unavailableSpans([
-    { account: 'claude/primary', account_label: '', provider: 'claude', at: iso(NOW - 1.9 * H), state: 'unavailable', detail: '401' },
-    { account: 'claude/primary', account_label: '', provider: 'claude', at: iso(NOW - 1.6 * H), state: 'ok', detail: null },
-  ], NOW).get('claude/primary') ?? []
-  assert.equal(spans.length, 1)
-  assert.equal(spans[0]!.to, NOW - 1.6 * H, 'the span ends where the account came back')
-  const m = modelSeries(s, [], spans, OPTS)
-  assert.equal(m.segments.length, 2)
+test('§1.2 an unavailable span is not marked: the readings either side are joined', () => {
+  // the account could not be read for 3 hours: the engine wrote no reading
+  const s = series([bucket(NOW - 5 * H, 10), bucket(NOW - 4.5 * H, 12), bucket(NOW - 1.5 * H, 30), bucket(NOW - H, 31)])
+  const m = modelSeries(s, [], OPTS)
+  assert.equal(m.segments.length, 1, 'user 2026-10-10: no break, no shading')
+  assert.ok(!('unavailable' in m), 'the model carries no unavailable spans to draw')
 })
 
 test('§1.3 a reset breaks the line and change is measured from it, not across it', () => {
   const s = series([bucket(NOW - 3 * H, 70), bucket(NOW - 2.5 * H, 90), bucket(NOW - 2 * H, 2), bucket(NOW - 1 * H, 12)])
   const m = modelSeries(s, [{ at: iso(NOW - 2 * H), account: 'claude/primary', window: 'session', group: 'session',
-    model: '', used_pct: 2, amount: null, resets_at: null, prev_pct: 90, prev_amount: null, prev_resets_at: null }], [], OPTS)
+    model: '', used_pct: 2, amount: null, resets_at: null, prev_pct: 90, prev_amount: null, prev_resets_at: null }], OPTS)
   assert.equal(m.segments.length, 2, 'the drop from 90 to 2 is not drawn')
   assert.equal(m.stats.change, 10, 'since the reset: 2 → 12, never 70 → 12')
   assert.equal(m.stats.changeSince, NOW - 2 * H)
@@ -62,20 +59,20 @@ test('§1.3 a reset breaks the line and change is measured from it, not across i
 
 test('§1.4 the projection runs to the next reset, or stops at 100 %', () => {
   const slow = series([bucket(NOW - 2 * H, 10), bucket(NOW - 1 * H, 20), bucket(NOW, 30)])
-  const a = modelSeries(slow, [], [], OPTS)
+  const a = modelSeries(slow, [], OPTS)
   assert.ok(a.projection)
   assert.equal(a.projection!.to.t, NOW + 2 * H, 'ends at the window\'s reset')
   assert.ok(Math.abs(a.projection!.to.v - 50) < 1e-6, '10 pts an hour, two hours on')
   assert.equal(a.nextReset, NOW + 2 * H)
   const fast = series([bucket(NOW - 2 * H, 40), bucket(NOW - 1 * H, 70), bucket(NOW, 90)])
-  const b = modelSeries(fast, [], [], OPTS)
+  const b = modelSeries(fast, [], OPTS)
   assert.equal(b.projection!.hits, 'limit')
   assert.equal(b.projection!.to.v, 100)
   assert.ok(b.projection!.to.t < NOW + 2 * H)
 })
 
 test('§1.5 one reading: no projection, no change, still a current value', () => {
-  const m = modelSeries(series([bucket(NOW - 10 * 60_000, 7)]), [], [], OPTS)
+  const m = modelSeries(series([bucket(NOW - 10 * 60_000, 7)]), [], OPTS)
   assert.equal(m.projection, null)
   assert.equal(m.noProjection, 'not enough readings yet')
   assert.equal(m.stats.change, null)
