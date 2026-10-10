@@ -1,12 +1,12 @@
 module.exports = async (page, { args }) => {
-  await page.waitFor('button[title="Orgtree menu"]', { timeout: 30000 })
+  // the rig browser draws the v2 header: the org list lives in the drawer
+  await page.waitFor('.orgbar .iconbtn', { timeout: 60000 })
   const open = async () => {
-    await page.click('button[title="Orgtree menu"]')
-    await page.click({ selector: '[role="menuitem"].shell-menu-subrow' })
-    await page.waitFor('[role="menu"][aria-label="Organizations"] .org', { timeout: 15000 })
+    await page.click('.orgbar .iconbtn')
+    await page.waitFor('.drawer .org', { timeout: 15000 })
     await page.sleep(500)
   }
-  const rows = () => page.eval(() => [...document.querySelectorAll('[role="menu"][aria-label="Organizations"] .org')].map(r => ({
+  const rows = () => page.eval(() => [...document.querySelectorAll('aside.drawer .org')].map(r => ({
     name: r.querySelector('.org-name-text')?.textContent, cls: r.className,
     badge: r.querySelector('.org-attn-badge')?.textContent ?? null, spinner: !!r.querySelector('.cc-spin') })))
   await open()

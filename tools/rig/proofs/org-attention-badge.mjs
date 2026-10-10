@@ -22,7 +22,7 @@ export default async function (rig) {
   const before = await counts()
   p.check('no attention yet in either org', before[rig.org] === 0 && before[calm] === 0, before)
 
-  const ask = await rig.tool('alice', 'orgtree_ask', { question: 'Which colour?', header: 'Colour' })
+  const ask = await rig.tool('boss', 'orgtree_ask', { question: 'Which colour?', header: 'Colour' })
   await rig.tool('boss', 'orgtree_message', { to: 'user', body: 'PROOF urgent', urgent: true, urgent_reason: 'proof' })
   await rig.tool('alice', 'orgtree_work', { action: 'create', title: 'Attention ticket', objective: 'proof.\n\nbody', kind: 'non-code', owner: 'alice' })
   await rig.tool('alice', 'orgtree_work', { action: 'update', slug: 'attention-ticket', done_so_far: ['x'], working_on_next: ['y'], attention: true, attention_reason: 'proof' })
@@ -31,11 +31,21 @@ export default async function (rig) {
     after[rig.org] === 3 && after[calm] === 0, { after, ask: JSON.stringify(ask).slice(0, 160) })
 
   const ui = await runDesktop(rig, fileURLToPath(new URL('../desktop/org-attention-badge.cjs', import.meta.url)),
-    { out: path.join(p.dir, 'desktop'), args: { calm, org: rig.org } })
+    { out: path.join(p.dir, 'desktop'), args: { calm, org: rig.org }, timeout: 400000 })
   p.check('desktop script ran', ui.ok, ui.error)
   if (ui.ok) {
     for (const k of ['rigRowLit', 'rigBadge3', 'rigNoSpinner', 'calmRowPlain', 'calmNoBadge', 'lightThemeBadge', 'liveDrop2'])
       p.check(k, ui.value[k] === true, ui.value.detail)
+  }
+  // the restart entries' styling (same session): red, reddish border, --bad contrast
+  const rr = await runDesktop(rig, fileURLToPath(new URL('../desktop/restart-red.cjs', import.meta.url)),
+    { out: path.join(p.dir, 'desktop-restart-red'), timeout: 400000 })
+  p.check('restart-red desktop script ran', rr.ok, rr.error)
+  if (rr.ok) {
+    for (const k of ['sameRedDark', 'sameRedLight', 'borderDark', 'borderLight']) p.check(k, rr.value[k] === true, rr.value)
+    p.check('--bad contrast on the page background >= 4.5 (dark / light)',
+      rr.value.dark.contrastBadOnBg >= 4.5 && rr.value.light.contrastBadOnBg >= 4.5,
+      { dark: rr.value.dark.contrastBadOnBg, light: rr.value.light.contrastBadOnBg })
   }
   p.keep(rig, { agents: ['alice'] })
   return p.summary()
