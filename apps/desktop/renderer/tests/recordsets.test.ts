@@ -128,7 +128,7 @@ test('R1 merges all twelve org groups, including future-visible fields, without 
   assert.throws(() => projectTree(table(groups({ settings: { slug: 'org' }, net: { slug: 'other' } }))), /repeat/)
 })
 
-test('R2 sorts by ui_order, created, ordinal and Python Unicode name order, never database ID or locale', () => {
+test('R2 sorts by sibling order (ui_order), ordinal and Python Unicode name order, never database ID, locale or creation date (4.x: move_node assigns fresh order keys)', () => {
   const records = table([...groups({ settings: { slug: 'org' } }),
     agent('1', '\u{10000}', null, { created: 'b', ord: 2 }),
     agent('9', '\ue000', null, { created: 'b', ord: 2 }),
@@ -136,7 +136,7 @@ test('R2 sorts by ui_order, created, ordinal and Python Unicode name order, neve
     agent('4', 'earlier date', null, { created: 'a', ord: 99 }),
     agent('5', 'earlier order', null, { ui_order: -1, created: 'z' })])
   assert.deepEqual(projectTree(records).roots.map(n => n.id),
-    ['earlier order', 'earlier date', 'earlier ordinal', '\ue000', '\u{10000}'])
+    ['earlier order', 'earlier ordinal', '\ue000', '\u{10000}', 'earlier date'])
 })
 
 test('R4 counts distinct subscription-only retired children and roots, excluding successor-bearing lineage', () => {
