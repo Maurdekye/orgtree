@@ -135,8 +135,9 @@ test('§2 hire sheet: no Gemini Pro button, then one labelled legacy',
     assert.equal(Boolean(btn('pro')), false, 'the sheet offered Gemini Pro with the toggle off')
     await flip(true)
     assert.ok(btn('pro'), 'the sheet did not offer Gemini Pro with the toggle on')
-    assert.match(btn('pro')!.textContent ?? '', /· legacy/)
-    assert.doesNotMatch(btn('flash')!.textContent ?? '', /legacy/)
+    // 4.2: the legacy mark rides in the tooltip, the label stays "name · seat N"
+    assert.match(btn('pro')!.title, /legacy/)
+    assert.doesNotMatch(btn('flash')!.title, /legacy/)
   })
 
 function config(node: CanvasNode) {
@@ -167,7 +168,7 @@ test('§2 agent settings model switch: no Gemini Pro option, then one labelled l
     const o = switchOption(v.el, 'pro')
     assert.ok(o, 'the model switch did not list Gemini Pro with the toggle on')
     assert.equal(o!.disabled, false)
-    assert.match(o!.textContent ?? '', /· legacy$/)
+    assert.match(o!.title, /legacy/, 'the legacy mark rides in the option tooltip')
   })
 
 test('§3 an agent already on Gemini Pro keeps its own tier in the switch, toggle off',
@@ -191,26 +192,6 @@ test('§3 an agent already on Gemini Pro shows its P token on its card, toggle o
       .find((e) => !e.closest('.hsof'))
     assert.ok(token, 'the Gemini Pro agent\'s card lost its tier token')
     assert.equal(token!.textContent, 'P')
-  })
-
-test('§2 lineage rehire list: no "as pro" row, then one labelled legacy',
-  async (t: TestContext) => {
-    fresh(t)
-    const node = agent('flash', [{ id: 'agent@1', generation: 1, state: 'archived',
-      bearer_state: 'knowledge', tier: 'flash' } as LineageEntry])
-    const v = await mountView(
-      <LineagePanel node={node} slug="org" close={noop}
-        op={() => Promise.resolve({} as OpResult)} />,
-      (el) => el)
-    t.after(() => v.unmount())
-    const opt = (tier: string) => [...v.el.querySelectorAll<HTMLOptionElement>('.lin-row select option')]
-      .find((o) => o.value === tier)
-    assert.ok(opt('luna'), 'positive control: the rehire list rendered')
-    assert.equal(Boolean(opt('pro')), false, 'the rehire list offered Gemini Pro with the toggle off')
-    await flip(true)
-    assert.ok(opt('pro'), 'the rehire list did not offer Gemini Pro with the toggle on')
-    assert.match(opt('pro')!.textContent ?? '', /· legacy/)
-    assert.equal(opt('pro')!.disabled, false, 'a flash bearer may be rehired as pro')
   })
 
 test('§2 auto-autopsy model list: no Gemini Pro, then labelled legacy; a configured one stays',

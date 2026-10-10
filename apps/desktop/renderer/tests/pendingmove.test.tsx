@@ -69,7 +69,7 @@ const before = () => tree([mkNode('boss', [mkNode('a', [mkNode('x', [mkNode('xk'
 const after = () => tree([mkNode('boss', [mkNode('a'), mkNode('b', [mkNode('x', [mkNode('xk')])])])])
 const elsewhere = () => tree([mkNode('boss', [mkNode('a'), mkNode('b'), mkNode('x', [mkNode('xk')])])])
 
-// Real feed projection: the move changes the parent link, never the order key.
+// Real feed projection: a move changes the parent link and assigns a fresh order key (engine move_node).
 function orderedFixture(kind: 'order' | 'created' | 'ordinal' | 'name' = 'order', top = false) {
   const ids = kind === 'name' ? ['a', '\ue000', '\u{10000}'] : ['left', 'x', 'right']
   const rows = new Map<string, unknown>([
@@ -86,8 +86,12 @@ function orderedFixture(kind: 'order' | 'created' | 'ordinal' | 'name' = 'order'
   ])
   const records = new Map([['org', new Map<string, unknown>([['org', tree([])]])], ['agent', rows]])
   const initial = projectTree(records)
+  // the engine's move_node gives every real move a fresh order after the destination's live siblings
+  // (withPendingMoves mirrors it), so the confirmed row carries that new key
+  const siblingsOrder = Math.max(...[...rows.entries()].filter(([k, r]) => k !== '1' && (r as { parent_id: string | null }).parent_id === (top ? null : 'target'))
+    .map(([, r]) => (r as { ui_order: number }).ui_order))
   const confirmedRows = new Map(rows).set('1', {
-    ...(rows.get('1') as object), parent_id: top ? null : 'target',
+    ...(rows.get('1') as object), parent_id: top ? null : 'target', ui_order: siblingsOrder + 1,
   })
   const confirmed = projectTree(new Map(records).set('agent', confirmedRows))
   return { initial, confirmed, moved: ids[1]!, ids, parent: top ? null : 'target' }
@@ -99,7 +103,8 @@ for (const kind of ['order', 'created', 'ordinal', 'name'] as const) {
     const snapshot = JSON.stringify(initial)
     const preview = withPendingMoves(initial, new Map([[moved, parent]]))
     const siblings = (t: TreePayload) => top ? t.roots : t.roots.find(n => n.id === parent)!.children
-    const want = top ? ['old', 'target', ...ids] : ids
+    const landed = [...ids.filter(i => i !== moved), moved]  // a moved agent lands LAST (fresh order)
+    const want = top ? ['old', 'target', ...landed] : landed
     assert.deepEqual(siblings(confirmed).map(n => n.id), want, 'independent expected order qualifies fixture')
     assert.deepEqual(siblings(preview).map(n => n.id), want)
     assert.deepEqual([...treeParents(preview)], [...treeParents(confirmed)])

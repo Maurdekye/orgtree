@@ -33,6 +33,7 @@ import {
   useFakeClock,
 } from './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
+import { MOVED, flatLabels, openBranchOf, pickIn, surveyMenu } from './menuhelp'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -54,8 +55,7 @@ import type { TreePayload, WorkItem } from '../src/types'
 const noop = () => {}
 const W = window as unknown as Window & typeof globalThis
 const menuEl = () => document.querySelector('.ctxmenu') as HTMLElement | null
-const labels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
-  .map((b) => (b as HTMLButtonElement).textContent ?? '')
+const labels = () => flatLabels()
 const itemNamed = (label: string) => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
   .find((b) => b.textContent === label) as HTMLButtonElement | undefined
 
@@ -67,9 +67,13 @@ async function rightClick(el: Element, at: { x: number; y: number } = { x: 40, y
   })
   await inAct(() => { el.dispatchEvent(ev) })
   await flush(2)
+  if (menuEl()) await surveyMenu()
   return ev.defaultPrevented
 }
 async function pick(label: string) {
+  const moved = MOVED[label]
+  if (moved) { await pickIn(moved[0], moved[1]); await flush(2); return }
+  await openBranchOf(label)
   const b = itemNamed(label)
   assert.ok(b, `menu item "${label}" present — have ${JSON.stringify(labels())}`)
   await inAct(() => { b!.click() })
@@ -383,11 +387,11 @@ uiTest('§B1 agent card: right-click opens the card menu and does NOT move the c
   await advance(400, 50)
   assert.equal(camera(v.el), before, 'a right-click is not a click: the camera did not move')
   const have = labels()
-  for (const l of ['Focus', 'Open inbox', 'Open docket', 'Open presentations', 'Show lineage',
-    'Settings', 'Pin desk as a window', 'Hire a subordinate…', 'Retire…']) {
+  for (const l of ['Focus', '· Open inbox', '· Open docket', '· Open presentations',
+    'Settings', '· Pin desk as a window', 'Hire a subordinate ▸', 'Retire…']) {
     assert.ok(have.includes(l), `entry "${l}" — have ${JSON.stringify(have)}`)
   }
-  assert.ok(!have.includes('Dissolve suborganization…'), 'no live reports: retire, not dissolve')
+  assert.ok(!have.includes('Dissolve… ▸'), 'no live reports: retire, not dissolve')
   await pick('Retire…')
   const dlg = document.querySelector('.overlay h3, .overlay [role="dialog"], .confirm')
   assert.match(document.body.textContent ?? '', /retire worker\?/, 'the card\'s ConfirmModal, by its title')
@@ -403,7 +407,7 @@ uiTest('§B1b agent card: a card with live reports offers Dissolve; a retired ca
     c.getAttribute('data-copy-agent-name') === 'boss' || c.textContent?.includes('boss')) as HTMLElement
   assert.ok(boss)
   await rightClick(boss)
-  assert.ok(labels().includes('Dissolve suborganization…'), JSON.stringify(labels()))
+  assert.ok(labels().includes('Dissolve… ▸'), JSON.stringify(labels()))
   assert.ok(!labels().includes('Retire…'))
   await key(document.body, 'Escape')
   const gone = [...v.el.querySelectorAll('.sq')].find((c) =>
@@ -411,21 +415,17 @@ uiTest('§B1b agent card: a card with live reports offers Dissolve; a retired ca
   assert.ok(gone, 'positive control: the archived card rendered')
   await rightClick(gone)
   const have = labels()
-  assert.ok(have.includes('Open inbox'), 'an archived card still has a menu')
-  assert.ok(!have.includes('Retire…') && !have.includes('Dissolve suborganization…') && !have.includes('Hire a subordinate…'))
+  assert.ok(have.includes('· Open inbox'), 'an archived card still has a menu')
+  assert.ok(!have.includes('Retire…') && !have.includes('Dissolve… ▸') && !have.includes('Hire a subordinate ▸'))
 })
 
-uiTest('§B1c agent card: Hire a subordinate… reveals the bottom hire chips until the pointer leaves', async (t) => {
+uiTest('§B1c agent card: Hire a subordinate ▸ <model> opens the chosen model hire draft under the agent', async (t) => {
   const v = await mountCanvas(t, [mkNode('worker')])
   const card = v.el.querySelector('.sq.live') as HTMLElement
   await rightClick(card)
-  await pick('Hire a subordinate…')
-  assert.ok(card.classList.contains('hire-reveal'))
-  // React derives onPointerLeave from the native pointerout pair
-  await inAct(() => { card.dispatchEvent(new W.PointerEvent('pointerout',
-    { bubbles: true, relatedTarget: document.body })) })
-  await flush(2)
-  assert.ok(!card.classList.contains('hire-reveal'))
+  await pickIn('Hire a subordinate', 'sonnet')
+  await advance(400, 50); await flush(4)
+  assert.ok(v.el.querySelector('.sq.draft'), 'a hire draft opened')
 })
 
 // --- the mail row ---

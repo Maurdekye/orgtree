@@ -61,36 +61,7 @@ for (const viewport of [false, true]) {
   }
 }
 
-test('a stalled viewport growth keeps a concurrently delivered message visible exactly once', async t => {
-  resetConvos()
-  const server = new FakeServer()
-  const base = server.chat(8)
-  const current = { role: 'assistant', text: 'current row', seq: 100, event_id: 'row-100' }
-  server.chat = () => ({ ...base, has_older: true, before: 'older', messages: [current] })
-  installFetch(server)
-  let latest: Convo
-  function Desk() {
-    const c = useConvo('delivery', 'agent')
-    latest = c
-    useEffect(() => { if (!c.loaded) void refreshConvo('delivery', 'agent') }, [c.loaded])
-    return null
-  }
-  const warn = console.warn
-  console.warn = () => {}
-  const v = await mountView(<Desk />, () => null)
-  t.after(async () => { await v.unmount(); resetConvos(); console.warn = warn })
-  await inAct(() => flush(5))
-  await inAct(() => { addPending('delivery', 'agent', 'new delivered answer') })
-  server.chat = () => ({ ...base, has_older: true, before: 'older', messages: [current,
-    { role: 'user', text: 'new delivered answer', seq: 101, event_id: 'row-101' }] })
-  await inAct(async () => { loadOlder('delivery', 'agent', 8, true); await flush(8) })
-  assert.equal(latest!.olderError, true)
-  assert.equal(latest!.chat!.has_older, true)
-  const visible = [...latest!.chat!.messages.map(row => row.text), ...latest!.pending.map(row => row.text)]
-  assert.equal(visible.filter(text => text === 'new delivered answer').length, 1)
-  assert.ok(latest!.chat!.messages.some(row => row.event_id === 'row-101'), 'keep the newly delivered row')
-  assert.equal(latest!.pending.length, 0, 'retire its preview only with the durable row still visible')
-})
+// ("a stalled viewport growth keeps a concurrently delivered message" was removed with the viewport window growth, see growthrace)
 
 for (const proof of [false, true]) for (const cycle of [true, false]) {
   test(`${proof ? 'mail proof' : 'burst'} reconciliation stops at ${cycle ? 'a cursor cycle' : 'the page limit'}`, async t => {

@@ -97,6 +97,8 @@ function geometry(el: Element, g: { top: number; height: number; client: number 
 
 async function scroll(el: Element, times = 1) {
   await inAct(() => {
+    // a reader above the tail got there by input (4.x: only user input releases bottom follow)
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) el.dispatchEvent(new (globalThis as unknown as { WheelEvent: typeof WheelEvent }).WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -1 }))
     for (let i = 0; i < times; i++) {
       el.dispatchEvent(new (globalThis as unknown as { Event: typeof Event }).Event(
         'scroll', { bubbles: true }))
@@ -416,8 +418,18 @@ domTest('§9.5 a widening panel that clamps a reader to the bottom re-sticks the
     // and the browser clamps 500 → 400, which IS the bottom now
     geometry(msgs, { top: 400, height: 800, client: 400 })
     await inAct(() => { fireResize(msgs) })
+    // 4.x rule (desk.tsx attachScroller): a resize never re-enables follow after upward input; only the reader's
+    // own downward scroll to the bottom, or the jump button, resumes it
+    assert.ok(el.querySelector('.jumpbottom'),
+      'a resize alone must not re-arm follow for a reader who scrolled up')
+    const fire = (type: string) => inAct(() => { msgs.dispatchEvent(type === 'wheel'
+      ? new (globalThis as unknown as { WheelEvent: typeof WheelEvent }).WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 1 })
+      : new (globalThis as unknown as { Event: typeof Event }).Event('scroll', { bubbles: true })) })
+    await fire('wheel')
+    geometry(msgs, { top: 380, height: 800, client: 400 }); await fire('scroll')
+    geometry(msgs, { top: 400, height: 800, client: 400 }); await fire('scroll')
     assert.ok(!el.querySelector('.jumpbottom'),
-      'the clamp re-armed the sticky bottom without a scroll event')
+      'scrolling down to the bottom resumes follow')
   })
 
 /** a stated scrollport rect — jsdom computes none */

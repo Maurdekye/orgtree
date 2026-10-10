@@ -58,8 +58,10 @@ test('the chip and its tooltip agree: tier counts sum to live, active matches', 
   const chip = view.el.querySelector('.agents') as HTMLElement | null
   assert.ok(chip)
   const text = chip!.textContent ?? ''
-  const live = Number(/(\d+) live/.exec(text)?.[1])
-  const active = Number(/(\d+) active/.exec(text)?.[1])
+  // 4.2: the chip reads "active/live" (e.g. 0/4) beside the tier letters
+  const counts = /(\d+)\/(\d+)/.exec(chip!.querySelector('.org-counts')?.textContent ?? '')
+  const active = Number(counts?.[1])
+  const live = Number(counts?.[2])
   const letters = [...chip!.querySelectorAll('b')].map((b) => b.textContent ?? '')
   assert.deepEqual(letters, ['S1', 'O3'])
   assert.equal(letters.reduce((s, l) => s + Number(l.slice(1)), 0), live,
@@ -71,7 +73,7 @@ test('the chip and its tooltip agree: tier counts sum to live, active matches', 
   assert.equal(chip!.getAttribute('role'), 'img')
   assert.equal(chip!.getAttribute('tabindex'), '0')
   assert.equal(chip!.getAttribute('aria-label'), title, 'keyboard focus gets the same text')
-  assert.ok(!chip!.querySelector('[title]'), 'no inner title hides the chip\'s own tooltip')
+  // (4.2: the active/live count and the spinner carry their own small titles; the chip's own tooltip stays the whole story)
 })
 
 test('nothing live and nothing active elsewhere: the tooltip still says so plainly', () => {

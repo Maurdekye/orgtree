@@ -229,65 +229,22 @@ test('§6 the desk OFFERS the retry, and pressing it asks again', async (t: Test
   await advance(200)
   s.fail = null
 
-  const button = retry()
-  assert.ok(button, 'a failed page left the reader nothing to press')
-  assert.match(button!.textContent ?? '', /retry/i)
-
+  // 4.x: a failed page retries ITSELF every 5 s while a desk shows the conversation (convo.ts HISTORY_RETRY_MS) and
+  // the status line says so, instead of leaving a button
+  const status = () => v.el.querySelector('.loadolder-status')?.textContent ?? ''
+  assert.match(status(), /retrying/i, 'a failed page tells the reader it is retrying')
   const before = s.requests.filter(r => r.before).length
-  await inAct(async () => { button!.click(); await flush(8) })
-  await advance(200)
+  await advance(5200)
   assert.ok(s.requests.filter(r => r.before).length > before,
-    'pressing retry did not ask for the page again')
-  assert.equal(retry(), null, 'the retry stayed on screen after it succeeded')
+    'the failed page was not asked for again on its own')
+  await inAct(async () => { await flush(8) })
+  assert.doesNotMatch(status(), /retrying/i, 'the retry note stayed on screen after the page loaded')
 })
 
 // ───────── §9 a failed page must not smuggle back the short-window frame
 
-pagingTest('§9 a leave-history intent that settles through a FAILED page keeps '
-  + 'the viewport floor a tall desk asked for', async ({ s, SL, ND, desk, transport }) => {
-  // desk-review, second pass — and a regression I introduced myself in
-  // c41f3e0. The catch cleared `pendingKeep` BEFORE the collapse consumed it,
-  // so a tall Desk that sent (or jumped to the tail) while a page was in
-  // flight fell back to CHAT_WINDOW — eight rows — which is exactly the
-  // short-window frame this whole item exists to remove, reintroduced through
-  // the failure path.
-  //
-  // ⚠ THE WINDOW HAS TO HAVE GROWN for this to be visible at all, which took
-  // two wrong fixtures to work out. A desk that paged by CURSOR leaves `win`
-  // at CHAT_WINDOW the whole time, and the catch clears `paged` before it
-  // collapses — so `collapseWindow`'s own early-exit (`win <= floor &&
-  // !paged`) fires and the floor never applies. A tall desk gets its window
-  // from the VIEWPORT path (fillViewport -> loadOlder(n, viewport)), which is
-  // what actually grows `win`, and that is what is modelled here.
-  for (let i = 0; i < 200; i++) s.assistantMsg(`row ${i}`)
-  const d = await desk()
-  await advance(100)
-  await inAct(() => { loadOlder(SL, ND, 40, true) })   // the viewport grows it
-  await advance(200)
-  assert.ok(d.now().win > 24, `fixture: the window grew, got win=${d.now().win}`)
-
-  // `fail` is read when the request is MADE, not when it is released, so it
-  // must be armed before the call or the held page settles successfully and
-  // this exercises the wrong branch entirely (it did, first time round).
-  s.fail = 500
-  transport.holdAll = true
-  await inAct(() => { loadOlder(SL, ND, 8) })          // a failing page, HELD
-  // a TALL desk leaves history while it is out: 24 rows is what it draws
-  await inAct(() => { collapseWindow(SL, ND, 24) })
-  transport.holdAll = false
-  await inAct(async () => { transport.release(); await flush(8) })
-  await advance(300)
-  s.fail = null
-  await advance(300)
-
-  // `win` is the POLL WINDOW — exactly what `keep` sets, and what the next
-  // poll asks for. The rendered rows are not the witness: `mergeCommitted`
-  // re-supplies committed rows on the next refresh, so a row-count assertion
-  // passes against the broken code (it did, first time round).
-  assert.ok(d.now().win >= 24,
-    `the failed page cut the poll window to ${d.now().win} — below the 24 rows `
-    + 'a tall desk draws, which is the short-window frame again')
-})
+// (§9 "a leave-history intent that settles through a FAILED page keeps the viewport floor" was removed: 4.x pages
+// history by cursor and `loadOlder`'s viewport flag is inert, so the poll window no longer grows from the viewport)
 
 // ─────────────── §7 a rename mid-flight must not wedge the surviving entry
 

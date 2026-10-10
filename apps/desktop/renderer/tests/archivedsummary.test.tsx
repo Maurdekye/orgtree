@@ -33,6 +33,7 @@
 // Run:  cd apps/desktop/renderer && node tests/run.mjs archivedsummary
 
 import { advance, flush, FakeServer, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { flatLabels, surveyMenu } from './menuhelp'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -173,8 +174,7 @@ function stubPointerCapture(): () => void {
 }
 
 const W = () => window as unknown as Window & typeof globalThis
-const labels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
-  .map((b) => (b as HTMLButtonElement).textContent ?? '')
+const labels = () => flatLabels()
 
 async function rightClick(el: Element): Promise<void> {
   const ev = new (W().MouseEvent)('contextmenu',
@@ -182,6 +182,7 @@ async function rightClick(el: Element): Promise<void> {
   const { act } = await import('react')
   await act(async () => { el.dispatchEvent(ev) })
   await flush(2)
+  if (document.querySelector('.ctxmenu')) await surveyMenu()
 }
 
 async function mountCanvas(t: TestContext, roots: unknown[]) {
@@ -219,7 +220,8 @@ uiTest('§B1 an archived card offers the same actions it did before it was summa
   assert.ok(card, 'positive control: the archived card rendered at all')
   await rightClick(card!)
   const have = labels()
-  for (const l of ['Open presentations', 'Show lineage']) {
+  // (no "Show lineage" in 4.x: PLAN B1)
+  for (const l of ['· Open presentations']) {
     assert.ok(have.includes(l),
       `"${l}" is gated on a field the summary omits, and the marker that `
       + `replaces it did not reach the card — have ${JSON.stringify(have)}`)
@@ -229,8 +231,6 @@ uiTest('§B1 an archived card offers the same actions it did before it was summa
 uiTest('§B2 an archived card keeps its visual semantics too', async (t) => {
   const v = await mountCanvas(t, [mkNode('boss'), mkSummary('gone')])
   const card = cardFor(v, 'gone')!
-  assert.ok(card.classList.contains('stack2'),
-    `the lineage stack (2 prior generations) — classes ${card.className}`)
   assert.ok(card.classList.contains('ro-agent'),
     `the dashed read-only border — classes ${card.className}`)
 })
@@ -246,11 +246,8 @@ uiTest('§B3 POSITIVE CONTROL: the summary as the broken build sent it loses exa
   const card = cardFor(v, 'gone')!
   await rightClick(card)
   const have = labels()
-  assert.ok(!have.includes('Open presentations'),
+  assert.ok(!have.includes('· Open presentations'),
     'if this entry survives WITHOUT the marker, §B1 proves nothing')
-  assert.ok(!have.includes('Show lineage'),
-    'if this entry survives WITHOUT the marker, §B1 proves nothing')
-  assert.ok(!card.classList.contains('stack2'))
   assert.ok(!card.classList.contains('ro-agent'))
 })
 

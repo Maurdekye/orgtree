@@ -1,3 +1,4 @@
+// (the "include account selection when requesting staffing" test was removed: the setting is Inert in 4.x, PLAN s10 I5b)
 import { flush, inAct, mountView, advance, useFakeClock, realClock } from './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
@@ -333,30 +334,6 @@ test('setting restores and writes all three modes through application preference
     await inAct(() => { select.value = value; select.dispatchEvent(new W.Event('change', { bubbles: true })) }); await flush()
     assert.equal(mode, value); assert.equal(select.value, value)
   }
-})
-
-test('the request-account option restores absent as off and writes the exact key', async t => {
-  const old = globalThis.fetch
-  // an engine that never stored the option — the payload omits the key
-  let stored: Record<string, unknown> = { quick_staff_behavior: 'request' }
-  const bodies: Record<string, unknown>[] = []
-  globalThis.fetch = async (_url, init) => {
-    if (init?.body) { const b = JSON.parse(String(init.body)) as Record<string, unknown>
-      bodies.push(b); stored = { ...stored, ...b } }
-    return new Response(JSON.stringify(stored))
-  }
-  t.after(() => { globalThis.fetch = old })
-  const v = await mountView(<QuickStaffSetting />, h => h); t.after(() => v.unmount()); await flush()
-  const toggle = document.querySelector<HTMLInputElement>(
-    '[aria-label="Include account selection when requesting staffing"]')!
-  assert.ok(toggle)
-  assert.equal(toggle.checked, false)
-  await inAct(() => { toggle.click() }); await flush()
-  assert.deepEqual(bodies.at(-1), { quick_staff_request_accounts: true })
-  assert.equal(toggle.checked, true)
-  await inAct(() => { toggle.click() }); await flush()
-  assert.deepEqual(bodies.at(-1), { quick_staff_request_accounts: false })
-  assert.equal(toggle.checked, false)
 })
 
 test('real docket rows load Staff only for backlog and submit the previewed selection', async t => {

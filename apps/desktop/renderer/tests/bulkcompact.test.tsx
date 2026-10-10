@@ -20,6 +20,7 @@ import {
   advance, FakeServer, flush, inAct, installFetch, mountView, realClock,
   useFakeClock,
 } from './harness'
+import { MOVED, flatLabels, openBranchOf, pickIn, surveyMenu } from './menuhelp'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -53,47 +54,48 @@ function agent(id: string, extra: Partial<CanvasNode> = {}): CanvasNode {
 const handlers = (extra: Partial<AgentMenuHandlers> = {}): AgentMenuHandlers => ({
   onInbox: noop, onSettings: noop, onRetireAsk: noop, ...extra,
 })
+type Item = Exclude<ReturnType<typeof agentMenuEntries>[number], 'sep'>
+/** 4.2: the subtree compaction is the "subtree" entry under the "Cheap compact…" branch */
+const subtreeEntry = (node: CanvasNode, h: AgentMenuHandlers): Item | undefined => {
+  const branch = agentMenuEntries(node, h).find((e): e is Item => e !== 'sep' && e.label === 'Cheap compact…')
+  return branch?.children?.find((c) => c.label === 'subtree')
+}
 const labelsOf = (node: CanvasNode, h: AgentMenuHandlers) =>
   agentMenuEntries(node, h).map((e) => (e === 'sep' ? 'sep' : e.label))
-const SUBTREE = 'Cheap-compact subtree…'
 
 /* ─── §1 the subtree entry ──────────────────────────────────────────────── */
 
 test('§1a a live agent with live reports offers the subtree entry, above the '
   + 'lifecycle entries and not styled as danger', () => {
   const boss = agent('boss', { children: [agent('kid')] })
-  const entries = agentMenuEntries(boss, handlers())
-  const labels = entries.map((e) => (e === 'sep' ? 'sep' : e.label))
-  assert.ok(labels.includes(SUBTREE), JSON.stringify(labels))
-  assert.ok(labels.indexOf(SUBTREE) < labels.indexOf('Retire all subordinates…'))
-  const entry = entries.find((e) => e !== 'sep' && e.label === SUBTREE)
-  assert.ok(entry && entry !== 'sep' && !entry.danger,
-    'compaction retires no one; it must not read as a destructive action')
+  const labels = labelsOf(boss, handlers())
+  const entry = subtreeEntry(boss, handlers())
+  assert.ok(entry, JSON.stringify(labels))
+  assert.ok(labels.indexOf('Cheap compact…') < labels.indexOf('Dissolve…'), JSON.stringify(labels))
+  assert.ok(!entry.danger, 'compaction retires no one; it must not read as a destructive action')
 })
 
 test('§1b absent without live reports, on a retired agent, and without the '
   + 'confirm handler', () => {
   // the positive control: the same boss WITH everything offers it
   const boss = agent('boss', { children: [agent('kid')] })
-  assert.ok(labelsOf(boss, handlers()).includes(SUBTREE))
-  for (const [what, labels] of [
-    ['a leaf', labelsOf(agent('leaf'), handlers())],
-    ['only retired reports', labelsOf(agent('boss', {
+  assert.ok(subtreeEntry(boss, handlers()))
+  for (const [what, entry] of [
+    ['a leaf', subtreeEntry(agent('leaf'), handlers())],
+    ['only retired reports', subtreeEntry(agent('boss', {
       children: [agent('gone', { state: 'archived' })] }), handlers())],
-    ['a retired agent', labelsOf(agent('boss', {
+    ['a retired agent', subtreeEntry(agent('boss', {
       state: 'archived', children: [agent('kid')] }), handlers({ onDismiss: noop }))],
-    ['no confirm handler', labelsOf(boss, handlers({ onRetireAsk: undefined }))],
+    ['no confirm handler', subtreeEntry(boss, handlers({ onRetireAsk: undefined }))],
   ] as const) {
-    assert.ok(!labels.includes(SUBTREE), `${what}: ${JSON.stringify(labels)}`)
+    assert.equal(entry, undefined, what)
   }
 })
 
 test('§1c choosing it opens the subtree confirm through the shared plumbing', () => {
   const asked: RetireKind[] = []
   const boss = agent('boss', { children: [agent('kid')] })
-  for (const e of agentMenuEntries(boss, handlers({ onRetireAsk: (k) => asked.push(k) }))) {
-    if (e !== 'sep' && e.label === SUBTREE) e.onSelect()
-  }
+  subtreeEntry(boss, handlers({ onRetireAsk: (k) => asked.push(k) }))!.onSelect()
   assert.deepEqual(asked, ['cheap-compact-subtree'])
 })
 
@@ -263,10 +265,13 @@ async function rightClick(el: Element) {
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })
   await inAct(() => { el.dispatchEvent(ev) })
   await flush(2)
+  if (document.querySelector('.ctxmenu')) await surveyMenu()
 }
-const labels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
-  .map((b) => b.textContent ?? '')
+const labels = () => flatLabels()
 async function pick(label: string) {
+  const moved = MOVED[label]
+  if (moved) { await pickIn(moved[0], moved[1]); await flush(2); return }
+  await openBranchOf(label)
   const b = [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
     .find((x) => x.textContent === label) as HTMLButtonElement | undefined
   assert.ok(b, `menu item "${label}" present — have ${JSON.stringify(labels())}`)
@@ -319,10 +324,10 @@ test('§4a the Agents List row: confirm names the branch and its skips, sends '
     r.querySelector('.tray-name')?.textContent === 'boss') as HTMLElement
   assert.ok(row, 'the boss row rendered')
   await rightClick(row)
-  await pick(SUBTREE)
+  await pick('Cheap-compact subtree…')
   const box = confirmBox()
   assert.ok(box, 'no confirmation appeared')
-  assert.match(box!.querySelector('h3')?.textContent ?? '', /cheap-compact boss and its subtree\?/)
+  assert.match(box!.querySelector('h3')?.textContent ?? '', /cheap-compact subtree of boss\?/)
   const text = box!.textContent ?? ''
   assert.match(text, /4 agents will be cheap-compacted, one at a time: boss, kid-a, kid-b, grandkid/)
   assert.match(text, /Skipped \(1\): kid-busy \(mid-turn/)

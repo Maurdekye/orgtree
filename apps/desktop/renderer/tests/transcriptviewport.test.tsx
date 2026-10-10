@@ -38,7 +38,7 @@ for (const [viewport, rowHeight, expected] of [[600,40,30],[300,200,8],[800,100,
     await advance(1000)
     assert.equal(server.requests.length,count,'filling stops at the buffer')
     const el=view.el.querySelector<HTMLElement>('.msgs')!
-    await inAct(()=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll',{bubbles:true}))})
+    await inAct(()=>{el.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-1}));el.scrollTop=0;el.dispatchEvent(new Event('scroll',{bubbles:true}))})
     await advance(500)
     assert.ok(rows(view.el).length>expected,'scrolling back explicitly loads more')
     assert.ok(rows(view.el).length<1000,'never loads the entire fixture')

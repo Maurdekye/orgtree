@@ -149,9 +149,9 @@ test('tierCapabilityNotes answers for an OpenRouter tier and stays silent '
     `${SUPPORTED} · ${IMG_SUPPORTED} · ${RSN_SUPPORTED}`)
   assert.equal(tierCapabilityNotes('or-b'),
     `${NOT_SUPPORTED} · ${IMG_NOT} · ${RSN_NOT}`)
-  assert.equal(tierCapabilityNotes('or-c'),
-    `${UNKNOWN} · ${IMG_UNKNOWN} · ${RSN_UNKNOWN}`)
-  assert.equal(tierCapabilityNotes('or-d'), tierCapabilityNotes('or-c'))
+  // 4.x: only KNOWN declarations show in a picker (user 2026-10-07): unknown adds no information
+  assert.equal(tierCapabilityNotes('or-c'), '')
+  assert.equal(tierCapabilityNotes('or-d'), '')
   // static lanes: '' — the catalog is an OpenRouter fact and inventing one
   // for another provider would be a claim no catalog made
   for (const t of ['sonnet', 'opus', 'luna', 'flash']) {
@@ -159,9 +159,7 @@ test('tierCapabilityNotes answers for an OpenRouter tier and stays silent '
   }
   // a tier the registry has never seen has NO catalog metadata at all, which
   // is exactly unknown — and it must not collapse to the static-lane blank
-  assert.equal(tierCapabilityNotes('or-never-seen'),
-    `${UNKNOWN} · ${IMG_UNKNOWN} · ${RSN_UNKNOWN}`)
-  assert.notEqual(tierCapabilityNotes('or-never-seen'), '')
+  assert.equal(tierCapabilityNotes('or-never-seen'), '')
   setOpenRouterTiers([])
 })
 

@@ -256,6 +256,7 @@ async function desk(count: number) {
     rows: () => rowsIn(s).length,
     atBottom: () => s.scrollHeight - s.scrollTop - VIEW_H < 40,
     scrollTo: async (px: number) => {
+      if (px !== s.scrollTop) await inAct(async () => { s.dispatchEvent(new W.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: px < s.scrollTop ? -1 : 1 })) })  // the reader's input releases bottom follow (4.x)
       await inAct(async () => { s.scrollTop = px; await flush(10) })
     },
     /** a poll landing on its own schedule — NOT awaited, so it can be held */
@@ -457,6 +458,7 @@ test('§7 ASYNC EVENT RACE: a move made just before the page lands is kept — '
     // arrives LATER and coalesced, and native scroll anchoring is on
     asyncScroll = true
     anchored = true
+    d.s.dispatchEvent(new W.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -1 }))
     d.s.scrollTop = 260            // the reader's move — its event is now in flight
     const before = sight(d.s)
     assert.ok(before.id, 'fixture: a row is on screen')
