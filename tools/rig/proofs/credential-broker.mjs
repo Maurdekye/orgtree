@@ -48,18 +48,18 @@ export async function setup() {
     scenario: { default: { turns: [{ steps: [{ text: 'OK.' }] }] } } } }
 }
 
-function brokerExe() {
+export function brokerExe() {
   if (process.env.ORGTREE_RIG_BROKER) return process.env.ORGTREE_RIG_BROKER
   const target = process.env.CARGO_TARGET_DIR || path.resolve('engine/rs/target')
   return path.join(target, 'debug', 'orgtree-credential-broker.exe')
 }
 
-const ps = cmd => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8' }).trim()
-const q = s => "'" + String(s).replace(/'/g, "''") + "'"
+export const ps = cmd => execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8' }).trim()
+export const q = s => "'" + String(s).replace(/'/g, "''") + "'"
 
 /** One temporary interactive task; each start runs what launch.txt names
  *  (NAME=value lines set the environment, `run <command line>` starts it hidden). */
-function sessionLauncher(dir, name) {
+export function sessionLauncher(dir, name) {
   const vbs = path.join(dir, 'launch.vbs'), txt = path.join(dir, 'launch.txt')
   fs.writeFileSync(vbs, [
     'Set fso = CreateObject("Scripting.FileSystemObject")',
@@ -92,7 +92,7 @@ function sessionLauncher(dir, name) {
   }
 }
 
-const brokerPid = exe => {
+export const brokerPid = exe => {
   const out = ps(`(Get-Process orgtree-credential-broker -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq ${q(exe)} }).Id`)
   return out ? Number(out.split(/\s+/)[0]) : 0
 }
