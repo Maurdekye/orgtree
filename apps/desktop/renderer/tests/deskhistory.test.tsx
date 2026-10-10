@@ -151,6 +151,7 @@ async function desk(count: number) {
     since: (n: number) => seen.slice(n),
     atBottom: () => s.scrollHeight - s.scrollTop - VIEW_H < 40,
     scrollBy: async (px: number) => {
+      if (px !== 0) await inAct(async () => { s.dispatchEvent(new W.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: px })) })  // the reader's input releases bottom follow (4.x)
       await inAct(async () => { s.scrollTop = s.scrollTop + px; await flush(10) })
     },
     poll: async () => { await inAct(async () => { await refreshConvo('org', 'writer'); await flush(10) }) },
