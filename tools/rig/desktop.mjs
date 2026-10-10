@@ -9,8 +9,8 @@ import path from 'node:path'
 
 import { RIG_DIR, cleanEnv, electronExe, killTree, touch } from './lib.mjs'
 
-/** Run `script` against `rig`; resolves with { ok, value, error, shots, consoleErrors, out }. */
-export async function runDesktop(rig, script, { preset = 'short', out, timeout = 180000, org = rig.org, electron, args } = {}) {
+/** Run `script` against `rig` (`profile`: a folder to keep the Electron profile in, so a later run sees the earlier one's localStorage); resolves with { ok, value, error, shots, consoleErrors, out }. */
+export async function runDesktop(rig, script, { preset = 'short', out, timeout = 180000, org = rig.org, electron, args, profile } = {}) {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '')
   const outDir = path.resolve(out ?? path.join(rig.dir, 'desktop', `${path.basename(script).replace(/\.c?js$/, '')}-${preset}-${stamp}`))
   fs.mkdirSync(outDir, { recursive: true })
@@ -19,7 +19,7 @@ export async function runDesktop(rig, script, { preset = 'short', out, timeout =
     RIG_DESKTOP_URL: rig.url, RIG_DESKTOP_TOKEN: rig.token, RIG_DESKTOP_ORG: org ?? '',
     RIG_DESKTOP_SCRIPT: path.resolve(script), RIG_DESKTOP_OUT: outDir, RIG_DESKTOP_PRESET: String(preset),
     // a fresh profile per invocation: no HTTP cache or localStorage carried from one script to the next
-    RIG_DESKTOP_PROFILE: path.join(rig.dir, 'electron-profiles', `${stamp}-${process.pid}-${Math.random().toString(16).slice(2, 6)}`), RIG_DESKTOP_TIMEOUT_MS: String(timeout),
+    RIG_DESKTOP_PROFILE: profile ?? path.join(rig.dir, 'electron-profiles', `${stamp}-${process.pid}-${Math.random().toString(16).slice(2, 6)}`), RIG_DESKTOP_TIMEOUT_MS: String(timeout),
     RIG_DESKTOP_ARGS: JSON.stringify(args ?? {}),
   }
   const child = spawn(electronExe(electron), [path.join(RIG_DIR, 'desktop', 'main.cjs')], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
