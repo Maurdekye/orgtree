@@ -26,7 +26,7 @@ use anyhow::Result;
 use arc_swap::ArcSwap;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 

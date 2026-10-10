@@ -285,10 +285,10 @@ async fn upload(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> {
     let mut status = Value::Null;
     if let Some(id) = &job.session {
         let r = HTTP.get(format!("{}/api/uploads/{id}", job.address)).timeout(Duration::from_secs(10)).header("X-Org-Auth", p.auth()).send().await?;
-        if r.status().as_u16() != 404 {
+        if !matches!(r.status().as_u16(), 404 | 410) {
             status = json_response(r).await?;
         }
-        // Only a missing/expired session starts over; transient errors retain it.
+        // Missing, expired or damaged sessions start over; transient errors retain them.
     }
     if status.is_null() {
         status = json_response(
