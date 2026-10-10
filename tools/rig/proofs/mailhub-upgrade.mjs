@@ -16,9 +16,10 @@
 //   after    new mail both ways arrives; receipts go read
 //   back     the older binary again (going back to an older Orgtree): its
 //            hosted hub refuses the newer database and exits (hub.log says
-//            why), the engine keeps running, mail sent meanwhile waits; with
-//            the newer binary again the hub is healthy, nothing was lost, and
-//            the waiting mail is delivered
+//            why) and leaves it as it was; the engine keeps running, and an
+//            @net send is answered at once (refused: without its hub the
+//            restarted engine knows no peer); with the newer binary again
+//            the hub is healthy, nothing was lost, and mail flows again
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/mailhub-upgrade.mjs --from <older orgtree-mailhub.exe> [--to <newer orgtree-mailhub.exe>]
 
 import { spawnSync } from 'node:child_process'
@@ -59,7 +60,7 @@ export default async function (rig, { flags }) {
   const netSlug = slug => rig.one(`SELECT net->'identity'->>'slug' AS s FROM ot.orgs WHERE slug = '${q(slug)}' AND state = 'active'`).s
   const hubSql = query => rig.sql(query, { db: 'orgtree_mailhub' })
   const schema = () => Number(hubSql(`SELECT (v #>> '{}')::bigint AS v FROM mailhub.hub_meta WHERE k = 'schema_version'`)[0]?.v)
-  const pushTable = () => hubSql(`SELECT to_regclass('mailhub.device_push') IS NOT NULL AS t`)[0]?.t === true
+  const pushTable = () => hubSql(`SELECT to_regclass('mailhub.device_push') IS NOT NULL AS present`)[0]?.present === true
   const healthz = () => fetch(hub + '/healthz', { signal: AbortSignal.timeout(10000) }).then(r => r.json())
   const hosting = () => rig.api('GET', '/api/desktop/hub')
   const healthy = version => rig.waitFor(async () => {
@@ -152,17 +153,25 @@ export default async function (rig, { flags }) {
   p.check('the database was left as it was (still the new schema, same addresses and messages)',
     schema() === schemaNew && JSON.stringify(ids()) === JSON.stringify(ids0) && JSON.stringify(msgs()) === JSON.stringify(msgs2),
     { schema: schema(), messages: msgs2.length })
+  // without its hub the engine knows no peer after a restart: @net mail is
+  // refused at once (not queued), and everything else keeps working
+  const down = await rig.api('GET', `/api/orgs/${A}`)
+  t0 = Date.now()
   const s4 = await rig.tool('boss', 'orgtree_message', { to: `@net:${nB}`, body: 'PROOF-UP-4 while the hub is down' })
-  await new Promise(resolve => setTimeout(resolve, 5000))
-  const waiting = outRow(A, 'PROOF-UP-4%')
-  p.check('the engine keeps working without its hub: mail sent meanwhile waits in the outbox', s4.ok && waiting && waiting.state === 'queued' && !inRow(B, 'PROOF-UP-4%'),
-    waiting)
+  const answeredMs = Date.now() - t0
+  p.check('the engine keeps working without its hub: the org answers (no hub connected) and an @net send is answered at once, not left hanging',
+    !(down.net?.hubs ?? []).some(h => h.connected) && answeredMs < 10000 && !inRow(B, 'PROOF-UP-4%'), { ok: s4.ok, answer: s4.text, ms: answeredMs })
+  p.note(`an @net send while the hub is down after going back answers (ok=${s4.ok}): ${s4.text}`)
   t0 = Date.now()
   await rig.restart({ hub: NEW })
   await healthy(newV)
-  await rig.waitFor(() => inRow(B, 'PROOF-UP-4%'), { what: 'B to receive PROOF-UP-4 once the hub is back', timeout: 90000 })
-  p.check(`with the newer binary again the hub is healthy (${newV}, schema ${schema()}) and the mail that waited is delivered`,
-    schema() === schemaNew && JSON.stringify(ids()) === JSON.stringify(ids0), { ms: Date.now() - t0 })
+  await rig.waitFor(() => registered(A, newV), { what: 'A to reconnect once the hub is back', timeout: 90000 })
+  await rig.waitFor(() => registered(B, newV), { what: 'B to reconnect once the hub is back', timeout: 90000 })
+  const s5 = await rig.tool('boss', 'orgtree_message', { to: `@net:${nB}`, body: 'PROOF-UP-5 the hub is back' })
+  await rig.waitFor(() => inRow(B, 'PROOF-UP-5%'), { what: 'B to receive PROOF-UP-5 once the hub is back', timeout: 90000 })
+  p.check(`with the newer binary again the hub is healthy (${newV}, schema ${schema()}), nothing was lost, and mail flows again`,
+    s5.ok && schema() === schemaNew && JSON.stringify(ids()) === JSON.stringify(ids0)
+      && msgs2.every(m => msgs().some(n => n.id === m.id && n.state === m.state)), { ms: Date.now() - t0 })
 
   p.keep(rig, { agents: ['boss', 'zoe'], grep: /mail hub|network|hub/i })
   return p.summary()
