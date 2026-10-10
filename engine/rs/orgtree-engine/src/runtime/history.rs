@@ -333,7 +333,7 @@ fn rows_of(all: Vec<Value>, cutoff: Option<DateTime<Utc>>) -> (Vec<Value>, Vec<(
                             let id = block["id"].as_str().unwrap_or("").to_string();
                             let name = block["name"].as_str().unwrap_or("tool").to_string();
                             let input = block["input"].clone();
-                            let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": ts });
+                            let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": ts, "refs": convo::tool_refs(&name, &input, None) });
                             if name == "TodoWrite" {
                                 chip["todos"] = input["todos"].clone();
                             }
@@ -372,6 +372,8 @@ fn rows_of(all: Vec<Value>, cutoff: Option<DateTime<Utc>>) -> (Vec<Value>, Vec<(
                                     chip["result"] = json!(clipped);
                                     chip["result_lines"] = json!(out.lines().count());
                                     chip["ended_at"] = json!(ts);
+                                    let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(&out));
+                                    chip["refs"] = refs;
                                     if truncated {
                                         chip["truncated"] = json!(true);
                                     }

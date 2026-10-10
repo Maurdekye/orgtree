@@ -516,6 +516,75 @@ pub fn tool_arg(_name: &str, input: &Value) -> String {
     o.values().filter_map(Value::as_str).find(|s| !s.trim().is_empty()).map(flat).unwrap_or_default()
 }
 
+/// The agents and the watchdog an Orgtree tool call concerns, for the links the
+/// transcript draws beside the call: `[{"kind":"agent","id":..}, {"kind":
+/// "watchdog","id":..}]`, in call order, no duplicates. Names come from the
+/// call's own arguments (the new agent of a hire too); a watchdog's id from the
+/// `id` argument, else from the result a `create` returns. `user`, `@org:` and
+/// `@net:` addresses are not agents and are left out. Empty for any other tool.
+#[logged]
+pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
+    let base = name.rsplit("__").next().unwrap_or(name);
+    let mut refs: Vec<Value> = Vec::new();
+    let mut agent = |v: &Value| {
+        if let Some(a) = v.as_str().map(str::trim) {
+            if !a.is_empty() && a != "user" && !a.starts_with('@') && !refs.iter().any(|r| r["kind"] == "agent" && r["id"] == a) {
+                refs.push(json!({ "kind": "agent", "id": a }));
+            }
+        }
+    };
+    let args = |keys: &[&str], agent: &mut dyn FnMut(&Value)| {
+        for k in keys {
+            match &input[*k] {
+                Value::Array(a) => a.iter().for_each(|v| agent(v)),
+                v => agent(v),
+            }
+        }
+    };
+    match base {
+        "orgtree_message" | "orgtree_send_notice" => args(&["to"], &mut agent),
+        "orgtree_retool" | "orgtree_retire" | "orgtree_dissolve" | "orgtree_interrupt" | "orgtree_unstick" | "orgtree_continue_on"
+        | "orgtree_cheap_compact" | "orgtree_switch_model" | "orgtree_read_transcript" | "orgtree_read_scratch" | "orgtree_rename"
+        | "orgtree_reallocate" | "orgtree_rehire" | "orgtree_halt" | "orgtree_unhalt" => args(&["node", "nodes"], &mut agent),
+        "orgtree_move" => {
+            args(&["node", "new_parent"], &mut agent);
+            for m in input["moves"].as_array().into_iter().flatten() {
+                args_of(m, &["node", "new_parent"], &mut agent);
+            }
+        }
+        "orgtree_swap" => args(&["a", "b"], &mut agent),
+        "orgtree_hire" | "orgtree_staff" => args(&["name", "node"], &mut agent),
+        "orgtree_audience" => args(&["from", "grantee"], &mut agent),
+        "orgtree_work" => match input["action"].as_str() {
+            Some("assign") | Some("create") => args(&["owner"], &mut agent),
+            Some("handoff") => args(&["target"], &mut agent),
+            _ => {}
+        },
+        "orgtree_watchdog" => {
+            if input["kind"] == "activity" {
+                args(&["target"], &mut agent);
+            }
+            let id = input["id"].as_str().map(str::to_string).or_else(|| {
+                if input["action"] != "create" { return None; }
+                let v: Value = serde_json::from_str(result?.trim()).ok()?;
+                v["id"].as_str().map(str::to_string)
+            });
+            if let Some(id) = id.filter(|i| !i.trim().is_empty()) {
+                refs.push(json!({ "kind": "watchdog", "id": id.trim() }));
+            }
+        }
+        _ => {}
+    }
+    Value::Array(refs)
+}
+
+#[logged]
+fn args_of(v: &Value, keys: &[&str], agent: &mut dyn FnMut(&Value)) {
+    for k in keys {
+        agent(&v[*k]);
+    }
+}
+
 /// A chip argument written by alpha.0/alpha.1 (the input dumped as JSON, cut
 /// at 300 characters) as the one-line argument `tool_arg` gives today; None
 /// when the argument is not such a dump.
