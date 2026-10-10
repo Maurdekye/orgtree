@@ -309,6 +309,14 @@ pub async fn list_tiers(engine: &Arc<Engine>) -> Result<Done> {
     for (tier, seat, model) in engine.providers.openrouter_tiers() {
         out.push(json!({ "tier": tier, "provider": "OpenRouter", "seat": seat, "model": model }));
     }
+    // the models offered on the user's own servers: local, nothing billed
+    if engine.settings.provider_enabled(catalog::LANGSERVER) {
+        for (tier, seat, model, _, server) in crate::langserver::tiers(engine) {
+            let context = crate::langserver::route_of(engine, &tier).map(|(_, m)| crate::langserver::context_of(&m));
+            out.push(json!({ "tier": tier, "provider": "Language Server", "seat": seat, "model": model,
+                             "server": server, "context": context }));
+        }
+    }
     Done::json(&json!({ "tiers": out, "seat_floor": catalog::SEAT_FLOOR }))
 }
 

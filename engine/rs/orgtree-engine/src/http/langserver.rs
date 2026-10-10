@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::engine::Engine;
-use crate::http::error::ApiResult;
+use crate::http::error::{ApiError, ApiResult};
 use crate::langserver::{self, NewServer, ServerPatch};
 
 /// `GET /api/langservers`: servers, presets and harness availability.
@@ -184,7 +184,7 @@ impl std::fmt::Debug for ProbeBody {
 #[logged]
 pub async fn probe(State(e): State<Arc<Engine>>, Json(b): Json<ProbeBody>) -> ApiResult<Json<Value>> {
     if let Some(id) = b.server.as_deref() {
-        let Some(s) = langserver::server(&e, id) else { crate::refuse!(NotFound, "no language server {id}") };
+        let Some(s) = langserver::server(&e, id) else { return Err(ApiError::not_found(format!("no language server {id}"))) };
         let key = langserver::key(&e, id).await;
         let v = langserver::probe(
             s["preset"].as_str().unwrap_or("custom"),
