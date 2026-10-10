@@ -316,10 +316,23 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
           onPick(choices[at] ?? null)
         }
       }}>
-      <button type="button" className={'quickchat-top' + (hi === null ? ' sel' : '')}
-        title="no superior: a top-level agent" onClick={() => onPick(null)}>
-        {TOP_LEVEL_LABEL}{superior === null ? ' ✓' : ''}
-      </button>
+      {/* an option row like the agents' (user 2026-10-10): same row, hover
+          and selection, with the user's eye where an agent's chip sits */}
+      <div className={'tray-row quickchat-top' + (hi === null ? ' sel' : '')}
+        aria-current={superior === null || undefined} onClick={() => onPick(null)}>
+        <div className="tray-primary">
+          <button type="button" className="tray-main" title="no superior: a top-level agent">
+            <span className="tier quickchat-user-mark" aria-hidden="true">
+              <svg className="eye" viewBox="0 0 48 26">
+                <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
+                <circle className="iris" cx="24" cy="13" r="6.5" />
+                <circle className="pupil" cx="24" cy="13" r="2.6" />
+              </svg>
+            </span>
+            <span className="tray-name">{TOP_LEVEL_LABEL}</span>
+          </button>
+        </div>
+      </div>
       <AgentTray map={liveMap} rows={rows} query={query} onQuery={setQuery}
         archived={false} onArchived={() => {}} onPick={pick} compactAt={compactAt}
         selected={hi} filterLabel="filter superiors"

@@ -57,7 +57,7 @@ const click = async (el: Element | null) => inAct(async () => {
   el!.dispatchEvent(new window.MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
   await flush(4)
 })
-const pickerItems = () => [...document.querySelectorAll('.quickchat-pop .quickchat-top, .quickchat-pop .tray-name')]
+const pickerItems = () => [...document.querySelectorAll('.quickchat-pop .tray-name')]
   .map(b => (b.textContent || '').trim())
 
 async function mount(ops: OpRequest[], hired: string[], reply: Record<string, unknown> = {}) {
@@ -190,12 +190,12 @@ test('the superior picker is the Agents List: its rows, its order, filter, arrow
   try {
     await inAct(async () => { await flush(8) })
     await click(view.el.querySelector('.quickchat-superior'))
-    assert.deepEqual(pickerItems(), ['top level ✓', 'boss', 'zed', 'amy'])
+    assert.deepEqual(pickerItems(), ['top level', 'boss', 'zed', 'amy'])
     assert.ok(document.querySelector('.quickchat-pop .tray-row .tier.t-opus'), 'rows carry their id icons')
     const filter = document.querySelector<HTMLInputElement>('.quickchat-pop .tray-filter')!
     assert.equal(document.activeElement, filter, 'the filter box takes the keys')
     await type(filter, 'am')
-    assert.deepEqual(pickerItems(), ['top level ✓', 'zed', 'amy'], 'zed stays as amy\'s ghost parent')
+    assert.deepEqual(pickerItems(), ['top level', 'zed', 'amy'], 'zed stays as amy\'s ghost parent')
     const key = (k: string) => inAct(async () => {
       filter.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true }))
       await flush(4)
@@ -212,7 +212,7 @@ test('the superior picker is the Agents List: its rows, its order, filter, arrow
   try {
     await inAct(async () => { await flush(8) })
     await click(bare.el.querySelector('.quickchat-superior'))
-    assert.deepEqual(pickerItems(), ['top level ✓', 'zed', 'amy', 'boss'])
+    assert.deepEqual(pickerItems(), ['top level', 'zed', 'amy', 'boss'])
     await click(document.querySelector('.quickchat-pop .tray-row[data-copy-agent-name="boss"]'))
     assert.equal(shown(bare.el).superior, 'boss')
   } finally { await bare.unmount(); localStorage.clear() }
