@@ -561,7 +561,8 @@ export class Rig {
     if (r.status !== 0) throw new Error(`sql failed: ${(r.stderr || r.error || '').toString().trim()}\n${statements}`)
   }
 
-  /** Stop the engine and start it again on the same data (a new keeper). */
+  /** Stop the engine and start it again on the same data (a new keeper);
+   * `{ hub }` swaps the hosted hub's binary while it is down. */
   async restart(opts) {
     await restartRun(this.dir, opts)
     return this.refresh()
@@ -780,11 +781,22 @@ async function launchKeeper(dir, timeout = 240000) {
 }
 
 /** Stop a run's engine gracefully and start it again on the same data root
- * and cluster (what quitting and reopening the app does to the engine). */
-export async function restartRun(dir, { timeout = 240000 } = {}) {
+ * and cluster (what quitting and reopening the app does to the engine).
+ * `hub`: while the engine is down, the run's hosted hub binary is replaced
+ * with that one (named as for `up --hub`), as installing another Orgtree
+ * replaces the bundled hub. */
+export async function restartRun(dir, { timeout = 240000, hub } = {}) {
+  const nextHub = hub ? hubExe(hub) : null
+  if (nextHub && !readRun(dir)?.hub) throw new Error('this run hosts no mail hub (start it with up --hub)')
   // the run is down on purpose until its new keeper is up: other agents' cleanup must not take it
   writeRun(dir, { busy: new Date().toISOString() })
   await stopRun(dir, { keep: true })
+  if (nextHub) {
+    // the old hub's file can stay locked a moment after its process is gone
+    for (let i = 0; ; i++) {
+      try { fs.copyFileSync(nextHub, readRun(dir).hub); break } catch (e) { if (i >= 20) throw e; await sleep(500) }
+    }
+  }
   fs.rmSync(path.join(dir, 'stop'), { force: true })
   writeRun(dir, { status: 'starting', restarts: (readRun(dir)?.restarts ?? 0) + 1, error: null })
   touch(dir)
