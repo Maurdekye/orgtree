@@ -146,7 +146,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
       <table>
         <thead><tr><th>Name</th><th>Tier</th><th>Account</th><th>Charter</th><th className="num">Seat + grant</th><th /></tr></thead>
         <tbody>
-          {plan.agents.map((a) => <tr key={a.slot} className={a.blocked ? 'tp-blocked' : ''}>
+          {plan.agents.map((a) => <tr key={a.slot} className={a.blocked && !plan.loading ? 'tp-blocked' : ''}>
             <td className="tp-nm">
               {a.depth > 0 && <span className="tp-indent" aria-hidden="true">{'└'}</span>}
               <input value={choice.overrides[a.slot]?.name ?? a.name} aria-label={`name of ${a.slot}`}
