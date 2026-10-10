@@ -2,8 +2,10 @@
 // track-usage-over-time-and-show-usage-analytics, phase 2) through the real
 // engine route and the real renderer.
 //   1. An empty install: /api/usage/history answers with no series and no
-//      oldest reading, and the panel (opened from the Orgtree menu, right
-//      under "Usage…") says there is no history instead of drawing a 0 line.
+//      oldest reading, and the panel says there is no history instead of
+//      drawing a 0 line. (The rig's browser has no native bridge, so it gets
+//      the browser header and opens the panel from the button beside Usage;
+//      the Orgtree menu entry is covered by tests/usagehistory.test.tsx §2.3.)
 //   2. Seeded history (rig engines serve canned readings and never record, so
 //      rows go straight into ot.usage_history, shaped as the recorder writes
 //      them): two Claude logins and OpenRouter over 7 days, with a weekly
@@ -95,10 +97,6 @@ export default async function (rig) {
     const ui = await runDesktop(rig, page, { preset: 'wide', out: path.join(p.dir, 'desktop-empty'),
       args: { shots: [{ name: 'empty-install' }] } })
     const s = ui.value?.shots?.[0]
-    p.check('the Orgtree menu lists "Usage history…" right under "Usage…"', (() => {
-      const m = ui.value?.menu ?? []
-      return m.indexOf('Usage history…') === m.indexOf('Usage…') + 1
-    })(), ui.value?.menu ?? ui)
     p.check('empty: the panel says there is no history and draws no chart',
       ui.ok && /No usage history yet/.test(s?.text ?? '') && s.cards === 0, s ?? ui)
   }
@@ -140,9 +138,6 @@ export default async function (rig) {
   const day = await rig.api('GET', '/api/usage/history?range=24h')
   p.check('24h: 5-minute buckets, session resets in the period', day.bucket_s === 300
     && day.resets.filter(r => r.window === 'session').length >= 4, { bucket_s: day.bucket_s, resets: day.resets.length })
-  const q = rig.sql(`EXPLAIN (FORMAT JSON) SELECT account FROM ot.usage_history WHERE observed_at >= now() - interval '1 day'`)
-  p.note('plan for a range read', q)
-
   if (rig.run.ui) {
     const ui = await runDesktop(rig, page, { preset: 'wide', out: path.join(p.dir, 'desktop-seeded'), args: { shots: [
       { name: 'seeded-7d' },
@@ -163,7 +158,8 @@ export default async function (rig) {
     p.check('seeded 24h: session resets drawn', d?.resets >= 4, d)
     p.check('seeded 30d: the panel still renders every series', m?.cards === 5, m)
     p.check('account filter: only B\'s two series', fb?.cards === 2, fb)
-    p.check('no console errors', (ui.value?.consoleErrors ?? []).length === 0, ui.value?.consoleErrors)
+    const errors = (ui.value?.consoleErrors ?? []).filter(e => !/Electron Security Warning/.test(e))
+    p.check('no console errors (the rig Electron CSP warning aside)', errors.length === 0, errors)
     p.note('screenshots', ui.out)
   }
   p.note('Rig engines serve canned readings without recording them, so history is seeded by SQL in the shape the phase-1 recorder writes; the recorder itself is not re-proved here.')

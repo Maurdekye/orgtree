@@ -1,14 +1,13 @@
-// Open "Usage history…" from the Orgtree menu and screenshot the panel.
+// Open the usage history panel (browser header button) and screenshot it.
 // args: { shots: [{ name, range?, account?, hover? }] } — each shot optionally
 // picks a period button, an account filter value, and hovers a chart.
 module.exports = async (page, { args }) => {
-  await page.waitFor('.shell-menu-button', { timeout: 30000 })
+  // the v3 shell's Orgtree menu needs the native bridge; a rig browser gets
+  // the browser header, whose door is the button beside Usage
+  await page.waitFor('.usage-history-btn', { timeout: 30000 })
   await page.sleep(800)
-  await page.click('.shell-menu-button')
-  await page.waitFor({ selector: '[role="menuitem"]', text: 'Usage history…' })
-  const menu = await page.eval(() => [...document.querySelectorAll('.shell-menu-panel [role="menuitem"]')]
-    .map((e) => (e.innerText || '').trim().split('\n')[0]))
-  await page.click({ selector: '[role="menuitem"]', text: 'Usage history…' })
+  const menu = null
+  await page.click('.usage-history-btn')
   await page.waitFor('.usage-history-modal', { timeout: 15000 })
   await page.sleep(1500)
   const out = { menu, shots: [] }
