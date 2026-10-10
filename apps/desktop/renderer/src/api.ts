@@ -27,7 +27,7 @@ import type {
   RuntimeSettingsPayload,
   ScopeRequest, ScratchPayload,
   SendMessageResult,
-  SettingsRequest, SettingsResult, TreePayload,
+  SettingsRequest, SettingsResult, TreePayload, OrgAccountLane,
   AccountsPayload, AccountUsage, UsageAllPayload,
   AccountRegistryPayload, RegisteredAccountUsage,
   UploadResult, UsagePayload, UsagePeek,
@@ -1349,6 +1349,8 @@ export const replyMessage = (slug: string, nid: string, text: string, target: Re
       ...(clientOp ? { client_op: clientOp } : {}),
       ...(notice ? { notice: true } : {}) }),
   })
+export const getOrgAccounts = (slug: string): Promise<{ org: string; accounts: OrgAccountLane[] }> =>
+  req(`/api/orgs/${slug}/accounts-allowed`)
 export const saveSettings = (slug: string, opts: SettingsRequest = {}): Promise<SettingsResult> =>
   req(`/api/orgs/${slug}/settings`, {
     method: 'POST',

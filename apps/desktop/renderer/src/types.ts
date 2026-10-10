@@ -2167,6 +2167,8 @@ export interface ScopeRequest {
 // api.py Settings — shared by /api/defaults and /api/orgs/{slug}/settings
 export interface SettingsRequest {
   account_fallback_default?: boolean | null
+  /** the account lanes this org may not use (Org settings › Accounts) */
+  disabled_accounts?: string[] | null
   org_dirs?: DirGrant[] | null
   max_top_grant?: number | null
   default_top_grant?: number | null
@@ -2798,4 +2800,14 @@ export interface WorkItemReplyResult extends Partial<TypedReplyReceipt> {
 export interface UploadResult {
   path: string
   bytes: number
+}
+
+/** One account lane an org could be given, and whether it may use it
+ *  (`GET /api/orgs/{slug}/accounts-allowed`). `id` is the usage board's
+ *  name: a registry id, `<provider>/primary`, `openrouter`, `langserver:<id>`. */
+export interface OrgAccountLane {
+  id: string
+  provider: string
+  label: string
+  allowed: boolean
 }

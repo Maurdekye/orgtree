@@ -141,6 +141,7 @@ import { bindRoomSocket } from './streamrooms'
 // every tier picker reads the runtime tier registries during render: fill
 // them as the providers payload arrives, before any consumer re-renders
 onAppValue('providers', syncProviderRegistries)
+import { OrgAccountsTab } from './orgaccounts'
 
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
@@ -2839,7 +2840,7 @@ export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => v
  *  `orgTabs` in the panel. */
 type OrgSettingsTab =
   'basic' | 'hiredefaults' | 'policies' | 'orgtype' | 'mailserver'
-  | 'autonomy' | 'history'
+  | 'autonomy' | 'accounts' | 'history'
 
 // exported for tests/orgsettings.test.tsx — the consolidation is a claim
 // about THIS component's shape (one modal, one save, tabs not a nested
@@ -2896,6 +2897,8 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
     ...(tree.net != null
       ? [{ id: 'mailserver' as const, label: 'Connections' }] : []),
     { id: 'autonomy', label: 'Autonomy' },
+    // which signed-in accounts this org may use (user 2026-10-10)
+    { id: 'accounts', label: 'Accounts' },
     // low-priority history lives HERE, not in the chrome (user 2026-09-10)
     { id: 'history', label: 'History' },
   ], [tree.net])
@@ -3172,6 +3175,12 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
             active={tab === 'autonomy'}>
             {visited('autonomy') && <AutonomyTab tree={tree} toast={toast}
               />}
+          </SettingsTabPanel>
+
+        {/* ── Accounts — the accounts this org may use (user 2026-10-10) ── */}
+        <SettingsTabPanel id="accounts" idBase="org-settings"
+            active={tab === 'accounts'}>
+            {visited('accounts') && <OrgAccountsTab slug={tree.slug} toast={toast} />}
           </SettingsTabPanel>
 
         {/* ── History — the retained-records browser, a tab since the header
