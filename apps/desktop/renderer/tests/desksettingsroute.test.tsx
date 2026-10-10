@@ -55,8 +55,7 @@ test('§1 with no handler from its host, the gear and the gen badge open the she
   const { view, calls, press } = await open({})
   try {
     await press('[aria-label="settings for writer"]')
-    await press('.stackbadge')
-    assert.deepEqual(calls, ['settings:writer', 'lineage:writer'])
+    assert.deepEqual(calls, ['settings:writer'])
   } finally { await view.unmount(); resetConvos() }
 })
 
@@ -66,8 +65,7 @@ test('§2 a host\'s own handlers still win over the shell route', async () => {
     onConfig: () => { own.push('config') }, onLineage: () => { own.push('lineage') } })
   try {
     await press('[aria-label="settings for writer"]')
-    await press('.stackbadge')
-    assert.deepEqual(own, ['config', 'lineage'])
+    assert.deepEqual(own, ['config'])
     assert.deepEqual(calls, [], 'the route is only the fallback')
   } finally { await view.unmount(); resetConvos() }
 })

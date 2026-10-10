@@ -200,7 +200,8 @@ test('desk cost badge distinguishes unresolved zero and positive estimates', asy
   try {
     const badge = [...positive.el.querySelectorAll<HTMLElement>('.cc-head-meta .badge')]
       .find((b) => b.textContent?.includes('$'))
-    assert.equal(badge?.textContent, '$1.25 estimated\/incomplete')
+    // 4.x: cost diagnostics (unknown fields, estimated/incomplete notes) were removed — PLAN C6; the cost shows plainly
+    assert.equal(badge?.textContent, '$1.25')
   } finally { await positive.unmount() }
 })
 
@@ -303,7 +304,7 @@ test('queued or compacting desks keep an unclaimed live process on standby', asy
 test('switchboard header stays a horizontal surface independent of desk chrome', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   const cards = readFileSync(path.join(__SRC_DIR__, 'canvas', 'cards.tsx'), 'utf8')
-  assert.match(cards, /<div className="eye-head">/,
+  assert.match(cards, /<div className="eye-head"[ >]/,
     'switchboard header is not rendered with its dedicated layout class')
   assert.doesNotMatch(cards, /className="cc-head eye-head"/,
     'switchboard inherited the desk header column layout again')

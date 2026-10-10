@@ -80,8 +80,8 @@ test('the columns exist as ONE shared grid template, so the DOM order above is a
   const css = fs.readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   const org = /\.org \{\r?\n([^}]*)\}/.exec(css)
   assert.ok(org, 'the .org row rule exists')
-  assert.match(org![1]!, /display: grid; grid-template-columns: 14px minmax\(0, 1fr\) max-content auto;/)
-  // the counts column right-aligns tabular digits over a shared floor width
+  assert.match(org![1]!, /display: grid; grid-template-columns: minmax\(14px, max-content\) minmax\(0, 1fr\) max-content auto;/)
+  // the counts column left-aligns tabular digits over a shared floor width
   // — that pair is what makes per-row max-content read as one column
-  assert.match(css, /\.org-counts \{\r?\n\s*font-variant-numeric: tabular-nums; text-align: right;/)
+  assert.match(css, /\.org-counts \{\r?\n\s*font-variant-numeric: tabular-nums; text-align: left;/)
 })
