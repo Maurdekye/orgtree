@@ -361,6 +361,7 @@ pub fn idle_runtime() -> Vec<(String, Value)> {
         ("pending_effort".into(), Value::Null),
         ("waiting".into(), json!(false)),
         ("queued_for_slot".into(), Value::Null),
+        ("loading_model".into(), Value::Null),
         ("responding".into(), json!(false)),
         ("phase".into(), Value::Null),
         ("ran_as".into(), Value::Null),
