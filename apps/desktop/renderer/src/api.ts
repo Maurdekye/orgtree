@@ -275,6 +275,8 @@ export interface TemplateInclude {
   org_md: boolean; accounts: boolean; folders: boolean
   /** Quick chat's defaults for the org (what it shows now) */
   quick_chat: boolean
+  /** the org-wide settings this org set itself, never its folders, accounts or hubs */
+  settings: boolean
 }
 export interface SavedTemplate {
   id: string; file: string; path: string; content: string; agents: number; problems: string[]

@@ -70,11 +70,13 @@ const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
   { key: 'tools', label: 'Tool switches, visibility and permission mode' },
   { key: 'org_md', label: 'org.md' },
   { key: 'quick_chat', label: 'Quick chat defaults', hint: 'the superior, model and effort it starts with here' },
+  { key: 'settings', label: 'Org-wide settings',
+    hint: 'grant caps, new-agent defaults, compaction and resume; never folders, accounts or hubs' },
   { key: 'accounts', label: 'Account binding', hint: 'this computer only; used where it can run, otherwise picked automatically' },
   { key: 'folders', label: 'Folder scopes', hint: "this computer only; trimmed to the new organization's folders" },
 ]
 export const DEFAULT_INCLUDE: TemplateInclude = {
-  charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true,
+  charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true,
 }
 
 /** Hand the saved file to the browser's download, as documents are. */
