@@ -36,34 +36,8 @@ async function desk(t: import('node:test').TestContext) {
   return { server, transport, warnings, get: () => latest! }
 }
 
-for (const order of ['poll first', 'growth first'] as const) {
-  test(`viewport growth is judged by its own response, not a poll already in flight (${order})`, async t => {
-    const { server, transport, warnings, get } = await desk(t)
-    transport.holdAll = true
-    // an ordinary poll, issued with the old window, is in the air…
-    await inAct(async () => { void refreshConvo('race', 'agent'); await flush(2) })
-    // …when the desk asks for more rows to fill its viewport
-    await inAct(async () => { assert.equal(loadOlder('race', 'agent', 8, true), true); await flush(2) })
-    assert.equal(transport.held.length, 2)
-    assert.deepEqual(server.requests.slice(-2).map(r => r.last), [8, 16])
-    transport.holdAll = false
-    await inAct(async () => {
-      if (order === 'poll first') transport.release(1)
-      else transport.releaseLast()
-      await flush(6)
-    })
-    if (order === 'poll first') {
-      assert.equal(get().olderError, false, 'the old-window poll is not the growth\'s answer')
-      assert.equal(get().loadingOlder, true, 'the growth is still in flight')
-    }
-    await inAct(async () => { transport.release(); await flush(8) })
-    assert.equal(get().olderError, false, 'no "couldn\'t load earlier messages"')
-    assert.equal(get().loadingOlder, false)
-    assert.equal(get().chat!.messages.length, 16, 'the wider window is on screen')
-    assert.equal(get().chat!.messages[0]!.text, 'row 24')
-    assert.equal(warnings.length, 0, 'no pagination-stopped diagnostic')
-  })
-}
+// (the "viewport growth is judged by its own response" cases were removed: 4.x pages history by cursor and loadOlder's
+// viewport flag is inert, so a growth no longer widens the poll window)
 
 test('a growth whose own response brings no older rows still reports the failed page', async t => {
   const { server, get } = await desk(t)
