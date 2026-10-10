@@ -1,3 +1,4 @@
+import type { QuickChatDefaults } from './quickchat'
 import type { EventReplyWire, MailReplyWire } from './eventReply'
 import type { TypedReplyReceipt } from './generated/events'
 // API payload types — the frontend's half of the seam (typing wave, docs/typing-plan.md).
@@ -771,6 +772,9 @@ export interface TreePayload {
   default_effort: string
   /** what "" resolves to, so no UI string hardcodes it (ledger DEFAULT_EFFORT) */
   effort_default?: string
+  /** Quick chat's starting choices in this org, set by the template it was
+   *  created from (null/absent = none); only the fields set are present */
+  quick_chat?: QuickChatDefaults | null
   /** app-wide Luna pool-order default for agents without an individual setting */
   prefer_reserve_default: boolean
   credit_requests: CreditRequest[]

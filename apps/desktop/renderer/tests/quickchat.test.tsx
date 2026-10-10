@@ -9,7 +9,8 @@ import assert from 'node:assert/strict'
 import { legacyAppBackend } from './appfeed-fixture'
 import { QuickChat, type AgentListSource } from '../src/QuickChatBox'
 import {
-  quickChatName, quickChatTier, rememberEffort, rememberHire,
+  quickChatName, quickChatTier, rememberEffort, rememberHire, readQuickChat, rememberSuperior,
+  rememberTier,
   quickChatPosition, setQuickChatPosition, QUICK_CHAT_POSITION_KEY,
 } from '../src/quickchat'
 import type { OpRequest, TreePayload } from '../src/types'
@@ -178,7 +179,7 @@ test('with a colon the preview and the hire use the words before it; the agent g
 test('a manual hire and a manual effort pick become the defaults; a stale superior falls back', async () => {
   localStorage.clear(); providers(['claude', 'openai'])
   rememberHire('org', { tier: 'sol', superior: 'boss' })
-  rememberEffort('max')
+  rememberEffort('org', 'max')
   const ops: OpRequest[] = [], hired: string[] = []
   const view = await mount(ops, hired)
   try {
@@ -198,6 +199,53 @@ test('a manual hire and a manual effort pick become the defaults; a stale superi
   try {
     assert.equal(shown(again.el).superior, 'top level', 'an archived superior is not offered')
   } finally { await again.unmount(); localStorage.clear() }
+})
+
+// option B (user 2026-10-10 19:40Z): an org's template defaults win until
+// the user picks by hand in that org; picks are per org, and app-wide as the
+// fallback for orgs without defaults
+test("per-org memory: this org's pick, then the org defaults, then the last pick anywhere", () => {
+  localStorage.clear()
+  const defaults = { superior: 'boss', tier: 'opus', effort: 'high' }
+  assert.deepEqual(readQuickChat('a', defaults), defaults, 'no history: the org defaults')
+  rememberHire('b', { tier: 'sol', superior: 'lead', effort: 'max' })
+  assert.deepEqual(readQuickChat('a', defaults), defaults, 'a pick in another org does not beat these defaults')
+  assert.deepEqual(readQuickChat('a'), { tier: 'sol', effort: 'max' },
+    'an org without defaults follows the last pick anywhere (no superior)')
+  assert.deepEqual(readQuickChat('b', defaults), { tier: 'sol', effort: 'max', superior: 'lead' },
+    "an org's own picks beat its defaults")
+  rememberTier('a', 'haiku')
+  assert.deepEqual(readQuickChat('a', defaults), { tier: 'haiku', effort: 'high', superior: 'boss' },
+    'field by field: only the model was picked here')
+  rememberEffort('a', ''); rememberSuperior('a', null)
+  assert.deepEqual(readQuickChat('a', defaults), { tier: 'haiku', effort: '', superior: null },
+    "effort '' and top level are real picks, not 'no pick'")
+  localStorage.clear()
+  assert.deepEqual(readQuickChat('c', { effort: '', superior: null }), { effort: '', superior: null },
+    "a default of '' effort or top level is a real default")
+  localStorage.setItem('orgtree-quickchat-last-superior:old', JSON.stringify({ superior: 'boss' }))
+  localStorage.setItem('orgtree-quickchat-last', JSON.stringify({ tier: 'sonnet', effort: 'low' }))
+  assert.deepEqual(readQuickChat('old', { superior: 'x', tier: 'opus' }), { superior: 'boss', tier: 'opus', effort: 'low' },
+    'an older superior-only entry still reads; the defaults fill the model')
+  localStorage.clear()
+})
+
+test("the box starts from the org's template defaults, re-reads them when the tree brings them, and a stale default superior is top level", async () => {
+  localStorage.clear(); providers(['claude', 'openai'])
+  rememberHire('elsewhere', { tier: 'sonnet', superior: 'x', effort: 'low' })
+  const op = async (b: OpRequest) => ({ node: b.name })
+  const el = (t: TreePayload) => <QuickChat slug="org" tree={t} op={op as never} toast={noop} onHired={noop} />
+  const view = await mountView(el(tree), e => e)
+  try {
+    await inAct(async () => { await flush(8) })
+    assert.deepEqual(shown(view.el), { superior: 'top level', model: 'sonnet', effort: 'low' }, 'before: the last pick anywhere')
+    await view.render(el({ ...tree, quick_chat: { superior: 'boss', tier: 'sol', effort: 'high' } } as TreePayload))
+    await inAct(async () => { await flush(8) })
+    assert.deepEqual(shown(view.el), { superior: 'boss', model: 'sol', effort: 'high' }, 'the template defaults, once the tree has them')
+    await view.render(el({ ...tree, quick_chat: { superior: 'old-hand', tier: 'sol' } } as TreePayload))
+    await inAct(async () => { await flush(8) })
+    assert.equal(shown(view.el).superior, 'top level', 'an archived default superior is not offered')
+  } finally { await view.unmount(); localStorage.clear() }
 })
 
 test('a name taken behind this window is retried with the next suffix', async () => {

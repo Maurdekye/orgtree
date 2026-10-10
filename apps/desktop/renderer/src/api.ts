@@ -1,4 +1,5 @@
 import { configureOpenTiming } from './opentiming'
+import type { QuickChatDefaults } from './quickchat'
 import type { EventReplyWire } from './eventReply'
 import type { ReplyTarget } from './generated/events'
 import { forgetNodeDetail, hydrateTree } from './archived'
@@ -272,6 +273,8 @@ export interface TemplatePlan {
 export interface TemplateInclude {
   charters: boolean; credits: boolean; effort: boolean; tools: boolean
   org_md: boolean; accounts: boolean; folders: boolean
+  /** Quick chat's defaults for the org (what it shows now) */
+  quick_chat: boolean
 }
 export interface SavedTemplate {
   id: string; file: string; path: string; content: string; agents: number; problems: string[]
@@ -296,11 +299,13 @@ export const openTemplatesFolder = async (): Promise<{ ok: boolean; path?: strin
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
-export const saveOrgTemplate = (slug: string, name: string, include: TemplateInclude, replace = false, description = ''): Promise<SavedTemplate> =>
+export const saveOrgTemplate = (slug: string, name: string, include: TemplateInclude, replace = false, description = '',
+  quickChat?: QuickChatDefaults): Promise<SavedTemplate> =>
   req(`/api/orgs/${encodeURIComponent(slug)}/template`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, include, replace, ...(description ? { description } : {}) }),
+    body: JSON.stringify({ name, include, replace, ...(description ? { description } : {}),
+      ...(quickChat && include.quick_chat ? { quick_chat: quickChat } : {}) }),
   })
 // §4.8: archived seats arrive without their runtime fields; `hydrateTree`
 // refills them from the payload's own `archived_defaults` before anything

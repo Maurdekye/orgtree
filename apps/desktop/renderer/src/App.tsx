@@ -3110,7 +3110,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
             )}
           </SetBlock>
         </SetGroup>
-        <SaveTemplateSetting slug={tree.slug} orgName={tree.name} />
+        <SaveTemplateSetting slug={tree.slug} orgName={tree.name} tree={tree} />
         </SettingsTabPanel>
 
         {/* ── Hire defaults — the overseer eye's ⚙ panel, moved here whole

@@ -64,11 +64,12 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
    *  the only way to start one (user 2026-10-10 19:25Z), else "Quick chat" */
   label?: string
 }) {
-  const [memo, setMemo] = useState(() => readQuickChat(slug))
-  useEffect(() => {
-    setMemo(readQuickChat(slug))
-    return onQuickChatMemory(() => setMemo(readQuickChat(slug)))
-  }, [slug])
+  // the org's template defaults arrive with the tree: re-read when they change
+  const defaultsKey = JSON.stringify(tree.quick_chat ?? null)
+  const [tick, setTick] = useState(0)
+  useEffect(() => onQuickChatMemory(() => setTick(t => t + 1)), [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const memo = useMemo(() => readQuickChat(slug, JSON.parse(defaultsKey)), [slug, defaultsKey, tick])
   const providers = useAppRead('providers', getProviders)
   const hires = useMemo(() => {
     const of = (id: string) => hireOf(providers?.providers.find(p => p.id === id))
@@ -173,7 +174,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   }
   // a Quick chat hire is a manual hire too: its model and superior become the
   // next default (its effort already is, having been read from the memory)
-  const remember = (s: QuickSuperior) => { rememberTier(tier); rememberSuperior(slug, s) }
+  const remember = (s: QuickSuperior) => { rememberTier(slug, tier); rememberSuperior(slug, s) }
   const supNode = superior === null ? null : nodes.get(superior)
 
   return (
@@ -207,7 +208,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       <EffortBar compact value={effort} level={effort || orgDefault} levels={tierEffortLevels(slug, tier)}
         title={`effort for the new agent: ${effort || `org default${orgDefault ? ` (${orgDefault})` : ''}`}`
           + ' — click the chosen level again for the org default'}
-        onSet={rememberEffort} disabled={busy} />
+        onSet={(lvl) => rememberEffort(slug, lvl)} disabled={busy} />
       <button type="button" className="quickchat-btn quickchat-attach"
         title={files.length ? `${files.length} file${files.length > 1 ? 's' : ''} attached` : 'attach files'}
         aria-label="attachments" aria-expanded={pop?.kind === 'files'}
@@ -230,7 +231,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       )}
       {pop?.kind === 'model' && (
         <Pop anchor={pop.anchor} onClose={close} kind="model">
-          <SpawnChips onSpawn={(t) => { rememberTier(t); close() }} seats={seats}
+          <SpawnChips onSpawn={(t) => { rememberTier(slug, t); close() }} seats={seats}
             soleHire selected={tier} {...hires} />
         </Pop>
       )}

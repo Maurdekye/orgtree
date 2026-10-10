@@ -8,6 +8,8 @@
 import { useState } from 'react'
 import { openTemplatesFolder, populateTemplates, saveOrgTemplate } from '../api'
 import type { SavedTemplate, TemplateInclude } from '../api'
+import { quickChatSnapshot } from '../quickchat'
+import type { TreeNode, TreePayload } from '../types'
 import { ModalOverPins } from './modalpin'
 import { SetGroup, SetRow } from './settingskit'
 import { useEsc } from './shared'
@@ -67,11 +69,12 @@ const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
   { key: 'effort', label: 'Effort' },
   { key: 'tools', label: 'Tool switches, visibility and permission mode' },
   { key: 'org_md', label: 'org.md' },
+  { key: 'quick_chat', label: 'Quick chat defaults', hint: 'the superior, model and effort it starts with here' },
   { key: 'accounts', label: 'Account binding', hint: 'this computer only; used where it can run, otherwise picked automatically' },
   { key: 'folders', label: 'Folder scopes', hint: "this computer only; trimmed to the new organization's folders" },
 ]
 export const DEFAULT_INCLUDE: TemplateInclude = {
-  charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false,
+  charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true,
 }
 
 /** Hand the saved file to the browser's download, as documents are. */
@@ -87,7 +90,16 @@ export function downloadTemplate(owner: Document, saved: SavedTemplate) {
   }
 }
 
-export function SaveTemplateModal({ slug, orgName, close }: { slug: string; orgName: string; close: () => void }) {
+/** the live agents' names, for the Quick chat snapshot's superior check */
+function liveNames(tree: TreePayload | undefined): Set<string> {
+  const out = new Set<string>()
+  const walk = (n: TreeNode) => { if (n.state === 'live') out.add(n.id); n.children.forEach(walk) }
+  ;(tree?.roots ?? []).forEach(walk)
+  return out
+}
+
+export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string; orgName: string;
+  tree?: TreePayload; close: () => void }) {
   useEsc(close)
   const [name, setName] = useState(`${orgName} layout`)
   const [description, setDescription] = useState('')
@@ -99,7 +111,9 @@ export function SaveTemplateModal({ slug, orgName, close }: { slug: string; orgN
   const save = (replace: boolean) => {
     if (busy || !name.trim()) return
     setBusy(true); setError(''); setExists(false)
-    saveOrgTemplate(slug, name.trim(), include, replace, description.trim())
+    const live = liveNames(tree)
+    saveOrgTemplate(slug, name.trim(), include, replace, description.trim(),
+      quickChatSnapshot(slug, tree?.quick_chat, (n) => live.has(n)))
       .then(setSaved)
       .catch((e: Error) => {
         setError(e.message)
@@ -162,13 +176,13 @@ export function SaveTemplateModal({ slug, orgName, close }: { slug: string; orgN
   )
 }
 
-export function SaveTemplateSetting({ slug, orgName }: { slug: string; orgName: string }) {
+export function SaveTemplateSetting({ slug, orgName, tree }: { slug: string; orgName: string; tree?: TreePayload }) {
   const [open, setOpen] = useState(false)
   return <SetGroup title="Templates" note="~/.orgtree/templates">
     <SetRow label="save as template"
       hint="Saves this organization's agents (tree, names and tiers, plus what you choose) as a starting layout for new organizations.">
       <button onClick={() => setOpen(true)}>save as template…</button>
     </SetRow>
-    {open && <SaveTemplateModal slug={slug} orgName={orgName} close={() => setOpen(false)} />}
+    {open && <SaveTemplateModal slug={slug} orgName={orgName} tree={tree} close={() => setOpen(false)} />}
   </SetGroup>
 }
