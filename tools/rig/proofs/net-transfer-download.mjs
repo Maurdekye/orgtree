@@ -34,9 +34,9 @@ export default async function(rig) {
   const file=id=>rig.one(`SELECT d.* FROM ot.net_downloads d JOIN ot.net_incoming i ON i.id=d.incoming_id WHERE i.net_id='${id}'`)
   try {
     await rig.op({op:'halt',nodes:['rhea']})
-    for(const change of [false,true]) {
-      const id=change?'changed-bytes':'resume-bytes'
-      const c={change,calls:[]};cases.set(id,c)
+    for(const change of [false,true,'cancel']) {
+      const id=change==='cancel'?'cancel-bytes':change?'changed-bytes':'resume-bytes'
+      const c={change:change===true,calls:[]};cases.set(id,c)
       const message={id,from:'peer.rig',body:'Download proof',attachments:[{id,name:'proof.bin',bytes:size}]}
       const result=await call({action:'receive',message})
       proof.check(`${id}: durable custody acknowledged without early message delivery`,result.ack===id && inbox(id).length===0)
@@ -49,12 +49,23 @@ export default async function(rig) {
         await rig.restart()
         c.response.destroy()
         await call({action:'workers'})
+      } else if(change==='cancel') {
+        const job=rig.one(`SELECT id FROM ot.net_incoming WHERE net_id='${id}'`)
+        const tool=await rig.tool('rhea','orgtree_transfers',{action:'get',id:job.id})
+        proof.check('outside inbox holder can inspect incoming checkpoint',tool.ok && tool.json.transfers[0].files[0].confirmed===checkpoint,tool)
+        const stopped=await rig.tool('rhea','orgtree_transfers',{action:'cancel',id:job.id})
+        proof.check('holder cancellation persists intent without exposing partial mail',stopped.ok && stopped.json.transfers[0].state==='cancelled' && inbox(id).length===0,stopped)
+        await rig.waitFor(async()=>{
+          const retried=await rig.tool('rhea','orgtree_transfers',{action:'retry',id:job.id})
+          return retried.ok
+        },{what:'stopped download available for explicit retry',timeout:10000})
+        c.response.destroy()
       } else c.response.destroy()
       await rig.waitFor(()=>inbox(id).length===1,{what:`${id} delivered after completed bytes`,timeout:30000})
       const f=file(id)
       const bytes=fs.readFileSync(f.path)
       proof.check(`${id}: Range and If-Range reconcile checkpoint`,c.calls[1]?.range===`bytes=${checkpoint}-` && c.calls[1]?.validator==='"original"',c.calls)
-      proof.check(`${id}: final contents and completed state match`,bytes.length===size && bytes.every(v=>v===(change?121:120)) && f.complete && f.confirmed===size)
+      proof.check(`${id}: final contents and completed state match`,bytes.length===size && bytes.every(v=>v===(change===true?121:120)) && f.complete && f.confirmed===size)
       proof.check(`${id}: inbox has usable file and holder mail only after completion`,inbox(id)[0].attachments[0].path===f.path && rig.sql(`SELECT id FROM ot.mail WHERE net_id='${id}'`).length===1)
       await call({action:'receive',message})
       proof.check(`${id}: repeated envelope does not duplicate delivery`,inbox(id).length===1 && rig.sql(`SELECT id FROM ot.mail WHERE net_id='${id}'`).length===1)

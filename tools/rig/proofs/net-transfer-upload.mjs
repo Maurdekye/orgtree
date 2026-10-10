@@ -135,7 +135,35 @@ export default async function (rig) {
     proof.check('restart reclaims active jobs and resumes the confirmed hub offset',
       row(worker.id).session_id === workerSession && requests.patches - patchCount === 3 && row(worker.id).attempt === 2,
       { worker: row(worker.id), patches: requests.patches - patchCount })
-    proof.note('Measured actual production scheduler per-hub exclusion and graceful engine restart with PATCH response withheld. No hard process kill, second-hub global limit, incoming/UI/control/failure-notice proof yet.')
+    const userList = await rig.api('GET', `/api/orgs/${rig.org}/transfers`)
+    proof.check('user inspection exposes byte counters without local paths or auth', userList.transfers.some(t => t.id === worker.id && t.confirmed === t.total) &&
+      !JSON.stringify(userList).includes('synthetic-proof') && !JSON.stringify(userList).includes('path'))
+    const denied = await rig.tool('rhea', 'orgtree_transfers', { action: 'get', id: worker.id })
+    proof.check('an agent cannot inspect a user-owned outgoing transfer by guessed id', !denied.ok, denied)
+    holdPatch = true
+    const stalled = await call({ action: 'plan', bytes: 9 * 1024 * 1024 })
+    const next = await call({ action: 'plan', bytes: 1024 })
+    const heldBefore = heldPatches
+    await rig.waitFor(() => heldPatches > heldBefore, { what: 'stalled request to cancel', timeout: 30000 })
+    holdPatch = false
+    const cancelledAt = Date.now()
+    await rig.api('POST', `/api/orgs/${rig.org}/transfers/${stalled.id}`, { action: 'cancel' })
+    await rig.waitFor(() => row(next.id).state === 'complete', { what: 'cancel frees same-hub worker while response stays withheld', timeout: 10000 })
+    proof.check('cancel interrupts stalled I/O and keeps the message queued', row(stalled.id).state === 'cancelled' &&
+      rig.one(`SELECT state FROM ot.org_inbox WHERE id=${stalled.inbox}`).state === 'queued' && Date.now() - cancelledAt < 10000)
+    releasePatch()
+    const savedSession = row(stalled.id).session_id
+    await rig.api('POST', `/api/orgs/${rig.org}/transfers/${stalled.id}`, { action: 'retry' })
+    await rig.waitFor(() => row(stalled.id).state === 'complete', { what: 'explicit retry resumes cancelled upload', timeout: 30000 })
+    proof.check('explicit retry retains the session and confirms all bytes', row(stalled.id).session_id === savedSession && row(stalled.id).confirmed === row(stalled.id).total)
+    await rig.api('POST', `/api/orgs/${rig.org}/transfers/${missing.id}`, { action: 'remove' })
+    await call({ action: 'drain' })
+    proof.check('explicit remove releases held message without sending missing bytes', row(missing.id).state === 'removed' &&
+      rig.one(`SELECT state FROM ot.org_inbox WHERE id=${missing.inbox}`).state === 'sent')
+    const visibleInbox=await rig.api('GET',`/api/orgs/${rig.org}/org_inbox`)
+    const missingUid=rig.one(`SELECT uid FROM ot.org_inbox WHERE id=${missing.inbox}`).uid
+    proof.check('removed file is absent from the visible sent manifest', !visibleInbox.entries.find(i=>i.id===missingUid)?.attachments?.length)
+    proof.note('Measured actual production scheduler, user controls, agent denial, cancelled stalled I/O, explicit resume and graceful restart. Failure notices, remove-file, UI and full device/1GiB proofs remain.')
     proof.keep(rig, { grep: /transfer|upload/ })
     return proof.summary()
   } finally {
