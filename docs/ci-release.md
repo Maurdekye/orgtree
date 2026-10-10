@@ -257,10 +257,16 @@ with the PATH it was opened with; a macOS app opened from Finder gets a minimal 
     - the desktop attaches to its background engine and finishes starting;
     - `~/.config/Orgtree v2` and its `data` folder are 0700;
     - the systemd unit carries `UMask=0077`.
+  - **Then `~/.config` at 0775,** a folder Orgtree must not change. The desktop
+    must refuse its engine at once and print that folder with the `chmod` that fixes
+    it, and `~/.config` must stay as it was. After the printed command, a second
+    start (same profile, engine still running) must attach as usual.
   - **Why:** 4.1.1's systemd-started engine created its data folder 0775, and the
     desktop refused it as "writable by others" and never finished starting (measured
-    on the runner). `.github/workflows/linux-desktop-check.yml` runs the same checks
-    on any published AppImage.
+    on the runner). 4.1.2 fixed Orgtree's own folders, but with `~/.config` at 0775
+    its desktop still never asked the engine for its identity within 150 s and said
+    nothing (measured). `.github/workflows/linux-desktop-check.yml` runs the first
+    three starts on any published AppImage.
 
 **Not there yet** (both platforms):
 - No automatic updates. The app doesn't offer them on macOS or Linux; download each

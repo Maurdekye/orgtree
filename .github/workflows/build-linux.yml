@@ -162,7 +162,8 @@ jobs:
       # runner's PAM gives a user with a private group that, as Ubuntu's does). The desktop
       # must attach to its background engine and finish starting, with the engine's folders
       # private (0700): fresh, over folders 4.1.1 left at 0775, and through the autostart
-      # fallback. Each runs whatever the one before it did.
+      # fallback. Each runs whatever the one before it did. Last, with ~/.config at 0775 (not
+      # Orgtree's to change): refused at once with the folder and its chmod named, then fine.
       - name: Desktop-like start - systemd, fresh install
         env:
           DESKTOP_CHECK_EXPECT_PRIVATE: '1'
@@ -179,6 +180,12 @@ jobs:
         env:
           DESKTOP_CHECK_EXPECT_PRIVATE: '1'
         run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-autostart autostart
+
+      - name: Desktop-like start - ~/.config writable by the group (refused with the fix, then fixed)
+        if: success() || failure()
+        env:
+          DESKTOP_CHECK_EXPECT_PRIVATE: '1'
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-unsafe-config unsafe-config
 
       # Real Orgtree tool calls by hired agents, one per CLI lane (Claude and Codex over stdio,
       # Antigravity over the bridge socket), with the rig's fake CLI as every CLI.
