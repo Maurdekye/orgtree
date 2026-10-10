@@ -63,6 +63,26 @@ module.exports = async (page, { args }) => {
     const r = await drag(edge, dx, dy, `edge-${edge}`)
     out[edge] = { before, mid: r.mid, end: r.end, unchanged: same(before, r.mid) && same(before, r.end) }
   }
+  // approach the edge from inside: drag the handle down (or up/left/right) past it in several steps; the dragged
+  // side must stop at the edge and the opposite side must not move, mid-drag and after release
+  const approach = [
+    ['s', (b) => ({ x: (b.vw - W) / 2, y: b.vh - H - 150, w: W, h: H }), 0, 400, 'y'],
+    ['s', (b) => ({ x: (b.vw - W) / 2, y: b.vh - H - 20, w: W, h: H }), 0, 100, 'y'],
+    ['n', (b) => ({ x: (b.vw - W) / 2, y: 150, w: W, h: H }), 0, -400, 'y2'],
+    ['e', (b) => ({ x: b.vw - W - 150, y: (b.vh - H) / 2, w: W, h: H }), 400, 0, 'x'],
+    ['w', (b) => ({ x: 150, y: (b.vh - H) / 2, w: W, h: H }), -400, 0, 'x2'],
+  ]
+  for (const [edge, rectFn, dx, dy, tag] of approach) {
+    const before = await load(rectFn)
+    const r = await drag(edge, dx, dy, `approach-${edge}-${tag}`)
+    const f = r.end
+    const opposite = edge === 's' ? Math.abs(f.y - before.y) < 1.5
+      : edge === 'n' ? Math.abs((f.y + f.h) - (before.y + before.h)) < 1.5
+      : edge === 'e' ? Math.abs(f.x - before.x) < 1.5 : Math.abs((f.x + f.w) - (before.x + before.w)) < 1.5
+    const atEdge = edge === 's' ? Math.abs(f.y + f.h - f.vh) < 1.5 : edge === 'n' ? Math.abs(f.y) < 1.5
+      : edge === 'e' ? Math.abs(f.x + f.w - f.vw) < 1.5 : Math.abs(f.x) < 1.5
+    out['approach-' + edge + '-' + tag] = { before, mid: r.mid, end: f, oppositeFixed: opposite, stopsAtEdge: atEdge }
+  }
   // inward from a flush side shrinks normally, the opposite side stays put
   {
     const before = await load((b) => ({ x: (b.vw - W) / 2, y: b.vh - H, w: W, h: H }))

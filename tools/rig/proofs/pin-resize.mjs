@@ -18,6 +18,10 @@ export default async function (rig) {
   if (ui.ok) {
     const v = ui.value
     for (const e of ['s', 'n', 'e', 'w', 'se', 'nw']) p.check('flush-' + e + '-unchanged', v[e]?.unchanged === true, JSON.stringify(v[e]))
+    for (const k of Object.keys(v).filter((k) => k.startsWith('approach-'))) {
+      p.check(k + '-opposite-fixed', v[k].oppositeFixed === true, JSON.stringify(v[k]))
+      p.check(k + '-stops-at-edge', v[k].stopsAtEdge === true, JSON.stringify(v[k]))
+    }
     p.check('inward-shrinks', v.inwardS?.shrank === true, JSON.stringify(v.inwardS))
     p.check('normal-resize-grows', v.normal?.grew === true, JSON.stringify(v.normal))
   }
