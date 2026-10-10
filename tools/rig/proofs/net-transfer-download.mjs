@@ -91,7 +91,7 @@ export default async function(rig) {
       proof.check(`${id}: one user notice and one holder mail for failure`,mail.length===2 && mail.some(m=>m.recipient_kind==='user') && mail.some(m=>m.recipient_name==='rhea'),mail)
     }
     proof.keep(rig,{grep:/incoming|download|transfer/})
-    proof.note('Real engine, PostgreSQL, streamed loopback HTTP and engine restart. Incoming holder inspection/cancel/retry measured; renderer/failure notifications and device/1GiB/hard-kill proof remain.')
+    proof.note('Real engine, PostgreSQL, streamed loopback HTTP and engine restart. Incoming holder controls, failure mail recipients, peer order and invalid Range rejection measured; renderer/device/1GiB/hard-kill proof remain.')
     return proof.summary()
   } finally {
     server.closeAllConnections()
