@@ -5677,10 +5677,10 @@ svg.MuiSvgIcon-root {
 .fdl:hover { color: var(--agent-accent-text, var(--accent)); }
 /* inline "open in mailbox" on mail-send chips (user spec 2026-07-31) */
 .maillink {
-  display: inline-flex; align-items: center; gap: 3px; margin-left: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; margin-left: 6px;
   background: none; border: 1px solid var(--line-soft); border-radius: 9px;
-  color: var(--dim); font-size: 10.5px; padding: 0 7px; cursor: pointer;
-  font-family: inherit;
+  color: var(--dim); font-size: 10.5px; line-height: 1; padding: 3px 8px; cursor: pointer;
+  font-family: inherit; vertical-align: middle;
 }
 .maillink:hover { color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--button-accent) 45%, var(--line)); }
 /* the jumped-to mail flashes so "took me to it" is unmistakable */
@@ -8273,5 +8273,5 @@ main:has(> .orgbar.native-header) > .error {
 .org-accounts-group { margin-top: 10px; }
 /* the links and watchdog card beside an orgtree tool call */
 .tool-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-left: 6px; vertical-align: middle; }
-.tool-ref-agent { display: inline-flex; align-items: center; }
+.tool-ref-agent { display: inline-flex; align-items: center; gap: 6px; }
 .tool-refs .desk-dog-chip.gone { opacity: 0.55; cursor: default; }
