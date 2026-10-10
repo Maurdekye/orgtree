@@ -2,6 +2,7 @@ import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
+import { executionTime, RunningTimer, TurnActiveContext } from './toolclock'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
@@ -4179,6 +4180,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // no overlay wrapper, no second scale (that would double-scale), no
   // recenter-on-click
   return (
+    <TurnActiveContext.Provider value={turnActive}>
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
       onFocusCapture={() => { setActiveChatKey(chatKey); setButtonAgent(slug, node.tier ? node.id : null); if (recordChat) void refreshConvo(slug, node.id) }}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
@@ -4217,6 +4219,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       }}>
       <div className={(bare || surface?.detached ? 'desk-body eye-chat' : 'desk-inner desk-body') + providerClass + processClass}>{content}</div>
     </div></fieldset>
+    </TurnActiveContext.Provider>
   )
 }
 export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; refs?: RefRoutes }) {
@@ -4718,6 +4721,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
   // survive the row being re-keyed mid-stream
   const [open, toggleOpen] = useFold(toolFoldKey(t))
   const expandable = true
+  const execTime = executionTime(t.started_at, t.ended_at)
   if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
     doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
     <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span>
@@ -4770,6 +4774,12 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             {t.task.tokens ? ` · ${Math.round(t.task.tokens / 1000)}k tok` : ''}</span>)}
         {(t.images ?? 0) > 0 && <span className="dim"> · {t.images} image{t.images === 1 ? '' : 's'}</span>}
         {t.error && <span className="terrtxt"> ⊘ {t.error}</span>}
+        {/* how long the call took, or — while it still waits for its result and
+            the turn is running — a live count once it passes ten seconds */}
+        {execTime
+          ? <span className="dim tool-exec-time" title="execution time"> · {execTime}</span>
+          : typeof t.started_at === 'string' && t.result === undefined && !t.error
+            ? <RunningTimer startedAt={t.started_at} /> : null}
         {/* mail sends carry the inline "open in mailbox" link (user spec):
             straight to the exact mail in whichever box holds it */}
         {t.mail && onMailLink && (
@@ -4792,6 +4802,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
       {open && <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
+      {open && execTime && <div className="dim tool-exec-line">Execution time {execTime}</div>}
       {open && t.diff && (
         <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.diff.lines.map((l, i) => (

@@ -36,7 +36,6 @@ export function ToolInputDetails({ slug, nid, seq, tool }: {
     return () => { active = false }
   }, [slug, nid, seq, tool, retry])
   return <div className="toolinput">
-    <div className="dim">Input</div>
     {seq === undefined || !tool ? <div className="dim">The full input was not retained for this older tool call.</div>
       : error ? <div role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></div>
       : !result ? <div className="dim">Loading input…</div>
