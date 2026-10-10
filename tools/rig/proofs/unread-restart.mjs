@@ -4,7 +4,7 @@ import { runDesktop } from '../desktop.mjs'
 import { rigHome } from '../lib.mjs'
 
 // Presented-document read marks survive an engine restart and a fresh desktop
-// run on the same profile (the user's report: every card turned unread again).
+// run on the same profile and on a fresh one (the user's report: every card turned unread again).
 export async function setup() {
   return { fixture: { org: { name: 'Unread restart' },
     agents: [{ name: 'rhea', tier: 'luna', grant: 4 }],
@@ -27,5 +27,8 @@ export default async function (rig) {
   const rig2 = await rig.restart()
   const second = await run(rig2, 'check')
   if (!second.ok) throw Error(JSON.stringify(second))
-  return { ok: true, evidence, url1: rig.url, url2: rig2.url, first: first.value, second: second.value }
+  // a PC crash or a lost profile: a brand-new profile (no localStorage) still shows it read, the engine holds it
+  const third = await runDesktop(rig2, script, { out: path.join(evidence, 'fresh'), args: { org: rig2.org, phase: 'check' }, timeout: 90000 })
+  if (!third.ok) throw Error(JSON.stringify(third))
+  return { ok: true, evidence, third: third.value, url1: rig.url, url2: rig2.url, first: first.value, second: second.value }
 }
