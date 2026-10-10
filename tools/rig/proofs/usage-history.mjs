@@ -13,8 +13,16 @@
 //      off, and a span where login B was unavailable.
 //      The route downsamples per series (bounded bucket count), sends the
 //      reset rows and B's availability changes; the panel draws one chart per
-//      series grouped by account, breaks lines at the gap/resets, hatches the
-//      unavailable span, shows the projection and the next-reset lines.
+//      series grouped by account, breaks lines only at resets (joined across
+//      the hole and the unavailable span, nothing marks them: user 2026-10-10),
+//      shows the projection and the next-reset lines.
+//   3. The recorder, with a secondary account present: canned readings for
+//      the default Claude, Codex and Antigravity sign-ins and for a second
+//      Claude and a second Codex login go through the real probes (the routes
+//      the Usage window reads); every one of them lands in ot.usage_history -
+//      the default sign-ins under claude/primary, openai/primary and
+//      google/primary, labelled by their email - and the panel shows each
+//      account.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/usage-history.mjs
 
 import fs from 'node:fs'
@@ -138,6 +146,51 @@ export default async function (rig) {
   const day = await rig.api('GET', '/api/usage/history?range=24h')
   p.check('24h: 5-minute buckets, session resets in the period', day.bucket_s === 300
     && day.resets.filter(r => r.window === 'session').length >= 4, { bucket_s: day.bucket_s, resets: day.resets.length })
+  // ---------------------------------------------------------------- 3. the recorder
+  const usageDir = path.join(rig.data, 'rig-home', 'rig-usage')
+  fs.mkdirSync(usageDir, { recursive: true })
+  const put = (name, r) => fs.writeFileSync(path.join(usageDir, `${name}.json`), JSON.stringify(r))
+  const later = h => new Date(Date.now() + h * 3600e3).toISOString()
+  const claudeReading = (session, weekly, email) => ({ available: true, email, limits: [
+    { kind: 'session', group: 'session', percent: session, resets_at: later(3), is_active: false, model: null },
+    { kind: 'weekly_all', group: 'weekly_all', percent: weekly, resets_at: later(72), is_active: true, model: null },
+  ] })
+  const codexReading = (five, week, email) => ({ available: true, label: email, email, limits: [
+    { kind: 'session', group: 'primary', percent: five, resets_at: later(4), label: '5 h' },
+    { kind: 'weekly_all', group: 'secondary', percent: week, resets_at: later(100), label: '7 d' },
+  ] })
+  const C = (await rig.api('POST', '/api/accounts', { provider: 'claude', kind: 'imported',
+    path: claudeHome(path.join(rig.data, 'rig-home', 'claude-c'), 'rig-c@example.invalid') })).id
+  const homeD = path.join(rig.data, 'rig-home', 'codex-d')
+  fs.mkdirSync(homeD, { recursive: true })
+  const D = (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'imported', path: homeD })).id
+  put('claude', claudeReading(12, 57, 'rig-primary@example.invalid'))
+  put('claude@claude-c', claudeReading(7, 59, 'rig-c@example.invalid'))
+  put('openai', codexReading(5, 30, 'rig-codex@example.invalid'))
+  put('openai@codex-d', codexReading(40, 92, 'rig-codex-d@example.invalid'))
+  put('google', { available: true, email: 'rig-agy@example.invalid', label: 'rig-agy@example.invalid', limits: [
+    { kind: 'usage', group: 'gemini-5h', percent: 25, resets_at: later(2), label: 'Gemini 5 h' }] })
+  await rig.api('GET', '/api/usage?force=true')
+  await rig.api('GET', '/api/codex/usage?force=true')
+  await rig.api('GET', '/api/antigravity/usage?force=true')
+  await rig.api('GET', `/api/accounts/${C}/usage?force=true`)
+  await rig.api('GET', `/api/accounts/${D}/usage?force=true`)
+  const recorded = rig.sql(`SELECT account, provider, count(*)::int AS n, max(label) FILTER (WHERE win = '') AS label
+    FROM ot.usage_history WHERE observed_at > now() - interval '10 minutes' AND event = 'reading' GROUP BY account, provider ORDER BY account`)
+  const got = Object.fromEntries(recorded.map(r => [r.account, r]))
+  p.check('recorder: every signed-in account is recorded, the default sign-ins and the secondary ones',
+    ['claude/primary', 'openai/primary', 'google/primary', C, D].every(a => got[a]?.n >= 2), recorded)
+  p.check('recorder: the default sign-ins are labelled by their email',
+    got['claude/primary']?.label === 'rig-primary@example.invalid' && got['openai/primary']?.label === 'rig-codex@example.invalid'
+    && got['google/primary']?.label === 'rig-agy@example.invalid', recorded)
+  const after = await rig.api('GET', '/api/usage/history?range=7d')
+  const accts = new Set(after.series.map(s => s.account))
+  p.check('route: the history now has every account (seeded and recorded)',
+    ['claude/primary', 'openai/primary', 'google/primary', B, C, D, 'openrouter'].every(a => accts.has(a)), [...accts])
+  const primaryLabel = after.series.find(s => s.account === 'openai/primary')?.account_label
+  p.check('route: a default sign-in is named by its email, not its id', primaryLabel === 'rig-codex@example.invalid', primaryLabel)
+  p.note('recorded', { C, D, recorded })
+
   if (rig.run.ui) {
     const ui = await runDesktop(rig, page, { preset: 'wide', out: path.join(p.dir, 'desktop-seeded'), args: { shots: [
       { name: 'seeded-7d' },
@@ -147,22 +200,26 @@ export default async function (rig) {
       { name: 'seeded-7d-account-b', range: '7 days', account: B },
     ] } })
     const [w, hov, d, m, fb] = ui.value?.shots ?? []
-    p.check('seeded 7d: one chart per series, grouped by account', ui.ok && w?.cards === 5 && w?.accounts === 3, w)
-    p.check('seeded 7d: lines break (more line pieces than charts), resets and next-reset lines are drawn',
+    p.check('7d: one chart per series, grouped by account: seven accounts, secondaries included',
+      ui.ok && w?.cards === after.series.length && w?.accounts === 7, { cards: w?.cards, series: after.series.length, heads: w?.heads })
+    p.check('7d: each account heading names its login', ['rig-primary@', 'rig-codex@', 'rig-agy@', 'rig-b@', 'rig-c@', 'rig-codex-d@']
+      .every(e => (w?.heads ?? []).some(h => h.includes(e))), w?.heads)
+    p.check('7d: lines break at resets only, resets and next-reset lines are drawn',
       w?.lines > 5 && w?.resets >= 1 && w?.nextResets >= 1, w)
-    p.check("seeded 7d: B's unavailable span is hatched", w?.down >= 1, w)
+    p.check('7d: no unavailable zone is marked (no hatched band anywhere)', w?.hatch === 0, w)
     p.check('seeded 7d: projections drawn and labelled', w?.projections >= 3 && /projected/.test(w?.text ?? ''), w)
     p.check('seeded 7d: stats show current, change since reset, min, max, average',
       /current/.test(w?.text) && /since reset/.test(w?.text) && /min/.test(w?.text) && /average/.test(w?.text), w?.text)
     p.check('hovering the future pane reads the projection', /projected/.test(hov?.tip ?? ''), hov?.tip)
     p.check('seeded 24h: session resets drawn', d?.resets >= 4, d)
-    p.check('seeded 30d: the panel still renders every series', m?.cards === 5, m)
-    p.check('account filter: only B\'s two series', fb?.cards === 2, fb)
+    p.check('30d: the panel still renders every series', m?.cards === after.series.length, m)
+    p.check("account filter: only B's two series, each one line joined across the 12-hour hole and B's unavailable span",
+      fb?.cards === 2 && fb?.lines === 2 && fb?.hatch === 0, fb)
     const errors = (ui.value?.consoleErrors ?? []).filter(e => !/Electron Security Warning/.test(e))
     p.check('no console errors (the rig Electron CSP warning aside)', errors.length === 0, errors)
     p.note('screenshots', ui.out)
   }
-  p.note('Rig engines serve canned readings without recording them, so history is seeded by SQL in the shape the phase-1 recorder writes; the recorder itself is not re-proved here.')
+  p.note('Sections 1-2 seed history by SQL (a week of it cannot be recorded live); section 3 proves the recorder itself on canned readings. The 60 s background pass over registered accounts does not run in rig mode, so secondaries are probed through their usage route.')
   const result = p.summary()
   if (!result.passed) throw Error(JSON.stringify(result))
   return result

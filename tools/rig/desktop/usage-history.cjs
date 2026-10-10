@@ -47,7 +47,9 @@ module.exports = async (page, { args }) => {
       projections: document.querySelectorAll('.uh-proj').length,
       resets: document.querySelectorAll('.uh-reset').length,
       nextResets: document.querySelectorAll('.uh-next-reset').length,
-      down: document.querySelectorAll('.uh-down').length,
+      // the hatched unavailable band is gone (user 2026-10-10)
+      hatch: document.querySelectorAll('.uh-down, .uh-plot pattern').length,
+      heads: [...document.querySelectorAll('.uh-account-head')].map((h) => h.innerText.replace(/\s+/g, ' ')),
       tip: document.querySelector('.uh-tip')?.innerText ?? null,
     })))
   }
