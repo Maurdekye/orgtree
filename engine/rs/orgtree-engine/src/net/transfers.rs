@@ -99,19 +99,19 @@ impl Work {
             Self::Download(j, _) => &j.address,
         }
     }
-    #[logged]
-    async fn run(&self, e: &Arc<Engine>) -> Result<String> {
-        match self {
-            Self::Upload(j, p) => upload(e, p, j).await,
-            Self::Download(j, p) => incoming::run(e, p, j).await,
-        }
+}
+#[logged]
+async fn run_work(work: &Work, e: &Arc<Engine>) -> Result<String> {
+    match work {
+        Work::Upload(j, p) => upload(e, p, j).await,
+        Work::Download(j, p) => incoming::run(e, p, j).await,
     }
-    #[logged]
-    async fn settle(&self, e: &Engine, result: Result<String>) -> Result<()> {
-        match self {
-            Self::Upload(j, _) => settle(e, j, result).await,
-            Self::Download(j, _) => incoming::settle(e, j, result).await,
-        }
+}
+#[logged]
+async fn settle_work(work: &Work, e: &Engine, result: Result<String>) -> Result<()> {
+    match work {
+        Work::Upload(j, _) => settle(e, j, result).await,
+        Work::Download(j, _) => incoming::settle(e, j, result).await,
     }
 }
 
@@ -154,8 +154,8 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
                     tasks.spawn(async move {
                         let address = work.address().to_owned();
                         let future = async {
-                            let outcome = work.run(&e).await;
-                            work.settle(&e, outcome).await
+                            let outcome = run_work(&work, &e).await;
+                            settle_work(&work, &e, outcome).await
                         };
                         let result = tokio::select! {
                             _=e.shutdown.cancelled()=>return address,
