@@ -223,6 +223,12 @@ async fn run_with_cluster(
     accounts::start(&engine).await;
     openrouter::import_legacy(&engine).await;
     providers::start(&engine);
+    // the built-in organization templates, as files in the templates folder
+    tokio::task::spawn_blocking(|| {
+        if let Err(e) = domain::templates::seed() {
+            tracing::warn!(error = %e, "the templates folder could not be seeded");
+        }
+    });
     usage::start(&engine);
     runtime::sched::start(&engine, sched_inbox);
     mailhub::prepare_database(&engine, cluster).await;
