@@ -37,7 +37,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends \
-            patchelf file imagemagick librsvg2-bin xvfb xauth libfuse2 \
+            patchelf file imagemagick librsvg2-bin xvfb xauth libfuse2 dbus \
             zlib1g-dev pkg-config desktop-file-utils
 
       - name: Rust toolchain (preinstalled rustup)
@@ -156,6 +156,29 @@ jobs:
           v="$(node -p "require('./package.json').version")"
           node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine --appimage "release/Orgtree-$v.AppImage" \
             --expect-cli codex "$HOME/.npm-global/bin/codex"
+
+      # This build's AppImage starting as on a stock Ubuntu desktop (.github/ci/linux/desktop-check.sh):
+      # a D-Bus session bus, umask 0002 for the session and for systemd --user's services (the
+      # runner's PAM gives a user with a private group that, as Ubuntu's does). The desktop
+      # must attach to its background engine and finish starting, with the engine's folders
+      # private (0700): fresh, over folders 4.1.1 left at 0775, and through the autostart
+      # fallback. Each runs whatever the one before it did.
+      - name: Desktop-like start - systemd, fresh install
+        env:
+          DESKTOP_CHECK_EXPECT_PRIVATE: '1'
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-fresh fresh
+
+      - name: Desktop-like start - systemd, over folders a 4.1.1 install left at 0775
+        if: success() || failure()
+        env:
+          DESKTOP_CHECK_EXPECT_PRIVATE: '1'
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-repair repair
+
+      - name: Desktop-like start - autostart fallback (systemctl --user fails)
+        if: success() || failure()
+        env:
+          DESKTOP_CHECK_EXPECT_PRIVATE: '1'
+        run: bash .github/ci/linux/desktop-check.sh "release/Orgtree-$(node -p "require('./package.json').version").AppImage" build/linux/smoke-logs/desktop-autostart autostart
 
       # Real Orgtree tool calls by hired agents, one per CLI lane (Claude and Codex over stdio,
       # Antigravity over the bridge socket), with the rig's fake CLI as every CLI.
