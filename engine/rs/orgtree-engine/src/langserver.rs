@@ -15,10 +15,12 @@
 //! key, when a server needs one, is a secret in `ot.langserver_secrets`:
 //! never returned to a window and never logged.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
 use crate::engine::Engine;
 use crate::util::iso;
@@ -27,6 +29,9 @@ pub const TIER_PREFIX: &str = "ls-";
 /// The `model_providers.<KEY>` block a Codex launch reaches a server
 /// through: passed with `-c`, never written to the user's config.toml.
 pub const CODEX_PROVIDER: &str = "orgtree_langserver";
+/// The lane's own Codex home (under the data folder's `profiles`): no login
+/// ever lives there, and each server's model catalog is written below it.
+pub const CODEX_HOME_DIR: &str = "langserver-codex";
 /// The variable that block tells Codex to read the server's key from.
 pub const KEY_ENV: &str = "ORGTREE_LANGSERVER_KEY";
 /// What a harness sends as its key to a server that needs none (both CLIs
@@ -48,7 +53,14 @@ pub const SLOW_MS: i64 = 30 * 60 * 1000;
 /// The seat price of a language-server tier (the floor every free model
 /// pays; the coordinator decides the final figure).
 pub const SEAT: f64 = crate::providers::catalog::SEAT_FLOOR;
+/// The window of the Ollama variant the settings button makes ("Create a
+/// 64K version of this model", coordinator ruling 2026-10-10).
+pub const VARIANT_CONTEXT: i64 = 65_536;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+/// Making a variant writes only a manifest and a small parameters blob.
+const CREATE_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long the installed Codex may take to read a catalog back.
+const CATALOG_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const USER_AGENT: &str = concat!("orgtree-engine/", env!("CARGO_PKG_VERSION"));
 
 /// A kind of server the add form offers. A preset knows its default
@@ -461,6 +473,7 @@ pub async fn remove_server(engine: &Engine, id: &str) -> Result<()> {
     set_key(engine, id, None).await?;
     let mut client = engine.db.get().await?;
     engine.settings.merge(&mut client, json!({ "language_servers": { "servers": { id: Value::Null } } })).await?;
+    prune_catalogs(&engine.cfg.path("profiles").join(CODEX_HOME_DIR).join("catalogs"), id, 0);
     Ok(())
 }
 
@@ -611,13 +624,78 @@ where
         models.push(json!({
             "id": name, "size": m["size"], "family": m["details"]["family"], "parameters": m["details"]["parameter_size"],
             "quantization": m["details"]["quantization_level"], "max_context": trained, "loaded_context": loaded,
+            // the window its Modelfile sets: what every request that names no window gets
+            "configured_context": show["parameters"].as_str().and_then(num_ctx_of),
             "tools": caps.iter().any(|c| c == "tools"), "capabilities": caps,
         }));
     }
     Ok(json!({
         "version": version["version"], "models": models,
-        "note": "Ollama runs every model with the window set by OLLAMA_CONTEXT_LENGTH (4096 by default on cards under 24 GB), and silently cuts longer prompts: set it to at least 65536.",
+        "note": "Ollama runs a model with the window its Modelfile sets (num_ctx), else with OLLAMA_CONTEXT_LENGTH (4096 by default on cards under 24 GB), and silently cuts longer prompts: set it to at least 65536, or create a 64K version of a model below.",
     }))
+}
+
+/// The `num_ctx` of an Ollama model's parameters, as `/api/show` lists them
+/// (one `name value` line per parameter).
+#[logged]
+fn num_ctx_of(parameters: &str) -> Option<i64> {
+    parameters.lines().find_map(|l| {
+        let mut w = l.split_whitespace();
+        (w.next() == Some("num_ctx")).then(|| w.next().and_then(|v| v.trim_matches('"').parse::<i64>().ok())).flatten()
+    })
+}
+
+/// The name of an Ollama model's variant with its own window: the same
+/// name with the window added to its tag (`qwen3.8:27b` → `qwen3.8:27b-64k`;
+/// a name without a tag is `:latest`). Ollama allows tags of 80 characters.
+#[logged]
+pub fn variant_name(model: &str, context: i64) -> String {
+    let model = model.trim();
+    let name_at = model.rfind('/').map(|i| i + 1).unwrap_or(0);
+    let (base, tag) = match model[name_at..].rfind(':') {
+        Some(i) => (&model[..name_at + i], &model[name_at + i + 1..]),
+        None => (model, "latest"),
+    };
+    let suffix = format!("-{}k", context / 1024);
+    let keep: String = tag.chars().take(80 - suffix.len()).collect();
+    format!("{base}:{keep}{suffix}")
+}
+
+/// Make a variant of an Ollama model that runs with `context` tokens: a new
+/// entry in the user's Ollama (`POST /api/create` from the model, with a
+/// `num_ctx` parameter) that shares the original's weights, so nothing is
+/// downloaded. Only ever on the user's click (coordinator ruling
+/// 2026-10-10: never automatically). Returns the new model's name. Not
+/// logged: the key may be part of the request.
+pub async fn create_ollama_variant(address: &str, key: Option<&str>, model: &str, context: i64) -> Result<String> {
+    let address = normalize_address(address)?;
+    let model = model.trim();
+    if model.is_empty() {
+        crate::refuse!(BadRequest, "name the model to make a version of");
+    }
+    let name = variant_name(model, context);
+    let client = reqwest::Client::builder().timeout(CREATE_TIMEOUT).user_agent(USER_AGENT).build()?;
+    let mut req = client
+        .post(format!("{address}/api/create"))
+        .json(&json!({ "model": name, "from": model, "parameters": { "num_ctx": context }, "stream": false }));
+    if let Some(k) = key.map(str::trim).filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(k);
+    }
+    let res = match req.send().await {
+        Ok(r) => r,
+        Err(e) => crate::refuse!(Conflict, "Ollama could not be asked: {}", short_error(&e)),
+    };
+    let status = res.status();
+    let body: Value = res.json().await.unwrap_or(Value::Null);
+    if !status.is_success() {
+        let why = body["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("it answered {status}"));
+        crate::refuse!(Conflict, "Ollama did not create {name}: {why}");
+    }
+    if let Some(why) = body["error"].as_str() {
+        crate::refuse!(Conflict, "Ollama did not create {name}: {why}");
+    }
+    tracing::info!(from = model, model = %name, context, "made an Ollama model variant");
+    Ok(name)
 }
 
 async fn probe_lmstudio<F>(address: &str, get: &F) -> std::result::Result<Value, String>
@@ -787,13 +865,22 @@ pub fn claude_env(r: &Route) -> Vec<(String, String)> {
     env
 }
 
-/// `-c` overrides pointing one Codex launch at a server's Responses API.
+/// A TOML basic string, for a `-c key=value` override.
+#[nolog]
+fn toml_str(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// `-c` overrides pointing one Codex launch at a server's Responses API,
+/// with the server's model catalog when there is one. Codex's hosted web
+/// search is off: it runs only on OpenAI's servers, and a local server can
+/// only refuse or ignore the tool.
 #[logged]
-pub fn codex_overrides(r: &Route, compact_at: f64) -> Vec<String> {
-    let q = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+pub fn codex_overrides(r: &Route, compact_at: f64, catalog: Option<&Path>) -> Vec<String> {
+    let q = |s: &str| toml_str(s);
     let p = format!("model_providers.{CODEX_PROVIDER}");
     let mut out = Vec::new();
-    for kv in [
+    let mut kvs = vec![
         format!("model_provider={}", q(CODEX_PROVIDER)),
         format!("{p}.name={}", q("Language Server")),
         format!("{p}.base_url={}", q(&r.base_url)),
@@ -806,9 +893,254 @@ pub fn codex_overrides(r: &Route, compact_at: f64) -> Vec<String> {
         format!("model={}", q(&r.model)),
         format!("model_context_window={}", r.context),
         format!("model_auto_compact_token_limit={}", ((r.context as f64) * compact_at) as i64),
-    ] {
+        format!("web_search={}", q("disabled")),
+    ];
+    if let Some(c) = catalog {
+        kvs.push(format!("model_catalog_json={}", q(&c.to_string_lossy())));
+    }
+    for kv in kvs {
         out.push("-c".to_string());
         out.push(kv);
     }
     out
+}
+
+// ------------------------------------------------------------------ Codex's model catalog
+
+/// The instructions Codex sends for a model missing from its catalog (its
+/// built-in default prompt, as Codex 0.160.0 sends it; Apache-2.0, see
+/// THIRD_PARTY_NOTICES.md). A catalog entry must carry instructions, and a
+/// language server's entries carry these, so an entry changes nothing but
+/// what it is for.
+const CODEX_DEFAULT_INSTRUCTIONS: &str = include_str!("../assets/codex-default-instructions.md");
+
+/// A server's models as a Codex model catalog (`model_catalog_json`). Each
+/// entry is what Codex assumes for a model it does not know (its default
+/// prompt, its unified shell, no patch tool, output cut at 10,000 bytes,
+/// text and images), plus the model's real window. Codex then knows the
+/// model: it stops warning "model metadata not found" and plans with the
+/// window the server gives it. Measured against Codex 0.160.0: with such an
+/// entry it sends the same request as without one.
+#[logged]
+pub fn codex_catalog(server: &Value) -> Value {
+    let instructions = CODEX_DEFAULT_INSTRUCTIONS.replace("\r\n", "\n");
+    let mut models: Vec<&Value> = server["models"].as_object().map(|m| m.values().collect()).unwrap_or_default();
+    models.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    let label = server["label"].as_str().unwrap_or("a language server");
+    let entries: Vec<Value> = models
+        .into_iter()
+        .filter_map(|m| {
+            let id = m["id"].as_str().map(str::trim).filter(|s| !s.is_empty())?;
+            let window = context_of(m);
+            Some(json!({
+                "slug": id,
+                "display_name": m["label"].as_str().filter(|l| !l.trim().is_empty()).unwrap_or(id),
+                "description": format!("{id} on {label} (Language Server)"),
+                "default_reasoning_level": Value::Null,
+                "supported_reasoning_levels": [],
+                "shell_type": "unified_exec",
+                "visibility": "list",
+                "supported_in_api": true,
+                "priority": 99,
+                "base_instructions": instructions,
+                "default_reasoning_summary": "auto",
+                "support_verbosity": false,
+                "default_verbosity": Value::Null,
+                "apply_patch_tool_type": Value::Null,
+                "truncation_policy": { "mode": "bytes", "limit": 10_000 },
+                "context_window": window,
+                "max_context_window": window,
+                "effective_context_window_percent": 95,
+                "experimental_supported_tools": [],
+                "input_modalities": ["text", "image"],
+            }))
+        })
+        .collect();
+    json!({ "models": entries })
+}
+
+/// Which Codex binary read a catalog: its path, size and modification time.
+#[logged]
+fn exe_print(exe: &Path) -> String {
+    let meta = std::fs::metadata(exe).ok();
+    let len = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let modified = meta
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    hex::encode(&Sha256::digest(format!("{}|{len}|{modified}", exe.to_string_lossy()).as_bytes())[..6])
+}
+
+/// Keep a server's newest `keep` catalogs (and their markers), remove the
+/// rest. A file is `<server>-<12 hex>.json`, its marker
+/// `<server>-<12 hex>.<print>.ok`. Best effort.
+#[logged]
+fn prune_catalogs(dir: &Path, server: &str, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix = format!("{server}-");
+    let mut catalogs: Vec<(std::time::SystemTime, String)> = Vec::new();
+    let mut files: Vec<(String, PathBuf)> = Vec::new();
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let Some(rest) = name.strip_prefix(&prefix) else { continue };
+        // the hash, then a dot: `ollama-` must not take `ollama-2-…`
+        let (Some(hash), Some(tail)) = (rest.get(..12), rest.get(12..)) else { continue };
+        if !hash.bytes().all(|b| b.is_ascii_hexdigit()) || !tail.starts_with('.') {
+            continue;
+        }
+        if tail == ".json" {
+            let at = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+            catalogs.push((at, hash.to_string()));
+        }
+        files.push((hash.to_string(), e.path()));
+    }
+    catalogs.sort_by(|a, b| b.0.cmp(&a.0));
+    let kept: Vec<&String> = catalogs.iter().take(keep).map(|(_, h)| h).collect();
+    for (hash, path) in files {
+        if !kept.contains(&&hash) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Write a server's Codex catalog where a launch can point at it, and make
+/// sure the installed Codex reads it: Codex's catalog schema is strict and
+/// changes between versions (0.160 refuses a missing field and knows only a
+/// "freeform" patch tool), and a catalog it cannot read would stop every
+/// launch. So each catalog is checked once per Codex binary with `codex
+/// debug models` (about 0.1 s), which leaves a marker. The file is named by
+/// its content, so a launch never reads a half-written one. None: launch
+/// without a catalog (Codex then assumes its defaults, and warns).
+#[logged]
+pub async fn codex_catalog_file(exe: &Path, home: &Path, server: &Value) -> Option<PathBuf> {
+    let id = server["id"].as_str().filter(|s| !s.is_empty())?;
+    let body = serde_json::to_vec_pretty(&codex_catalog(server)).ok()?;
+    let hash = hex::encode(&Sha256::digest(&body)[..6]);
+    let dir = home.join("catalogs");
+    let file = dir.join(format!("{id}-{hash}.json"));
+    let marker = dir.join(format!("{id}-{hash}.{}.ok", exe_print(exe)));
+    if file.is_file() && marker.is_file() {
+        return Some(file);
+    }
+    if !file.is_file() {
+        let tmp = dir.join(format!("{id}-{hash}.{}.tmp", std::process::id()));
+        let written = std::fs::create_dir_all(&dir)
+            .and_then(|_| std::fs::write(&tmp, &body))
+            .and_then(|_| std::fs::rename(&tmp, &file));
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&tmp);
+            if !file.is_file() {
+                tracing::warn!(server = id, error = %e, "could not write the language server's Codex catalog; launching without it");
+                return None;
+            }
+        }
+        prune_catalogs(&dir, id, 3);
+    }
+    let mut cmd = tokio::process::Command::new(exe);
+    cmd.args(["debug", "models", "-c", &format!("model_catalog_json={}", toml_str(&file.to_string_lossy()))])
+        .env("CODEX_HOME", home)
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("OPENAI_BASE_URL")
+        .env_remove("CODEX_API_KEY")
+        .current_dir(home)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    crate::winproc::no_window(&mut cmd);
+    let out = tokio::time::timeout(CATALOG_CHECK_TIMEOUT, cmd.output()).await;
+    let ok = match &out {
+        Ok(Ok(o)) if o.status.success() => serde_json::from_slice::<Value>(&o.stdout)
+            .ok()
+            .and_then(|v| v["models"].as_array().map(|m| m.len()))
+            .is_some_and(|n| n > 0),
+        _ => false,
+    };
+    if !ok {
+        let why = match out {
+            Ok(Ok(o)) => String::from_utf8_lossy(&o.stderr).trim().chars().take(400).collect::<String>(),
+            Ok(Err(e)) => e.to_string(),
+            Err(_) => "Codex did not answer in time".to_string(),
+        };
+        tracing::warn!(server = id, why = %why, "the installed Codex cannot read the language server's model catalog; launching without it");
+        return None;
+    }
+    let _ = std::fs::write(&marker, b"");
+    Some(file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_variant_keeps_the_name_and_marks_the_tag() {
+        assert_eq!(variant_name("qwen3.8:27b", 65_536), "qwen3.8:27b-64k");
+        assert_eq!(variant_name("qwen3.8", 65_536), "qwen3.8:latest-64k");
+        assert_eq!(variant_name("hf.co/unsloth/Qwen3.8-27B-GGUF:UD-IQ3_XXS", 65_536), "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-IQ3_XXS-64k");
+        // a host with a port is not a tag
+        assert_eq!(variant_name("registry.local:5000/team/model", 65_536), "registry.local:5000/team/model:latest-64k");
+        let long = format!("m:{}", "t".repeat(90));
+        assert_eq!(variant_name(&long, 65_536).split(':').nth(1).unwrap().len(), 80);
+    }
+
+    #[test]
+    fn num_ctx_is_read_from_the_parameter_lines() {
+        let p = "num_ctx                        65536\nstop                           \"<|im_end|>\"";
+        assert_eq!(num_ctx_of(p), Some(65_536));
+        assert_eq!(num_ctx_of("stop \"x\""), None);
+        assert_eq!(num_ctx_of(""), None);
+    }
+
+    fn server() -> Value {
+        json!({ "id": "ollama", "label": "Ollama", "models": {
+            "qwen3.8:27b-64k": { "id": "qwen3.8:27b-64k", "tier": "ls-ollama-qwen3-8-27b-64k", "label": "qwen3.8:27b-64k", "offered": true, "context": 65536 },
+            "small:latest": { "id": "small:latest", "tier": "ls-ollama-small-latest", "label": "", "offered": false, "context": null } } })
+    }
+
+    #[test]
+    fn a_catalog_lists_every_model_with_its_window_and_codex_s_own_prompt() {
+        let c = codex_catalog(&server());
+        let m = c["models"].as_array().unwrap();
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0]["slug"], "qwen3.8:27b-64k");
+        assert_eq!(m[0]["context_window"], 65_536);
+        assert_eq!(m[1]["slug"], "small:latest");
+        assert_eq!(m[1]["display_name"], "small:latest");
+        assert_eq!(m[1]["context_window"], DEFAULT_CONTEXT);
+        let text = m[0]["base_instructions"].as_str().unwrap();
+        assert!(text.starts_with("You are a coding agent running in the Codex CLI"));
+        assert!(!text.contains('\r'));
+        assert!(m[0]["apply_patch_tool_type"].is_null() && m[0]["shell_type"] == "unified_exec");
+    }
+
+    #[test]
+    fn overrides_name_the_catalog_and_turn_hosted_search_off() {
+        let r = Route { server: "ollama".into(), base_url: "http://127.0.0.1:11434/v1".into(), key: NO_KEY.into(),
+                        model: "qwen3.8:27b-64k".into(), context: 65_536, codex: true, max_agents: 1 };
+        let o = codex_overrides(&r, 0.8, Some(Path::new(r"C:\data\profiles\langserver-codex\catalogs\ollama-0123456789ab.json")));
+        assert!(o.contains(&r#"web_search="disabled""#.to_string()));
+        assert!(o.contains(&r#"model_catalog_json="C:\\data\\profiles\\langserver-codex\\catalogs\\ollama-0123456789ab.json""#.to_string()));
+        assert!(!codex_overrides(&r, 0.8, None).iter().any(|kv| kv.starts_with("model_catalog_json")));
+    }
+
+    #[test]
+    fn pruning_keeps_the_newest_and_never_touches_another_server() {
+        let dir = std::env::temp_dir().join(format!("orgtree-ls-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mk = |name: &str| std::fs::write(dir.join(name), b"{}").unwrap();
+        mk("ollama-aaaaaaaaaaaa.json");
+        mk("ollama-aaaaaaaaaaaa.0123456789ab.ok");
+        std::thread::sleep(Duration::from_millis(30));
+        mk("ollama-bbbbbbbbbbbb.json");
+        mk("ollama-2-cccccccccccc.json");
+        mk("notes.txt");
+        prune_catalogs(&dir, "ollama", 1);
+        let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        left.sort();
+        assert_eq!(left, ["notes.txt", "ollama-2-cccccccccccc.json", "ollama-bbbbbbbbbbbb.json"]);
+        prune_catalogs(&dir, "ollama-2", 0);
+        assert!(!dir.join("ollama-2-cccccccccccc.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

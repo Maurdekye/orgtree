@@ -135,6 +135,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         // the user's own model servers (App settings › Providers › Language Server)
         .route("/api/langservers", get(langserver::list).post(langserver::add))
         .route("/api/langservers/probe", post(langserver::probe))
+        .route("/api/langservers/ollama-variant", post(langserver::ollama_variant))
         .route("/api/langservers/{id}", axum::routing::patch(langserver::update).delete(langserver::remove))
         .route("/api/langservers/{id}/key", axum::routing::put(langserver::set_key))
         .route("/api/providers/{provider}/enabled", axum::routing::put(settings::provider_enabled))

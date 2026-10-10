@@ -179,6 +179,50 @@ impl std::fmt::Debug for ProbeBody {
     }
 }
 
+#[derive(Deserialize)]
+pub struct VariantBody {
+    /// a stored server: its address and key
+    #[serde(default)]
+    server: Option<String>,
+    /// or the server the add form describes
+    #[serde(default)]
+    address: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+    model: String,
+}
+
+impl std::fmt::Debug for VariantBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VariantBody")
+            .field("server", &self.server)
+            .field("address", &self.address)
+            .field("key", &self.key.as_ref().map(|_| "*****"))
+            .field("model", &self.model)
+            .finish()
+    }
+}
+
+/// `POST /api/langservers/ollama-variant`: the "Create a 64K version of this
+/// model" button. Adds `<model>-64k` to the user's Ollama (same weights, its
+/// own 64K window; only on that click), then lists the server's models again.
+#[logged]
+pub async fn ollama_variant(State(e): State<Arc<Engine>>, Json(b): Json<VariantBody>) -> ApiResult<Json<Value>> {
+    let (address, key) = match b.server.as_deref() {
+        Some(id) => {
+            let Some(s) = langserver::server(&e, id) else { return Err(ApiError::not_found(format!("no language server {id}"))) };
+            if s["preset"].as_str() != Some("ollama") {
+                return Err(ApiError::bad_request("only an Ollama server makes model versions"));
+            }
+            (s["address"].as_str().unwrap_or("").to_string(), langserver::key(&e, id).await)
+        }
+        None => (b.address.clone().unwrap_or_default(), b.key.clone()),
+    };
+    let name = langserver::create_ollama_variant(&address, key.as_deref(), &b.model, langserver::VARIANT_CONTEXT).await?;
+    let probe = langserver::probe("ollama", &address, key.as_deref(), "claude-code", None).await;
+    Ok(Json(serde_json::json!({ "created": name, "context": langserver::VARIANT_CONTEXT, "probe": probe })))
+}
+
 /// `POST /api/langservers/probe`: ask a server (a stored one, or the one the
 /// add form describes) what it is and which models it offers. Loads no model.
 #[logged]

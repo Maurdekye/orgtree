@@ -49,7 +49,7 @@ const MCP_WAIT: Duration = Duration::from_secs(30);
 /// The language-server lane's own Claude config folder and Codex home
 /// (under `<data>\profiles`): no login lives there, so none can reach a server.
 const LANGSERVER_CLAUDE_CONFIG: &str = "langserver-claude";
-const LANGSERVER_CODEX_HOME: &str = "langserver-codex";
+const LANGSERVER_CODEX_HOME: &str = crate::langserver::CODEX_HOME_DIR;
 
 #[logged]
 pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedReceiver<Envelope>) {
@@ -1959,8 +1959,13 @@ impl Actor {
         let external: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
         let (mut config, _attached) = codexrt::mcp_overrides(&external);
         if let Some(l) = local {
-            // the server's window and the org's compaction threshold come with it
-            let mut gateway = crate::langserver::codex_overrides(l, ctx.compact_at);
+            // the server's model catalog (checked against this Codex), its
+            // window and the org's compaction threshold come with it
+            let catalog = match (crate::langserver::server(&self.engine, &l.server), codex_home.as_deref()) {
+                (Some(s), Some(home)) => crate::langserver::codex_catalog_file(&exe, std::path::Path::new(home), &s).await,
+                _ => None,
+            };
+            let mut gateway = crate::langserver::codex_overrides(l, ctx.compact_at, catalog.as_deref());
             gateway.append(&mut config);
             config = gateway;
         } else if route.is_some() {
