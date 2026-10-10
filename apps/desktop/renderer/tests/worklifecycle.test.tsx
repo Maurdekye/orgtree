@@ -20,6 +20,12 @@ const body = (archived = false): WorkItemsPayload => ({ format, revision: 'one',
   items: [row('active')], references: [row('active'), ...(archived ? [row('old-ticket', true)] : [])],
   ...(archived ? { archived: [row('old-ticket', true)], catalog: [1], next_cursor: null } : {}),
   counts: { active: 1, archived: 1, backlogged: 0, attention: 0 }, now: '' })
+/** the engine's page for one group (2ac256a): one complete page, revision `one` */
+const pageOf = (group: 'items' | 'archived' | 'backlogged', rows: WorkItem[]) => ({
+  format: 'orgtree.work-page/v1', group, rows, total: rows.length,
+  totals: { items: 1, archived: 1, backlogged: 0 }, matched: { items: 1, archived: 1, backlogged: 0 },
+  counts: { active: 1, archived: 1, backlogged: 0, attention: 0 }, next_offset: null, revision: 'one', at: 'now' })
+const groupOf = (url: unknown) => new URL(String(url), 'http://localhost').searchParams.get('group') ?? 'items'
 const reply = (body: unknown, status = 200) => ({ status, ok: status === 200,
   headers: new Headers(), json: async () => body }) as Response
 const deferred = () => {
@@ -32,8 +38,8 @@ test('close releases archive rows and references on failure and rejects late ope
   forgetWorkInflight()
   const first = deferred(), late = deferred()
   let opens = 0
-  globalThis.fetch = async url => String(url).includes('archive_limit=100')
-    ? (++opens === 1 ? first.promise : late.promise) : reply(body())
+  globalThis.fetch = async url => groupOf(url) === 'archived'
+    ? (++opens === 1 ? first.promise : late.promise) : reply(pageOf('items', [row('active')]))
   let result: ReturnType<typeof useWorkItems>
   function Probe({ open, bump = 0 }: { open: boolean; bump?: number }) {
     result = useWorkItems('org', open, false, 60000, bump)
@@ -43,7 +49,7 @@ test('close releases archive rows and references on failure and rejects late ope
   t.after(() => view.unmount())
   await view.render(<Probe open />)
   assert.equal(result!.value?.items.length, 1, 'foreground stays visible during archive load')
-  await inAct(() => first.resolve(reply(body(true))))
+  await inAct(() => first.resolve(reply(pageOf('archived', [row('old-ticket', true)]))))
   assert.equal(result!.value?.archived?.length, 1)
   await view.render(<Probe open bump={1} />)
   globalThis.fetch = async () => { throw new Error('offline') }
@@ -51,14 +57,14 @@ test('close releases archive rows and references on failure and rejects late ope
   assert.equal(result!.value?.archived, undefined)
   assert.deepEqual(result!.value?.references?.map(r => r.slug), ['active'])
   assert.equal(result!.status.failed, true)
-  await inAct(() => late.resolve(reply(body(true))))
+  await inAct(() => late.resolve(reply(pageOf('archived', [row('old-ticket', true)]))))
   assert.equal(result!.value?.archived, undefined, 'late page chain cannot repopulate closed archive')
 })
 
 test('org switch clears rows synchronously and rejects old org completion', async t => {
   forgetWorkInflight()
   const first = deferred(), second = deferred()
-  globalThis.fetch = url => String(url).includes('/first/') ? first.promise : second.promise
+  globalThis.fetch = url => String(url).includes('/first/') ? first.promise : second.promise  // org in the path
   let result: ReturnType<typeof useWorkItems>
   function Probe({ org }: { org: string }) {
     result = useWorkItems(org)
@@ -67,9 +73,9 @@ test('org switch clears rows synchronously and rejects old org completion', asyn
   const view = await mountView(<Probe org="first" />, el => el)
   t.after(() => view.unmount())
   await view.render(<Probe org="second" />)
-  await inAct(() => first.resolve(reply(body())))
+  await inAct(() => first.resolve(reply(pageOf('items', [row('active')]))))
   assert.equal(result!.value, null)
-  await inAct(() => second.resolve(reply({ ...body(), items: [row('second-only')] })))
+  await inAct(() => second.resolve(reply(pageOf('items', [row('second-only')]))))
   assert.equal(view.el.textContent, 'second-only')
 })
 
@@ -99,7 +105,10 @@ function setup() {
   globalThis.fetch = async input => {
     const url = new URL(String(input), 'http://localhost')
     calls.push(url.pathname + url.search)
-    if (url.pathname.endsWith('work-items-foreground')) return reply(body(url.searchParams.get('archive_limit') === '100'))
+    if (url.pathname.endsWith('work-items-page')) {
+      const group = url.searchParams.get('group') ?? 'items'
+      return reply(pageOf(group as 'items', group === 'items' ? [row('active')] : group === 'archived' ? [row('old-ticket', true)] : []))
+    }
     if (url.pathname.endsWith('work-item-references')) return reply({ references:
       (url.searchParams.get('names') ?? '').split(',').filter(n => n === 'old-ticket')
         .map(n => row(n, true)) })
