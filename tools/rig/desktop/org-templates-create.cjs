@@ -26,11 +26,11 @@ module.exports = async (page, { args }) => {
   await page.cdp('Page.enable')
   await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: BRIDGE })
   await page.goto('/')
-  await page.waitFor('.tp-cards .tp-card', { timeout: 30000 })
+  await page.waitFor('.tp-list .tp-row', { timeout: 30000 })
   await page.click('#shell-create-name')
   await page.type(args.name || 'Picked Team')
   await page.sleep(800)
-  await page.click({ selector: '.tp-card .tp-name', text: `^${args.template.replace(/[()]/g, '\\$&')}$`, regex: true })
+  await page.click({ selector: '.tp-row .tp-name', text: `^${args.template.replace(/[()]/g, '\\$&')}$`, regex: true })
   await page.waitFor('.tp-preview table tbody tr', { timeout: 20000 })
   await page.sleep(1200)
   for (const [slot, tier] of Object.entries(args.overrides || {})) {
@@ -50,6 +50,10 @@ module.exports = async (page, { args }) => {
       tier: tr.querySelector('select')?.value,
       blocked: tr.classList.contains('tp-blocked'),
       text: tr.innerText.replace(/\s+/g, ' ').trim(),
+    })),
+    list: [...document.querySelectorAll('.tp-list .tp-row')].map((r) => ({
+      name: r.querySelector('.tp-name')?.innerText.trim(), desc: r.querySelector('.tp-desc')?.innerText.trim() ?? null,
+      selected: r.classList.contains('sel'), disabled: r.disabled,
     })),
     top: document.querySelector('.tp-foot')?.innerText.replace(/\s+/g, ' ').trim(),
     kickoff: document.querySelector('.tp-kick input')?.checked ?? null,
