@@ -118,6 +118,7 @@ pub fn start(engine: &Arc<crate::engine::Engine>) {
 
 #[logged]
 fn warning(process: Option<u32>, own_user: Option<bool>, logon: Option<u32>, vault: &str) -> Option<&'static str> {
+    if crate::rig::boot_isolated() { return Some(BOOT_WARNING); }
     // Batch/service/network tokens stay isolated after somebody signs in.
     if process == Some(0) || own_user == Some(false) || matches!(logon, Some(3 | 4 | 5 | 8)) {
         Some(BOOT_WARNING)

@@ -578,6 +578,8 @@ export async function startRun(opts = {}) {
       hub, hubPort,
       // the agents' CLIs are the installed Claude Code and Codex (`up --real-cli`)
       realCli: !!opts.realCli,
+      // the engine believes it runs under the boot task's S4U logon (`up --boot-isolated`)
+      bootIsolated: !!opts.bootIsolated,
     })
     touch(dir)
     await launchKeeper(dir, opts.timeout)

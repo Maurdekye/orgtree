@@ -52,7 +52,7 @@ async function up(flags) {
     ui: flags.ui, engine: flags.engine, legacy: flags.legacy && path.resolve(flags.legacy), initdb: !!flags.initdb, prepare: flags.prepare,
     recover: !!flags.recover, reminders: flags.reminders && (flags.reminders === true ? true : Number(flags.reminders)),
     reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs), hub: flags.hub, hubMaxBytes: flags.hubMaxBytes && Number(flags.hubMaxBytes),
-    realCli: !!flags['real-cli'],
+    realCli: !!flags['real-cli'], bootIsolated: !!flags['boot-isolated'],
     fsync: !!flags.fsync })
   let made = null
   if (flags.fixture !== 'none') {

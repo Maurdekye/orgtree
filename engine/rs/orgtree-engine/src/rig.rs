@@ -119,6 +119,15 @@ pub fn hub() -> bool {
     active() && std::env::var("ORGTREE_RIG_HUB").as_deref() == Ok("1")
 }
 
+/// A rig run that stands in for the boot task's engine
+/// (`ORGTREE_RIG_BOOT_ISOLATED=1`, `rig up --boot-isolated`): the credential
+/// context reports the S4U isolation, so CLIs get the credential bridge's
+/// adapters and a signed-in broker can serve them. False outside rig mode.
+#[nolog]
+pub fn boot_isolated() -> bool {
+    active() && std::env::var("ORGTREE_RIG_BOOT_ISOLATED").as_deref() == Ok("1")
+}
+
 /// A rig run that asked for the restart path (`ORGTREE_RIG_RECOVER=1`):
 /// what a safe start holds back (waking agents at start, re-arming every
 /// watchdog, watchdog mail that wakes) runs there as it does for real; only

@@ -60,6 +60,9 @@ if (run.hub) {
   delete env.ORGTREE_NET_OFFLINE
 }
 if (run.recover) env.ORGTREE_RIG_RECOVER = '1'
+// `up --boot-isolated`: the credential context reports the boot task's
+// isolation, so CLIs get the credential bridge adapters (src/rig.rs)
+if (run.bootIsolated) env.ORGTREE_RIG_BOOT_ISOLATED = '1'
 // the automatic wakes (checkups, idle docket reminders), swept every `reminders` seconds (true: 5)
 if (run.reminders) {
   env.ORGTREE_RIG_REMINDERS = '1'
