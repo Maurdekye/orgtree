@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import { getDefaults, saveDefaults } from '../api'
 import { SetGroup, SetRow, SetToggle } from '../canvas/settingskit'
+import { EffortBar } from '../canvas/effortbar'
 import type { DefaultsPayload, ToastFn } from '../types'
 
 /** The default-org-settings FIELDS, with no window of their own.
@@ -61,15 +62,8 @@ export function DefaultsForm({ toast, onDone }: {
           </SetRow>
           <SetRow label="default thinking effort"
             hint="agents without their own setting inherit this, live">
-            <select value={d.default_effort ?? ''} aria-label="default thinking effort"
-              onChange={(e) => set('default_effort', e.target.value)}>
-              <option value="">CLI default (no flag)</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
-              <option value="max">max</option>
-            </select>
+            <EffortBar value={d.default_effort ?? ''} level="" inheritLabel="CLI default (no flag)"
+              onSet={(v) => set('default_effort', v)} />
           </SetRow>
         </SetGroup>
         <SetGroup title="Credit cost bubbling">

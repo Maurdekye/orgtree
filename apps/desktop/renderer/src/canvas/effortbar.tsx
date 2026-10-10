@@ -18,7 +18,7 @@ export function nearestLevel(frac: number, count = EFFORT_LEVELS.length): number
   return Math.round(f * (count - 1))
 }
 
-export function EffortBar({ value, level, label, title, onSet, disabled, compact }: {
+export function EffortBar({ value, level, label, title, onSet, disabled, compact, inheritLabel }: {
   /** the level set on this agent/form itself; '' = inheriting */
   value: string
   /** the level that will actually be used (value, else the inherited one) */
@@ -29,6 +29,9 @@ export function EffortBar({ value, level, label, title, onSet, disabled, compact
   /** commit a level; '' = clear back to inherit */
   onSet: (lvl: string) => void
   disabled?: boolean
+  /** what nothing-selected means here ("inherit", "org default", "CLI default"): shown in the label while no level
+   *  is set on this bar, with the inherited `level` if there is one */
+  inheritLabel?: string
   /** one row, no label above (Quick chat's header): the level is in the tooltip and aria-valuetext */
   compact?: boolean
 }) {
@@ -47,7 +50,8 @@ export function EffortBar({ value, level, label, title, onSet, disabled, compact
   const shown = preview ?? idx
   const name = EFFORT_LEVELS[shown] ?? ''
   const text = preview !== null && EFFORT_LEVELS[preview]
-    ? `Effort (${EFFORT_LEVELS[preview]})` : label ?? `Effort${name ? ` (${name})` : ''}`
+    ? `Effort (${EFFORT_LEVELS[preview]})`
+    : label ?? (pinned < 0 && inheritLabel ? `${inheritLabel}${name ? ` (${name})` : ''}` : `Effort${name ? ` (${name})` : ''}`)
   const key = (e: KeyboardEvent) => {
     if (disabled) return
     const from = idx >= 0 ? idx : 0

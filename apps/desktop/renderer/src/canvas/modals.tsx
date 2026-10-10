@@ -37,6 +37,7 @@ import { accountProvider, accountValue, primaryAccount } from '../accountidentit
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
 import { EFFORT_CHANGE_HELP } from './effort'
+import { EffortBar } from './effortbar'
 import { CreditGrant } from './creditgrant'
 
 export interface ConfirmModalProps {
@@ -690,14 +691,8 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
         <div className="field-label">thinking effort</div>
-        <select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
-          <option value="">{`inherit — org default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-          <option value="xhigh">xhigh</option>
-          <option value="max">max</option>
-        </select>
+        <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
+          inheritLabel="inherit — org default" title={EFFORT_CHANGE_HELP} onSet={setEffort} />
         <div className="field-label">account</div>
         {/* ⚠ ELIGIBLE ACCOUNTS ONLY (user ruling 2026-09-15), read from the
             staffing availability that was warmed when the org loaded — this
@@ -1228,14 +1223,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         )}
 
 
-        <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
-          <option value="">{`Organization default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-          <option value="xhigh">xhigh</option>
-          <option value="max">max</option>
-        </select></SetRow>
+        <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
+          inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
 
         {/* Primary is selectable even if no registry row exists. */}
         {['claude', 'openai', 'google'].includes(providerOf(model)) && (
