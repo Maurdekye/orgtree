@@ -11,7 +11,24 @@ param(
 
   # Where the lifecycle record is appended. The installer always passes one.
   # Logging is best-effort and never fails the upgrade.
-  [string] $LogPath
+  [string] $LogPath,
+
+  # How long the background engine's tree may take to exit once it has been
+  # asked to stop. The engine stops its agents (8 s), its mail hub (15 s) and
+  # PostgreSQL (up to 120 s on a busy disk) before it exits, so this is longer
+  # than the window's own budget above.
+  [ValidateRange(10, 600)]
+  [int] $EngineStopSeconds = 150,
+
+  # An all-users installation, whose elevated boot step (boot-engine-task.ps1
+  # Prepare) can still stop a background engine this run could not ask. Set by
+  # the installer; without it, an engine left running is a refusal.
+  [switch] $BootManaged,
+
+  # The data folder whose engine-attach.json names the background engine.
+  # Defaults to the engine's own choice for this user (ORGTREE_V2_DATA, else
+  # %APPDATA%\Orgtree v2\data).
+  [string] $DataRoot
 )
 
 Set-StrictMode -Version Latest
@@ -301,6 +318,18 @@ try {
   # this session may not read does not block every upgrade on this machine.
   $script:TreeAmbiguousNames = @('ORGTREE.EXE', 'PYTHON.EXE', 'PYTHONW.EXE')
   $script:TreePrefix = $root.TrimEnd('\') + '\'
+  # The background engine's folder. Everything running from it, and everything
+  # descended from that, is the engine's tree: what the installer's elevated
+  # boot step waits for (boot-engine-task.ps1 Get-BootTree).
+  $script:EnginePrefix = $script:TreePrefix + 'resources\engine\'
+
+  function Test-PathUnderPrefix($Value, [string] $Prefix) {
+    if (Test-Blank $Value) { return $false }
+    $candidate = $null
+    try { $candidate = Get-CanonicalPath ([string]$Value) } catch { return $false }
+    if (Test-Blank $candidate) { return $false }
+    return $candidate.ToUpperInvariant().StartsWith($Prefix.ToUpperInvariant())
+  }
 
   function Test-PathUnderRoot($Value) {
     if (Test-Blank $Value) { return $false }
@@ -504,11 +533,12 @@ try {
   }
 
   # Every process that is either running from the installation directory or
-  # descended from one that is, as { Id, Label, Created } records. The label is
-  # carried because a failure here has to name what is holding the upgrade, the
-  # id because the snapshot has to be re-checked by identity later, and the
-  # creation time because an id on its own cannot tell that re-check whether it
-  # is still looking at the same process.
+  # descended from one that is, as { Id, Label, Created, Engine } records. The
+  # label is carried because a failure here has to name what is holding the
+  # upgrade, the id because the snapshot has to be re-checked by identity later,
+  # and the creation time because an id on its own cannot tell that re-check
+  # whether it is still looking at the same process. Engine marks the background
+  # engine's tree: an image in resources\engine\, or a descendant of one.
   function Get-InstallTreeMembers($Readings) {
     $readings = @($Readings)
 
@@ -521,6 +551,7 @@ try {
     $seedCreated = @{}
 
     $inTree = @{}
+    $engineTree = @{}
     $held = @()
     foreach ($reading in @($readings)) {
       $isOurs = $false
@@ -539,12 +570,15 @@ try {
       }
       if ($isOurs) {
         $inTree[[int]$reading.Id] = $true
+        $engine = (($why -eq 'image') -and (Test-PathUnderPrefix $reading.Path $script:EnginePrefix))
+        if ($engine) { $engineTree[[int]$reading.Id] = $true }
         $label = $reading.Name
         if (Test-Blank $label) { $label = '<unnamed>' }
         $held += [pscustomobject]@{
           Id = [int]$reading.Id
           Label = ("{0}({1},{2})" -f $label, $reading.Id, $why)
           Created = $reading.Created
+          Engine = $engine
         }
       }
     }
@@ -569,6 +603,7 @@ try {
     foreach ($member in @($script:TreeSnapshot)) {
       $inTree[[int]$member.Id] = $true
       $seedCreated[[int]$member.Id] = $member.Created
+      if ($member.Engine) { $engineTree[[int]$member.Id] = $true }
     }
 
     # Transitive closure over parent ids, from the images observed now and from
@@ -583,12 +618,15 @@ try {
         if (-not $inTree.ContainsKey([int]$reading.Parent)) { continue }
         if (-not (Test-RealParent ([int]$reading.Parent) $reading.Created $byId $seedCreated)) { continue }
         $inTree[[int]$reading.Id] = $true
+        $engine = $engineTree.ContainsKey([int]$reading.Parent)
+        if ($engine) { $engineTree[[int]$reading.Id] = $true }
         $label = $reading.Name
         if (Test-Blank $label) { $label = '<unnamed>' }
         $held += [pscustomobject]@{
           Id = [int]$reading.Id
           Label = ("{0}({1},descendant)" -f $label, $reading.Id)
           Created = $reading.Created
+          Engine = $engine
         }
         $added = $true
       }
@@ -631,32 +669,264 @@ try {
     $held = @()
     foreach ($member in $current) {
       $seen[[int]$member.Id] = $true
-      $held += [string]$member.Label
+      $held += [pscustomobject]@{ Label = [string]$member.Label; Engine = [bool]$member.Engine }
     }
     foreach ($member in @($script:TreeSnapshot)) {
       if ($seen.ContainsKey([int]$member.Id)) { continue }
       if (-not (Test-TargetAlive ([int]$member.Id))) { continue }
       if (Test-IdReused $member $byId) { continue }
-      $held += ("{0}(pre-close)" -f $member.Label)
+      $held += [pscustomobject]@{ Label = ("{0}(pre-close)" -f $member.Label); Engine = [bool]$member.Engine }
     }
     return @($held)
   }
 
+  function Join-HolderLabels($Held) {
+    $labels = @()
+    foreach ($holder in @($Held)) { $labels += [string]$holder.Label }
+    return ($labels -join ', ')
+  }
+
+  # ---------------------------------------------------------------------------
+  # THE BACKGROUND ENGINE (docket installer-can-t-replace-a-running-orgtree-an-ins)
+  #
+  # An all-users installation registers the "Orgtree Background Engine" task,
+  # which starts `resources\engine\orgtree-engine.exe host` at boot whether or
+  # not anyone opens a window. A running window stops that engine on its way out
+  # (the desktop's stopGracefullyForInstaller). With no window, nothing asked it
+  # to: on 2026-10-10 the user's own log showed this helper waiting its whole
+  # budget, twice, on the engine (pid 10904) and 478 processes it had started,
+  # and the installer refusing both times. The elevated step that does stop the
+  # engine (boot-engine-task.ps1 Prepare) only runs after this check.
+  #
+  # So this run asks the engine itself, the way the window does. The boot
+  # host's attach descriptor names the engine's port and token. It is trusted
+  # only under the window's own rule (verifyDescriptorTrust in
+  # apps/desktop/main/policy.ts), the engine it names must be THIS
+  # installation's, path-verified, and the engine's identity must answer for
+  # that process and that data folder. Then the same authenticated shutdown
+  # request the window sends. Nothing is ever killed: the engine stops its
+  # agents first (their CLIs end as on a normal quit), then its mail hub and
+  # PostgreSQL, and its host then exits 0, so the task's restart-on-failure does
+  # not start it again.
+  # ---------------------------------------------------------------------------
+  $script:EngineImage = $script:EnginePrefix + 'orgtree-engine.exe'
+  # The one request this run makes, kept for the message the user reads.
+  $script:EngineRequest = $null
+  $script:EngineLeftLogged = $false
+
+  # The folder the engine uses for this user, chosen the way the boot host
+  # chooses it (engine host.rs data_root).
+  function Get-EngineDataRoot {
+    if (-not (Test-Blank $DataRoot)) { return [string]$DataRoot }
+    if (-not (Test-Blank $env:ORGTREE_V2_DATA)) { return [string]$env:ORGTREE_V2_DATA }
+    if (-not (Test-Blank $env:APPDATA)) { return (Join-Path -Path $env:APPDATA -ChildPath 'Orgtree v2\data') }
+    return $null
+  }
+
+  # The principals of $Target's ACL outside $Allowed whose allow entries carry
+  # any of $Mask. Inherit-only entries apply to future children, not to the
+  # object itself, so they are skipped (the stock C:\ Authenticated Users entry
+  # is exactly that shape).
+  function Get-ForeignWriters([string] $Target, [int] $Mask, $Allowed) {
+    $acl = Get-Acl -LiteralPath $Target -ErrorAction Stop
+    $found = @()
+    foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+      if ([string]$rule.AccessControlType -ne 'Allow') { continue }
+      if (([string]$rule.PropagationFlags) -match 'InheritOnly') { continue }
+      $sid = [string]$rule.IdentityReference.Value
+      if (@($Allowed) -contains $sid) { continue }
+      if (([int]$rule.FileSystemRights -band $Mask) -ne 0) { $found += $sid }
+    }
+    return @($found | Select-Object -Unique)
+  }
+
+  # The window's rule, unchanged: the descriptor is owned by this user (or by
+  # SYSTEM or Administrators), nobody else may write it or its folder, and
+  # nobody else may replace a folder above it. Returns what is wrong, or an
+  # empty string.
+  function Get-DescriptorDistrust([string] $File) {
+    $me = [string][Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $owners = @($me, 'S-1-5-18', 'S-1-5-32-544')
+    $allowed = @($me, 'S-1-5-18', 'S-1-5-32-544', 'S-1-3-0')
+    $writeMask = 0x116 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
+    $replaceMask = 0x10000 -bor 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000
+    $owner = [string](Get-Acl -LiteralPath $File -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owners -notcontains $owner) { return "it is owned by $owner, not by this user" }
+    $bad = @(Get-ForeignWriters $File $writeMask $allowed)
+    if ($bad.Count -gt 0) { return "it can be written by $($bad -join ', ')" }
+    $directory = Split-Path -Path $File -Parent
+    $bad = @(Get-ForeignWriters $directory $writeMask $allowed)
+    if ($bad.Count -gt 0) { return "its folder can be written by $($bad -join ', ')" }
+    $ancestor = Split-Path -Path $directory -Parent
+    while (-not (Test-Blank $ancestor)) {
+      $bad = @(Get-ForeignWriters $ancestor $replaceMask $allowed)
+      if ($bad.Count -gt 0) { return "a folder above it ($ancestor) can be replaced by $($bad -join ', ')" }
+      $next = Split-Path -Path $ancestor -Parent
+      if ((Test-Blank $next) -or (Test-SamePath $next $ancestor)) { break }
+      $ancestor = $next
+    }
+    return ''
+  }
+
+  # Asks the background engine to stop. Returns { Asked, Reason, EnginePid }:
+  # whether the engine accepted the request and, when not, why it was not asked.
+  # Never fails the run: an engine that cannot be asked is reported as such.
+  function Request-BackgroundEngineStop {
+    Set-Step 'ask-background-engine'
+    $result = [pscustomobject]@{ Asked = $false; Reason = ''; EnginePid = 0 }
+    try {
+      $dataFolder = Get-EngineDataRoot
+      if (Test-Blank $dataFolder) {
+        $result.Reason = 'its data folder could not be determined'
+      } else {
+        $file = Join-Path -Path $dataFolder -ChildPath 'engine-attach.json'
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+          $result.Reason = "no engine has published $file"
+        } else {
+          $distrust = Get-DescriptorDistrust $file
+          if (-not (Test-Blank $distrust)) {
+            $result.Reason = "its attach file is not trusted: $distrust"
+          } else {
+            $raw = Get-Content -LiteralPath $file -Raw -ErrorAction Stop
+            $attach = $raw | ConvertFrom-Json
+            $enginePid = 0
+            $port = 0
+            try { $enginePid = [int]$attach.enginePid; $port = [int]$attach.port } catch { $enginePid = 0 }
+            $token = [string]$attach.token
+            if ([string]$attach.type -ne 'attach' -or [string]$attach.protocol -ne '1' -or $enginePid -le 0 -or $port -le 0 -or $port -gt 65535 -or (Test-Blank $token)) {
+              $result.Reason = 'its attach file is not one this installer can use'
+            } else {
+              $result.EnginePid = $enginePid
+              # The engine it names must be this installation's, path-verified:
+              # an engine of some other installation is not this run's to stop.
+              $process = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $enginePid" -ErrorAction Stop)
+              $image = $null
+              if ($process.Count -eq 1) { $image = [string]$process[0].ExecutablePath }
+              if ($process.Count -ne 1) {
+                $result.Reason = "the engine its attach file names (pid $enginePid) is not running"
+              } elseif ((Test-Blank $image) -or -not (Test-SamePath (Get-CanonicalPath $image) (Get-CanonicalPath $script:EngineImage))) {
+                $result.Reason = "pid $enginePid is not this installation's engine"
+              } else {
+                $headers = @{ 'X-Orgtree-Desktop-Token' = $token }
+                $origin = "http://127.0.0.1:$port"
+                $identity = Invoke-RestMethod -Uri "$origin/api/desktop/identity" -Headers $headers -TimeoutSec 5 -MaximumRedirection 0 -UseBasicParsing -ErrorAction Stop
+                $named = ''
+                try { $named = [string]$identity.dataRootId } catch { $named = '' }
+                $echo = ''
+                if (-not (Test-Blank $named)) {
+                  $echoFile = Join-Path -Path $named -ChildPath 'engine-attach.json'
+                  if (Test-Path -LiteralPath $echoFile -PathType Leaf) { $echo = Get-Content -LiteralPath $echoFile -Raw -ErrorAction Stop }
+                }
+                if ([string]$identity.protocol -ne '1' -or [int]$identity.pid -ne $enginePid) {
+                  $result.Reason = 'its identity does not match its attach file'
+                } elseif ($echo -cne $raw) {
+                  # The engine's own data folder must hold this very descriptor;
+                  # comparing the bytes sidesteps short names and junctions.
+                  $result.Reason = 'it reports a different data folder than its attach file'
+                } else {
+                  $null = Invoke-RestMethod -Method Post -Uri "$origin/api/desktop/shutdown" -Headers $headers -TimeoutSec 5 -MaximumRedirection 0 -UseBasicParsing -ErrorAction Stop
+                  $result.Asked = $true
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      $result.Reason = "asking it failed: $($_.Exception.Message)"
+    }
+    if ($result.Asked) {
+      Write-Log "background engine: asked pid $($result.EnginePid) to stop"
+    } else {
+      Write-Log "background engine: not asked ($($result.Reason))"
+    }
+    Set-Step 'verify-install-tree-quiet'
+    return $result
+  }
+
+  # On an all-users installation the background engine's tree is the boot
+  # step's to wait for: boot-engine-task.ps1 Prepare disables its task, asks it
+  # to stop, ends the task only when it cannot be asked, and confirms the whole
+  # tree has gone before a single file is copied. Everything else must be gone
+  # here. Without -BootManaged nothing would stop it later, so it is waited for.
+  function Select-HoldersHere($Held) {
+    if (-not $BootManaged) { return @($Held) }
+    $here = @()
+    $left = 0
+    foreach ($holder in @($Held)) { if ($holder.Engine) { $left++ } else { $here += $holder } }
+    if ($left -gt 0 -and -not $script:EngineLeftLogged) {
+      $script:EngineLeftLogged = $true
+      Write-Log "install-tree: $left process(es) of the background engine are left to the installer's boot step"
+    }
+    return @($here)
+  }
+
+  # What the user reads in Setup's Retry/Cancel box: short, naming the
+  # background engine when that is what holds the folder, and saying what to
+  # do. The full list is in the log.
+  function Get-HeldMessage($Held) {
+    $labels = @()
+    foreach ($holder in @($Held)) { $labels += [string]$holder.Label }
+    $shown = @($labels | Select-Object -First 5)
+    $list = $shown -join ', '
+    if ($labels.Count -gt $shown.Count) { $list += " and $($labels.Count - $shown.Count) more (the full list is in the log)" }
+    $engineHeld = @(@($Held) | Where-Object { $_.Engine })
+    if ($engineHeld.Count -eq 0) {
+      return "$($labels.Count) process(es) are still running from the installation folder, or were started by it and have not exited, and its files cannot be replaced while they are there: $list. Retry, or cancel to leave the existing installation untouched."
+    }
+    $text = "The Orgtree background engine is still running from the installation folder ($($labels.Count) process(es): $list)."
+    if ($null -ne $script:EngineRequest -and $script:EngineRequest.Asked) {
+      $text += " It was asked to stop and had not finished after $EngineStopSeconds seconds. It may still be stopping: wait a moment, then Retry."
+    } else {
+      $why = ''
+      if ($null -ne $script:EngineRequest -and -not (Test-Blank $script:EngineRequest.Reason)) { $why = " ($($script:EngineRequest.Reason))" }
+      $text += " It could not be asked to stop$why. Open Orgtree, choose Quit Orgtree from its tray menu, then Retry."
+    }
+    return $text + ' Cancel leaves the existing installation untouched.'
+  }
+
+  # One line for the log and the installer's output when the background engine
+  # took part: stopped here, or left to the boot step.
+  function Write-EngineOutcome {
+    if ($script:EngineLeftLogged) {
+      Write-Log 'background engine: left to the installer boot step, which stops it before any file is copied'
+      Write-Output 'The Orgtree background engine is stopped by the next installer step.'
+    } elseif ($null -ne $script:EngineRequest -and $script:EngineRequest.Asked) {
+      Write-Log 'background engine: stopped gracefully'
+      Write-Output 'The Orgtree background engine stopped gracefully.'
+    }
+  }
+
   # Waits for the installation tree to be verifiably quiet, or throws naming
-  # what is still in it. Never kills, signals or stops anything.
-  function Assert-InstallTreeQuiet([datetime] $Deadline) {
+  # what is still in it. Never kills, signals or stops anything: when the tree
+  # is not quiet it asks the background engine to stop, once, the way the
+  # window does, and then gives the engine's tree the engine's own budget.
+  # -ObserveOnly is the recovery path's single look: it asks nothing.
+  function Assert-InstallTreeQuiet([datetime] $Deadline, [switch] $ObserveOnly) {
     Set-Step 'verify-install-tree-quiet'
     $held = @(Get-InstallTreeHolders)
+    if ($held.Count -gt 0 -and -not $ObserveOnly -and $null -eq $script:EngineRequest) {
+      $script:EngineRequest = Request-BackgroundEngineStop
+      if ($script:EngineRequest.Asked -and -not $BootManaged) {
+        $engineDeadline = (Get-Date).AddSeconds($EngineStopSeconds)
+        if ($engineDeadline -gt $Deadline) { $Deadline = $engineDeadline }
+      }
+    }
+    $held = @(Select-HoldersHere $held)
     while ($held.Count -gt 0 -and (Get-Date) -lt $Deadline) {
-      Write-Log "install-tree: $($held.Count) still present: $($held -join ', ')"
+      Write-Log "install-tree: $($held.Count) still present: $(Join-HolderLabels $held)"
       Start-Sleep -Milliseconds 250
-      $held = @(Get-InstallTreeHolders)
+      $held = @(Select-HoldersHere @(Get-InstallTreeHolders))
     }
     if ($held.Count -gt 0) {
-      Write-Log "install-tree: timeout; still present: $($held -join ', ')"
-      throw "Orgtree closed, but $($held.Count) process(es) are still running from the installation folder, or were started by it and have not exited, and its files cannot be replaced while they are there: $($held -join ', '). Retry, or cancel to leave the existing installation untouched."
+      Write-Log "install-tree: timeout; still present: $(Join-HolderLabels $held)"
+      throw (Get-HeldMessage $held)
     }
-    Write-Log 'install-tree: verified quiet'
+    if ($script:EngineLeftLogged) {
+      Write-Log 'install-tree: verified quiet apart from the background engine, which the boot step stops'
+    } else {
+      Write-Log 'install-tree: verified quiet'
+    }
   }
 
   # One budget for the whole operation. The tree wait shares it with the close
@@ -689,9 +959,11 @@ try {
   Write-Log "detection: $($running.Count) matching process(es)"
   if ($running.Count -eq 0) {
     # The desktop is not running, which says nothing about the engine that
-    # outlives it. Verify the rest of the installation before reporting that
-    # its files are safe to replace.
+    # outlives it: the background engine runs with no window at all. Verify the
+    # rest of the installation, asking that engine to stop when it is what holds
+    # it, before reporting that its files are safe to replace.
     Assert-InstallTreeQuiet $overallDeadline
+    Write-EngineOutcome
     Write-Log 'result: already closed'
     Write-Output 'Orgtree is already closed.'
     exit 0
@@ -740,6 +1012,7 @@ try {
       # The desktop is gone. The engine it started is not necessarily gone with
       # it, and it is the one running out of the installation folder.
       Assert-InstallTreeQuiet $overallDeadline
+      Write-EngineOutcome
       Write-Log 'result: closed gracefully'
       Write-Output 'Orgtree closed gracefully.'
       exit 0
@@ -766,8 +1039,9 @@ try {
         # clear the same bar the ordinary path clears, or an error in the
         # middle of the run would become the one way to skip the tree check.
         # The deadline has usually passed by now, which makes this a single
-        # immediate observation rather than another wait.
-        Assert-InstallTreeQuiet $overallDeadline
+        # immediate observation rather than another wait, and it asks nothing
+        # of the background engine (a Retry does).
+        Assert-InstallTreeQuiet $overallDeadline -ObserveOnly
         Write-Log "result: closed gracefully (every target verifiably exited and the installation tree is quiet; recovered from an error in step $failedStep : $($failure.Exception.Message))"
         Write-Output 'Orgtree closed gracefully.'
         exit 0

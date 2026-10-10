@@ -29,6 +29,13 @@ const root = path.resolve(import.meta.dirname, '..')
 const installer = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
 const helper = fs.readFileSync(path.join(root, 'tools/installer-upgrade.ps1'), 'utf8')
 
+// The helper asks a background engine to stop when one holds the installation,
+// reading the attach descriptor in the engine's data folder (ORGTREE_V2_DATA,
+// else %APPDATA%\Orgtree v2\data). Every helper this file starts inherits an
+// empty scratch folder here, so no run ever reads this machine's own Orgtree
+// data: the background-engine cases below pass their own folder explicitly.
+process.env.ORGTREE_V2_DATA = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TEMP || '.'), 'orgtree-nodata-'))
+
 // WHEN THE QUIET-TREE CASES CANNOT BE ANSWERED ON THIS MACHINE.
 //
 // The helper counts a process named in its TreeAmbiguousNames whose image path
@@ -963,5 +970,235 @@ test(
     assert.match(blocked.stderr, /uv\.exe\(5000,descendant\)\(pre-close\)/)
     assert.doesNotMatch(blocked.stdout || '', /already closed/)
     fs.rmSync(dir, { recursive: true, force: true })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// THE BACKGROUND ENGINE (docket installer-can-t-replace-a-running-orgtree-an-ins).
+//
+// 2026-10-10, on the user's machine: no Orgtree window was open, but the boot
+// task's engine (pid 10904) and 478 processes it had started were running from
+// C:\Program Files\Orgtree. The helper only knew how to ask a WINDOW to close,
+// so it waited its whole budget on an engine nobody had asked to stop, twice,
+// and Setup refused both times. These run the real helper against a fixture
+// installation whose engine is a real process answering the same two requests
+// the boot host's engine answers: a copy of this Node runtime, renamed
+// orgtree-engine.exe and placed in resources\engine, so the helper's path rules
+// see exactly the shape they see in the field. It publishes an attach
+// descriptor in a scratch data folder, starts a child that stands for its
+// agents, and on an authenticated shutdown ends that child, removes its
+// descriptor and exits, as the host does. Nothing here touches a real Orgtree.
+// ---------------------------------------------------------------------------
+
+const FAKE_ENGINE = `
+const http = require('node:http')
+const fs = require('node:fs')
+const path = require('node:path')
+const { spawn } = require('node:child_process')
+const [data, token, ping, mode] = process.argv.slice(2)
+const descriptor = path.join(data, 'engine-attach.json')
+// A child with an image outside the installation, as an agent's CLI would be.
+const agent = spawn(ping, ['-n', '120', '127.0.0.1'], { stdio: 'ignore', windowsHide: true })
+const server = http.createServer((req, res) => {
+  if (req.headers['x-orgtree-desktop-token'] !== token) { res.writeHead(401); return res.end() }
+  res.setHeader('content-type', 'application/json')
+  if (req.method === 'GET' && req.url === '/api/desktop/identity') {
+    return res.end(JSON.stringify({ protocol: 1, pid: process.pid, dataRootId: data }))
+  }
+  if (req.method === 'POST' && req.url === '/api/desktop/shutdown') {
+    res.end(JSON.stringify({ ok: true }))
+    fs.appendFileSync(path.join(data, 'requests.log'), 'shutdown' + String.fromCharCode(10))
+    if (mode === 'stubborn') return
+    // The engine ends its agents first, then exits; its host removes the
+    // descriptor only once the engine has gone.
+    return setTimeout(() => {
+      agent.kill()
+      try { fs.rmSync(descriptor) } catch {}
+      server.close()
+      process.exit(0)
+    }, 500)
+  }
+  res.writeHead(404); res.end()
+})
+server.listen(0, '127.0.0.1', () => {
+  const port = server.address().port
+  if (mode !== 'silent') {
+    const enginePid = mode === 'foreign' ? process.ppid : process.pid
+    fs.writeFileSync(descriptor, JSON.stringify({ type: 'attach', protocol: 1, port, enginePid, hostPid: process.pid,
+      dataRootId: data, token, startedAt: new Date().toISOString() }))
+  }
+  process.stdout.write('ready ' + port + ' ' + agent.pid + String.fromCharCode(10))
+})
+`
+
+// A fixture installation with a running fake engine, as { dir, data, engine,
+// agentPid, stop }. mode: 'normal' answers and exits, 'stubborn' answers and
+// stays, 'silent' publishes no descriptor, 'foreign' names another process.
+async function fixtureEngine(mode = 'normal') {
+  const dir = fixtureInstall()
+  // The data folder lives where the real one does, in the user's profile, and
+  // NOT under %TEMP%: the window's trust rule refuses a descriptor that another
+  // account could write or whose folders it could replace, and %TEMP% can carry
+  // such grants (Codex's Windows sandbox adds Modify for its sandbox accounts).
+  const data = fs.mkdtempSync(path.join(process.env.LOCALAPPDATA || fs.realpathSync(process.env.TEMP || '.'), 'orgtree-installer-test-'))
+  const image = path.join(dir, 'resources', 'engine', 'orgtree-engine.exe')
+  fs.copyFileSync(process.execPath, image)
+  const script = data + '-engine.cjs'
+  fs.writeFileSync(script, FAKE_ENGINE)
+  const engine = spawn(image, [script, data, 'fixture-token-' + Math.random().toString(36).slice(2), pingExe, mode],
+    { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
+  const line = await new Promise((resolve, reject) => {
+    let text = ''
+    engine.stdout.on('data', (chunk) => { text += chunk; if (text.includes(String.fromCharCode(10))) resolve(text.trim()) })
+    engine.once('exit', (code) => reject(new Error(`the fixture engine exited with ${code}`)))
+  })
+  const agentPid = Number(line.split(' ')[2])
+  const stop = () => {
+    for (const pid of [engine.pid, agentPid]) {
+      spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command',
+        `Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue`], { windowsHide: true })
+    }
+    fs.rmSync(script, { force: true })
+  }
+  return { dir, data, engine, agentPid, stop }
+}
+
+function runEngineHelper(fixture, { bootManaged = false, engineStop = 20, timeout = 5 } = {}) {
+  const log = path.join(fixture.dir, `log-${Math.random().toString(36).slice(2)}.txt`)
+  const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helperPath,
+    '-InstallDir', fixture.dir, '-ExecutablePath', path.join(fixture.dir, 'Orgtree.exe'),
+    '-TimeoutSeconds', String(timeout), '-EngineStopSeconds', String(engineStop),
+    '-DataRoot', fixture.data, '-LogPath', log]
+  if (bootManaged) args.push('-BootManaged')
+  const result = spawnSync(shell, args, { encoding: 'utf8', windowsHide: true })
+  result.log = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : ''
+  return result
+}
+
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true } catch { return false } }
+const stopRequests = (fixture) => {
+  const file = path.join(fixture.data, 'requests.log')
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split(String.fromCharCode(10)).filter(Boolean).length : 0
+}
+const removeFixture = (fixture) => {
+  fs.rmSync(fixture.dir, { recursive: true, force: true })
+  fs.rmSync(fixture.data, { recursive: true, force: true })
+}
+
+test(
+  'with no window open, the helper asks the background engine to stop and waits for its whole tree',
+  { skip: !windows ? 'Windows only' : quietTreeSkip, timeout: 120000 },
+  async () => {
+    const fixture = await fixtureEngine('normal')
+    try {
+      const result = runEngineHelper(fixture)
+      assert.equal(result.status, 0, `expected success, got ${result.status}: ${result.stdout}${result.stderr}\n${result.log}`)
+      assert.equal(stopRequests(fixture), 1, 'the engine was not asked exactly once')
+      assert.match(result.log, /background engine: asked pid \d+ to stop/)
+      assert.match(result.stdout, /background engine stopped gracefully/)
+      assert.ok(!pidAlive(fixture.engine.pid), 'the engine was still running when the helper reported success')
+      assert.ok(!pidAlive(fixture.agentPid), 'an agent of the engine was still running when the helper reported success')
+    } finally {
+      fixture.stop()
+    }
+    removeFixture(fixture)
+  },
+)
+
+test(
+  'an engine that cannot be asked is a refusal that names it and says what to do',
+  { skip: !windows ? 'Windows only' : quietTreeSkip, timeout: 120000 },
+  async () => {
+    const fixture = await fixtureEngine('silent')
+    try {
+      const result = runEngineHelper(fixture)
+      assert.equal(result.status, 2, `expected a refusal, got ${result.status}: ${result.stdout}${result.stderr}`)
+      assert.match(result.stderr, /background engine is still running from the installation folder/)
+      assert.match(result.stderr, /orgtree-engine\.exe\(\d+,image\)/)
+      assert.match(result.stderr, /could not be asked to stop \(no engine has published/)
+      assert.match(result.stderr, /Quit Orgtree from its tray menu, then Retry/)
+      assert.ok(pidAlive(fixture.engine.pid), 'the helper must never stop an engine it did not ask')
+    } finally {
+      fixture.stop()
+    }
+    removeFixture(fixture)
+  },
+)
+
+test(
+  'a descriptor that names another process is never used to send a stop',
+  { skip: !windows ? 'Windows only' : quietTreeSkip, timeout: 120000 },
+  async () => {
+    const fixture = await fixtureEngine('foreign')
+    try {
+      const result = runEngineHelper(fixture)
+      assert.equal(result.status, 2, `expected a refusal, got ${result.status}: ${result.stdout}${result.stderr}`)
+      assert.match(result.stderr, /is not this installation's engine/)
+      assert.equal(stopRequests(fixture), 0, 'a stop was sent to an engine the helper could not verify')
+    } finally {
+      fixture.stop()
+    }
+    removeFixture(fixture)
+  },
+)
+
+test(
+  'a descriptor another account can write is not trusted, as the window does not trust it',
+  { skip: !windows ? 'Windows only' : quietTreeSkip, timeout: 120000 },
+  async () => {
+    const fixture = await fixtureEngine('normal')
+    try {
+      const descriptor = path.join(fixture.data, 'engine-attach.json')
+      // Everyone (S-1-1-0) may write it: the window's rule refuses that file.
+      const granted = spawnSync('icacls', [descriptor, '/grant', '*S-1-1-0:(W)'], { encoding: 'utf8', windowsHide: true })
+      assert.equal(granted.status, 0, `icacls failed: ${granted.stdout}${granted.stderr}`)
+      const result = runEngineHelper(fixture)
+      assert.equal(result.status, 2, `expected a refusal, got ${result.status}: ${result.stdout}${result.stderr}`)
+      assert.match(result.stderr, /attach file is not trusted: it can be written by S-1-1-0/)
+      assert.equal(stopRequests(fixture), 0, 'a stop was sent through an untrusted descriptor')
+    } finally {
+      fixture.stop()
+    }
+    removeFixture(fixture)
+  },
+)
+
+test(
+  'an engine that takes the request but does not stop in its budget is named, with a wait-and-retry',
+  { skip: !windows ? 'Windows only' : quietTreeSkip, timeout: 120000 },
+  async () => {
+    const fixture = await fixtureEngine('stubborn')
+    try {
+      const result = runEngineHelper(fixture, { engineStop: 10 })
+      assert.equal(result.status, 2, `expected a refusal, got ${result.status}: ${result.stdout}${result.stderr}`)
+      assert.equal(stopRequests(fixture), 1)
+      assert.match(result.stderr, /asked to stop and had not finished after 10 seconds/)
+      assert.ok(pidAlive(fixture.engine.pid), 'the helper must never kill an engine that is slow to stop')
+    } finally {
+      fixture.stop()
+    }
+    removeFixture(fixture)
+  },
+)
+
+test(
+  'on an all-users installation an engine it cannot ask is left to the boot step, not waited for',
+  { skip: !windows ? 'Windows only' : quietTreeSkip, timeout: 120000 },
+  async () => {
+    // -BootManaged: boot-engine-task.ps1 Prepare runs next, elevated, and
+    // confirms the engine's whole tree is gone before any file is copied, so
+    // the helper neither refuses over it nor waits for it.
+    const fixture = await fixtureEngine('silent')
+    try {
+      const started = Date.now()
+      const result = runEngineHelper(fixture, { bootManaged: true })
+      assert.equal(result.status, 0, `expected success, got ${result.status}: ${result.stdout}${result.stderr}\n${result.log}`)
+      assert.match(result.log, /process\(es\) of the background engine are left to the installer's boot step/)
+      assert.match(result.stdout, /stopped by the next installer step/)
+      assert.ok(Date.now() - started < 20000, 'the helper waited on an engine it leaves to the boot step')
+    } finally {
+      fixture.stop()
+    }
+    removeFixture(fixture)
   },
 )

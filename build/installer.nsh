@@ -183,6 +183,9 @@ Var OrgUpgradeRelaunchPrepared
 Var OrgUpgradeRelaunchReady
 Var OrgUpgradeRelaunchScheduled
 !endif
+# " -BootManaged" for an all-users upgrade: the close helper then leaves the
+# background engine's tree to the boot preflight's Prepare, which stops it.
+Var OrgUpgradeBootFlag
 !endif
 
 # Snapshot the generated update predicate before the assisted installer
@@ -314,12 +317,22 @@ FunctionEnd
 Function orgtreeCloseForUpgrade
 orgtreeUpgradeShutdownAttempt:
   DetailPrint "Requesting a graceful Orgtree shutdown..."
+  # The background engine runs with no window at all (the boot task starts it),
+  # so the helper asks it to stop itself when it holds the installation, and
+  # gives it the engine's own stop budget. On an all-users installation the
+  # boot preflight's Prepare also stops it, so there the helper leaves the
+  # engine's tree to Prepare instead of refusing (docket
+  # installer-can-t-replace-a-running-orgtree-an-ins).
+  StrCpy $OrgUpgradeBootFlag ""
+  ${if} $OrgUpgradeInstallMode == "all"
+    StrCpy $OrgUpgradeBootFlag " -BootManaged"
+  ${endif}
   # $PLUGINSDIR is deleted when the installer exits, so the lifecycle record is
   # written outside it. RC1 failed here with three anonymous words and no way to
   # tell which step produced them, which took two release candidates to read
   # correctly; this file is what makes the next failure answerable without
   # asking the operator to reproduce it.
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-upgrade.ps1" -InstallDir "$OrgUpgradeInstallDir" -ExecutablePath "$OrgUpgradeExe" -TimeoutSeconds 45 -LogPath "$TEMP\orgtree-installer-upgrade.log"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-upgrade.ps1" -InstallDir "$OrgUpgradeInstallDir" -ExecutablePath "$OrgUpgradeExe" -TimeoutSeconds 45 -EngineStopSeconds 150$OrgUpgradeBootFlag -LogPath "$TEMP\orgtree-installer-upgrade.log"'
   Pop $0
   Pop $1
   ${if} $0 == 0
