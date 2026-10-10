@@ -124,10 +124,14 @@
   align-items: center;
   gap: 10px;
   flex: 1 1 0;
-  min-width: max-content;
+  /* the larger side's controls, measured (header.tsx useEqualSides) */
+  min-width: var(--shell-side-min, max-content);
   -webkit-app-region: drag;
 }
-.shell-header-start { padding-left: 8px; }
+/* the same padding on both sides, so equal growth means equal widths (the
+ * end side's is never seen: its controls sit at its right edge) */
+.shell-header-start,
+.shell-header-end { padding-left: 8px; }
 .shell-header-end { justify-content: flex-end; align-self: stretch; }
 .shell-header-start .shell-header-title { flex: 0 1 auto; }
 .shell-header-start button,
@@ -234,6 +238,7 @@
   .shell-header-quick { min-width: 160px; }
   .shell-header-quick .quickchat-btn { max-width: 72px; }
   .shell-header-start, .shell-header-end, .shell-header.shell-header-centred { gap: 4px; }
+  .shell-header-start, .shell-header-end { padding-left: 4px; }
   .shell-header > .window-controls .window-control,
   .shell-header-end > .window-controls .window-control { flex-basis: 34px; width: 34px; }
 }
