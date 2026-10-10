@@ -5816,7 +5816,9 @@ svg.MuiSvgIcon-root {
 }
 .effort-bar-rail { left: 0; right: 0; background: #3f3f46; }
 .effort-bar-fill { left: 0; background: color-mix(in srgb, var(--provider-accent, var(--accent)) 55%, #3f3f46); }
-.effort-bar.inherited .effort-bar-fill { opacity: .6; }
+.effort-bar.inherited .effort-bar-fill { background: #6b6b75; }
+.effort-bar.inherited .effort-bar-dot.below { background: #a0a0aa; }
+.effort-bar.inherited .effort-bar-pip { background: #9a9aa5; }
 .effort-bar-dot {
   position: absolute; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%;
   background: #6b6b75; pointer-events: none;
