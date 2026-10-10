@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { DesktopSettings } from '../src/canvas/desktopsettings'
+import { UpdateCheckRow } from '../src/canvas/updatecheck'
 import { Connections } from '../src/canvas/connections'
 import { MovableSurface, PopoutButton } from '../src/popout'
 import { notifyOnce } from '../src/notifications'
@@ -73,7 +74,7 @@ test('native settings save through bridge and adopt tray changes; failure leaves
   } finally { await v.unmount(); native() }
 })
 
-test('desktop settings "Check for updates" row calls the bridge, disables mid-check, and reflects both the resolved and pushed status', async () => {
+test('About "Check for updates" row calls the bridge, disables mid-check, and reflects both the resolved and pushed status', async () => {
   let event: (e: { type: string; data: unknown }) => void = () => {}
   let resolveCheck: (status: unknown) => void = () => {}
   const calls: string[] = []
@@ -83,7 +84,7 @@ test('desktop settings "Check for updates" row calls the bridge, disables mid-ch
     getUpdateStatus: async () => ({ state: 'idle' }),
     checkForUpdates: async () => { calls.push('check'); return new Promise(resolve => { resolveCheck = resolve }) },
   })
-  const v = await mountView(<DesktopSettings />, el => el)
+  const v = await mountView(<UpdateCheckRow appVersion="4.2.0-alpha.1" />, el => el)
   try {
     await inAct(async () => { await flush(5) })
     const button = v.el.querySelector('button')!
@@ -96,9 +97,9 @@ test('desktop settings "Check for updates" row calls the bridge, disables mid-ch
     await inAct(async () => { resolveCheck({ state: 'up-to-date' }); await flush(5) })
     assert.equal(button.textContent, 'Check for updates')
     assert.equal(button.disabled, false)
-    assert.match(v.el.textContent!, /up to date/)
+    assert.match(v.el.textContent!, /Orgtree is up to date \(4\.2\.0-alpha\.1\)/)
     await inAct(async () => { event({ type: 'update', data: { state: 'downloading', percent: 10 } }) })
-    assert.match(v.el.textContent!, /Downloading update… 10%/, 'a later pushed event updates the row without another click')
+    assert.match(v.el.textContent!, /An update is available — downloading… 10%/, 'a later pushed event updates the row without another click')
   } finally { await v.unmount(); native() }
 })
 

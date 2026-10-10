@@ -20,6 +20,7 @@ import { getHost } from '../api'
 import type { HostPayload } from '../types'
 import { fmtFull } from '../timefmt'
 import { SetGroup, SetRow } from '../canvas/settingskit'
+import { UpdateCheckRow } from '../canvas/updatecheck'
 
 /** The app-wide native preferences, live in every window.
  *
@@ -134,6 +135,7 @@ export function AboutSection({ appVersion }: { appVersion: string | null }) {
         hint={`started ${fmtFull(build!.started_at)}`}>
         <span className="mono">{engine}</span></SetRow>}
       {!appVersion && !engine && <SetRow label="version unknown" />}
+      <UpdateCheckRow appVersion={appVersion} />
       <SetRow label="source">
         <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
           target="_blank" rel="noreferrer">Orgtree on GitHub</a>

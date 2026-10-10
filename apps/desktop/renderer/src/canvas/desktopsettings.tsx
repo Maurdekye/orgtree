@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { desktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
-import type { RunAsAdministratorState, UpdateCapability, UpdateStatus } from '../../../../../packages/contracts'
-import { describeUpdateStatus } from '../update-notice'
+import type { RunAsAdministratorState, UpdateCapability } from '../../../../../packages/contracts'
 import { SetGroup, SetRow, SetToggle } from './settingskit'
 import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../packages/contracts/notifications'
 
@@ -11,29 +10,22 @@ export function DesktopSettings() {
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
-  const [checking, setChecking] = useState(false)
   const [capability, setCapability] = useState<UpdateCapability | null>(null)
   useEffect(() => {
     if (!bridge) return
-    let alive = true, changed = false, updateChanged = false
+    let alive = true, changed = false
     // ⚠ SUBSCRIBE BEFORE READING. The app-wide broadcasts are not held, so an
     // event that fires while an initial read is in flight is the NEWER truth;
     // attaching first is what lets the flags below notice it at all.
     const unsubscribe = bridge.onEvent(e => {
       if (!alive) return
       if (e.type === 'preferences') { changed = true; setPrefs(e.data as NativePreferences) }
-      else if (e.type === 'update') { updateChanged = true; setUpdateStatus(e.data as UpdateStatus) }
     })
     bridge.getPreferences().then(p => { if (alive && !changed) setPrefs(p) })
       // ⚠ THE ERROR COMPLETION IS GUARDED TOO. A read that failed after an
       // event already delivered good state would otherwise replace a working
       // panel with an error about a request whose answer is no longer wanted.
       .catch((e: Error) => { if (alive && !changed) setError(e.message) })
-    // the update status has the same race and had no guard at all: a download
-    // that finished mid-read would revert to its earlier state
-    if (bridge.getUpdateStatus) void bridge.getUpdateStatus()
-      .then(s => { if (alive && !updateChanged) setUpdateStatus(s) }).catch(() => {})
     // Where this copy is installed cannot change while it runs, so this is
     // fetched once rather than pushed.
     if (bridge.getUpdateCapability) void bridge.getUpdateCapability().then(c => { if (alive) setCapability(c) }).catch(() => {})
@@ -44,11 +36,6 @@ export function DesktopSettings() {
     setBusy(true)
     bridge.setPreferences(patch).then(p => { setPrefs(p); setError('') })
       .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
-  }
-  const checkForUpdates = () => {
-    if (!bridge.checkForUpdates) return
-    setChecking(true)
-    bridge.checkForUpdates().then(setUpdateStatus).finally(() => setChecking(false))
   }
   const currentPrefs = notificationPreferences(prefs ?? {})
   const masterOn = currentPrefs.notificationsEnabled
@@ -71,12 +58,6 @@ export function DesktopSettings() {
       hint={capability?.unattendedInstall === false
         ? `Unavailable: Orgtree cannot write to ${capability.installDirectory}, so it can never install an update on its own. Use "Update now" and approve the Windows prompt.`
         : 'Check, download and install updates when idle. Turn off to update manually; a download already started may finish.'} />
-    <SetRow label="updates"
-      hint={updateStatus ? describeUpdateStatus(updateStatus) ?? 'No update check has run yet.' : undefined}>
-      <button type="button" onClick={checkForUpdates} disabled={checking || !bridge.checkForUpdates}>
-        {checking ? 'Checking…' : 'Check for updates'}
-      </button>
-    </SetRow>
   </SetGroup>
   <SetGroup title="Notifications">
     <SetToggle label="Notifications"
