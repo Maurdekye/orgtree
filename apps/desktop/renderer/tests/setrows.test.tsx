@@ -163,12 +163,12 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     const panel = view.el.querySelector<HTMLElement>(
       '#app-settings-panel-runtime')!
     const rows = [...panel.querySelectorAll<HTMLElement>('.set-row')].filter(row => row.querySelector('input[role="switch"]'))
-    // Quick Staffing account selection, warm processes, working checkups,
-    // MCP readiness wait, idle docket reminders, blocked-docket reminders,
-    // show legacy models (Terra), and prefer Luna reserve capacity first.
-    assert.equal(rows.length, 8)
-    assert.ok(panel.querySelector(
-      'input[role="switch"][aria-label="Include account selection when requesting staffing"]'))
+    // Claude Sonnet/Opus through Antigravity, warm processes, working checkups,
+    // MCP readiness wait, idle docket reminders, blocked-docket reminders and
+    // show legacy models (Terra, Gemini Pro). (4.x dropped the Quick Staffing
+    // account-selection switch, PLAN I5b, and the Luna reserve preference,
+    // B5 / decision 31.)
+    assert.equal(rows.length, 7)
     for (const row of rows) {
       const box = row.querySelector<HTMLInputElement>('.set-lead input')!
       const name = box.getAttribute('aria-label')

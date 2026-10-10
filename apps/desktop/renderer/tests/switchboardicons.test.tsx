@@ -266,7 +266,7 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
     + 'to the browser menu')
   assert.deepEqual(menuLabels(),
     ['Open inbox', 'Org settings', 'Cheap-compact all agents…',
-      'Retire all agents…'])
+      'Halt all agents…', 'Retire all agents…'])
 
   await inAct(async () => { menuItem('Open inbox')!.click(); await flush(2) })
   assert.deepEqual(opened, ['inbox'])
@@ -496,9 +496,9 @@ test('§4 the tab shows the org’s SAVED values, not fresh defaults', async (t)
   assert.equal(view.el.querySelector<HTMLSelectElement>(
     'select[aria-label="permission mode for new agents"]')!.value, 'plan')
   const tools = [...view.el.querySelectorAll<HTMLInputElement>(
-    '.checkline input[type="checkbox"]')]
+    '.set-row input[type="checkbox"]')]
   const byLabel = (word: string) => tools.find((i) =>
-    i.parentElement?.textContent?.toLowerCase().includes(word))
+    i.parentElement?.parentElement?.textContent?.toLowerCase().includes(word))
   assert.equal(byLabel('bash')?.checked, false, 'bash: false was not honoured')
   assert.equal(byLabel('web')?.checked, true)
   assert.equal(byLabel('subagent')?.checked, false)
