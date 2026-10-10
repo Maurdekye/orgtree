@@ -114,7 +114,7 @@ test('§1 THE BUG: a scroll in an unrelated pinned chat leaves the agent menu '
     'the menu closed because something else on screen scrolled — nothing '
     + 'moved under it')
   // still usable, not merely present
-  assert.ok(labels().includes('Open inbox'), 'the menu survived but lost its items')
+  assert.ok(labels().includes('Settings'), 'the menu survived but lost its items')
 })
 
 test('§2 …but a scroll that DOES move what the menu is anchored to still '
@@ -171,5 +171,5 @@ test('§5 a live re-render of the agent while the menu is open does not '
     await flush(2)
   })
   assert.ok(menuEl(), 'a prop update closed the menu')
-  assert.ok(labels().includes('Open inbox'))
+  assert.ok(labels().includes('Settings'))
 })

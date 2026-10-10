@@ -13,6 +13,7 @@
 // read-only imitation, which is the thing the ticket forbids.
 import './harness'
 import { FakeServer, advance, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { openBranchOf, surveyMenu } from './menuhelp'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -405,6 +406,7 @@ test('§7 picking the entry changes no focus, pins nothing and opens no window',
         { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 }))
     })
     await flush(2)
+    await surveyMenu(); await openBranchOf('Open desk')
     const entry = [...document.querySelectorAll('button, [role="menuitem"]')]
       .find((b) => /Open desk/.test(b.textContent ?? ''))
     assert.ok(entry, 'the agent menu does not offer "Open desk"')
@@ -445,6 +447,7 @@ test('§8 the Pin button pins the desk and closes the modal; a pinned agent gets
           { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 }))
       })
       await flush(2)
+      await surveyMenu(); await openBranchOf('Open desk')
       const entry = [...document.querySelectorAll('button, [role="menuitem"]')]
         .find((b) => /Open desk/.test(b.textContent ?? ''))
       assert.ok(entry, 'the agent menu does not offer "Open desk"')
