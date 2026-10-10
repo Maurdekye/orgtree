@@ -24,7 +24,7 @@ export default async function(rig) {
     }
     const ranged=!c.change && req.headers.range===`bytes=${checkpoint}-`
     res.writeHead(ranged?206:200,{'content-length':ranged?size-checkpoint:size,
-      etag:c.change?'"replacement"':'"original"',...(ranged?{'content-range':`bytes ${checkpoint}-${size-1}/${size}`}:{})})
+      etag:c.change||c.bad?'"replacement"':'"original"',...(ranged?{'content-range':`bytes ${checkpoint}-${size-1}/${size}`}:{})})
     res.end(Buffer.alloc(ranged?size-checkpoint:size,c.change?121:120))
   })
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
@@ -34,9 +34,9 @@ export default async function(rig) {
   const file=id=>rig.one(`SELECT d.* FROM ot.net_downloads d JOIN ot.net_incoming i ON i.id=d.incoming_id WHERE i.net_id='${id}'`)
   try {
     await rig.op({op:'halt',nodes:['rhea']})
-    for(const change of [false,true,'cancel']) {
-      const id=change==='cancel'?'cancel-bytes':change?'changed-bytes':'resume-bytes'
-      const c={change:change===true,calls:[]};cases.set(id,c)
+    for(const change of [false,true,'cancel','bad-range']) {
+      const id=change==='bad-range'?'bad-range':change==='cancel'?'cancel-bytes':change?'changed-bytes':'resume-bytes'
+      const c={change:change===true,bad:change==='bad-range',calls:[]};cases.set(id,c)
       const message={id,from:'peer.rig',body:'Download proof',attachments:[{id,name:'proof.bin',bytes:size}]}
       const result=await call({action:'receive',message})
       proof.check(`${id}: durable custody acknowledged without early message delivery`,result.ack===id && inbox(id).length===0)
@@ -44,8 +44,10 @@ export default async function(rig) {
       await rig.waitFor(()=>file(id)?.confirmed===checkpoint,{what:`${id} download checkpoint`,timeout:30000})
       proof.check(`${id}: bytes stay hidden until every file is ready`,inbox(id).length===0 && rig.sql(`SELECT id FROM ot.mail WHERE net_id='${id}'`).length===0)
       if(!change) {
-        await call({action:'receive',message:{id:'ordinary',from:'peer.rig',body:'Ordinary mail while download waits'}})
+        await call({action:'receive',message:{id:'ordinary',from:'other.rig',body:'Ordinary mail while download waits'}})
         proof.check('ordinary text mail remains responsive during a stalled download',inbox('ordinary').length===1)
+        await call({action:'receive',message:{id:'same-peer-later',from:'peer.rig',body:'Ordered after file'}})
+        proof.check('later text from the same peer waits behind its unfinished file',inbox('same-peer-later').length===0)
         await rig.restart()
         c.response.destroy()
         await call({action:'workers'})
@@ -61,8 +63,19 @@ export default async function(rig) {
           return retried.ok
         },{what:'stopped download available for explicit retry',timeout:10000})
         c.response.destroy()
+      } else if(change==='bad-range') {
+        c.response.destroy()
+        await rig.waitFor(()=>rig.one(`SELECT state FROM ot.net_incoming WHERE net_id='${id}'`).state==='failed',{what:'reject changed validator on partial response',timeout:30000})
+        proof.check('changed validator in 206 never exposes mixed bytes',inbox(id).length===0 && file(id).confirmed===0)
+        c.bad=false
+        const job=rig.one(`SELECT id FROM ot.net_incoming WHERE net_id='${id}'`)
+        await rig.api('POST',`/api/orgs/${rig.org}/transfers/${job.id}`,{action:'retry'})
       } else c.response.destroy()
       await rig.waitFor(()=>inbox(id).length===1,{what:`${id} delivered after completed bytes`,timeout:30000})
+      if(!change) {
+        await rig.waitFor(()=>inbox('same-peer-later').length===1,{what:'same peer ordering after download',timeout:30000})
+        proof.check('later same-peer message delivers after original file message',inbox(id)[0].id<inbox('same-peer-later')[0].id)
+      }
       const f=file(id)
       const bytes=fs.readFileSync(f.path)
       proof.check(`${id}: Range and If-Range reconcile checkpoint`,c.calls[1]?.range===`bytes=${checkpoint}-` && c.calls[1]?.validator==='"original"',c.calls)
