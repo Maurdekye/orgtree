@@ -622,9 +622,13 @@ export class Rig {
     return fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return { kind: 'unparsed', line: l } } })
   }
 
+  /** The engine's own session logs (`YYYY-MM-DD_HH-MM-SS.log`, trace.rs), oldest
+   *  first. Only those: other logs in the folder (codex-kills.log) sort after
+   *  them and grow at the same time, so including one shifts every
+   *  `engineLog().slice(offset)` a proof takes and cuts the start of its window. */
   engineLogFiles() {
     const d = path.join(this.data, 'diagnostics', 'logs')
-    return fs.existsSync(d) ? fs.readdirSync(d).filter(f => f.endsWith('.log')).map(f => path.join(d, f)).sort() : []
+    return fs.existsSync(d) ? fs.readdirSync(d).filter(f => /^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d\.log$/.test(f)).map(f => path.join(d, f)).sort() : []
   }
 
   engineLog() { return this.engineLogFiles().map(f => fs.readFileSync(f, 'utf8')).join('\n') }
