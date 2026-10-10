@@ -667,6 +667,20 @@ function PinFrameInner({ kind, title, panel, close, children,
     const minH = modalMin?.height ?? PIN_MIN_H
     if (w < minW) { if (g.edge.includes('w')) x = g.o.x + g.o.w - minW; w = minW }
     if (h < minH) { if (g.edge.includes('n')) y = g.o.y + g.o.h - minH; h = minH }
+    // ⚠ THE DRAGGED SIDE STOPS AT THE CANVAS EDGE; THE OPPOSITE SIDE NEVER
+    // MOVES (user 2026-10-10, re-reported on alpha.5). Only the MOVE offset is
+    // left raw above: a resize whose dragged side runs past the edge would
+    // otherwise reach the render clamp as a window too big for the space left,
+    // which shifts the WHOLE window back inside — the far side slides and the
+    // panel "grows the other way". The dragged side's position is a pure
+    // function of the pointer, so clamping it loses nothing: overshoot and
+    // come back, and it lands where the pointer says.
+    if (bounds && bounds.w > 0 && bounds.h > 0) {
+      if (g.edge.includes('w') && x < 0) { w += x; x = 0 }
+      if (g.edge.includes('n') && y < 0) { h += y; y = 0 }
+      if (g.edge.includes('e')) w = Math.min(w, bounds.w - x)
+      if (g.edge.includes('s')) h = Math.min(h, bounds.h - y)
+    }
     return { x, y, w, h }
   }
   const move = (e: ReactPointerEvent<HTMLElement>) => {
