@@ -23,7 +23,7 @@ import {
   getMailById, getOrgMd,
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
-  getCodexUsage, getCodexUsagePeek, getOpenRouterUsage, getOpenRouterUsagePeek,
+  getCodexUsage, getCodexUsagePeek, getLangServers, getOpenRouterUsage, getOpenRouterUsagePeek,
   getProviders, getAppTree, patchedTreeCache,
   getUsage, getUsagePeek, killAll,
   markRead, openWs,
@@ -2145,6 +2145,9 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   // installed" case, so it degrades through the same `shown.openrouter &&`
   // gate below rather than a bespoke branch.
   const orr = useUsageReadout('openrouter_usage', getOpenRouterUsage)
+  // the user's own model servers: nothing to meter, so each shows as local
+  // with no usage limit, and the one limit it does have — agents at once
+  const langservers = useAppRead('langservers', getLangServers)
   // D-202. ⚠ `codex` IS TRUTHY ON A MACHINE WITH NO CODEX — measured, not
   // assumed: codex_limits.fetch returns {available:false, error:"Codex CLI is
   // not installed"} rather than nothing, so the bare `codex &&` gate below
@@ -2246,6 +2249,15 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
       {orr.value
         ? <UsageBars u={orr.value} />
         : <div className="dim">usage unavailable until refresh succeeds</div>}
+    </div> })
+  }
+  for (const srv of (langservers?.servers ?? []).filter((x) => x.enabled)) {
+    const offered = Object.values(srv.models).filter((m) => m.offered).map((m) => m.label)
+    cards.push({ provider: 'langserver', node: <div className="usage-acct" key={'langserver:' + srv.id}>
+      <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">Language Server</span>
+        <span className="dim"> · {srv.label}</span></span></div>
+      <div className="dim">local · no usage limit · {srv.max_agents} agent{srv.max_agents === 1 ? '' : 's'} at once
+        {offered.length ? ` · ${offered.join(', ')}` : ' · no model offered'}</div>
     </div> })
   }
   for (const r of registered) {
