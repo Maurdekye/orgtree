@@ -192,6 +192,10 @@ export default async function (rig) {
     await rig.op({ op: 'halt', nodes: ['hreader'] })
     const ended = await rig.waitFor(() => !alive(rPid), { timeout: 20000, what: 'hosted Codex to end' }).then(() => true, () => false)
     p.check('4 halting the hosted seat ends its Codex', ended, { pid: rPid })
+    const kills = () => { try { return fs.readFileSync(path.join(rig.data, 'diagnostics', 'logs', 'codex-kills.log'), 'utf8').split(/\r?\n/).filter(l => l.includes(` pid=${rPid} `)) } catch { return [] } }
+    await rig.waitFor(() => kills().length > 0 || null, { timeout: 10000, what: 'its kill record' }).catch(() => null)
+    p.check('4 by a natural exit after its input closed (codex-graceful-exit, no codex-force-kill)',
+      kills().some(l => l.includes('codex-graceful-exit')) && !kills().some(l => l.includes('codex-force-kill')), kills())
 
     // ---- 5. the helper dies: hosted Codex ends; the next turn runs in Session 0
     p.check('5 the write seat\'s hosted Codex runs before the helper dies', alive(wPid), { pid: wPid })
