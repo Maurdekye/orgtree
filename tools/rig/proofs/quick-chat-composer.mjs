@@ -47,6 +47,19 @@ export default async function (rig) {
   p.check('filter + ArrowDown + Enter picked carol', v.picked === 'carol', v.picked)
   p.check('the model picker is the hire chips, the chosen tier marked',
     (v.chips?.length ?? 0) >= 3 && v.chips.filter(c => c.sel).length === 1, v.chips)
+  const L = v.look ?? {}
+  p.check('50% wider than alpha.3: the header slot is 960px (was 640px) and the box fills it in a 1600px window', L.slotBasis === '960px' && L.boxW === 960, L)
+  p.check('the model (with the new name) comes before the superior', JSON.stringify(L.order?.slice(0, 2)) === '["model","superior"]', L.order)
+  p.check('the id icon is the cards’ rounded-square tier badge, not a circle', L.radius === '4px', L.radius)
+  p.check('its letter is centred both ways (within 1px)', Math.abs(L.dx) <= 1 && Math.abs(L.dy) <= 1, { dx: L.dx, dy: L.dy })
+  const S = v.strip ?? {}
+  p.check('the model pop-out has no background, border or shadow', /rgba\(0, 0, 0, 0\)|transparent/.test(S.bg) && S.border === 'none' && S.shadow === 'none', S)
+  p.check('it hangs centred under the model button (within 1px)', Math.abs(S.popMid - S.btnMid) <= 1, S)
+  p.check('a symmetric pyramid: every family row shares one centre, widest first',
+    (S.rows?.length ?? 0) >= 1 && S.rows.every(r => Math.abs(r.mid - S.rows[0].mid) <= 1) && S.rows.every((r, i) => i === 0 || r.n <= S.rows[i - 1].n), S.rows)
+  p.check('the chips are the canvas hire tokens (same round chip)', S.chipRadius === '50%', S.chipRadius)
+  p.check('it fades in (opacity below 1 on its first frames, 1 once open)', v.fadeIn !== null && v.fadeIn < 1 && S.opacity === 1, { first: v.fadeIn, open: S.opacity })
+  p.check('it fades out after a pick: a leaving copy below opacity 1, then gone', v.fadeOut?.leaving && v.fadeOut.opacity < 1 && !v.fadeOut.picker && v.gone, { ...v.fadeOut, gone: v.gone })
   p.check('a chip pick becomes the model (haiku)', v.afterModel?.icon === 't-haiku', v.afterModel)
   p.check('two files: a count badge of 2', v.count === '2', v.count)
   p.check('the attachments pop-over lists both files', JSON.stringify(v.fileList) === JSON.stringify(FILES.map(f => f.name)), v.fileList)

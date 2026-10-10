@@ -48,6 +48,19 @@ module.exports = async (page, { args }) => {
   await page.sleep(500)
   const typed = { layout: await layout(), model: await model() }
   await page.screenshot(`${args.theme}-composer-typed`)
+  // alpha.3 feedback: width, order, the id icon's shape and its letter's centre
+  const look = await page.eval(() => {
+    const box = document.querySelector('.shell-header .quickchat')
+    const order = [...box.querySelectorAll('.quickchat-btn')].map(b => (b.className.match(/quickchat-(model|superior|attach|send)/) || [])[1])
+    const icon = document.querySelector('.shell-header .quickchat-model .tier')
+    const ir = icon.getBoundingClientRect()
+    const range = document.createRange(); range.selectNodeContents(icon)
+    const g = range.getBoundingClientRect()
+    const slot = document.querySelector('.shell-header-quick')
+    return { boxW: Math.round(box.getBoundingClientRect().width), slotBasis: getComputedStyle(slot).flexBasis,
+      winW: window.innerWidth, order, radius: getComputedStyle(icon).borderRadius,
+      dx: +((g.left + g.width / 2) - (ir.left + ir.width / 2)).toFixed(1), dy: +((g.top + g.height / 2) - (ir.top + ir.height / 2)).toFixed(1) }
+  })
   // the Agents List open, then the superior picker beside it — opened by a
   // click with no pointer press, because a press outside the Agents List closes it
   await page.click('.tray-toggle')
@@ -77,14 +90,37 @@ module.exports = async (page, { args }) => {
   const picked = await page.eval(() => document.querySelector('.shell-header .quickchat-superior .quickchat-label')?.textContent)
   await page.click('.tray-toggle')
   // the model picker: the hire chips
-  await page.click('.shell-header .quickchat-model')
+  // opened from script so the first frames can be read: the fade starts at 0
+  const fadeIn = await page.eval(() => new Promise(res => {
+    document.querySelector('.shell-header .quickchat-model').click()
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const h = document.querySelector('.quickchat-pop-model .hsof')
+      res(h ? +getComputedStyle(h).opacity : null)
+    }))
+  }))
   await page.waitFor('.quickchat-pop-model .hsof button', { timeout: 10000 })
   await page.sleep(300)
+  const strip = await page.eval(() => {
+    const pop = document.querySelector('.quickchat-pop-model')
+    const btn = document.querySelector('.shell-header .quickchat-model').getBoundingClientRect()
+    const pr = pop.getBoundingClientRect()
+    const cs = getComputedStyle(pop)
+    const rows = [...pop.querySelectorAll('.hs-fam')].map(r => { const b = r.getBoundingClientRect(); return { n: r.children.length, mid: +(b.left + b.width / 2).toFixed(1) } })
+    const chip = pop.querySelector('.hsof button')
+    return { bg: cs.backgroundColor, border: cs.borderTopStyle, shadow: cs.boxShadow,
+      popMid: +(pr.left + pr.width / 2).toFixed(1), btnMid: +(btn.left + btn.width / 2).toFixed(1), rows,
+      opacity: +getComputedStyle(pop.querySelector('.hsof')).opacity, chipRadius: getComputedStyle(chip).borderRadius }
+  })
   const chips = await page.eval(() => [...document.querySelectorAll('.quickchat-pop-model .hsof button')]
     .map(b => ({ tier: [...b.classList].find(c => c.startsWith('t-')), sel: b.classList.contains('sel'), title: b.title })))
   await page.screenshot(`${args.theme}-model-picker`)
   await page.eval(() => document.querySelector('.quickchat-pop-model .hsof button.t-haiku')?.click())
+  const fadeOut = await page.eval(() => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const h = document.querySelector('.quickchat-leaving .hsof')
+    res({ leaving: !!h, opacity: h ? +getComputedStyle(h).opacity : null, picker: !!document.querySelector('.quickchat-pop') })
+  }))))
   await page.sleep(400)
+  const gone = await page.eval(() => !document.querySelector('.quickchat-leaving'))
   const afterModel = await model()
   // two files, the way choosing them in the picker hands the input
   await page.eval((files) => {
@@ -112,5 +148,5 @@ module.exports = async (page, { args }) => {
     count: document.querySelector('.shell-header .quickchat-count')?.textContent ?? null,
   }))
   await page.screenshot(`${args.theme}-after-send`)
-  return { empty, typed, lists, picked, chips, afterModel, count, withFiles, fileList, name, after, errors: page.consoleErrors }
+  return { empty, typed, look, fadeIn, strip, fadeOut, gone, lists, picked, chips, afterModel, count, withFiles, fileList, name, after, errors: page.consoleErrors }
 }
