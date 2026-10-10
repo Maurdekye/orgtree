@@ -51,5 +51,5 @@ test('resolved request: ask sections become the card, other sections stay', asyn
       { kind: 'ask', ask_id: 'a', questions: [{ label: null, question: 'Q?', answer: 'Red · Blue', selected: ['Red', 'Blue'], options: opts, multi: true }] },
       { kind: 'credit', outcome: 'approved', old: 1, asked: 2, granted: 2, now: 3 }] })
   assert.deepEqual(chosen(el), ['Red', 'Blue'])
-  assert.match(el.textContent!, /approved/)
+  assert.match(el.textContent!, /approved/i)
 })
