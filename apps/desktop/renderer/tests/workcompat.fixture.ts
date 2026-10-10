@@ -15,7 +15,10 @@ export function compatibilityWorkFixture(fetcher: typeof fetch, opts: { pages?: 
       const legacy = text.replace('/work-items-page?', '/work-items?archived=1&backlogged=1&_page=')
       return Promise.resolve(fetcher(legacy, init)).then(async (r) => {
         const body = await r.json() as { items?: unknown[]; archived?: unknown[]; backlogged?: unknown[]; counts?: Record<string, number>; now?: string }
-        const rows = (body[group] ?? []) as unknown[]
+        // the page route filters on the server: a legacy full list is cut here the same way (agent = the owner)
+        const agent = u.searchParams.get('agent')
+        const rows = ((body[group] ?? []) as { owner?: { node?: string } }[])
+          .filter((r) => !agent || r.owner?.node === agent) as unknown[]
         const size = (g: 'items' | 'archived' | 'backlogged') => (body[g] ?? []).length
         const totals = { items: size('items'), archived: size('archived'), backlogged: size('backlogged') }
         const page = { format: 'orgtree.work-page/v1', group, rows, total: rows.length, totals, matched: totals,

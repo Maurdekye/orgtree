@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import { tree, payload } from './zoomdocket.fixture'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 
-const click = async (e:Element|null) => { assert.ok(e); await inAct(()=>{(e as HTMLElement).click()}); await flush() }
+const click = async (e:Element|null) => { assert.ok(e); await inAct(()=>{(e as HTMLElement).click()}); await flush(8) }
 test('overview Docket opens the selected agent, archive toggle and details reuse existing view',async t=>{
  setAgentShortcutsOn(true); t.after(()=>{localStorage.removeItem(AGENT_SHORTCUTS_KEY)})
  useFakeClock(); const calls:string[]=[]
@@ -25,19 +25,19 @@ test('overview Docket opens the selected agent, archive toggle and details reuse
  await flush()
  assert.equal(calls.filter(x=>x.includes('/work-items')).length,0,'no per-card docket polling')
  await click(v.el.querySelector('[aria-label="Docket for alpha"]'))
- const panel=()=>v.el.querySelector('.docket-agent')!
+ const panel=()=>document.querySelector('.docket-agent')!
  assert.match(panel().textContent??'',/alpha-task/)
  assert.doesNotMatch(panel().textContent??'',/beta-task|alpha-archive/)
  await click(panel().querySelector('input[type=checkbox]'))
  assert.match(panel().textContent??'',/alpha-archive/)
  await click([...panel().querySelectorAll('.docket-row')].find(e=>e.textContent?.includes('alpha-task'))??null)
  assert.match(panel().textContent??'',/Test objective/)
- await click([...v.el.querySelectorAll('.overlay button')].find(e=>e.textContent==='Close')??null)
- assert.equal(v.el.querySelector('.docket-agent'),null)
+ await click([...document.querySelectorAll('.overlay button, .modalpin button')].find(e=>e.textContent==='Close')??null)
+ assert.equal(document.querySelector('.docket-agent'),null)
  await click(v.el.querySelector('[aria-label="Docket for beta"]'))
  assert.match(panel().textContent??'',/beta-task/)
  assert.doesNotMatch(panel().textContent??'',/alpha-task|alpha-archive/)
- await click([...v.el.querySelectorAll('.overlay button')].find(e=>e.textContent==='Close')??null)
+ await click([...document.querySelectorAll('.overlay button, .modalpin button')].find(e=>e.textContent==='Close')??null)
  await click(v.el.querySelector('[aria-label="Docket for empty"]'))
  assert.match(panel().textContent??'',/no docket items are assigned to empty/)
  assert.ok(calls.some(x=>x.includes('/api/orgs/mine/work-items')),'uses enclosing org route')
