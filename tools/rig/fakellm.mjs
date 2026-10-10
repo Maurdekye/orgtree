@@ -29,6 +29,15 @@
 // harness sent. A model's `num_ctx` is the window its Modelfile sets (shown
 // by /api/show like Ollama shows it); `POST /api/create` (`from` +
 // `parameters`) adds a model the way Ollama does, and is logged.
+//
+// LOADING. A model with `running` (its window) is in memory, and `/api/ps`
+// lists it (each /api/ps is logged with what it listed). `POST /api/generate`
+// with no prompt is Ollama's load-only request: it answers once the model is
+// loaded, after the model's `load_ms` (an already loaded model answers at
+// once), and the model then runs at its `num_ctx` (else 4096); a model with
+// `load_error` answers 500 with that text instead, the way Ollama reports a
+// load that failed. Both ends of a load are logged (phase start, then loaded
+// or failed). `llm.add({ name, ... })` adds a model while the server runs.
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -112,7 +121,28 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
       return json(res, 200, { status: 'success' })
     }
     if (p === '/api/ps') {
-      return json(res, 200, { models: models.filter((m) => m.running).map((m) => ({ name: m.name, model: m.name, context_length: m.running })) })
+      const loaded = models.filter((m) => m.running)
+      note({ path: p, method: req.method, loaded: loaded.map((m) => m.name) })
+      return json(res, 200, { models: loaded.map((m) => ({ name: m.name, model: m.name, context_length: m.running })) })
+    }
+    if (p === '/api/generate' && req.method === 'POST') {
+      const m = models.find((x) => x.name === body?.model)
+      note({ path: p, method: req.method, phase: 'start', model: body?.model ?? null, prompt_chars: String(body?.prompt ?? '').length,
+        stream: body?.stream ?? null, keys: Object.keys(body ?? {}).sort() })
+      if (!m) return json(res, 404, { error: `model '${body?.model}' not found, try pulling it first` })
+      if (body?.prompt) return json(res, 400, { error: 'this fake server only answers load-only requests on /api/generate' })
+      const finish = () => {
+        if (m.load_error) {
+          note({ path: p, method: req.method, phase: 'failed', model: m.name, error: m.load_error })
+          return json(res, 500, { error: m.load_error })
+        }
+        m.running = m.num_ctx ?? 4096
+        note({ path: p, method: req.method, phase: 'loaded', model: m.name, running: m.running })
+        return json(res, 200, { model: m.name, created_at: new Date().toISOString(), response: '', done: true, done_reason: 'load' })
+      }
+      if (m.running && !m.load_error) return finish()
+      setTimeout(finish, m.load_ms ?? 0)
+      return
     }
     if (p === '/v1/models') return json(res, 200, { object: 'list', data: models.map((m) => ({ id: m.name, object: 'model' })) })
     // Claude Code's warm-up probe
@@ -247,7 +277,9 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     url: `http://127.0.0.1:${addr.port}`,
     port: addr.port,
     requests,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    /** add a model while the server runs (same shape as `models`) */
+    add: (m) => { models = [...models.filter((x) => x.name !== m.name), { ...m }] },
+    close: () => new Promise((resolve) => { server.closeAllConnections?.(); server.close(() => resolve()) }),
   }
 }
 

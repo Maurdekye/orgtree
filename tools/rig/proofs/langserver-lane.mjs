@@ -34,7 +34,19 @@
 //   7. Codex's first turn on a new thread records every call's tokens (the
 //      sums the server reported, not only the last call's); the llama.cpp
 //      preset offers Codex; a window under 64K is "too small for an agent".
-// Run: node tools/rig/rig.mjs run tools/rig/proofs/langserver-lane.mjs [--ui <dir>]
+// The user's reports on 4.2.0-alpha.1 (coordinator rulings 2026-10-10 08:17-08:43Z):
+//   8a. the Ollama preset's help names OLLAMA_LOAD_TIMEOUT and the CUDA-to-Vulkan fallback;
+//   8b. a language-server chip's letter comes from its model, its name says model and server;
+//       with the UI: the canvas chips (tooltips), and Quick chat's model menu takes a newly
+//       offered model without a reload;
+//   8c. a seat price per server: 1 by default, a new price moves the live seats on its
+//       models, 0 is allowed, the old flat 0.10 becomes the price when the engine starts;
+//   8d. a move to a model on a server with the other harness starts a fresh session;
+//   8e. Ollama loads the model before the CLI starts: /api/ps, then a load-only request
+//       that waits out the whole load (--load-ms, 45 s by default; over 6 minutes for the
+//       hand-in), "loading model on <server>" on the desk meanwhile, then Claude Code; a
+//       load that fails fails the turn with Ollama's own words, once, and tells the user.
+// Run: node tools/rig/rig.mjs run tools/rig/proofs/langserver-lane.mjs [--ui <dir>] [--load-ms N]
 
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -91,7 +103,7 @@ export async function setup() {
   return { name: 'langserver', 'real-cli': true, fixture: 'none' }
 }
 
-export default async function (rig) {
+export default async function (rig, { flags = {} } = {}) {
   const p = new Proof('langserver-lane')
   const llm = await startFakeLlm({
     log: path.join(p.dir, 'fakellm.jsonl'),
@@ -102,6 +114,10 @@ export default async function (rig) {
       { match: ['PROOF-LS-CODEX'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-CODEX-DONE' } },
       // a slow server: every answer to these waits 4 s
       { match: ['PROOF-LS-SLOW'], text: 'slow answer', delay_ms: 4000 },
+      // 8e: turns on a model that must be loaded first (the second turn's token first: rules match substrings)
+      { match: ['PROOF-LS-WARM2'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-WARM2-DONE' } },
+      { match: ['PROOF-LS-WARM'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-WARM-DONE' } },
+      { match: ['PROOF-LS-BROKEN'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-BROKEN-DONE' } },
     ],
   })
   try {
@@ -137,8 +153,8 @@ export default async function (rig) {
     { a: listed(a.server?.id), b: listed(b.server?.id) })
     const prov = await rig.api('GET', '/api/providers')
     const entry = (prov.providers ?? []).find(x => x.id === 'langserver')
-    p.check('the providers payload carries the lane with both tiers, hireable', entry?.hire_enabled === true
-      && [tierA, tierB].every(t => entry.tiers.some(x => x.tier === t && x.seat === 0.1)), entry)
+    p.check('the providers payload carries the lane with both tiers, hireable, at the default seat price of 1', entry?.hire_enabled === true
+      && [tierA, tierB].every(t => entry.tiers.some(x => x.tier === t && x.seat === 1)) && a.server?.seat === 1 && b.server?.seat === 1, entry)
     // a server card's button: the stored server's own address
     const made2 = await rig.api('POST', '/api/langservers/ollama-variant', { server: a.server?.id, model: MODEL })
     p.check('"Create a 64K version" on a stored Ollama server uses that server', made2.created === VERSION && made2.probe?.reachable === true, made2)
@@ -310,7 +326,166 @@ export default async function (rig) {
       && lcRow?.models?.[OTHER]?.too_small === false && Object.keys(lcModels).length === 2,
       { min_context: lc.doc?.min_context, server: lcRow && { base_url: lcRow.base_url, models: lcRow.models } })
     await rig.api('DELETE', `/api/langservers/${lc.server?.id}`)
-    p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex/ })
+
+    // ------------------------------------------------------------ 8. the user's reports on 4.2.0-alpha.1 (coordinator, 2026-10-10)
+    // 8a. the preset help for slow loads
+    const lsDoc8 = await rig.api('GET', '/api/langservers')
+    const ollamaNote = (lsDoc8.presets ?? []).find(x => x.id === 'ollama')?.note ?? ''
+    p.check('8a. the Ollama preset\'s help names OLLAMA_LOAD_TIMEOUT=30m for a slow disk and the fall back from CUDA to Vulkan',
+      /OLLAMA_LOAD_TIMEOUT=30m/.test(ollamaNote) && /5 minutes/.test(ollamaNote) && /CUDA/.test(ollamaNote) && /Vulkan/.test(ollamaNote), ollamaNote)
+
+    // 8b. chip letters from the model: a second model on the Claude Code server
+    const withOther = await rig.api('PATCH', `/api/langservers/${a.server?.id}`, { models: [{ id: OTHER, offered: true, context: 65536 }] })
+    const tierO = withOther.server?.models?.[OTHER]?.tier
+    const lsTierRows = async () => ((await rig.api('GET', '/api/providers')).providers ?? []).find(x => x.id === 'langserver')?.tiers ?? []
+    const rows8 = await lsTierRows()
+    const row8 = t => rows8.find(x => x.tier === t)
+    p.check('8b. a language-server tier\'s chip letter comes from its model (fake-model F, other-model O), never the lane\'s L; its name says model and server',
+      row8(tierA)?.letter === 'F' && row8(tierB)?.letter === 'F' && row8(tierO)?.letter === 'O' && !rows8.some(x => x.letter === 'L')
+      && row8(tierO)?.name === `${OTHER} · Fake (Claude Code)`, rows8.map(x => ({ tier: x.tier, letter: x.letter, name: x.name, seat: x.seat })))
+
+    // 8c. a seat price per server
+    const seatOf = n => Number(rig.one(`SELECT seat::float8 AS seat FROM ot.agents WHERE name = '${n}' AND state = 'live'`)?.seat)
+    const seats = () => Object.fromEntries(['lsclaude', 'lsclaude2', 'lscodex'].map(n => [n, seatOf(n)]))
+    const reprices = () => rig.sql(`SELECT detail FROM ot.events WHERE op = 'reprice' ORDER BY id`).map(r => r.detail)
+    const s0 = seats()
+    const up = await rig.api('PATCH', `/api/langservers/${a.server?.id}`, { seat: 2 })
+    const s1 = seats()
+    const moved = (up.repriced ?? []).flatMap(o => o.repriced ?? [])
+    const tierAseat = (await lsTierRows()).find(x => x.tier === tierA)?.seat
+    p.check('8c. agents on a new server\'s models sit at the default 1; a price of 2 on the Claude Code server moves the live seats on its models to 2 (an org-log event each), the Codex server\'s stay at 1',
+      Object.values(s0).every(x => x === 1) && s1.lsclaude === 2 && s1.lsclaude2 === 2 && s1.lscodex === 1 && tierAseat === 2
+      && moved.length === 2 && moved.every(r => r.from === 1 && r.to === 2) && reprices().length === 2,
+      { before: s0, after: s1, tier_seat: tierAseat, repriced: up.repriced, events: reprices() })
+    const zero = await rig.api('PATCH', `/api/langservers/${a.server?.id}`, { seat: 0 })
+    const s2 = seats()
+    const refused = []
+    for (const bad of [101, -1]) refused.push(await rig.api('PATCH', `/api/langservers/${a.server?.id}`, { seat: bad }).then(() => 'accepted', e => e.status))
+    p.check('8c. 0 is a valid price (the seats on that server\'s models drop to 0); a price outside 0 to 100 is refused',
+      s2.lsclaude === 0 && s2.lsclaude2 === 0 && s2.lscodex === 1 && refused.every(s => s === 400), { after: s2, refused, repriced: zero.repriced })
+    // 4.2.0-alpha.1 priced every language-server seat at a flat 0.10: the first start moves them to their server's price
+    rig.exec(`UPDATE ot.agents SET seat = 0.1 WHERE name = 'lscodex' AND state = 'live'`)
+    await rig.restart()
+    const s3 = await rig.waitFor(() => (seatOf('lscodex') === 1 ? seats() : null), { what: 'the start-up reprice of lscodex', timeout: 90000, every: 1000 })
+      .catch(() => seats())
+    const fromOld = reprices().filter(d => Number(d.seat_old) === 0.1)
+    p.check('8c. an agent at the old flat 0.10 is moved to its server\'s price (the default 1) when the engine starts',
+      s3.lscodex === 1 && fromOld.length === 1 && fromOld[0].node === 'lscodex' && fromOld[0].seat === 1, { after: s3, events: fromOld })
+
+    // 8d. a move across harnesses starts a fresh session; across servers on one harness it does not
+    await rig.op({ op: 'hire', name: 'lscross', tier: tierA, grant: 1, title: 'moves to the other harness' })
+    await rig.op({ op: 'hire', name: 'lssame', tier: tierA, grant: 1, title: 'moves to another server on its harness' })
+    rig.exec(`UPDATE ot.agents SET session_id = 'proof-session-cross' WHERE name = 'lscross' AND state = 'live';
+              UPDATE ot.agents SET session_id = 'proof-session-same' WHERE name = 'lssame' AND state = 'live'`)
+    const c3 = await rig.api('POST', '/api/langservers', { preset: 'ollama', address: llm.url, harness: 'claude-code',
+      label: 'Fake 3 (Claude Code)', models: [{ id: OTHER, context: 65536 }] })
+    const tierC = Object.values(c3.server?.models ?? {})[0]?.tier
+    const cross = await rig.op({ op: 'switch_model', node: 'lscross', tier: tierB })
+    const same = await rig.op({ op: 'switch_model', node: 'lssame', tier: tierC })
+    const rc = rig.agentRow('lscross'), rsame = rig.agentRow('lssame')
+    p.check('8d. a move from a Claude Code server\'s model to a Codex server\'s model starts a fresh session (a summary first), restamps the harness and says so',
+      rc?.session_id === null && rc?.extra?.harness === 'codex-cli' && !!rc?.extra?.handoff_due
+      && /moved from Claude Code to Codex: it continues on a fresh session/.test(JSON.stringify(cross)),
+      { op: cross, session_id: rc?.session_id, harness: rc?.extra?.harness, handoff_due: rc?.extra?.handoff_due })
+    p.check('8d. control: a move between two servers on one harness keeps the session, with no such warning',
+      rsame?.session_id === 'proof-session-same' && rsame?.extra?.harness === 'claude-code' && !/fresh session/.test(JSON.stringify(same)),
+      { op: same, session_id: rsame?.session_id, harness: rsame?.extra?.harness })
+
+    // 8b with the UI: the chips on the canvas, and Quick chat's model menu taking a newly offered model live
+    if (rig.run.ui) {
+      const THIRD = 'third-model:3b'
+      llm.add({ name: THIRD, context: 131072, num_ctx: 65536 })
+      const out = path.join(p.dir, 'desktop-batch1')
+      const ui = runDesktop(rig, path.join(RIG_DIR, 'desktop', 'langserver-batch1.cjs'),
+        { preset: 'tall', args: { mode: 'chips', agents: ['lsclaude', 'lssame', 'lscodex'], want: THIRD }, out })
+      const ready = await rig.waitFor(() => fs.existsSync(path.join(out, 'quickchat-before.png')),
+        { what: 'Quick chat\'s first menu', timeout: 120000, every: 500 }).catch(() => false)
+      if (ready) await rig.api('PATCH', `/api/langservers/${a.server?.id}`, { models: [{ id: THIRD, offered: true, context: 65536 }] })
+      const seen = await ui
+      const v = seen.value ?? {}
+      const chip = n => v.chips?.[n]
+      p.check('8b. the canvas chips: F for fake-model, O for other-model, in the lane\'s gold, each with a tooltip naming model and server',
+        seen.ok && chip('lsclaude')?.letter === 'F' && chip('lssame')?.letter === 'O' && chip('lscodex')?.letter === 'F'
+        && chip('lsclaude')?.title === `${MODEL} · Fake (Claude Code)` && chip('lssame')?.title === `${OTHER} · Fake 3 (Claude Code)`
+        && chip('lscodex')?.title === `${MODEL} · Fake (Codex)`
+        && ['lsclaude', 'lssame'].every(n => [chip(n)?.color, chip(n)?.background].some(c => /^rgba?\(205, 162, 6\b/.test(c ?? ''))),
+        v.chips ?? seen)
+      p.check('8b. Quick chat\'s model menu lists a model the moment a server offers it, in the same page (no reload)',
+        seen.ok && Array.isArray(v.before) && !v.before.some(i => i.includes(THIRD)) && Array.isArray(v.after)
+        && v.after.some(i => i.includes(THIRD)) && v.samePage === true && v.waited_ms < 30000,
+        { before: v.before, after: v.after, waited_ms: v.waited_ms, samePage: v.samePage, error: seen.error ?? null })
+    } else {
+      p.note('no renderer bundle for this run (--ui): 8b\'s canvas chips and Quick chat menu were skipped')
+    }
+
+    // 8e. Ollama loads the model before the CLI starts
+    const LOAD_MS = Number(flags['load-ms'] ?? 45000)
+    const SLOW = 'slow-model:latest', BROKEN = 'broken-model:latest'
+    const OOM = 'model requires more system memory (18.6 GiB) than is available (11.2 GiB)'
+    llm.add({ name: SLOW, context: 131072, num_ctx: 65536, load_ms: LOAD_MS })
+    llm.add({ name: BROKEN, context: 131072, num_ctx: 65536, load_ms: 1500, load_error: OOM })
+    const dsv = await rig.api('POST', '/api/langservers', { preset: 'ollama', address: llm.url, harness: 'claude-code',
+      label: 'Fake slow (Claude Code)', models: [{ id: SLOW, context: 65536 }, { id: BROKEN, context: 65536 }] })
+    const tierS = dsv.server?.models?.[SLOW]?.tier, tierK = dsv.server?.models?.[BROKEN]?.tier
+    await rig.op({ op: 'hire', name: 'lsslow', tier: tierS, grant: 1, title: 'a model that loads slowly' })
+    await rig.op({ op: 'hire', name: 'lsbroken', tier: tierK, grant: 1, title: 'a model that cannot load' })
+    const detail = n => rig.api('GET', `/api/orgs/${rig.org}/nodes/${n}/detail`).catch(() => null)
+    const turnOver = n => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id
+      WHERE a.name = '${n}' AND t.ended_at IS NULL`).length === 0, { what: `${n}'s turn to end`, timeout: 120000 }).catch(() => null)
+    const at = r => (r ? Date.parse(r.at) : NaN)
+    const brief = rs => rs.map(r => `${r.at.slice(11, 23)} ${r.path} ${r.phase ?? ''} ${r.model ?? (r.loaded ?? []).join(',')}`.trim())
+    const mark = llm.requests.length
+    await rig.userMail('lsslow', 'PROOF-LS-WARM: report done with orgtree_status.')
+    const loadingSeen = await rig.waitFor(async () => (await detail('lsslow'))?.loading_model ?? null,
+      { what: 'lsslow\'s desk to say its model is loading', timeout: 60000, every: 300 }).catch(() => null)
+    const desk = rig.run.ui ? await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'langserver-batch1.cjs'),
+      { preset: 'tall', args: { mode: 'loading', agent: 'lsslow' }, out: path.join(p.dir, 'desktop-loading') }) : null
+    const stS = await rig.waitFor(() => (status('lsslow')?.summary === 'PROOF-LS-WARM-DONE' ? status('lsslow') : null),
+      { what: 'lsslow\'s done report after the slow load', timeout: LOAD_MS + 240000, every: 2000 }).catch(() => null)
+    await turnOver('lsslow')
+    const seen1 = llm.requests.slice(mark)
+    const ps1 = seen1.find(r => r.path === '/api/ps')
+    const g0 = seen1.find(r => r.path === '/api/generate' && r.phase === 'start' && r.model === SLOW)
+    const g1 = seen1.find(r => r.path === '/api/generate' && r.phase === 'loaded' && r.model === SLOW)
+    const m1 = seen1.find(r => r.path === '/v1/messages' && r.model === SLOW)
+    const loadS = (at(g1) - at(g0)) / 1000
+    p.file('warmup-requests.json', seen1)
+    p.check(`8e. on Ollama /api/ps shows the model not loaded, a load-only request (empty prompt, no stream, no options) waits out the whole ${Math.round(LOAD_MS / 1000)} s load, and Claude Code's first request comes after it`,
+      !!ps1 && !ps1.loaded.includes(SLOW) && at(ps1) <= at(g0) && g0?.prompt_chars === 0 && g0?.stream === false
+      && JSON.stringify(g0?.keys) === JSON.stringify(['model', 'prompt', 'stream']) && loadS >= LOAD_MS / 1000 - 1 && !!m1 && at(m1) >= at(g1),
+      { load_s: loadS, order: brief(seen1.filter(r => r.path !== '/v1/messages' || r === m1)) })
+    const after8 = await detail('lsslow')
+    p.check('8e. while it loaded the desk said "loading model on Fake slow (Claude Code)"; the turn then finished and the words are gone',
+      loadingSeen === 'loading model on Fake slow (Claude Code)' && stS?.summary === 'PROOF-LS-WARM-DONE' && (after8?.loading_model ?? null) === null,
+      { loadingSeen, status: stS, after: after8?.loading_model ?? null })
+    if (rig.run.ui) {
+      p.check('8e. the desk shows the loading banner (screenshot desk-loading-model.png)', !!desk?.ok
+        && /^Loading model on Fake slow \(Claude Code\): the turn starts as soon as the model is in memory/.test(desk.value?.banner ?? ''),
+        desk?.value ?? desk)
+    }
+    const mark2 = llm.requests.length
+    await rig.userMail('lsslow', 'PROOF-LS-WARM2: report done with orgtree_status.')
+    await rig.waitFor(() => (status('lsslow')?.summary === 'PROOF-LS-WARM2-DONE' ? true : null),
+      { what: 'lsslow\'s second turn', timeout: 180000, every: 1000 }).catch(() => null)
+    await turnOver('lsslow')
+    const seen2 = llm.requests.slice(mark2)
+    p.check('8e. the next turn finds the model in memory (/api/ps lists it) and loads nothing',
+      seen2.some(r => r.path === '/api/ps' && r.loaded.includes(SLOW)) && !seen2.some(r => r.path === '/api/generate')
+      && seen2.some(r => r.path === '/v1/messages' && r.model === SLOW), brief(seen2.filter(r => r.path !== '/v1/messages').concat(seen2.filter(r => r.path === '/v1/messages').slice(0, 1))))
+    // a load that fails
+    const mark3 = llm.requests.length
+    await rig.userMail('lsbroken', 'PROOF-LS-BROKEN: report done with orgtree_status.')
+    const errK = await rig.waitFor(() => { const e = rig.agentRow('lsbroken')?.last_error; return e && /could not load/.test(e) ? e : null },
+      { what: 'lsbroken\'s failed load', timeout: 90000, every: 500 }).catch(() => null)
+    await new Promise(r => setTimeout(r, 10000))
+    const seen3 = llm.requests.slice(mark3)
+    const told = rig.sql(`SELECT body FROM ot.mail WHERE body LIKE 'lsbroken''s turn could not start:%' ORDER BY id`)
+    p.check('8e. a load that fails fails the turn with Ollama\'s own words, is not retried, tells the user, and the CLI never asks for the model',
+      errK === `Ollama could not load ${BROKEN}: ${OOM}` && seen3.filter(r => r.path === '/api/generate' && r.phase === 'start' && r.model === BROKEN).length === 1
+      && seen3.some(r => r.path === '/api/generate' && r.phase === 'failed') && !seen3.some(r => r.path === '/v1/messages' && r.model === BROKEN)
+      && told.length === 1 && told[0].body.includes(OOM) && rig.turns('lsbroken').length === 0,
+      { last_error: errK, requests: brief(seen3), told, turns: rig.turns('lsbroken') })
+    p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex|lsslow|lsbroken|lscross|lssame|language-server|reprice/ })
   } finally {
     await llm.close()
   }
