@@ -14,7 +14,7 @@ import { configureTaskbar, icoFromPng } from './taskbar'
 import { tintTrayBitmap } from './tray-tint'
 import { mailhubTrayItem } from './tray-mailhub'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_ID } from './build-channel'
-import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, validateDataRoot } from './policy'
+import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, unsafeFolderMessage, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
 import { registerHeldEventChannels } from './held-events'
@@ -1863,6 +1863,7 @@ else {
       }
       if (!await bootAttached() && !await engine.attach(engineOptions)) {
         if (engine.attachDiagnostic) console.warn(`boot-engine descriptor rejected: ${engine.attachDiagnostic}`)
+        if (engine.attachUnsafeFolder) console.warn(`unsafe folder blocks the background engine: ${engine.attachUnsafeFolder} (fix: chmod g-w,o-w ${shellQuote(engine.attachUnsafeFolder)})`)
         try { await engine.start(engineOptions) }
         catch (error) {
           // A structured refusal means another owner holds this root — the
@@ -1876,6 +1877,7 @@ else {
             // The root is owned AND no descriptor verified for the whole
             // budget: the reason it was declined is the actual diagnosis
             // (an unverifiable owner, a stale port), not the lock refusal.
+            if (engine.attachUnsafeFolder) throw new Error(unsafeFolderMessage(engine.attachUnsafeFolder))
             if (engine.attachDiagnostic) throw new Error(`${error.message}\nBoot engine descriptor rejected: ${engine.attachDiagnostic}`)
             throw error
           }

@@ -623,3 +623,36 @@ test('a missing lock keeps the attachment too: unknown is never a death verdict'
   assert.equal(engine.status.state, 'ready', 'missing lock = unknown = keep the attachment')
   assert.notEqual(engine.origin, '')
 })
+
+test('a folder others can write blocks the attach at once, names the folder and gives the chmod, and is never changed', async () => {
+  const dir = (mode, uid = 1000) => ({ uid, mode, isFile: () => false, isDirectory: () => true })
+  const file = { uid: 1000, mode: 0o100600, isFile: () => true, isDirectory: () => false }
+  const ancestor = policy.judgePosixTrust(1000, file, [['/h/.config/Orgtree v2/data', dir(0o40700)], ['/h/.config/Orgtree v2', dir(0o40700)], ['/h/.config', dir(0o40775)], ['/h', dir(0o40750)]])
+  assert.deepEqual(ancestor, { ok: false, detail: 'path replaceable via ancestor /h/.config', unsafeFolder: '/h/.config' })
+  const own = policy.judgePosixTrust(1000, file, [['/d', dir(0o40770)]])
+  assert.equal(own.unsafeFolder, '/d')
+  // a refusal chmod cannot fix carries no folder, and keeps the ordinary wait
+  assert.equal(policy.judgePosixTrust(1000, file, [['/d', dir(0o40700, 1001)]]).unsafeFolder, undefined)
+  assert.equal(policy.judgePosixTrust(1000, file, [['/tmp', dir(0o41777, 0)]]).ok, false, 'the descriptor directory itself may not be sticky-shared')
+  assert.equal(policy.shellQuote("/h/it's mine"), String.raw`'/h/it'\''s mine'`)
+  const message = policy.unsafeFolderMessage("/h/it's mine")
+  assert.match(message, /other users can change the folder \/h\/it's mine/)
+  assert.ok(message.endsWith(String.raw`chmod g-w,o-w '/h/it'\''s mine'`), message)
+
+  writeDescriptor(descriptor())
+  try {
+    const engine = trusting(new Engine())
+    let checks = 0
+    engine.trustCheck = async () => { checks++; return { ok: false, detail: 'path replaceable via ancestor /h/.config', unsafeFolder: '/h/.config' } }
+    const began = Date.now()
+    assert.equal(await engine.attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 60000, 10), false)
+    assert.ok(Date.now() - began < 5000, 'no waiting for something only the user can change')
+    assert.equal(checks, 1)
+    assert.equal(engine.attachUnsafeFolder, '/h/.config')
+    // any other refusal clears it and keeps retrying until the budget
+    engine.trustCheck = async () => { checks++; return { ok: false, detail: 'owner 0 is not current user 1000' } }
+    assert.equal(await engine.attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 200, 10), false)
+    assert.equal(engine.attachUnsafeFolder, '')
+    assert.ok(checks > 3)
+  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+})

@@ -149,7 +149,28 @@ export function canonicalPath(p: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
-export interface DescriptorOwner { ok: boolean; detail: string }
+export interface DescriptorOwner {
+  ok: boolean
+  detail: string
+  /** POSIX: the folder whose write permission for others caused the refusal.
+   *  Its owner can fix that with chmod; nothing else changes the verdict, so
+   *  the caller stops waiting and says so (see unsafeFolderMessage). */
+  unsafeFolder?: string
+}
+
+/** Single-quoted for a POSIX shell. */
+export function shellQuote(s: string): string { return `'${s.replace(/'/g, `'\\''`)}'` }
+
+/** What the user is told when a folder others can write blocks the background
+ *  engine. Orgtree never changes permissions outside its own folders (ruling
+ *  2026-10-10), so the fix is theirs to run. */
+export function unsafeFolderMessage(folder: string): string {
+  return `Orgtree's background engine is running, but Orgtree will not connect to it because other users can change the folder ${folder}. Orgtree does not change permissions outside its own folders.
+
+To fix it, run this in a terminal and start Orgtree again:
+
+chmod g-w,o-w ${shellQuote(folder)}`
+}
 
 export type PosixStat = Pick<fs.Stats, 'uid' | 'mode'> & { isFile(): boolean; isDirectory(): boolean }
 
@@ -176,7 +197,7 @@ export function judgePosixTrust(uid: number, file: PosixStat, dirs: Array<[strin
     if (!s.isDirectory()) return { ok: false, detail: `${name} is not a directory` }
     if (s.uid !== uid && s.uid !== 0) return { ok: false, detail: `${i ? 'path replaceable via ancestor' : 'descriptor directory owned by'} ${name} (owner ${s.uid})` }
     const othersWrite = (s.mode & 0o022) !== 0
-    if (othersWrite && (i === 0 || !(s.mode & 0o1000))) return { ok: false, detail: `${i ? 'path replaceable via ancestor' : 'descriptor directory writable by others:'} ${name}` }
+    if (othersWrite && (i === 0 || !(s.mode & 0o1000))) return { ok: false, detail: `${i ? 'path replaceable via ancestor' : 'descriptor directory writable by others:'} ${name}`, unsafeFolder: name }
   }
   return { ok: true, detail: `owner ${uid}, exclusive write boundary` }
 }

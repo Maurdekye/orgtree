@@ -148,6 +148,9 @@ export class Engine extends EventEmitter {
   private attachedDescriptor = ''
   /** Why the last attach attempt was declined; empty when no descriptor existed. */
   attachDiagnostic = ''
+  /** Set when the last attach was refused because others can write this
+   *  folder (DescriptorOwner.unsafeFolder): waiting cannot change that. */
+  attachUnsafeFolder = ''
   status: EngineStatus = { state: 'starting' }
   /** Retained through a failed poll; a successful new engine read clears it. */
   credentialWarning: string | null = null
@@ -192,6 +195,9 @@ export class Engine extends EventEmitter {
     try {
       for (;;) {
         if (await this.attach(options)) return true
+        // A folder others can write stays that way until its owner changes
+        // it: fail fast, and let the caller say which folder and how.
+        if (this.attachUnsafeFolder) return false
         // A host converting the data (user decision 38) publishes no
         // descriptor until the conversion is done, which can take far longer
         // than the ordinary budget: wait for as long as its process lives
@@ -232,6 +238,7 @@ export class Engine extends EventEmitter {
     if ((this.child && this.child.exitCode === null) || !this.managed) throw new Error('Engine already started')
     // Diagnostics describe this attempt, not a descriptor removed since the last one.
     this.attachDiagnostic = ''
+    this.attachUnsafeFolder = ''
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     if (!fs.existsSync(root)) return false
     const realRoot = fs.realpathSync.native(root)
@@ -246,7 +253,10 @@ export class Engine extends EventEmitter {
       // location). Only after the boundary holds are the bytes read, so
       // nothing parsed predates the trust decision.
       const trust = await this.trustCheck(file)
-      if (!trust.ok) throw new Error('descriptor trust rejected: ' + trust.detail)
+      if (!trust.ok) {
+        this.attachUnsafeFolder = trust.unsafeFolder ?? ''
+        throw new Error('descriptor trust rejected: ' + trust.detail)
+      }
       const raw = fs.readFileSync(file, 'utf8')
       const attach = parseAttach(raw, realRoot)
       const origin = `http://127.0.0.1:${attach.port}`
