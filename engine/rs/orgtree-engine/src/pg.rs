@@ -17,6 +17,13 @@ use crate::winproc;
 pub const ENGINE_DB: &str = "orgtree_engine";
 pub const ADMIN_ROLE: &str = "orgtree_admin";
 
+/// How long a fast shutdown may take before the cluster is killed. A killed
+/// cluster's next start fsyncs its whole data folder before it replays WAL
+/// (minutes on a busy disk), so a caller that allows a long stop (the
+/// installer's 45 s) gets one; the desktop and the background host kill the
+/// engine sooner (docs/AGENTS.md).
+const STOP_WAIT: Duration = Duration::from_secs(120);
+
 pub struct Cluster {
     pub data_dir: PathBuf,
     pub cluster_dir: PathBuf,
@@ -90,7 +97,9 @@ impl Cluster {
             .args(["-c", "shared_buffers=512MB"])
             .args(["-c", "jit=off"])
             .args(["-c", "max_wal_size=2GB"])
-            .args(["-c", "checkpoint_timeout=15min"])
+            // the dirty data a stop must flush stays small: the engine's
+            // callers kill it 8-15 s after asking it to stop (docs/AGENTS.md)
+            .args(["-c", "checkpoint_timeout=5min"])
             .args(["-c", "logging_collector=off"])
             .args(["-c", "log_min_duration_statement=2000"]);
         // Unix: TCP only. No socket file, so nothing clashes with a system
@@ -169,16 +178,26 @@ impl Cluster {
         );
     }
 
-    /// Fast shutdown: active transactions roll back, the cluster checkpoints.
+    /// Fast shutdown: active transactions roll back, the cluster checkpoints;
+    /// killed only after STOP_WAIT. (A CHECKPOINT before it was measured to
+    /// cost a second checkpoint's fixed time on a busy disk and to save
+    /// nothing: the engine reaches this stop within half a second.)
     pub async fn stop(&mut self) {
+        let started = Instant::now();
         let mut cmd = Command::new(self.tool("pg_ctl"));
-        cmd.arg("-D").arg(&self.data_dir).args(["stop", "-m", "fast", "-w", "-t", "30"]);
+        cmd.arg("-D").arg(&self.data_dir).args(["stop", "-m", "fast", "-w", "-t"]).arg(STOP_WAIT.as_secs().to_string());
         cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         winproc::no_window(&mut cmd);
         let stopped = match cmd.status().await {
             Ok(s) => s.success(),
             Err(_) => false,
         };
+        let ms = started.elapsed().as_millis() as u64;
+        if stopped {
+            tracing::info!(ms, "database stopped");
+        } else {
+            tracing::warn!(ms, "database did not stop in time; killing it (its next start fsyncs the data folder)");
+        }
         if let Some(mut child) = self.child.take() {
             if !stopped {
                 let _ = child.start_kill();
