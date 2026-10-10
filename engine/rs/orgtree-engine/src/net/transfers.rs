@@ -9,7 +9,7 @@ use tokio::task::JoinSet;
 const PIECE: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug)]
-struct Permanent(String);
+pub(super) struct Permanent(String);
 impl std::fmt::Display for Permanent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -18,7 +18,7 @@ impl std::fmt::Display for Permanent {
 impl std::error::Error for Permanent {}
 
 #[logged]
-fn permanent(message: &str) -> anyhow::Error {
+pub(super) fn permanent(message: &str) -> anyhow::Error {
     Permanent(message.to_string()).into()
 }
 
@@ -85,6 +85,54 @@ pub(super) fn start(engine: &Arc<Engine>) {
     });
 }
 
+#[derive(Debug)]
+enum Work {
+    Upload(Job, Part),
+    Download(incoming::Job, Part),
+}
+
+impl Work {
+    #[nolog]
+    fn address(&self) -> &str {
+        match self {
+            Self::Upload(j, _) => &j.address,
+            Self::Download(j, _) => &j.address,
+        }
+    }
+    #[logged]
+    async fn run(&self, e: &Arc<Engine>) -> Result<String> {
+        match self {
+            Self::Upload(j, p) => upload(e, p, j).await,
+            Self::Download(j, p) => incoming::run(e, p, j).await,
+        }
+    }
+    #[logged]
+    async fn settle(&self, e: &Engine, result: Result<String>) -> Result<()> {
+        match self {
+            Self::Upload(j, _) => settle(e, j, result).await,
+            Self::Download(j, _) => incoming::settle(e, j, result).await,
+        }
+    }
+}
+
+#[logged]
+async fn claim_work(e: &Engine, active: &HashSet<String>, incoming_first: bool) -> Result<Option<Work>> {
+    if incoming_first {
+        if let Some((j, p)) = incoming::claim(e, active).await? {
+            return Ok(Some(Work::Download(j, p)));
+        }
+    }
+    if let Some((j, p)) = claim(e, active).await? {
+        return Ok(Some(Work::Upload(j, p)));
+    }
+    if !incoming_first {
+        if let Some((j, p)) = incoming::claim(e, active).await? {
+            return Ok(Some(Work::Download(j, p)));
+        }
+    }
+    Ok(None)
+}
+
 #[logged]
 async fn scheduler(e: &Arc<Engine>) -> Result<()> {
     // The old process cannot still own a request after engine startup.
@@ -92,24 +140,32 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
         .await?
         .execute("UPDATE ot.net_transfers SET state='queued',next_at=now() WHERE state IN ('preparing','uploading','confirming')", &[])
         .await?;
+    e.db.get().await?.execute("UPDATE ot.net_incoming SET state='queued',next_at=now() WHERE state='downloading'", &[]).await?;
     let mut tasks = JoinSet::new();
+    let mut incoming_first = false;
     let mut active = HashSet::<String>::new();
     loop {
         while tasks.len() < 2 {
-            match claim(e, &active).await {
-                Ok(Some((job, part))) => {
-                    active.insert(job.address.clone());
+            incoming_first = !incoming_first;
+            match claim_work(e, &active, incoming_first).await {
+                Ok(Some(work)) => {
+                    active.insert(work.address().to_owned());
                     let e = e.clone();
                     tasks.spawn(async move {
-                        let address = job.address.clone();
-                        let outcome = tokio::select! {
-                            _ = e.shutdown.cancelled() => return address,
-                            result = std::panic::AssertUnwindSafe(upload(&e, &part, &job)).catch_unwind() =>
-                                result.unwrap_or_else(|_| Err(anyhow::anyhow!("transfer worker failed unexpectedly"))),
+                        let address = work.address().to_owned();
+                        let future = async {
+                            let outcome = work.run(&e).await;
+                            work.settle(&e, outcome).await
                         };
-                        if let Err(err) = settle(&e, &job, outcome).await {
-                            tracing::warn!(transfer=%job.id, error=%format!("{err:#}"), "transfer result could not be stored");
+                        let result = tokio::select! {
+                            _=e.shutdown.cancelled()=>return address,
+                            result=std::panic::AssertUnwindSafe(future).catch_unwind()=>
+                                result.unwrap_or_else(|_|Err(anyhow::anyhow!("transfer worker failed unexpectedly"))),
+                        };
+                        if let Err(err) = result {
+                            tracing::warn!(error=%format!("{err:#}"),"transfer worker or result write failed");
                         }
+                        // Even a panic returns ownership; claim recovers any unfinished state.
                         address
                     });
                 }
@@ -393,6 +449,11 @@ pub(super) async fn rig_attempt(e: &Arc<Engine>, org: i64, args: &Value) -> Resu
             start(e);
         }
         return Ok(json!({"ok":true}));
+    }
+    if args["action"] == "receive" {
+        let message = &args["message"];
+        let ack = deliver_inbound(e, &part, "rig-transfer", address, message).await?;
+        return Ok(json!({"ack":ack}));
     }
     if args["action"] == "drain" {
         drain(e, &[part]).await?;

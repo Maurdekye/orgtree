@@ -26,14 +26,13 @@ use anyhow::Result;
 use arc_swap::ArcSwap;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use tokio::io::AsyncWriteExt;
-use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::changes::{self, Change};
 use crate::engine::Engine;
 
 mod transfers;
+mod incoming;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";
@@ -743,70 +742,19 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
     if seen {
         return Ok(Some(mid.to_string()));
     }
+    if m["body_bytes"].is_number() || m["attachments"].as_array().is_some_and(|a| !a.is_empty()) {
+        incoming::stage(engine, p, hub_id, addr, m).await?;
+        // Persisted custody is acknowledged; inbox and agent delivery wait for files.
+        return Ok(Some(mid.to_string()));
+    }
+    publish_inbound(engine, p, hub_id, addr, m, m["body"].as_str().unwrap_or("").to_owned(), vec![]).await?;
+    Ok(Some(mid.to_string()))
+}
+
+#[logged]
+async fn publish_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &str, m: &Value, mut body: String, attachments: Vec<Value>) -> Result<()> {
+    let mid = m["id"].as_str().unwrap_or("");
     let from = m["from"].as_str().unwrap_or("unknown");
-    let mut body = m["body"].as_str().unwrap_or("").to_string();
-    let dir = engine.cfg.path("uploads").join(&p.slug).join("@org-inbox");
-    let mut attachments = Vec::new();
-    // a long body (a v2 hub sends its first 20,000 characters and the whole
-    // size) comes down whole: in the message up to 64 KiB, beside it as a
-    // text file above that; a failed fetch is noted, never a lost message
-    if let Some(total) = m["body_bytes"].as_u64() {
-        let _ = std::fs::create_dir_all(&dir);
-        let long: String = mid.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect();
-        match whole_body(p, addr, mid, &dir.join(format!("netbody-{long}.txt"))).await {
-            Ok(WholeBody::Text(text)) => body = text,
-            Ok(WholeBody::File(file)) => {
-                let preview = body.rfind(CONTINUES).map_or(body.as_str(), |i| &body[..i]).to_string();
-                body = format!("{preview}\n\n[this message is {total} bytes long: the whole of it is attached as message.txt]");
-                attachments.push(file);
-            }
-            Err(e) => {
-                let detail = e.downcast_ref::<reqwest::Error>().map(short_error).unwrap_or_else(|| e.to_string());
-                body.push_str(&format!("\n[the rest of this message could not be fetched from the hub: {detail}]"));
-            }
-        }
-    }
-    // attachments come down into the org inbox's folder; a failed fetch is
-    // noted in the body, never a lost message
-    if let Some(atts) = m["attachments"].as_array().filter(|a| !a.is_empty()) {
-        let _ = std::fs::create_dir_all(&dir);
-        for a in atts {
-            let name = a["name"].as_str().unwrap_or("file");
-            let safe: String = std::path::Path::new(name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
-            let short: String = mid.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
-            let path = dir.join(format!("net-{short}-{safe}"));
-            let fetched: Result<u64> = async {
-                let r = HTTP
-                    .get(format!("{addr}/api/attachments/{}", a["id"].as_str().unwrap_or("")))
-                    .timeout(FILE_TIMEOUT)
-                    .header("X-Org-Auth", p.auth())
-                    .send()
-                    .await?
-                    .error_for_status()?;
-                let mut file = tokio::fs::File::create(&path).await?;
-                let mut chunks = r.bytes_stream();
-                let mut size = 0;
-                while let Some(chunk) = chunks.next().await {
-                    let chunk = chunk?;
-                    file.write_all(&chunk).await?;
-                    size += chunk.len() as u64;
-                }
-                file.flush().await?;
-                Ok(size)
-            }
-            .await;
-            match fetched {
-                Ok(bytes) => {
-                    attachments.push(json!({ "name": safe, "path": path.to_string_lossy(), "bytes": bytes }));
-                }
-                Err(e) => {
-                    let _ = tokio::fs::remove_file(&path).await;
-                    let detail = e.downcast_ref::<reqwest::Error>().map(short_error).unwrap_or_else(|| e.to_string());
-                    body.push_str(&format!("\n[attachment {name:?} could not be fetched from the hub: {detail}]"));
-                }
-            }
-        }
-    }
     if let Some(sent) = m["sent_at"].as_str().and_then(crate::util::parse_ts) {
         let age = (chrono::Utc::now() - sent).num_seconds();
         if age > STALE_AFTER_S {
@@ -819,10 +767,9 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
     // agents read the message (and their charter already names it)
     crate::phone::on_inbound(engine, p.org_id, from, &body, mid).await;
     let fresh = crate::domain::orginbox::deliver_inbound(engine, p.org_id, &format!("@net:{from}"), &body, attachments, mid, hub_id, reply_to).await?;
-    if fresh {
-        engine.net.owed.pin().insert((p.org_id, mid.to_string(), "delivered"), addr.to_string());
-    }
-    Ok(Some(mid.to_string()))
+    let _ = fresh;
+    engine.net.owed.pin().insert((p.org_id, mid.to_string(), "delivered"), addr.to_string());
+    Ok(())
 }
 
 /// Where a v1 route's long-body preview ends: the hub's own line saying how
@@ -831,49 +778,6 @@ const CONTINUES: &str = "\n\n[message continues: ";
 /// The whole of a long body arrives in the message up to this size, and as
 /// a file beside it above (an agent reads it from there).
 const WHOLE_BODY_INLINE: u64 = 64 * 1024;
-
-/// A long hub message's whole body.
-#[derive(Debug)]
-enum WholeBody {
-    Text(String),
-    File(Value),
-}
-
-/// Fetch a long message's whole body (`GET /api/messages/{id}/body`) into
-/// `path`; kept there as a file when it is longer than the inline size.
-#[logged]
-async fn whole_body(p: &Part, addr: &str, mid: &str, path: &std::path::Path) -> Result<WholeBody> {
-    // the id is the sender's: a path segment of its own, encoded
-    let mut url = reqwest::Url::parse(addr)?;
-    url.path_segments_mut()
-        .map_err(|_| anyhow::anyhow!("the hub address cannot carry a path"))?
-        .pop_if_empty()
-        .extend(["api", "messages", mid, "body"]);
-    let r = HTTP.get(url).timeout(FILE_TIMEOUT).header("X-Org-Auth", p.auth()).send().await?.error_for_status()?;
-    let mut size = 0u64;
-    let written: Result<()> = async {
-        let mut file = tokio::fs::File::create(path).await?;
-        let mut chunks = r.bytes_stream();
-        while let Some(chunk) = chunks.next().await {
-            let chunk = chunk?;
-            file.write_all(&chunk).await?;
-            size += chunk.len() as u64;
-        }
-        file.flush().await?;
-        Ok(())
-    }
-    .await;
-    if let Err(e) = written {
-        let _ = tokio::fs::remove_file(path).await;
-        return Err(e);
-    }
-    if size <= WHOLE_BODY_INLINE {
-        let bytes = tokio::fs::read(path).await?;
-        let _ = tokio::fs::remove_file(path).await;
-        return Ok(WholeBody::Text(String::from_utf8_lossy(&bytes).into_owned()));
-    }
-    Ok(WholeBody::File(json!({ "name": "message.txt", "path": path.to_string_lossy(), "bytes": size })))
-}
 
 /// The hub's receipts advance our outgoing rows (never backwards).
 #[logged]
