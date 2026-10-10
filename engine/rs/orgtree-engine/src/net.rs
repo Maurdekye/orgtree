@@ -184,6 +184,8 @@ pub struct Net {
     pollers: papaya::HashMap<String, (String, CancellationToken)>,
     /// the participants of the last pass
     parts: ArcSwap<Vec<Part>>,
+    #[cfg(debug_assertions)]
+    rig_workers: std::sync::atomic::AtomicBool,
     kick: tokio::sync::Notify,
 }
 

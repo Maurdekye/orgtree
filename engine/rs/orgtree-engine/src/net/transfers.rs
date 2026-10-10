@@ -386,6 +386,14 @@ pub(super) async fn rig_attempt(e: &Arc<Engine>, org: i64, args: &Value) -> Resu
         hubs: vec![("rig-transfer".into(), address.into())],
         registered: HashSet::from(["rig-transfer".into()]),
     };
+    if args["action"] == "workers" {
+        anyhow::ensure!(offline(), "worker proof requires network-offline rig");
+        e.net.parts.store(Arc::new(vec![part]));
+        if !e.net.rig_workers.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            start(e);
+        }
+        return Ok(json!({"ok":true}));
+    }
     if args["action"] == "drain" {
         drain(e, &[part]).await?;
         return Ok(json!({"ok":true}));
