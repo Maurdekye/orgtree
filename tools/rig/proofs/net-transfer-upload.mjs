@@ -14,6 +14,7 @@ export default async function (rig) {
   const requests = { creates: 0, patches: 0, sends: 0 }
   let loseCompletion = false
   let statusFailure = false
+  let statusGone = false
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost')
@@ -33,6 +34,7 @@ export default async function (rig) {
         if (!s) return reply(404, {})
         if (req.method === 'GET') {
           if (statusFailure) return reply(503, {})
+          if (statusGone) { statusGone = false; sessions.delete(s.id); return reply(410, {}) }
           return reply(200, { id: s.id, bytes: s.bytes, offset: s.offset, complete: s.complete })
         }
         if (Number(url.searchParams.get('offset')) !== s.offset) return reply(409, { offset: s.offset })
@@ -88,12 +90,24 @@ export default async function (rig) {
     await call({ action: 'drain' })
     proof.check('recovered message sends once', requests.sends === 2)
 
+    loseCompletion = true
+    const damaged = await call({ action: 'plan', bytes: 1024 })
+    await call({ action: 'attempt', id: damaged.id })
+    const oldSession = row(damaged.id).session_id
+    const createsBeforeDamage = requests.creates
+    statusGone = true
+    await call({ action: 'attempt', id: damaged.id })
+    proof.check('damaged session restarts with a new ID and completes', row(damaged.id).state === 'complete' &&
+      row(damaged.id).session_id !== oldSession && requests.creates === createsBeforeDamage + 1)
+    await call({ action: 'drain' })
+    proof.check('restarted attachment gates delivery until complete', requests.sends === 3)
+
     const missing = await call({ action: 'plan', bytes: 1234, missing: true })
     await call({ action: 'attempt', id: missing.id })
     await call({ action: 'drain' })
     const held = rig.one(`SELECT state,attachments FROM ot.org_inbox WHERE id=${missing.inbox}`)
     proof.check('missing snapshot holds all mail and keeps the attachment manifest', row(missing.id).state === 'failed' &&
-      held.state === 'queued' && held.attachments.length === 1 && requests.sends === 2, row(missing.id))
+      held.state === 'queued' && held.attachments.length === 1 && requests.sends === 3, row(missing.id))
     proof.note('This slice proves outgoing persistence/resume and send gating. Incoming workers, controls, failure notices and renderer remain separate slices.')
     proof.keep(rig, { grep: /transfer|upload/ })
     return proof.summary()
