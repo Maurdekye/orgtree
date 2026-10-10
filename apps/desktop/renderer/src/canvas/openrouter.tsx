@@ -35,7 +35,7 @@ import { useAppValue } from '../appfeed'
 // words go in `title`. `tests/orrkey_probe.py` measures this in a browser.
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import {
   clearOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
   setOpenRouterHarness, setOpenRouterKey,
@@ -45,7 +45,8 @@ import type {
   OpenRouterDoc, OpenRouterHarness, OpenRouterModel, OpenRouterModelsPage,
   OpenRouterSort, ProviderInfo, ProviderTier,
 } from '../types'
-import { capabilityNote, capabilityNotes, fmtCredits, isDarkTierColor, modelLabel, setOpenRouterTiers } from './shared'
+import { capabilityNote, capabilityNotes, fmtCredits, modelLabel, setOpenRouterTiers } from './shared'
+import { BrowserPager, BrowserSelected, ModelCard } from './modelbrowser'
 import { SetRow, SetToggle } from './settingskit'
 import { fmtHm, fmtMonth } from '../timefmt'
 
@@ -127,28 +128,8 @@ function standingOf(doc: OpenRouterDoc): string[] {
   return out
 }
 
-/** the monogram card: letter on colour. One element, styled through `--orr-c`
- *  so the sheet owns every derived shade (border, wash) from one value — plus
- *  `--orr-a`, the rim, on a DARK card whose vendor serves an accent (the
- *  brand palette, 2026-09-03): a near-black fill cannot carry identity, so
- *  the rim does. A light card never draws one; a malformed one is ignored. */
-export function ModelCard({ letter, color, accent, title, large }: {
-  letter: string
-  color: string
-  accent?: string | null
-  title?: string
-  large?: boolean
-}) {
-  const dark = isDarkTierColor(color)
-  const style: Record<string, string> = { '--orr-c': color }
-  if (dark && accent && /^#[0-9a-f]{6}$/i.test(accent)) style['--orr-a'] = accent
-  return (
-    <span className={'orr-card' + (large ? ' lg' : '') + (dark ? ' dark' : '')}
-      title={title} style={style as CSSProperties} aria-hidden={!title}>
-      {letter}
-    </span>
-  )
-}
+/** the monogram card (canvas/modelbrowser.tsx), still importable from here */
+export { ModelCard }
 
 /** the card's tooltip: the label the hire surfaces print, the full display
  *  name, the vendor (once — it is no longer part of either name), prices, seat */
@@ -477,8 +458,6 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
   useEffect(() => { inputRef.current?.focus() }, [])
 
   const total = page?.total ?? 0
-  const from = total ? offset + 1 : 0
-  const to = page ? Math.min(offset + page.items.length, total) : 0
   return (
     <PinFrame dialogLabel="OpenRouter model selection" kind="openrouter-picker" title="OpenRouter models" panel="settings orr-picker" close={onClose} pinnable={false}>
         <h3>OpenRouter models
@@ -486,26 +465,15 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
         {/* the SELECTED list: the same models the section's favorites row
             shows, here as editable chips — card, label, ✕. Order is the
             user's own (the doc's), so a chip stays where it was. */}
-        <div className="orr-selected" role="group" aria-label="selected models">
-          {!doc.tiers.length && (
-            <span className="dim">nothing selected yet — search below and select the models that can be hired</span>
-          )}
-          {doc.tiers.map((t) => {
+        <BrowserSelected busy={busy}
+          empty="nothing selected yet — search below and select the models that can be hired"
+          removeVerb="deselect"
+          removeTitle="deselect — it can no longer be hired; agents already on it keep running"
+          chips={doc.tiers.map((t) => {
             const label = t.label ?? modelLabel(t.model)
-            return (
-              <span key={t.tier} className="orr-sel" title={tierTitle(t)}>
-                <ModelCard letter={t.letter} color={t.color ?? '#9aa0a6'} accent={t.accent} />
-                <span className="orr-sel-name">{label}</span>
-                <button type="button" className="orr-sel-x" disabled={busy}
-                  aria-label={`deselect ${label}`}
-                  title="deselect — it can no longer be hired; agents already on it keep running"
-                  onClick={() => onToggle({ id: t.model, name: t.name ?? label }, false)}>
-                  <CloseIcon fontSize="inherit" />
-                </button>
-              </span>
-            )
-          })}
-        </div>
+            return { key: t.tier, letter: t.letter, color: t.color ?? '#9aa0a6', accent: t.accent, label,
+              title: tierTitle(t), onRemove: () => onToggle({ id: t.model, name: t.name ?? label }, false) }
+          })} />
         <input ref={inputRef} className="orr-search" type="search"
           placeholder="search the catalog — name, vendor, id…"
           aria-label="search OpenRouter models"
@@ -634,14 +602,8 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
             )
           })}
         </div>
-        <div className="orr-pager">
-          <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
-            ‹ prev</button>
-          <button disabled={!page || to >= total} onClick={() => setOffset(offset + PAGE)}>
-            next ›</button>
-          <span className="dim">{total ? `${from}–${to} of ${total}` : ''}</span>
-          <button className="primary" type="button" onClick={onClose}>done</button>
-        </div>
+        <BrowserPager offset={offset} size={PAGE} shown={page ? page.items.length : null} total={total}
+          onOffset={setOffset} onDone={onClose} />
     </PinFrame>
   )
 }
