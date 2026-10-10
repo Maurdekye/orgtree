@@ -126,10 +126,11 @@ test('mail hosting speaks the hub\'s own model, warns on exposure, and retains e
       keep.value = 'days'; keep.dispatchEvent(new Event('change', { bubbles: true }))
     })
     await type(v.el.querySelector<HTMLInputElement>('[aria-label="Days to keep mail"]')!, '45')
-    await inAct(() => { v.el.querySelector<HTMLInputElement>('[aria-label="Serve the relay-only public listener"]')!.click() })
+    // (the relay-only public listener moved to the phone-link panel, canvas/phonelink.tsx)
     await click(v.el, 'Save hosting settings')
     assert.deepEqual(writes[0], { version: 2, port: 7380, bind: '0.0.0.0',
-      name: 'office desk', retention_days: 45, public_listener: true })
+      name: 'office desk', retention_days: 45, public_listener: false,
+      max_attachment_bytes: 1073741824 })
     assert.match(v.el.textContent!, /Running at http:\/\/127\.0\.0\.1:7380/)
     assert.equal(localStorage.length, 0)
     fail = true

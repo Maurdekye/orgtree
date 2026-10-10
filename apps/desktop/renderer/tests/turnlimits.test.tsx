@@ -32,14 +32,14 @@ test('shows stored values, writes the exact keys, and off sends 0', async t => {
   assert.equal(q<HTMLInputElement>('Silence limit amount').value, '10')
   assert.equal(q<HTMLSelectElement>('Silence limit unit').value, 'minutes')
 
-  await inAct(() => { q<HTMLInputElement>('Silence limit off').click() }); await flush()
+  await inAct(() => { q<HTMLInputElement>('Silence limit').click() }); await flush()
   assert.deepEqual(bodies.at(-1), { turn_idle_s: 0 })
   assert.equal(q<HTMLInputElement>('Silence limit amount').disabled, true)
 
-  await inAct(() => { q<HTMLInputElement>('Total limit off').click() }); await flush()
+  await inAct(() => { q<HTMLInputElement>('Total limit').click() }); await flush()
   assert.deepEqual(bodies.at(-1), { turn_timeout_s: 0 })
 
-  await inAct(() => { q<HTMLInputElement>('Total limit off').click() }); await flush()
+  await inAct(() => { q<HTMLInputElement>('Total limit').click() }); await flush()
   assert.deepEqual(bodies.at(-1), { turn_timeout_s: 86400 })
 
   const amount = q<HTMLInputElement>('Total limit amount')
