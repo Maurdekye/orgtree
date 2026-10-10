@@ -5775,26 +5775,34 @@ svg.MuiSvgIcon-root {
   border-radius: 8px; padding: 8px 11px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
 }
-.effort-switch {
-  display: inline-flex; align-items: center; gap: 8px; flex: none;
-  align-self: center;
+/* the effort selector (canvas/effortbar.tsx): one bar; the whole track takes
+   the press, and the fill left of the level wears the provider colour */
+.effort-bar { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; flex: none; align-self: center; }
+.effort-bar-label { font-size: 11px; color: var(--dim); white-space: nowrap; text-align: center; }
+.effort-bar-track {
+  position: relative; width: 132px; height: 24px; cursor: pointer; touch-action: none;
+  border-radius: 6px; outline: none; user-select: none;
 }
-.eff-label { font-size: 11px; color: var(--dim); white-space: nowrap; }
-.eff-track { display: inline-flex; align-items: center; gap: 5px; }
-.eff-dot {
-  width: 7px; height: 7px; border-radius: 50%; padding: 0; border: none;
-  background: #4d4d4d; cursor: pointer; flex: none;
+.effort-bar.compact .effort-bar-track { width: 96px; height: 100%; min-height: 24px; }
+.effort-bar.compact { flex-direction: row; align-self: stretch; }
+.effort-bar-track:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--provider-accent, var(--accent)) 55%, transparent); }
+.effort-bar.disabled .effort-bar-track { cursor: default; opacity: .5; }
+.effort-bar-rail, .effort-bar-fill {
+  position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px;
 }
-.eff-dot.below { background: #6e6e6e; }
-.eff-dot:hover { background: var(--ink); }
-.eff-dot.on {
-  width: 13px; height: 13px; background: #d9d9e8;
-  box-shadow: 0 0 0 1px var(--line);
+.effort-bar-rail { left: 8px; right: 8px; background: #3f3f46; }
+.effort-bar-fill { left: 8px; background: var(--provider-accent, var(--accent)); }
+.effort-bar.inherited .effort-bar-fill { opacity: .45; }
+.effort-bar-dot {
+  position: absolute; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
+  background: #5a5a63; pointer-events: none;
 }
-/* the track is lit by INHERITANCE, not by a choice made here — same position,
-   quieter fill, so "this is where you sit" and "you chose this" stay distinct */
-.eff-dot.faint { opacity: 0.55; }
-.eff-dot.faint:hover { opacity: 1; }
+.effort-bar-dot.below { background: var(--provider-accent, var(--accent)); }
+.effort-bar-dot.on {
+  width: 14px; height: 14px; margin: -7px 0 0 -7px; background: #d9d9e8;
+  box-shadow: 0 0 0 2px var(--panel-2, #1d1d22), 0 0 0 3px var(--provider-accent, var(--accent));
+}
+.effort-bar-track:hover .effort-bar-dot.on, .effort-bar.dragging .effort-bar-dot.on { background: #fff; }
 
 /* №12: read-only bearer transcript inside the lineage panel */
 .lin-read {

@@ -14,7 +14,8 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
-import { EFFORT_CHANGE_HELP, EFFORT_LEVELS, effortChangeToast, EffortLevelBadge } from './effort'
+import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge } from './effort'
+import { EffortBar } from './effortbar'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -5017,25 +5018,12 @@ function EffortSwitch({ value, level, why, onSet }:
   // node's own setting — clicking an unpinned dot pins it rather than clearing
   // nothing. `why` is the caller's one description of where the level came
   // from, so the button and the popover can never word it differently.
-  const pinned = EFFORT_LEVELS.indexOf(value)
-  const idx = pinned >= 0 ? pinned : EFFORT_LEVELS.indexOf(level)
   return (
-    <span className="effort-switch"
+    <EffortBar value={value} level={level}
+      label={`Effort${level ? ` (${level}${value ? '' : ` — ${why}`})` : ''}`}
       title={`thinking effort — ${level || 'unset'} (${why})`
-        + `; click a dot to set, click the active dot to clear back to inherit. ${EFFORT_CHANGE_HELP}`}>
-      <span className="eff-label">Effort{level
-        ? ` (${level}${value ? '' : ` — ${why}`})` : ''}</span>
-      <span className="eff-track">
-        {EFFORT_LEVELS.map((l, i) => (
-          <button key={l} type="button"
-            className={'eff-dot' + (i === idx ? ' on' : '')
-              + (idx >= 0 && i < idx ? ' below' : '')
-              + (pinned < 0 ? ' faint' : '')}
-            title={l}
-            onClick={() => onSet(i === pinned ? '' : l)} />
-        ))}
-      </span>
-    </span>
+        + `; click or drag along the bar to set, click the active level to clear back to inherit. ${EFFORT_CHANGE_HELP}`}
+      onSet={onSet} />
   )
 }
 
