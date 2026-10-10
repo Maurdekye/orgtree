@@ -282,8 +282,10 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
         let provider = catalog::provider_of(row["tier"].as_str().unwrap_or("")).to_string();
         row["provider"] = json!(provider);
         row["account_binding"]["provider"] = json!(provider);
+        // the folders are the effective ones, as its CLI is started with them
         row["scope"] = json!({"org_visibility":effective["org_visibility"], "permission_mode":effective["permission_mode"],
-            "tools": {"bash":effective["tools"]["bash"],"web":effective["tools"]["web"],"edit":effective["tools"]["edit"],"subagents":effective["tools"]["subagents"]}, "mcp":effective["tools"]["mcp"]});
+            "tools": {"bash":effective["tools"]["bash"],"web":effective["tools"]["web"],"edit":effective["tools"]["edit"],"subagents":effective["tools"]["subagents"]}, "mcp":effective["tools"]["mcp"],
+            "add_dirs": effective["add_dirs"]});
         row["visibility"] = effective["org_visibility"].clone();
         out.push(row);
     }

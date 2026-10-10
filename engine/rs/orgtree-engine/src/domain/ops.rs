@@ -1961,6 +1961,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         authorize(tx, actor, &n, "retool").await?;
     }
     let mut sc = scope::normalize(&n.scope);
+    let dirs_before = sc["add_dirs"].as_array().cloned().unwrap_or_default();
     let o = sc.as_object_mut().unwrap();
     if let Some(d) = req.get("add_dirs").filter(|v| v.is_array()) {
         o.insert("add_dirs".into(), scope::normalize(&json!({ "add_dirs": d }))["add_dirs"].clone());
@@ -2014,6 +2015,9 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         o.iter().all(|(k, v)| ["op", "node", "effort"].contains(&k.as_str()) || v.is_null())
     });
     let mut cascaded = Vec::new();
+    // the folders each raised ancestor gained, and each descendant lost
+    let mut raised_dirs = Vec::new();
+    let mut clamped = Vec::new();
     if granted.as_object().is_some_and(|o| !o.is_empty()) {
         let ancestors = chain(tx, n.id).await?;
         let mut below_actor = matches!(actor, Actor::User);
@@ -2024,6 +2028,11 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             if raised != scope::normalize(&a.scope) {
                 tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&raised]).await?;
                 cascaded.push(a.name.clone());
+                let diff = scope::dirs_diff(scope::normalize(&a.scope)["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default(),
+                    raised["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default());
+                if scope::dirs_changed(&diff) {
+                    raised_dirs.push(json!({ "node": a.name, "added": diff["added"], "changed": diff["changed"] }));
+                }
                 fx.agents.insert(a.id);
                 fx.reconfigure.push(a.id);
                 let descendants = subtree(tx, a.id).await?;
@@ -2067,8 +2076,14 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             let child = node_by_id(tx,*id).await?;
             let Some(parent) = child.parent.and_then(|id| effective.get(&id)) else { refuse!(Conflict,"scope subtree changed during retool"); };
             let bounded = scope::clamp(&child.scope,parent);
-            if bounded != scope::normalize(&child.scope) {
+            let stored = scope::normalize(&child.scope);
+            if bounded != stored {
                 tx.execute("UPDATE ot.agents SET scope=$2,row_version=row_version+1 WHERE id=$1", &[id,&bounded]).await?;
+                let diff = scope::dirs_diff(stored["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default(),
+                    bounded["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default());
+                if scope::dirs_changed(&diff) {
+                    clamped.push(json!({ "node": child.name, "removed": diff["removed"], "changed": diff["changed"] }));
+                }
             }
             effective.insert(*id,bounded);
         }
@@ -2081,7 +2096,26 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     fx.events = true;
     let mut out = account_result.unwrap_or_else(|| json!({}));
     out["cascaded"] = json!(cascaded);
-    if !cascaded.is_empty() { out["warnings"] = json!([format!("cascaded permission increase to agents {}", cascaded.join(", "))]); }
+    let mut warnings = Vec::new();
+    if !cascaded.is_empty() { warnings.push(format!("cascaded permission increase to agents {}", cascaded.join(", "))); }
+    if req.get("add_dirs").is_some_and(Value::is_array) {
+        out["folders"] = scope::dirs_diff(&dirs_before, sc["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default());
+    }
+    if !raised_dirs.is_empty() { out["raised"] = json!(raised_dirs); }
+    if !clamped.is_empty() {
+        let lost: Vec<String> = clamped.iter().map(|c| {
+            let count = |k: &str| c[k].as_array().map_or(0, Vec::len);
+            let what = match (count("removed"), count("changed")) {
+                (r, 0) => format!("{r} removed"),
+                (0, ch) => format!("{ch} made read-only"),
+                (r, ch) => format!("{r} removed, {ch} made read-only"),
+            };
+            format!("{} ({what})", c["node"].as_str().unwrap_or(""))
+        }).collect();
+        warnings.push(format!("folders taken from agents beneath {}: {}", n.name, lost.join(", ")));
+        out["clamped"] = json!(clamped);
+    }
+    if !warnings.is_empty() { out["warnings"] = json!(warnings); }
     out["node"] = json!(n.name);
     Ok(out)
 }

@@ -137,6 +137,34 @@ pub fn clamp_dirs(dirs: &[Value], ceiling: &[Value]) -> Vec<Value> {
     out
 }
 
+/// What changed from one folder list to another, matched by normalized path:
+/// `{added: [{path, mode}], changed: [{path, from, to}], removed: [{path, mode}]}`.
+#[logged]
+pub fn dirs_diff(before: &[Value], after: &[Value]) -> Value {
+    let key = |d: &Value| norm_path(d["path"].as_str().unwrap_or(""));
+    let mode = |d: &Value| if d["mode"] == "ro" { "ro" } else { "rw" };
+    let (mut added, mut changed, mut removed) = (Vec::new(), Vec::new(), Vec::new());
+    for a in after {
+        match before.iter().find(|b| key(*b) == key(a)) {
+            None => added.push(json!({ "path": a["path"], "mode": mode(a) })),
+            Some(b) if mode(b) != mode(a) => changed.push(json!({ "path": a["path"], "from": mode(b), "to": mode(a) })),
+            Some(_) => {}
+        }
+    }
+    for b in before {
+        if !after.iter().any(|a| key(a) == key(b)) {
+            removed.push(json!({ "path": b["path"], "mode": mode(b) }));
+        }
+    }
+    json!({ "added": added, "changed": changed, "removed": removed })
+}
+
+/// Does a `dirs_diff` record any change?
+#[logged]
+pub fn dirs_changed(diff: &Value) -> bool {
+    ["added", "changed", "removed"].iter().any(|k| diff[*k].as_array().is_some_and(|a| !a.is_empty()))
+}
+
 pub fn clamp_tools(child: &Value, parent: &Value) -> Value {
     let both = |k: &str| {
         child.get(k).and_then(Value::as_bool).unwrap_or(true) && parent.get(k).and_then(Value::as_bool).unwrap_or(true)
@@ -244,4 +272,21 @@ pub fn raise(current: &Value, wanted: &Value) -> Value {
         out["org_visibility"] = want["org_visibility"].clone();
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dirs_diff_matches_paths_and_reports_modes() {
+        let before = vec![json!({ "path": "E:\\A", "mode": "rw" }), json!({ "path": "E:\\B", "mode": "rw" })];
+        let after = vec![json!({ "path": "E:/B", "mode": "ro" }), json!({ "path": "E:\\C" })];
+        let d = dirs_diff(&before, &after);
+        assert_eq!(d["added"], json!([{ "path": "E:\\C", "mode": "rw" }]));
+        assert_eq!(d["changed"], json!([{ "path": "E:/B", "from": "rw", "to": "ro" }]));
+        assert_eq!(d["removed"], json!([{ "path": "E:\\A", "mode": "rw" }]));
+        assert!(dirs_changed(&d));
+        assert!(!dirs_changed(&dirs_diff(&before, &before)));
+    }
 }

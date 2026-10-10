@@ -199,7 +199,8 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_state_inspect",
-            "Structured state of agents within your visibility (no prompts, transcripts or mail).",
+            "Structured state of agents within your visibility, including the folders, tools and permission mode each \
+             one runs with (no prompts, transcripts or mail).",
             json!({
                 "node": { "type": "string" },
                 "nodes": { "type": "array", "items": { "type": "string" } },
