@@ -17,7 +17,8 @@ published automatically.
      asset set.
 3. **macos** (`build-macos.yml`, macos-15) and **linux** (`build-linux.yml`,
    ubuntu-22.04): the unsigned macOS and Linux prototypes, each with a launch smoke
-   on its runner. See [macOS and Linux](#macos-and-linux-prototypes).
+   on its runner; the Linux build also checks its update feed and updates an
+   installed AppImage to a newer one. See [macOS and Linux](#macos-and-linux-prototypes).
 4. **stage**: checks the whole asset set and writes `SHA256SUMS.txt`. Every
    platform must build; a release never goes out with one silently missing.
 5. **draft**: `gh release create --draft` with the assets.
@@ -34,6 +35,7 @@ Linux files, and `SHA256SUMS.txt`:
 | `engine-hashes.json`, `packaged-hashes.json` | hashes of the engine sources and of the packaged runtime |
 | `Orgtree-<v>-arm64.dmg`, `Orgtree-<v>-arm64.zip` | macOS (Apple Silicon), the same app as a disk image and as a zip |
 | `Orgtree-<v>.AppImage`, `orgtree_<v>_amd64.deb` | Linux (x86_64): a portable AppImage and an Ubuntu/Debian package |
+| `latest-linux.yml` (`beta-linux.yml`/`alpha-linux.yml` for a prerelease) | the AppImage's updater feed: version, size and SHA-512 of the AppImage, and the size of the blockmap embedded in it |
 | `build-info-macos.json`, `build-info-linux.json` | the macOS and Linux builds' `build-info.json` |
 | `SHA256SUMS.txt` | the SHA-256 of every file above |
 
@@ -135,7 +137,7 @@ gh release edit vX -R Maurdekye/orgtree --draft=false --latest
 gh release edit vX -R Maurdekye/orgtree --draft=false --prerelease --latest=false
 ```
 
-Publishing starts the **verify-release** workflow. It downloads every public asset as an installed app would and checks it against `SHA256SUMS.txt`, the updater feed and the tag, and it checks that GitHub's "latest" release is the right one. A red run means: roll back (below). To check a release again: `gh workflow run verify-release.yml -f tag=<tag>`.
+Publishing starts the **verify-release** workflow. It downloads every public asset as an installed app would and checks it against `SHA256SUMS.txt`, the updater feeds (`latest.yml` and, from the first release that has it, `latest-linux.yml` with its embedded blockmap) and the tag, and it checks that GitHub's "latest" release is the right one. A red run means: roll back (below). To check a release again: `gh workflow run verify-release.yml -f tag=<tag>`.
 
 ## Rolling back
 
@@ -181,12 +183,14 @@ Ubuntu 22.04's glibc 2.35 (inferred).
   Ubuntu 22.04). `chrome-sandbox` is not setuid, so the sandbox uses unprivileged user
   namespaces. On Ubuntu 24.04 the package installs the AppArmor profile that allows
   them (inferred, not run).
-- AppImage: `chmod +x Orgtree-<v>.AppImage`, then run it. It needs FUSE 2:
+- AppImage: `chmod +x Orgtree-<v>.AppImage`, then run it, from a folder you own such
+  as `~/Applications` (it updates itself there, see below). It needs FUSE 2:
   `sudo apt install libfuse2` (Ubuntu 22.04) or `libfuse2t64` (24.04). Without it,
-  run `./Orgtree-<v>.AppImage --appimage-extract-and-run`. The runner used
-  extract-and-run, so the FUSE route is inferred. On Ubuntu 24.04 the AppImage
-  probably also needs `--no-sandbox`, since it can't bring an AppArmor profile
-  (inferred); use the `.deb` there.
+  run `./Orgtree-<v>.AppImage --appimage-extract-and-run`. The update test runs it
+  with FUSE (measured on the runner). Where unprivileged user namespaces are
+  restricted (a stock Ubuntu 24.04), the launcher electron-builder puts in the
+  AppImage adds `--no-sandbox` by itself when `unshare -Ur true` fails (read from
+  electron-builder 26.15.3; the runner allows user namespaces, so not exercised).
 - For a prerelease such as `X.Y.Z-beta.N`, Debian's version inside the package reads
   `X.Y.Z~beta.N`; the file name keeps the hyphen.
 - Data folder: `~/.config/Orgtree v2`, or under `$XDG_CONFIG_HOME` if that is set
@@ -219,7 +223,23 @@ with nvm, volta, an npm prefix, bun or Linuxbrew are found. A changed PATH or ap
 location rewrites the registration at the next launch and restarts the engine onto it
 (inferred from code). If registration fails, the app starts its own engine as before,
 with the PATH it was opened with; a macOS app opened from Finder gets a minimal one
-(inferred).
+(inferred). In a session without a D-Bus session bus, Electron sets
+`DBUS_SESSION_BUS_ADDRESS=disabled:` inside the app, which makes `systemctl --user`
+fail (measured on the runner); the app then runs every `systemctl --user` call without
+that variable.
+
+**Linux updates (the AppImage only).** An AppImage started from its file reads
+`latest-linux.yml` from the latest GitHub release, as the Windows app reads
+`latest.yml`. It downloads a newer version differentially: only the blocks that
+changed, found by comparing the blockmaps embedded in the old and the new AppImage. It
+applies the update on the same automatic path as Windows: when no agent is busy and
+nobody has touched the keyboard or mouse for 60 s, or from "Update now". The
+background engine stops first. Then the new file is copied next to the old one and
+renamed over it, so the AppImage keeps its path, and launchers and the systemd unit
+keep working. Last, the new version starts and brings the background engine back. A
+folder the user can't write is refused before anything stops. The `.deb` has no
+updater: install a new one with apt. On macOS the updater would need a Developer ID
+signature, so updates there stay manual.
 
 **What every macOS and Linux build proves** (after packaging, on the packaged engine):
 - Engine unit tests: `cargo test --release -p orgtree-engine --bin orgtree-engine --
@@ -246,10 +266,32 @@ with the PATH it was opened with; a macOS app opened from Finder gets a minimal 
 - Every app smoke (AppImage, `.deb`, the macOS app) ends with SIGTERM to the engine
   (macOS: `launchctl bootout` of the background engine first) and requires no hub left
   running and port 7370 free (`.github/ci/unix/hub-gone.sh`).
+- Linux: the update feed (`.github/ci/linux/check-update-feed.mjs`): `latest-linux.yml`
+  names the AppImage with its exact size and SHA-512, and its `blockMapSize` is the
+  blockmap embedded at the end of the AppImage, which must cover every byte before it.
+- Linux: the AppImage updates itself (`.github/ci/linux/update-test.sh`):
+  - **Setup:** this commit is packaged twice, as N = X.Y.Z and N+1 = X.Y.(Z+1), with
+    a loopback feed in place of GitHub's. Nothing else is changed in the app.
+  - **Install:** N goes to `~/Applications/Orgtree-<N>.AppImage` and starts with FUSE,
+    a virtual display and systemd --user. There is no agent CLI, so the "No agent
+    harness" notice stays open throughout.
+  - **The update itself:** nothing is clicked. The app's own automatic path does the
+    rest.
+  - **Passes when:**
+    - the file at that path is N+1 and no staged copy is left;
+    - one desktop, the background engine's host (a systemd unit) and the engine all
+      run from N+1, and nothing of N runs;
+    - the engine answers;
+    - N's desktop exited cleanly;
+    - `update-log.json` records the in-place handoff and the relaunch.
+  - **Also reported:** whether the download was differential, and every `systemctl`
+    call the app made.
 
 **Not there yet** (both platforms):
-- No automatic updates. The app doesn't offer them on macOS or Linux; download each
-  new version by hand.
+- No automatic updates on macOS or for the Linux `.deb`; download those by hand. The
+  Linux AppImage updates itself from the first release that has `latest-linux.yml`
+  (see [Linux updates](#macos-and-linux-prototypes)); getting to that release from
+  4.1.x is still a manual download.
 - No Git credential bridge: the exchange answers "unavailable" outside Windows. Agents
   run as the user and use the user's own Git credential helper (inferred).
 - No Claude usage readings on macOS: `usage.rs` reads the token from
