@@ -114,13 +114,16 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
  * Disappearing active rows and rows removed from an enabled group expire. */
 export function useSelectedWork(scope: string, id: string | null,
                                 current: WorkItem | undefined,
-                                archive: boolean, backlog: boolean) {
+                                archive: boolean, backlog: boolean, searching = false) {
   const retained = useRef<{ scope: string; item: WorkItem } | null>(null)
   if (current) retained.current = { scope, item: current }
   else {
     const old = retained.current
+    // a search that hides the selected row keeps it in the detail pane: the reader searches without losing what they
+    // are reading (the search is a server request now, so the row simply is not in the loaded page)
+    const hiddenBySearch = searching && old?.scope === scope && old.item.slug === id
     if (!old || old.scope !== scope || old.item.slug !== id
-        || !(old.item.archived ? !archive : old.item.status === 'backlogged' && !backlog)) {
+        || (!hiddenBySearch && !(old.item.archived ? !archive : old.item.status === 'backlogged' && !backlog))) {
       retained.current = null
     }
   }

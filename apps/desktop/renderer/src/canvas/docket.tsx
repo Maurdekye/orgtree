@@ -1041,7 +1041,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   }, [active, data?.references, data?.archived, data?.backlogged])
   const selected = allKnown.get(selId ?? '') ?? (located?.slug === slug
     && located.item.slug === selId ? located.item : undefined)
-  const cur = useSelectedWork(slug, selId, selected, showArchived, showBacklog)
+  const cur = useSelectedWork(slug, selId, selected, showArchived, showBacklog, query.trim() !== '')
   useEffect(() => {
     if (located && (located.slug !== slug || located.item.slug !== selId
         || allKnown.has(located.item.slug))) setLocated(null)
