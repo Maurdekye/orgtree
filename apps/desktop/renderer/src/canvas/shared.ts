@@ -300,7 +300,9 @@ export const langserverTierCss = (tiers: ProviderTier[]): string => tiers
   .filter((t) => LS_TIER_RE.test(t.tier))
   .map((t) => {
     const id = t.tier
-    const c = 'var(--prov-langserver)'
+    // the tier identity colour, gold in every theme (the lane ACCENT,
+    // --prov-langserver, deepens on light surfaces: styles.css)
+    const c = 'var(--tier-langserver)'
     const mix = (pct: number) => `color-mix(in srgb, ${c} ${pct}%, var(--line))`
     return [
       `.tier.t-${id}{color:${c};border-color:${mix(45)}}`,

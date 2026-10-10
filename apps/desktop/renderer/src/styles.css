@@ -8020,13 +8020,29 @@ main:has(> .orgbar.native-header) > .error {
 .answered-skipped { font-size: 11px; }
 /* ── THE LANGUAGE SERVER LANE (2026-10-10) ────────────────────────────────
    Agents on the user's own model servers (App settings → Providers →
-   Language Server). One lane colour, gold: clear of claude's terracotta,
-   codex's teal, antigravity's blue and openrouter's violet under normal
-   vision. Not checked under colour-vision deficiency yet (terracotta is the
-   nearest neighbour); the user decides the final value. The per-tier chip
-   and card-edge rules are GENERATED (shared.ts `langserverTierCss`), since
-   the tiers are the models the user offers on their servers. */
-:root { --prov-langserver: #d6a823; }
+   Language Server). One lane colour, gold, kept by coordinator ruling
+   2026-10-10 on condition that its contrast passes in both themes. The
+   per-tier chip and card-edge rules are GENERATED (shared.ts
+   `langserverTierCss`), since the tiers are the models the user offers.
+   ⚠ MEASURED (WCAG 2, 2026-10-10). On the dark surfaces the gold reads at
+   5.88–9.48:1 (charcoal and obsidian bg/panel/panel-2/input). On the light
+   ones it FAILED, at 1.71–2.21:1, and white text on a gold fill fails
+   everywhere (2.21:1). No single colour can pass 4.5:1 on #252526 and on
+   #ffffff at once, so:
+   - --tier-langserver is the identity colour of the tier chips and card
+     edges. It stays gold in every theme, like every other tier colour (the
+     chips keep a dark backing on light surfaces: 5.88:1).
+   - --prov-langserver is the lane ACCENT that paints desk text, badges and
+     borders. On the light surfaces it is the same hue deepened, #4d3a02:
+     8.43:1 or more on every light and solarized surface, and ΔE 20.4 from
+     the light --warn #805b0b. The plain darker gold sits on --warn.
+   - --prov-langserver-ink is the text on an accent fill: dark on the gold
+     (7.95:1), white on the deep gold (10.93:1).
+   Not acted on (the gold was ruled): #d6a823 is ΔE 12.2 from --tier-fable
+   #e8b04b (floor 15) and 5.8 under tritanopia (floor 8). #cda206, ΔE 4.3
+   from it, would clear both. */
+:root { --prov-langserver: #d6a823; --tier-langserver: #d6a823; --prov-langserver-ink: #17191d; }
+:root:is(.contrast-light, .contrast-solarized-light) { --prov-langserver: #4d3a02; --prov-langserver-ink: #ffffff; }
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
   .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
   .tab-count, .badge, .mailbtn .count).prov-langserver {
@@ -8059,12 +8075,17 @@ main:has(> .orgbar.native-header) > .error {
   --accent: var(--prov-langserver);
   --accent-soft: color-mix(in srgb, var(--prov-langserver) 16%, transparent);
   --accent-hover: color-mix(in srgb, var(--prov-langserver) 82%, white);
+  /* the text on an accent fill (white on the gold is 2.21:1) */
+  --accent-ink: var(--prov-langserver-ink);
+  --agent-accent-ink: var(--prov-langserver-ink);
 }
+/* Stop stays the red destructive action with its white text */
+:is(.sq, .desk-body).prov-langserver .cc-send.stop { --agent-accent-ink: initial; }
 .proc-state.active.prov-langserver { --process-accent: var(--prov-langserver); }
 .cc-spin.prov-langserver { color: var(--prov-langserver); }
 .eye-count.prov-langserver { background: color-mix(in srgb, var(--prov-langserver) 42%, var(--panel-2)); }
 .tab-count.prov-langserver { color: var(--agent-accent-text, var(--prov-langserver)); font-weight: 700; }
-.mailbtn .count.prov-langserver { background: var(--prov-langserver); }
+.mailbtn .count.prov-langserver { background: var(--prov-langserver); --agent-accent-ink: var(--prov-langserver-ink); }
 .badge.prov-langserver { color: var(--agent-accent-text, var(--prov-langserver)); border-color: color-mix(in srgb, var(--prov-langserver) 45%, var(--line)); }
 .edge-jump.prov-langserver, .desk-nav-chip.prov-langserver {
   --accent: var(--prov-langserver);
@@ -8094,3 +8115,8 @@ main:has(> .orgbar.native-header) > .error {
 .ls-model-facts { font-size: 11.5px; }
 .ls-window { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 .ls-window input { width: 7.5em; font-size: 12px; padding: 3px 6px; }
+/* "Create a 64K version of this model": its own line under the model, with
+   what it adds to the user's Ollama said beside it */
+.ls-variant { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 2px 0 0 21px; font-size: 11.5px; }
+.ls-variant .mono { font-size: 11px; }
