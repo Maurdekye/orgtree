@@ -29,6 +29,7 @@ import {
   advance, FakeServer, flush, inAct, installFetch, mountView, realClock,
   useFakeClock,
 } from './harness'
+import { MOVED, flatLabels, openBranchOf, pickIn, surveyMenu } from './menuhelp'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -119,16 +120,19 @@ async function rightClick(el: Element, at: { x: number; y: number } = { x: 40, y
   })
   await inAct(() => { el.dispatchEvent(ev) })
   await flush(2)
+  if (menuEl()) await surveyMenu()
   return ev.defaultPrevented
 }
 const menuEl = () => document.querySelector('.ctxmenu') as HTMLElement | null
-const labels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
-  .map((b) => (b as HTMLButtonElement).textContent ?? '')
+const labels = () => flatLabels()
 const itemNamed = (label: string) => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
   .find((b) => b.textContent === label) as HTMLButtonElement | undefined
 /** choosing an entry, as the browser delivers it: the press lands FIRST (this
  *  is what the Agents List's click-away rule sees), then the click. */
 async function pick(label: string) {
+  const moved = MOVED[label]
+  if (moved) { await pickIn(moved[0], moved[1]); await flush(2); return }
+  await openBranchOf(label)
   const b = itemNamed(label)
   assert.ok(b, `menu item "${label}" present — have ${JSON.stringify(labels())}`)
   await inAct(() => {
@@ -207,10 +211,11 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     // catch a change made to both surfaces at once; this can.
     assert.deepEqual(have, [
       // User 2026-09-30: only Focus and Open desk swap; all other slots stay.
-      'Copy agent name', 'Focus', 'Open desk', 'Open inbox', 'Open docket',
-      'Open team docket',
-      'Pin desk as a window', 'Open desk in a new window',
-      'Hire a subordinate…', 'Retire…', 'Settings',
+      // 4.2: the entries group under branches (Open ▸, Hire a subordinate ▸); '· ' marks a branch's entry
+      'Copy agent name', 'Focus', 'Hire a subordinate ▸',
+      'Open ▸', '· Open desk', '· Open desk in a new window', '· Pin desk as a window',
+      '· Open inbox', '· Open docket', '· Open team docket',
+      'Settings', 'Cheap compact…', 'Halt…', 'Retire…',
     ], 'the agent menu, in order')
   })
 
@@ -231,11 +236,11 @@ uiTest('§2 an agent with live reports offers Dissolve on BOTH surfaces, and nev
     const c = await mountCanvas(t, [mkNode('boss', { children: [mkNode('kid', { parent: 'boss' })] })])
     await openTray(c.el)
     const have = await assertParity(c, 'boss', 'a superior with live reports')
-    assert.ok(have.includes('Dissolve suborganization…'), JSON.stringify(have))
+    assert.ok(have.includes('Dissolve… ▸'), JSON.stringify(have))
     assert.ok(!have.includes('Retire…'), 'one lifecycle entry, not two')
     // and the report itself is an ordinary row, one level in
     const kid = await assertParity(c, 'kid', 'the report')
-    assert.ok(kid.includes('Retire…') && !kid.includes('Dissolve suborganization…'))
+    assert.ok(kid.includes('Retire…') && !kid.includes('Dissolve… ▸'))
   })
 
 uiTest('§2b an ARCHIVED row keeps the menu and loses exactly what the archived card loses',
@@ -248,9 +253,9 @@ uiTest('§2b an ARCHIVED row keeps the menu and loses exactly what the archived 
     await inAct(() => { arch!.click() })
     await flush(2)
     const have = await assertParity(c, 'gone', 'a retired agent')
-    assert.ok(have.includes('Open inbox') && have.includes('Settings'),
+    assert.ok(have.includes('· Open inbox') && have.includes('Settings'),
       `a retired seat is still readable — have ${JSON.stringify(have)}`)
-    for (const gone of ['Retire…', 'Dissolve suborganization…', 'Hire a subordinate…']) {
+    for (const gone of ['Retire…', 'Dissolve… ▸', 'Hire a subordinate ▸']) {
       assert.ok(!have.includes(gone), `a retired seat cannot ${gone}`)
     }
   })
@@ -266,10 +271,10 @@ uiTest('§2c documents and lineage add their entries to the row exactly as they 
     ])
     await openTray(c.el)
     const rich = await assertParity(c, 'rich', 'an agent with documents and a lineage')
-    assert.ok(rich.includes('Open presentations') && rich.includes('Show lineage'),
-      JSON.stringify(rich))
+    // (no lineage entry: 4.x has no lineage nodes, PLAN §10)
+    assert.ok(rich.includes('· Open presentations'), JSON.stringify(rich))
     const plain = await assertParity(c, 'plain', 'an agent with neither')
-    assert.ok(!plain.includes('Open presentations') && !plain.includes('Show lineage'),
+    assert.ok(!plain.includes('· Open presentations'),
       'the entries are gated on the node, not on the surface')
   })
 
@@ -279,8 +284,8 @@ uiTest('§2d a PINNED desk swaps the pin entry for "Show pinned window" on both 
     const c = await mountCanvas(t, [mkNode('worker')])
     await openTray(c.el)
     const have = await assertParity(c, 'worker', 'a pinned desk')
-    assert.ok(have.includes('Show pinned window'), JSON.stringify(have))
-    assert.ok(!have.includes('Pin desk as a window'), 'it is already pinned')
+    assert.ok(have.includes('· Show pinned window'), JSON.stringify(have))
+    assert.ok(!have.includes('· Pin desk as a window'), 'it is already pinned')
   })
 
 uiTest('§2e a CROWD-piled agent offers no hire on either surface, and a piled-away row still has its menu',
@@ -299,14 +304,14 @@ uiTest('§2e a CROWD-piled agent offers no hire on either surface, and a piled-a
     assert.equal(buried.length, ids.length - 1, 'and the rest have no card at all')
     // the front still has a card, so it is a true parity case
     const have = await assertParity(c, shown[0]!, 'a pile front')
-    assert.ok(!have.includes('Hire a subordinate…'),
+    assert.ok(!have.includes('Hire a subordinate ▸'),
       'a pile front hires nowhere — its edges are the stack')
     // a piled-AWAY agent has no card at all; the row is the only door it has,
     // and it offers what the card would offer once the row brought it forward
     const away = await menuOf(rowFor(c.el, buried[0]!)!, 'a piled-away agent')
     assert.ok(away.includes('Focus') && away.includes('Retire…'),
       `the row is the buried agent's only door — have ${JSON.stringify(away)}`)
-    assert.ok(!away.includes('Hire a subordinate…'),
+    assert.ok(!away.includes('Hire a subordinate ▸'),
       'it comes to the front of its pile when picked, and a front hires nowhere')
   })
 
@@ -398,10 +403,6 @@ uiTest('§4 each entry runs the Agents List\'s own handler — the same surfaces
     assert.ok(document.querySelector('.cfg'), 'Settings opened the node config panel')
     await esc()
 
-    await rightClick(row()); await pick('Show lineage')
-    assert.ok(document.querySelector('.lineage-panel'), 'Show lineage opened the lineage panel')
-    await esc()
-
     await rightClick(row()); await pick('Open docket')
     assert.ok([...document.querySelectorAll('h3')].some((h) => /· Docket/.test(h.textContent ?? '')),
       'Open docket opened the agent docket')
@@ -464,10 +465,10 @@ uiTest('§5c Retire all subordinates confirms the direct count and preserves the
     ] })])
     await openTray(c.el)
     await rightClick(rowFor(c.el, 'boss')!)
-    assert.ok(labels().includes('Retire all subordinates…'))
+    assert.ok(labels().includes('Dissolve… ▸'))
     await pick('Retire all subordinates…')
     const box = document.querySelector('.confirm-box') as HTMLElement
-    assert.match(box.textContent ?? '', /retires 2 live direct reports/i)
+    assert.match(box.textContent ?? '', /retires 3 live agents through 2 direct reports/i)
     assert.match(box.textContent ?? '', /nested descendants \(1\) are included/i)
     await inAct(() => { (box.querySelector('button.danger.solid') as HTMLButtonElement).click() })
     await flush(2)
@@ -547,8 +548,8 @@ uiTest('§7 "Open desk in a new window" pops the agent\'s desk out, and the entr
     // the menu now offers the other half of the pair
     await rightClick(rowFor(c.el, 'other')!)
     const have = labels()
-    assert.ok(have.includes('Show desk window'), JSON.stringify(have))
-    assert.ok(!have.includes('Open desk in a new window'),
+    assert.ok(have.includes('· Show desk window'), JSON.stringify(have))
+    assert.ok(!have.includes('· Open desk in a new window'),
       'a desk that is already out is not popped out again')
     await pick('Show desk window')
     assert.ok(pop.count.focuses >= 1, 'it raises the window that is already open')
@@ -567,34 +568,22 @@ uiTest('§7b the row has no per-agent pin or popout buttons any more — both li
       'the row is one object again: its main line is the only control in it')
     // …and nothing was lost: both actions are in the menu the row now carries
     const have = await menuOf(row, 'the row')
-    assert.ok(have.includes('Pin desk as a window'), JSON.stringify(have))
-    assert.ok(have.includes('Open desk in a new window'), JSON.stringify(have))
+    assert.ok(have.includes('· Pin desk as a window'), JSON.stringify(have))
+    assert.ok(have.includes('· Open desk in a new window'), JSON.stringify(have))
     const pinned = await menuOf(rowFor(c.el, 'pinned-one')!, 'the pinned row')
-    assert.ok(pinned.includes('Show pinned window'), JSON.stringify(pinned))
+    assert.ok(pinned.includes('· Show pinned window'), JSON.stringify(pinned))
   })
 
-uiTest('§6 Hire a subordinate… from a row walks to the agent and opens ITS card\'s hire chips',
+uiTest('§6 Hire a subordinate ▸ <model> from a row walks to the agent and opens a hire draft under it',
   async (t) => {
+    // 4.2: the entry is a branch of models; choosing one opens that model's hire draft (no chip reveal any more)
     const c = await mountCanvas(t, [mkNode('worker'), mkNode('other')])
     await openTray(c.el)
     const camera = () => (c.el.querySelector('.space') as HTMLElement).style.transform
     const before = camera()
-    // held from BEFORE the walk: the card the camera lands on renders as a
-    // desk (no zoomed-out name to find it by again), but it is the same
-    // element — React keys cards by agent id
-    const card = cardFor(c.el, 'other')
-    assert.ok(card, 'positive control: the agent\'s card is on the canvas')
     await rightClick(rowFor(c.el, 'other')!)
-    await pick('Hire a subordinate…')
-    await advance(600, 30)
-    assert.ok(card!.classList.contains('hire-reveal'),
-      'the chips the card\'s own menu entry reveals are revealed from the row too')
-    assert.notEqual(camera(), before, 'and the camera walked there, since the chips are there')
-    // the same rule as the card's: the chips close when the pointer leaves
-    await inAct(() => {
-      card!.dispatchEvent(new W.PointerEvent('pointerout',
-        { bubbles: true, relatedTarget: document.body }))
-    })
-    await flush(2)
-    assert.ok(!card!.classList.contains('hire-reveal'))
+    await pickIn('Hire a subordinate', 'sonnet')
+    await advance(600, 30); await flush(4)
+    assert.ok(c.el.querySelector('.sq.draft'), 'a hire draft opened')
+    assert.notEqual(camera(), before, 'and the camera walked there')
   })
