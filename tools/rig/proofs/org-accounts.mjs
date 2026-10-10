@@ -14,8 +14,11 @@
 //      the default releases it and it runs.
 //   5. Untick only the default: a hire with no account is placed on B
 //      (ruling 2026-10-10 Q1).
-//   6. With --ui: Usage and Usage history from the org window hide B, and
-//      "Show all accounts" brings it back greyed (screenshots).
+//   6. With --ui: Usage and Usage history from the org window hide B, with
+//      no "Show all accounts" toggle (user ruling 2026-10-10 14:56Z).
+//   7. With --ui: the default sign-in saved as the org's account for NEW
+//      agents, then unticked: the picker does not offer it, and the saved
+//      value reads "not used by this org" as a muted choice (screenshots).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-accounts.mjs
 
 import fs from 'node:fs'
@@ -41,6 +44,7 @@ function claudeHome(dir, email) {
 export default async function (rig) {
   const p = new Proof('org-accounts')
   const page = fileURLToPath(new URL('../desktop/org-accounts.cjs', import.meta.url))
+  const picker = fileURLToPath(new URL('../desktop/org-accounts-picker.cjs', import.meta.url))
   const usageDir = path.join(rig.data, 'rig-home', 'rig-usage')
   fs.mkdirSync(usageDir, { recursive: true })
   const put = (name, r) => fs.writeFileSync(path.join(usageDir, `${name}.json`), JSON.stringify(r))
@@ -132,15 +136,29 @@ export default async function (rig) {
   if (rig.run.ui) {
     const ui = await runDesktop(rig, page, { preset: 'wide', out: path.join(p.dir, 'desktop') })
     const v = ui.value ?? {}
-    p.check('Usage from the org window hides B, with the toggle', ui.ok && v.usage?.toggle && !v.usage.text.includes('rig-b@')
-      && v.usage.greyed === 0, v.usage)
-    p.check('"Show all accounts" brings B back greyed, "not used by this org"', v.usageAll?.greyed >= 1
-      && v.usageAll.text.includes('rig-b@') && /not used by this org/.test(v.usageAll.text), v.usageAll)
-    p.check('Usage history from the org window hides B; the toggle brings it back greyed',
-      !v.history?.text.includes('rig-b@') && v.historyAll?.greyed >= 1 && v.historyAll.text.includes('rig-b@'), { h: v.history, a: v.historyAll })
+    p.check('Usage from the org window hides B, with no toggle', ui.ok && !v.usage?.toggle
+      && !v.usage.text.includes('rig-b@') && v.usage.text.includes('rig-primary@'), v.usage)
+    p.check('Usage history from the org window hides B, with no toggle', !!v.history && !v.history.toggle
+      && !v.history.text.includes('rig-b@'), v.history)
     const errors = (v.consoleErrors ?? []).filter(e => !/Electron Security Warning/.test(e))
     p.check('no console errors', errors.length === 0, errors)
     p.note('screenshots', ui.out)
+
+    // 7. the account-for-NEW-agents picker: the default sign-in saved there,
+    // then unticked: it is not offered, and the saved value says why
+    await settings([])
+    await rig.api('POST', `/api/orgs/${rig.org}/settings`, { default_account: 'claude/primary' })
+    await settings(['claude/primary'])
+    const pk = await runDesktop(rig, picker, { preset: 'wide', out: path.join(p.dir, 'picker'), args: { org: rig.org } })
+    const k = pk.value ?? {}
+    const offered = (k.options ?? []).filter(o => !o.disabled).map(o => o.value)
+    p.check('the new-agent picker does not offer the unticked default sign-in, and offers B', pk.ok
+      && !offered.includes('claude/primary') && offered.includes(B), k)
+    p.check('the saved default reads "not used by this org", muted', k.value === 'claude/primary'
+      && /not used by this org/.test(k.shown ?? '') && (k.options ?? []).some(o => o.value === 'claude/primary' && o.disabled), k)
+    const perrors = (k.consoleErrors ?? []).filter(e => !/Electron Security Warning/.test(e))
+    p.check('no console errors (picker)', perrors.length === 0, perrors)
+    p.note('picker screenshots', pk.out)
   }
   p.note('Not proved here: the automatic fallback after a real usage-limit freeze (it picks from the same filtered candidates continue-on uses) and the Home view (no org: every account).')
   const result = p.summary()
