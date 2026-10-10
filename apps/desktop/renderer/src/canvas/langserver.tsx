@@ -304,7 +304,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
     createOllamaVariant({ address, key: key.trim() || undefined, model: m.id })
       .then((r) => {
         setProbe(r.probe)
-        setPicked((cur) => (m.id in cur ? withPick(withPick(cur, m.id, null), r.created, r.context) : cur))
+        setPicked((cur) => withPick(withPick(cur, m.id, null), r.created, r.context))
         toast([`created ${r.created} in your Ollama`])
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
@@ -500,12 +500,12 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
       .finally(() => setFinding(false))
   }
   const openBrowser = () => { setBrowsing(true); if (!found) find() }
+  // on a server the version is listed with the others found, to offer (ruling 2026-10-10)
   const makeVariant = (m: LangServerProbeModel) =>
     createOllamaVariant({ server: s.id, model: m.id })
       .then((r) => {
         setFound(r.probe)
-        setDraft((d) => (d && m.id in d.picked ? { ...d, picked: withPick(withPick(d.picked, m.id, null), r.created, r.context) } : d))
-        toast([`created ${r.created} in your Ollama`])
+        toast([`created ${r.created} in your Ollama: offer it in the list`])
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
 
