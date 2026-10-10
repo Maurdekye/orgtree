@@ -139,7 +139,10 @@ mod win {
             if engine.is_none() {
                 match attach(&root).await {
                     Ok(a) => {
-                        note(&root, &format!("attached to engine pid {}", a.engine_pid));
+                        if last != "attached" {
+                            note(&root, &format!("attached to engine pid {}", a.engine_pid));
+                            last = "attached";
+                        }
                         engine = Some(a);
                     }
                     Err(why) => {
@@ -151,16 +154,17 @@ mod win {
                 }
             }
             if let Some(a) = &engine {
-                let state = match register(a, &pipe, &secret).await {
-                    Ok(200) => "holding the bridge",
-                    Ok(409) => "standing by: another broker holds the bridge",
-                    Ok(_) | Err(_) => {
-                        engine = None;
-                        "engine stopped answering; will re-attach"
-                    }
+                let (state, detail) = match register(a, &pipe, &secret).await {
+                    Ok(200) => ("holding the bridge", String::new()),
+                    Ok(409) => ("standing by: another broker holds the bridge", String::new()),
+                    Ok(status) => ("the engine refused the registration; will re-attach", format!(" (HTTP {status})")),
+                    Err(_) => ("engine stopped answering; will re-attach", String::new()),
                 };
+                if !matches!(state, "holding the bridge" | "standing by: another broker holds the bridge") {
+                    engine = None;
+                }
                 if last != state {
-                    note(&root, state);
+                    note(&root, &format!("{state}{detail}"));
                     last = state;
                 }
             }
@@ -468,7 +472,9 @@ mod win {
             let _ = client.flush().await;
             out.fill(0);
         }
-        let _ = client.disconnect();
+        // Dropping closes our end; the reply stays readable. (DisconnectNamedPipe
+        // would discard whatever the engine has not read yet.)
+        drop(client);
         ACTIVE.fetch_sub(1, Ordering::SeqCst);
     }
 
