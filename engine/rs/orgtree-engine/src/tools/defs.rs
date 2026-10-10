@@ -87,12 +87,18 @@ const VIS: &[&str] = &["self", "team", "subtree", "full"];
 const PM: &[&str] = &["default", "acceptEdits", "bypassPermissions"];
 const EFFORT: &[&str] = &["low", "medium", "high", "xhigh", "max", ""];
 
+/// What `add_dirs` does on each tool: a hire (and staff) sets the starting
+/// list, a rehire replaces the list, a retool adds (user ruling 2026-10-10).
+const DIRS_HIRE: &str = "folders it may use (within yours)";
+const DIRS_REHIRE: &str = "its whole folder list, replacing the one it had (within yours)";
+const DIRS_RETOOL: &str = "folders to add, or whose mode to change (within yours); its other folders stay";
+
 #[logged]
-fn scope_props() -> Value {
+fn scope_props(dirs: &str) -> Value {
     json!({
         "add_dirs": { "type": "array", "items": { "type": "object", "properties": {
             "path": { "type": "string" }, "mode": { "type": "string", "enum": ["rw", "ro"] } }, "required": ["path"] },
-            "description": "folders it may use (within yours)" },
+            "description": dirs },
         "tools": { "type": "object", "properties": {
             "bash": { "type": "boolean" }, "web": { "type": "boolean" }, "edit": { "type": "boolean" },
             "subagents": { "type": "boolean" }, "mcp": { "type": "array", "items": { "type": "string" } } } },
@@ -107,8 +113,8 @@ fn scope_props() -> Value {
 }
 
 #[logged]
-fn seat_scope_props() -> Value {
-    merge(scope_props(), json!({ "audiences": { "type": "array", "items": { "type": "string" },
+fn seat_scope_props(dirs: &str) -> Value {
+    merge(scope_props(dirs), json!({ "audiences": { "type": "array", "items": { "type": "string" },
         "description": "grant these audiences before kickoff" } }))
 }
 
@@ -331,7 +337,7 @@ fn all() -> Vec<Value> {
                     "harness": { "type": "string", "enum": ["claude-code", "codex-cli"] },
                     "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
                 }),
-                seat_scope_props(),
+                seat_scope_props(DIRS_HIRE),
             ),
             &["name", "tier", "grant", "charter"],
         ),
@@ -343,7 +349,7 @@ fn all() -> Vec<Value> {
                         "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
                         "charter": { "type": "string" }, "kickoff": { "type": "string" },
                         "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" } }),
-                seat_scope_props(),
+                seat_scope_props(DIRS_REHIRE),
             ),
             &["node"],
         ),
@@ -351,8 +357,12 @@ fn all() -> Vec<Value> {
         tool("orgtree_dissolve", "Retire an agent below you together with its whole team.", json!({ "node": { "type": "string" } }), &["node"]),
         tool(
             "orgtree_retool",
-            "Change an agent's scope (folders, tools, visibility, permission mode, effort, account) or charter.",
-            merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" } }), scope_props()),
+            "Change an agent's scope (folders, tools, visibility, permission mode, effort, account) or charter. Only the \
+             fields you pass change; removing a folder or making it read-only does the same to the agents beneath.",
+            merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" },
+                          "remove_dirs": { "type": "array", "items": { "type": "string" },
+                                           "description": "folders it holds to remove" } }),
+                  scope_props(DIRS_RETOOL)),
             &["node"],
         ),
         tool(
@@ -566,7 +576,7 @@ fn all() -> Vec<Value> {
                         "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
                         "harness": { "type": "string", "enum": ["claude-code", "codex-cli"] },
                         "kickoff_kind": { "type": "string", "enum": KINDS } }),
-                seat_scope_props(),
+                seat_scope_props(DIRS_HIRE),
             ),
             &[],
         ),

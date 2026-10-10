@@ -479,7 +479,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "cheap_compact" => cheap_compact(engine, org, &tx, actor, req, fx).await?,
         "swap" => swap(engine, org, &tx, actor, req, fx).await?,
         "self_subjugate" => self_subjugate(engine, org, &tx, actor, req, fx).await?,
-        "retool" => retool(engine, org, &tx, actor, req, fx, false).await?,
+        "retool" => retool(engine, org, &tx, actor, req, fx, false, Dirs::Add).await?,
         "moves" => moves(engine, org, &tx, actor, req, fx).await?,
         "reprice" => reprice(engine, org, &tx, actor, fx).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
@@ -1067,7 +1067,8 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     // Placement was authorized before mutation. Self-superior insertion has
     // now moved this caller beneath the restored seat; do not reauthorize
     // that already-approved composite against its changed topology.
-    retool(engine, org, tx, actor, &scope_req, fx, anchor.is_some()).await?;
+    // a rehire's folders are its whole list, as at hire (3.x)
+    retool(engine, org, tx, actor, &scope_req, fx, anchor.is_some(), Dirs::Replace).await?;
     let name = if let Some(new) = str_arg(req, "name") {
         rename(org, tx, actor, &json!({ "node": n.name, "name": new }), fx, anchor.is_some()).await?;
         new.to_string()
@@ -1945,11 +1946,24 @@ async fn moves(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
     Ok(json!({ "moved": done.len(), "moves": done }))
 }
 
+/// What a retool's `add_dirs` does to the agent's folder list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Dirs {
+    /// add the folders, a held one taking the new mode (the agent tool and
+    /// the ops route; user ruling 2026-10-10, 3.x replaced)
+    Add,
+    /// set the whole list, as a hire does (a rehire, as in 3.x)
+    Replace,
+}
+
 /// Re-scope a node below the caller (folders, tools, visibility, permission
 /// mode, effort, charter, team charter, account); on itself only the team
 /// charter. Grants are checked against the caller and raised through intermediates.
+/// `remove_dirs` removes folders the agent holds; removing or narrowing one
+/// clamps everything beneath, and the result lists every folder change.
+#[allow(clippy::too_many_arguments)]
 #[logged]
-async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, preauthorized: bool) -> Result<Value> {
+async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, preauthorized: bool, dirs_mode: Dirs) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     let own = matches!(actor, Actor::Agent { id, .. } if *id == n.id);
     if own {
@@ -1962,9 +1976,56 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     let mut sc = scope::normalize(&n.scope);
     let dirs_before = sc["add_dirs"].as_array().cloned().unwrap_or_default();
+    let same = |d: &Value, path: &str| scope::norm_path(d["path"].as_str().unwrap_or("")) == scope::norm_path(path);
+    // the folders this call names: they alone are granted, and checked against the caller
+    let named = match req.get("add_dirs") {
+        None | Some(Value::Null) => None,
+        Some(d) if d.is_array() => Some(scope::normalize(&json!({ "add_dirs": d }))["add_dirs"].as_array().cloned().unwrap_or_default()),
+        Some(_) => refuse!(BadRequest, "add_dirs is a list of {{path, mode}}"),
+    };
+    let removed = match req.get("remove_dirs") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(list)) => {
+            let mut paths = Vec::new();
+            for x in list {
+                let Some(p) = x.as_str().or_else(|| x["path"].as_str()) else { refuse!(BadRequest, "remove_dirs is a list of folder paths") };
+                paths.push(p.to_string());
+            }
+            Some(paths)
+        }
+        Some(_) => refuse!(BadRequest, "remove_dirs is a list of folder paths"),
+    };
+    let mut dirs = match (dirs_mode, &named) {
+        (Dirs::Replace, Some(named)) => named.clone(),
+        _ => dirs_before.clone(),
+    };
+    if let (Dirs::Add, Some(named)) = (dirs_mode, &named) {
+        for d in named {
+            match dirs.iter().position(|x| same(x, d["path"].as_str().unwrap_or(""))) {
+                Some(i) => dirs[i]["mode"] = d["mode"].clone(),
+                None => dirs.push(d.clone()),
+            }
+        }
+    }
+    for p in removed.iter().flatten() {
+        if named.iter().flatten().any(|d| same(d, p.as_str())) {
+            refuse!(BadRequest, "{p} is in both add_dirs and remove_dirs");
+        }
+        // a path it does not hold is refused, so a mistyped removal never passes as done
+        if !dirs_before.iter().any(|d| same(d, p.as_str())) {
+            let held: Vec<String> = dirs_before.iter()
+                .map(|d| format!("{} ({})", d["path"].as_str().unwrap_or(""), d["mode"].as_str().unwrap_or("rw"))).collect();
+            if held.is_empty() {
+                refuse!(BadRequest, "{} holds no folder {p}; it holds no folders", n.name);
+            }
+            refuse!(BadRequest, "{} holds no folder {p}; its folders: {}", n.name, held.join(", "));
+        }
+        dirs.retain(|d| !same(d, p.as_str()));
+    }
+    let dirs_touched = named.is_some() || removed.is_some();
     let o = sc.as_object_mut().unwrap();
-    if let Some(d) = req.get("add_dirs").filter(|v| v.is_array()) {
-        o.insert("add_dirs".into(), scope::normalize(&json!({ "add_dirs": d }))["add_dirs"].clone());
+    if dirs_touched {
+        o.insert("add_dirs".into(), Value::Array(dirs));
     }
     if let Some(t) = req.get("tools").filter(|v| v.is_object()) {
         let mut cur = o.get("tools").cloned().unwrap_or_else(scope::default_tools);
@@ -1998,9 +2059,10 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         o.insert("account_fallback".into(), json!(b));
     }
     let mut granted = json!({});
-    for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
+    for k in ["tools", "org_visibility", "permission_mode"] {
         if req.get(k).is_some_and(|v| !v.is_null()) { granted[k] = sc[k].clone(); }
     }
+    if let Some(named) = &named { granted["add_dirs"] = json!(named); }
     let settings = caps(engine, tx, org.id).await?.settings;
     if let Actor::Agent { id, .. } = actor {
         scope::require_grant(&granted, &capability(tx, *id, &settings).await?)?;
@@ -2068,7 +2130,8 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req }), fx).await?;
     fx.agents.insert(n.id);
     let below = subtree(tx, n.id).await?;
-    if granted.as_object().is_some_and(|o| !o.is_empty()) {
+    // a grant may narrow (a folder's mode, a tool) and a removal always does
+    if granted.as_object().is_some_and(|o| !o.is_empty()) || removed.is_some() {
         let settings = caps(engine, tx, org.id).await?.settings;
         let mut effective = std::collections::HashMap::new();
         effective.insert(n.id, capability(tx,n.id,&settings).await?);
@@ -2098,7 +2161,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     out["cascaded"] = json!(cascaded);
     let mut warnings = Vec::new();
     if !cascaded.is_empty() { warnings.push(format!("cascaded permission increase to agents {}", cascaded.join(", "))); }
-    if req.get("add_dirs").is_some_and(Value::is_array) {
+    if dirs_touched {
         out["folders"] = scope::dirs_diff(&dirs_before, sc["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default());
     }
     if !raised_dirs.is_empty() { out["raised"] = json!(raised_dirs); }

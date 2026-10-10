@@ -153,8 +153,9 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             }
             "retool" => {
                 let change=&d["change"];
-                let fields=[("add_dirs","folders"),("tools","tools"),("charter","charter"),("org_visibility","org_visibility"),("permission_mode","permission_mode")];
-                let changed:Vec<&str>=fields.iter().filter(|(k,_)|change.get(k).is_some()).map(|(_,v)|*v).collect();
+                let fields=[("add_dirs","folders"),("remove_dirs","folders"),("tools","tools"),("charter","charter"),("org_visibility","org_visibility"),("permission_mode","permission_mode")];
+                let mut changed:Vec<&str>=fields.iter().filter(|(k,_)|change.get(k).is_some()).map(|(_,v)|*v).collect();
+                changed.dedup();
                 if changed.is_empty() { continue; }
                 ("access.scope_changed",json!({"by":by,"changed":changed}))
             }
