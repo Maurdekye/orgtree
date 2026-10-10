@@ -460,9 +460,6 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
         .collect();
     let mut result = availability(engine);
     result["tiers"] = json!(tiers);
-    // before the first sign-in check lands, a lane missing from `tiers` has
-    // not been checked yet: the surfaces say so instead of "not signed in"
-    result["loading"] = json!(!engine.providers.state.load().probed);
     result["generation"] = json!(0);
     result
 }
@@ -473,5 +470,7 @@ fn availability(engine: &Engine) -> Value {
     let state = engine.providers.state.load();
     let errors: Vec<String> = state.codex_efforts_error.iter()
         .filter(|_| engine.settings.provider_enabled(catalog::OPENAI)).cloned().collect();
-    json!({ "at": at, "stale": !errors.is_empty(), "errors": errors })
+    // before the first sign-in check lands, a lane missing from the tiers has
+    // not been checked yet: the surfaces say so instead of "not signed in"
+    json!({ "at": at, "stale": !errors.is_empty(), "errors": errors, "loading": !state.probed })
 }
