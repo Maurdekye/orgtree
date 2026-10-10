@@ -6,7 +6,6 @@ import { useWorkItems } from '../src/canvas/useworkitems'
 import { useHistoricalWorkReferences } from '../src/canvas/workrefresolve'
 import { forgetWorkInflight } from '../src/api'
 import { bumpLive } from '../src/livebus'
-import { WORK_FOREGROUND_FORMAT as format } from '../src/workforeground'
 
 test('remote archive edits refresh mounted positive and negative references after live bumps', async t => {
   forgetWorkInflight()
@@ -21,9 +20,12 @@ test('remote archive edits refresh mounted positive and negative references afte
     counts: { active: 0, archived: 1, attention: 0, backlogged: 0 } }
   globalThis.fetch = async input => {
     let body: unknown
-    if (String(input).includes('work-items-foreground')) {
+    if (String(input).includes('work-items-page')) {
+      // 2ac256a: the docket's foreground read is the page of the open group; its revision is what references follow
       ++foregroundCalls
-      body = { ...active, format, revision }
+      body = { format: 'orgtree.work-page/v1', group: 'items', rows: active.items ?? [], total: 0,
+        totals: { items: 0, archived: 1, backlogged: 0 }, matched: { items: 0, archived: 1, backlogged: 0 },
+        counts: active.counts, next_offset: null, revision, at: 'now' }
     } else {
       ++referenceCalls
       body = { references }
