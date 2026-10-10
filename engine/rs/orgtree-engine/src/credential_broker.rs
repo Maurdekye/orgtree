@@ -81,13 +81,15 @@ mod win {
 
     #[nolog]
     pub fn run() -> ExitCode {
-        // One broker per session: a second start (a re-run task) just leaves.
-        let name = wide("Local\\OrgtreeCredentialBroker");
+        let Some(root) = data_root() else { return ExitCode::from(2) };
+        // One broker per session and data root: a second start (a re-run
+        // task) just leaves; another data root (a test rig) has its own.
+        let key = root.to_string_lossy().to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+        let name = wide(&format!("Local\\OrgtreeCredentialBroker-{key:016x}"));
         let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
         if mutex.is_null() || unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
             return ExitCode::SUCCESS;
         }
-        let Some(root) = data_root() else { return ExitCode::from(2) };
         let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(r) => r,
             Err(_) => return ExitCode::from(1),
