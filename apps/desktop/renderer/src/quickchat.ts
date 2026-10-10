@@ -16,7 +16,7 @@
 // Defaults with no history (user rulings 2026-10-01 and 2026-10-09 22:34Z):
 //   effort   = the ORG default effort — stored as '' ("no level of its own"),
 //              so the hire sends no effort and the agent follows the org's;
-//   superior = the switchboard (a top-level hire);
+//   superior = top level, no superior (shown as "top level");
 //   model    = Opus, then Sol, then Flash, else any offered model.
 // The quick-hired agent's NAME comes from the message's words only (no model
 // in it), and it gets NO charter (both user 2026-10-09 22:34Z). Those two
@@ -25,7 +25,7 @@
 
 import { EFFORT_LEVELS } from './canvas/effort'
 
-/** null = the switchboard (a top-level hire). */
+/** null = top level: no superior. */
 export type QuickSuperior = string | null
 
 export interface QuickChatMemory {
@@ -103,7 +103,7 @@ export function quickChatEffort(remembered: string | undefined): string {
 }
 
 /** the superior Quick chat shows: the remembered agent while it is live,
- *  else the switchboard. */
+ *  else top level. */
 export function quickChatSuperior(remembered: QuickSuperior | undefined,
   live: (name: string) => boolean): QuickSuperior {
   return remembered && live(remembered) ? remembered : null

@@ -1,6 +1,6 @@
 // Proof: Quick chat (docket quick-prompt-hire-kick-off-and-focus-an-agent-fr).
 //   In the real renderer, with no history the header box shows Opus, the org
-//   default effort and the switchboard. The user changes each inline (boss,
+//   default effort and top level. The user changes each inline (boss,
 //   low, haiku), types a message and presses Enter: the engine hires an agent
 //   named from the message's words under boss, on haiku at effort low, with
 //   no charter; the message is its kickoff mail and its first turn plays it;
@@ -25,10 +25,10 @@ export default async function (rig) {
     { preset: 'wide', out: path.join(p.dir, 'desktop'), args: { superior: 'boss', effort: 'low', model: 'haiku', message: MESSAGE } })
   p.check('the desktop script ran', r.ok, r.ok ? undefined : r)
   const v = r.value ?? {}
-  p.check('no history: the buttons read opus · the org default · switchboard',
-    v.initial?.[0] === 'opus' && /^default/.test(v.initial?.[1] ?? '') && v.initial?.[2] === 'switchboard', v.initial)
-  p.check('the superior menu offers the switchboard and the live agents',
-    ['switchboard', 'boss', 'alice'].every(x => (v.superiorItems ?? []).some(i => i.startsWith(x))), v.superiorItems)
+  p.check('no history: the buttons read opus · the org default · top level',
+    v.initial?.[0] === 'opus' && /^default/.test(v.initial?.[1] ?? '') && v.initial?.[2] === 'top level', v.initial)
+  p.check('the superior menu offers top level and the live agents',
+    ['top level', 'boss', 'alice'].every(x => (v.superiorItems ?? []).some(i => i.startsWith(x))), v.superiorItems)
   p.check('after the inline choices the buttons read haiku · low · boss',
     JSON.stringify(v.chosen) === '["haiku","low","boss"]', v.chosen)
 

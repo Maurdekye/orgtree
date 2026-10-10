@@ -30,6 +30,42 @@ export interface TrayRow {
   ghost?: boolean
 }
 
+/** THE LIST'S ROWS, by hierarchy (FR-16): every superior immediately
+ *  followed by its subtree, indented per depth, siblings ordered by the HOST's
+ *  `compare` (null = the tree's own order). A filtered-out ancestor of a match
+ *  stays as a ghost so the descendant's indent still has a parent above it.
+ *  Both hosts call this — the canvas tray and the Attention drawer
+ *  (`agentRows`) — and so does Quick chat's superior menu, so the three
+ *  cannot list agents in different orders. */
+export function trayRows(map: Map<string, CanvasNode>, opts: {
+  archived?: boolean; query?: string
+  compare?: ((a: CanvasNode, b: CanvasNode) => number) | null
+} = {}): TrayRow[] {
+  const all = [...map.values()].filter((n) =>
+    n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
+  const q = (opts.query ?? '').trim().toLowerCase()
+  const match = (n: CanvasNode) =>
+    (opts.archived || n.state === 'live') && (!q || n.id.toLowerCase().includes(q))
+  const kids = new Map<string, CanvasNode[]>()
+  for (const n of all) {
+    const parent = n.parent && map.has(n.parent) && n.parent !== USER ? n.parent : USER
+    kids.set(parent, [...(kids.get(parent) ?? []), n])
+  }
+  const anyMatch = (n: CanvasNode): boolean =>
+    match(n) || (kids.get(n.id) ?? []).some(anyMatch)
+  const rows: TrayRow[] = []
+  const walk = (id: string, depth: number) => {
+    const siblings = kids.get(id) ?? []
+    for (const c of opts.compare ? [...siblings].sort(opts.compare) : siblings) {
+      if (!anyMatch(c)) continue
+      rows.push({ node: c, depth, ghost: !match(c) })
+      walk(c.id, depth + 1)
+    }
+  }
+  walk(USER, 0)
+  return rows
+}
+
 /** how many rows the archived toggle folds in and out */
 export const archivedCount = (map: Map<string, CanvasNode>): number =>
   [...map.values()].filter((n) =>

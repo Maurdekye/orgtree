@@ -39,7 +39,7 @@ import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
 import type { DeskChatProps } from '../canvas/desk'
 import { agentNavProps } from '../canvas/agentnav'
-import { AgentTray } from '../canvas/agenttray'
+import { AgentTray, trayRows } from '../canvas/agenttray'
 import type { TrayRow } from '../canvas/agenttray'
 import { useRefRoutes } from '../canvas/reflinks'
 import { focusByAttr } from './dom'
@@ -95,40 +95,18 @@ export function agentRows(
   map: Map<string, CanvasNode>, posOf?: (id: string) => Pt | undefined,
   opts: { archived?: boolean; query?: string } = {},
 ): ListRow[] {
-  const all = [...map.values()].filter((n) =>
-    n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
-  const q = (opts.query ?? '').trim().toLowerCase()
-  const match = (n: CanvasNode) =>
-    (opts.archived || n.state === 'live') && (!q || n.id.toLowerCase().includes(q))
-  const kids = new Map<string, CanvasNode[]>()
   // the tree's own order is the tie-break AND the whole answer when the host
   // has no layout, so it is captured before any sort touches the arrays
   const order = new Map<string, number>()
-  all.forEach((n, i) => order.set(n.id, i))
-  for (const n of all) {
-    const parent = n.parent && map.has(n.parent) && n.parent !== USER ? n.parent : USER
-    kids.set(parent, [...(kids.get(parent) ?? []), n])
-  }
+  ;[...map.keys()].forEach((id, i) => order.set(id, i))
   const byPos = (a: CanvasNode, b: CanvasNode) => {
     const pa = posOf?.(a.id)
     const pb = posOf?.(b.id)
     if (!pa || !pb) return (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)
     return pa.x - pb.x || pa.y - pb.y || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)
   }
-  // a filtered-out ANCESTOR of a match still has to render, or the descendant
-  // is indented under a gap — the Agents List's own resolution
-  const anyMatch = (n: CanvasNode): boolean =>
-    match(n) || (kids.get(n.id) ?? []).some(anyMatch)
-  const rows: ListRow[] = []
-  const walk = (id: string, depth: number) => {
-    for (const c of [...(kids.get(id) ?? [])].sort(byPos)) {
-      if (!anyMatch(c)) continue
-      rows.push({ node: c, depth, ghost: !match(c) })
-      walk(c.id, depth + 1)
-    }
-  }
-  walk(USER, 0)
-  return rows
+  // the walk itself (hierarchy, ghost ancestors) is the Agents List's own
+  return trayRows(map, { ...opts, compare: byPos })
 }
 
 /** The default selection: the agent at the top of the list, which is the

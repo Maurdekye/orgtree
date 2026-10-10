@@ -18,15 +18,19 @@ import {
 } from './quickchat'
 import type { OpRequest, OpResult, ToastFn, TreePayload } from './types'
 
-export const SWITCHBOARD_LABEL = 'switchboard'
+// the no-superior choice (user 2026-10-10: "top level", not "switchboard")
+export const TOP_LEVEL_LABEL = 'top level'
 
-export function QuickChat({ slug, tree, op, toast, onHired }: {
+export function QuickChat({ slug, tree, op, toast, onHired, listOrder }: {
   slug: string
   tree: TreePayload
   op: (body: OpRequest, opts?: { quiet?: boolean }) => Promise<OpResult>
   toast: ToastFn
   /** the new agent's name, once the engine has hired it */
   onHired: (id: string) => void
+  /** the live agents in the order the Agents List on screen shows them
+   *  (OrgCanvas fills it); absent or empty = the tree's own order */
+  listOrder?: { current: (() => string[]) | null }
 }) {
   const [memo, setMemo] = useState(() => readQuickChat(slug))
   useEffect(() => {
@@ -43,7 +47,7 @@ export function QuickChat({ slug, tree, op, toast, onHired }: {
   }, [providers])
   const nodes = useMemo(() => flatNodes(tree), [tree])
   const live = useMemo(() => [...nodes.values()]
-    .filter(n => n.state === 'live').map(n => n.id).sort(), [nodes])
+    .filter(n => n.state === 'live').map(n => n.id), [nodes])
   const tier = quickChatTier(memo.tier, offered)
   const effort = quickChatEffort(memo.effort)
   const superior = quickChatSuperior(memo.superior, id => live.includes(id))
@@ -65,11 +69,17 @@ export function QuickChat({ slug, tree, op, toast, onHired }: {
     ...EFFORT_LEVELS.map(l => ({ label: l + (l === effort ? ' ✓' : ''),
       onSelect: () => rememberEffort(l) })),
   ])
+  // the SAME order as the Agents List (user 2026-10-10), read when the menu
+  // opens; anything the list did not name keeps the tree's order after it
+  const listed = () => {
+    const ordered = (listOrder?.current?.() ?? []).filter(id => live.includes(id))
+    return [...ordered, ...live.filter(id => !ordered.includes(id))]
+  }
   const superiorMenu = (e: MouseEvent) => pick(e, [
-    { label: SWITCHBOARD_LABEL + (superior === null ? ' ✓' : ''),
-      title: 'a top-level agent, under you', onSelect: () => rememberSuperior(slug, null) },
+    { label: TOP_LEVEL_LABEL + (superior === null ? ' ✓' : ''),
+      title: 'no superior: a top-level agent', onSelect: () => rememberSuperior(slug, null) },
     ...(live.length ? ['sep' as const] : []),
-    ...live.map(id => ({ label: id + (id === superior ? ' ✓' : ''),
+    ...listed().map(id => ({ label: id + (id === superior ? ' ✓' : ''),
       onSelect: () => rememberSuperior(slug, id) })),
   ])
 
@@ -125,7 +135,7 @@ export function QuickChat({ slug, tree, op, toast, onHired }: {
         {effort || `default${orgDefault ? ` (${orgDefault})` : ''}`}</button>
       <button type="button" className="quickchat-btn quickchat-superior"
         title="superior of the new agent" onClick={superiorMenu}>
-        {superior ?? SWITCHBOARD_LABEL}</button>
+        {superior ?? TOP_LEVEL_LABEL}</button>
       {menu.node}
     </div>
   )

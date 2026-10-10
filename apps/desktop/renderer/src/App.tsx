@@ -512,6 +512,8 @@ export default function App() {
   // Quick chat: the agent it just hired, focused once the tree carries it
   // (the canvas cannot centre on a card it has not laid out yet)
   const [quickFocus, setQuickFocus] = useState<string | null>(null)
+  // the canvas fills this with the Agents List's order, for the superior menu
+  const agentListOrder = useRef<(() => string[]) | null>(null)
   useEffect(() => {
     if (!quickFocus || !tree) return
     if (!flatNodes(tree).has(quickFocus)) return
@@ -1448,7 +1450,7 @@ export default function App() {
                 <ShellHeader menu={shellMenu} title={tree.name}
                   modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
                   quick={<QuickChat slug={slug} tree={tree} op={op} toast={toast}
-                    onHired={setQuickFocus} />}
+                    onHired={setQuickFocus} listOrder={agentListOrder} />}
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — icons only, named by aria-label */}
@@ -1503,7 +1505,7 @@ export default function App() {
                   </span>
                 </span>
                 <QuickChat slug={slug} tree={tree} op={op} toast={toast}
-                  onHired={setQuickFocus} />
+                  onHired={setQuickFocus} listOrder={agentListOrder} />
                 {/* MOBILE-ONLY merged status chip (D-125 orgbar ruling): live
                     count · working · frozen in one glance; tapping it opens
                     the same ⋯ panel. display:none on desktop (.mob-only). */}
@@ -1716,6 +1718,7 @@ export default function App() {
                        the tree, which is the whole reason it can be believed */
                     treeStatus={treeStatus} />
                 ) : undefined}
+                agentListOrder={agentListOrder}
                 focusAgent={focusAgent}
                 onFocusAgentHandled={() => setFocusAgent(null)}
                 openMailAt={mailJump}

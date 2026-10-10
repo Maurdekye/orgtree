@@ -68,7 +68,8 @@ import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedM
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
-import { AgentTray } from './agenttray'
+import { AgentTray, trayRows } from './agenttray'
+import { agentRows } from '../attention/AgentDeskPanel'
 import type { TrayRow } from './agenttray'
 import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
@@ -133,6 +134,9 @@ export interface OrgCanvasProps {
    *  inherited visibility, which also PRESERVES LAYOUT: the camera, the
    *  springs and `posOf` survive the switch. */
   canvasContent?: 'shown' | 'hidden'
+  /** filled with "the live agents in the order the Agents List on screen
+   *  shows them" — Quick chat's superior menu reads it (App owns the ref) */
+  agentListOrder?: { current: (() => string[]) | null }
   /** open the user's inbox, optionally jumped to a specific mail id */
   onInbox?: (jump?: string) => void
   /** open the work docket at ONE item — a tool chip's docket link */
@@ -417,7 +421,7 @@ const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
-  renderOrgSlot, canvasContent = 'shown' }: OrgCanvasProps) {
+  renderOrgSlot, canvasContent = 'shown', agentListOrder }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
@@ -1214,6 +1218,22 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
 
   const posOf = (id: string): Pt | undefined =>
     springs.current.get(id) ?? targetRef.current.get(id)
+  // the canvas Agents List's sibling order: by position, top to bottom then
+  // left to right — except on rings, which already follow tree order
+  // counterclockwise (sorting their siblings by y/x zig-zags across the arc)
+  const canvasTrayCompare = () => chartLayout === 'circular' ? null
+    : (a: CanvasNode, b: CanvasNode) => {
+        const pa = posOf(a.id) ?? { x: 0, y: 0 }
+        const pb = posOf(b.id) ?? { x: 0, y: 0 }
+        return pa.y - pb.y || pa.x - pb.x
+      }
+  // Quick chat's superior menu lists live agents in the order the Agents List
+  // on screen does: the Attention drawer's while that view is presented, the
+  // canvas tray's otherwise. Read at the moment the menu opens.
+  if (agentListOrder) agentListOrder.current = () =>
+    (worldHidden ? agentRows(mapRef.current, posOf)
+      : trayRows(mapRef.current, { compare: canvasTrayCompare() }))
+      .filter((r) => !r.ghost).map((r) => r.node.id)
 
   // ---------------------------------------------- wires: geometry + sparks
   // (the seg builders assert posOf: every caller pre-checks both endpoints)
@@ -4140,40 +4160,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             // child hired far from its parent nowhere near it in the list.
             // Rings already follow tree order counterclockwise. Sorting their
             // siblings by y/x zig-zags across the arc; only rows use position.
-            const all = [...map.values()]
-              .filter((n) => n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
-            const q = trayQ.trim().toLowerCase()
-            const match = (n: CanvasNode) =>
-              (trayArch || n.state === 'live')
-              && (!q || n.id.toLowerCase().includes(q))
-            const kids = new Map<string, CanvasNode[]>()
-            for (const n of all) {
-              const p = n.parent && map.has(n.parent) && n.parent !== USER
-                ? n.parent : USER
-              kids.set(p, [...(kids.get(p) ?? []), n])
-            }
-            const byPos = (a: CanvasNode, b: CanvasNode) => {
-              const pa = posOf(a.id) ?? { x: 0, y: 0 }
-              const pb = posOf(b.id) ?? { x: 0, y: 0 }
-              return pa.y - pb.y || pa.x - pb.x
-            }
-            // a filtered-out ANCESTOR of a matching row still renders, as a
-            // dim ghost: with indentation carrying meaning, dropping it
-            // would leave the descendant indented under a gap with no
-            // visible parent (the docket's own open question — resolved
-            // toward keeping the indent readable)
-            const anyMatch = (n: CanvasNode): boolean =>
-              match(n) || (kids.get(n.id) ?? []).some(anyMatch)
-            const rows: TrayRow[] = []
-            const walk = (id: string, depth: number) => {
-              const siblings = kids.get(id) ?? []
-              for (const c of chartLayout === 'circular' ? siblings : siblings.sort(byPos)) {
-                if (!anyMatch(c)) continue
-                rows.push({ node: c, depth, ghost: !match(c) })
-                walk(c.id, depth + 1)
-              }
-            }
-            walk(USER, 0)
+            const rows = trayRows(map,
+              { archived: trayArch, query: trayQ, compare: canvasTrayCompare() })
             // the rows themselves are canvas/agenttray.tsx, shared with the
             // Attention view's agents drawer (user 2026-09-30). A press goes
             // to the agent — a piled-away agent comes to the FRONT of its

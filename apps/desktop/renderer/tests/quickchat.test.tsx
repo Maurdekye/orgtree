@@ -10,6 +10,8 @@ import {
   quickChatName, quickChatTier, rememberEffort, rememberHire,
 } from '../src/quickchat'
 import type { OpRequest, TreePayload } from '../src/types'
+import { trayRows } from '../src/canvas/agenttray'
+import type { CanvasNode } from '../src/canvas/shared'
 
 const noop = () => {}
 const node = (id: string, state = 'live', children: unknown[] = []) =>
@@ -72,12 +74,12 @@ test('the model with no history prefers Opus, then Sol, then Flash, then anythin
   assert.equal(quickChatTier('fable', ['sonnet', 'opus']), 'opus', 'a model no longer offered falls back')
 })
 
-test('with no history: Opus, the org default effort, the switchboard; Enter hires, kicks off and focuses', async () => {
+test('with no history: Opus, the org default effort, top level; Enter hires, kicks off and focuses', async () => {
   localStorage.clear(); providers(['claude'])
   const ops: OpRequest[] = [], hired: string[] = []
   const view = await mount(ops, hired)
   try {
-    assert.deepEqual(buttons(view.el), ['opus', 'default (high)', 'switchboard'])
+    assert.deepEqual(buttons(view.el), ['opus', 'default (high)', 'top level'])
     const box = view.el.querySelector<HTMLInputElement>('.quickchat-input')!
     await type(box, 'Write the release notes for 4.2')
     await enter(box)
@@ -108,7 +110,7 @@ test('a manual hire and a manual effort pick become the defaults; a stale superi
   rememberHire('org', { tier: 'sol', superior: 'old-hand' })
   const again = await mount([], [])
   try {
-    assert.equal(buttons(again.el)[2], 'switchboard', 'an archived superior is not offered')
+    assert.equal(buttons(again.el)[2], 'top level', 'an archived superior is not offered')
   } finally { await again.unmount(); localStorage.clear() }
 })
 
@@ -145,7 +147,7 @@ test('each button opens its menu inline, and a pick there becomes the choice', a
     const items = () => [...document.querySelectorAll('.ctxmenu button.ctxmenu-item')]
       .map(b => (b.textContent || '').trim())
     await open('.quickchat-superior')
-    assert.deepEqual(items(), ['switchboard ✓', 'boss'])
+    assert.deepEqual(items(), ['top level ✓', 'boss'])
     await open('.quickchat-effort')
     assert.deepEqual(items(), ['org default (high) ✓', 'low', 'medium', 'high', 'xhigh', 'max'])
     await inAct(async () => {
@@ -155,4 +157,45 @@ test('each button opens its menu inline, and a pick there becomes the choice', a
     })
     assert.equal(buttons(view.el)[1], 'low')
   } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('the superior menu lists agents in the Agents List order, never alphabetically', async () => {
+  localStorage.clear(); providers(['claude'])
+  const t = { ...tree, roots: [node('zed', 'live', [node('amy')]), node('boss')] } as unknown as TreePayload
+  const items = () => [...document.querySelectorAll('.ctxmenu button.ctxmenu-item')]
+    .map(b => (b.textContent || '').trim())
+  const openSuperior = async (el: Element) => inAct(async () => {
+    el.querySelector<HTMLButtonElement>('.quickchat-superior')!.dispatchEvent(
+      new window.MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
+    await flush(4)
+  })
+  // what the Agents List on screen says (OrgCanvas fills this ref)
+  const listOrder = { current: () => ['boss', 'zed', 'amy'] }
+  const view = await mountView(<QuickChat slug="org" tree={t} op={(async () => ({})) as never}
+    toast={noop} onHired={noop} listOrder={listOrder} />, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    await openSuperior(view.el)
+    assert.deepEqual(items(), ['top level ✓', 'boss', 'zed', 'amy'])
+  } finally { await view.unmount() }
+  // no list on screen to ask: the tree's own order, still not alphabetical
+  const bare = await mountView(<QuickChat slug="org" tree={t} op={(async () => ({})) as never}
+    toast={noop} onHired={noop} />, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    await openSuperior(bare.el)
+    assert.deepEqual(items(), ['top level ✓', 'zed', 'amy', 'boss'])
+  } finally { await bare.unmount(); localStorage.clear() }
+})
+
+test('trayRows: hierarchy first, siblings by the host order, ghosts keep a hidden parent', () => {
+  const n = (id: string, parent: string | null, state = 'live') =>
+    [id, { id, parent, state }] as [string, CanvasNode]
+  const map = new Map([n('b', null), n('a', null), n('b2', 'b'), n('b1', 'b'), n('gone', 'a', 'archived'), n('kid', 'gone')])
+  const ids = (rows: { node: CanvasNode; ghost?: boolean }[]) =>
+    rows.map(r => (r.ghost ? '~' : '') + r.node.id)
+  assert.deepEqual(ids(trayRows(map)), ['b', 'b2', 'b1', 'a', '~gone', 'kid'])
+  const alpha = (x: CanvasNode, y: CanvasNode) => x.id < y.id ? -1 : 1
+  assert.deepEqual(ids(trayRows(map, { compare: alpha })), ['a', '~gone', 'kid', 'b', 'b1', 'b2'])
+  assert.deepEqual(ids(trayRows(map, { archived: true, compare: alpha })), ['a', 'gone', 'kid', 'b', 'b1', 'b2'])
 })
