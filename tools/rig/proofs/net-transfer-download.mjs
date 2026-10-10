@@ -71,7 +71,7 @@ export default async function(rig) {
       proof.check(`${id}: repeated envelope does not duplicate delivery`,inbox(id).length===1 && rig.sql(`SELECT id FROM ot.mail WHERE net_id='${id}'`).length===1)
     }
     proof.keep(rig,{grep:/incoming|download|transfer/})
-    proof.note('Real engine, PostgreSQL, streamed loopback HTTP and engine restart. Inbound control APIs/UI/failure notifications and device/1GiB/hard-kill proof remain.')
+    proof.note('Real engine, PostgreSQL, streamed loopback HTTP and engine restart. Incoming holder inspection/cancel/retry measured; renderer/failure notifications and device/1GiB/hard-kill proof remain.')
     return proof.summary()
   } finally {
     server.closeAllConnections()

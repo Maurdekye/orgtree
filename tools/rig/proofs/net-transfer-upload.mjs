@@ -163,7 +163,7 @@ export default async function (rig) {
     const visibleInbox=await rig.api('GET',`/api/orgs/${rig.org}/org_inbox`)
     const missingUid=rig.one(`SELECT uid FROM ot.org_inbox WHERE id=${missing.inbox}`).uid
     proof.check('removed file is absent from the visible sent manifest', !visibleInbox.entries.find(i=>i.id===missingUid)?.attachments?.length)
-    proof.note('Measured actual production scheduler, user controls, agent denial, cancelled stalled I/O, explicit resume and graceful restart. Failure notices, remove-file, UI and full device/1GiB proofs remain.')
+    proof.note('Measured actual production scheduler, user controls, agent denial, cancelled stalled I/O, explicit resume and graceful restart. Explicit held-file removal measured; failure notices, UI and full device/1GiB proofs remain.')
     proof.keep(rig, { grep: /transfer|upload/ })
     return proof.summary()
   } finally {
