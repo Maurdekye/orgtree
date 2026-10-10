@@ -1568,6 +1568,7 @@ else {
         .filter((key): key is string => !!key))
     } catch (error) { console.warn('The open windows could not be recorded', error) }
     if (poll) clearInterval(poll)
+    void credentialBridge.release(engine.origin, engine.token)
     trayPopupSeq++; closeTrayPopup()
     // ⚠ a login left running when the app quits must not become an orphan
     // (coordinator review): Claude/Codex spawn a REAL child process via

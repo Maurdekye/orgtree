@@ -128,4 +128,14 @@ export class CredentialBridge {
     } catch { /* next existing desktop poll retries; the engine lease expires */ }
     finally {this.ticking=false}
   }
+  /** Quitting: hand the bridge to the sign-in broker (orgtree-credential-broker)
+   *  now instead of at its next poll. The engine releases only the holder:
+   *  this pipe and secret. A 409 [held] from tick() means that broker holds it. */
+  async release(origin: string, token: string): Promise<void> {
+    if(process.platform!=='win32' || !origin || !token || !this.server)return
+    try {
+      await fetch(origin+'/api/desktop/credential-bridge',{method:'POST',redirect:'error',signal:AbortSignal.timeout(2000),
+        headers:{[TOKEN_HEADER]:token,'Content-Type':'application/json'},body:JSON.stringify({pipe:this.pipe,secret:this.secret,pid:process.pid,release:true})})
+    } catch { /* the engine also lets the other broker in once this process is gone */ }
+  }
 }
