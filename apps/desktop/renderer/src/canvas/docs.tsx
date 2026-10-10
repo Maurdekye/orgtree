@@ -23,7 +23,7 @@ import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { refToken } from './reflinks'
 
-export interface DocMeta { id: string; title: string; at: string; format?: 'markdown' | 'html'; bytes?: number }
+export interface DocMeta { id: string; title: string; at: string; viewed_at?: string | null; format?: 'markdown' | 'html'; bytes?: number }
 
 /** The tree feed is newest first. Both compact surfaces show its first four
  *  presented documents; sent files belong to the separate deliveries feed. */
@@ -95,7 +95,7 @@ export function presentationMenu(el: Element | null, slug: string,
 /** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
 export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast, inert = false, direct = false }: {
-  slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'> & { at?: string }; onOpen: (id: string) => void
+  slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'> & { at?: string; viewed_at?: string | null }; onOpen: (id: string) => void
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
    *  the canvas chips have no toast to hand */
@@ -120,7 +120,7 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   // and the gallery pane, and this chip has neither's confirmation context.
   const menu = useContextMenu()
   useDocViewedVersion()
-  const unread = docUnread(slug, doc.id, doc.at)
+  const unread = docUnread(slug, doc.id, doc.at, doc.viewed_at)
   const open = (e?: ReactMouseEvent<HTMLElement>) => {
     markDocViewed(slug, doc.id, doc.at)
     if (direct && doc.format === 'html') {
