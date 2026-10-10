@@ -11,7 +11,9 @@
 //   from a v3 window's footer, downward from a header, as on this page (no
 //   desktop bridge here, so Quick chat sits in the header).
 // mode "loading": the agent's desk while its server loads the model: the
-//   banner's words and a screenshot.
+//   banner's words and a screenshot. The desk opens FIRST and says so with
+//   `desk-open.png`; the proof sends the message that starts the load only
+//   then, so a window that starts slowly cannot miss the load.
 // args: { mode: 'chips', agents: [names], want: '<model id>' } | { mode: 'loading', agent }
 module.exports = async (page, { args }) => {
   if (args.mode === 'loading') {
@@ -20,8 +22,10 @@ module.exports = async (page, { args }) => {
     await page.sleep(800)
     await page.rightClick(card)
     await page.click({ selector: 'button.ctxmenu-item', text: 'Focus' })
+    await page.waitFor(`[placeholder^="message ${args.agent}"]`, { timeout: 30000 })
+    await page.screenshot('desk-open')
     await page.waitFor(() => [...document.querySelectorAll('.slot-queued-warning[role="status"]')]
-      .some((e) => /^Loading model on /.test((e.innerText || '').trim())), { timeout: 60000 })
+      .some((e) => /^Loading model on /.test((e.innerText || '').trim())), { timeout: 90000 })
     await page.sleep(500)
     const banner = await page.eval(() => [...document.querySelectorAll('.slot-queued-warning[role="status"]')]
       .map((e) => (e.innerText || '').trim()).find((t) => /^Loading model on /.test(t)) ?? null)

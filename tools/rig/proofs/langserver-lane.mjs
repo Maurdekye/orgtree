@@ -37,14 +37,15 @@
 // The user's reports on 4.2.0-alpha.1 (coordinator rulings 2026-10-10 08:17-08:43Z):
 //   8a. the Ollama preset's help names OLLAMA_LOAD_TIMEOUT and the CUDA-to-Vulkan fallback;
 //   8b. a language-server chip's letter comes from its model, its name says model and server;
-//       with the UI: the canvas chips (tooltips), and Quick chat's model menu takes a newly
+//       with the UI: the canvas chips (tooltips), and Quick chat's model picker takes a newly
 //       offered model without a reload;
 //   8c. a seat price per server: 1 by default, a new price moves the live seats on its
 //       models, 0 is allowed, the old flat 0.10 becomes the price when the engine starts;
 //   8d. a move to a model on a server with the other harness starts a fresh session;
 //   8e. Ollama loads the model before the CLI starts: /api/ps, then a load-only request
 //       that waits out the whole load (--load-ms, 45 s by default; over 6 minutes for the
-//       hand-in), "loading model on <server>" on the desk meanwhile, then Claude Code; a
+//       hand-in), "loading model on <server>" on the desk meanwhile (with the UI, a desk
+//       opened before the message that starts the load), then Claude Code; a
 //       load that fails fails the turn with Ollama's own words, once, and tells the user;
 //       a halt during a load drops the load request and frees the server's slot.
 // The user's second round (2026-10-10 08:48–08:50Z), on a fake server listing 302 models:
@@ -442,12 +443,21 @@ export default async function (rig, { flags = {} } = {}) {
       WHERE a.name = '${n}' AND t.ended_at IS NULL`).length === 0, { what: `${n}'s turn to end`, timeout: 120000 }).catch(() => null)
     const at = r => (r ? Date.parse(r.at) : NaN)
     const brief = rs => rs.map(r => `${r.at.slice(11, 23)} ${r.path} ${r.phase ?? ''} ${r.model ?? (r.loaded ?? []).join(',')}`.trim())
+    // with the UI the desk opens BEFORE the warm-up message: once, beside another agent's build,
+    // the desktop window took 60 s to start and the 45 s load was over before the desk showed
+    const deskOut = path.join(p.dir, 'desktop-loading')
+    let deskEnded = false
+    const deskRun = rig.run.ui ? runDesktop(rig, path.join(RIG_DIR, 'desktop', 'langserver-batch1.cjs'),
+      { preset: 'tall', timeout: 240000, args: { mode: 'loading', agent: 'lsslow' }, out: deskOut })
+      .finally(() => { deskEnded = true }) : null
+    const deskOpen = deskRun ? await rig.waitFor(() => fs.existsSync(path.join(deskOut, 'desk-open.png')) || deskEnded,
+      { what: 'lsslow\'s desk to open', timeout: 120000, every: 500 }).then(() => fs.existsSync(path.join(deskOut, 'desk-open.png')))
+      .catch(() => false) : null
     const mark = llm.requests.length
     await rig.userMail('lsslow', 'PROOF-LS-WARM: report done with orgtree_status.')
     const loadingSeen = await rig.waitFor(async () => (await detail('lsslow'))?.loading_model ?? null,
       { what: 'lsslow\'s desk to say its model is loading', timeout: 60000, every: 300 }).catch(() => null)
-    const desk = rig.run.ui ? await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'langserver-batch1.cjs'),
-      { preset: 'tall', args: { mode: 'loading', agent: 'lsslow' }, out: path.join(p.dir, 'desktop-loading') }) : null
+    const desk = deskRun ? await deskRun : null
     const stS = await rig.waitFor(() => (status('lsslow')?.summary === 'PROOF-LS-WARM-DONE' ? status('lsslow') : null),
       { what: 'lsslow\'s done report after the slow load', timeout: LOAD_MS + 240000, every: 2000 }).catch(() => null)
     await turnOver('lsslow')
@@ -467,9 +477,10 @@ export default async function (rig, { flags = {} } = {}) {
       loadingSeen === 'loading model on Fake slow (Claude Code)' && stS?.summary === 'PROOF-LS-WARM-DONE' && (after8?.loading_model ?? null) === null,
       { loadingSeen, status: stS, after: after8?.loading_model ?? null })
     if (rig.run.ui) {
-      p.check('8e. the desk shows the loading banner (screenshot desk-loading-model.png)', !!desk?.ok
+      p.check('8e. the desk, open before the warm-up message, shows the loading banner (screenshot desk-loading-model.png)',
+        deskOpen === true && !!desk?.ok
         && /^Loading model on Fake slow \(Claude Code\): the turn starts as soon as the model is in memory/.test(desk.value?.banner ?? ''),
-        desk?.value ?? desk)
+        { deskOpen, ...(desk?.value ?? desk ?? {}) })
     }
     const mark2 = llm.requests.length
     await rig.userMail('lsslow', 'PROOF-LS-WARM2: report done with orgtree_status.')
