@@ -1,7 +1,7 @@
 {
   "id": "devteam-claude",
   "name": "devteam (claude)",
-  "description": "A small development team on Claude: a coordinator (Opus) who plans and reviews, an implementer (Opus) who builds, a redteam reviewer (Opus) who tries to break the work, and a curator (Sonnet) who keeps notes and docs tidy.",
+  "description": "A coordinator with an implementer, a redteam reviewer and a curator under it, on Claude models.",
   "version": 1,
   "agents": [
     {

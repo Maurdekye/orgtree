@@ -16,10 +16,8 @@ use crate::http::orgs::org;
 
 #[logged]
 pub async fn list() -> ApiResult<Json<Value>> {
-    // read afresh on every call: a file dropped into the folder shows at once
-    let (list, problem) = tokio::task::spawn_blocking(templates::listing).await.map_err(|e| ApiError::internal(e.to_string()))?;
-    let all: Vec<Value> = list.iter().map(|(t, src, path)| templates::summary(t, src, path)).collect();
-    Ok(Json(json!({ "templates": all, "dir": templates::folder().to_string_lossy(), "folder_error": problem })))
+    let all: Vec<Value> = templates::list().iter().map(|(t, src, path)| templates::summary(t, src, path)).collect();
+    Ok(Json(json!({ "templates": all, "dir": templates::folder().to_string_lossy() })))
 }
 
 #[logged]
@@ -95,9 +93,6 @@ pub async fn resolve(State(e): State<Arc<Engine>>, Json(b): Json<ResolveBody>) -
 #[derive(Deserialize, Debug)]
 pub struct SaveBody {
     name: String,
-    /// optional: left out of the file when blank
-    #[serde(default)]
-    description: Option<String>,
     #[serde(default)]
     include: Include,
     #[serde(default)]
@@ -131,7 +126,7 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
         charter: r.get(7), team_charter: r.get(8), scope: r.get(9),
     }).collect();
     let org_md = std::fs::read(e.cfg.workspace_dir(&o.slug).join("org.md")).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
-    let t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, &b.include);
+    let t = templates::from_rows(&id, &name, &rows, org_md, &b.include);
     let parsed: templates::Template = serde_json::from_value(t.clone()).map_err(|x| ApiError::internal(x.to_string()))?;
     let problems = templates::validate(&parsed);
     let body = serde_json::to_string_pretty(&t).map_err(|x| ApiError::internal(x.to_string()))?;

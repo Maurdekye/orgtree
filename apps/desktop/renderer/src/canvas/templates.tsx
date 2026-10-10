@@ -1,8 +1,7 @@
 // Organization templates outside the create window (docket
 // create-organizations-from-agent-layout-templates, user ruling 2026-10-09
-// 22:51Z): App settings gets "restore default templates" and "open
-// templates folder" beside the charter controls (the folder is the only
-// source: the engine writes each built-in into it once, ruling 2026-10-10), and Org settings gets "Save
+// 22:51Z): App settings gets "generate default templates" and "open
+// templates folder" beside the charter controls, and Org settings gets "Save
 // as template" — a modal with a name and checkboxes for what to copy, which
 // writes the file into ~/.orgtree/templates and offers it as a download.
 import { useState } from 'react'
@@ -36,22 +35,22 @@ export function TemplateDocumentsSetting() {
   }
   return <SetGroup title="Organization templates"
     note="starting layouts for a new organization, in ~/.orgtree/templates">
-    <SetRow label="restore default templates"
-      hint="Writes back the built-in templates (devteam (claude), devteam (codex)) missing from your templates folder, including ones you deleted. Files you already have are never changed.">
+    <SetRow label="generate default templates"
+      hint="Copies the bundled templates (devteam (claude), devteam (codex)) into your templates folder. Files you already have are never changed.">
       <button onClick={run} disabled={busy}>
-        {busy ? 'restoring…' : 'restore'}
+        {busy ? 'generating…' : 'generate'}
       </button>
       <button onClick={openFolder} disabled={openBusy} aria-label="open templates folder" title="open templates folder">
         {openBusy ? 'opening…' : 'open folder'}
       </button>
     </SetRow>
-    {error && <p role="alert">Templates were not restored: {error} — press again to retry.</p>}
+    {error && <p role="alert">Templates were not generated: {error} — press again to retry.</p>}
     {openError && <p role="alert">Could not open the templates folder: {openError}</p>}
     {result && !error && (
       <p className="dim">
         {result.created.length
-          ? `restored ${result.created.length} template${result.created.length === 1 ? '' : 's'}`
-          : 'nothing missing'}
+          ? `created ${result.created.length} template${result.created.length === 1 ? '' : 's'}`
+          : 'nothing to create'}
         {result.existing.length ? ` · ${result.existing.length} already present and untouched` : ''}
         {` · ${result.dir}`}
       </p>
@@ -90,7 +89,6 @@ export function downloadTemplate(owner: Document, saved: SavedTemplate) {
 export function SaveTemplateModal({ slug, orgName, close }: { slug: string; orgName: string; close: () => void }) {
   useEsc(close)
   const [name, setName] = useState(`${orgName} layout`)
-  const [description, setDescription] = useState('')
   const [include, setInclude] = useState<TemplateInclude>(DEFAULT_INCLUDE)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -99,7 +97,7 @@ export function SaveTemplateModal({ slug, orgName, close }: { slug: string; orgN
   const save = (replace: boolean) => {
     if (busy || !name.trim()) return
     setBusy(true); setError(''); setExists(false)
-    saveOrgTemplate(slug, name.trim(), include, replace, description.trim())
+    saveOrgTemplate(slug, name.trim(), include, replace)
       .then(setSaved)
       .catch((e: Error) => {
         setError(e.message)
@@ -117,11 +115,6 @@ export function SaveTemplateModal({ slug, orgName, close }: { slug: string; orgN
           <input id="save-template-name" autoFocus value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') save(false) }} />
-          <label className="field-label" htmlFor="save-template-description">Description
-            <span className="dim"> · optional, shown in the list when you create an organization</span></label>
-          <textarea id="save-template-description" rows={2} value={description}
-            placeholder="What this layout is for"
-            onChange={(e) => setDescription(e.target.value)} />
           <div className="field-label">Include</div>
           <div className="save-template-groups">
             <label className="row org-check"><input type="checkbox" checked disabled /> Tree, names and tiers

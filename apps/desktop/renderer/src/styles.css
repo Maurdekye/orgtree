@@ -7470,6 +7470,13 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-runtime_recovery { --event-color: var(--bad); }
 .event-reminder { --event-color: var(--warn); }
 .event-context_change { --event-color: var(--dim); }
+/* An interrupted restart reads as red, like the backend-restarted notice; both
+   get a reddish border (the left edge stays the solid family colour). */
+.event-surface[data-event-variant="context.drive_restart_interrupted"] { --event-color: var(--bad); }
+.event-surface[data-event-variant="context.drive_restart_interrupted"],
+.event-surface[data-event-variant="runtime.restart_notice"] {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line-soft));
+  border-left-color: var(--bad); }
 .event-head { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px;
   padding: 7px 9px; border-bottom: 1px solid var(--line-soft); font-size: 11px; }
 .event-family { color: var(--event-color); font-family: var(--mono);

@@ -1,9 +1,7 @@
 // "Starting layout" in the Create organization window (docket
 // create-organizations-from-agent-layout-templates). Empty is today's
 // behaviour and the default; a template hires its tree of agents with the
-// org. The list is exactly the files in the templates folder, re-read when
-// the picker opens (user 2026-10-10: name and optional description, one
-// click to choose). The preview is the engine's own plan for THIS computer: each agent's
+// org. The preview is the engine's own plan for THIS computer: each agent's
 // tier (the template's, else its first fallback on offer, else blocked), the
 // account it will run on and the grant worked out from the reports' seats.
 // User rulings 2026-10-09: the first message is off by default, and Create
@@ -67,14 +65,12 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
 }) {
   const [templates, setTemplates] = useState<TemplateSummary[] | null>(null)
   const [listError, setListError] = useState('')
-  const [folderError, setFolderError] = useState('')
   const [planError, setPlanError] = useState('')
   const [reload, setReload] = useState(0)
   const [recheck, setRecheck] = useState(0)
   useEffect(() => {
     let live = true
-    // read afresh each time the picker opens (and on Reload): the folder is the list
-    listTemplates().then((r) => { if (live) { setTemplates(r.templates); setFolderError(r.folder_error ?? ''); setListError('') } })
+    listTemplates().then((r) => { if (live) { setTemplates(r.templates); setListError('') } })
       .catch((e: Error) => { if (live) setListError(e.message) })
     return () => { live = false }
   }, [reload])
@@ -111,31 +107,27 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
         Open templates folder</button>
       <button type="button" className="tp-link" onClick={() => setReload((n) => n + 1)}>Reload</button>
     </div>
-    <div className="tp-list" role="listbox" aria-label="Starting layout">
-      <button type="button" role="option" aria-selected={!choice.id}
-        className={`tp-row${!choice.id ? ' sel' : ''}`} onClick={() => pick('')}>
+    <div className="tp-cards" role="radiogroup" aria-label="Starting layout">
+      <button type="button" role="radio" aria-checked={!choice.id}
+        className={`tp-card${!choice.id ? ' sel' : ''}`} onClick={() => pick('')}>
         <MiniTree t={null} />
         <span className="tp-name">Empty</span>
-        <span className="tp-count">no agents</span>
-        <span className="tp-desc">You hire the first agent on the canvas.</span>
+        <span className="tp-desc">No agents. You hire the first one on the canvas.</span>
       </button>
       {(templates ?? []).map((t) => {
         const usable = !!t.id && t.problems.length === 0
-        const desc = usable ? t.description?.trim() : t.problems[0]
-        return <button type="button" role="option" key={t.path} aria-selected={choice.id === t.id}
-          className={`tp-row${choice.id === t.id ? ' sel' : ''}${usable ? '' : ' invalid'}`}
-          disabled={!usable} title={usable ? t.path : t.problems.join('\n')}
+        return <button type="button" role="radio" key={t.path} aria-checked={choice.id === t.id}
+          className={`tp-card${choice.id === t.id ? ' sel' : ''}${usable ? '' : ' invalid'}`}
+          disabled={!usable} title={usable ? t.description : t.problems.join('\n')}
           onClick={() => t.id && pick(t.id)}>
           <MiniTree t={t} />
           <span className="tp-name">{t.name}</span>
-          <span className="tp-count">{t.agents.length} agent{t.agents.length === 1 ? '' : 's'}</span>
-          {desc && <span className="tp-desc">{desc}</span>}
+          <span className="tp-desc">{usable ? t.description : t.problems[0]}</span>
+          <span className="tp-count">{t.agents.length} agent{t.agents.length === 1 ? '' : 's'}
+            {t.source === 'user' ? ' · yours' : ''}</span>
         </button>
       })}
     </div>
-    {templates && templates.length === 0 && !folderError && <div className="dim tp-empty">
-      Your templates folder has no templates. Add a .json file there, or restore the defaults in App settings.</div>}
-    {folderError && <div className="ask-warn" role="alert">{folderError}</div>}
     {listError && <div className="ask-warn" role="alert">Templates could not be listed: {listError}</div>}
     {choice.id && planError && <div className="ask-warn" role="alert">{planError}</div>}
     {choice.id && plan && plan.id === choice.id && <div className="tp-preview">

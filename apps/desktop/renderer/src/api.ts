@@ -237,12 +237,12 @@ export const createOrg = (
     }),
   }, SLOW_TIMEOUT_MS)
 
-// Organization templates: a tree of agents hired with a new org. They are
-// the files in ~/.orgtree/templates, read afresh on every listing; the
-// engine writes each built-in there once (a deleted one stays deleted).
+// Organization templates: a tree of agents hired with a new org. Bundled
+// ones ship with the engine; ~/.orgtree/templates holds the user's own (a
+// file of the same id takes the bundled one's place, as charter presets do).
 export interface TemplateSummary {
   id: string | null; name: string; description?: string
-  source: 'folder'; path: string
+  source: 'user' | 'bundled'; path: string
   agents: { name: string; tier: string; depth: number; parent: string | null }[]
   problems: string[]
 }
@@ -276,7 +276,7 @@ export interface TemplateInclude {
 export interface SavedTemplate {
   id: string; file: string; path: string; content: string; agents: number; problems: string[]
 }
-export const listTemplates = (): Promise<{ templates: TemplateSummary[]; dir: string; folder_error?: string | null }> =>
+export const listTemplates = (): Promise<{ templates: TemplateSummary[]; dir: string }> =>
   req('/api/templates')
 export const resolveTemplate = (pick: TemplatePick, name: string, dirs: string[]): Promise<TemplatePlan> =>
   req('/api/templates/resolve', {
@@ -284,7 +284,7 @@ export const resolveTemplate = (pick: TemplatePick, name: string, dirs: string[]
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...pick, name, dirs }),
   })
-// Restore the built-ins the folder lacks (also deleted ones); never overwrites a file.
+// Write the bundled templates the folder lacks; never overwrites a user file.
 export const populateTemplates = (): Promise<{ dir: string; created: string[]; existing: string[] }> =>
   req('/api/templates/populate', { method: 'POST' })
 export const openTemplatesFolder = async (): Promise<{ ok: boolean; path?: string; error?: string }> => {
@@ -296,11 +296,11 @@ export const openTemplatesFolder = async (): Promise<{ ok: boolean; path?: strin
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
-export const saveOrgTemplate = (slug: string, name: string, include: TemplateInclude, replace = false, description = ''): Promise<SavedTemplate> =>
+export const saveOrgTemplate = (slug: string, name: string, include: TemplateInclude, replace = false): Promise<SavedTemplate> =>
   req(`/api/orgs/${encodeURIComponent(slug)}/template`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, include, replace, ...(description ? { description } : {}) }),
+    body: JSON.stringify({ name, include, replace }),
   })
 // §4.8: archived seats arrive without their runtime fields; `hydrateTree`
 // refills them from the payload's own `archived_defaults` before anything
