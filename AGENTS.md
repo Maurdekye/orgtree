@@ -1202,6 +1202,10 @@ rulings go here and on their ticket.
   independently; existing agents retain their tier. Barium copies Argon's placeholder
   seat, effort and usage rates. [decided: user 2026-10-05; verified:
   `providers.py`, `canvas/shared.ts`, `tests/test_barium_tier.py`]
+  Speculative Carbon (`gemini-4-carbon`, letter C, chartreuse `#c6ff00`) copies Barium the
+  same way in the 4.x code: hidden until `agy models` lists it, then offered like the
+  other two. [decided: user 2026-10-10; verified: `providers/catalog.rs`,
+  `providers/mod.rs` `agy_offers` test, `tests/carbon.test.tsx`]
 - A provider that is not installed is absent from the UI; installed but signed out shows
   greyed hire tokens; a disabled provider refuses new hires while live agents keep running.
   Legacy models (Terra, Gemini Pro) appear only with "Show legacy models". [decided: user

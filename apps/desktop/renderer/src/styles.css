@@ -902,6 +902,7 @@ button.badge.audience-fold.alert {
 .chip.agents b.t-pro { color: var(--tier-pro); }
 .chip.agents b.t-argon { color: var(--tier-argon); }
 .chip.agents b.t-barium { color: var(--tier-barium); }
+.chip.agents b.t-carbon { color: var(--tier-carbon); }
 /* credit requests (inbox panel): old → new (+Δ), reason, one-click verdict */
 .credreq {
   background: var(--bg); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line-soft));
@@ -1136,6 +1137,7 @@ button.badge.audience-fold.alert {
 .sq.tier-pro { --tier-accent: var(--tier-pro); border-top-color: color-mix(in srgb, var(--tier-pro) 55%, var(--line)); }
 .sq.tier-argon { --tier-accent: var(--tier-argon); border-top-color: color-mix(in srgb, var(--tier-argon) 55%, var(--line)); }
 .sq.tier-barium { --tier-accent: var(--tier-barium); border-top-color: color-mix(in srgb, var(--tier-barium) 55%, var(--line)); }
+.sq.tier-carbon { --tier-accent: var(--tier-carbon); border-top-color: color-mix(in srgb, var(--tier-carbon) 55%, var(--line)); }
 .sq.mini.tier-luna { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-gpt-6-luna { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-gpt-reserve { --mini-tier: var(--tier-luna); }
@@ -1147,6 +1149,7 @@ button.badge.audience-fold.alert {
 .sq.mini.tier-pro { --mini-tier: var(--tier-pro); }
 .sq.mini.tier-argon { --mini-tier: var(--tier-argon); }
 .sq.mini.tier-barium { --mini-tier: var(--tier-barium); }
+.sq.mini.tier-carbon { --mini-tier: var(--tier-carbon); }
 /* At map zoom the old provider signal collapsed to a sub-pixel busy border,
    so provider could only be inferred from the tier token. Give the mini card
    a large-area family wash plus a solid rail: orange for Claude, teal for
@@ -1243,6 +1246,7 @@ button.badge.audience-fold.alert {
 .sq.prov-google.desk.tier-pro { border-top-color: var(--tier-pro); }
 .sq.prov-google.desk.tier-argon { border-top-color: var(--tier-argon); }
 .sq.prov-google.desk.tier-barium { border-top-color: var(--tier-barium); }
+.sq.prov-google.desk.tier-carbon { border-top-color: var(--tier-carbon); }
 /* the OpenRouter family's card dressing (2026-09-02) — same inherited-chrome
    contract; the per-tier top-edge reassertion is GENERATED per favorite
    (shared.ts `openrouterTierCss`), since the tiers are not known here. */
@@ -2316,6 +2320,14 @@ button.cc-name:hover {
   --tier-argon: #ff2bd6;
   /* Barium green, user 2026-10-05; conditional like Argon. */
   --tier-barium: #8FFF9F;
+  /* carbon (speculative Gemini 4 Carbon, user 2026-10-10; conditional like
+     Argon and Barium): electric chartreuse. MEASURED, NOT CHOSEN BY TASTE: a
+     graphite grey reads (8.6:1) but sits ΔE 17-18 from flash, luna and astra,
+     a neutral band that is already full. #c6ff00 is ΔE >= 54 from every tier
+     colour (nearest barium 54, terra 62), >= 31 under deuteranopia (sol, fable)
+     and >= 46 under protanopia (fable, barium); 12.9:1 on --panel and 11.0:1
+     on --input. The C letter stays the redundant glyph. */
+  --tier-carbon: #c6ff00;
   /* the provider ACCENT — the teal counterpart of --accent: desk border,
      desk shadow ring and busy border for codex agents (the class comes from
      cards.tsx `prov-openai`).
@@ -2377,6 +2389,7 @@ button.cc-name:hover {
 .tier.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .tier.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
 .tier.t-barium { color: var(--tier-barium); border-color: color-mix(in srgb, var(--tier-barium) 45%, var(--line)); }
+.tier.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 /* lifecycle fills: archived fades (existing); knowledge bearers wash grey.
 
    ⚠ THE WASH IS A LIFECYCLE FILL, SO IT ONLY BELONGS ON A CARD THAT IS NOT
@@ -3620,6 +3633,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .hsof button.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .hsof button.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
 .hsof button.t-barium { color: var(--tier-barium); border-color: color-mix(in srgb, var(--tier-barium) 45%, var(--line)); }
+.hsof button.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
 .hsof button.codex-preview:disabled { opacity: .45; border-style: dashed; }
 /* an opt-in LEGACY tier (Terra), shown only with "show legacy models" on */
 .hsof button.legacy { border-style: dashed; }
