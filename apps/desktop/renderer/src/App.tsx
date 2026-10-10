@@ -141,7 +141,7 @@ import { bindRoomSocket } from './streamrooms'
 // every tier picker reads the runtime tier registries during render: fill
 // them as the providers payload arrives, before any consumer re-renders
 onAppValue('providers', syncProviderRegistries)
-import { NotUsedHere, OrgAccountsTab, useOrgLaneFilter } from './orgaccounts'
+import { OrgAccountsTab, useOrgLaneFilter } from './orgaccounts'
 
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
@@ -2288,12 +2288,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
           && !(shown.openrouter && (orr.value || orr.failure || orr.pending))
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
-          {lanes.toggle}
-          {groupByProvider(cards).map((c) => {
-            const v = lanes.view(c.lane)
-            return v === 'hidden' ? null
-              : v === 'greyed' ? <NotUsedHere key={'off:' + c.lane}>{c.node}</NotUsedHere> : c.node
-          })}
+          {groupByProvider(cards.filter((c) => lanes.used(c.lane))).map((c) => c.node)}
           {registryError && !registry && <div className="dim">
             registered accounts unavailable: {registryError}</div>}
           </div>}

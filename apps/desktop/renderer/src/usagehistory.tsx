@@ -34,7 +34,7 @@ import { getUsageHistory } from './api'
 import type { UsageHistory, UsageHistoryRange, UsageHistoryReset, UsageHistorySeries } from './api'
 import { PinFrame } from './canvas/modalpin'
 import { ShowChartIcon } from './icons'
-import { NotUsedHere, useOrgLaneFilter } from './orgaccounts'
+import { useOrgLaneFilter } from './orgaccounts'
 import { fmtDay, fmtHm, fmtStamp, fmtWhen } from './timefmt'
 
 const RANGES: { id: UsageHistoryRange; label: string }[] = [
@@ -459,7 +459,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
   }, [data, range])
 
   const series = data?.series ?? []
-  const shown = (view?.models ?? []).filter((m) => lanes.view(m.series.account) !== 'hidden')
+  const shown = (view?.models ?? []).filter((m) => lanes.used(m.series.account))
     .filter((m) => (!provider || m.series.provider === provider)
     && (!account || m.series.account === account) && (!win || m.series.window === win)
     && (!model || (model === '-' ? !m.series.model : m.series.model === model)))
@@ -469,7 +469,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
   // it still gets its heading, saying why, rather than vanishing
   if (!win && !model) {
     for (const s of data?.states ?? []) {
-      if (!byAccount.has(s.account) && lanes.view(s.account) !== 'hidden'
+      if (!byAccount.has(s.account) && lanes.used(s.account)
         && (!provider || s.provider === provider) && (!account || s.account === account)
         && !series.some((x) => x.account === s.account)) byAccount.set(s.account, [])
     }
@@ -487,16 +487,16 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
           ))}
         </div>
         <Select label="Provider" value={provider} set={setProvider}
-          options={uniq(series.map((s) => ({ id: s.provider, label: providerName(s.provider) })))} />
+          options={uniq(series.filter((s) => lanes.used(s.account))
+            .map((s) => ({ id: s.provider, label: providerName(s.provider) })))} />
         <Select label="Account" value={account} set={setAccount}
-          options={uniq(series.filter((s) => lanes.view(s.account) !== 'hidden')
+          options={uniq(series.filter((s) => lanes.used(s.account))
             .map((s) => ({ id: s.account, label: s.account_label })))} />
         <Select label="Window" value={win} set={setWin}
           options={uniq(series.map((s) => ({ id: s.window, label: WINDOW_NAMES[s.window] ?? s.window })))} />
         <Select label="Model scope" value={model} set={setModel}
           options={uniq(series.map((s) => (s.model ? { id: s.model, label: s.model } : { id: '-', label: 'every model' })))} />
       </div>
-      {lanes.toggle}
       {error && <div className="uh-error">usage history unavailable: {error}</div>}
       {!data && !error && <div className="dim">loading…</div>}
       {view && data && (
@@ -523,7 +523,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
       {view && series.length > 0 && !shown.length && <div className="uh-empty">No series match these filters.</div>}
       {view && [...byAccount].map(([acct, ms]) => {
         const st = lastState(acct)
-        const body = (
+        return (
           <div className="uh-account" key={acct}>
             <div className="uh-account-head">
               <b>{providerName(ms[0]?.series.provider ?? st?.provider ?? '')}</b>
@@ -539,7 +539,6 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
             </div>
           </div>
         )
-        return lanes.view(acct) === 'greyed' ? <NotUsedHere key={'off:' + acct}>{body}</NotUsedHere> : body
       })}
     </PinFrame>
   )

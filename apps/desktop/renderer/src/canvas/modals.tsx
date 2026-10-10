@@ -17,7 +17,7 @@ import type {
   ChatInit, DirGrant, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog,
 } from '../types'
 import {
-  assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers,
+  assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, getOrgAccounts,
   req, saveScope, watchdogAction,
 } from '../api'
 import { pickFolder } from '../picker'
@@ -347,6 +347,16 @@ export function HireDefaultsTab({ tree, slug, toast, close,
       setAcctRows(propAccounts)
     }
   }, [propAccounts])
+  // the org's own account list (Org settings › Accounts): an account it does
+  // not use is not offered for new agents, and a saved one reads as such
+  const [orgAllowed, setOrgAllowed] = useState<string[] | null>(null)
+  useEffect(() => {
+    let live = true
+    getOrgAccounts(slug)
+      .then((r) => { if (live) setOrgAllowed(r.accounts.filter((l) => l.allowed).map((l) => l.id)) })
+      .catch(() => { if (live) setOrgAllowed(null) })
+    return () => { live = false }
+  }, [slug])
   useEffect(() => {
     let active = true
     const fetchServers = () => {
@@ -498,7 +508,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             ? 'new agents are hired on this account unless a hire picks another; existing agents keep theirs'
             : "Uses each hire's default account."}>
           <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
-            host={hostIdentity}
+            host={hostIdentity} eligible={orgAllowed} ineligibleNote="not used by this org"
             label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />
           {account && <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>}
         </SetRow>

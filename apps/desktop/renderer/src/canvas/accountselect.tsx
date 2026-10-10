@@ -10,7 +10,7 @@ import type { AccountChoiceRow, HostIdentity } from '../accountidentity'
  * the host login's address on a machine whose primary account has no registry
  * row. Omitted or unknown, `default` still reads `email unavailable`. */
 export function AccountSelect({ rows, provider, value, onChange, host, label = 'Account',
-                               eligible }: {
+                               eligible, ineligibleNote }: {
   rows: AccountChoiceRow[]; provider: string; value: string
   onChange: (value: string) => void; host?: HostIdentity; label?: string
   /** the account VALUES the backend says can run the chosen tier right now.
@@ -22,6 +22,9 @@ export function AccountSelect({ rows, provider, value, onChange, host, label = '
    *  already held stays visible through the existing `unknown` path, so
    *  filtering never silently rebinds anybody. */
   eligible?: readonly string[] | null
+  /** how a held binding that `eligible` leaves out is described (default
+   *  "unavailable"), e.g. "not used by this org" */
+  ineligibleNote?: string
 }) {
   const detailId = useId()
   const all = providerAccounts(rows, provider, host)
@@ -30,8 +33,9 @@ export function AccountSelect({ rows, provider, value, onChange, host, label = '
   const choices = allowed.length ? allowed : all
   const selected = accountValue(value, rows, provider) || choices[0].value
   const unknown = !choices.some(choice => choice.value === selected)
+  const held = all.find(choice => choice.value === selected)
   const detail = choices.find(choice => choice.value === selected)?.text
-    ?? `${accountIdentity(selected)} (unavailable)`
+    ?? (held && ineligibleNote ? `${held.text} (${ineligibleNote})` : `${accountIdentity(selected)} (unavailable)`)
   return <div className="account-choice">
     <select aria-label={label} aria-describedby={detailId} title={detail}
       value={selected} disabled={choices.length === 1}
