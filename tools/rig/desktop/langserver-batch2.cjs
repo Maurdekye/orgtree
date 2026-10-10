@@ -10,6 +10,17 @@
 // args: { label }
 module.exports = async (page, { args }) => {
   const card = '[data-ls-server]'
+  // the settings panel scrolls: every click first brings its target into view
+  const tap = async (sel, text) => {
+    await page.eval(({ sel, text }) => {
+      const re = text ? new RegExp(text) : null
+      const el = [...document.querySelectorAll(sel)].find((e) => !re || re.test((e.innerText || '').trim()))
+      el?.scrollIntoView({ block: 'center' })
+      return true
+    }, { sel, text: text ?? null })
+    await page.sleep(300)
+    await page.click(text ? { selector: sel, text, regex: true } : sel)
+  }
   await page.sleep(1200)
   await page.eval(() => window.dispatchEvent(new window.CustomEvent('orgtree:open-app-settings', { detail: { tab: 'providers' } })))
   await page.waitFor('.ls-section .ls-server', { timeout: 20000 })
@@ -41,7 +52,7 @@ module.exports = async (page, { args }) => {
   }, card)
 
   // ✎: the draft form
-  await page.click(`${card} button[title="edit this server"]`)
+  await tap(`${card} button[title="edit this server"]`)
   await page.waitFor(`${card} .ls-edit`, { timeout: 10000 })
   await page.sleep(500)
   await page.screenshot('2-card-edit')
@@ -55,7 +66,7 @@ module.exports = async (page, { args }) => {
   }, card)
 
   // the browser over the whole list
-  await page.click(`${card} .ls-edit .ls-favs`)
+  await tap(`${card} .ls-edit .ls-favs`)
   await page.waitFor(() => document.querySelectorAll('.ls-browser .orr-row').length >= 25, { timeout: 30000 })
   await page.sleep(600)
   await page.screenshot('3-browser-page-one')
@@ -87,11 +98,11 @@ module.exports = async (page, { args }) => {
   await page.screenshot('4-browser-search')
   const searched = await view()
   await setValue('.ls-browser input[aria-label="search the server\'s models"]', '')
-  await page.click('.ls-browser input[aria-label="thinking only"]')
+  await tap('.ls-browser input[aria-label="thinking only"]')
   await setValue('.ls-browser select[aria-label="trained window at least"]', '262144')
   await page.screenshot('5-browser-filters')
   const filtered = await view()
-  await page.click('.ls-browser input[aria-label="thinking only"]')
+  await tap('.ls-browser input[aria-label="thinking only"]')
   await setValue('.ls-browser select[aria-label="trained window at least"]', '0')
   // offer one, withdraw one: the draft only
   await page.eval(() => {
@@ -100,27 +111,27 @@ module.exports = async (page, { args }) => {
     return true
   })
   await page.sleep(400)
-  await page.click('.ls-browser .orr-selected button[aria-label="withdraw qwen3.6-35b-a3b:latest"]')
+  await tap('.ls-browser .orr-selected button[aria-label="withdraw qwen3.6-35b-a3b:latest"]')
   await page.sleep(400)
   await page.screenshot('6-browser-picks')
   const picked = await view()
-  await page.click({ selector: '.ls-browser .orr-pager button', text: '^done$', regex: true })
+  await tap('.ls-browser .orr-pager button', '^done$')
   await page.waitFor('.ls-browser', { timeout: 10000, gone: true }).catch(() => null)
   await page.sleep(400)
   await page.screenshot('7-card-edit-draft')
   const draftChips = await page.eval((sel) => [...document.querySelectorAll(`${sel} .ls-edit .ls-chip .orr-sel-name`)]
     .map((x) => (x.innerText || '').trim()), card)
   // Cancel drops the draft
-  await page.click({ selector: `${card} .ls-edit button`, text: '^Cancel$', regex: true })
+  await tap(`${card} .ls-edit button`, '^Cancel$')
   await page.waitFor(`${card} .ls-edit`, { timeout: 10000, gone: true }).catch(() => null)
   await page.sleep(600)
   const afterCancel = await page.eval((sel) => [...document.querySelectorAll(`${sel} .ls-chip .orr-sel-name`)]
     .map((x) => (x.innerText || '').trim()), card)
   // ✎ again: a new seat price, Save
-  await page.click(`${card} button[title="edit this server"]`)
+  await tap(`${card} button[title="edit this server"]`)
   await page.waitFor(`${card} .ls-edit`, { timeout: 10000 })
   await setValue(`${card} .ls-edit input[aria-label="seat price"]`, '2')
-  await page.click({ selector: `${card} .ls-edit button`, text: '^Save$', regex: true })
+  await tap(`${card} .ls-edit button`, '^Save$')
   await page.waitFor(`${card} .ls-edit`, { timeout: 15000, gone: true }).catch(() => null)
   await page.sleep(800)
   await page.screenshot('8-card-saved')
