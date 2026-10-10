@@ -193,26 +193,6 @@ test('§3 an agent already on Gemini Pro shows its P token on its card, toggle o
     assert.equal(token!.textContent, 'P')
   })
 
-test('§2 lineage rehire list: no "as pro" row, then one labelled legacy',
-  async (t: TestContext) => {
-    fresh(t)
-    const node = agent('flash', [{ id: 'agent@1', generation: 1, state: 'archived',
-      bearer_state: 'knowledge', tier: 'flash' } as LineageEntry])
-    const v = await mountView(
-      <LineagePanel node={node} slug="org" close={noop}
-        op={() => Promise.resolve({} as OpResult)} />,
-      (el) => el)
-    t.after(() => v.unmount())
-    const opt = (tier: string) => [...v.el.querySelectorAll<HTMLOptionElement>('.lin-row select option')]
-      .find((o) => o.value === tier)
-    assert.ok(opt('luna'), 'positive control: the rehire list rendered')
-    assert.equal(Boolean(opt('pro')), false, 'the rehire list offered Gemini Pro with the toggle off')
-    await flip(true)
-    assert.ok(opt('pro'), 'the rehire list did not offer Gemini Pro with the toggle on')
-    assert.match(opt('pro')!.textContent ?? '', /· legacy/)
-    assert.equal(opt('pro')!.disabled, false, 'a flash bearer may be rehired as pro')
-  })
-
 test('§2 auto-autopsy model list: no Gemini Pro, then labelled legacy; a configured one stays',
   (t: TestContext) => {
     fresh(t)

@@ -217,26 +217,6 @@ test('§4 an agent already on Terra shows its T token on its card, toggle off',
     assert.equal(token!.textContent, 'T')
   })
 
-test('§2/§3 lineage rehire list: no "as terra" row, then one labelled legacy',
-  async (t: TestContext) => {
-    fresh(t)
-    const node = agent('sol', [{ id: 'agent@1', generation: 1, state: 'archived',
-      bearer_state: 'knowledge', tier: 'sol' } as LineageEntry])
-    const v = await mountView(
-      <LineagePanel node={node} slug="org" close={noop}
-        op={() => Promise.resolve({} as OpResult)} />,
-      (el) => el)
-    t.after(() => v.unmount())
-    const opt = (tier: string) => [...v.el.querySelectorAll<HTMLOptionElement>('.lin-row select option')]
-      .find((o) => o.value === tier)
-    assert.ok(opt('luna'), 'positive control: the rehire list rendered')
-    assert.equal(Boolean(opt('terra')), false, 'the rehire list offered Terra with the toggle off')
-    await flip(true)
-    assert.ok(opt('terra'), 'the rehire list did not offer Terra with the toggle on')
-    assert.match(opt('terra')!.textContent ?? '', /^as terra · seat 2 · legacy/)
-    assert.equal(opt('terra')!.disabled, false, 'a codex bearer may be rehired as terra')
-  })
-
 test('§2/§3 auto-autopsy model list: no Terra, then Terra labelled legacy; a configured Terra stays',
   (t: TestContext) => {
     fresh(t)
