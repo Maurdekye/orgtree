@@ -9,7 +9,7 @@
 // on the level that is already pinned clears it back to inherit.
 import { useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
-import { EFFORT_LEVELS } from './effort'
+import { EFFORT_LEVELS } from './effortlevels'
 
 /** the level nearest `frac` (0 = left end of the bar, 1 = right end) */
 export function nearestLevel(frac: number, count = EFFORT_LEVELS.length): number {

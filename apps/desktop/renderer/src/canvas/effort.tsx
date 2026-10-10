@@ -56,16 +56,11 @@ import { NextTurnBadge } from './nextturn'
 // (multi-window-design, 2026-09-21).
 
 import { createContext, useContext } from 'react'
+import { EFFORT_LEVELS } from './effortlevels'
 import type { CanvasNode } from './shared'
 import type { OpResult } from '../types'
 
-/** the levels orgtree offers, in order — mirrors `ledger.Org.EFFORTS` and is
- *  the one list the composer's five-dot effort control (desk.tsx) and these
- *  cards share, so the two can never offer or describe different levels.
- *  Typed `readonly string[]` rather than a literal tuple on purpose: every
- *  reader here compares it against a plain string coming off the payload. */
-export const EFFORT_LEVELS: readonly string[] =
-  ['low', 'medium', 'high', 'xhigh', 'max']
+export { EFFORT_LEVELS } from './effortlevels'
 
 /** one supported level, or not — the single validity test in this file, so
  *  "is this a level orgtree offers" is asked the same way everywhere */
