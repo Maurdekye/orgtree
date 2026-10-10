@@ -4,13 +4,14 @@
 # Version N (this commit) and N+1 (the same build, one patch version up) are packaged by
 # electron-builder.update-test.cjs with a loopback feed in place of GitHub's. N is
 # installed as ~/Applications/Orgtree-<N>.AppImage and started with FUSE under a
-# standalone Xvfb (the display must outlive the old app, so not xvfb-run) and with
-# systemd --user, so it registers its background engine. N+1 waits on the loopback feed
+# standalone Xvfb (the display must outlive the old app, so not xvfb-run), with
+# systemd --user, so it registers its background engine, and with umask 0002 as on Ubuntu. N+1 waits on the loopback feed
 # (update-feed.mjs). Nothing else is done to the app: its own automatic path checks the
 # feed, downloads N+1 (differentially, from the blockmap embedded in N), waits for 60 s
 # without input, stops the background engine, swaps the file in place and relaunches.
 # Passes when the file, the one running desktop and the background engine are all N+1,
-# the engine answers, and update-log.json records the swap and the relaunch.
+# the engine answers, update-log.json records the swap and the relaunch, and Orgtree's
+# folders stay private (0700) under the unit's UMask=0077, before and after.
 #   bash .github/ci/linux/update-test.sh <logs dir>   (repository root, after the release build)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -36,6 +37,20 @@ pids_of() { procs | awk -v role="$1" '$3 == role { print $1 }'; }
 version_of() { procs | awk -v pid="$1" '$1 == pid { print $4 }'; }
 main_pid() { /usr/bin/systemctl --user show -p MainPID --value "$unit" 2>/dev/null || echo 0; }
 engine_port() { local f; f=$(find "$profile" -name engine-port.json 2>/dev/null | head -1); [ -n "$f" ] && grep -o '[0-9]*' "$f" | head -1; }
+mode_of() { stat -c '%a' "$1" 2>/dev/null || echo missing; }
+# Failures that do not stop the run: reported together at the end, after everything else.
+late=()
+# From 4.1.2 Orgtree keeps its folders private (0700) and its unit carries UMask=0077,
+# whatever the session's umask (Ubuntu's is 0002).
+check_private() {  # <when>
+  local d u=
+  for d in "$profile" "$profile/data"; do [ "$(mode_of "$d")" = 700 ] || late+=("$1: $d is $(mode_of "$d"), not 700"); done
+  if [ "$manager" = systemd ]; then
+    u=$(/usr/bin/systemctl --user show "$unit" -p UMask --value 2>/dev/null)
+    [ "$u" = 0077 ] || late+=("$1: $unit has UMask $u, not 0077")
+  fi
+  echo "$1: folders $(mode_of "$profile") and $(mode_of "$profile/data")${u:+; $unit UMask $u}"
+}
 update_log() {
   node -e 'for (const e of JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")))
     console.log([e.at, e.stage, e.from && e.to ? `${e.from} -> ${e.to}` : "", typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail ?? "")].filter(Boolean).join("  "))' \
@@ -82,6 +97,8 @@ if [ -e "$profile" ]; then echo "moving an earlier step's profile aside"; mv "$p
 userns=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)
 echo "N = $vN, N+1 = $vN1; feed $feed; kernel.apparmor_restrict_unprivileged_userns=$userns"
 env | grep -E '^(XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|XDG_SESSION_TYPE|XDG_CURRENT_DESKTOP)=' | sed 's/^/  /' || true
+svc_umask=$(timeout 30 systemd-run --user --wait --pipe --quiet sh -c umask 2>&1 || true)
+echo "user $(id -un) ($(id -u)), primary group $(id -gn) ($(id -g)); this shell's umask $(umask); a user service's umask: $svc_umask; ~/.config $(mode_of "$HOME/.config")"
 
 step "packaging N and N+1 from this commit and this engine build (AppImage only, loopback feed)"
 package() {  # <version> <label>
@@ -137,7 +154,8 @@ SHIM
 chmod +x "$shim_dir/systemctl"; : >"$systemctl_log"
 # A small shell is N's parent so that how N's desktop ends (exit code, or 128 + signal)
 # is recorded in $work/N-exit; the relaunched N+1 is started by the app, not by this.
-launch() { (cd "$HOME" && setsid sh -c '"$1"; echo "$?" >"$2"' launcher "$app" "$work/N-exit" >>"$logs/app.out" 2>&1 </dev/null &); }
+# umask 0002, as an Ubuntu session gives a user with a private group (N+1 inherits it).
+launch() { (umask 0002; cd "$HOME" && setsid sh -c '"$1"; echo "$?" >"$2"' launcher "$app" "$work/N-exit" >>"$logs/app.out" 2>&1 </dev/null &); }
 step "starting Orgtree $vN the way a launcher does: $app, no arguments"
 # (electron-builder's AppRun adds --no-sandbox by itself where user namespaces are unavailable)
 start=$SECONDS; launch
@@ -162,6 +180,7 @@ fi
 [ "$(version_of "$pidN")" = "$vN" ] || fail "the desktop does not run $vN"
 [ "$(version_of "$hostN")" = "$vN" ] || fail "the background engine's host (pid $hostN, $manager) does not run from $app"
 echo "PASS start: desktop pid $pidN and background engine host pid $hostN ($manager) run $vN; engine port $(engine_port)"
+check_private "N's start"
 
 step "waiting up to ${budget}s for the app to update itself (check, download, 60 s without input, swap, relaunch)"
 deadline=$((SECONDS + budget)); swapped=; pidN1=; hostN1=; next=$((SECONDS + 30))
@@ -194,9 +213,8 @@ fi
 echo "running from $app (pid ppid role version):"; procs | sed 's/^/  /'
 echo "PASS relaunch: one desktop, pid $pidN1 (was $pidN), runs $vN1 from $app, $((SECONDS - swapped)) s after the swap"
 echo "PASS background engine: host pid $hostN1 (was $hostN, $manager) runs $vN1 from $app; nothing of $vN is left running"
+check_private "N+1 after the relaunch"
 
-# Failures that do not stop the run: reported together at the end, after everything else.
-late=()
 # How N's desktop ended. After the swap the updater quits it with app.quit(); that must be
 # a clean exit (a Chromium check failing during the quit ends it with SIGTRAP: 133).
 n_exit=$(cat "$work/N-exit" 2>/dev/null || echo '?')
