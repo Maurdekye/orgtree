@@ -8317,3 +8317,5 @@ main:has(> .orgbar.native-header) > .error {
 .tool-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-left: 6px; vertical-align: middle; }
 .tool-ref-agent { display: inline-flex; align-items: center; gap: 6px; }
 .tool-refs .desk-dog-chip.gone { opacity: 0.55; cursor: default; }
+.tool-refs .tool-ticket { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.tool-refs .tool-ticket-plain { font-family: var(--mono); font-size: 10.5px; }

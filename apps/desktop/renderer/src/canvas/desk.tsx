@@ -4795,7 +4795,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             ? <RunningTimer startedAt={t.started_at} /> : null}
         {/* the agents and the watchdog this call concerns, as the same links
             and cards the rest of the app draws for them */}
-        {!t.error && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid}
+        {!t.error && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid} org={slug} onWorkLink={onWorkLink}
           agent={id => <MailFrom from={id} />} />}
         {/* mail sends carry the inline "open in mailbox" link (user spec):
             straight to the exact mail in whichever box holds it */}
