@@ -861,6 +861,14 @@ fn main() {
     let code = if raw.iter().any(|a| a == "app-server") {
         codex::run(&raw)
     } else if version {
+        // a proof can hold the engine's start-up sign-in check open: a
+        // `version-delay-ms` file in the fake CLI's folder delays the answer
+        let delay = std::env::var("ORGTREE_FAKECLI_DIR").ok().filter(|s| !s.is_empty())
+            .and_then(|d| std::fs::read_to_string(Path::new(&d).join("version-delay-ms")).ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        if let Some(ms) = delay {
+            std::thread::sleep(Duration::from_millis(ms));
+        }
         println!("{}", match stem.as_str() { "codex" => codex::VERSION, "agy" => agy::VERSION, _ => VERSION });
         0
     } else if stem == "agy" {
