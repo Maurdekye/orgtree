@@ -93,6 +93,8 @@ export default async function (rig) {
   p.check('4 back in the first org its own pick is kept', v.aAgain?.model === 'haiku', v.aAgain)
   const g = (v.groups ?? []).find((x) => x.text.startsWith('Quick chat defaults'))
   p.check('4 Save as template offers "Quick chat defaults", ticked', !!g && g.checked, v.groups)
+  const gs = (v.groups ?? []).find((x) => x.text.startsWith('Org-wide settings'))
+  p.check('4 and "Org-wide settings", ticked', !!gs && gs.checked, gs)
   const saved = fs.existsSync(path.join(tpDir, 'qc-from-desktop.json')) ? read('qc-from-desktop.json') : null
   p.check('4 the saved file carries what the box showed (coordinator, haiku)',
     saved && saved.quick_chat?.superior === 'coordinator' && saved.quick_chat?.tier === 'haiku', saved?.quick_chat ?? saved)
