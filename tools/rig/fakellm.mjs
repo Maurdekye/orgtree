@@ -16,7 +16,11 @@
 // THE SCRIPT. `rules` are tried in order against each inference request;
 // the first whose `match` substrings all occur in the request's LAST user
 // turn (case-insensitive) answers it. A request whose last user turn carries
-// a tool result is answered by `afterTool` (default: the text "Done.").
+// a tool result is answered by the first rule whose `afterCall` substrings
+// all occur in the arguments of the call that result answers (Responses
+// only), else by `afterTool` (default: the text "Done."); each such request
+// logs `tool_call` and `tool_output`, so a script can chain steps:
+//   { afterCall: ['STEP-1'], tool: 'exec_command', input: { cmd: 'echo STEP-2' } }
 // No rule matches: the text "OK.".
 //   { match: ['TOKEN'], tool: 'orgtree_status', input: { status: 'done', summary: '…' } }
 //   { match: ['TOKEN'], text: 'Hello' }
@@ -156,8 +160,11 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
   }
 
   /** the reply a request gets, from the last user turn's text */
-  function pick(lastText, toolResult) {
-    if (toolResult) return afterTool
+  function pick(lastText, toolResult, call = '') {
+    if (toolResult) {
+      const c = call.toLowerCase()
+      return rules.find((r) => r.afterCall && r.afterCall.every((m) => c.includes(String(m).toLowerCase()))) ?? afterTool
+    }
     const t = (lastText ?? '').toLowerCase()
     return rules.find((r) => (r.match ?? []).every((m) => t.includes(String(m).toLowerCase()))) ?? { text: 'OK.' }
   }
@@ -217,7 +224,9 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const text = (c) => (typeof c === 'string' ? c : (c ?? []).map((p) => p.text ?? '').join('\n'))
     const lastText = toolResult ? '' : text(lastItem?.content)
     const names = (b?.tools ?? []).map((t) => t.name ?? t.function?.name).filter(Boolean)
-    const reply = pick(lastText, toolResult)
+    // the call a tool result answers: its arguments pick an `afterCall` rule
+    const call = toolResult ? input.find((x) => x.type === 'function_call' && x.call_id === lastItem.call_id) : null
+    const reply = pick(lastText, toolResult, call?.arguments ?? '')
     if (reply.delay_ms && !waited) { setTimeout(() => responses(req, res, b, true), reply.delay_ms); return }
     // the usage this answer reports (Codex sums it into its thread total)
     const usage = { input_tokens: Math.ceil(JSON.stringify(b ?? {}).length / 4), input_tokens_details: { cached_tokens: 0 },
@@ -230,7 +239,8 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
       tool_types: (b?.tools ?? []).filter((t) => !String(t.name ?? '').includes('orgtree_')).map((t) => `${t.type}:${t.name ?? ''}`),
       store: b?.store ?? null, reasoning: b?.reasoning ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, instructions_chars: String(b?.instructions ?? '').length,
-      items: input.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
+      items: input.length, tool_result: toolResult, last_user: lastText.slice(-200), reply,
+      tool_call: call?.arguments ?? null, tool_output: toolResult ? text(lastItem.output).slice(0, 2000) : null })
     const respId = id('resp')
     const created = Math.floor(Date.now() / 1000)
     const base = { id: respId, object: 'response', created_at: created, model: b?.model, output: [] }
