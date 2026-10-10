@@ -419,7 +419,16 @@ Kept at the user's decision (2026-10-06): `orgtree_staff`, `orgtree_swap`,
 State inspection additionally exposes the caller's whole subtree at every
 visibility, including `self`, and everything its chart shows (user ruling
 2026-10-07 08:28Z, DECISIONS 49). This deliberately widens 3.x inspection;
-archives remain opt-in and the safe-field projection is unchanged.
+archives remain opt-in and the safe-field projection is unchanged, except that
+`scope` also shows each agent's effective folders, path and mode (DECISIONS 69).
+
+`orgtree_retool`'s `add_dirs` adds folders and keeps the agent's others (and its
+reports'); naming a folder it holds changes its mode. The new `remove_dirs`
+removes folders it holds and refuses one it does not hold. 3.x replaced the
+whole list, with a warning in the tool text (user ruling 2026-10-10 11:50Z,
+DECISIONS 69). A hire's and a rehire's `add_dirs` still set the whole list. The
+retool result lists the folders added, changed and removed, the agents beneath
+whose folders a narrowing clamped, and the agents above that a deep grant raised.
 
 ## 11. Decisions I need from you
 

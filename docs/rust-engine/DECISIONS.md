@@ -581,3 +581,30 @@ All entries are dated 2026-10-06 unless stated otherwise.
       without the sandbox; a launch the helper cannot make falls back to Session 0.
       Details: `credential-bridge.md` (Codex launches in the user's session),
       `tools/rig/proofs/codex-host.mjs`.
+
+69. **`orgtree_retool` adds folders, and `remove_dirs` removes them** (user 2026-10-10 11:50Z,
+    on an outside report that a retool giving one folder had dropped the agent's other folders
+    and its reports'; chosen: "Giving a folder adds it to the agent's list. A separate option
+    removes folders, and it refuses a folder the agent doesn't have, so a typo can't slip
+    through. Hiring still sets the whole starting list."). 3.x replaced the whole list, and its
+    tool text said so ("REPLACES its folder grants when passed"); 4.x had kept the behaviour
+    and lost the warning.
+    - **Adding:** each folder in `add_dirs` is added; one the agent already holds (the same
+      folder after case and separators are normalized) takes the new mode. Only the folders
+      named are granted and checked against the caller (nobody grants above themselves); an
+      intermediate that lacks one is still raised (D-106).
+    - **Removing:** `remove_dirs` lists folders the agent holds (paths; `{path}` objects are
+      accepted too). One it does not hold is refused, naming its folders, and so is a folder in
+      both lists. Removing a folder, or narrowing it to read-only, does the same to the agents
+      beneath, for good, as in 3.x; the agent's scope-changed notice names its folders.
+    - **Hire, staff and rehire** keep `add_dirs` as the whole list: a hire's starting list, and
+      a rehire's replaces the stored one (3.x).
+    - **The result** lists `folders` (added, changed, removed) for the agent, `clamped` (node,
+      removed, changed) for each agent beneath that lost folders, with a warning naming them,
+      and `raised` (node, added, changed) for each agent above that a deep grant raised;
+      `cascaded` is unchanged.
+    - **State inspection** shows each agent's effective folders (path and mode, as its CLI is
+      started with them) in `scope`; 3.x showed none.
+    - **Unchanged:** the desktop's scope panel and the approval of a scope request set the
+      whole list through their own route.
+    Proof: `tools/rig/proofs/retool-dirs.mjs`.
