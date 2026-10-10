@@ -105,6 +105,19 @@ pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>,
     })
 }
 
+/// What account balancing reads from a login's cached reading for `tier`:
+/// over the windows the tier spends, the last reset and the highest percent
+/// used. None without a cached reading (never a fetch).
+#[logged]
+pub fn balance_reading(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> Option<crate::domain::templates::Reading> {
+    let provider = crate::providers::catalog::provider_of(tier);
+    let v = reading_of(engine, provider, account)?;
+    let spent: Vec<&Value> = v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).collect();
+    let reset = spent.iter().filter_map(|w| w["resets_at"].as_str().and_then(crate::util::parse_ts)).max();
+    let used = spent.iter().filter_map(|w| w["percent"].as_f64().filter(|p| p.is_finite())).reduce(f64::max);
+    (reset.is_some() || used.is_some()).then_some(crate::domain::templates::Reading { reset, used })
+}
+
 /// 3.x `account_fallback.available`: positive proof of room, which a move
 /// nobody asked for needs: every window `tier` spends reads under 100%, is
 /// not active and resets ahead, and none is missing (Claude: the session and

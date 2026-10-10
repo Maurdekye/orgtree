@@ -83,11 +83,19 @@ pub struct Charter {
 
 /// What this machine can staff: tier → (seat, provider, eligible account
 /// ids, whether the provider's own sign-in can run it).
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Avail {
     pub tiers: HashMap<String, Offer>,
     /// the effective hire-default account, if any
     pub default_account: Option<String>,
+    /// when the readings were judged (resets are compared with it)
+    pub now: chrono::DateTime<chrono::Utc>,
+}
+
+impl Default for Avail {
+    fn default() -> Self {
+        Avail { tiers: HashMap::new(), default_account: None, now: chrono::Utc::now() }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +104,42 @@ pub struct Offer {
     pub provider: String,
     pub accounts: Vec<String>,
     pub default_ok: bool,
+    /// the cached usage reading of each candidate (`primary` = the
+    /// provider's own sign-in), for the balancing rule; none = unread
+    pub readings: HashMap<String, Reading>,
+}
+
+/// What balancing reads from one login's cached usage, over the windows
+/// the tier spends: the last of their resets (the window worth
+/// preserving) and the highest percent used.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Reading {
+    pub reset: Option<chrono::DateTime<chrono::Utc>>,
+    pub used: Option<f64>,
+}
+
+/// A reset this close counts as soon: that capacity refreshes anyway, so it
+/// is spent first (the user's balancing rule 2026-09-12, rule 2).
+const SOON_HOURS: i64 = 24;
+
+/// Order candidate logins by the balancing rule. Those whose reset is soon
+/// come first, the sooner the earlier; the rest (reset far off or unknown)
+/// by lower usage. Logins with no reading keep today's order after the read
+/// ones, and with no reading at all the order is unchanged.
+#[logged]
+pub fn balance(order: &[String], readings: &HashMap<String, Reading>, now: chrono::DateTime<chrono::Utc>) -> Vec<String> {
+    let read: Vec<(usize, &String, Reading)> = order.iter().enumerate()
+        .filter_map(|(i, id)| readings.get(id).filter(|r| r.reset.is_some() || r.used.is_some()).map(|r| (i, id, *r)))
+        .collect();
+    let soon = |r: &Reading| r.reset.is_some_and(|t| t - now <= chrono::Duration::hours(SOON_HOURS));
+    let mut near: Vec<_> = read.iter().filter(|(_, _, r)| soon(r)).collect();
+    near.sort_by(|a, b| a.2.reset.cmp(&b.2.reset).then(a.0.cmp(&b.0)));
+    let mut far: Vec<_> = read.iter().filter(|(_, _, r)| !soon(r)).collect();
+    far.sort_by(|a, b| a.2.used.unwrap_or(f64::MAX).total_cmp(&b.2.used.unwrap_or(f64::MAX))
+        .then(a.2.reset.cmp(&b.2.reset)).then(a.0.cmp(&b.0)));
+    let mut out: Vec<String> = near.iter().chain(far.iter()).map(|(_, id, _)| (*id).clone()).collect();
+    out.extend(order.iter().filter(|id| !out.contains(id)).cloned().collect::<Vec<_>>());
+    out
 }
 
 /// The user's changes in the picker: per slot a different tier or name,
@@ -240,16 +284,27 @@ pub fn avail(engine: &Engine, org_slug: &str) -> Avail {
     let mut tiers = HashMap::new();
     for t in opts["tiers"].as_array().into_iter().flatten() {
         let Some(tier) = t["tier"].as_str() else { continue };
+        let accounts: Vec<String> = t["accounts"].as_array().into_iter().flatten().filter_map(|a| a["id"].as_str().map(str::to_string)).collect();
+        let default_ok = t["default_ok"].as_bool().unwrap_or(false);
+        let view = engine.accounts.view();
+        let mut readings = HashMap::new();
+        if default_ok {
+            if let Some(r) = crate::usage::balance_reading(engine, None, tier) { readings.insert("primary".to_string(), r); }
+        }
+        for id in &accounts {
+            if let Some(r) = view.get(id).and_then(|a| crate::usage::balance_reading(engine, Some(a), tier)) {
+                readings.insert(id.clone(), r);
+            }
+        }
         tiers.insert(tier.to_string(), Offer {
             seat: t["seat"].as_f64().unwrap_or(0.0),
             provider: t["provider"].as_str().unwrap_or("").to_string(),
-            accounts: t["accounts"].as_array().into_iter().flatten().filter_map(|a| a["id"].as_str().map(str::to_string)).collect(),
-            default_ok: t["default_ok"].as_bool().unwrap_or(false),
+            accounts, default_ok, readings,
         });
     }
     let defaults = engine.settings.defaults();
     let eff = crate::feed::groups::effective_settings(&json!({}), &defaults);
-    Avail { tiers, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string) }
+    Avail { tiers, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now() }
 }
 
 /// One planned hire.
@@ -316,12 +371,14 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
                     None
                 } else if let Some(a) = s.account.as_ref().filter(|a| fits(a)) {
                     Some(a.clone())
-                } else if let Some(d) = av.default_account.as_ref().filter(|d| o.accounts.contains(d)) {
-                    Some(d.clone())
-                } else if o.default_ok {
-                    Some("primary".to_string())
                 } else {
-                    o.accounts.first().cloned()
+                    // today's order (the hire default, the provider's own
+                    // sign-in, the rest by id), re-ranked by cached usage
+                    let mut order: Vec<String> = av.default_account.iter().filter(|d| o.accounts.contains(d)).cloned().collect();
+                    if o.default_ok { order.push("primary".to_string()); }
+                    let rest: Vec<String> = o.accounts.iter().filter(|a| !order.contains(a)).cloned().collect();
+                    order.extend(rest);
+                    balance(&order, &o.readings, av.now).into_iter().next()
                 }
             });
             if let (Some(want), Some(got)) = (&s.account, &account) {
@@ -620,14 +677,14 @@ mod tests {
     }
 
     fn offer(seat: f64, provider: &str) -> Offer {
-        Offer { seat, provider: provider.into(), accounts: vec![], default_ok: true }
+        Offer { seat, provider: provider.into(), accounts: vec![], default_ok: true, readings: HashMap::new() }
     }
 
     fn claude_only() -> Avail {
         let mut tiers = HashMap::new();
         tiers.insert("opus".into(), offer(4.0, "claude"));
         tiers.insert("sonnet".into(), offer(2.0, "claude"));
-        Avail { tiers, default_account: None }
+        Avail { tiers, default_account: None, now: chrono::Utc::now() }
     }
 
     fn bundled(id: &str) -> Template {
@@ -705,5 +762,47 @@ mod tests {
         let mut ch = Choices::default();
         ch.overrides.insert("curator".into(), SlotChoice { tier: None, name: Some("redteam".into()) });
         assert!(plan(&bundled("devteam-claude"), &ch, &claude_only(), &[]).is_err());
+    }
+
+    fn rd(hours: Option<i64>, used: Option<f64>, now: chrono::DateTime<chrono::Utc>) -> Reading {
+        Reading { reset: hours.map(|h| now + chrono::Duration::hours(h)), used }
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn balancing_spends_the_sooner_reset_then_the_lower_usage() {
+        let now = chrono::Utc::now();
+        let order = ids(&["primary", "claude-5", "claude-6"]);
+        // no readings: today's order
+        assert_eq!(balance(&order, &HashMap::new(), now), order);
+        // all far from reset: lower usage first
+        let far = HashMap::from([("primary".to_string(), rd(Some(90), Some(67.0), now)),
+                                 ("claude-5".to_string(), rd(Some(70), Some(53.0), now)),
+                                 ("claude-6".to_string(), rd(Some(100), Some(80.0), now))]);
+        assert_eq!(balance(&order, &far, now), ids(&["claude-5", "primary", "claude-6"]));
+        // one resets within a day: it goes first even at higher usage
+        let mut near = far.clone();
+        near.insert("claude-6".to_string(), rd(Some(5), Some(95.0), now));
+        assert_eq!(balance(&order, &near, now), ids(&["claude-6", "claude-5", "primary"]));
+        // an unread login stays after the read ones, in today's order
+        let partial = HashMap::from([("claude-6".to_string(), rd(Some(80), Some(10.0), now))]);
+        assert_eq!(balance(&order, &partial, now), ids(&["claude-6", "primary", "claude-5"]));
+    }
+
+    #[test]
+    fn the_plan_picks_the_balanced_account() {
+        let mut av = claude_only();
+        let now = av.now;
+        let opus = av.tiers.get_mut("opus").unwrap();
+        opus.accounts = vec!["claude-5".into()];
+        opus.readings = HashMap::from([("primary".to_string(), rd(Some(90), Some(73.0), now)),
+                                       ("claude-5".to_string(), rd(Some(67), Some(55.0), now))]);
+        let (p, _) = plan(&bundled("devteam-claude"), &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(p[0].account.as_deref(), Some("claude-5"));
+        // sonnet has no readings: the provider's own sign-in, as before
+        assert_eq!(p[3].account.as_deref(), Some("primary"));
     }
 }
