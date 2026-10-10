@@ -623,16 +623,16 @@ fn valid_host(s: &str) -> bool {
 fn describe(code: &str) -> String {
     let tool = code.split('-').next().unwrap_or("");
     let what = match code {
-        "gh-empty" => "GitHub sign-in missing on the desktop: ask the user to run `gh auth login` in their Windows session".to_string(),
-        "git-empty" => "no saved git login for this host on the desktop: ask the user to sign in there once (for github.com: `gh auth login`)".to_string(),
-        "gh-missing" | "git-missing" => format!("{tool}.exe is not on the desktop's PATH: ask the user to install {tool} and reopen the Orgtree app"),
-        "gh-timeout" | "git-timeout" => format!("{tool} timed out on the desktop: ask the user to check that `{tool}` works in their own terminal"),
-        "broker-gone" | "broker-failed" => "the Orgtree desktop app stopped answering: ask the user to reopen the Orgtree app".to_string(),
-        "invalid-request" => "the desktop rejected this request (unsupported host or field)".to_string(),
+        "gh-empty" => "GitHub sign-in missing in the signed-in Windows session: ask the user to run `gh auth login` in their Windows session".to_string(),
+        "git-empty" => "no saved git login for this host in the signed-in Windows session: ask the user to sign in there once (for github.com: `gh auth login`)".to_string(),
+        "gh-missing" | "git-missing" => format!("{tool}.exe is not on the PATH of the signed-in Windows session: ask the user to install {tool}, then sign out of Windows and back in"),
+        "gh-timeout" | "git-timeout" => format!("{tool} timed out in the signed-in Windows session: ask the user to check that `{tool}` works in their own terminal"),
+        "broker-gone" | "broker-failed" => "the signed-in credential helper stopped answering: ask the user to sign out of Windows and back in, or to open the Orgtree app".to_string(),
+        "invalid-request" => "the signed-in credential helper rejected this request (unsupported host or field)".to_string(),
         c => match c.split_once("-exit-") {
-            Some(("gh", n)) => format!("gh failed on the desktop (exit {n}), usually because GitHub sign-in is missing: ask the user to run `gh auth status` and `gh auth login` in their Windows session"),
-            Some((tool, n)) => format!("{tool} failed on the desktop (exit {n}), usually because no login is saved for this host: ask the user to sign in there once (for github.com: `gh auth login`)"),
-            None => "the desktop lookup failed: ask the user to reopen the Orgtree app".to_string(),
+            Some(("gh", n)) => format!("gh failed in the signed-in Windows session (exit {n}), usually because GitHub sign-in is missing: ask the user to run `gh auth status` and `gh auth login` in their Windows session"),
+            Some((tool, n)) => format!("{tool} failed in the signed-in Windows session (exit {n}), usually because no login is saved for this host: ask the user to sign in there once (for github.com: `gh auth login`)"),
+            None => "the signed-in lookup failed: ask the user to open the Orgtree app".to_string(),
         },
     };
     format!("Orgtree credential bridge: {what} [{code}].")

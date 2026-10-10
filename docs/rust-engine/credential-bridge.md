@@ -61,9 +61,11 @@ commands ask signed-in Electron main for the user's configured credentials.
 
 ## Availability and limits
 
-Desktop startup at sign-in is already on by default. When disabled, the user must
-open Orgtree. The warning says exactly that. No new startup registration, scheduled-task edit, engine restart or
-turn hold is introduced. Before a broker is available, adapters preserve native
+Since decision 68 (2026-10-10) the sign-in credential helper (below) serves the
+bridge from Windows sign-in, whether or not the app runs and whatever "Start at
+login" says; the desktop still serves it whenever the helper does not. Before
+that, the desktop alone served it and the user had to open Orgtree. No engine
+restart or turn hold is introduced. Before a broker is available, adapters preserve native
 credential behavior while the app/tray warning asks the user to sign in and open
 Orgtree. Lease expiration restores the warning.
 The app reports restored git/GitHub access separately from the general Windows
@@ -179,3 +181,58 @@ said why it failed. Now:
   real git/gh lookup through the desktop sets it, never a ping or a
   registration. It is diagnostic only: the user ruled on 2026-10-07 at 16:12Z
   that there is no credential UI, and agents relay the stderr line instead.
+
+## Sign-in credential helper (decision 68, 2026-10-10)
+
+The bridge used to need the desktop app running; with the app quit or crashed
+every bridged git/gh request answered `[no-desktop]` (measured 2026-10-10: a
+Hubchat push was blocked that way). `orgtree-credential-broker.exe` closes
+that gap.
+
+- **Binary:** `engine/rs/orgtree-engine/src/credential_broker.rs`, a second
+  `[[bin]]` of the engine crate, GUI subsystem (no window, no console, no tray).
+  Self-contained: no tracing, every function `#[nolog]`. Its only log is
+  `credential-broker.log` in the data root, secret-free state changes
+  (started, attached to engine pid N, holding / standing by, refused with the
+  HTTP status), capped at 256 KiB. Measured idle (debug build): 6.7 MB working
+  set, 1.1 MB private, 16 ms CPU per minute, 3 threads; 1.3 MB file.
+- **Attach:** the desktop's rules. The descriptor's write boundary first
+  (owner this user, SYSTEM or Administrators; no foreign write on the file or
+  its folder; no foreign replace right on any ancestor; inherit-only ACEs
+  skipped), then its bytes, then `/api/desktop/identity` must echo protocol 1,
+  the descriptor's engine pid and the same data root. A data root under a
+  folder other users can modify (for example the stock `E:\` with
+  Authenticated Users: Modify) is refused, exactly as the desktop refuses it.
+- **Serve:** a random pipe (`\.\pipe\orgtree-credentials-<pid>-<hex>`, first
+  instance, remote clients rejected) and a memory-only 32-byte secret; the
+  desktop broker's protocol, lookups (`gh auth token --hostname`, `git
+  credential fill` from the user's home with prompts off and bridge variables
+  stripped), limits (16 concurrent, 8 s per connection, 6 s per tool, 64 KiB)
+  and failure codes. The reply is written and the handle dropped, never
+  `DisconnectNamedPipe`d, which would discard what the engine has not read.
+- **Lease:** registers every 5 s with the descriptor's desktop token. The
+  engine keeps one broker: a live lease whose broker process (pid plus
+  creation time) still runs keeps the slot and a different broker gets
+  `409 [held]`; the holder may send `release: true` with its pipe and secret
+  (the desktop does on quit); a holder that died is replaced at the next
+  registration. Measured: takeover 58 ms after the holder died, 3.5 s after a
+  release (one poll).
+- **Start:** "Orgtree Credential Helper" scheduled task from
+  `tools/boot-engine-task.ps1`: logon trigger for the operator SID, principal
+  the operator with `InteractiveToken`, least privilege, ACL like the boot task,
+  no time limit, restart on failure. Register creates/updates and runs it (a
+  failed Run waits for the next sign-in); Stop/Prepare disables it and ends its
+  process before the boot tree stops (the broker runs from
+  `resources\engine` and would hold the install open); Remove deletes it. The
+  upgrade page's install-tree check leaves the broker image to that step.
+- **Not covered:** before the user signs in to Windows after a reboot there is
+  no access (no interactive token exists). A second Windows session of the
+  same user starts its own broker; the hold rule keeps the first.
+
+Proof: `tools/rig/proofs/credential-broker.mjs` (run with `ORGTREE_RIG_HOME`
+under your profile, see its header). The broker and a stand-in desktop start
+through one temporary per-user interactive task, because an agent's own
+processes may carry the boot task's BATCH token, which the engine rightly
+refuses. Measured 2026-10-10: synthetic git credential through engine and
+broker, gh and github.com lookups reaching the user's store, git ls-remote,
+handover both ways, idle cost, `[no-desktop]` without a broker, task deleted.

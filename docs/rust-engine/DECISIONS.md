@@ -223,7 +223,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     channel, with revocable per-agent capabilities and same-SID interactive
     ownership proof. Secrets are never logged or persisted by Orgtree. The
     desktop starts at login by default; when that preference is off, the user
-    opens Orgtree to restore access. No separate logon helper. SSH, absolute-path
+    opens Orgtree to restore access. No separate logon helper. (Superseded by
+    decision 68: a sign-in credential helper now serves the bridge without the app.) SSH, absolute-path
     gh and general Credential Manager/DPAPI access are outside this bridge.
     Details and verification limits: `credential-bridge.md`.
 
@@ -548,3 +549,27 @@ All entries are dated 2026-10-06 unless stated otherwise.
       dog that sent it.
 
     Proof: `tools/rig/proofs/watchdog-slugs.mjs`.
+
+68. **A sign-in credential helper serves git/GitHub access while the app is not running**
+    (user 2026-10-10 07:56Z: "why not start a second subprocess at login that can carry the
+    token"; coordinator rulings 08:02Z). Supersedes decision 51's "No separate logon helper".
+    - **What:** `orgtree-credential-broker.exe`, a small windowless second binary beside the
+      engine (`src/credential_broker.rs`; not the engine exe, which is a console program and
+      would flash a window at every sign-in). It serves the desktop broker's exact pipe
+      protocol and 20-second lease, so the engine accepts it on the same checks as Electron
+      main (desktop token, pipe server PID, same SID, INTERACTIVE, nonzero session), and it
+      attaches with the desktop's descriptor-trust and identity checks.
+    - **Start:** the "Orgtree Credential Helper" scheduled task, registered by the installer's
+      boot lifecycle beside the boot task: logon trigger for the operator only, interactive
+      token, least privilege. Per-machine installs only (per-user installs have no boot
+      engine). Independent of "Start at login" (ruling A): it runs at every sign-in while the
+      boot engine is installed. No new setting.
+    - **One broker at a time:** a live lease whose broker process still runs keeps the bridge;
+      another broker gets 409 `[held]` and retries on its next poll. A holder may release
+      (the desktop does on quit); a dead holder is replaced at once. No flapping.
+    - **Install/update/uninstall:** the helper task is disabled and its process ended before
+      the boot tree stops; Register re-creates and starts it; Remove deletes it.
+    - **Limit:** after a reboot and before the user signs in to Windows there is still no
+      access; Windows does not allow it.
+    Details and proof: `credential-bridge.md` (Sign-in credential helper),
+    `tools/rig/proofs/credential-broker.mjs`.
