@@ -275,7 +275,9 @@ export function touch(dir) {
   try { fs.writeFileSync(path.join(dir, 'heartbeat'), new Date().toISOString()) } catch { /* the run is gone */ }
 }
 
-/** The run a command means: --run <id|dir>, else the newest live one. */
+/** The run a command means: --run <id|dir>, else the caller's own newest
+ * live one. Several agents share the rig: another agent's run is never picked
+ * by default. */
 export function pickRun(which) {
   const runs = listRuns()
   if (which) {
@@ -285,7 +287,22 @@ export function pickRun(which) {
   }
   const ready = runs.filter(r => r.run?.status === 'ready').sort((a, b) => String(b.run.created).localeCompare(String(a.run.created)))
   if (!ready.length) throw new Error('no rig run is up: `node tools/rig/rig.mjs up`')
-  return ready[0].dir
+  const mine = ready.filter(r => r.run.by === me())
+  if (!mine.length) {
+    throw new Error(`none of the live rig runs is yours (${me()}); name one with --run: `
+      + ready.map(r => `${path.basename(r.dir)} (${r.run.by ?? '?'})`).join(', '))
+  }
+  return mine[0].dir
+}
+
+/** A run folder whose start never wrote run.json (it failed, or an older
+ * rig's cleanup took part of it): `down --run <id>` removes it. Only a folder
+ * named like a run, directly in the runs folder, qualifies. */
+export function halfMadeRun(which, home = rigHome()) {
+  if (!which || !/^([a-z0-9-]+-)?\d{8}-\d{6}-[0-9a-f]{4}$/i.test(path.basename(which))) return null
+  const dir = path.join(runsDir(home), path.basename(which))
+  if (lower(path.dirname(dir)) !== lower(runsDir(home)) || !fs.existsSync(dir) || fs.existsSync(path.join(dir, 'run.json'))) return null
+  return dir
 }
 
 export function newRunId(name) {
@@ -387,6 +404,8 @@ export class Rig {
    * PostgreSQL and the CLIs with it); the keeper notes it and exits.
    * `restart()` brings the run back on the same data. */
   async crash({ timeout = 30000 } = {}) {
+    // a restart follows: until it does, other agents' cleanup must not take the run
+    writeRun(this.dir, { busy: new Date().toISOString() })
     const run = this.refresh()
     killTree(run.enginePid)
     await this.waitFor(() => !alive(run.keeperPid), { what: 'the keeper to see the engine die', timeout })
@@ -477,63 +496,85 @@ export async function startRun(opts = {}) {
   const dir = path.join(runsDir(home), id)
   const data = path.join(dir, 'data')
   assertSafeRoot(data)
-  fs.mkdirSync(path.join(dir, 'bin'), { recursive: true })
-  fs.mkdirSync(data, { recursive: true })
-  fs.writeFileSync(path.join(data, '.orgtree-rig-root'), JSON.stringify({ rig: 1, created: new Date().toISOString(), run: id }))
-  fakeHome(data)
-  if (opts.legacy) fs.cpSync(opts.legacy, data, { recursive: true })
-  // --initdb: let the engine create the cluster itself (its own first-start path)
-  if (!opts.initdb && !fs.existsSync(path.join(data, 'pg', 'cluster'))) fs.cpSync(pgTemplate(home, pg), path.join(data, 'pg', 'cluster'), { recursive: true })
-  // a script's hook on the run's own cluster before the engine's first start (e.g. a legacy 3.x store)
-  if (opts.prepare) await opts.prepare({ dir, data, pgBin: pg })
-  // copies: a running engine never locks the developer's cargo output
-  fs.copyFileSync(engine, path.join(dir, 'bin', 'orgtree-engine.exe'))
-  // --real-cli: the installed harnesses, copied (a running copy never locks
-  // the user's own install); their home is the run's fake one (keeper.mjs)
-  if (opts.realCli) {
-    const real = realCliBins()
-    fs.copyFileSync(real.claude, path.join(dir, 'bin', 'claude.exe'))
-    const codexDir = path.dirname(real.codex)
-    for (const f of fs.readdirSync(codexDir).filter(f => f.toLowerCase().endsWith('.exe'))) {
-      fs.copyFileSync(path.join(codexDir, f), path.join(dir, 'bin', f))
+  // run.json first: every `up` cleans up runs that look dead, and a folder
+  // without one looks dead while its cluster is copied and its hook runs.
+  // `busy` keeps the run live until its engine is ready.
+  fs.mkdirSync(dir, { recursive: true })
+  writeRun(dir, { id, created: new Date().toISOString(), status: 'starting', dir, by: me(), busy: new Date().toISOString() })
+  try {
+    fs.mkdirSync(path.join(dir, 'bin'), { recursive: true })
+    fs.mkdirSync(data, { recursive: true })
+    fs.writeFileSync(path.join(data, '.orgtree-rig-root'), JSON.stringify({ rig: 1, created: new Date().toISOString(), run: id }))
+    fakeHome(data)
+    if (opts.legacy) fs.cpSync(opts.legacy, data, { recursive: true })
+    // --initdb: let the engine create the cluster itself (its own first-start path)
+    if (!opts.initdb && !fs.existsSync(path.join(data, 'pg', 'cluster'))) fs.cpSync(pgTemplate(home, pg), path.join(data, 'pg', 'cluster'), { recursive: true })
+    // A rig cluster runs without fsync (coordinator 2026-10-10; never the app's
+    // own cluster): surviving an OS crash is not under test, and with fsync on
+    // a busy disk a stop's checkpoint outlasts the engine's wait, so the next
+    // start fsyncs the whole cluster for minutes. `fsync: true` keeps it, for a
+    // run that measures stops. (An --initdb run's cluster is made by the engine
+    // at its first start and keeps the default.)
+    const conf = path.join(data, 'pg', 'cluster', 'data', 'postgresql.conf')
+    if (fs.existsSync(conf)) fs.appendFileSync(conf, `\n# orgtree test rig\nfsync = ${opts.fsync ? 'on' : 'off'}\n`)
+    // a script's hook on the run's own cluster before the engine's first start (e.g. a legacy 3.x store)
+    if (opts.prepare) await opts.prepare({ dir, data, pgBin: pg })
+    // copies: a running engine never locks the developer's cargo output
+    fs.copyFileSync(engine, path.join(dir, 'bin', 'orgtree-engine.exe'))
+    // --real-cli: the installed harnesses, copied (a running copy never locks
+    // the user's own install); their home is the run's fake one (keeper.mjs)
+    if (opts.realCli) {
+      const real = realCliBins()
+      fs.copyFileSync(real.claude, path.join(dir, 'bin', 'claude.exe'))
+      const codexDir = path.dirname(real.codex)
+      for (const f of fs.readdirSync(codexDir).filter(f => f.toLowerCase().endsWith('.exe'))) {
+        fs.copyFileSync(path.join(codexDir, f), path.join(dir, 'bin', f))
+      }
+    } else {
+      fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))
+      fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
     }
-  } else {
-    fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))
-    fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
+    fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
+    // the fake Tailscale CLI (ORGTREE_TAILSCALE_BIN), scripted through rig-home\rig-tailscale
+    fs.copyFileSync(path.join(RIG_DIR, 'fake-tailscale.cmd'), path.join(dir, 'bin', 'tailscale.cmd'))
+    // --hub: the engine hosts this mail hub inside the run (its own role and
+    // database in the run's cluster, a free loopback port) and the run's
+    // network mail reaches it and nothing else
+    let hub = null, hubPort = null
+    if (opts.hub) {
+      hub = path.join(dir, 'bin', 'orgtree-mailhub.exe')
+      fs.copyFileSync(hubExe(opts.hub), hub)
+      hubPort = await freePort()
+      fs.writeFileSync(path.join(data, 'mailhub-hosting.json'), JSON.stringify({ version: 2, port: hubPort, bind: '127.0.0.1', name: 'rig hub',
+        retention_days: null, public_listener: false, max_attachment_bytes: opts.hubMaxBytes ?? 1073741824 }, null, 2))
+    }
+    fs.mkdirSync(path.join(dir, 'fakecli', 'log'), { recursive: true })
+    if (!fs.existsSync(path.join(dir, 'fakecli', 'scenario.json'))) {
+      fs.writeFileSync(path.join(dir, 'fakecli', 'scenario.json'), JSON.stringify({ default: { turns: [{ steps: [{ text: 'OK.' }] }] } }, null, 2))
+    }
+    writeRun(dir, {
+      id, created: new Date().toISOString(), status: 'starting', dir, data, pgBin: pg, ui, engineSource: engine,
+      token: crypto.randomBytes(32).toString('hex'), ttlMin: opts.ttlMin ?? 20, maxMin: opts.maxMin ?? 120, by: me(),
+      // the engine's restart path (closing turns, waking agents) runs at every start
+      recover: !!opts.recover,
+      // the automatic wakes a safe start holds back, swept every N seconds (true: 5)
+      reminders: opts.reminders || null,
+      reminderPauseMs: opts.reminderPauseMs || null,
+      hub, hubPort,
+      // the agents' CLIs are the installed Claude Code and Codex (`up --real-cli`)
+      realCli: !!opts.realCli,
+    })
+    touch(dir)
+    await launchKeeper(dir, opts.timeout)
+    return new Rig(dir)
+  } catch (e) {
+    // a start that failed is an ordinary dead run again: the next cleanup removes it
+    try {
+      const cur = readRun(dir)
+      writeRun(dir, { busy: null, ...(cur?.status === 'starting' ? { status: 'failed', error: cur.error ?? e.message } : {}) })
+    } catch { /* the folder is gone */ }
+    throw e
   }
-  fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
-  // the fake Tailscale CLI (ORGTREE_TAILSCALE_BIN), scripted through rig-home\rig-tailscale
-  fs.copyFileSync(path.join(RIG_DIR, 'fake-tailscale.cmd'), path.join(dir, 'bin', 'tailscale.cmd'))
-  // --hub: the engine hosts this mail hub inside the run (its own role and
-  // database in the run's cluster, a free loopback port) and the run's
-  // network mail reaches it and nothing else
-  let hub = null, hubPort = null
-  if (opts.hub) {
-    hub = path.join(dir, 'bin', 'orgtree-mailhub.exe')
-    fs.copyFileSync(hubExe(opts.hub), hub)
-    hubPort = await freePort()
-    fs.writeFileSync(path.join(data, 'mailhub-hosting.json'), JSON.stringify({ version: 2, port: hubPort, bind: '127.0.0.1', name: 'rig hub',
-      retention_days: null, public_listener: false, max_attachment_bytes: opts.hubMaxBytes ?? 1073741824 }, null, 2))
-  }
-  fs.mkdirSync(path.join(dir, 'fakecli', 'log'), { recursive: true })
-  if (!fs.existsSync(path.join(dir, 'fakecli', 'scenario.json'))) {
-    fs.writeFileSync(path.join(dir, 'fakecli', 'scenario.json'), JSON.stringify({ default: { turns: [{ steps: [{ text: 'OK.' }] }] } }, null, 2))
-  }
-  writeRun(dir, {
-    id, created: new Date().toISOString(), status: 'starting', dir, data, pgBin: pg, ui, engineSource: engine,
-    token: crypto.randomBytes(32).toString('hex'), ttlMin: opts.ttlMin ?? 20, maxMin: opts.maxMin ?? 120, by: me(),
-    // the engine's restart path (closing turns, waking agents) runs at every start
-    recover: !!opts.recover,
-    // the automatic wakes a safe start holds back, swept every N seconds (true: 5)
-    reminders: opts.reminders || null,
-    reminderPauseMs: opts.reminderPauseMs || null,
-    hub, hubPort,
-    // the agents' CLIs are the installed Claude Code and Codex (`up --real-cli`)
-    realCli: !!opts.realCli,
-  })
-  touch(dir)
-  await launchKeeper(dir, opts.timeout)
-  return new Rig(dir)
 }
 
 /** Start the run's keeper (which starts the engine) and wait until the
@@ -546,19 +587,26 @@ async function launchKeeper(dir, timeout = 240000) {
   fs.closeSync(log)
   writeRun(dir, { keeperPid: keeper.pid })
   const end = Date.now() + timeout
-  for (;;) {
-    const run = readRun(dir)
-    if (run?.status === 'ready') break
-    if (run?.status === 'failed' || run?.status === 'stopped') throw new Error(`rig run ${id} failed to start: ${run.error ?? run.status}\n(see ${path.join(dir, 'keeper.log')})`)
-    if (!alive(keeper.pid) && run?.status !== 'ready') throw new Error(`rig keeper exited during start; see ${path.join(dir, 'keeper.log')}`)
-    if (Date.now() > end) { await stopRun(dir, { keep: true }); throw new Error(`rig run ${id} did not become ready in time; kept for inspection at ${dir}`) }
-    await sleep(300)
+  try {
+    for (;;) {
+      const run = readRun(dir)
+      if (run?.status === 'ready') break
+      if (run?.status === 'failed' || run?.status === 'stopped') throw new Error(`rig run ${id} failed to start: ${run.error ?? run.status}\n(see ${path.join(dir, 'keeper.log')})`)
+      if (!alive(keeper.pid) && run?.status !== 'ready') throw new Error(`rig keeper exited during start; see ${path.join(dir, 'keeper.log')}`)
+      if (Date.now() > end) { await stopRun(dir, { keep: true }); throw new Error(`rig run ${id} did not become ready in time; kept for inspection at ${dir}`) }
+      await sleep(300)
+    }
+  } finally {
+    // ready, or failed (a kept run is an ordinary dead one): the busy window ends
+    try { writeRun(dir, { busy: null }) } catch { /* the folder is gone */ }
   }
 }
 
 /** Stop a run's engine gracefully and start it again on the same data root
  * and cluster (what quitting and reopening the app does to the engine). */
 export async function restartRun(dir, { timeout = 240000 } = {}) {
+  // the run is down on purpose until its new keeper is up: other agents' cleanup must not take it
+  writeRun(dir, { busy: new Date().toISOString() })
   await stopRun(dir, { keep: true })
   fs.rmSync(path.join(dir, 'stop'), { force: true })
   writeRun(dir, { status: 'starting', restarts: (readRun(dir)?.restarts ?? 0) + 1, error: null })
@@ -623,6 +671,11 @@ function removeDir(dir) {
 
 const me = () => process.env.ORGTREE_AGENT || os.userInfo().username
 
+/** How long a busy mark keeps a down run safe from cleanup: longer than a
+ * slow start or restart (240 s by default), short enough that a run whose
+ * driver died is tidied soon after. */
+export const BUSY_MS = 15 * 60 * 1000
+
 /** Stop and delete every run whose keeper is gone; with mine=true also this
  * agent's live runs, with everyone=true every live run (other agents' too). */
 export async function cleanup({ mine = false, everyone = false, dryRun = false } = {}) {
@@ -632,7 +685,10 @@ export async function cleanup({ mine = false, everyone = false, dryRun = false }
     // a run another agent is still creating has no keeper yet (it copies its
     // cluster first): a young `starting` run is live, not an orphan
     const young = run?.status === 'starting' && Date.now() - Date.parse(run.created ?? 0) < 5 * 60 * 1000
-    const up = young || (run?.keeperPid && alive(run.keeperPid) && ['ready', 'starting'].includes(run.status))
+    // so is a run that is down on purpose (being created, restarting, crashed
+    // before a restart) while its busy mark is fresh
+    const busy = run?.busy && Date.now() - Date.parse(run.busy) < BUSY_MS
+    const up = young || busy || (run?.keeperPid && alive(run.keeperPid) && ['ready', 'starting'].includes(run.status))
     const stop = !up || everyone || (mine && run?.by === me())
     if (!stop) { live.push(dir); out.push({ dir, kept: `live (${run?.by ?? '?'})` }); continue }
     out.push(dryRun ? { dir, wouldStop: true } : await stopRun(dir, { keep: false, timeout: 30000 }))

@@ -3,8 +3,8 @@
 //
 //   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR
 //   node tools/rig/rig.mjs up [--fixture basic|<file>|none] [--name n] [--ttl min] [--max min]
-//                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]]
-//   node tools/rig/rig.mjs status|down [--run id] [--keep]
+//                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]] [--fsync]
+//   node tools/rig/rig.mjs status|down [--run id] [--keep]     down --run also removes a half-made run folder
 //   node tools/rig/rig.mjs cleanup [--mine|--everyone] [--dry-run]
 //   node tools/rig/rig.mjs tool <agent> <orgtree_tool> [json args]
 //   node tools/rig/rig.mjs mail <user|agent> <to> <text> [--notice]
@@ -16,7 +16,9 @@
 //   node tools/rig/rig.mjs run <script.mjs> [--fixture f] [--keep]   up, run the script's default export, down
 //   node tools/rig/rig.mjs desktop <script.cjs> [json args] [--preset short|tall|wide|WxH] [--out dir]
 //
-// Every command but build/up/cleanup acts on the newest live run unless --run names one.
+// Every command but build/up/cleanup acts on your own newest live run (by ORGTREE_AGENT)
+// unless --run names one; it never picks another agent's run by itself.
+// A rig cluster runs with fsync off unless the run is made with --fsync (fsync: true).
 
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -24,7 +26,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { loadFixture, seed } from './fixture.mjs'
-import { REPO, Rig, cargoTarget, cleanup, listRuns, readRun, startRun, stopRun, withBuildLock } from './lib.mjs'
+import { REPO, Rig, cargoTarget, cleanup, halfMadeRun, listRuns, readRun, startRun, stopRun, withBuildLock } from './lib.mjs'
 
 function parse(argv) {
   const pos = [], flags = {}
@@ -50,7 +52,8 @@ async function up(flags) {
     ui: flags.ui, engine: flags.engine, legacy: flags.legacy && path.resolve(flags.legacy), initdb: !!flags.initdb, prepare: flags.prepare,
     recover: !!flags.recover, reminders: flags.reminders && (flags.reminders === true ? true : Number(flags.reminders)),
     reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs), hub: flags.hub, hubMaxBytes: flags.hubMaxBytes && Number(flags.hubMaxBytes),
-    realCli: !!flags['real-cli'] })
+    realCli: !!flags['real-cli'],
+    fsync: !!flags.fsync })
   let made = null
   if (flags.fixture !== 'none') {
     try { made = await seed(rig, loadFixture(flags.fixture === true ? undefined : flags.fixture)) } catch (e) {
@@ -92,7 +95,7 @@ async function main() {
       if (flags.run) return print(readRun(rig().dir))
       return print(listRuns().map(({ dir, run }) => ({ id: path.basename(dir), status: run?.status, by: run?.by, url: run?.url, org: run?.org, created: run?.created })))
     }
-    case 'down': return print(await stopRun(rig().dir, { keep: !!flags.keep }))
+    case 'down': return print(await stopRun(halfMadeRun(flags.run) ?? rig().dir, { keep: !!flags.keep }))
     case 'cleanup': return print(await cleanup({ mine: !!flags.mine, everyone: !!flags.everyone, dryRun: !!flags['dry-run'] }))
     case 'tool': return print(await rig().tool(pos[0], pos[1], json(pos[2]) ?? {}))
     case 'mail': {
