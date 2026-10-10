@@ -50,13 +50,21 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
       if (o.state === 'unavailable') return <UnavailableOrgRow key={o.slug}
         org={o} onPick={onPick} onDelete={onDelete} />
       const already = openLabel?.(o.slug) ?? null
+      // open questions + unread urgent mail + attention-flagged tickets, the
+      // Attention view's own three kinds (engine `attention`, live per org):
+      // above 0 the row is lit and the number takes the spinner's place
+      const attn = o.attention ?? 0
       return (
       <div key={o.slug} role="button" tabIndex={0}
-        className={'org' + (o.slug === slug ? ' current' : '')}
+        className={'org' + (o.slug === slug ? ' current' : '') + (attn > 0 ? ' attn' : '')}
         onClick={() => onPick(o.slug)}
         onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>
         <span className="org-activity">
-          {current && (o.working ?? 0) > 0 &&
+          {attn > 0 &&
+            <span className="org-attn-badge"
+              title={`${attn} thing${attn === 1 ? '' : 's'} need${attn === 1 ? 's' : ''} your attention`}>
+              {attn > 99 ? '99+' : attn}</span>}
+          {attn === 0 && current && (o.working ?? 0) > 0 &&
             <span className="working-ct"
               title={`${o.working} agent${o.working === 1 ? '' : 's'} active — a turn executing now`}>
               <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
