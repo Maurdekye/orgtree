@@ -114,9 +114,12 @@
  * grow from a zero basis by the same factor, so while each has room for its
  * own controls they are equally wide and Quick chat sits in the exact middle
  * of the bar — window controls included, which is why they live inside the
- * end part here. When the window narrows, Quick chat shrinks (to a floor)
- * before either side gives up its controls, so it never overlaps them; a side
- * whose controls outgrow its half only pushes the box off-centre. */
+ * end part here. When the window narrows, a side that is down to its own
+ * controls stops shrinking and the other side gives up its free space, so the
+ * box slides off-centre at full width; only when neither side has free space
+ * left does Quick chat shrink (to a floor), and it never overlaps a side's
+ * controls (user 2026-10-10: keep the full width until both sides' free space
+ * is gone). */
 .shell-header.shell-header-centred { padding: 0; gap: 10px; }
 .shell-header-start,
 .shell-header-end {
@@ -124,15 +127,15 @@
   align-items: center;
   gap: 10px;
   flex: 1 1 0;
-  /* the larger side's controls, measured (header.tsx useEqualSides) */
-  min-width: var(--shell-side-min, max-content);
+  /* each side's own controls, measured (header.tsx useEqualSides) */
+  min-width: var(--shell-start-min, max-content);
   -webkit-app-region: drag;
 }
 /* the same padding on both sides, so equal growth means equal widths (the
  * end side's is never seen: its controls sit at its right edge) */
 .shell-header-start,
 .shell-header-end { padding-left: 8px; }
-.shell-header-end { justify-content: flex-end; align-self: stretch; }
+.shell-header-end { justify-content: flex-end; align-self: stretch; min-width: var(--shell-end-min, max-content); }
 .shell-header-start .shell-header-title { flex: 0 1 auto; }
 .shell-header-start button,
 .shell-header-end button,

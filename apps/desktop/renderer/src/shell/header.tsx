@@ -47,12 +47,14 @@ export interface ShellHeaderProps {
   version?: string | null
 }
 
-/** Both sides of a centred bar claim the SAME minimum width — the larger of
- *  the two sides' own controls — published as `--shell-side-min`. Equal
- *  growth alone centres the box only while both sides have room; once the
- *  wider side hits its controls, the narrower one would keep growing and pull
- *  the box off-centre. Measured from the controls themselves (their widths do
- *  not depend on the side's), so the observer cannot feed back into itself. */
+/** Each side of a centred bar claims ITS OWN controls as its minimum width —
+ *  published as `--shell-start-min` / `--shell-end-min`. Equal growth centres
+ *  the box while both sides have room; once one side is down to its controls
+ *  the other keeps the rest, so the box slides off-centre at full width and
+ *  only shrinks once neither side has free space left (user 2026-10-10: "it
+ *  should keep its full width until the free space on both sides is gone").
+ *  Measured from the controls themselves (their widths do not depend on the
+ *  side's), so the observer cannot feed back into itself. */
 function useEqualSides(on: boolean) {
   const head = useRef<HTMLElement>(null)
   const start = useRef<HTMLDivElement>(null)
@@ -68,8 +70,10 @@ function useEqualSides(on: boolean) {
         + gap * Math.max(0, kids.length - 1)
         + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
     }
-    const sync = () => h.style.setProperty('--shell-side-min',
-      `${Math.ceil(Math.max(need(a), need(b)))}px`)
+    const sync = () => {
+      h.style.setProperty('--shell-start-min', `${Math.ceil(need(a))}px`)
+      h.style.setProperty('--shell-end-min', `${Math.ceil(need(b))}px`)
+    }
     const sizes = new ResizeObserver(sync)
     const watch = () => {
       sizes.disconnect()
@@ -96,8 +100,10 @@ export function ShellHeader({ menu, title, modes, quick, actions, guard, version
   // QUICK CHAT IS CENTRED IN THE WHOLE BAR (user 2026-10-10): three parts —
   // start, Quick chat, end (window controls included) — where start and end
   // grow equally from nothing, so the box sits in the middle of the header
-  // at any width; it shrinks before either side gives up its controls, so it
-  // never overlaps them (shell.css `.shell-header-centred`).
+  // while both sides have room; then it slides off-centre at full width, and
+  // only shrinks once no free space is left on either side — never before a
+  // side gives up its controls, so it never overlaps them (shell.css
+  // `.shell-header-centred`).
   if (quick) return (
     <header ref={centred.head}
       className={'shell-header shell-header-centred' + (desktop() ? ' native-header' : '')}>
