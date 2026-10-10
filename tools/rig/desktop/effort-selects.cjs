@@ -1,0 +1,52 @@
+// The three effort controls that used to be dropdowns, now the effort bar: org default
+// (App settings > Default org settings), agent settings, and the hire sheet.
+// args: { org, theme: 'charcoal' | 'light', agent }
+module.exports = async (page, { args }) => {
+  await page.cdp('Page.enable')
+  await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('orgtree-contrast-theme', ${JSON.stringify(args.theme)}) } catch {}` })
+  await page.goto(`/o/${args.org}`)
+  await page.waitFor(`[data-copy-agent-name="${args.agent}"]`, { timeout: 40000 })
+  await page.sleep(1500)
+  const out = { theme: args.theme }
+  const bars = () => page.eval(() => [...document.querySelectorAll('.effort-bar')].map((b) => ({
+    label: b.querySelector('.effort-bar-label')?.innerText, pinned: b.querySelector('.effort-bar-track')?.dataset.effortPinned, value: b.querySelector('.effort-bar-track')?.getAttribute('aria-valuetext') })))
+  // 1. agent settings
+  await page.rightClick(`[data-copy-agent-name="${args.agent}"]`)
+  await page.waitFor('.ctxmenu[role="menu"]')
+  await page.hover({ selector: 'button.ctxmenu-item', text: '^Open( ▸)?$', regex: true })
+  await page.sleep(300)
+  const items = await page.eval(() => [...document.querySelectorAll('.ctxmenu[role="menu"] button.ctxmenu-item')].map((b) => (b.innerText || '').trim()))
+  out.menu = items
+  const desk = items.find((t) => /desk/i.test(t))
+  if (desk) await page.click({ selector: 'button.ctxmenu-item', text: `^${desk.replace(/[.*+?^${}()|[\]\]/g, (c) => '\' + c)}$`, regex: true })
+  await page.waitFor(`button[aria-label="settings for ${args.agent}"]`, { timeout: 30000 })
+  await page.click(`button[aria-label="settings for ${args.agent}"]`)
+  await page.waitFor('.effort-bar', { timeout: 20000 })
+  await page.sleep(600)
+  await page.eval(() => document.querySelector('.effort-bar')?.scrollIntoView({ block: 'center' }))
+  await page.screenshot('agent-settings-rest')
+  out.agentRest = await bars()
+  // click a level anywhere along the bar (between dots): selects the nearest
+  const r = await page.eval(() => { const t = document.querySelector('.effort-bar-track'); const b = t.getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2, w: b.width } })
+  await page.click({ x: r.x + r.w * 0.8, y: r.y })
+  out.agentAfterClick = await bars()
+  await page.screenshot('agent-settings-set')
+  // clicking the selected level clears it back to inherit
+  await page.click({ x: r.x + r.w * 0.8, y: r.y })
+  out.agentAfterClear = await bars()
+  await page.screenshot('agent-settings-cleared')
+  await page.press('Escape')
+  // 2. org default in App settings
+  await page.sleep(500)
+  await page.eval(() => window.dispatchEvent(new window.CustomEvent('orgtree:open-app-settings', { detail: { tab: 'providers' } })))
+  await page.sleep(1500)
+  try {
+    await page.click({ selector: '[role="tab"]', text: '^Default org settings$', regex: true })
+    await page.sleep(1500)
+    await page.waitFor('.effort-bar', { timeout: 15000 })
+    await page.eval(() => document.querySelector('.effort-bar')?.scrollIntoView({ block: 'center' }))
+    await page.screenshot('org-default')
+    out.orgDefault = await bars()
+  } catch (e) { out.orgDefault = String(e.message).slice(0, 150) }
+  return out
+}
