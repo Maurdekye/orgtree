@@ -21,6 +21,7 @@ test('Custom reveals a picker, applies the selected color, and restores after re
     const picker = view.el.querySelector<HTMLInputElement>('input[type=color]')!
     assert.ok(picker, 'Custom exposes the actual picker')
     await change(picker, '#8435cf')
+    await inAct(async () => { await new Promise(r => setTimeout(r, 320)); await flush() })  // the picker saves the settled colour after 250 ms
     assert.equal(document.documentElement.style.getPropertyValue('--accent'),'#8435cf')
     assert.equal(localStorage.getItem('orgtree-visual-theme'),'custom:#8435cf')
     await view.unmount()
