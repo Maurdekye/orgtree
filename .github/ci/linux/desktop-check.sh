@@ -19,7 +19,9 @@
 # (`systemctl --user show-environment` fails, as where no user manager answers, so the
 # app falls back to its autostart entry). With DESKTOP_CHECK_EXPECT_PRIVATE=1 (builds
 # from 4.1.2 on) both folders must end 0700, the unit must carry UMask=0077, and the
-# autostart mode must log why systemd was skipped.
+# autostart mode must log why systemd was skipped. DESKTOP_CHECK_CONFIG_MODE=775 starts
+# with ~/.config at that mode (as `mkdir -p` under umask 0002 leaves it) and puts the
+# old mode back afterwards.
 #   bash .github/ci/linux/desktop-check.sh <AppImage> <logs dir> [fresh|repair|autostart]
 set -euo pipefail
 src=$(realpath "$1"); logs=$(realpath -m "$2"); mode=${3:-fresh}; mkdir -p "$logs"
@@ -45,6 +47,7 @@ teardown() {
   pkill -KILL -f 'orgtree-engine|mount_Orgtre|orgtree-mailhub' 2>/dev/null
   [ -n "${xvfbpid:-}" ] && kill "$xvfbpid"
   [ -n "${buspid:-}" ] && { kill "$buspid"; sleep 1; rm -f "$XDG_RUNTIME_DIR/bus"; }
+  [ -n "${config_was:-}" ] && chmod "$config_was" "$HOME/.config"
   rm -rf "$shims" "$app"
 }
 
@@ -53,6 +56,8 @@ systemctl --user show-environment >/dev/null 2>&1 || { echo "::error::systemd --
 svc_umask=$(timeout 30 systemd-run --user --wait --pipe --quiet sh -c umask 2>&1 || true)
 echo "user $(id -un) ($uid), primary group $(id -gn) ($(id -g)); this shell's umask $(umask); a user service's umask: $svc_umask"
 [ "$svc_umask" = 0002 ] || echo "::warning::user services here get umask $svc_umask, not Ubuntu's 0002 for a user with a private group"
+# the desktop also refuses its engine when a folder above Orgtree's own is writable by others
+echo "folders above Orgtree's: $(mode_of "$HOME/.config") $HOME/.config; $(mode_of "$HOME") $HOME"
 if [ -e "$profile" ]; then mv "$profile" "$logs/earlier-profile"; echo "moved an earlier profile aside"; fi
 [ -e "$HOME/.config/systemd/user/$unit" ] && { echo "::error::$unit is already registered"; exit 1; }
 # The session bus: the user manager's own if one answers (dbus-user-session), else a
@@ -82,6 +87,10 @@ fi
 if [ "$mode" = repair ]; then
   mkdir -p "$profile/data"; chmod 0775 "$profile" "$profile/data"
   echo "pre-created as 4.1.1 leaves them: $(mode_of "$profile") $profile, $(mode_of "$profile/data") $profile/data"
+fi
+if [ -n "${DESKTOP_CHECK_CONFIG_MODE:-}" ]; then
+  config_was=$(mode_of "$HOME/.config"); chmod "$DESKTOP_CHECK_CONFIG_MODE" "$HOME/.config"
+  echo "~/.config set to $(mode_of "$HOME/.config") for this start (was $config_was)"
 fi
 Xvfb :78 -screen 0 1280x800x24 -nolisten tcp >"$logs/xvfb.out" 2>&1 & xvfbpid=$!
 export DISPLAY=:78
