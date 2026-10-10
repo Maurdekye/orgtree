@@ -58,7 +58,7 @@ pub(super) async fn dispatch(e: &Arc<Engine>) -> Result<()> {
         let id: String = r.get(0);
         let org: i64 = r.get(1);
         let detail: Value = r.get(2);
-        let body = format!("Attachment {} for message {} ({}) failed: {}. The message is held until its files are ready. Inspect transfer {} and retry after correcting the cause{}.",
+        let body = format!("Attachment {} for message {} ({}) failed: {}. Messages wait for every file. Inspect the current status of transfer {} and retry after correcting the cause{}.",
             detail["direction"].as_str().unwrap_or("transfer"),detail["message_id"].as_str().unwrap_or(""),
             detail["peer"].as_str().unwrap_or(""),detail["error"].as_str().unwrap_or("unknown failure"),
             detail["transfer_id"].as_str().unwrap_or(""),if detail["direction"]=="upload" {", or explicitly remove the failed file"} else {""});

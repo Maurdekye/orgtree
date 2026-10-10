@@ -399,7 +399,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         item["from"] = json!(r.get::<_,String>(1)); item["kind"] = json!(r.get::<_,String>(2));
         let state: String = r.get(3);
         item["state"] = json!(state); item["at"] = json!(iso(r.get(4)));
-        item["attachments"] = r.get::<_,Value>(6);
+        item["attachments"] = Value::Array(r.get::<_,Value>(6).as_array().into_iter().flatten().filter(|a| a["transfer_removed"] != true).cloned().collect());
         if r.get::<_,bool>(7) {
             item["direction"] = json!("received");
             item["will_redeliver"] = json!(state == "pending" || state == "delivering");

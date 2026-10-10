@@ -74,7 +74,7 @@ pub(super) async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option
         &[&addresses, &orgs],
     )
     .await?;
-    let rows = tx.query("SELECT id,org_id,hub,address,envelope,attempt FROM ot.net_incoming WHERE state IN ('queued','retry_wait') AND next_at<=now() AND NOT(address=ANY($1)) AND org_id=ANY($2) ORDER BY next_at,created_at LIMIT 50 FOR UPDATE SKIP LOCKED",&[&addresses,&orgs]).await?;
+    let rows = tx.query("SELECT n.id,n.org_id,n.hub,n.address,n.envelope,n.attempt FROM ot.net_incoming n WHERE n.state IN ('queued','retry_wait') AND n.next_at<=now() AND NOT(n.address=ANY($1)) AND n.org_id=ANY($2) AND NOT EXISTS(SELECT 1 FROM ot.net_incoming older WHERE older.org_id=n.org_id AND older.hub=n.hub AND older.envelope->>'from'=n.envelope->>'from' AND older.state<>'complete' AND (older.created_at,older.id)<(n.created_at,n.id)) ORDER BY n.next_at,n.created_at LIMIT 50 FOR UPDATE OF n SKIP LOCKED",&[&addresses,&orgs]).await?;
     for r in rows {
         let job = Job { id: r.get(0), org: r.get(1), hub: r.get(2), address: r.get(3), envelope: r.get(4), attempt: r.get(5) };
         let Some(part) = parts
@@ -160,6 +160,10 @@ async fn download(e: &Engine, p: &Part, job: &Job, f: &File) -> Result<u64> {
         .or_else(|| response.headers().get(reqwest::header::LAST_MODIFIED).and_then(|h| h.to_str().ok()))
         .map(str::to_owned);
     let total = if status == 206 {
+        if offset > 0 && validator != f.validator {
+            save(e,&f.id,0,f.total,&None,false).await?;
+            return Err(transfers::permanent("hub changed the download validator in a partial response; retry starts from zero"));
+        }
         let range = response.headers().get(reqwest::header::CONTENT_RANGE).and_then(|h| h.to_str().ok()).unwrap_or("");
         let parsed = range
             .strip_prefix("bytes ")

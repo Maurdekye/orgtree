@@ -746,7 +746,8 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
     if seen {
         return Ok(Some(mid.to_string()));
     }
-    if m["body_bytes"].is_number() || m["attachments"].as_array().is_some_and(|a| !a.is_empty()) {
+    let earlier = engine.db.get().await?.query_opt("SELECT 1 FROM ot.net_incoming WHERE org_id=$1 AND hub=$2 AND envelope->>'from'=$3 AND state<>'complete' LIMIT 1", &[&p.org_id,&hub_id,&m["from"].as_str().unwrap_or("unknown")]).await?.is_some();
+    if earlier || m["body_bytes"].is_number() || m["attachments"].as_array().is_some_and(|a| !a.is_empty()) {
         incoming::stage(engine, p, hub_id, addr, m).await?;
         // Persisted custody is acknowledged; inbox and agent delivery wait for files.
         return Ok(Some(mid.to_string()));

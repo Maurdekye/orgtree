@@ -77,3 +77,5 @@ CREATE TABLE ot.net_transfer_failures (
 );
 CREATE UNIQUE INDEX net_transfer_failure_open ON ot.net_transfer_failures(message_key) WHERE NOT resolved;
 CREATE INDEX net_transfer_failure_pending ON ot.net_transfer_failures(created_at) WHERE notified_at IS NULL;
+
+CREATE INDEX net_incoming_peer_pending ON ot.net_incoming(org_id,hub,(envelope->>'from'),created_at,id) WHERE state<>'complete';
