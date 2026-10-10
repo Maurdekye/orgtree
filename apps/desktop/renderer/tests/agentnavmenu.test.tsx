@@ -33,6 +33,7 @@ import {
   advance, FakeServer, flush, inAct, installFetch, mountView, realClock,
   useFakeClock,
 } from './harness'
+import { MOVED, flatLabels, openBranchOf, pickIn, surveyMenu } from './menuhelp'
 import test from 'node:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -122,11 +123,11 @@ async function rightClick(el: Element): Promise<boolean> {
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })
   await inAct(() => { el.dispatchEvent(ev) })
   await flush(2)
+  if (menuEl()) await surveyMenu()
   return ev.defaultPrevented
 }
 const menuEl = () => document.querySelector('.ctxmenu') as HTMLElement | null
-const labels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
-  .map((b) => (b as HTMLButtonElement).textContent ?? '')
+const labels = () => flatLabels()
 async function esc() {
   await inAct(() => {
     document.body.dispatchEvent(new W.KeyboardEvent('keydown',
@@ -232,7 +233,7 @@ uiTest('§2 the desk header name offers the agent whole menu, not just Copy agen
       `the copy entry is still first — have ${JSON.stringify(have)}`)
     assert.ok(have.length > 1,
       `and it is no longer the only one — have ${JSON.stringify(have)}`)
-    for (const entry of ['Open desk', 'Open inbox', 'Open docket', 'Settings']) {
+    for (const entry of ['· Open desk', '· Open inbox', '· Open docket', 'Settings']) {
       assert.ok(have.includes(entry),
         `the desk name offers "${entry}" — have ${JSON.stringify(have)}`)
     }

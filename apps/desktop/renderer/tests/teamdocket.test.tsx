@@ -26,6 +26,7 @@ import {
   advance, flush, inAct, mountView, realClock, useFakeClock,
 } from './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
+import { MOVED, flatLabels, openBranchOf, pickIn, surveyMenu } from './menuhelp'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -427,11 +428,16 @@ async function rightClick(el: Element): Promise<boolean> {
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })
   await inAct(() => { el.dispatchEvent(ev) })
   await flush(2)
+  if (menuEl()) await surveyMenu()
   return ev.defaultPrevented
 }
+const menuEl = () => document.querySelector('.ctxmenu') as HTMLElement | null
 const menuItems = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')] as HTMLButtonElement[]
-const labels = () => menuItems().map((b) => b.textContent ?? '')
+const labels = () => flatLabels()
 async function pick(label: string) {
+  const moved = MOVED[label]
+  if (moved) { await pickIn(moved[0], moved[1]); await flush(2); return }
+  await openBranchOf(label)
   const b = menuItems().find((x) => x.textContent === label)
   assert.ok(b, `menu item "${label}" present — have ${JSON.stringify(labels())}`)
   await inAct(() => {
@@ -492,9 +498,9 @@ canvasTest('§10 the agent\'s context menu offers it, beside the single-agent do
     assert.ok(card, 'the agent has a card')
     assert.equal(await rightClick(card!), true, 'the right-click was taken')
     const fromCard = labels()
-    assert.ok(fromCard.includes('Open team docket'),
+    assert.ok(fromCard.includes('· Open team docket'),
       `the card's menu offers it — have ${JSON.stringify(fromCard)}`)
-    assert.equal(fromCard.indexOf('Open team docket'), fromCard.indexOf('Open docket') + 1,
+    assert.equal(fromCard.indexOf('· Open team docket'), fromCard.indexOf('· Open docket') + 1,
       'directly after "Open docket": the same question at the wider scope')
     await esc()
     // and the Agents List row, which shares the one menu definition
@@ -515,6 +521,7 @@ canvasTest('§10b it is ACCESSIBLE the way every other entry is, and keyboard-re
     const menu = document.querySelector('.ctxmenu') as HTMLElement
     assert.ok(menu, 'a menu opened')
     assert.equal(menu.getAttribute('role'), 'menu')
+    await openBranchOf('Open team docket')
     const entry = menuItems().find((b) => b.textContent === 'Open team docket')
     assert.ok(entry, 'the entry is in the menu')
     assert.equal(entry!.getAttribute('role'), 'menuitem',
