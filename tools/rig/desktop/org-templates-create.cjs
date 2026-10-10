@@ -8,6 +8,8 @@ const BRIDGE = `
     const known = {
       windowIdentity: { windowId: 'rig-create', kind: 'create' },
       requestOrg: () => Promise.resolve(null),
+      // the native side would bind this window to the new org; the rig keeps it here
+      bindCreatedOrg: () => Promise.resolve({ action: 'pending' }),
       getWindowIdentity: () => Promise.resolve({ windowId: 'rig-create', kind: 'create' }),
     }
     window.__rigBridgeCalls = []
@@ -21,9 +23,10 @@ const BRIDGE = `
   })()`
 
 module.exports = async (page, { args }) => {
+  await page.cdp('Page.enable')
   await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: BRIDGE })
   await page.goto('/')
-  await page.waitFor({ selector: '.field-label', text: 'Starting layout' }, { timeout: 30000 })
+  await page.waitFor('.tp-cards .tp-card', { timeout: 30000 })
   await page.click('#shell-create-name')
   await page.type(args.name || 'Picked Team')
   await page.sleep(800)

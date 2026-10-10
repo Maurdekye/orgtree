@@ -9,6 +9,7 @@
 // and the App settings controls.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-templates.mjs
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +25,7 @@ export default async function (rig) {
   const presets = Object.fromEntries(['coordinator', 'implementer', 'redteam', 'curator'].map((n) =>
     [n, fs.readFileSync(fileURLToPath(new URL(`../../../engine/docs/charters/${n}.md`, import.meta.url)), 'utf8')]))
   const tree = (slug) => rig.sql(`SELECT a.name, a.tier, p.name AS parent, a.grant_credits::float8 AS grant, a.seat::float8 AS seat,
-      a.account, left(a.charter, 60) AS charter_head, length(a.charter) AS charter_len
+      a.account, left(a.charter, 60) AS charter_head, md5(a.charter) AS charter_md5
     FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id LEFT JOIN ot.agents p ON p.id = a.parent_id
     WHERE o.slug = '${slug}' AND o.state = 'active' AND a.state = 'live' ORDER BY a.id`)
   const orgRow = (slug) => rig.one(`SELECT id, state FROM ot.orgs WHERE slug = '${slug}' AND state = 'active'`)
@@ -45,12 +46,12 @@ export default async function (rig) {
   const expect = (plan) => Object.fromEntries(plan.agents.map((a) => [a.slot, a.tier]))
   const cc = await attempt(rig.api('POST', '/api/orgs', { name: 'Claude Team', dirs: [], template: { id: 'devteam-claude', expect: expect(pc) } }))
   const ct = tree('claude-team')
-  p.check('creating from devteam (claude) hires the four agents in the new org, each with its charter preset',
+  p.check('creating from devteam (claude) hires the four agents in the new org, each with its charter preset (trimmed, as every hire stores a charter)',
     cc.ok && cc.r.hired?.length === 4 && ct.length === 4
-      && ct.every((a) => a.charter_len === presets[a.name].length) && ct[0].grant === 20 && ct.slice(1).every((a) => a.grant === 0),
+      && ct.every((a) => a.charter_md5 === crypto.createHash('md5').update(presets[a.name].trim(), 'utf8').digest('hex')) && ct[0].grant === 20 && ct.slice(1).every((a) => a.grant === 0),
     { response: cc.r ?? cc, tree: ct })
-  const kick1 = rig.one(`SELECT count(*)::int AS n FROM ot.mail m JOIN ot.orgs o ON o.id = m.org_id WHERE o.slug = 'claude-team'`)
-  p.check('the first message is off by default: no mail was sent in the new org', kick1.n === 0, kick1)
+  const kick1 = rig.one(`SELECT count(*)::int AS n FROM ot.mail m JOIN ot.orgs o ON o.id = m.org_id WHERE o.slug = 'claude-team' AND m.ev->>'variant' = 'lifecycle.kickoff'`)
+  p.check('the first message is off by default: no kickoff mail in the new org', kick1.n === 0, kick1)
 
   // 3. devteam (codex) with the first message asked for
   const px = await rig.api('POST', '/api/templates/resolve', { id: 'devteam-codex', name: 'Codex Team', dirs: [] })
@@ -59,7 +60,7 @@ export default async function (rig) {
     px.agents.map((a) => `${a.name}:${a.tier}:${a.account}:${a.seat}+${a.grant}`))
   const cx = await attempt(rig.api('POST', '/api/orgs', { name: 'Codex Team', dirs: [], template: { id: 'devteam-codex', expect: expect(px), kickoff: true } }))
   const xt = tree('codex-team')
-  const kick2 = rig.sql(`SELECT m.recipient_name, left(m.body, 40) AS body FROM ot.mail m JOIN ot.orgs o ON o.id = m.org_id WHERE o.slug = 'codex-team'`)
+  const kick2 = rig.sql(`SELECT m.recipient_name, left(m.body, 40) AS body FROM ot.mail m JOIN ot.orgs o ON o.id = m.org_id WHERE o.slug = 'codex-team' AND m.ev->>'variant' = 'lifecycle.kickoff'`)
   p.check('creating from devteam (codex) hires its four agents; the coordinator grant covers astra + sol + luna seats (10 + 12.1)',
     cx.ok && xt.length === 4 && xt[0].grant === 22.1, { response: cx.r ?? cx, tree: xt })
   p.check('with the first message ticked, the coordinator (only) gets it', kick2.length === 1 && kick2[0].recipient_name === 'coordinator', kick2)
@@ -134,7 +135,7 @@ export default async function (rig) {
     shotSave.ok && fs.existsSync(path.join(tpDir, 'rig-layout-two.json')) && dl.some((d) => d.anchor === 'rig-layout-two.json')
       && dl.some((d) => d.size > 100), shotSave.value ?? shotSave.error)
   for (const f of ['devteam-claude.json', 'devteam-codex.json']) fs.rmSync(path.join(tpDir, f), { force: true })
-  const shotApp = await runDesktop(rig, desk('org-templates-app.cjs'), { preset: 'tall', out: path.join(p.dir, 'desktop-app') })
+  const shotApp = await runDesktop(rig, desk('org-templates-app.cjs'), { preset: 'tall', out: path.join(p.dir, 'desktop-app'), args: { shot: 'app-settings-templates' } })
   p.check('desktop: App settings → Runtime shows Organization templates beside Charter documents, and generate writes the two defaults',
     shotApp.ok && ['devteam-claude.json', 'devteam-codex.json'].every((f) => fs.existsSync(path.join(tpDir, f)))
       && /created 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
