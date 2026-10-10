@@ -1,7 +1,7 @@
 {
   "id": "devteam-codex",
   "name": "devteam (codex)",
-  "description": "A coordinator with an implementer, a redteam reviewer and a curator under it, on Codex models.",
+  "description": "A small development team on Codex: a coordinator (Sol) who plans and reviews, an implementer (Astra) who builds, a redteam reviewer (Sol) who tries to break the work, and a curator (Luna) who keeps notes and docs tidy.",
   "version": 1,
   "agents": [
     {

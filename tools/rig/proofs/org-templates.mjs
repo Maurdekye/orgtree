@@ -3,8 +3,8 @@
 // step; a template whose tiers cannot run (the Codex lane turned off) is
 // blocked in the preview and refused at create, leaving no org; a hire that
 // fails mid-template rolls the whole org back; an org's layout saves as a
-// template file and a new org is created from it; "generate default
-// templates" writes the bundled files. Screenshots: the picker (both
+// template file and a new org is created from it; "restore default
+// templates" writes back deleted built-ins. Screenshots: the picker (both
 // templates, and the blocked case), Save as template (modal, saved, download)
 // and the App settings controls.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-templates.mjs
@@ -31,6 +31,14 @@ export default async function (rig) {
   const orgRow = (slug) => rig.one(`SELECT id, state FROM ot.orgs WHERE slug = '${slug}' AND state = 'active'`)
   const attempt = (f) => f.then((r) => ({ ok: true, r }), (e) => ({ ok: false, status: e.status, detail: e.body?.detail ?? e.message }))
 
+  // the engine checks the Claude/Codex sign-ins in the background after it starts, and until
+  // that check lands every staffing surface reads them as signed out: wait for it
+  for (let i = 0; i < 120; i++) {
+    const tiers = (await rig.api('GET', `/api/orgs/${rig.org}/staffing-options`)).tiers.map((t) => t.tier)
+    if (tiers.includes('opus') && tiers.includes('sol')) break
+    await new Promise((r) => setTimeout(r, 500))
+  }
+
   // 1. the list
   const list = await rig.api('GET', '/api/templates')
   const ids = list.templates.map((t) => t.id)
@@ -42,7 +50,7 @@ export default async function (rig) {
   p.check('devteam (claude) previews as coordinator opus + implementer opus, redteam opus, curator sonnet; top grant 20',
     pc.ok && JSON.stringify(pc.agents.map((a) => [a.name, a.tier, a.parent])) === JSON.stringify([
       ['coordinator', 'opus', null], ['implementer', 'opus', 'coordinator'], ['redteam', 'opus', 'coordinator'], ['curator', 'sonnet', 'coordinator']])
-      && pc.top_grant === 20, pc.agents.map((a) => `${a.name}:${a.tier}:${a.account}:${a.seat}+${a.grant}`))
+      && pc.top_grant === 20, { agents: pc.agents.map((a) => `${a.name}:${a.tier}:${a.account}:${a.seat}+${a.grant}:${a.blocked}:${a.note}`), top: pc.top_grant, blocked: pc.blocked, offered: pc.offered?.map((o) => o.tier) })
   const expect = (plan) => Object.fromEntries(plan.agents.map((a) => [a.slot, a.tier]))
   const cc = await attempt(rig.api('POST', '/api/orgs', { name: 'Claude Team', dirs: [], template: { id: 'devteam-claude', expect: expect(pc) } }))
   const ct = tree('claude-team')
@@ -120,7 +128,7 @@ export default async function (rig) {
   const again = await attempt(rig.api('POST', `/api/orgs/${rig.org}/template`, { name: 'Rig layout' }))
   p.check('saving again under the same name is refused (409) unless replace is asked', !again.ok && again.status === 409, again)
   const listed = (await rig.api('GET', '/api/templates')).templates.find((t) => t.id === 'rig-layout')
-  p.check('the saved template is listed as yours and usable', listed?.source === 'user' && listed.problems.length === 0, listed)
+  p.check('the saved template is listed from the folder and usable', listed?.source === 'folder' && listed.problems.length === 0, listed)
   const copy = await attempt(rig.api('POST', '/api/orgs', { name: 'Rig Copy', dirs: [], template: { id: 'rig-layout' } }))
   const ct2 = tree('rig-copy')
   const shape = (t) => JSON.stringify(t.map((a) => [a.name, a.tier, a.parent, a.grant]))
@@ -136,10 +144,10 @@ export default async function (rig) {
       && dl.some((d) => d.size > 100), shotSave.value ?? shotSave.error)
   for (const f of ['devteam-claude.json', 'devteam-codex.json']) fs.rmSync(path.join(tpDir, f), { force: true })
   const shotApp = await runDesktop(rig, desk('org-templates-app.cjs'), { preset: 'tall', out: path.join(p.dir, 'desktop-app'), args: { shot: 'app-settings-templates' } })
-  p.check('desktop: App settings → Runtime shows Organization templates beside Charter documents, and generate writes the two defaults',
+  p.check('desktop: App settings → Runtime shows Organization templates beside Charter documents, and restore writes back the two deleted defaults',
     shotApp.ok && ['devteam-claude.json', 'devteam-codex.json'].every((f) => fs.existsSync(path.join(tpDir, f)))
-      && /created 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
+      && /restored 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
   const pop = await rig.api('POST', '/api/templates/populate')
-  p.check('generating again changes nothing (both files already present)', pop.created.length === 0 && pop.existing.length === 2, pop)
+  p.check('restoring again changes nothing (both files already present)', pop.created.length === 0 && pop.existing.length === 2, pop)
   return p.summary()
 }

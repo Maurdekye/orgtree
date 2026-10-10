@@ -1,11 +1,12 @@
 //! Organization templates: a predefined tree of agents hired when a new
-//! organization is created. Bundled templates ship in docs/templates; a user
-//! file of the same id in ~/.orgtree/templates takes its place, as user
-//! charter presets do. A template carries no folders and no accounts: both
+//! organization is created. The templates are the files in
+//! ~/.orgtree/templates and nothing else; the built-ins (docs/templates) are
+//! written into that folder once each, never over an existing file, and one
+//! the user deletes stays deleted (ruling 2026-10-10). A template carries no folders and no accounts: both
 //! are this machine's, and are resolved when the org is created.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -172,13 +173,66 @@ pub fn folder() -> PathBuf {
     user_dir()
 }
 
-/// Every template, user files first; each with its problems (empty = usable).
+/// The note of the built-ins already written into the folder once.
+const SEEDED: &str = ".seeded";
+
+/// Write each built-in the folder has never had: at every engine start and
+/// every listing. A file already there is never touched, and a built-in the
+/// note names is not written again, so one the user deleted stays deleted.
+#[logged]
+pub fn seed() -> Result<Vec<String>, String> {
+    seed_into(&user_dir())
+}
+
+#[logged]
+fn seed_into(dir: &Path) -> Result<Vec<String>, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("the templates folder {} could not be created: {e}", dir.display()))?;
+    let note = dir.join(SEEDED);
+    let mut seeded: Vec<String> = std::fs::read_to_string(&note)
+        .map(|s| s.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
+        .unwrap_or_default();
+    let before = seeded.len();
+    let mut created = Vec::new();
+    for (f, body) in BUNDLED {
+        if seeded.iter().any(|s| s == f) {
+            continue;
+        }
+        let p = dir.join(f);
+        if !p.exists() {
+            std::fs::write(&p, body).map_err(|e| format!("{f} could not be written: {e}"))?;
+            created.push(f.to_string());
+        }
+        seeded.push(f.to_string());
+    }
+    if seeded.len() != before {
+        let text = format!("# Built-in templates Orgtree has written here once; it does not write them again.
+{}
+", seeded.join("
+"));
+        std::fs::write(&note, text).map_err(|e| format!("{SEEDED} could not be written: {e}"))?;
+    }
+    Ok(created)
+}
+
+/// Every template: the folder's files, after seeding it.
 #[logged]
 pub fn list() -> Vec<(Result<Template, String>, &'static str, String)> {
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
+    listing().0
+}
+
+/// The folder's templates, and why the folder could not be seeded, if so.
+#[logged]
+pub fn listing() -> (Vec<(Result<Template, String>, &'static str, String)>, Option<String>) {
     let dir = user_dir();
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+    let problem = seed_into(&dir).err();
+    (list_in(&dir), problem)
+}
+
+/// The `.json` files in `dir`, each with its problems (empty = usable).
+#[logged]
+fn list_in(dir: &Path) -> Vec<(Result<Template, String>, &'static str, String)> {
+    let mut out = Vec::new();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json") && p.is_file()).collect())
         .unwrap_or_default();
     files.sort();
@@ -189,17 +243,7 @@ pub fn list() -> Vec<(Result<Template, String>, &'static str, String)> {
         } else {
             std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| parse(&s))
         };
-        if let Ok(t) = &parsed {
-            seen.insert(t.id.clone());
-        }
-        out.push((parsed, "user", p.to_string_lossy().to_string()));
-    }
-    for (file, body) in BUNDLED {
-        let parsed = parse(body);
-        if parsed.as_ref().is_ok_and(|t| seen.contains(&t.id)) {
-            continue;
-        }
-        out.push((parsed, "bundled", format!("bundled/{file}")));
+        out.push((parsed, "folder", p.to_string_lossy().to_string()));
     }
     out
 }
@@ -573,7 +617,7 @@ pub struct Row {
 /// Build a template from an org's live agents (in sibling order). An agent
 /// whose superior is not live is placed at the top level.
 #[logged]
-pub fn from_rows(id: &str, name: &str, rows: &[Row], org_md: Option<String>, inc: &Include) -> Value {
+pub fn from_rows(id: &str, name: &str, description: Option<&str>, rows: &[Row], org_md: Option<String>, inc: &Include) -> Value {
     let live: HashSet<i64> = rows.iter().map(|r| r.id).collect();
     let top: Vec<&Row> = rows.iter().filter(|r| r.parent.is_none_or(|p| !live.contains(&p))).collect();
     #[nolog]
@@ -606,19 +650,23 @@ pub fn from_rows(id: &str, name: &str, rows: &[Row], org_md: Option<String>, inc
         if !reports.is_empty() { v["reports"] = json!(reports); }
         v
     }
-    let mut t = json!({ "id": id, "name": name, "description": format!("Saved from an organization's layout ({} agents).", rows.len()),
-                        "version": 1, "agents": top.iter().map(|r| slot(r, rows, inc)).collect::<Vec<_>>() });
+    let mut t = json!({ "id": id, "name": name, "version": 1, "agents": top.iter().map(|r| slot(r, rows, inc)).collect::<Vec<_>>() });
+    // optional: a blank one is left out, and the picker shows no line for it
+    if let Some(d) = description.map(str::trim).filter(|d| !d.is_empty()) {
+        t["description"] = json!(d);
+    }
     if inc.org_md {
         if let Some(md) = org_md.filter(|m| !m.trim().is_empty()) { t["org_md"] = json!(md); }
     }
     t
 }
 
-/// Write the bundled templates the folder does not have yet.
+/// "Restore default templates": write every built-in the folder lacks, also
+/// one the user deleted; never over an existing file.
 #[logged]
 pub fn populate() -> Result<Value, String> {
     let dir = user_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    seed_into(&dir)?;
     let (mut created, mut existing) = (Vec::new(), Vec::new());
     for (f, body) in BUNDLED {
         let p = dir.join(f);
@@ -650,6 +698,64 @@ pub fn write(id: &str, body: &str, replace: bool) -> Result<PathBuf, (u16, Strin
 mod tests {
     use super::*;
 
+    /// A fresh folder of its own under the system temp folder.
+    fn scratch(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("orgtree-templates-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn a_fresh_folder_is_seeded_and_lists_only_its_files() {
+        let d = scratch("fresh");
+        let made = seed_into(&d).unwrap();
+        assert_eq!(made, vec!["devteam-claude.json", "devteam-codex.json"]);
+        let ids: Vec<String> = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok().map(|t| t.id)).collect();
+        assert_eq!(ids, vec!["devteam-claude", "devteam-codex"]);
+        std::fs::write(d.join("mine.json"), r#"{"id":"mine","name":"Mine","agents":[{"name":"a","tier":"opus"}]}"#).unwrap();
+        let mine = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok()).find(|t| t.id == "mine").unwrap();
+        assert_eq!(mine.description, "");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_edited_built_in_is_kept_and_a_deleted_one_stays_deleted() {
+        let d = scratch("kept");
+        seed_into(&d).unwrap();
+        let edited = BUNDLED[0].1.replace("devteam (claude)", "my devteam");
+        std::fs::write(d.join(BUNDLED[0].0), &edited).unwrap();
+        std::fs::remove_file(d.join(BUNDLED[1].0)).unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join(BUNDLED[0].0)).unwrap(), edited);
+        assert!(!d.join(BUNDLED[1].0).exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_built_in_new_to_the_note_is_written_unless_a_file_is_there() {
+        let d = scratch("upgrade");
+        std::fs::create_dir_all(&d).unwrap();
+        // an older version wrote only the first; the user has their own file under the second name
+        std::fs::write(d.join(SEEDED), format!("{}
+", BUNDLED[0].0)).unwrap();
+        std::fs::write(d.join(BUNDLED[1].0), "{}").unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(d.join(BUNDLED[1].0)).unwrap(), "{}");
+        assert!(!d.join(BUNDLED[0].0).exists());
+        let note = std::fs::read_to_string(d.join(SEEDED)).unwrap();
+        assert!(note.contains(BUNDLED[1].0));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_saved_description_is_optional() {
+        let rows = vec![row(1, None, "lead", "opus", 1.0, 2.0)];
+        let blank = from_rows("t", "T", Some("  "), &rows, None, &Include::default());
+        assert!(blank.get("description").is_none());
+        let given = from_rows("t", "T", Some(" Our team "), &rows, None, &Include::default());
+        assert_eq!(given["description"], "Our team");
+    }
+
     fn row(id: i64, parent: Option<i64>, name: &str, tier: &str, seat: f64, grant: f64) -> Row {
         Row { id, parent, name: name.into(), tier: tier.into(), account: Some("claude-5".into()), seat, grant,
               charter: Some(format!("be {name}")), team_charter: None,
@@ -661,7 +767,7 @@ mod tests {
     fn a_saved_layout_round_trips_through_the_plan() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 20.0), row(2, Some(1), "dev", "sonnet", 2.0, 3.0),
                         row(3, Some(1), "qa", "sonnet", 2.0, 0.0)];
-        let v = from_rows("my-team", "My team", &rows, Some("org rules".into()), &Include::default());
+        let v = from_rows("my-team", "My team", Some("  "), &rows, Some("org rules".into()), &Include::default());
         assert!(v["agents"][0]["account"].is_null() && v["agents"][0]["add_dirs"].is_null());
         assert_eq!(v["org_md"], "org rules");
         let t: Template = serde_json::from_value(v).unwrap();
@@ -677,7 +783,7 @@ mod tests {
     fn saved_folders_are_clamped_and_accounts_are_preferences() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
         let inc = Include { accounts: true, folders: true, ..Include::default() };
-        let t: Template = serde_json::from_value(from_rows("t", "T", &rows, None, &inc)).unwrap();
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, &inc)).unwrap();
         assert_eq!(t.agents[0].account.as_deref(), Some("claude-5"));
         let (p, _) = plan(&t, &Choices::default(), &claude_only(), &[json!({ "path": "E:\\other", "mode": "rw" })]).unwrap();
         assert_eq!(p[0].dirs_dropped, vec!["E:\\x".to_string()]);
@@ -692,7 +798,7 @@ mod tests {
     fn unticked_groups_are_left_out() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
         let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false };
-        let v = from_rows("t", "T", &rows, Some("x".into()), &inc);
+        let v = from_rows("t", "T", None, &rows, Some("x".into()), &inc);
         let a = &v["agents"][0];
         assert!(a["charter"].is_null() && a["effort"].is_null() && a["tools"].is_null() && v["org_md"].is_null());
         assert_eq!(a["spare"], 0.0);
@@ -736,7 +842,7 @@ mod tests {
     fn a_language_server_slot_is_valid_and_bills_no_account() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 1.0), row(2, Some(1), "local", "ls-ollama-qwen3-8-27b", 0.1, 0.0)];
         let inc = Include { accounts: true, ..Include::default() };
-        let t: Template = serde_json::from_value(from_rows("t", "T", &rows, None, &inc)).unwrap();
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, &inc)).unwrap();
         assert!(validate(&t).is_empty(), "{:?}", validate(&t));
         let mut av = claude_only();
         av.tiers.insert("ls-ollama-qwen3-8-27b".into(), offer(0.1, "langserver"));
