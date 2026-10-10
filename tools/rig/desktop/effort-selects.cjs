@@ -36,6 +36,26 @@ module.exports = async (page, { args }) => {
   await page.sleep(400)
   out.pipHover = await pipX()
   await page.screenshot('agent-settings-hover')
+  // the fill must run past the pip (pip wholly inside it) at every level, ends included
+  out.fill = []
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    await page.click({ x: hb.x + 10 + (hb.w - 20) * f, y: hb.y })
+    await page.sleep(400)
+    out.fill.push(await page.eval(() => { const q = (c) => [...document.querySelectorAll(c)].pop().getBoundingClientRect(); const t = q('.effort-bar-track'), p = q('.effort-bar-pip'), fl = q('.effort-bar-fill'); return { padL: +(p.left - t.left).toFixed(1), padR: +(fl.right - p.right).toFixed(1), fillL: +(fl.left - t.left).toFixed(1), fillR: +(t.right - fl.right).toFixed(1) } }))
+    if (f === 0 || f === 1) await page.screenshot('fill-' + f)
+  }
+  // glide: click the far left, then the far right while sampling the pip every frame; a transition shows intermediate x
+  await page.click({ x: hb.x + 10, y: hb.y })
+  await page.hover({ x: hb.x + hb.w * 0.5, y: hb.y - 30 })
+  const sampler = page.eval(() => new Promise((res) => {
+    const pip = [...document.querySelectorAll('.effort-bar-pip')].pop(); const out = []; const t0 = performance.now()
+    const tick = () => { out.push([Math.round(performance.now() - t0), Math.round(pip.getBoundingClientRect().left * 10) / 10]); if (performance.now() - t0 < 700) requestAnimationFrame(tick); else res(out) }
+    requestAnimationFrame(tick)
+  }))
+  await page.mouse('mouseMoved', hb.x + hb.w - 10, hb.y)
+  await page.mouse('mousePressed', hb.x + hb.w - 10, hb.y)
+  await page.mouse('mouseReleased', hb.x + hb.w - 10, hb.y)
+  out.glide = await sampler
   // click a level anywhere along the bar (between dots): selects the nearest
   const r = await page.eval(() => { const t = [...document.querySelectorAll('.effort-bar-track')].pop(); const b = t.getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2, w: b.width } })
   await page.click({ x: r.x + r.w * 0.8, y: r.y })

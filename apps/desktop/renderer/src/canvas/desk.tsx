@@ -5019,8 +5019,10 @@ function EffortButton({ value, effective, levels, onSet }:
       if (!wrapRef.current?.contains(e.target as Node | null)) setOpen(false)
     }
     const owner = wrapRef.current?.ownerDocument.defaultView ?? window
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     owner.addEventListener('pointerdown', away, true)
-    return () => owner.removeEventListener('pointerdown', away, true)
+    owner.addEventListener('keydown', esc, true)
+    return () => { owner.removeEventListener('pointerdown', away, true); owner.removeEventListener('keydown', esc, true) }
   }, [open])
   return (
     <span className="eff-wrap" ref={wrapRef}>
@@ -5036,8 +5038,7 @@ function EffortButton({ value, effective, levels, onSet }:
           <EffortSwitch value={pending ?? value} level={shown} levels={levels}
             why={(pending ?? value) ? 'set here' : 'inherited'}
             onSet={(lvl) => {
-              setPending(lvl)
-              setOpen(false)
+              setPending(lvl)  // the pop-out stays open: a click or drag sets the level; outside click or Escape closes it
               if (settle.current) clearTimeout(settle.current)
               // the payload normally lands first and clears this; the settle
               // covers a 200 that changed nothing, the catch a write that

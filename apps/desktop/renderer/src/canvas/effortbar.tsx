@@ -7,7 +7,7 @@
 // Semantics kept from the dot row: `value` is the agent's OWN level ('' =
 // inheriting) and `level` is what will actually run; pressing and releasing
 // on the level that is already pinned clears it back to inherit.
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 import { EFFORT_LEVELS } from './effortlevels'
 
@@ -56,13 +56,23 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
   const [hover, setHover] = useState<number | null>(null)
   const [drag, setDrag] = useState<number | null>(null)
   const moved = useRef(false)
+  // true once a press has actually travelled to another level: only then does the pip follow the pointer with no
+  // glide (a plain click glides to its level), and `held` keeps a released pick on screen until the saved value lands
+  const [travelled, setTravelled] = useState(false)
+  const [held, setHeld] = useState<number | null>(null)
+  useEffect(() => { setHeld(null) }, [value, level])
+  useEffect(() => {
+    if (held === null) return
+    const t = setTimeout(() => setHeld(null), 600)
+    return () => clearTimeout(t)
+  }, [held])
   const at = (e: PointerEvent): number => {
     const r = track.current?.getBoundingClientRect()
     if (!r || r.width <= 20) return Math.max(idx, 0)
     return nearestLevel((e.clientX - r.left - 10) / (r.width - 20), LV.length)
   }
   const preview = drag ?? hover
-  const shown = drag ?? idx
+  const shown = drag ?? held ?? idx
   const name = LV[shown] ?? ''
   const text = none ? 'No effort setting' : preview !== null && LV[preview]
     ? `Effort (${LV[preview]})`
@@ -82,7 +92,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
   }
   const pct = (i: number) => `calc(10px + (100% - 20px) * ${LV.length > 1 ? i / (LV.length - 1) : 0})`
   return (
-    <div className={'effort-bar' + (none ? ' none' : '') + (compact ? ' compact' : '') + (disabled ? ' disabled' : '') + (drag !== null ? ' dragging' : '')
+    <div className={'effort-bar' + (none ? ' none' : '') + (compact ? ' compact' : '') + (disabled ? ' disabled' : '') + (drag !== null && travelled ? ' dragging' : '')
       + (pinned < 0 ? ' inherited' : '')} title={none ? 'This model has no effort setting' : compact && preview !== null ? text : title}>
       {!compact && <div className="effort-bar-label">{text}</div>}
       <div className="effort-bar-track" ref={track} role="slider" tabIndex={disabled ? -1 : 0}
@@ -94,6 +104,8 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
           if (disabled || e.button !== 0) return
           e.currentTarget.setPointerCapture?.(e.pointerId)
           moved.current = false
+          setTravelled(false)
+          setHeld(null)
           setDrag(at(e))
           e.preventDefault()
           e.currentTarget.focus()
@@ -101,7 +113,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
         onPointerMove={(e) => {
           if (disabled) return
           const i = at(e)
-          if (drag !== null) { if (i !== drag) { moved.current = true; setDrag(i) } } else setHover(i)
+          if (drag !== null) { if (i !== drag) { moved.current = true; setTravelled(true); setDrag(i) } } else setHover(i)
         }}
         onPointerLeave={() => setHover(null)}
         onPointerUp={(e) => {
@@ -109,12 +121,14 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
           const i = at(e)
           e.currentTarget.releasePointerCapture?.(e.pointerId)
           setDrag(null)
+          setTravelled(false)
+          setHeld(i)
           if (i === pinned && !moved.current) onSet('')
           else if (i !== pinned) onSet(LV[i]!)
         }}
         onPointerCancel={() => setDrag(null)}>
         <span className="effort-bar-rail" />
-        {shown >= 0 && <span className="effort-bar-fill" style={{ width: `calc(10px + (100% - 20px) * ${(LV.length > 1 ? shown / (LV.length - 1) : 0)})` }} />}
+        {shown >= 0 && <span className="effort-bar-fill" style={{ width: `calc(20px + (100% - 20px) * ${(LV.length > 1 ? shown / (LV.length - 1) : 0)})` }} />}
         {LV.map((l, i) => (
           <span key={l} className={'effort-bar-dot' + (i < shown ? ' below' : '')} style={{ left: pct(i) }} data-level={l} />
         ))}

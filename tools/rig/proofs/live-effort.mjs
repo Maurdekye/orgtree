@@ -181,7 +181,8 @@ export default async function (rig) {
     p.check('desk: after the composer change the desk shows low and no next-turn effort card',
       v.afterComposer?.next?.length === 0 && v.afterComposer?.button === 'low', v.afterComposer)
     const ds = sends('ada').slice(deskSent).map(l => l.line.request.settings?.effortLevel)
-    p.check('desk: her running CLI was sent max, then low', JSON.stringify(ds) === '["max","low"]', ds)
+    p.check('desk: her running CLI was sent max, then high (middle click), then low', JSON.stringify(ds) === '["max","high","low"]', ds)
+    p.check('desk: a click in the middle of the effort bar sets the level and leaves the pop-out open', v.popOpenAfterClick === true, v.popOpenAfterClick)
     await rig.api('POST', `/api/orgs/${rig.org}/nodes/ada/interrupt`)
     await rig.waitTurns('ada', deskTurns + 1)
   } else {
