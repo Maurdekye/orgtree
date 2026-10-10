@@ -32,7 +32,7 @@ module.exports = async (page, { args }) => {
   await page.waitFor('.tp-list .tp-row', { timeout: 30000 })
   await page.click('#shell-create-name')
   await page.type(args.name || 'Checking Team')
-  await page.click({ selector: '.tp-row .tp-name', text: `^${args.template.replace(/[()]/g, '\$&')}$`, regex: true })
+  await page.click({ selector: '.tp-row .tp-name', text: `^${args.template.replace(/[()]/g, '\\$&')}$`, regex: true })
   await page.waitFor('.tp-preview table tbody tr', { timeout: 20000 })
   const read = () => page.eval(() => ({
     at: Date.now(),
@@ -47,6 +47,8 @@ module.exports = async (page, { args }) => {
   }))
   const during = await read()
   await page.screenshot(`${args.shot}-during`)
+  // seen: let the engine's sign-in check finish (the proof held it open)
+  if (args.delayFile) require('fs').rmSync(args.delayFile, { force: true })
   // the picker asks again by itself; nothing here reloads it
   await page.waitFor(() => !document.querySelector('.tp-checking') && document.querySelector('.tp-preview tbody tr select')?.value,
     { timeout: 40000 })

@@ -38,6 +38,7 @@ export default async function (rig) {
   fs.writeFileSync(delayFile, '8000')
   await rig.restart()
   const t0 = Date.now()
+  setTimeout(() => fs.rmSync(delayFile, { force: true }), 1500)
   const prov = await rig.api('GET', '/api/providers')
   const opts = await options()
   const pc = await preview('devteam-claude', 'Early Claude')
@@ -74,10 +75,14 @@ export default async function (rig) {
   p.check('B /api/providers no longer says checking', (await rig.api('GET', '/api/providers')).checking === false)
 
   // C. the desktop, opened during a longer check (the engine gives --version 20 s)
-  fs.writeFileSync(delayFile, '18000')
+  // page loads here take 5-75 s, so the check stays held (each of the three
+  // CLIs' --version waits 19 s) until the desktop has seen it, then the
+  // script removes the file and the check lands
+  await checked()
+  fs.writeFileSync(delayFile, '19000')
   await rig.restart()
   const ui = await runDesktop(rig, desk('signin-checking.cjs'), { org: '', preset: 'tall', out: path.join(p.dir, 'desktop'),
-    args: { shot: 'checking', name: 'Checking Team', template: 'devteam (claude)' } })
+    args: { shot: 'checking', name: 'Checking Team', template: 'devteam (claude)', delayFile } })
   fs.rmSync(delayFile, { force: true })
   const during = ui.value?.during
   const after = ui.value?.after
