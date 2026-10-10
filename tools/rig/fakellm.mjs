@@ -166,7 +166,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
       return rules.find((r) => r.afterCall && r.afterCall.every((m) => c.includes(String(m).toLowerCase()))) ?? afterTool
     }
     const t = (lastText ?? '').toLowerCase()
-    return rules.find((r) => (r.match ?? []).every((m) => t.includes(String(m).toLowerCase()))) ?? { text: 'OK.' }
+    return rules.find((r) => !r.afterCall && (r.match ?? []).every((m) => t.includes(String(m).toLowerCase()))) ?? { text: 'OK.' }
   }
   /** the name the harness offered an orgtree tool under */
   const toolName = (names, want) => names.find((n) => n === want || n.endsWith(`__${want}`)) ?? want

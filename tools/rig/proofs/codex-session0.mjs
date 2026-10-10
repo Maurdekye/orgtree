@@ -28,7 +28,11 @@ import { Proof } from '../proof.mjs'
 
 const MODEL = 'fake-model:latest'
 const patch = (file, line) => `apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: ${file}\n+${line}\n*** End Patch\nEOF\n`
-const exec = cmd => ({ tool: 'exec_command', input: { cmd } })
+/** read-only commands the read seat tries in turn: which of them Codex counts as safe */
+const READS = [{ cmd: 'Get-ChildItem' }, { cmd: 'ls' }, { cmd: 'pwd' }, { cmd: 'rg --files' }, { cmd: 'git status' },
+  { cmd: 'Get-ChildItem', login: false }, { cmd: 'rg --files', login: false }, { cmd: 'dir', shell: 'cmd.exe' },
+  { cmd: 'git status', shell: 'cmd.exe' }, { cmd: 'rg --files', shell: 'cmd.exe' }]
+const exec = cmd => ({ tool: 'exec_command', input: typeof cmd === 'string' ? { cmd } : cmd })
 const done = summary => ({ tool: 'orgtree_status', input: { status: 'done', summary } })
 
 export async function setup() {
@@ -47,8 +51,8 @@ export default async function (rig) {
       { afterCall: ['PROOF-S0-W-SHELL'], ...exec(patch('s0w-patch.txt', 'PROOF-S0-W-PATCH-OK')) },
       { afterCall: ['PROOF-S0-W-PATCH'], ...done('PROOF-S0-W-DONE') },
       // the read-only seat: a safe read → a shell write → apply_patch → done
-      { match: ['PROOF-S0-R'], ...exec('Get-ChildItem -Name -Force') },
-      { afterCall: ['Get-ChildItem -Name -Force'], ...exec('Set-Content -Path s0r-write.txt -Value PROOF-S0-R-WRITE') },
+      { match: ['PROOF-S0-R'], ...exec(READS[0]) },
+      ...READS.map((c, i) => ({ afterCall: [JSON.stringify(c)], ...exec(READS[i + 1] ?? 'Set-Content -Path s0r-write.txt -Value PROOF-S0-R-WRITE') })),
       { afterCall: ['PROOF-S0-R-WRITE'], ...exec(patch('s0r-patch.txt', 'PROOF-S0-R-PATCH')) },
       { afterCall: ['PROOF-S0-R-PATCH'], ...done('PROOF-S0-R-DONE') },
       // the interactive path: one sandboxed shell write → done
@@ -79,6 +83,13 @@ export default async function (rig) {
     return st
   }
   try {
+    // the user's ~/.codex/config.toml turns the Windows sandbox on; without it
+    // Codex itself downgrades workspace-write to read-only on Windows. The lane's
+    // Codex home is the run's own (src/langserver.rs CODEX_HOME_DIR). "elevated"
+    // needs an admin setup, so the rig uses "unelevated" (the same runner, #46412)
+    const home = path.join(rig.data, 'profiles', 'langserver-codex')
+    fs.mkdirSync(home, { recursive: true })
+    fs.writeFileSync(path.join(home, 'config.toml'), '[windows]\nsandbox = "unelevated"\n')
     const s = await rig.api('POST', '/api/langservers', { preset: 'ollama', address: llm.url, harness: 'codex-cli',
       label: 'Fake (Codex)', models: [{ id: MODEL, context: 65536 }] })
     const tier = Object.values(s.server?.models ?? {})[0]?.tier
@@ -103,9 +114,12 @@ export default async function (rig) {
     p.check('A2 read seat: the scripted steps ran to its done report', r?.status === 'idle', { status: status('s0reader'), last_error: rig.agentRow('s0reader')?.last_error })
     const rTold = told('PROOF-S0-R')
     p.check('A2 read seat: Codex was told danger-full-access with approval policy untrusted',
-      /`sandbox_mode` is `danger-full-access`/.test(rTold) && /untrusted/i.test(rTold), rTold.slice(0, 1500))
-    p.check('A2 read seat: the safe read command (Get-ChildItem) ran and listed its folder', /AGENTS\.md|CLAUDE\.md|\.codex|\w+\.\w+/.test(output('Get-ChildItem -Name -Force'))
-      && !/rejected|declined|denied/i.test(output('Get-ChildItem -Name -Force')), output('Get-ChildItem -Name -Force').slice(0, 800))
+      /`sandbox_mode` is `danger-full-access`/.test(rTold) && /`approval_policy` is `unless-trusted`/.test(rTold), rTold.slice(0, 1500))
+    const reads = Object.fromEntries(READS.map(c => [JSON.stringify(c), calls(JSON.stringify(c)).map(r => r.tool_output).join('\n').slice(0, 300)]))
+    const ran = Object.keys(reads).filter(c => reads[c] && !/rejected by user/i.test(reads[c]))
+    p.note('A2 read seat: each read command and what came back', reads)
+    p.check('A2 read seat: a directory listing ran unasked', ran.some(c => /Get-ChildItem|"ls"|"dir"/.test(c)), { ran })
+    p.check('A2 read seat: rg ran unasked', ran.some(c => c.includes('rg --files')), { ran })
     p.check('A2 read seat: its shell write was declined and left no file', read('s0reader', 's0r-write.txt') === null
       && /rejected|declined|denied|not approved/i.test(output('PROOF-S0-R-WRITE')), output('PROOF-S0-R-WRITE').slice(0, 800))
     p.check('A2 read seat: its apply_patch was declined and left no file', read('s0reader', 's0r-patch.txt') === null
@@ -123,11 +137,11 @@ export default async function (rig) {
     const b = await turn('iwriter', 'PROOF-I-W', 300000)
     const iTold = told('PROOF-I-W')
     p.check('B interactive path: Codex was told workspace-write, approvals on-request, as before', /`sandbox_mode` is `workspace-write`/.test(iTold)
-      && !/untrusted/i.test(iTold), iTold.slice(0, 1200))
+      && !/unless-trusted/.test(iTold), iTold.slice(0, 1200))
     p.check('B interactive path: no "sandbox disabled" line for this launch', disabledLines().length === lines.length, disabledLines())
     const iOut = output('PROOF-I-W-SHELL')
     p.note('B the sandboxed command in this (real) Session 0', { done: b?.status ?? null, file: read('iwriter', 'iw-shell.txt'), output: iOut.slice(0, 1500),
-      old_failure: /pipe-in|0xc0000142/i.test(iOut) })
+      old_failure: /pipe-in|0xc0000142|-1073741502/i.test(iOut) })
   } finally {
     p.keep(rig, { grep: /Codex OS sandbox|CLI started|codex stderr|runner/i })
     await llm.close()
