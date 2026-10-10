@@ -358,6 +358,32 @@ recorded process is only cleared when this reading positively shows a different
 process holding its id, and an unreadable creation time on either side leaves the
 process exactly where it was — in the tree, holding the upgrade.
 
+The background engine needs its own step, and a 4.2.0 alpha upgrade is why. On an
+all-users installation the "Orgtree Background Engine" task starts
+`resources\engine\orgtree-engine.exe host` at boot, whether or not anyone opens a
+window. A running window stops that engine on its way out, but with no window
+open nothing asked it to: the helper waited its whole budget on the engine and
+the hundreds of processes it had started (PostgreSQL, agents), and Setup refused,
+twice, on the user's machine (2026-10-10). The elevated boot step that does stop
+it only ran after that check. So when the installation tree is not quiet, the
+helper now asks the background engine to stop itself, the way the window does:
+the boot host's `engine-attach.json` in the user's data folder names the
+engine's port and token, it is trusted only under the window's own rule (owned
+by the user, writable by nobody else, no folder above it replaceable by anybody
+else), the engine it names must be this installation's, path-verified, and its
+identity must answer for that process and data folder. Then the same
+authenticated `POST /api/desktop/shutdown`, and the engine's own stop budget
+(150 s: agents, mail hub, then PostgreSQL) for its tree to go. The engine ends
+its agents' CLIs itself, and its host exits 0, so the task does not restart it.
+On an all-users installation the helper leaves the engine's tree to the boot
+preflight instead of refusing over it: Prepare (`tools/boot-engine-task.ps1`)
+disables the task, asks the engine the same way, ends the task only when the
+engine cannot be asked (ending the task ends only the host; the engine sees its
+host exit and stops by itself), and confirms the whole tree has gone, within the
+same 150 s, before a single file is copied. When the engine truly cannot be
+stopped, the message names it and says what to do: open Orgtree, choose
+`Quit Orgtree` from its tray menu, then `Retry`.
+
 The installer still does not force-kill a process. A timeout, a
 path-verification failure, a tree that cannot be enumerated, or a tree that does
 not go quiet leaves the installation untouched and offers `Retry` or `Cancel`.
