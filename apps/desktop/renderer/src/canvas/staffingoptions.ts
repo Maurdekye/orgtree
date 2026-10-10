@@ -131,7 +131,7 @@ export function peekStaffingOptions(org: string): StaffingOptions | undefined {
  *  offered here), in which case the bar shows every level. */
 export function tierEffortLevels(org: string, tier: string | undefined | null): string[] | undefined {
   if (!tier) return undefined
-  return peekStaffingOptions(org)?.tiers.find((t) => t.tier === tier)?.efforts
+  return peekStaffingOptions(org)?.tiers?.find((t) => t.tier === tier)?.efforts
 }
 
 /** Begin loading ONE ticket's staffing context, from a docket row's hover or

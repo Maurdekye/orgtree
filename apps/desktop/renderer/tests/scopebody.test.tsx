@@ -93,6 +93,20 @@ function selectWith(el: HTMLElement, value: string): HTMLSelectElement {
   return s!
 }
 
+/** press and release the effort bar at its `level`-th stop (the bar replaced the effort dropdown) */
+async function pickEffort(el: HTMLElement, level: number) {
+  const { act } = await import('react')
+  const t = el.querySelector('.effort-bar-track') as HTMLElement
+  assert.ok(t, 'no effort bar')
+  t.getBoundingClientRect = () => ({ left: 0, top: 0, right: 140, bottom: 24, width: 140, height: 24, x: 0, y: 0, toJSON() {} }) as DOMRect
+  const x = 10 + 120 * (level / 4)
+  const fire = (type: string) => act(async () => {
+    t.dispatchEvent(new (t.ownerDocument.defaultView as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent(
+      type, { bubbles: true, cancelable: true, clientX: x, button: 0 }))
+  })
+  await fire('pointerdown'); await fire('pointerup')
+}
+
 async function choose(s: HTMLSelectElement, value: string) {
   const { act } = await import('react')
   await act(async () => {
@@ -122,7 +136,7 @@ test('settings retain configured rights while the current chain narrows the disp
   assert.equal(selectWith(el, 'full').value, 'team')
   assert.equal([...el.querySelectorAll<HTMLInputElement>('label.checkline input')]
     .filter((box) => box.checked).length, 4)
-  await choose(selectWith(el, 'xhigh'), 'high')
+  await pickEffort(el, 2)
   await save(el)
   assert.equal(sent.length, 1, 'the configured panel must reach the actual scope POST')
   assert.equal(sent[0]!.effort, 'high')
@@ -134,7 +148,7 @@ test('§1 an effort-only save sends no capability field', async (t: TestContext)
   t.after(async () => { realClock() })
   const sent = scopeBodies()
   const el = await mount()
-  await choose(selectWith(el, 'xhigh'), 'high')
+  await pickEffort(el, 2)
   await save(el)
   assert.equal(sent.length, 1, 'the save must reach the backend')
   assert.equal(sent[0]!.effort, 'high')
