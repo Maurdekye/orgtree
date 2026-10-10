@@ -16,7 +16,10 @@
 // WHAT IS NEVER DRAWN AS CONSUMPTION:
 // - a missing reading: the line BREAKS — where the engine was not running
 //   (no row for longer than the hourly keepalive allows), where the account
-//   was unavailable (hatched band), or where a window reported no number.
+//   was unavailable, or where a window reported no number. Nothing marks the
+//   gap (user 2026-10-10: "don't mark unavailable zones on the graph ... just
+//   omit the datapoints"); the line simply stops and starts again, never
+//   joined across it, so no straight line stands in for time nobody measured.
 //   Nothing missing is ever drawn as 0.
 // - a reset: the line breaks at the recorded reset, which is marked with a
 //   solid hairline, and "change" is measured from the last reset on.
@@ -58,7 +61,7 @@ export interface SeriesModel {
   /** the measured line, broken at every gap and reset */
   segments: Pt[][]
   resets: { t: number; prev: number | null; next: number | null }[]
-  /** where the account could not be read */
+  /** where the account could not be read (it breaks the line; never drawn) */
   unavailable: Span[]
   nextReset: number | null
   projection: { from: Pt; to: Pt; hits: 'limit' | 'empty' | null } | null
@@ -290,14 +293,12 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
     if (label) lastLabel = x(r.t)
     return { t: r.t, label }
   })
-  const hatch = `uh-hatch-${m.key.replace(/[^a-z0-9]/gi, '')}`
 
   // the hover readout: the measured point nearest the pointer, or the
   // projection when the pointer is in the future pane
   let tip: ReactNode = null
   if (hover != null) {
     const t = from + ((hover - PAD.l) / (W - PAD.l - PAD.r)) * (to - from)
-    const down = m.unavailable.find((u) => u.from <= t && u.to >= t)
     const near = all.reduce<Pt | null>((b, p) => (!b || Math.abs(p.t - t) < Math.abs(b.t - t) ? p : b), null)
     let body: ReactNode
     if (t > now && m.projection) {
@@ -305,8 +306,6 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
       const at = Math.min(t, b.t)
       const v = a.v + ((b.v - a.v) * (at - a.t)) / Math.max(1, b.t - a.t)
       body = <><b>projected</b> {fmtValue(s, v)} · {fmtStamp(at)}</>
-    } else if (down) {
-      body = <><b>{down.state}</b>{down.detail ? `: ${down.detail}` : ''} · {fmtStamp(t)}</>
     } else if (near) {
       body = <><b>{fmtValue(s, near.v)}</b> · {fmtStamp(near.t)}</>
     }
@@ -324,11 +323,6 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
             setHover(px >= PAD.l && px <= W - PAD.r ? px : null)
           }}
           onPointerLeave={() => setHover(null)}>
-          <defs>
-            <pattern id={hatch} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1="0" y1="0" x2="0" y2="6" className="uh-hatch-line" />
-            </pattern>
-          </defs>
           {yTicks.map((v) => (
             <g key={v}>
               <line className="uh-gridline" x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} />
@@ -341,14 +335,6 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
           ))}
           <rect className="uh-future" x={x(now)} y={PAD.t} width={Math.max(0, x(to) - x(now))}
             height={H_CHART - PAD.t - PAD.b} />
-          {m.unavailable.map((u, i) => {
-            const a = Math.max(from, u.from)
-            const b = Math.min(now, u.to)
-            return b > a && (
-              <rect key={i} x={x(a)} width={Math.max(1, x(b) - x(a))} y={PAD.t}
-                height={H_CHART - PAD.t - PAD.b} fill={`url(#${hatch})`} className="uh-down" />
-            )
-          })}
           <line className="uh-now" x1={x(now)} x2={x(now)} y1={PAD.t} y2={H_CHART - PAD.b} />
           {resetMarks.map((r) => (
             <g key={r.t}>
