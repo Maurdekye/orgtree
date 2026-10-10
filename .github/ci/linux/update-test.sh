@@ -25,7 +25,7 @@ profile="$HOME/.config/Orgtree v2"   # the release identity's userData
 unit=orgtree-engine.service
 autostart="$HOME/.config/autostart/orgtree-engine.desktop"   # the app's fallback without systemd --user
 shim_dir="$HOME/.local/bin"   # on the runner's PATH (and a desktop's), ahead of /usr/bin
-systemctl_log="$logs/systemctl-calls.log"; made_harness=
+systemctl_log="$logs/systemctl-calls.log"
 budget=${UPDATE_TEST_BUDGET:-420}
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 step() { echo "--- $*"; }
@@ -70,7 +70,7 @@ teardown() {
   left=$(procs); if [ -n "$left" ]; then echo "::warning::killing what did not stop:"; echo "$left"; echo "$left" | awk '{ print $1 }' | xargs -r kill -KILL; fi
   [ -n "${feedpid:-}" ] && kill "$feedpid"
   [ -n "${xvfbpid:-}" ] && kill "$xvfbpid"
-  rm -f "$shim_dir/systemctl"; [ -n "$made_harness" ] && rm -f "$shim_dir/claude"
+  rm -f "$shim_dir/systemctl"
   bash "$here/../unix/hub-gone.sh" 7370 || { pkill -KILL -f orgtree-mailhub; exit 1; }
 }
 
@@ -121,10 +121,9 @@ for _ in $(seq 1 40); do [ -S /tmp/.X11-unix/X77 ] && curl -sf -o /dev/null "${f
 curl -sf -o /dev/null "${feed}latest-linux.yml" || fail "the loopback feed did not answer"
 
 mkdir -p "$shim_dir"
-# Orgtree's users have an agent CLI. Without one, the desktop's start-up waits on a
-# "No agent harness" dialog that nobody clicks on a runner, and the updater only starts
-# after it (index.ts, detectHarnesses), so a stand-in `claude` that does nothing.
-if ! command -v claude >/dev/null 2>&1; then printf '#!/bin/sh\nexit 0\n' >"$shim_dir/claude"; chmod +x "$shim_dir/claude"; made_harness=1; fi
+# No agent CLI on the runner, on purpose: the desktop shows its "No agent harness" notice,
+# which no longer holds up start-up, so the update runs with that notice open.
+for cli in claude codex agy; do if command -v "$cli" >/dev/null 2>&1; then echo "note: $cli is on PATH, so the no-harness notice will not show"; fi; done
 # Every systemctl the app runs, logged with its outcome, then passed to the real one: the
 # app picks systemd or the autostart fallback from `systemctl --user show-environment`.
 export UPDATE_TEST_SYSTEMCTL_LOG="$systemctl_log"
@@ -136,7 +135,9 @@ err=$(mktemp); /usr/bin/systemctl "$@" 2>"$err"; code=$?
 cat "$err" >&2; rm -f "$err"; exit "$code"
 SHIM
 chmod +x "$shim_dir/systemctl"; : >"$systemctl_log"
-launch() { (cd "$HOME" && setsid "$app" "$@" >>"$logs/app.out" 2>&1 </dev/null &); }
+# A small shell is N's parent so that how N's desktop ends (exit code, or 128 + signal)
+# is recorded in $work/N-exit; the relaunched N+1 is started by the app, not by this.
+launch() { (cd "$HOME" && setsid sh -c '"$1"; echo "$?" >"$2"' launcher "$app" "$work/N-exit" >>"$logs/app.out" 2>&1 </dev/null &); }
 step "starting Orgtree $vN the way a launcher does: $app, no arguments"
 # (electron-builder's AppRun adds --no-sandbox by itself where user namespaces are unavailable)
 start=$SECONDS; launch
@@ -194,6 +195,18 @@ echo "running from $app (pid ppid role version):"; procs | sed 's/^/  /'
 echo "PASS relaunch: one desktop, pid $pidN1 (was $pidN), runs $vN1 from $app, $((SECONDS - swapped)) s after the swap"
 echo "PASS background engine: host pid $hostN1 (was $hostN, $manager) runs $vN1 from $app; nothing of $vN is left running"
 
+# Failures that do not stop the run: reported together at the end, after everything else.
+late=()
+# How N's desktop ended. After the swap the updater quits it with app.quit(); that must be
+# a clean exit (a Chromium check failing during the quit ends it with SIGTRAP: 133).
+n_exit=$(cat "$work/N-exit" 2>/dev/null || echo '?')
+case $n_exit in
+  0) echo "PASS old desktop: Orgtree $vN's desktop exited cleanly (exit 0) after the swap" ;;
+  '?') late+=("no exit status was recorded for Orgtree $vN's desktop") ;;
+  *) if [ "$n_exit" -gt 128 ] 2>/dev/null; then late+=("Orgtree $vN's desktop ended by signal $((n_exit - 128)) ($(kill -l $((n_exit - 128)) 2>/dev/null)) instead of quitting cleanly")
+     else late+=("Orgtree $vN's desktop exited with code $n_exit"); fi ;;
+esac
+
 code=; port_now=
 for _ in $(seq 1 60); do
   port_now=$(engine_port); code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port_now/" || true)
@@ -218,6 +231,9 @@ node -e 'const [file, app] = process.argv.slice(1)
   const after = log.slice(at + 1)
   if (!after.some(e => e.stage === "startup" && String(e.detail).includes("relaunched by the updater"))) {
     console.log("::error::no startup record from the relaunch after the swap"); process.exit(1) }
+  const restart = after.findIndex(e => e.stage === "startup")
+  console.log(`from the swap to ${log[at + 1 + restart]?.at ?? "?"} (the relaunch):`)
+  for (const e of log.slice(at, at + 2 + restart)) console.log(`  ${e.at}  ${e.stage}  ${typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail ?? "")}`)
   const bad = after.filter(e => ["error", "not-installed", "handoff-refused", "failure-report-shown", "held"].includes(e.stage))
   if (bad.length) { console.log("::error::after the swap: " + bad.map(e => e.stage).join(", ")); process.exit(1) }
   console.log("PASS update-log.json: the swap (handoff) and the relaunch (startup), and nothing failed after them")' \
@@ -232,7 +248,12 @@ node -e 'const [file, name, size] = process.argv.slice(1)
   if (whole === 0 && ranges > 0) console.log("PASS differential download")
   else console.log("::warning::not a differential download: the app fetched the whole file (the update log says why)")' \
   "$logs/feed-requests.jsonl" "Orgtree-$vN1.AppImage" "$(stat -c %s "$work/feed/Orgtree-$vN1.AppImage")"
-# Last, so a run reports everything above first: where systemctl --user works (as on a
-# Linux desktop), the background engine must be a systemd user unit, not the fallback.
-[ "$manager" = systemd ] || fail "the update worked, but the app ran its background engine without systemd although systemctl --user works here (see the systemctl run from inside the AppImage above)"
+echo "the systemctl calls the app made:"; sed 's/^/  /' "$systemctl_log"
+# Where systemctl --user works (as on a Linux desktop), the background engine must be a
+# systemd user unit, not the autostart fallback.
+[ "$manager" = systemd ] || late+=("the app ran its background engine without systemd although systemctl --user works here (see the systemctl calls above)")
+if [ ${#late[@]} -gt 0 ]; then
+  for message in "${late[@]}"; do echo "::error::$message"; done
+  fail "Orgtree $vN updated itself to $vN1, but ${#late[@]} check(s) failed (above)"
+fi
 echo "Orgtree $vN updated itself to $vN1"
