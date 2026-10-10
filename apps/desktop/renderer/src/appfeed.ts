@@ -17,8 +17,27 @@ const connection = new AppFeedConnection({
     socket.onerror = () => socket.close()
     return socket
   },
-  changed() { revision++; for (const listener of listeners) listener() },
+  changed() { runValueHooks(); revision++; for (const listener of listeners) listener() },
 })
+
+/** Module registries that render paths read synchronously (the runtime tier
+ *  registries the providers payload fills) are refreshed HERE, before any
+ *  consumer re-renders. Filled from a component effect instead, they lag one
+ *  render: a list memoised on the payload (Quick chat's model menu) was then
+ *  computed from the previous registry and kept a newly offered language-
+ *  server model out until a restart (user report 2026-10-10). */
+const valueHooks: { key: string; last: unknown; fn: (value: unknown) => void }[] = []
+export function onAppValue(key: string, fn: (value: unknown) => void): void {
+  valueHooks.push({ key, last: undefined, fn })
+}
+function runValueHooks() {
+  for (const hook of valueHooks) {
+    const entry = connection.state.values.get(hook.key)
+    if (entry === hook.last) continue
+    hook.last = entry
+    try { hook.fn(entry?.value?.value ?? null) } catch { /* a registry must never break the feed */ }
+  }
+}
 function subscribe(listener: () => void) {
   listeners.add(listener)
   connection.start()

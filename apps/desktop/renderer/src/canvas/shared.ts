@@ -337,6 +337,17 @@ export const setLangServerTiers = (tiers: ProviderTier[] | null | undefined): vo
   }
   el.textContent = langserverTierCss(lsTiers)
 }
+/** Both runtime tier registries from one providers payload. The app feed
+ *  calls this before any consumer re-renders (appfeed.ts `onAppValue`), so
+ *  every tier picker sees a newly offered model in the same render as the
+ *  payload that offers it; the component effects that also call the two
+ *  setters stay for an engine without the feed. */
+export const syncProviderRegistries = (payload: unknown): void => {
+  const providers = (payload as { providers?: { id?: string; tiers?: ProviderTier[] }[] } | null)?.providers
+  if (!Array.isArray(providers)) return
+  setOpenRouterTiers(providers.find((p) => p.id === 'openrouter')?.tiers)
+  setLangServerTiers(providers.find((p) => p.id === 'langserver')?.tiers)
+}
 export const langserverTiers = (): ProviderTier[] => lsTiers
 export const langserverTierIds = (keep?: string | null): string[] => {
   const ids = lsTiers.map((t) => t.tier)

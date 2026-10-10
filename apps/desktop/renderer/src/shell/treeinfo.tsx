@@ -10,7 +10,7 @@
 // App.tsx re-exports every name here, so the suites that import them from
 // there keep working and the move is invisible to anything but the import
 // graph.
-import { ALL_TIERS, isOpenRouterTier, TIER_LETTER, tierLabel } from '../canvas/shared'
+import { ALL_TIERS, isLangServerTier, isOpenRouterTier, TIER_LETTER, tierLabel } from '../canvas/shared'
 import type { OrgListEntry, TreeNode, TreePayload } from '../types'
 import { AutorenewIcon } from '../icons'
 
@@ -42,7 +42,7 @@ export const costTitle = (tree: TreePayload): string => [
 type OrgActivity = Pick<OrgListEntry, 'name' | 'working'> & { slug?: string }
 
 /** a tier's name as the chip's letter stands for it: "Opus" for O */
-const tierName = (tier: string): string => isOpenRouterTier(tier)
+const tierName = (tier: string): string => isOpenRouterTier(tier) || isLangServerTier(tier)
   ? tierLabel(tier) : tier.charAt(0).toUpperCase() + tier.slice(1)
 
 /** The live agents of one tree, counted the way the chip shows them: `busy`
@@ -51,9 +51,9 @@ export function liveCounts(tree: TreePayload) {
   const nodes = [...flatNodes(tree).values()].filter((n) => n.state === 'live')
   const byTier: Record<string, number> = {}
   for (const node of nodes) byTier[node.tier] = (byTier[node.tier] ?? 0) + 1
-  // the OpenRouter tiers are runtime-minted, so the inventory takes them
-  // from what is actually running rather than from a static list
-  const tiers = [...ALL_TIERS, ...Object.keys(byTier).filter(isOpenRouterTier).sort()]
+  // the OpenRouter and language-server tiers are runtime-minted, so the
+  // inventory takes them from what is actually running, not a static list
+  const tiers = [...ALL_TIERS, ...Object.keys(byTier).filter((t) => isOpenRouterTier(t) || isLangServerTier(t)).sort()]
     .filter((tier) => byTier[tier])
   return { live: nodes.length, active: nodes.filter((n) => n.busy).length, byTier, tiers }
 }

@@ -77,7 +77,7 @@ import type { OrgFreshness } from './orgstatus'
 import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
-import { useAppRead, useAppReadout } from './appfeed'
+import { onAppValue, useAppRead, useAppReadout } from './appfeed'
 import { groupByProvider } from './usagegroups'
 import { UsageHistoryModal } from './usagehistory'
 import { bumpLive, onLiveBump } from './livebus'
@@ -102,7 +102,7 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ago, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
+import { activeDocCount, ago, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, syncProviderRegistries, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { InboxAskCard } from './canvas/asks'
 import { askMailRow, openAsks, submittedCards, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
@@ -138,6 +138,9 @@ import type {
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
 import { EngineDebugPanel, setEngineDebugOn, useEngineDebug } from './canvas/enginedebug'
 import { bindRoomSocket } from './streamrooms'
+// every tier picker reads the runtime tier registries during render: fill
+// them as the providers payload arrives, before any consumer re-renders
+onAppValue('providers', syncProviderRegistries)
 
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
