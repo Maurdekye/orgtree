@@ -9,6 +9,9 @@ module.exports = async (page, { args }) => {
   const bridge = `
   (() => {
     try { localStorage.setItem('orgtree-contrast-theme', ${JSON.stringify(args.theme)}) } catch {}
+    // this proof is the FOOTER placement (App settings › Display › Quick chat
+    // position = Bottom); quick-chat-positions.mjs covers all three
+    try { localStorage.setItem('orgtree-quickchat-position', 'bottom') } catch {}
     const id = { windowId: 'rig-org', kind: 'org', org: ${JSON.stringify(args.org)} }
     const prefs = { contrastTheme: ${JSON.stringify(args.theme)} }
     window.orgtreeDesktop = {
