@@ -9,9 +9,10 @@
 //         Codex was told danger-full-access, and the engine logged one
 //         "sandbox disabled" line for its launch;
 //      2. a read-only seat (file editing off): danger-full-access with
-//         approvalPolicy untrusted — a safe read command (Get-ChildItem) runs,
-//         while a shell write and an apply_patch are declined and leave no
-//         file; its prompt says the shell is not OS-sandboxed;
+//         approvalPolicy untrusted — every command is an approval request
+//         that orgtree declines (on Windows Codex runs none unasked, not even
+//         pwd or ls: measured 2026-10-10), so a write or an apply_patch leaves
+//         no file; its prompt says the shell is unavailable and why (ruling A);
 //   B. the interactive-session path (`ORGTREE_RIG_SESSION0=0`, after a
 //      restart): a write-enabled seat gets workspace-write and on-request as
 //      before, no "disabled" line; in a real Session 0 its sandboxed command
@@ -28,7 +29,7 @@ import { Proof } from '../proof.mjs'
 
 const MODEL = 'fake-model:latest'
 const patch = (file, line) => `apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: ${file}\n+${line}\n*** End Patch\nEOF\n`
-/** read-only commands the read seat tries in turn: which of them Codex counts as safe */
+/** read-only commands the read seat tries in turn (none runs: Codex asks for each) */
 const READS = [{ cmd: 'Get-ChildItem' }, { cmd: 'ls' }, { cmd: 'pwd' }, { cmd: 'rg --files' }, { cmd: 'git status' },
   { cmd: 'Get-ChildItem', login: false }, { cmd: 'rg --files', login: false }, { cmd: 'dir', shell: 'cmd.exe' },
   { cmd: 'git status', shell: 'cmd.exe' }, { cmd: 'rg --files', shell: 'cmd.exe' }]
@@ -118,13 +119,13 @@ export default async function (rig) {
     const reads = Object.fromEntries(READS.map(c => [JSON.stringify(c), calls(JSON.stringify(c)).map(r => r.tool_output).join('\n').slice(0, 300)]))
     const ran = Object.keys(reads).filter(c => reads[c] && !/rejected by user/i.test(reads[c]))
     p.note('A2 read seat: each read command and what came back', reads)
-    p.check('A2 read seat: a directory listing ran unasked', ran.some(c => /Get-ChildItem|"ls"|"dir"/.test(c)), { ran })
-    p.check('A2 read seat: rg ran unasked', ran.some(c => c.includes('rg --files')), { ran })
+    p.check('A2 read seat: every command, even pwd/ls/rg/git status, was an approval request orgtree declined', ran.length === 0
+      && Object.values(reads).every(o => /rejected by user/i.test(o)), { ran })
     p.check('A2 read seat: its shell write was declined and left no file', read('s0reader', 's0r-write.txt') === null
       && /rejected|declined|denied|not approved/i.test(output('PROOF-S0-R-WRITE')), output('PROOF-S0-R-WRITE').slice(0, 800))
     p.check('A2 read seat: its apply_patch was declined and left no file', read('s0reader', 's0r-patch.txt') === null
       && /rejected|declined|denied|not approved/i.test(output('PROOF-S0-R-PATCH')), output('PROOF-S0-R-PATCH').slice(0, 800))
-    p.check('A2 read seat: its system prompt says the shell is not OS-sandboxed', /NOT OS-sandboxed/.test(JSON.stringify(
+    p.check('A2 read seat: its system prompt says the shell is unavailable and why', /shell is UNAVAILABLE[^"]*codex#46412/.test(JSON.stringify(
       JSON.parse(fs.readFileSync(path.join(p.dir, 'bodies', llm.requests.find(x => (x.last_user ?? '').includes('PROOF-S0-R')).body_file), 'utf8')))), null)
     const lines = disabledLines()
     p.check('A one "sandbox disabled (Session 0, codex#46412)" log line per launch: on-request for the writer, untrusted for the reader',

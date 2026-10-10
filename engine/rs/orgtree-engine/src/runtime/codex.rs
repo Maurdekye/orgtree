@@ -91,9 +91,10 @@ pub struct Sandbox {
 /// The sandbox for a seat. In Session 0 Codex's Windows sandbox cannot start
 /// its command runner (openai/codex#46412: 0xC0000142, "timed out connecting
 /// runner pipe-in"), so every seat runs without it: a write-enabled seat as
-/// plain danger-full-access, a read-only seat with approvalPolicy untrusted so
-/// only Codex's safe read commands run unasked and every other command or
-/// patch is an approval request, which its policy declines (ruling 2026-10-10).
+/// plain danger-full-access, a read-only seat with approvalPolicy untrusted:
+/// every command or patch is then an approval request (on Windows Codex runs
+/// none unasked), which its policy declines, so the seat has no shell until
+/// Codex runs in the user's session again (ruling 2026-10-10).
 #[logged]
 pub fn sandbox(may_write: bool, permission_mode: &str, session0: bool) -> Sandbox {
     let mode = if !may_write {

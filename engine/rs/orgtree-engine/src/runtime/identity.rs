@@ -421,8 +421,10 @@ view_file, grep_search, list_dir and find_by_name; when the work genuinely needs
 looking for a way around. ";
 
 /// A read-only seat while the engine is in Session 0, where Codex's OS sandbox
-/// cannot start (openai/codex#46412): approvalPolicy untrusted holds it instead.
-const CODEX_READ_ONLY_UNSANDBOXED: &str = "Sandbox: this is a READ-ONLY seat, and that is enforced, not advisory. Your shell is NOT OS-sandboxed right now (Codex's Windows sandbox cannot start where Orgtree's engine runs); instead only Codex's built-in safe read commands (ls, cat, rg, git status and similar) run without asking. Every other command and every file patch becomes an approval request, and orgtree declines it for this seat, so a declined command is not a mistake and not worth a second attempt. Read, search and plan freely with those commands; when the work genuinely needs a write or another command, raise it rather than looking for a way around. ";
+/// cannot start (openai/codex#46412): approvalPolicy untrusted turns every
+/// command into an approval request, which orgtree declines for this seat
+/// (on Windows Codex lets no command through unasked; ruling 2026-10-10).
+const CODEX_READ_ONLY_UNSANDBOXED: &str = "Sandbox: this is a READ-ONLY seat, and that is enforced, not advisory. Your shell is UNAVAILABLE for now: Codex's Windows sandbox cannot start where Orgtree's engine runs (Windows Session 0, openai/codex#46412), so every command and every file patch becomes an approval request, and orgtree declines it for this seat. A declined command is not a mistake and not worth a second attempt. Work with your orgtree tools; when the work genuinely needs a shell, a read of a file or a write, raise it rather than looking for a way around. ";
 
 const CODEX_READ_ONLY: &str = "Sandbox: this is a READ-ONLY seat, and that is enforced, not advisory. Your shell runs in an \
 OS sandbox that restricts writes, and a command it blocks is reported to you as a plain 'Permission denied' or a similar \
