@@ -241,3 +241,18 @@ test('a login bash skips ~/.bashrc unless its profile sources it: the login and 
   assert.match(p, /\/opt\/from-rc\/bin/)
   assert.match(p, /\/opt\/from-profile\/bin/)
 })
+
+test('a session without a D-Bus bus (DBUS_SESSION_BUS_ADDRESS=disabled:) still reaches systemd --user', async () => {
+  const s = fakeIo()
+  s.io.env = { DBUS_SESSION_BUS_ADDRESS: 'disabled:', XDG_RUNTIME_DIR: '/run/user/1001' }
+  const r = await boot.ensureBootEngine(appImage, s.io)
+  assert.equal(r.manager, 'systemd')
+  assert.ok(s.calls.length > 0 && s.calls.filter(c => c.includes('systemctl')).every(c => c.startsWith('env -u DBUS_SESSION_BUS_ADDRESS systemctl --user ')), s.calls.join('\n'))
+  assert.deepEqual(boot.childEnv({ DBUS_SESSION_BUS_ADDRESS: 'disabled:', HOME: '/h' }), { HOME: '/h' })
+  const real = { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1001/bus', HOME: '/h' }
+  assert.equal(boot.childEnv(real), real)
+  const normal = fakeIo()
+  normal.io.env = real
+  await boot.ensureBootEngine(appImage, normal.io)
+  assert.ok(normal.calls.includes('systemctl --user show-environment'))
+})
