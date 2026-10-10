@@ -1245,13 +1245,14 @@ export class UpdateController {
             this.setStatus(this.prepared ? { ...this.prepared, recheck: 'up-to-date' } : { state: 'up-to-date' })
           }
         }
-      } catch {
+      } catch (caught) {
         if (this.status.state === 'checking') {
           this.scheduleBackoff()
+          const error = errorText(caught)
           // A check that could not reach the feed likewise says nothing about
           // the package already on disk. Losing a ready update to a moment of
           // no network would be the worst possible answer to "check again".
-          this.setStatus(this.prepared ? { ...this.prepared, recheck: 'unavailable' } : { state: 'unavailable' })
+          this.setStatus(this.prepared ? { ...this.prepared, recheck: 'unavailable' } : { state: 'unavailable', ...(error ? { error } : {}) })
         }
       } finally { this.inFlight = null }
       return this.status
@@ -1259,6 +1260,12 @@ export class UpdateController {
     this.inFlight = promise
     return promise
   }
+}
+
+/** What the library said, one bounded line, for the Settings "Check for updates" row. */
+export function errorText(caught: unknown): string {
+  const text = caught instanceof Error ? caught.message : typeof caught === 'string' ? caught : ''
+  return text.split(/\r?\n/)[0].trim().slice(0, 200)
 }
 
 /** The actual "is there a newer release" answer belongs to electron-updater's own

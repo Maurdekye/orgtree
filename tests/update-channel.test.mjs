@@ -227,6 +227,36 @@ test('§8 a stable install still takes a newer stable', async () => {
   assert.equal(wouldInstall(result.offered, '2.1.4'), true)
 })
 
+// ---------------------------------- the Settings "Check for updates" button (4.2)
+// The button asks the same updater as the automatic check, so what it can say
+// is decided here: a local alpha takes a newer stable, is never offered an
+// older release, and a stable build on the same version is up to date.
+
+test('§8a ⚠ AN ALPHA BUILD IS OFFERED THE STABLE RELEASE OF ITS OWN VERSION', async () => {
+  const result = await offeredTo('4.2.0-alpha.1', { tags: ['4.2.0', '4.2.0-alpha.1', '4.1.2'] })
+  assert.equal(result.offered, '4.2.0', result.error ?? '')
+  assert.equal(wouldInstall(result.offered, '4.2.0-alpha.1'), true)
+})
+
+test('§8b ⚠ AN ALPHA BUILD IS NEVER OFFERED AN OLDER RELEASE', async () => {
+  const result = await offeredTo('4.2.0-alpha.1', { tags: ['4.1.3', '4.1.2'] })
+  assert.equal(wouldInstall(result.offered, '4.2.0-alpha.1'), false, `offered ${result.offered}, which is older`)
+})
+
+test('§8c the same stable version is up to date, not offered again', async () => {
+  const result = await offeredTo('4.2.0', { tags: ['4.2.0', '4.1.3'] })
+  assert.equal(wouldInstall(result.offered, '4.2.0'), false)
+})
+
+test('§8d the app never switches downgrades on (no channel or allowDowngrade is set)', () => {
+  const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  assert.doesNotMatch(main, /allowDowngrade/)
+  assert.doesNotMatch(main, /autoUpdater\.channel\s*=/)
+  const { AppUpdater } = require_('electron-updater')
+  assert.equal(Object.getOwnPropertyDescriptor(AppUpdater.prototype, 'channel')?.set !== undefined, true,
+    'the library setter that turns downgrades on exists, which is why the app must not call it')
+})
+
 // ------------------------------------------------------------- the app's own rule
 
 test('§9 the shipped rule: a prerelease tracks prereleases, a stable build does not', () => {

@@ -1027,7 +1027,7 @@ else {
   // Without update support there is nothing to ask: answered 'unavailable'
   // without disturbing the controller, so Settings' button gets an honest
   // response instead of an "up to date" no feed could have established.
-  const checkForUpdates = async () => !updatesSupported ? { state: 'unavailable' } as UpdateStatus
+  const checkForUpdates = async () => !updatesSupported ? { state: 'unavailable', error: 'This build has no update feed.' } as UpdateStatus
     : (updateApplying || quitting) ? updater.current() : updater.check()
   const applyDownloadedUpdate = async (automatic = false, unattended = automatic) => {
     // Once shutdown begins, finish installing. Before that boundary, disabling

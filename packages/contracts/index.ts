@@ -78,7 +78,10 @@ export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' |
  *  installer on disk is still what will run, and this is the only way to answer
  *  the user who just pressed Check for updates. Never set with any other state.
  *  Mirrors apps/desktop/main/updater.ts, which owns the state machine. */
-export interface UpdateStatus { state: UpdateState; version?: string; percent?: number; recheck?: 'up-to-date' | 'unavailable' }
+export interface UpdateStatus { state: UpdateState; version?: string; percent?: number; recheck?: 'up-to-date' | 'unavailable'
+  /** Why a check or download did not complete, in the library's own words
+   *  (bounded). Set only with 'unavailable' or 'failed'. */
+  error?: string }
 
 /** What this installation can actually DO about an update, as opposed to what
  *  it has been asked to do. `unattendedInstall` is false when Orgtree cannot

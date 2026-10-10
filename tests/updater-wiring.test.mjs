@@ -81,7 +81,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // ONE guarded entry point. A second caller reaching updater.check() directly
   // would reopen the race this closes, so the tray, the renderer IPC and the
   // engine-issued maintenance flow must all go through the same function.
-  assert.match(main, /const checkForUpdates = async \(\) => !updatesSupported \? \{ state: 'unavailable' \} as UpdateStatus\r?\n\s*: \(updateApplying \|\| quitting\) \? updater\.current\(\) : updater\.check\(\)/)
+  assert.match(main, /const checkForUpdates = async \(\) => !updatesSupported \? \{ state: 'unavailable', error: 'This build has no update feed\.' \} as UpdateStatus\r?\n\s*: \(updateApplying \|\| quitting\) \? updater\.current\(\) : updater\.check\(\)/)
   assert.match(main, /handleApp\('desktop:check-for-updates', \(\) => checkForUpdates\(\)\)/)
   assert.match(main, /label: 'Check for updates', click: \(\) => \{ void checkForUpdates\(\)\.catch\(\(\) => \{\}\) \}/)
   assert.match(main, /check: async \(\) => \{[\s\S]*?const status = await checkForUpdates\(\)/,

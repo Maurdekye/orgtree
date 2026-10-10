@@ -207,7 +207,7 @@ test('the preserved-update path is CONDITIONAL: with nothing prepared the same t
   const clean = rig({ run: async () => ({ hasUpdate: false }) })
   assert.deepEqual(await clean.controller.check(), { state: 'up-to-date' })
   const broken = rig({ run: async () => { throw new Error('offline') } })
-  assert.deepEqual(await broken.controller.check(), { state: 'unavailable' })
+  assert.deepEqual(await broken.controller.check(), { state: 'unavailable', error: 'offline' })
 })
 
 test('a preserved check leaves the package still REMEMBERED, so the next offer is still judged against it', async () => {
@@ -437,7 +437,7 @@ test('a failed check backs off before the next automatic attempt, doubling per c
     options: { periodicMs: 100000, backoffBaseMs: 1000 },
   })
   await controller.tick()
-  assert.deepEqual(controller.current(), { state: 'unavailable' })
+  assert.deepEqual(controller.current(), { state: 'unavailable', error: 'offline' })
   advance(999)
   await controller.tick()
   assert.equal(reports.filter(r => r.state === 'checking').length, 1, 'not yet due')
@@ -520,7 +520,7 @@ test('errored() is a no-op while a check is still in flight (the check-time fail
   assert.deepEqual(reports, [], 'errored() must not report anything while a check is still in flight')
   release()
   await pending
-  assert.deepEqual(controller.current(), { state: 'unavailable' }, 'the check\'s own rejection is what actually sets the final state')
+  assert.deepEqual(controller.current(), { state: 'unavailable', error: 'offline' }, 'the check\'s own rejection is what actually sets the final state')
 })
 
 test('errored() after a check already failed does not double the backoff', async () => {
@@ -532,7 +532,7 @@ test('errored() after a check already failed does not double the backoff', async
   await controller.tick() // consecutiveFailures -> 1, nextRetryAt = 1000
   reports.length = 0
   controller.errored() // the duplicate 'error' event, arriving just after
-  assert.deepEqual(controller.current(), { state: 'unavailable' }, 'errored() must not overwrite the check\'s own failure state')
+  assert.deepEqual(controller.current(), { state: 'unavailable', error: 'offline' }, 'errored() must not overwrite the check\'s own failure state')
   assert.deepEqual(reports, [], 'errored() must not report anything on top of the check\'s own report')
   advance(999)
   await controller.tick()
@@ -689,8 +689,8 @@ test('composed: an error event arriving before the check promise settles still e
   // this test proves the check-time path alone lands on exactly one.
   emitter.fire('error', new Error('offline'))
   await pending
-  assert.deepEqual(controller.current(), { state: 'unavailable' })
-  assert.deepEqual(reports.filter(r => r.state === 'unavailable'), [{ state: 'unavailable' }], 'exactly one unavailable report, not two')
+  assert.deepEqual(controller.current(), { state: 'unavailable', error: 'offline' })
+  assert.deepEqual(reports.filter(r => r.state === 'unavailable'), [{ state: 'unavailable', error: 'offline' }], 'exactly one unavailable report, not two')
 })
 
 
