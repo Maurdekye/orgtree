@@ -1204,6 +1204,12 @@ pub async fn queue(
         );
     }
     if !knows_peer(engine, org_id, peer).await {
+        if local_hub_down(engine, org_id, &net["hubs"]) {
+            crate::refuse!(
+                Unprocessable,
+                "this computer's mail hub is not running, so @net:{peer} can't be reached right now and nothing was sent (the Mail hub panel in the desktop app says why); try again once it runs"
+            );
+        }
         crate::refuse!(
             Unprocessable,
             "no organization @net:{peer} is registered on any hub this organization uses (a new registration appears within a minute; orgtree_list_orgs lists the known ones)"
@@ -1266,6 +1272,18 @@ pub fn rig_read_receipts(engine: &Engine, org_id: i64) -> Value {
     let pending = engine.net.read_owed.pin();
     json!(pending.iter().filter(|((org, _), _)| *org == org_id)
         .map(|((_, mid), hub)| json!({"id":mid,"hub":hub,"state":"read"})).collect::<Vec<_>>())
+}
+
+/// The org writes through this computer's own hub (an enabled `local` entry,
+/// not connected) and the engine's hosted hub is not up: an address the org
+/// cannot look up is then unreachable for that reason, not unknown.
+#[logged]
+fn local_hub_down(engine: &Engine, org_id: i64, hubs: &Value) -> bool {
+    let uses_local = hubs
+        .as_array()
+        .is_some_and(|hs| hs.iter().any(|h| h["id"].as_str() == Some(LOCAL_HUB_ID) && h["enabled"].as_bool().unwrap_or(true)));
+    let connected = engine.net.status.pin().get(&(org_id, LOCAL_HUB_ID.to_string())).is_some_and(|s| s.connected);
+    uses_local && !connected && engine.hub.address.load().is_none()
 }
 
 /// Is `peer` on a roster this org can reach? The cache answers first; a

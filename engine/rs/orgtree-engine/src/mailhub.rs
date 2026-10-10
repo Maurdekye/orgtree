@@ -257,6 +257,31 @@ fn data_dir(engine: &Engine) -> PathBuf {
     engine.cfg.path("mailhub")
 }
 
+/// Why the hub stopped, from what this run wrote to hub.log (`start` on, its
+/// last 16 KB): the last fatal line ("orgtree-mailhub: …", or a panic with its
+/// message), at most 300 bytes. None when there is none, e.g. a hub killed from
+/// outside.
+#[logged]
+fn exit_reason(log_path: &Path, start: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(log_path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let from = len.saturating_sub(16 * 1024).max(start);
+    f.seek(SeekFrom::Start(from)).ok()?;
+    let mut buf = Vec::new();
+    f.take(len.saturating_sub(from)).read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let i = lines.iter().rposition(|l| l.starts_with("orgtree-mailhub:") || l.contains(" panicked at "))?;
+    let mut why = lines[i].trim_start_matches("orgtree-mailhub:").trim().to_string();
+    if lines[i].contains(" panicked at ") {
+        if let Some(message) = lines.get(i + 1).filter(|l| !l.starts_with("note: ")) {
+            why = format!("{why} {message}");
+        }
+    }
+    Some(crate::trace::cut(&why, 300).to_string())
+}
+
 #[logged]
 fn load_config(engine: &Engine) -> Value {
     let path = config_path(engine);
@@ -374,6 +399,8 @@ async fn start_now(engine: &Arc<Engine>) {
             return;
         }
     };
+    // where this run's lines start: an exit is explained by them, never by an earlier run's
+    let log_start = log.metadata().map(|m| m.len()).unwrap_or(0);
     let mut cmd = Command::new(&bin);
     cmd.arg("serve")
         .current_dir(&data)
@@ -443,16 +470,20 @@ async fn start_now(engine: &Arc<Engine>) {
             }
         };
         let asked = watch.stop.is_cancelled();
+        let reason = if asked { None } else { exit_reason(&log_path, log_start) };
+        let shown = code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
         eng.hub.address.store(None);
         eng.hub.set(|s| {
             s.running = false;
             s.healthy = false;
             if !asked {
-                s.error = Some(format!(
-                    "the hub process exited (code {}) — see mailhub/hub.log; another service may already hold port {}",
-                    code.map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
-                    s.port
-                ));
+                s.error = Some(match &reason {
+                    Some(why) => format!("the hub process exited (code {shown}): {why} — see mailhub/hub.log"),
+                    None => format!(
+                        "the hub process exited (code {shown}) — see mailhub/hub.log; another service may already hold port {}",
+                        s.port
+                    ),
+                });
             }
         });
         if eng.hub.run.load().as_ref().map(|r| Arc::ptr_eq(r, &watch)).unwrap_or(false) {
@@ -460,7 +491,7 @@ async fn start_now(engine: &Arc<Engine>) {
         }
         watch.exited.cancel();
         if !asked {
-            tracing::warn!(code, "mail hub exited");
+            tracing::warn!(code, reason = reason.as_deref().unwrap_or(""), "mail hub exited");
         }
     });
     let address = format!("http://127.0.0.1:{port}");
