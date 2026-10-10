@@ -168,8 +168,8 @@ uiTest('§3 a @system DECISION breaks the run and is NEVER folded in',
       delivered={[sys(1), decision(2), sys(3)]} />)
     const rs = rowsOf(el)
     assert.equal(rs.length, 3, 'a decision between them is a wall, not a member')
-    assert.equal(chip(rs[0]!), 'notice', 'the run above it is a run of one')
-    assert.equal(chip(rs[2]!), 'notice', 'and so is the run below')
+    assert.equal(chip(rs[0]!), '', 'the run above it is a run of one')
+    assert.equal(chip(rs[2]!), '', 'and so is the run below')
     // the decision is full mail: its own row, its own preview, no fold class
     const d = rs[1]!
     assert.ok(!d.classList.contains('notepile'))
@@ -195,7 +195,7 @@ uiTest('§5 a lone system notice is EXACTLY what it was before', async (mount) =
     assert.equal(rs.length, 3)
     for (const i of [0, 2]) {
       assert.ok(!rs[i]!.classList.contains('notepile'), 'no fold class')
-      assert.equal(chip(rs[i]!), 'notice', 'the chip still reads exactly "notice"')
+      assert.equal(chip(rs[i]!), '', 'a plain notice carries no chip (4.x: plain notices are unmarked)')
     }
     // …and it still opens as one body, not as a one-item list
     ;(rs[0] as HTMLElement).click()
@@ -215,7 +215,7 @@ uiTest('§6 a notice still AWAITING delivery is not folded away',
     const rs = rowsOf(el)
     assert.equal(rs.length, 2, 'the pending one stands alone; the two read fold')
     assert.ok(rs[0]!.classList.contains('unread'), 'and it keeps its unread mark')
-    assert.equal(chip(rs[0]!), 'notice')
+    assert.equal(chip(rs[0]!), '')
     assert.equal(chip(rs[1]!), '2 notices')
   })
 
@@ -233,7 +233,7 @@ uiTest('§6b …and not folded INTO a run either — both ends are guarded',
     const rs = rowsOf(el)
     assert.equal(rs.length, 3, 'a waiting row is a wall on both sides of itself')
     assert.ok(rs[1]!.classList.contains('unread'), 'fixture: the middle one waits')
-    for (const r of rs) assert.equal(chip(r), 'notice', 'nothing folded at all')
+    for (const r of rs) assert.equal(chip(r), '', 'nothing folded at all')
   })
 
 uiTest('§7 the fold is DISPLAY only — the list still holds every entry',
@@ -261,5 +261,5 @@ uiTest('§7 the fold is DISPLAY only — the list still holds every entry',
     await new Promise((res) => setTimeout(res, 0))
     const rs = rowsOf(el)
     assert.equal(rs.length, 1, 'the folded member is still a findable entry')
-    assert.equal(chip(rs[0]!), 'notice', 'and on its own it is a run of one')
+    assert.equal(chip(rs[0]!), '', 'and on its own it is a run of one')
   })
