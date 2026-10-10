@@ -2794,9 +2794,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // placement rather than changing message order. The same marker is reused
   // for durable pending rows and optimistic ghosts, so a transition never
   // leaves two dividers on screen.
-  const pendingDivider = <div className="pending-divider" role="separator"
-    aria-label="queued and undelivered messages">
-    <span>queued / undelivered</span>
+  const pendingDivider = (waiting: number) => <div className="pending-divider" role="separator"
+    aria-label={`${waiting} queued and undelivered ${waiting === 1 ? 'message' : 'messages'}`}>
+    <span>{waiting} queued / undelivered</span>
   </div>
   // ── THE RENDER-BOUNDARY DUPLICATE GUARD ────────────────────────────────
   // (user request 2026-09-11: "intermittent double messages persist" — a
@@ -2851,6 +2851,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const draftMark = !transientDraft && !!draft
     && dedup.keep(eventKey(convo.draftEventId))
   const viewPendLater = dedup.list(pendLater, (m) => eventKey(m.event_id))
+  // every entry the separator stands above: durable rows being delivered or
+  // still waiting, plus optimistic ghosts not yet confirmed
+  const pendWaiting = viewPendNow.length + viewPendLater.length + pending.length
   // optimistic ghosts are deliberately NOT in this pass: they are client-minted
   // and carry no event id at all, so there is nothing here to compare them by.
   // ── WHAT THE OPERATOR HAS OPENED ───────────────────────────────────────
@@ -3742,7 +3745,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               app-server's start otherwise.
               The remaining pending mail is genuinely still waiting and stays
               at the bottom, after the live tail, where it is true. */}
-          {viewPendNow.length > 0 && pendingDivider}
+          {viewPendNow.length > 0 && pendingDivider(pendWaiting)}
           {viewPendNow.map(pendBubble)}
           {/* keyed on the server's row id (`n`), never the index: rows retire
               from the MIDDLE of this list as the transcript catches up, and an
@@ -3840,7 +3843,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               ⚠ Only the ones that are still WAITING render here, at the
               bottom. The one being delivered INTO the running turn was hoisted
               above the live tail — see pendNow. */}
-          {viewPendNow.length === 0 && viewPendLater.length > 0 && pendingDivider}
+          {viewPendNow.length === 0 && viewPendLater.length > 0 && pendingDivider(pendWaiting)}
           {viewPendLater.map(pendBubble)}
           {/* №17 for GHOSTS (user bug 2026-09-03: "i sent an invalid command
               and it got stuck as a permanently undelivered message that i
@@ -3855,7 +3858,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               and only when the composer is empty — the user's typing is not
               ours to overwrite. */}
           {viewPendNow.length === 0 && viewPendLater.length === 0
-            && pending.length > 0 && pendingDivider}
+            && pending.length > 0 && pendingDivider(pendWaiting)}
           {pending.map((p) => (
             <PendingGhostRow key={'q' + p.id} p={p} slug={slug} nid={node.id}
               world={deskRefs.world} onOpen={deskRefs.onOpen}
