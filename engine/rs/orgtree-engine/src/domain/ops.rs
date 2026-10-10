@@ -333,6 +333,20 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
     Ok(())
 }
 
+/// The harness a language-server agent runs on now: its stamp, else (an
+/// agent stamped before the stamp existed) its server's.
+#[logged]
+async fn langserver_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str) -> Result<Option<String>> {
+    let stamped: Option<String> = tx.query_one("SELECT extra->>'harness' FROM ot.agents WHERE id = $1", &[&agent]).await?.get(0);
+    Ok(stamped.or_else(|| crate::langserver::route_of(engine, tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string))))
+}
+
+/// A harness as people name it.
+#[logged]
+fn harness_label(harness: &str) -> &'static str {
+    if harness == "codex-cli" { "Codex" } else { "Claude Code" }
+}
+
 /// Validate a selector before storing it; qualified primary selectors also name a provider.
 #[logged]
 fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&str>) -> Result<()> {
@@ -1497,8 +1511,24 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         refuse!(Conflict, "{} is turned off in App settings", catalog::provider_label(to));
     }
     validate_account(engine, &org.slug, &tier, str_arg(req, "account"))?;
+    // A language server's harness is fixed per server, so a move to a model
+    // on a server with the other harness (Claude Code <-> Codex) is a crossing
+    // too: neither CLI can resume the other's session (coordinator ruling
+    // 2026-10-10). Between servers on one harness the session carries on: the
+    // lane keeps one config folder per harness.
+    let harnesses = if from == catalog::LANGSERVER && to == catalog::LANGSERVER {
+        let now = langserver_harness(engine, tx, n.id, &n.tier).await?;
+        let next = crate::langserver::route_of(engine, &tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string));
+        match (now, next) {
+            (Some(a), Some(b)) if a != b => Some((a, b)),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let crossing = from != to || harnesses.is_some();
     if busy(tx, n.id).await? {
-        let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": from != to, "account": req["account"] }), true).await?;
+        let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": crossing, "account": req["account"] }), true).await?;
         event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier, "by": actor.label() }), fx).await?;
         fx.agents.insert(n.id);
         fx.queued.push(n.id);
@@ -1519,11 +1549,15 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         _ => None,
     };
     let mut warnings = Vec::new();
-    if from != to {
-        // a new provider starts a fresh session; the old transcript stays in the folder
+    if crossing {
+        // a new provider (or harness) starts a fresh session; the old transcript stays in the folder
         // the next turn starts with a summary of the conversation (the CLIs
         // cannot resume each other's sessions)
-        let why = format!("moved from {} to {}", catalog::provider_label(from), catalog::provider_label(to));
+        let (was, now) = match &harnesses {
+            Some((a, b)) => (harness_label(a), harness_label(b)),
+            None => (catalog::provider_label(from), catalog::provider_label(to)),
+        };
+        let why = format!("moved from {was} to {now}");
         tx.execute(
             "UPDATE ot.agents SET tier = $2, seat = $3::float8::numeric, provider = $4, session_id = NULL,
                     account = $5, extra = jsonb_set(extra, '{handoff_due}', to_jsonb($6::text)),
@@ -1541,10 +1575,8 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         }
         stamp_harness(engine, tx, n.id, &tier, true).await?;
         warnings.push(format!(
-            "{} moved from {} to {}: it continues on a fresh session that starts with a summary of its conversation (the whole conversation is saved in its folder)",
-            n.name,
-            catalog::provider_label(from),
-            catalog::provider_label(to)
+            "{} moved from {was} to {now}: it continues on a fresh session that starts with a summary of its conversation (the whole conversation is saved in its folder)",
+            n.name
         ));
     } else {
         tx.execute(
