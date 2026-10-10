@@ -2,7 +2,8 @@
 # session bus, user services with umask 0002): .github/ci/linux/desktop-check.sh.
 # Downloads the public AppImage of one release and builds nothing. Runs on a push to
 # ci-test/orgtree-linux-desktop (checking CHECK_TAG) and, once on the default branch, by
-# hand for any tag: gh workflow run linux-desktop-check.yml -f tag=v4.1.1
+# hand for any tag: gh workflow run linux-desktop-check.yml -f tag=v4.1.1 (three modes:
+# fresh, repair and autostart; see the script).
 name: linux-desktop-check
 
 on:
@@ -45,8 +46,17 @@ jobs:
           curl -fsSL -o "dl/Orgtree-$v.AppImage" "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Orgtree-$v.AppImage"
           ls -l dl; sha256sum dl/*
 
-      - name: First start on a desktop-like session
-        run: bash .github/ci/linux/desktop-check.sh dl/Orgtree-*.AppImage build/desktop-check
+      # Each mode runs whatever the one before it did, so one run answers all three.
+      - name: Desktop-like start - systemd, fresh install
+        run: bash .github/ci/linux/desktop-check.sh dl/Orgtree-*.AppImage build/desktop-check/fresh fresh
+
+      - name: Desktop-like start - systemd, over folders a 4.1.1 install left at 0775
+        if: success() || failure()
+        run: bash .github/ci/linux/desktop-check.sh dl/Orgtree-*.AppImage build/desktop-check/repair repair
+
+      - name: Desktop-like start - autostart fallback (systemctl --user fails)
+        if: success() || failure()
+        run: bash .github/ci/linux/desktop-check.sh dl/Orgtree-*.AppImage build/desktop-check/autostart autostart
 
       - name: Logs on failure
         if: failure()
