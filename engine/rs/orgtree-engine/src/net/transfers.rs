@@ -485,15 +485,16 @@ pub(super) async fn rig_attempt(e: &Arc<Engine>, org: i64, args: &Value) -> Resu
         if args["missing"] != true {
             tokio::fs::write(&path, vec![b'x'; total as usize]).await?;
         }
-        let files = vec![json!({"path":path.to_string_lossy(),"name":"proof.bin","bytes":total})];
+        let count = args["file_count"].as_u64().unwrap_or(1).clamp(1,10);
+        let files: Vec<Value> = (0..count).map(|n| json!({"path":path.to_string_lossy(),"name":format!("proof-{n}.bin"),"bytes":total})).collect();
         let (uid, _) = queue_row(e, org, "peer.rig", "transfer proof", args["by"].as_str().unwrap_or("user"), "message", &files, None).await?;
         let c = e.db.get().await?;
         let inbox: i64 = c.query_one("SELECT id FROM ot.org_inbox WHERE uid=$1", &[&uid]).await?.get(0);
         drop(c);
         let available = ready(e, org, inbox, "rig-transfer", address, &files).await?;
         let c = e.db.get().await?;
-        let id: String = c.query_one("SELECT id FROM ot.net_transfers WHERE inbox_id=$1", &[&inbox]).await?.get(0);
-        return Ok(json!({"id":id,"inbox":inbox,"ready":available.is_some()}));
+        let ids: Vec<String> = c.query("SELECT id FROM ot.net_transfers WHERE inbox_id=$1 ORDER BY file_no", &[&inbox]).await?.iter().map(|r|r.get(0)).collect();
+        return Ok(json!({"id":ids[0],"ids":ids,"inbox":inbox,"ready":available.is_some()}));
     }
     let id = args["id"].as_str().unwrap_or("");
     let c = e.db.get().await?;
