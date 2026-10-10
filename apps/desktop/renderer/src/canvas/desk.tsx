@@ -3,6 +3,7 @@ import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { executionTime, RunningTimer, TurnActiveContext } from './toolclock'
+import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
@@ -4780,6 +4781,10 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
           ? <span className="dim tool-exec-time" title="execution time"> · {execTime}</span>
           : typeof t.started_at === 'string' && t.result === undefined && !t.error
             ? <RunningTimer startedAt={t.started_at} /> : null}
+        {/* the agents and the watchdog this call concerns, as the same links
+            and cards the rest of the app draws for them */}
+        {!t.error && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid}
+          agent={id => <MailFrom from={id} />} />}
         {/* mail sends carry the inline "open in mailbox" link (user spec):
             straight to the exact mail in whichever box holds it */}
         {t.mail && onMailLink && (

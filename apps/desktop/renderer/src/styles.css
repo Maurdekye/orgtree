@@ -8253,3 +8253,7 @@ main:has(> .orgbar.native-header) > .error {
 .resolved-row.tone-skip { opacity: .6; }
 
 .org-accounts-group { margin-top: 10px; }
+/* the links and watchdog card beside an orgtree tool call */
+.tool-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-left: 6px; vertical-align: middle; }
+.tool-ref-agent { display: inline-flex; align-items: center; }
+.tool-refs .desk-dog-chip.gone { opacity: 0.55; cursor: default; }

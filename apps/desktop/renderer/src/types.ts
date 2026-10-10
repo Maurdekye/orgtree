@@ -906,6 +906,9 @@ export interface ToolChip {
    *  chip shows the difference. Absent on older rows and on a call with no result. */
   started_at?: string
   ended_at?: string
+  /** the agents and the watchdog the call concerns (engine `tool_refs`); the
+   *  transcript draws a link or card for each beside the call */
+  refs?: Array<{ kind: 'agent' | 'watchdog'; id: string }>
   id?: string | null
   result?: string
   result_lines?: number

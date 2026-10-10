@@ -22,6 +22,11 @@ export interface DeskDogs {
 const Ctx = createContext<DeskDogs | null>(null)
 export const DeskDogsProvider = Ctx.Provider
 
+/** The whole route (every watchdog of the org, and the canvas's own open), for
+ *  a surface that names a dog by id rather than listing an agent's — the
+ *  transcript's watchdog card. Null where no canvas hands one down. */
+export function useDogRoute(): DeskDogs | null { return useContext(Ctx) }
+
 /** The watchdogs owned by `agentId`, in the tree's order. A one-shot dog that
  *  has already fired (`spent`) is a departing tombstone with nothing to open
  *  that means anything, so it gets no card. */
