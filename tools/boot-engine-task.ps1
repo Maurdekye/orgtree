@@ -70,6 +70,57 @@ function Find-BootTask($Folder) {
     }
 }
 function Get-BootProcesses { return @(Get-CimInstance Win32_Process -ErrorAction Stop) }
+# The operator's engine data folder, chosen the way the boot host chooses it
+# (engine host.rs data_root): their ORGTREE_V2_DATA when their registry hive is
+# loaded and sets one, else <profile>\AppData\Roaming\Orgtree v2\data.
+function Get-OperatorDataRoot([string]$Sid) {
+    $value = $null
+    try {
+        $users = [Microsoft.Win32.RegistryKey]::OpenBaseKey('Users', 'Registry64')
+        try {
+            $environment = $users.OpenSubKey("$Sid\Environment")
+            if ($null -ne $environment) { try { $value = $environment.GetValue('ORGTREE_V2_DATA') } finally { $environment.Dispose() } }
+        } finally { $users.Dispose() }
+    } catch { $value = $null }
+    if ($value) { return [string]$value }
+    $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')
+    try {
+        $key = $hive.OpenSubKey("SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$Sid")
+        if ($null -eq $key) { return $null }
+        try { $profilePath = [string]$key.GetValue('ProfileImagePath') } finally { $key.Dispose() }
+    } finally { $hive.Dispose() }
+    if (-not $profilePath) { return $null }
+    return (Join-Path $profilePath 'AppData\Roaming\Orgtree v2\data')
+}
+# Ask the background engine to stop the way the window does: POST
+# /api/desktop/shutdown with the token from the boot host's attach descriptor.
+# It then closes its agents (and their CLIs) itself, then its mail hub and
+# PostgreSQL. $true only when this installation's engine took the request. The
+# descriptor is the operator's and readable by them alone, so an installer
+# elevated as another account gets $false, and the caller ends the task instead.
+function Request-BootEngineShutdown($Record, [string]$InstallDir) {
+    try {
+        $root = Get-OperatorDataRoot $Record.OperatorSid
+        if (-not $root) { return $false }
+        $file = Join-Path $root 'engine-attach.json'
+        if (-not [IO.File]::Exists($file)) { return $false }
+        $attach = [IO.File]::ReadAllText($file) | ConvertFrom-Json
+        $enginePid = [int]$attach.enginePid
+        $port = [int]$attach.port
+        $token = [string]$attach.token
+        if ([string]$attach.type -cne 'attach' -or [string]$attach.protocol -ne '1' -or $enginePid -le 0 -or $port -le 0 -or $port -gt 65535 -or -not $token) { return $false }
+        # The engine it names must be this installation's, path-verified.
+        $engine = Join-Path (Get-BootPaths $InstallDir).Engine 'orgtree-engine.exe'
+        $process = @(Get-BootProcesses | Where-Object { $null -ne $_ -and [int]$_.ProcessId -eq $enginePid })
+        if ($process.Count -ne 1 -or -not $process[0].ExecutablePath -or $process[0].ExecutablePath -ine $engine) { return $false }
+        $headers = @{ 'X-Orgtree-Desktop-Token' = $token }
+        $origin = "http://127.0.0.1:$port"
+        $identity = Invoke-RestMethod -Uri "$origin/api/desktop/identity" -Headers $headers -TimeoutSec 5 -MaximumRedirection 0 -UseBasicParsing
+        if ([string]$identity.protocol -ne '1' -or [int]$identity.pid -ne $enginePid) { return $false }
+        $null = Invoke-RestMethod -Method Post -Uri "$origin/api/desktop/shutdown" -Headers $headers -TimeoutSec 5 -MaximumRedirection 0 -UseBasicParsing
+        return $true
+    } catch { return $false }
+}
 function Get-BootProcessKey($Process) { return "$($Process.ProcessId):$($Process.CreationDate)" }
 function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
     foreach ($p in $Processes) {
@@ -257,10 +308,12 @@ function Get-BootTree($Processes, [string]$InstallDir, $Known) {
     } while ($added)
     return @($Processes | Where-Object { $Known.ContainsKey((Get-BootProcessKey $_)) })
 }
-function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$TimeoutSeconds=30) {
+# The budget covers the engine's own stop: its agents (8 s), its mail hub (15 s)
+# and PostgreSQL (up to 120 s on a busy disk) before it exits.
+function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$TimeoutSeconds=150) {
     $task = Find-BootTask $Folder
     $known = @{}
-    $null = Get-BootTree (Get-BootProcesses) $InstallDir $known
+    $running = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
     $disabledByUs = $false
     $wasEnabled = $false
     try {
@@ -271,7 +324,14 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
             $wasEnabled = [bool]$task.Enabled
             $disabledByUs = $true
             $task.Enabled = $false
-            $task.Stop(0)
+            # Graceful first (docket installer-can-t-replace-a-running-orgtree-an-ins):
+            # the engine is asked to stop, so it ends its agents' CLIs itself.
+            # Ending the task ends only the host; the engine then sees its host
+            # exit and stops on its own (engine main.rs, watch_parent). That is
+            # the way left when the engine cannot be asked.
+            $asked = $false
+            if ($running.Count -ne 0) { $asked = [bool](Request-BootEngineShutdown $Record $InstallDir) }
+            if (-not $asked) { $task.Stop(0) }
         } elseif ($known.Count -ne 0) { throw 'Engine running without an owned boot task. Close Orgtree before continuing.' }
         $clock = [Diagnostics.Stopwatch]::StartNew()
         do {
@@ -285,7 +345,7 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
             }
             $remaining = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
             if ($instances -eq 0 -and $remaining.Count -eq 0) { return }
-            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw 'Boot engine or descendants did not stop. Installation files must not be replaced.' }
+            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw "The Orgtree background engine or a process it started did not stop within $TimeoutSeconds seconds, so its files were not replaced. Open Orgtree, choose Quit Orgtree from its tray menu, then run Setup again." }
             Start-Sleep -Milliseconds 200
         } while ($true)
     } catch {

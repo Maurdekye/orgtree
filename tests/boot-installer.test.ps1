@@ -53,6 +53,16 @@ function Register-HelperTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[stri
 }
 function Remove-HelperTask($Folder) { $script:events.Add('helper-delete'); $script:helper=$null }
 function Stop-HelperProcess($Process) { $script:events.Add('helper-kill'); $script:processes=@($script:processes | Where-Object { $_.ProcessId -ne $Process.ProcessId }) }
+# Asking the engine to stop is an I/O boundary too. By default it cannot be
+# asked (no descriptor), so the task is ended, as before; an engine that takes
+# the request stops by itself.
+$script:engineAnswers=$false
+function Request-BootEngineShutdown($Record,[string]$InstallDir) {
+    $script:events.Add('engine-request')
+    if ($script:engineAnswers) { $script:processes=@() }
+    return $script:engineAnswers
+}
+function Get-OperatorDataRoot([string]$Sid) { throw 'The operator data folder must not be read by these tests' }
 
 # Per-user positive path: no machine lookup at all, even with a foreign task.
 Invoke-BootLifecycle Prepare -InstallMode CurrentUser
@@ -139,6 +149,29 @@ $script:task.Enabled=$false
 Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'did not stop'
 Assert (-not $script:task.Enabled) 'Failed stop must preserve an intentionally disabled task'
 $script:task.Enabled=$true
+
+# Graceful first: a running engine is asked to stop before anything ends its
+# task, and when it takes the request the task is never ended at all (ending it
+# would only end the host; the engine stops its agents' CLIs itself).
+$engineTree=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate='A'; ExecutablePath=$paths.Python},[pscustomobject]@{ProcessId=102; ParentProcessId=101; CreationDate='B'; ExecutablePath='C:\provider\cli.exe'})
+$script:task=New-FakeTask $xml
+$script:processes=$engineTree; $script:engineAnswers=$true; $script:events.Clear()
+Stop-OwnedBootTask $script:folder $original $dir 2
+Assert ($script:events -contains 'engine-request') 'A running engine was not asked to stop'
+Assert (-not ($script:events -contains 'stop')) 'The task was ended although the engine took the request'
+Assert (-not $script:task.Enabled) 'The task must stay disabled while files are replaced'
+# An engine that cannot be asked is stopped by ending its task, after asking.
+$script:task=New-FakeTask $xml
+$script:processes=$engineTree; $script:engineAnswers=$false; $script:events.Clear()
+Stop-OwnedBootTask $script:folder $original $dir 2
+Assert ($script:events.IndexOf('engine-request') -ge 0 -and $script:events.IndexOf('engine-request') -lt $script:events.IndexOf('stop')) 'The engine must be asked before its task is ended'
+# Nothing running: there is nobody to ask, and the task is ended as before.
+$script:task=New-FakeTask $xml
+$script:processes=@(); $script:events.Clear()
+Stop-OwnedBootTask $script:folder $original $dir 2
+Assert (-not ($script:events -contains 'engine-request') -and $script:events -contains 'stop') 'An idle engine needs no request'
+$script:task=New-FakeTask $xml
+$script:processes=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate='A'; ExecutablePath=$paths.Python},[pscustomobject]@{ProcessId=102; ParentProcessId=101; CreationDate='B'; ExecutablePath='C:\provider\cli.exe'})
 
 $known=@{}
 $null=Get-BootTree $script:processes $dir $known
