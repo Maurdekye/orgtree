@@ -111,6 +111,27 @@ mod win {
             .map(|a| a.join("Orgtree v2").join("data"))
     }
 
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+    /// The hosted-Codex kill record (`codex-force-kill` / `codex-graceful-exit`),
+    /// flushed to disk at once: a forced Codex end can crash lsass and reboot
+    /// Windows within seconds (docket urgent-orgtree-s-hard-killing-of-codex-processes).
+    #[nolog]
+    fn write_events() {
+        let lines: Vec<String> = std::mem::take(&mut *crate::codex_host::EVENTS.lock().unwrap_or_else(|p| p.into_inner()));
+        let Some(root) = ROOT.get() else { return };
+        if lines.is_empty() {
+            return;
+        }
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(root.join(LOG)) {
+            for l in lines {
+                let _ = writeln!(f, "{} pid {} {}", chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ"), std::process::id(), l);
+            }
+            let _ = f.sync_data();
+        }
+    }
+
     /// Secret-free events only: never a token, secret, pipe name or credential.
     #[nolog]
     fn note(root: &Path, event: &str) {
@@ -126,6 +147,8 @@ mod win {
 
     #[nolog]
     async fn serve(root: PathBuf) -> ExitCode {
+        let _ = ROOT.set(root.clone());
+        let _ = crate::codex_host::FLUSH.set(write_events);
         let secret: Arc<str> = random_hex(32).into();
         let pipe = format!(r"\\.\pipe\orgtree-credentials-{}-{}", std::process::id(), random_hex(16));
         let first = match ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true).create(&pipe) {
@@ -176,6 +199,7 @@ mod win {
                 }
             }
             let hosted = crate::codex_host::sweep();
+            write_events();
             if hosted != hosted_before {
                 note(&root, &format!("hosting {hosted} Codex process(es)"));
                 hosted_before = hosted;

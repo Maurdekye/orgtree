@@ -50,8 +50,27 @@ struct Hosted {
     engine: u32,
     /// the engine's creation time: a reused pid is not the engine
     engine_created: u64,
+    /// when the sweep first found its engine gone: the child gets
+    /// `ENGINE_GONE_GRACE` to exit by itself on its broken stdin first
+    gone_at: Option<std::time::Instant>,
 }
 static HOSTED: Mutex<Option<HashMap<u32, Hosted>>> = Mutex::new(None);
+
+/// How long a hosted Codex may take to exit by itself before it is forced
+/// down: forcing codex.exe down with an RPC call in flight to lsass crashes
+/// lsass (RPCRT4 10.0.26100.9444) and reboots Windows (docket
+/// urgent-orgtree-s-hard-killing-of-codex-processes).
+const KILL_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+const ENGINE_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Forced ends and natural exits, for the broker's tick to write to its
+/// log (`codex-force-kill` / `codex-graceful-exit` lines, flushed to disk).
+pub static EVENTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+#[nolog]
+fn event(line: String) {
+    EVENTS.lock().unwrap_or_else(|p| p.into_inner()).push(line);
+}
 
 struct Owned(HANDLE);
 impl Drop for Owned {
@@ -275,7 +294,7 @@ pub fn spawn(value: &Value) -> Result<String, String> {
         ResumeThread(thread.0);
         let pid = pi.dwProcessId;
         let created = stamp(process);
-        HOSTED.lock().unwrap().get_or_insert_with(HashMap::new).insert(pid, Hosted { job: job as usize, process: process as usize, created, engine, engine_created });
+        HOSTED.lock().unwrap().get_or_insert_with(HashMap::new).insert(pid, Hosted { job: job as usize, process: process as usize, created, engine, engine_created, gone_at: None });
         // When the child exits, close its job: anything it left running ends too.
         let waited = process as usize;
         std::thread::spawn(move || {
@@ -286,15 +305,51 @@ pub fn spawn(value: &Value) -> Result<String, String> {
     }
 }
 
-/// End one hosted child and its whole tree (`{kind:"kill", pid, created}`).
+/// End one hosted child and its whole tree (`{kind:"kill", pid, created}`):
+/// the engine has closed its stdin; it gets `KILL_GRACE` to exit by itself
+/// (watched on a thread, so the answer is immediate), then its job is
+/// terminated.
 #[nolog]
 pub fn kill(value: &Value) -> Result<String, String> {
     let pid = value["pid"].as_u64().ok_or("spawn-invalid")? as u32;
     let created = value["created"].as_u64().ok_or("spawn-invalid")?;
-    let guard = HOSTED.lock().unwrap();
-    let h = guard.as_ref().and_then(|m| m.get(&pid)).filter(|h| h.created == created).ok_or("spawn-unknown")?;
-    unsafe { TerminateJobObject(h.job as HANDLE, 1) };
+    {
+        let guard = HOSTED.lock().unwrap();
+        guard.as_ref().and_then(|m| m.get(&pid)).filter(|h| h.created == created).ok_or("spawn-unknown")?;
+    }
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        loop {
+            let guard = HOSTED.lock().unwrap();
+            // `finish` removes it once it has exited
+            let Some(h) = guard.as_ref().and_then(|m| m.get(&pid)).filter(|h| h.created == created) else {
+                drop(guard);
+                event(format!("codex-graceful-exit pid={pid} who=\"engine kill request\" waited_ms={}", started.elapsed().as_millis()));
+                return;
+            };
+            if started.elapsed() >= KILL_GRACE {
+                event(format!("codex-force-kill pid={pid} tree=true who=\"engine kill request\" reason=\"did not exit after its input closed\" graceful_tried=true waited_ms={}",
+                    started.elapsed().as_millis()));
+                flush_events();
+                unsafe { TerminateJobObject(h.job as HANDLE, 1) };
+                return;
+            }
+            drop(guard);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
     Ok("killed".into())
+}
+
+/// Hook for the broker to write pending events to disk at once (set by the
+/// broker at start; a no-op until then).
+pub static FLUSH: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+#[nolog]
+fn flush_events() {
+    if let Some(f) = FLUSH.get() {
+        f();
+    }
 }
 
 #[nolog]
@@ -322,10 +377,17 @@ pub fn sweep() -> usize {
             .map(|(p, _)| *p)
             .collect()
     };
+    // its stdin broke with the engine: it normally exits by itself first
     for pid in &gone {
-        let guard = HOSTED.lock().unwrap();
-        if let Some(h) = guard.as_ref().and_then(|m| m.get(pid)) {
-            unsafe { TerminateJobObject(h.job as HANDLE, 1) };
+        let mut guard = HOSTED.lock().unwrap();
+        if let Some(h) = guard.as_mut().and_then(|m| m.get_mut(pid)) {
+            let since = *h.gone_at.get_or_insert_with(std::time::Instant::now);
+            if since.elapsed() >= ENGINE_GONE_GRACE {
+                event(format!("codex-force-kill pid={pid} tree=true who=\"sign-in helper sweep\" reason=\"its engine is gone\" graceful_tried=true waited_ms={}",
+                    since.elapsed().as_millis()));
+                flush_events();
+                unsafe { TerminateJobObject(h.job as HANDLE, 1) };
+            }
         }
     }
     HOSTED.lock().unwrap().as_ref().map(|m| m.len()).unwrap_or(0)

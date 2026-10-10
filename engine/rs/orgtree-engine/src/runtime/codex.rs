@@ -67,6 +67,11 @@ pub struct CodexProc {
     pub pid: u32,
     pub process: uuid::Uuid,
     out: mpsc::UnboundedSender<String>,
+    /// the agent it serves, for the kill record
+    who: String,
+    /// fired (or dropped) to close the process's stdin: the app-server's
+    /// signal to exit by itself
+    stdin_close: Option<oneshot::Sender<()>>,
     waiters: mpsc::UnboundedSender<(i64, oneshot::Sender<Value>)>,
     next: AtomicI64,
     child: Option<Child>,
@@ -239,8 +244,16 @@ impl CodexProc {
         }
         let Io { mut stdin, stdout, stderr } = io;
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        // the stdout reader keeps a sender too, so the channel never closes
+        // while the process lives: closing stdin needs its own signal
+        let (stdin_close, mut close_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
-            while let Some(line) = rx.recv().await {
+            loop {
+                let line = tokio::select! {
+                    biased;
+                    _ = &mut close_rx => break,
+                    line = rx.recv() => match line { Some(l) => l, None => break },
+                };
                 if stdin.write_all(line.as_bytes()).await.is_err()
                     || stdin.write_all(b"\n").await.is_err()
                     || stdin.flush().await.is_err()
@@ -248,6 +261,7 @@ impl CodexProc {
                     break;
                 }
             }
+            drop(stdin);
         });
         let client = crate::trace::agent_client(caller.agent_id, &caller.name);
         let proc_span = crate::trace::request(&client);
@@ -262,6 +276,7 @@ impl CodexProc {
             },
             proc_span.clone(),
         ));
+        let who = format!("agent {} (#{})", caller.name, caller.agent_id);
         let (wtx, wrx) = mpsc::unbounded_channel();
         let policy = Policy { may_write: spec.may_write, may_shell: spec.may_shell };
         tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, process, tx.clone(), wrx, policy), proc_span));
@@ -269,6 +284,8 @@ impl CodexProc {
             pid,
             process,
             out: tx,
+            who,
+            stdin_close: Some(stdin_close),
             waiters: wtx,
             next: AtomicI64::new(1),
             child,
@@ -281,7 +298,16 @@ impl CodexProc {
             home: spec.codex_home.as_ref().map(PathBuf::from).unwrap_or_else(default_home),
             rollout_path: None,
         };
-        proc.request(
+        // a Codex that fails to open still ends gracefully, not by drop
+        if let Err(e) = proc.open(&spec).await {
+            proc.close().await;
+            return Err(e);
+        }
+        Ok(proc)
+    }
+
+    async fn open(&mut self, spec: &CodexSpec) -> Result<()> {
+        self.request(
             "initialize",
             json!({ "clientInfo": { "name": "orgtree", "title": "Orgtree", "version": env!("CARGO_PKG_VERSION") },
                     "capabilities": { "experimentalApi": true } }),
@@ -289,11 +315,11 @@ impl CodexProc {
         )
         .await
         .context("the Codex app-server did not initialize")?;
-        proc.notify("initialized", json!({}));
+        self.notify("initialized", json!({}));
         // the agent's thread: resumed when it has one, else a new one
         let mut thread: Option<String> = None;
         if let Some(tid) = &spec.resume {
-            match proc
+            match self
                 .request(
                     "thread/resume",
                     json!({ "threadId": tid, "model": spec.model, "sandbox": spec.sandbox.mode, "approvalPolicy": spec.sandbox.approval,
@@ -304,7 +330,7 @@ impl CodexProc {
             {
                 Ok(r) => {
                     thread = thread_id_of(&r);
-                    proc.rollout_path = r.pointer("/thread/path").and_then(Value::as_str).map(PathBuf::from);
+                    self.rollout_path = r.pointer("/thread/path").and_then(Value::as_str).map(PathBuf::from);
                 }
                 Err(e) => tracing::warn!(thread = %tid, error = %format!("{e:#}"), "the Codex thread could not be resumed; starting a new one"),
             }
@@ -312,21 +338,21 @@ impl CodexProc {
         let thread = match thread {
             Some(t) => t,
             None => {
-                let r = proc
+                let r = self
                     .request(
                         "thread/start",
-                        json!({ "model": spec.model, "cwd": proc.cwd, "sandbox": spec.sandbox.mode, "approvalPolicy": spec.sandbox.approval,
+                        json!({ "model": spec.model, "cwd": self.cwd, "sandbox": spec.sandbox.mode, "approvalPolicy": spec.sandbox.approval,
                                 "developerInstructions": spec.instructions, "dynamicTools": spec.dynamic_tools }),
                         Duration::from_secs(120),
                     )
                     .await
                 .context("thread/start")?;
-                proc.rollout_path = r.pointer("/thread/path").and_then(Value::as_str).map(PathBuf::from);
+                self.rollout_path = r.pointer("/thread/path").and_then(Value::as_str).map(PathBuf::from);
                 thread_id_of(&r).ok_or_else(|| anyhow!("thread/start returned no thread id"))?
             }
         };
-        proc.session_id = thread;
-        Ok(proc)
+        self.session_id = thread;
+        Ok(())
     }
 
     /// Stored privately with a chip; lookup happens only when it is expanded.
@@ -397,27 +423,35 @@ impl CodexProc {
                            "params": { "threadId": self.session_id, "turnId": turn_id } }))
     }
 
+    /// Stop it now (halt, stop, a cancelled keepalive): still graceful
+    /// first, with a shorter wait than `close`.
     pub async fn kill(&mut self) {
-        if let Some(job) = &self.job {
-            job.terminate();
-        }
-        if let Some(h) = self.hosted.take() {
-            h.kill().await;
-            let _ = h.wait_exit(self.process, "termination requested", Duration::from_secs(5)).await;
-        }
-        if let Some(mut c) = self.child.take() {
-            let _ = c.start_kill();
-            let _ = super::wait_exit(&mut c, self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
-        }
+        self.end(Duration::from_secs(3), "termination requested").await;
     }
 
     /// Close its input and give it a moment; kill if it lingers.
     pub async fn close(&mut self) {
+        self.end(Duration::from_secs(5), "close requested").await;
+    }
+
+    /// Never a forced end first (docket
+    /// urgent-orgtree-s-hard-killing-of-codex-processes): its stdin closes,
+    /// it gets `grace` to exit by itself, and only then are its job and the
+    /// process terminated, logged as a hard termination.
+    async fn end(&mut self, grace: Duration, reason: &str) {
         let (tx, _) = mpsc::unbounded_channel();
         self.out = tx;
+        if let Some(close) = self.stdin_close.take() {
+            let _ = close.send(());
+        }
         if let Some(h) = self.hosted.take() {
-            let status = h.wait_exit(self.process, "close requested", Duration::from_secs(5)).await;
-            if status.starts_with("exit status unavailable") {
+            let started = std::time::Instant::now();
+            let status = h.wait_exit(self.process, reason, grace).await;
+            let waited = started.elapsed().as_millis() as u64;
+            if !status.starts_with("exit status unavailable") {
+                crate::codex_kills::graceful(self.pid, &self.who, reason, waited);
+            } else {
+                crate::codex_kills::force(self.pid, true, &self.who, &format!("{reason} (hosted by the sign-in helper)"), true, waited);
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
@@ -426,14 +460,8 @@ impl CodexProc {
             }
         }
         if let Some(mut c) = self.child.take() {
-            let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
-            if status.starts_with("exit status unavailable") {
-                if let Some(job) = &self.job {
-                    job.terminate();
-                }
-                let _ = c.start_kill();
-                let _ = super::wait_exit(&mut c, self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
-            }
+            let status = super::stop_gracefully(&mut c, self.job.as_ref(), &self.who, reason, grace).await;
+            tracing::info!(pid = self.pid, process = %self.process, reason, %status, "CLI exit observation");
         }
     }
 
@@ -566,7 +594,18 @@ mod host {
         }
         .await;
         if let Err(code) = connected {
-            hosted.kill().await;
+            // its pipes close first: it gets the chance to exit by itself
+            drop((stdin, stdout, stderr));
+            let who = "Codex launch by the sign-in helper";
+            let started = std::time::Instant::now();
+            let status = hosted.wait_exit(uuid::Uuid::nil(), "the engine could not connect its pipes", Duration::from_secs(3)).await;
+            let waited = started.elapsed().as_millis() as u64;
+            if status.starts_with("exit status unavailable") {
+                crate::codex_kills::force(pid, true, who, "the engine could not connect its pipes", true, waited);
+                hosted.kill().await;
+            } else {
+                crate::codex_kills::graceful(pid, who, "the engine could not connect its pipes", waited);
+            }
             return Err(code);
         }
         Ok((Io { stdin: Box::new(stdin), stdout: Box::new(stdout), stderr: Box::new(stderr) }, hosted))

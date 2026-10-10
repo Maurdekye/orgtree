@@ -2107,7 +2107,7 @@ impl Actor {
             },
         };
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
-        let proc = CodexProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        let mut proc = CodexProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         let session_id = proc.session_id.clone();
         if resume.is_some() && resume.as_deref() != Some(session_id.as_str()) {
             self.flag_handoff("its previous Codex thread could not be resumed").await;
@@ -2117,16 +2117,25 @@ impl Actor {
             // made, not only the last (the guess for a resumed thread whose
             // earlier total is unknown, e.g. after an engine restart)
             self.codex_total = Some(json!({}));
-            let client = self.engine.db.get().await?;
-            client
-                .execute("UPDATE ot.agents SET session_id = $2, provider = $3 WHERE id = $1", &[&self.id, &session_id, &ctx.provider])
-                .await?;
-            client
-                .execute(
-                    "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
-                    &[&self.id, &ctx.generation, &ctx.provider, &session_id],
-                )
-                .await?;
+            let recorded: Result<()> = async {
+                let client = self.engine.db.get().await?;
+                client
+                    .execute("UPDATE ot.agents SET session_id = $2, provider = $3 WHERE id = $1", &[&self.id, &session_id, &ctx.provider])
+                    .await?;
+                client
+                    .execute(
+                        "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
+                        &[&self.id, &ctx.generation, &ctx.provider, &session_id],
+                    )
+                    .await?;
+                Ok(())
+            }
+            .await;
+            if let Err(e) = recorded {
+                // ended gracefully, never by dropping it
+                proc.close().await;
+                return Err(e);
+            }
         }
         self.engine.credential_bridge.bind(self.id,proc.pid);
         self.proc = Some(Proc::Codex(proc));

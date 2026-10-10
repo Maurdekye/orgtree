@@ -15,6 +15,7 @@ mod accounts;
 mod appfeed;
 mod bridge;
 mod changes;
+mod codex_kills;
 mod config;
 mod credential_context;
 mod credential_bridge;

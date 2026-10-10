@@ -1035,6 +1035,7 @@ pub fn init(cfg: &crate::config::Config) -> (Vec<tracing_appender::non_blocking:
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join(format!("{}.log", chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")));
     prune(&dir, Some(&path));
+    crate::codex_kills::init(&dir);
     let file = LogFile::open(path.clone()).unwrap_or_else(|_| {
         LogFile::open(std::env::temp_dir().join("orgtree-engine.log")).expect("no log file can be opened")
     });

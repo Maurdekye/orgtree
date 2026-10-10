@@ -130,6 +130,35 @@ pub async fn wait_exit(child: &mut tokio::process::Child, pid: u32,
     status
 }
 
+/// End a Codex process without cutting it off mid-call: the CALLER HAS
+/// ALREADY CLOSED ITS STDIN, it gets `grace` to exit by itself, and only then
+/// are its job and the process terminated. Forcing codex.exe down while it
+/// has an RPC call in flight to lsass crashes lsass with RPCRT4
+/// 10.0.26100.9444 and reboots Windows (docket
+/// urgent-orgtree-s-hard-killing-of-codex-processes). Either outcome is
+/// written to the durable kill record (`crate::codex_kills`); `who` names
+/// the agent or subsystem, `reason` why it is being ended.
+#[logged]
+pub async fn stop_gracefully(child: &mut tokio::process::Child, job: Option<&crate::winproc::ChildJob>, who: &str,
+                             reason: &str, grace: std::time::Duration) -> String {
+    let pid = child.id().unwrap_or(0);
+    let started = std::time::Instant::now();
+    if let Ok(Ok(status)) = tokio::time::timeout(grace, child.wait()).await {
+        crate::codex_kills::graceful(pid, who, reason, started.elapsed().as_millis() as u64);
+        return format!("{status}");
+    }
+    crate::codex_kills::force(pid, job.is_some(), who, reason, true, started.elapsed().as_millis() as u64);
+    if let Some(j) = job {
+        j.terminate();
+    }
+    let _ = child.start_kill();
+    match tokio::time::timeout(std::time::Duration::from_secs(1), child.wait()).await {
+        Ok(Ok(status)) => format!("{status}"),
+        Ok(Err(error)) => format!("exit status unavailable: {error}"),
+        Err(_) => "exit status unavailable: process has not exited".to_string(),
+    }
+}
+
 pub trait Post {
     fn post(&self, msg: AgentMsg) -> bool;
 }
