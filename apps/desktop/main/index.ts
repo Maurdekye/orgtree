@@ -12,6 +12,7 @@ import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar, icoFromPng } from './taskbar'
 import { tintTrayBitmap } from './tray-tint'
+import { addAttentionDot } from './tray-dot'
 import { mailhubTrayItem } from './tray-mailhub'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_ID } from './build-channel'
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, unsafeFolderMessage, validateDataRoot } from './policy'
@@ -128,6 +129,7 @@ else if (installerUpgradeRequested) {
 }
 else {
   let tray: Tray | undefined, preferences: Preferences
+  let attentionTotal = 0   // everything waiting on the user, over all orgs (the org list's badges, summed)
   // ------------------------------------------------------- the main windows
   // ⚠ v2 KEPT ONE `main` HERE, and that single window was the unstated
   // subject of every native sentence in this file: the sender gate compared
@@ -632,12 +634,15 @@ else {
   }
   const rebuildTray = () => {
     const image = runtimeIcon()
-    tray?.setImage(image)
+    // a dot on the tray icon while any organization has something waiting on the user
+    tray?.setImage(attentionTotal > 0 && !image.isEmpty()
+      ? nativeImage.createFromBitmap(addAttentionDot(image.toBitmap(), image.getSize().width, image.getSize().height), image.getSize())
+      : image)
     for (const window of BrowserWindow.getAllWindows()) applyWindowIcon(window, image)
     if (!tray) return
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     const prefs = preferences.get()
-    tray.setToolTip(`Orgtree - ${label()}`)
+    tray.setToolTip(`Orgtree - ${label()}` + (attentionTotal > 0 ? ` - ${attentionTotal} need${attentionTotal === 1 ? 's' : ''} your attention` : ''))
     // Without update support (dev-channel install, unpackaged development)
     // the four update rows would only mislead: their ids are absent, which
     // refreshTrayUpdates already tolerates, and one honest line takes their
@@ -2310,6 +2315,8 @@ else {
       let noticeSet = ''
       const appFeed = nativeAppFeed(engine, () => {
         if (quitting || installerUpgradeShutdown || appFeed.status !== 'current') return
+        const total = appFeed.state.attentionTotal()
+        if (total !== attentionTotal) { attentionTotal = total; rebuildTray() }
         const next = JSON.stringify(appFeed.state.allNotices())
         if (next === noticeSet) return
         noticeSet = next

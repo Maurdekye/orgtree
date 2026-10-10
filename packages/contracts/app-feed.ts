@@ -9,7 +9,9 @@ export type RegistryOrg = {
 export type RegistryFrame = { type: 'registry_snapshot'; epoch: string; cursor: AppCursor
   records: { entity: 'registry_org'; id: string; body: RegistryOrg }[] }
 export type SummaryBody = { name: string; created: string | null; net_slug: string | null
-  nodes: number; live: number; cost_usd_total: number }
+  nodes: number; live: number; cost_usd_total: number
+  /** things waiting on the user: open questions + unread urgent mail + attention-flagged tickets */
+  attention?: number }
 export type OrgStamp = Stamp & { org_id: number; org_uuid: string
   incarnation: string | null; rev: number | null }
 export type SummaryFrame = OrgStamp & { type: 'org_summary'; body: SummaryBody | null }
@@ -102,6 +104,11 @@ export class AppFeedState {
   summary(org: RegistryOrg): SummaryBody | null {
     const frame = this.summaries.get(String(org.org_id))?.value
     return org.state === 'active' && frame?.org_uuid === org.org_uuid ? frame.body : null
+  }
+
+  /** what waits on the user across every active org: the org list's badges, summed */
+  attentionTotal(): number {
+    return (this.registry?.records ?? []).reduce((sum, { body }) => sum + (this.summary(body)?.attention ?? 0), 0)
   }
 
   allNotices(): unknown[] {

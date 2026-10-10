@@ -887,6 +887,7 @@ export interface OrgListEntry {
   created: string | null
   cost_usd_total?: number
   working?: number             // F-09: agents with a running turn (admin list only)
+  attention?: number           // open questions + unread urgent mail + attention-flagged tickets
   state?: string
   state_reason?: string | null
   unavailable_step?: string | null
