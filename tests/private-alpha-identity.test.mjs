@@ -1,9 +1,8 @@
-// private-alpha-identity.test.mjs — v3 IS THE PUBLIC 3.0.0; ITS ALPHA STAYS PRIVATE.
+// Current 4.x package identity and the retained legacy private-alpha policy.
 //
 // private-alpha.test.mjs proves the private packaging POLICY with synthetic
-// versions. This file pins what the v3 branch itself declares. Since the
-// 3.0.0 release its package and lockfile say the public 3.0.0, which every
-// public path accepts, while the private packager still stamps its own alpha
+// versions. This file checks the current 4.x package and lockfile together,
+// including local alpha candidates. The legacy private packager still stamps its own alpha
 // version (PRIVATE_ALPHA_VERSION) into what it builds. Every public path
 // refuses THAT alpha version: release:windows, package:win/package:dir
 // preflight, publication, and even package:dev, which accepts only a plain
