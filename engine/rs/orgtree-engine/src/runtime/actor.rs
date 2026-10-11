@@ -2833,8 +2833,14 @@ impl Actor {
     }
 
     #[nolog]
-    fn stream(&self, kind: &str, extra: Value) {
-        let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "" });
+    fn stream(&mut self, kind: &str, extra: Value) {
+        // Install completed rows and retire their partials in one renderer
+        // update, before the next phase can appear. Never send raw tool input:
+        // ConvoWriter retains exactly the sanitized, already-committed body.
+        let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "",
+            "convo_rows": self.convo.take_pending(),
+            "draft_clear": self.turn.as_ref().is_none_or(|t| t.draft.is_empty()),
+            "thinking_clear": kind != "thinking_start" && self.turn.as_ref().is_none_or(|t| t.thinking.is_empty()) });
         if let (Some(f), Some(e)) = (frame.as_object_mut(), extra.as_object()) {
             for (k, v) in e {
                 f.insert(k.clone(), v.clone());
@@ -3212,7 +3218,12 @@ impl Actor {
 
     /// The row Codex tool chips attach to (a fresh one when there is none).
     async fn codex_row(&mut self, client: &tokio_postgres::Client, key_hint: &str) -> Result<Option<String>> {
-        let existing = self.turn.as_ref().and_then(|t| t.codex_row.clone()).filter(|k| self.turn.as_ref().map(|t| t.rows.contains_key(k)).unwrap_or(false));
+        let existing = self.turn.as_ref().and_then(|t| t.codex_row.clone()).filter(|k| {
+            // A following tool must not be inserted above an earlier reply by
+            // Msg's thought/tool/text layout. Start its own transcript row.
+            self.turn.as_ref().and_then(|t| t.rows.get(k))
+                .is_some_and(|(_, row)| row["text"].as_str().unwrap_or("").is_empty())
+        });
         if existing.is_some() {
             return Ok(existing);
         }
@@ -3597,7 +3608,7 @@ impl Actor {
             }
             let (seq, mut row) = turn.rows.get(&mid).cloned().unwrap_or((
                 0,
-                json!({ "role": "assistant", "text": "", "tools": [], "ts": now_iso(),
+                json!({ "role": "assistant", "text": "", "tools": [], "content_blocks": [], "ts": now_iso(),
                         "assistant_id": mid, "native_event_id": v["uuid"] }),
             ));
             for block in msg["content"].as_array().cloned().unwrap_or_default() {
@@ -3606,6 +3617,7 @@ impl Actor {
                         let cur = row["text"].as_str().unwrap_or("").to_string();
                         let add = block["text"].as_str().unwrap_or("");
                         row["text"] = json!(if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") });
+                        row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"text", "text":add}));
                         turn.draft.clear();
                         wrote_text = true;
                     }
@@ -3618,11 +3630,17 @@ impl Actor {
                             let joined = if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") };
                             row["thinking"] = json!(convo::clip(&joined, 20_000).0);
                         }
+                        let room = 20_000usize.saturating_sub(cur.chars().count() + if cur.is_empty() { 0 } else { 2 });
+                        let shown = convo::clip(add, room).0;
+                        if !shown.is_empty() || add.is_empty() {
+                            row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"thinking", "text":shown, "sealed":add.is_empty()}));
+                        }
                         turn.thinking.clear();
                         wrote_thought = true;
                     }
                     Some("redacted_thinking") => {
                         row["thinking_sealed"] = json!(true);
+                        row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"thinking", "sealed":true}));
                         turn.thinking.clear();
                         wrote_thought = true;
                     }
@@ -3639,6 +3657,9 @@ impl Actor {
                         if let Some(tools) = row["tools"].as_array_mut() {
                             tools.push(chip);
                         }
+                        // Keep native block order without duplicating tool inputs
+                        // or results; the block resolves the current chip by id.
+                        row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"tool", "id":id}));
                         turn.tools.insert(id.clone(), mid.clone());
                         wrote_tool = Some(id);
                     }

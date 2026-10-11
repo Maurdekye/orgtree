@@ -7,11 +7,12 @@ use serde_json::{json, Value};
 use tokio_postgres::Client;
 
 /// Per-agent row counters; owned by the actor (the only writer).
-#[derive(Debug)]
 pub struct ConvoWriter {
     pub agent_id: i64,
     pub seq: i64,
     pub ver: i64,
+    /// Sanitized, committed replacements awaiting the actor's next stream frame.
+    pending: std::collections::BTreeMap<i64, Value>,
 }
 
 #[logged]
@@ -23,7 +24,7 @@ impl ConvoWriter {
                 &[&agent_id],
             )
             .await?;
-        Ok(ConvoWriter { agent_id, seq: r.get(0), ver: r.get(1) })
+        Ok(ConvoWriter { agent_id, seq: r.get(0), ver: r.get(1), pending: Default::default() })
     }
 
     /// Append a row; returns its seq. `body` gets its identity fields filled.
@@ -32,6 +33,7 @@ impl ConvoWriter {
         self.ver += 1;
         let seq = self.seq;
         stamp(&mut body, seq);
+        body["convo_revision"] = json!(self.ver);
         let inputs = take_tool_inputs(&mut body, seq);
         client
             .execute(
@@ -39,12 +41,14 @@ impl ConvoWriter {
                 &[&self.agent_id, &seq, &self.ver, &body, &inputs],
             )
             .await?;
+        self.remember(seq, body);
         Ok(seq)
     }
 
     pub async fn update(&mut self, client: &Client, seq: i64, mut body: Value) -> Result<()> {
         self.ver += 1;
         stamp(&mut body, seq);
+        body["convo_revision"] = json!(self.ver);
         let inputs = take_tool_inputs(&mut body, seq);
         client
             .execute(
@@ -52,7 +56,23 @@ impl ConvoWriter {
                 &[&self.agent_id, &seq, &body, &self.ver, &inputs],
             )
             .await?;
+        self.remember(seq, body);
         Ok(())
+    }
+
+    #[nolog]
+    fn remember(&mut self, seq: i64, body: Value) {
+        self.pending.insert(seq, body);
+        // The transcript remains authoritative if an exceptional batch exceeds
+        // this bound; the ordinary refresh still retrieves every saved row.
+        while self.pending.len() > 128 {
+            self.pending.pop_first();
+        }
+    }
+
+    #[nolog]
+    pub fn take_pending(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.pending).into_values().collect()
     }
 
     /// Each live amendment commits independently; a bad row cannot drop later results.
