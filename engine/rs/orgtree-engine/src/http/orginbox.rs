@@ -161,6 +161,9 @@ pub async fn send(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     if b.body.trim().is_empty() && b.attachments.is_empty() {
         return Err(ApiError::bad_request("a message needs a body"));
     }
+    if b.attachments.len()>10 {
+        return Err(ApiError::bad_request("a message supports at most 10 attachments; remove files before sending"));
+    }
     let client = e.db.get().await?;
     let mut atts = Vec::new();
     for id in b.attachments.iter().take(10) {

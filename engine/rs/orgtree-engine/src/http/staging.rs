@@ -87,7 +87,12 @@ async fn write(e: &Engine, org: i64, id: &str, body: Body, stop: CancellationTok
         let mut f=tokio::fs::File::create(&path).await.map_err(|err|ApiError::internal(err.to_string()))?;
         let mut chunks=body.into_data_stream(); let mut received=0i64; let mut last=std::time::Instant::now();
         loop {
-            let chunk=tokio::select! { biased; _=stop.cancelled()=>return Err(ApiError::bad_request("local upload cancelled")), chunk=chunks.next()=>chunk };
+            let chunk=tokio::select! {
+                biased;
+                _=e.shutdown.cancelled()=>return Err(ApiError::unavailable("Local upload interrupted by engine shutdown; select the file again")),
+                _=stop.cancelled()=>return Err(ApiError::bad_request("local upload cancelled")),
+                chunk=chunks.next()=>chunk,
+            };
             let Some(chunk)=chunk else { break; };
             let chunk=chunk.map_err(|err|ApiError::bad_request(format!("Local upload interrupted: {err}; select the file again")))?;
             received+=chunk.len() as i64;
