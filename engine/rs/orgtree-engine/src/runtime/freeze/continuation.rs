@@ -90,6 +90,14 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
                 "{lane} is not signed in or its CLI is unavailable; nothing changed"
             );
         }
+        let key = match provider {
+            catalog::CLAUDE => crate::usage::claude_key(None),
+            catalog::OPENAI => crate::usage::codex_key(None),
+            _ => "agy".to_string(),
+        };
+        if engine.usage.cached_reauth_required(&key) == Some(true) {
+            crate::refuse!(Conflict, "{lane} requires sign-in again; nothing changed");
+        }
     }
     let now = Utc::now();
     // A primary alias cannot bypass a mark stored on an ambient registry row.

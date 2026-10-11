@@ -26,6 +26,31 @@ const NOT_YET: &str = "usage unavailable; start a turn on this account to see us
 pub const CODEX_NAME: &str = "Codex";
 pub const AGY_NAME: &str = "Antigravity";
 
+#[cfg(test)]
+mod continuation_auth_tests {
+    use super::*;
+
+    #[test]
+    fn cached_auth_is_tristate_and_expires_at_boundary() {
+        let usage = Usage::default();
+        let key = codex_key(None);
+        assert_eq!(usage.cached_reauth_required(&key), None);
+        for (data, expected) in [
+            (json!({"available":true}), None),
+            (json!({"reauth_required":false}), Some(false)),
+            (json!({"reauth_required":true}), Some(true)),
+            (json!({"reauth_required":false,"reauth_evidence":"not_connected"}), Some(true)),
+        ] {
+            usage.cache.pin().insert(key.clone(), Cached { at: Instant::now(), data });
+            assert_eq!(usage.cached_reauth_required(&key), expected);
+        }
+        usage.cache.pin().insert(key.clone(), Cached { at: Instant::now() - PEEK_MAX, data: json!({"reauth_required":true}) });
+        assert_eq!(usage.cached_reauth_required(&key), None);
+        usage.cache.pin().insert(key.clone(), Cached { at: Instant::now() - (PEEK_MAX - Duration::from_secs(1)), data: json!({"reauth_required":true}) });
+        assert_eq!(usage.cached_reauth_required(&key), Some(true));
+    }
+}
+
 /// Antigravity has one native sign-in. Only its model family's windows apply.
 /// Missing/stale readings remain unknown; an observed unexpired full window refuses.
 #[logged]
@@ -180,6 +205,18 @@ impl Usage {
     #[nolog]
     fn cooling(&self, key: &str) -> Option<Instant> {
         self.cooldown.pin().get(key).copied().filter(|t| *t > Instant::now())
+    }
+
+    /// Recent negative authentication evidence only. Missing/stale/absent flags
+    /// are unknown, never proof of sign-in. No fetch or credential read.
+    pub fn cached_reauth_required(&self, key: &str) -> Option<bool> {
+        let guard = self.cache.pin();
+        let c = guard.get(key).filter(|c| c.at.elapsed() < PEEK_MAX)?;
+        if c.data["reauth_required"] == true || c.data["reauth_evidence"] == "not_connected" {
+            Some(true)
+        } else {
+            c.data["reauth_required"].as_bool()
+        }
     }
 
     /// The cached readout behind `key`, for a peek (the glow): never a fetch.
