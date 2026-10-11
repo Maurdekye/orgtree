@@ -79,7 +79,17 @@ through the user's Scope editor.
 - `tools/rig/proofs/tool-groups.mjs` captures real installed Claude Code and
   Codex first requests against the isolated fake language server; default,
   groups-off (native switches unchanged), all-capabilities-off and local-chores scopes, inherited denials, execution rejection and
-  approval paths. **Prepared; runtime run pending.**
+  approval paths. **35/35 runtime checks passed**, using real installed
+  harnesses and fake inference, before rebase onto `a88b736`.
+- Captured Claude first-request JSON sizes were 138,698 bytes by default,
+  76,902 with Orgtree groups off, 58,508 for local chores (messaging and
+  watchdogs only; bash on), and 32,257 with all capabilities off. These are
+  **byte sizes, not token counts**. Evidence: `tool-groups-20261011T094113`.
+- `tools/rig/proofs/tool-groups-ui.mjs` exercises the actual Scope editor,
+  save/reopen and inherited ceilings in offscreen Electron. Completion is
+  pending a retry after a measured renderer out-of-memory exit.
 - Exact tokenizer measurements are pending the coordinator's notification
   that the user's tokenizer server is available. Only `/tokenize` is approved;
   do not start the server or request generation.
+  `tools/rig/count-tool-groups.py` counts saved Claude text and tool parts;
+  it excludes chat-template framing, so the sum is not billed prompt usage.
