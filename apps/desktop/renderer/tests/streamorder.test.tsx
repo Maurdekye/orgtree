@@ -8,14 +8,14 @@ import type { ChatMessage } from '../src/types'
 import { Msg } from '../src/canvas/desk'
 
 test('one native message keeps text/tool/text order and resolves amended tool chips', async t => {
-  const row: ChatMessage = { role: 'assistant', text: 'FIRST\n\nSECOND',
+  const row: ChatMessage = { role: 'assistant', text: 'FIRST ??\n\nSECOND',
     tools: [{ id: 'call', name: 'Bash', arg: 'MIDDLE', result: 'done' }],
-    content_blocks: [{ kind: 'text', text: 'FIRST' }, { kind: 'tool', id: 'call' }, { kind: 'text', text: 'SECOND' }] }
+    content_blocks: [{ kind: 'text', start: 0, end: 8 }, { kind: 'tool', id: 'call' }, { kind: 'text', start: 10, end: 16 }] }
   const view = await mountView(<Msg m={row} slug="org" nid="blocks" />, h => h)
   t.after(() => view.unmount())
   const text = view.el.textContent ?? ''
   assert.ok(text.indexOf('FIRST') < text.indexOf('MIDDLE') && text.indexOf('MIDDLE') < text.indexOf('SECOND'), text)
-  assert.equal(view.el.querySelectorAll('.msgtext').length, 2)
+  assert.deepEqual([...view.el.querySelectorAll('.msgtext')].map(e => e.textContent?.trim()), ['FIRST ??', 'SECOND'])
 })
 
 test('stream commits replace partials before the following phase, across stale polls and row amendments', async t => {
@@ -33,7 +33,7 @@ test('stream commits replace partials before the following phase, across stale p
   await flush()
   const emit = async (kind: string, text = '', rows: ChatMessage[] = [], draft_clear = false, thinking_clear = true) => {
     await inAct(() => ingestStream('org', { node: 'order', kind, text, t: Date.now(),
-      convo_rows: rows, draft_clear, thinking_clear }))
+      ...(['delta', 'thinking'].includes(kind) ? {} : { convo_rows: rows, draft_clear, thinking_clear }) }))
     await advance(20)
   }
   await emit('delta', 'First reply')
@@ -86,4 +86,27 @@ test('stream commits replace partials before the following phase, across stale p
   await advance(6000)
   assert.equal(snapshot!.draft, '')
   assert.deepEqual(snapshot!.chat!.messages.map(m => m.row_id), ['r10', 'r11', 'r12', 'r13'], 'final transcript has exactly one of each row in sequence order')
+})
+
+
+test('sequence-less rows stay anchored to their preceding transcript row during sorting', async t => {
+  useFakeClock()
+  const server = new FakeServer()
+  server.busy = true
+  installFetch(server)
+  let snapshot: Convo | null = null
+  function Probe() { snapshot = useConvo('org', 'anchors'); return null }
+  const view = await mountView(<Probe />, h => h)
+  t.after(async () => { await view.unmount(); resetConvos(); realClock() })
+  await advance(6000)
+  await inAct(() => ingestStream('org', { node: 'anchors', kind: 'text', text: '',
+    convo_rows: [], draft_clear: true, thinking_clear: true }))
+  const row = (text: string, seq?: number): ChatMessage => ({ role: 'user', text,
+    row_id: text, ...(seq === undefined ? {} : { seq, convo_revision: seq }) })
+  server.messages = [row('leading'), row('later', 20), row('later-card'), row('later-ghost'),
+    row('earlier', 10), row('earlier-card')]
+  await inAct(() => { void refreshConvo('org', 'anchors', { force: true }) })
+  await flush(10)
+  assert.deepEqual(snapshot!.chat!.messages.map(m => m.text),
+    ['leading', 'earlier', 'earlier-card', 'later', 'later-card', 'later-ghost'])
 })

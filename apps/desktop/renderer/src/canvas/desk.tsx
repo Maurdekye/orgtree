@@ -4878,10 +4878,13 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   const fb = fileBase(slug, nid)
   const orderedBlocks = m.content_blocks?.length ? m.content_blocks.map((block, index) => {
     if (block.kind === 'text') return <RefMdBody key={index} className="msgtext md" world={refs?.world}
-      onOpen={refs?.onOpen} html={md(block.text, fb, m.role === 'assistant')} />
-    if (block.kind === 'thinking') return <div key={index} className="reply-event"
-      data-reply-quote={block.text}><ThoughtLine text={block.text} secs={m.think_secs}
-        sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>
+      onOpen={refs?.onOpen} html={md(m.text.slice(block.start, block.end), fb, m.role === 'assistant')} />
+    if (block.kind === 'thinking') {
+      const thought = block.sealed ? '' : (m.thinking ?? '').slice(block.start, block.end)
+      return <div key={index} className="reply-event"
+        data-reply-quote={thought}><ThoughtLine text={thought} secs={m.think_secs}
+          sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>
+    }
     const chip = m.tools?.find(tool => tool.id === block.id)
     return chip ? <ToolChip key={index} t={chip} slug={slug} nid={nid}
       onMailLink={onMailLink} onWorkLink={onWorkLink}

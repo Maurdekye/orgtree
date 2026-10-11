@@ -874,8 +874,18 @@ function mergeCommitted(e: Entry, c: ChatPayload, fetched?: ReadonlyMap<string |
   // A cursor response may call a row "new" that the stream already installed.
   // The incremental merge appends fetched additions after its retained tail;
   // put these Rust rows back in transcript sequence order before publishing.
-  if (e.orderedStream) messages.sort((a, b) =>
-    a.seq !== undefined && b.seq !== undefined ? a.seq - b.seq : 0)
+  if (e.orderedStream) {
+    // Sort transcript anchors, carrying their following sequence-less rows
+    // with them. Leading ghosts/cards stay leading; no mixed comparator.
+    const leading: ChatMessage[] = []
+    const groups: { seq: number; rows: ChatMessage[] }[] = []
+    for (const row of messages) {
+      if (row.seq !== undefined) groups.push({ seq: row.seq, rows: [row] })
+      else (groups.at(-1)?.rows ?? leading).push(row)
+    }
+    groups.sort((a, b) => a.seq - b.seq)
+    messages.splice(0, messages.length, ...leading, ...groups.flatMap(group => group.rows))
+  }
   const mailIds = new Set(messages.flatMap(row => [...segmentMailIds(row.segments, 'operator')]))
   return { ...c, messages: uniqueFileCards(messages), pending_mail: (c.pending_mail ?? []).filter(row => !row.id || !mailIds.has(row.id)) }
 }

@@ -941,7 +941,7 @@ export interface ChatMessage {
   /** Rust conversation revision; a delayed poll must not replace a newer stream commit. */
   convo_revision?: number
   /** Native Claude block order, including text before a tool in the same message. */
-  content_blocks?: ({ kind: 'text'; text: string } | { kind: 'thinking'; text?: string; sealed?: boolean }
+  content_blocks?: ({ kind: 'text'; start: number; end: number } | { kind: 'thinking'; start?: number; end?: number; sealed?: boolean }
     | { kind: 'tool'; id: string })[]
   assistant_id?: string
   assistant_ids?: string[]
