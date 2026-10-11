@@ -12,10 +12,10 @@ export default async function(rig) {
     const url=new URL(req.url,'http://localhost')
     const reply=data=>{res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(data))}
     if(url.pathname==='/healthz') return reply({features:['uploads'],max_attachment_bytes:1073741824})
-    if(url.pathname==='/api/uploads') {for await(const chunk of req){};return reply({id:'eligible',offset:0,complete:false})}
+    if(url.pathname==='/api/uploads') {for await(const chunk of req){};return reply({id:'eligible',bytes:1024,offset:0,complete:false})}
     if(url.pathname==='/api/uploads/eligible') {
       let bytes=0;for await(const chunk of req) bytes+=chunk.length
-      uploads++;return reply({id:'eligible',offset:bytes,complete:true})
+      uploads++;return reply({id:'eligible',bytes:1024,offset:bytes,complete:true})
     }
     if(url.pathname==='/api/attachments/eligible') {
       downloads++;res.writeHead(200,{'content-length':1024,etag:'"eligible"'});res.end(Buffer.alloc(1024,120));return
