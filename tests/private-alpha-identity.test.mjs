@@ -39,8 +39,8 @@ const unexpected = () => { throw new Error('EXTERNAL SIDE EFFECT') }
 // uninstall registry key and the per-installation registry key derive from it.
 const NSIS_NAMESPACE = UUID.parse('50e065bc-3134-11e6-9bab-38c9862bdaf3')
 
-test('the v3 package and lockfile identify a public 3.x release; the private packager keeps its alpha version', () => {
-  assert.match(pkg.version, /^3\.\d+\.\d+$/)
+test('the 4.x package and lockfile agree; the legacy private packager keeps its separate alpha version', () => {
+  assert.match(pkg.version, /^4\.\d+\.\d+(?:-alpha\.\d+)?$/)
   assert.notEqual(pkg.version, VERSION)
   assert.doesNotThrow(() => assertLockfileVersion(pkg.version, lock))
   // The public release path accepts the package version.
@@ -156,7 +156,7 @@ test('negative control: package:dev fails closed on the private version', () => 
   assert.doesNotThrow(() => devPackagingConfig(pkg.build, '2.1.12-dev.gabcdef1234'))
 })
 
-test('a stable installation is never offered the alpha, 3.0.0 is stable, and the alpha build has no updater', async t => {
+test('stable installations reject prereleases, 4.x alphas track alpha, and the legacy private build has no updater', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-alpha-channel-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const compiled = {}
@@ -170,10 +170,13 @@ test('a stable installation is never offered the alpha, 3.0.0 is stable, and the
   const stable = compiled[false]
   // Stable installations accept stable releases only, so even a (forbidden)
   // published alpha would not be offered to them.
-  for (const installed of ['2.1.10', '2.1.12', '2.1.14', pkg.version]) assert.equal(stable.allowPrereleaseUpdates(installed), false)
+  for (const installed of ['2.1.10', '2.1.12', '2.1.14', '4.1.3', '4.2.0']) assert.equal(stable.allowPrereleaseUpdates(installed), false)
   assert.equal(stable.updateChannelOf(VERSION), 'alpha')
-  // The public 3.0.0 is on the stable channel that 2.x installations read.
-  assert.equal(stable.updateChannelOf(pkg.version), null)
+  // Public 4.x alphas track their line; stable 4.x uses the stable feed.
+  assert.equal(stable.updateChannelOf('4.2.0'), null)
+  assert.equal(stable.updateChannelOf('4.2.0-alpha.8'), 'alpha')
+  assert.equal(stable.allowPrereleaseUpdates('4.2.0-alpha.8'), true)
+  assert.equal(stable.updateChannelOf(pkg.version), pkg.version.includes('-alpha.') ? 'alpha' : null)
   // The 3.0.0-alpha.0 build's identity is the installed release's (same
   // appId, AUMID, userData `Orgtree v2`, display name), with no updater at
   // all, even with the update fixture requested, and its data root locked.

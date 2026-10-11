@@ -20,6 +20,11 @@ import path from 'node:path'
 import { build } from 'esbuild'
 import { createRequire } from 'node:module'
 
+import { requireDisruptiveOptIn } from './gate.mjs'
+
+if (!requireDisruptiveOptIn('run-on-startup')) {
+  test('run-on-startup probes', { skip: 'ORGTREE_DISRUPTIVE_PROBES=1 is required' }, () => {})
+} else {
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-runonstartup-'))
 const load = async (source, name) => {
   const out = path.join(dir, `${name}.cjs`)
@@ -145,3 +150,5 @@ test('measured: the scripts read, switch and record throwaway startup tasks, and
 })
 
 test.after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+}

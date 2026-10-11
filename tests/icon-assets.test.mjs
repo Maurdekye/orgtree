@@ -141,7 +141,7 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /isVisualTheme\(value\)/)
 
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
-  assert.match(main, /tray\?\.setImage\(image\)/)
+  assert.match(main, /tray\?\.setImage\(attentionTotal > 0 && !image\.isEmpty\(\)[\s\S]*?addAttentionDot\([\s\S]*?: image\)/)
   assert.match(main, /window\.setIcon\(image\)/)
   for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']) assert.match(main, new RegExp(`'orgtree-eye-tray-${name}' \\+ iconExt`))
   assert.equal((main.match(/icon: iconPath/g) ?? []).length, 2, 'main and viewer windows')

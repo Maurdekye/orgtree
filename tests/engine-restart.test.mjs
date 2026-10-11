@@ -416,7 +416,7 @@ test('a failed restart raises the same kind of failure dialog a failed update do
 })
 
 test('the row is refreshed on every rebuild and while the menu is open', () => {
-  assert.match(indexSource, /if \(trayMenuOpen\) \{ refreshTrayUpdates\(\); refreshTrayEngine\(\); return \}/)
+  assert.match(indexSource, /if \(trayMenuOpen\) \{ refreshTrayUpdates\(\); refreshTrayEngine\(\); refreshTrayHub\(\); return \}/)
   assert.match(indexSource, /refreshTrayUpdates\(\)\s*\n\s*refreshTrayEngine\(\)\s*\n\s*tray\.setContextMenu/)
   // The engine's own status event is what rebuilds the tray, which is why the
   // row can only follow the engine rather than the click.

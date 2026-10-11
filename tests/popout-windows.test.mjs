@@ -163,8 +163,8 @@ test('native creation applies the accepted rectangle once and only to its named 
     const events = new Map()
     let handler
     return {bounds: [], on() {}, isVisible: () => true, isMinimized: () => false,
-      setBounds(rect) {this.bounds.push(rect)},
-      getBounds() {return this.bounds.at(-1)},
+      setContentBounds(rect) {this.bounds.push(rect)},
+      getContentBounds() {return this.bounds.at(-1)},
       webContents: {getURL: () => 'http://127.0.0.1:1234/', setBackgroundThrottling() {},
         on(event, fn) {events.set(event, [...(events.get(event) ?? []), fn])},
         setWindowOpenHandler(fn) {handler = fn}},
@@ -192,12 +192,12 @@ test('native creation applies the accepted rectangle once and only to its named 
 test('native initial placement corrects measured frame drift and is bounded when the OS refuses', () => {
   const target = {x: -1000, y: 83, width: 901, height: 633}
   let actual, calls = 0
-  setExactPopoutBounds({setBounds(rect) {calls++; actual = {...rect, x: rect.x - 1, width: rect.width + 2}},
-    getBounds() {return actual}}, target)
+  setExactPopoutBounds({setContentBounds(rect) {calls++; actual = {...rect, x: rect.x - 1, width: rect.width + 2}},
+    getContentBounds() {return actual}}, target)
   assert.deepEqual(actual, target)
   assert.equal(calls, 2, 'one measured frame adjustment is enough')
   calls = 0
-  setExactPopoutBounds({setBounds() {calls++}, getBounds() {return {x: 0, y: 0, width: 300, height: 200}}}, target)
+  setExactPopoutBounds({setContentBounds() {calls++}, getContentBounds() {return {x: 0, y: 0, width: 300, height: 200}}}, target)
   assert.equal(calls, 3, 'an OS size constraint cannot cause an unbounded placement loop')
 })
 
