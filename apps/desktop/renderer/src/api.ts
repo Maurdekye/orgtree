@@ -1305,7 +1305,11 @@ export const orgInboxUpload = async (
         const response=new Response(xhr.responseText,{status:xhr.status,headers})
         noteInstance(response)
         if(xhr.status<200 || xhr.status>=300) { void failure(response).then(reject); return }
-        try { const data=JSON.parse(xhr.responseText) as StagingTicket; bumpLive(); resolve(data) }
+        try {
+          const data=JSON.parse(xhr.responseText) as StagingTicket
+          if(data?.state!=='complete' || data.id!==ticket.id) throw Error('Unconfirmed local upload')
+          bumpLive(); resolve(data)
+        }
         catch { reject(Error('Local upload returned an invalid completion response')) }
       }
       xhr.onerror = () => { clean(); reject(Error('Local upload connection lost')) }

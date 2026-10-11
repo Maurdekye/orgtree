@@ -24,6 +24,10 @@ export default async function(rig) {
   try {
     const t=await start(8)
     proof.check('ticket exists before bytes and cannot be sent as a completed attachment',(await get(t.id)).state==='queued' && rig.sql(`SELECT id FROM ot.uploads WHERE id='${t.id}'`).length===0)
+    const early=await rig.api('POST',`/api/orgs/${rig.org}/org_inbox/send`,{to:'@org:test',body:'Held',attachments:[t.id]}).catch(e=>e)
+    proof.check('send endpoint refuses an unfinished ticket',early.status===422 && /staged attachment/.test(early.message))
+    const excess=await rig.api('POST',`/api/orgs/${rig.org}/org_inbox/send`,{to:'@org:test',body:'Held',attachments:Array(11).fill(t.id)}).catch(e=>e)
+    proof.check('too many attachments are refused rather than silently truncated',excess.status===400 && /at most 10/.test(excess.message))
     hold(t.id)
     await rig.waitFor(async()=> (await get(t.id)).state==='uploading',{what:'staging writer',timeout:10000})
     const duplicate=await body(t.id,Buffer.alloc(8))

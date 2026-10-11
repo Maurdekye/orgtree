@@ -15,6 +15,7 @@ module.exports=async page=>{
   await page.click('.mail-reply textarea'); await page.type('Do not send before the file is ready')
   await attach('.mail-reply input[type=file]','reply.bin')
   await page.waitFor('.local-staging progress')
+  await page.waitFor(()=>{const p=document.querySelector('.local-staging progress');return p?.value>0 && p.value<p.max})
   const replyBlocked=await page.eval(()=>document.querySelector('.mail-reply-send').disabled)
   if(!replyBlocked) throw Error('Reply not held during staging')
   await page.click('.mail-reply textarea'); await page.press('Enter')
