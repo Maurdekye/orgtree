@@ -48,12 +48,12 @@ module.exports=async page=>{
   await page.click({selector:'button',text:'other address…'})
   await page.click('input[placeholder="@net:slug / @org:slug"]'); await page.type('@org:test')
   await page.click({selector:'.saved-local-files > button',text:'Saved local files'})
-  await page.waitFor(()=>[...document.querySelectorAll('[data-saved-file]')].some(x=>x.innerText.includes('compose.bin')))
+  await page.waitFor(()=>[...document.querySelectorAll('[data-saved-file]')].some(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file')))
   await page.eval(()=>{
-    const row=[...document.querySelectorAll('[data-saved-file]')].find(x=>x.innerText.includes('compose.bin'))
+    const row=[...document.querySelectorAll('[data-saved-file]')].find(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file'))
     row.querySelector('button').click()
   })
-  await page.waitFor(()=>[...document.querySelectorAll('.badge.free')].some(x=>x.innerText.includes('compose.bin')))
+  await page.waitFor(()=>[...document.querySelectorAll('.badge.free')].some(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file')))
   await page.eval(()=>[...document.querySelectorAll('.badge.free')].find(x=>x.innerText.includes('compose.bin')).scrollIntoView({block:'nearest'}))
   await page.screenshot('recovered-after-reload')
   return {replyBlocked,composeBlocked,retryCompleted:true,recoveredAfterReload:true}
