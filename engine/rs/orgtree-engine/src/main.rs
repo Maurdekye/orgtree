@@ -17,6 +17,7 @@ mod bridge;
 mod changes;
 mod codex_kills;
 mod config;
+mod core_policy;
 mod credential_context;
 mod credential_bridge;
 mod domain;
