@@ -1,5 +1,7 @@
 import { beginOpen, useOpenCommit } from '../opentiming'
 import { useRecordMailbox } from '../recordpanelhooks'
+import type { UploadOptions } from '../api'
+import { useStaging, StagingRows } from './staging'
 // canvas/mail.tsx — the mail interfaces: the shared webmail MailList +
 // MailFolders, a node's InboxView tab and its modal form (NodeInboxModal),
 // the org-inbox viewer (OrgInboxModal), and the org record. One mail
@@ -80,7 +82,7 @@ export interface MailListProps {
   replyPlain?: boolean
   /** Stage a reply's file where the host's own send takes it (the org inbox
    *  stages outside mail's files itself); `path` is what `onReply` gets. */
-  replyUpload?: (m: MailRow, file: File) => Promise<{ path: string; bytes: number }>
+  replyUpload?: (m: MailRow, file: File, options?: UploadOptions) => Promise<{ path: string; bytes: number }>
   onRetract?: (m: MailRow) => void
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
@@ -567,7 +569,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               ? (text, attachments, notice) => onReply!(cur, text, attachments, notice)
               : undefined}
             replyPlain={replyPlain}
-            replyUpload={replyUpload ? (file) => replyUpload(cur, file) : undefined}
+            replyUpload={replyUpload ? (file, options) => replyUpload(cur, file, options) : undefined}
             toast={toast} />
         )}
         {!cur && (
@@ -754,7 +756,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   /** the reply box without the notice toggle */
   replyPlain?: boolean
   /** the host stages the reply's files (see MailList `replyUpload`) */
-  replyUpload?: (file: File) => Promise<{ path: string; bytes: number }>
+  replyUpload?: (file: File, options?: UploadOptions) => Promise<{ path: string; bytes: number }>
   toast?: ToastFn
 }) {
   const profile = 'operator'
@@ -897,7 +899,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   notice?: boolean
   /** Stage a file the host's way instead of in `target`'s folder (the org
    *  inbox's outside mail); `path` is what `onSend` receives. */
-  upload?: (file: File) => Promise<{ path: string; bytes: number }>
+  upload?: (file: File, options?: UploadOptions) => Promise<{ path: string; bytes: number }>
 }) {
   const [draft, setDraft] = useState('')
   const enterKey = useComposerEnter()
@@ -915,16 +917,13 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   const [noticeArmed, setNoticeArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const attachable = Boolean((upload || slug) && target) && !sendDisabled
-  const attach = (file: File) => {
-    const staged = upload ? upload(file) : slug && target ? uploadFile(slug, target, file) : null
-    if (!staged) return
-    staged
-      .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
-      .catch((e: Error) => toast?.([`upload error: ${e.message}`]))
-  }
+  const staging = useStaging((file, options) => upload ? upload(file, options)
+    : slug && target ? uploadFile(slug, target, file) : Promise.reject(Error('Choose a recipient first')),
+    (file, r) => setAttached(a => [...a, {name:file.name,path:r.path,bytes:r.bytes}]))
+  const attach = staging.add
   const send = () => {
     const t = draft.trim()
-    if ((!t && !attached.length) || sendDisabled) return
+    if ((!t && !attached.length) || sendDisabled || staging.blocked()) return
     const paths = attached.map((a) => a.path)
     // DISARMS ON SEND ONLY — not on Escape, not on clearing the text, not on
     // switching recipient. Same rule as the desk composer (b38d9d9 §3), and
@@ -975,6 +974,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           ))}
         </div>
       )}
+      <StagingRows staging={staging} />
       <div className={'mail-reply' + (noticeArmed && notice ? ' notice-armed' : '')}>
         {/* the composer's left column, exactly as the desk composer builds it
             (b38d9d9): the notice toggle ABOVE the attach button, both in the
@@ -1034,7 +1034,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             failing loudly, which is worse */}
         <button className="mail-reply-send"
           title={enterKey.hint}
-          disabled={(!draft.trim() && !attached.length) || sendDisabled} onClick={send}>
+          disabled={(!draft.trim() && !attached.length) || sendDisabled || staging.rows.length>0} onClick={send}>
           reply
         </button>
       </div>
@@ -1627,7 +1627,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     waitLabel="unread" onRead={markRead} jumpTo={jumpTo}
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
                     onReply={(m, text, attachments) => reply(m, text, attachments)} replyPlain
-                    replyUpload={(m, file) => orgInboxUpload(slug, file, [m.from]).then((r) => ({ path: r.id, bytes: r.bytes }))}
+                    replyUpload={(m, file, options) => orgInboxUpload(slug, file, [m.from], options).then((r) => ({ path: r.id, bytes: r.bytes }))}
                     canReply={(m) => /^@(net|org):/.test(m.from)}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
                     /* ⚠ AN INCOMING ORG-INBOX SENDER IS EXTERNAL BY
@@ -1837,8 +1837,10 @@ function ComposeModal({ slug, net, entries, toast, close }: {
   ].filter((d, i, a) => a.indexOf(d) === i)
   const attachable = dests.length > 0
     && dests.every((d) => d.startsWith('@net:') || d.startsWith('@org:'))
+  const staging = useStaging((file, options) => orgInboxUpload(slug, file, dests, options),
+    (_file, r) => setStaged(s => [...s, {id:r.id,name:r.name}]))
   const send = () => {
-    if (!dests.length || !text.trim() || busy) return
+    if (!dests.length || !text.trim() || busy || staging.blocked()) return
     setBusy(true)
     Promise.all(dests.map((d) =>
       orgInboxSend(slug, d, text, staged.map((s) => s.id))
@@ -1941,13 +1943,12 @@ function ComposeModal({ slug, net, entries, toast, close }: {
               send()
             }
           }} />
+        <StagingRows staging={staging} />
         <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
           <input ref={fileRef} type="file" multiple hidden
             onChange={(e) => {
               for (const f of [...(e.target.files ?? [])].slice(0, 10)) {
-                orgInboxUpload(slug, f, dests)
-                  .then((r) => setStaged((s) => [...s, { id: r.id, name: r.name }]))
-                  .catch((err: Error) => toast([`upload failed: ${err.message}`]))
+                staging.add(f)
               }
               e.target.value = ''
             }} />
@@ -1959,14 +1960,14 @@ function ComposeModal({ slug, net, entries, toast, close }: {
           ))}
           <button title={attachable ? 'attach files'
             : 'attachments ride @net:/@org: mail only'}
-            disabled={!attachable}
+            disabled={!attachable || busy}
             onClick={() => fileRef.current?.click()}>
             <AttachIcon fontSize="inherit" /></button>
           <span className="spacer" />
           <button onClick={close} disabled={busy}>cancel</button>
           <button className="primary"
             title={enterKey.hint}
-            disabled={busy || !dests.length || !text.trim()}
+            disabled={busy || !dests.length || !text.trim() || staging.rows.length>0}
             onClick={send}>
             {busy ? 'sending…'
               : dests.length > 1 ? `send to ${dests.length}` : 'send'}</button>
