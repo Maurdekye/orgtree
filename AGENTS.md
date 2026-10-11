@@ -662,7 +662,9 @@ measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
   Each language-server card exposes its existing app-wide `enabled` switch directly.
   Org Accounts keeps `allowed` separate from optional effective `enabled` and
   `disabled_reason`: a globally-off lane may be revoked but not newly allowed;
-  provider feed changes refresh availability. [verified: `canvas/langserver.tsx`,
+  provider feed changes refresh availability. Account-list generations discard stale
+  replies; saves invalidate reads and defer refresh until completion, protecting
+  full allowlist writes from pre-save snapshots. [verified: `canvas/langserver.tsx`,
   `orgaccounts.tsx`; decided: user 2026-10-11]
   [decided: user 2026-10-11; verified: renderer provider dialog tests, 2026-10-11]
 

@@ -81,3 +81,66 @@ test('older lane payloads retain org switches; rejected save does not change the
     assert.ok(toasts.flat().some(t => t.includes('synthetic refusal')))
   } finally { await view.unmount(); delete g.fetch }
 })
+
+for (const scenario of ['refresh', 'save'] as const) test(`stale account read cannot overwrite a newer ${scenario}`, async () => {
+  const globals = globalThis as unknown as Record<string, unknown>
+  const saved = { fetch: globals.fetch, WebSocket: globals.WebSocket }
+  const reads: ((lanes: OrgAccountLane[]) => void)[] = []
+  const writes: { disabled_accounts: string[] }[] = []
+  let approve!: () => void
+  const sockets: Socket[] = []
+  class Socket {
+    onmessage: ((event: { data: string }) => void) | null = null
+    onclose: (() => void) | null = null
+    constructor() { sockets.push(this) }
+    close() { this.onclose?.() }
+    frame(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  const epoch = `accounts-${scenario}`
+  const snapshot = { type: 'app_snapshot', epoch, seq: 1,
+    registry: { type: 'registry_snapshot', epoch, cursor: { app_uuid: 'app', incarnation: epoch, rev: 1 }, records: [] },
+    summaries: {}, notices: {}, runtime: { values: {}, orgs: {} } }
+  const bump = async (seq: number) => inAct(async () => {
+    sockets[0].frame({ type: 'app_runtime', epoch, seq,
+      values: { providers: { epoch, seq, value: { revision: seq } } } })
+    await flush(8)
+  })
+  globals.WebSocket = Socket
+  globals.fetch = async (url: unknown, init?: RequestInit) => {
+    if (String(url) === '/api/app/records') return new Response(JSON.stringify(snapshot))
+    if (init?.method === 'POST') {
+      writes.push(JSON.parse(String(init.body)))
+      return new Promise<Response>(resolve => { approve = () => resolve(new Response('{"warnings":[]}')) })
+    }
+    return new Promise<Response>(resolve => reads.push(lanes => resolve(new Response(JSON.stringify({ accounts: lanes })))))
+  }
+  const view = await mount()
+  try {
+    await inAct(async () => { sockets[0].frame(snapshot); await flush(8) })
+    await inAct(async () => { reads.at(-1)!([lane('first'), lane('second')]); await flush(8) })
+    await bump(2)
+    const old = reads.at(-1)!
+    if (scenario === 'refresh') {
+      await bump(3)
+      await inAct(async () => { reads.at(-1)!([lane('first', false, false), lane('second')]); await flush(8) })
+    } else {
+      await click(view.el.querySelector<HTMLInputElement>('input[aria-label="first"]')!)
+      const duringSave = reads.length
+      await bump(3)
+      assert.equal(reads.length, duringSave, 'provider refresh waits for the save instead of reading pre-commit state')
+      await inAct(async () => { approve(); await flush(8) })
+      await inAct(async () => { reads.at(-1)!([lane('first', false, false), lane('second')]); await flush(8) })
+    }
+    await inAct(async () => { old([lane('first'), lane('second')]); await flush(8) })
+    const first = view.el.querySelector<HTMLInputElement>('input[aria-label="first"]')!
+    assert.equal(first.checked, false, 'late GET must not restore revoked org access')
+    assert.equal(first.disabled, true, 'late GET must not make a globally-off lane available')
+    const before = writes.length
+    await click(first)
+    assert.equal(writes.length, before, 'cannot reallow globally disabled lane')
+    await click(view.el.querySelector<HTMLInputElement>('input[aria-label="second"]')!)
+    assert.deepEqual(writes.at(-1)?.disabled_accounts, ['langserver:first', 'langserver:second'],
+      'next full allowlist write must preserve the revoked first lane')
+    await inAct(async () => { approve(); await flush(8); reads.at(-1)!([lane('first', false, false), lane('second', true, false)]); await flush(8) })
+  } finally { await view.unmount(); Object.assign(globals, saved) }
+})

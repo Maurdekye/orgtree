@@ -41,13 +41,19 @@ checked as the saved org preference, displays the global-disable reason, and can
 still be revoked. Restoring global availability does not undo an org's revocation.
 Older responses without those fields retain the prior controls. Provider feed
 changes refresh the lane list; a rejected save retains the previous checkbox value.
+Account-list requests are generation-guarded: a newer request, a save or leaving
+the org invalidates earlier reads. Provider refreshes wait for an active save's
+final reload, so pre-commit reads cannot overwrite it or seed a stale full allowlist.
 
 These generic org controls cover OpenRouter keys as well. Their individual Providers
 controls and backend lane metadata belong to the separate multi-key implementation.
 
-Measured renderer follow-up: 15 language-server/org-account tests pass, including
+Measured renderer follow-up: 17 language-server/org-account tests pass, including
 independent off/on, secret/model preservation, org-only writes, globally-off guards,
-legacy payloads and rejected saves. Typecheck passes. The synthetic visual fixture
+legacy payloads and rejected saves. Two deferred-response controls fail on a4062df
+and pass with generation guards: old GET completes last after global-off refresh
+or a successful save; a subsequent write preserves the revoked lane. Typecheck
+passes. The synthetic visual fixture
 is `provider-toggle` (optional third argument to the visual command below): it checks
 five toggle states at two viewport sizes in dark/light (20/20 pass; desktop Providers
 and narrow light Org Settings screenshots inspected). It checks switch bounds and

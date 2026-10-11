@@ -5,7 +5,7 @@
 // newly signed-in account starts ticked (the org stores what it switched OFF).
 // The engine enforces it everywhere it picks an account; this only edits the
 // list. Saves at once, like Autonomy: a refusal is instant feedback.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getOrgAccounts, saveSettings } from './api'
 import { useAppValue } from './appfeed'
 import type { OrgAccountLane } from './types'
@@ -23,24 +23,41 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
   const [lanes, setLanes] = useState<OrgAccountLane[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const load = useCallback(() => getOrgAccounts(slug)
-    .then((r) => { setLanes(r.accounts); setError(null) })
-    .catch((e: Error) => setError(e.message)), [slug])
+  const generation = useRef(0)
+  const saving = useRef(false)
+  const load = useCallback(() => {
+    // The save's final refresh observes provider changes received while it ran.
+    if (saving.current) return Promise.resolve()
+    const request = ++generation.current
+    return getOrgAccounts(slug)
+      .then((r) => { if (request === generation.current) { setLanes(r.accounts); setError(null) } })
+      .catch((e: Error) => { if (request === generation.current) setError(e.message) })
+  }, [slug])
+  useEffect(() => {
+    setLanes(null); setError(null); setBusy(false)
+    return () => { ++generation.current; saving.current = false }
+  }, [slug])
   useEffect(() => { void load() }, [load, providers])
 
   const set = (id: string, allowed: boolean) => {
-    if (!lanes || busy) return
+    if (!lanes || saving.current) return
     const lane = lanes.find(l => l.id === id)
     if (!lane || (allowed && lane.enabled === false)) return
     const next = lanes.map((l) => (l.id === id ? { ...l, allowed } : l))
+    const request = ++generation.current // Retire every read started before this save.
+    saving.current = true
     setBusy(true)
     saveSettings(slug, { disabled_accounts: next.filter((l) => !l.allowed).map((l) => l.id) })
       .then((r) => {
+        if (request !== generation.current) return
         setLanes(next)
         toast(r.warnings?.length ? r.warnings : [`${id} ${allowed ? 'is used by this org again' : 'is no longer used by this org'}`])
       })
-      .catch((e: Error) => toast([`error: ${e.message}`]))
-      .finally(() => { setBusy(false); void load() })
+      .catch((e: Error) => { if (request === generation.current) toast([`error: ${e.message}`]) })
+      .finally(() => {
+        if (request !== generation.current) return
+        saving.current = false; setBusy(false); void load()
+      })
   }
 
   if (error) return <div className="uh-error">accounts unavailable: {error}</div>
