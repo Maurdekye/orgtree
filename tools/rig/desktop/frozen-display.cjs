@@ -12,7 +12,8 @@ module.exports = async (page) => {
   const near = await page.eval(sel => {
     const e = document.querySelector(sel)
     return { text: e.querySelector('.sq-workstate')?.textContent,
-      snowflake: !!e.querySelector('.badge.frozen svg') }
+      snowflake: !!e.querySelector('.badge.frozen svg'),
+      halted: document.querySelector('.sq[data-copy-agent-name="alice"] .sq-workstate')?.textContent }
   }, card)
   await page.screenshot('frozen-near')
   for (let i = 0; i < 20; i++) {

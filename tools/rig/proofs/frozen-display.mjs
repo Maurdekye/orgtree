@@ -14,9 +14,9 @@ export default async function (rig) {
   const p = new Proof('frozen-display')
   const seat = name => rig.one(`SELECT frozen, halt, limit_locked FROM ot.agents
     WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${rig.org}') AND name = '${name}'`)
-  const reset = Math.floor(Date.now() / 1000) + 7200
+  const reset = Math.floor(Date.now() / 1000) + 45
   rig.scenario({ agents: {
-    kim: { turns: [limited(reset)] }, hana: { turns: [limited(reset)] },
+    kim: { turns: [limited(reset)] }, hana: { turns: [limited(reset + 7200)] },
   }, default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
     { what: 'seed turns to settle', timeout: 60000 })
@@ -30,6 +30,7 @@ export default async function (rig) {
   }
   await rig.tool('boss', 'orgtree_halt', { node: 'alice' })
   await rig.tool('bob', 'orgtree_status', { status: 'working', summary: 'Waiting between turns.' })
+  rig.exec("UPDATE ot.agents SET frozen = (SELECT frozen FROM ot.agents WHERE name = 'hana') WHERE name = 'alice';")
 
   // Rehearse an upgrade with stale flags on both frozen and explicitly halted seats.
   // Removing the receipt is only in this disposable rig database.
@@ -51,6 +52,7 @@ export default async function (rig) {
   if (desktop.ok) {
     const { near, far, list } = desktop.value
     p.check('near card says Frozen and carries snowflake', /^Frozen/.test(near.text) && near.snowflake, near)
+    p.check('near card keeps explicit halt precedence over a coexisting freeze', /^Halted/.test(near.halted), near.halted)
     p.check('far icons distinguish frozen and halted', far.frozen && far.halted, far)
     p.check('list has Frozen, Halted, Working and Idle text', /Frozen/.test(list.kim) && !/halted/i.test(list.kim)
       && /Halted/.test(list.alice) && /Working/.test(list.bob) && /Idle/.test(list.carol), list)
@@ -62,17 +64,14 @@ export default async function (rig) {
     && rig.fakeLog('hana').some(l => l.kind === 'turn' && /Your hold was released/.test(l.prompt)
       && /PROOF-FREEZE/.test(l.prompt)))
 
-  // Recovered timer uses the real deadline and grace. Backdate reset by 60s
-  // to keep the proof short, then restart to re-arm that exact new record.
-  const soon = Math.floor(Date.now() / 1000) - 58
-  rig.exec(`UPDATE ot.agents SET frozen = jsonb_set(jsonb_set(frozen, '{until}',
-    to_jsonb(to_char(to_timestamp(${soon}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))),
-    '{until_ts}', to_jsonb(${soon}::bigint)) WHERE name = 'kim';`)
-  await rig.restart()
-  await rig.waitTurns('kim', 2, { timeout: 45000 })
+  // Wait for the real fake-provider reset plus the engine's 60s grace.
+  // No resume action or deadline rewrite is used for kim.
+  await rig.waitTurns('kim', 2, { timeout: 120000 })
   p.check('reset timer releases freeze and automatically replays request', !rig.agentRow('kim').frozen
     && !seat('kim').limit_locked && rig.fakeLog('kim').some(l => l.kind === 'turn'
       && /Your usage limit has reset/.test(l.prompt) && /PROOF-FREEZE/.test(l.prompt)))
+  p.check('automatic wake respects reset grace', Date.now() / 1000 >= reset + 60,
+    { after_reset_s: Math.floor(Date.now() / 1000) - reset })
   p.check('explicit halt survives freeze recovery', !!rig.agentRow('alice').halt)
   p.keep(rig, { agents: ['kim','hana'], grep: /freeze|released|scheduled|0020/ })
   return p.summary()
