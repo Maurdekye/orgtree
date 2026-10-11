@@ -135,8 +135,10 @@ export default async function(rig) {
       await rig.waitFor(()=>state().desktop?.pid===deskPid,{what:'replacement desktop registered first'})
       p.check('install: desktop completes before replacement helper starts',(await action('complete')).ok)
       await new Promise(resolve=>setTimeout(resolve,8000))
-      p.check('install: completion waits beyond death grace without extending original deadline',
-        alive(enginePid)&&alive(deskPid)&&state().installing&&state().completion_requested&&state().transition_until===until)
+      if(!p.check('install: completion waits beyond death grace without extending original deadline',
+        alive(enginePid)&&alive(deskPid)&&state().installing&&state().completion_requested&&state().transition_until===until)) {
+        throw Error('desktop completion prematurely ended replacement allowance')
+      }
       await launcher.start({...rigEnv,ORGTREE_V2_DATA:root},`"${broker}"`)
       const {ps}=await import('./credential-broker.mjs')
       helperPid=Number(ps(`(Get-Process orgtree-credential-broker -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq ${q(broker)}}).Id`))
