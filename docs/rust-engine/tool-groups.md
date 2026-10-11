@@ -79,15 +79,20 @@ through the user's Scope editor.
 - `tools/rig/proofs/tool-groups.mjs` captures real installed Claude Code and
   Codex first requests against the isolated fake language server; default,
   groups-off (native switches unchanged), all-capabilities-off and local-chores scopes, inherited denials, execution rejection and
-  approval paths. **35/35 runtime checks passed**, using real installed
-  harnesses and fake inference, before rebase onto `a88b736`.
+  approval paths. **45/45 runtime checks passed**, using real installed
+  harnesses and fake inference, after rebase onto `a88b736`.
 - Captured Claude first-request JSON sizes were 138,698 bytes by default,
   76,902 with Orgtree groups off, 58,508 for local chores (messaging and
   watchdogs only; bash on), and 32,257 with all capabilities off. These are
-  **byte sizes, not token counts**. Evidence: `tool-groups-20261011T094113`.
+  **byte sizes, not token counts**. Evidence: `tool-groups-20261011T095333`.
 - `tools/rig/proofs/tool-groups-ui.mjs` exercises the actual Scope editor,
-  save/reopen and inherited ceilings in offscreen Electron. Completion is
-  pending a retry after a measured renderer out-of-memory exit.
+  save/reopen and inherited ceilings in offscreen Electron. **5/5 passed**;
+  the inherited-disabled screenshot was inspected. The earlier renderer OOM
+  was resolved by waiting for the machine's other heavy work to finish.
+  Evidence: `tool-groups-ui-20261011T095301`.
+- Post-rebase Rust unit tests passed **65/65**, renderer typecheck passed,
+  and the rig engine and renderer built successfully. No live app, installer,
+  production accounts or real model generation were used.
 - Exact tokenizer measurements are pending the coordinator's notification
   that the user's tokenizer server is available. Only `/tokenize` is approved;
   do not start the server or request generation.
