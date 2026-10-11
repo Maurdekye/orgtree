@@ -8,6 +8,12 @@ sign-in helper and boot supervisor in boot-task mode. Manual startup with startu
 disabled has only its desktop and managed engine. Agent children and window
 visibility are not cohort membership.
 
+The WTS session adapter `core_state::sessions` is compiled only on Windows,
+matching `core_process::Sessions` and every caller. The first public release CI
+attempt exposed the missing adapter guard on both macOS and Linux (E0425, with
+E0282 as a consequence). Adding that guard preserves the Windows implementation;
+it does not enable coordinated Windows lifecycle enforcement on Unix.
+
 Membership uses the existing authenticated desktop pipe proof (same SID,
 interactive token, pipe server PID and broker secret). A separate registration
 operation means the desktop remains a member even when the helper owns the

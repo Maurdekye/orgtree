@@ -11,6 +11,7 @@ const MAX: u64 = 16 * 1024;
 
 /// WTS in production. The debug rig can model normal sign-out without logging
 /// the real operator out; its marker is accepted only in a non-live rig root.
+#[cfg(windows)]
 #[nolog]
 pub fn sessions(root: &Path, source: &mut Option<core_process::Sessions>) -> Option<Vec<Session>> {
     #[cfg(debug_assertions)]

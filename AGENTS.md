@@ -180,6 +180,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   allowance. Sign-out keeps the background engine; hide-to-tray and agent child
   exit do not stop the cohort. Manual startup excludes boot-only roles. Preserve
   graceful Codex drain and native unknown-versus-dead distinctions.
+  The WTS `core_state::sessions` adapter and its `core_process::Sessions` type
+  are Windows-only; keep their cfg guards aligned so Unix builds never resolve
+  the Windows session source. [verified: 2026-10-11; `core_state.rs`, `core_process.rs`]
   [decided: user 2026-10-11; verified: `core_startup.rs`, `core_monitor.rs`,
   `core_state.rs`; DECISIONS 72, `docs/rust-engine/core-lifecycle.md`]
 
