@@ -165,6 +165,20 @@ export default async function (rig) {
     const visibleInbox=await rig.api('GET',`/api/orgs/${rig.org}/org_inbox`)
     const missingUid=rig.one(`SELECT uid FROM ot.org_inbox WHERE id=${missing.inbox}`).uid
     proof.check('removed file is absent from the visible sent manifest', !visibleInbox.entries.find(i=>i.id===missingUid)?.attachments?.length)
+    const unbound=await call({action:'plan',bytes:1024,file_count:2,by:'rhea',unbound:true})
+    const beforeBind=rig.sql(`SELECT id,hub,address,state FROM ot.net_transfers WHERE inbox_id=${unbound.inbox} ORDER BY file_no`)
+    const immediately=await rig.tool('rhea','orgtree_transfers',{action:'get',id:unbound.ids[0]})
+    proof.check('queue returns durable inspectable IDs before selecting a hub',unbound.ids.length===2 &&
+      beforeBind.every((r,n)=>r.id===unbound.ids[n] && r.hub==='' && r.address==='' && r.state==='queued') && immediately.ok)
+    await rig.restart()
+    const recovered=await rig.tool('rhea','orgtree_transfers',{action:'get',id:unbound.ids[0]})
+    proof.check('returned queued IDs survive restart before routing',recovered.ok && recovered.json.transfers[0].state==='queued')
+    await call({action:'workers'})
+    await call({action:'drain'})
+    await rig.waitFor(()=>unbound.ids.every(id=>row(id).state==='complete'),{what:'original queued IDs complete after route binding',timeout:30000})
+    const afterBind=rig.sql(`SELECT id,hub,address FROM ot.net_transfers WHERE inbox_id=${unbound.inbox} ORDER BY file_no`)
+    proof.check('route binding retains all original transfer IDs',afterBind.length===2 &&
+      afterBind.every((r,n)=>r.id===unbound.ids[n] && r.hub==='rig-transfer' && r.address===address))
     proof.note('Measured actual production scheduler, user controls, agent denial, cancelled stalled I/O, explicit resume and graceful restart. Explicit held-file removal and success silence measured; separate failure-notice proof covers delivery/dedupe. UI and full device/1GiB proofs remain.')
     proof.keep(rig, { grep: /transfer|upload/ })
     return proof.summary()
