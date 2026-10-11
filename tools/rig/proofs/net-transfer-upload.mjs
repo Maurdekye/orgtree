@@ -182,7 +182,7 @@ export default async function (rig) {
     proof.check('returned queued IDs survive restart before routing',recovered.ok && recovered.json.transfers[0].state==='queued')
     await call({action:'workers'})
     await call({action:'drain'})
-    await rig.waitFor(()=>unbound.ids.every(id=>row(id).state==='complete'),{what:'original queued IDs complete after route binding',timeout:30000})
+    await rig.waitFor(async()=>{await call({action:'drain'});return unbound.ids.every(id=>row(id).state==='complete')},{what:'original queued IDs complete after route binding',timeout:30000})
     const afterBind=rig.sql(`SELECT id,hub,address FROM ot.net_transfers WHERE inbox_id=${unbound.inbox} ORDER BY file_no`)
     proof.check('route binding retains all original transfer IDs',afterBind.length===2 &&
       afterBind.every((r,n)=>r.id===unbound.ids[n] && r.hub==='rig-transfer' && r.address===address))
