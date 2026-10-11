@@ -298,7 +298,18 @@ pub async fn usage(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         .unwrap_or_else(|| crate::org_accounts::primary(&provider));
     let mut refreshed = None;
     if refresh {
-        let lane = candidates[0];
+        // Re-read inherited permission after the admission-account DB reads,
+        // then take the latest lane snapshot before any external work.
+        let tools = super::caller_tools(engine, caller).await?;
+        if !crate::domain::tool_groups::enabled(&tools, "inspection")
+            || !crate::domain::tool_groups::enabled(&tools, "runtime")
+        {
+            crate::refuse!(Forbidden, "usage refresh permission changed");
+        }
+        let current = lanes(engine, &caller.org_slug);
+        let Some(lane) = current.get(&candidates[0].id) else {
+            crate::refuse!(Forbidden, "usage account became unavailable before refresh");
+        };
         if !lane.enabled {
             crate::refuse!(
                 Forbidden,
@@ -344,11 +355,11 @@ pub async fn usage(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
             );
         }
     }
-    let current = lanes(engine, &caller.org_slug);
     let tools = super::caller_tools(engine, caller).await?;
     if !crate::domain::tool_groups::enabled(&tools, "inspection") {
         crate::refuse!(Forbidden, "usage inspection permission changed");
     }
+    let current = lanes(engine, &caller.org_slug);
     let mut rows = Vec::new();
     for lane in candidates {
         let Some(lane) = current.get(&lane.id) else {

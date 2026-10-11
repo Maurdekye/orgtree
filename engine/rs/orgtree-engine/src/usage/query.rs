@@ -259,6 +259,31 @@ mod tests {
     }
 
     #[test]
+    fn filtering_precedes_window_cap_and_reports_remaining_matches() {
+        let limits: Vec<_> = (0..80)
+            .map(|n| json!({"kind":"session","group":format!("group-{n}"),"percent":n}))
+            .collect();
+        let raw = json!({"available":true,"limits":limits});
+        let all = reading(Some(&raw), Some(now()), now());
+        assert_eq!(all["windows"].as_array().unwrap().len(), 64);
+        assert_eq!(all["window_count"], 80);
+        assert_eq!(all["windows_truncated"], true);
+        let selected = reading_selected(
+            Some(&raw),
+            Some(now()),
+            now(),
+            &Selection {
+                windows: Some(vec!["group-79".into()]),
+                ..Selection::default()
+            },
+        );
+        assert_eq!(selected["windows"].as_array().unwrap().len(), 1);
+        assert_eq!(selected["windows"][0]["used_percent"], 79.0);
+        assert_eq!(selected["windows_truncated"], false);
+        assert_eq!(selected["window_count"], 1);
+    }
+
+    #[test]
     fn projection_whitelists_typed_fields_and_does_not_invent_reset_or_percent() {
         let w = window(
             &json!({"kind":"usage","group":"credits","percent":null,"amount":8.5,"unit":"USD",
