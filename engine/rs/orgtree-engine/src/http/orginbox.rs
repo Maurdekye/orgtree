@@ -186,6 +186,11 @@ pub async fn send(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
         out.reply_to = Some(orginbox::quote_of(&e, o.id, r).await?);
     }
     let sent = orginbox::send_extern(&e, o.id, &out).await?;
+    // The queued message now owns these immutable files. Hide recovery entries
+    // only after send succeeds; never delete their bytes here.
+    if let Err(err)=async { e.db.get().await?.execute("UPDATE ot.upload_stages SET hidden=true WHERE org_id=$1 AND id=ANY($2)", &[&o.id,&b.attachments]).await?; Ok::<_,anyhow::Error>(()) }.await {
+        tracing::warn!(error=%err,"saved upload recovery entries not hidden");
+    }
     Ok(Json(json!({ "id": sent.uid, "warnings": [], "delivery": sent.delivery })))
 }
 

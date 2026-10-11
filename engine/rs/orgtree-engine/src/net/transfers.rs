@@ -149,7 +149,15 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
     let mut tasks = JoinSet::new();
     let mut incoming_first = false;
     let mut active = HashSet::<String>::new();
+    let mut stages_after = String::new();
+    let mut stages_checked = Instant::now() - Duration::from_secs(5);
     loop {
+        if stages_checked.elapsed() >= Duration::from_secs(5) {
+            if let Err(err) = crate::domain::staging::sweep(e,&mut stages_after).await {
+                tracing::warn!(error=%err,"local staging cleanup deferred");
+            }
+            stages_checked=Instant::now();
+        }
         if let Err(err) = failures::dispatch(e).await {
             tracing::warn!(error=%format!("{err:#}"), "transfer failure notification deferred");
         }

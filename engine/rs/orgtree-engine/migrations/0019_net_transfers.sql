@@ -91,5 +91,10 @@ CREATE TABLE ot.upload_stages (
     received bigint NOT NULL DEFAULT 0,
     state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','uploading','complete','failed','cancelled')),
     error text,
+    draft text NOT NULL DEFAULT '',
+    hidden boolean NOT NULL DEFAULT false,
+    cleaned_at timestamptz,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX upload_stage_cleanup ON ot.upload_stages(id) WHERE state IN ('queued','uploading') OR (state IN ('failed','cancelled') AND cleaned_at IS NULL);
+CREATE INDEX upload_stage_saved ON ot.upload_stages(org_id,id) WHERE NOT hidden;

@@ -31,6 +31,7 @@ pub(super) async fn resolve(tx: &Transaction<'_>, id: &str, upload: bool) -> Res
 
 #[logged]
 async fn recipients(e: &Engine, tx: &Transaction<'_>, org: i64, detail: &Value) -> Result<Vec<i64>> {
+    if detail["direction"] == "local" { return Ok(vec![]); }
     if detail["direction"] == "upload" {
         // Match the sender's generation lifetime; never send private failure
         // context to a later hire which happens to reuse the same name.
@@ -58,10 +59,12 @@ pub(super) async fn dispatch(e: &Arc<Engine>) -> Result<()> {
         let id: String = r.get(0);
         let org: i64 = r.get(1);
         let detail: Value = r.get(2);
-        let body = format!("Attachment {} for message {} ({}) failed: {}. Messages wait for every file. Inspect the current status of transfer {} and retry after correcting the cause{}.",
+        let body = if detail["direction"] == "local" {
+            format!("Attaching {} to a draft failed: {}. No message was sent. Open Saved local files in the mail composer, select the original file again, or remove it before sending.", detail["name"].as_str().unwrap_or("file"),detail["error"].as_str().unwrap_or("local upload interrupted"))
+        } else { format!("Attachment {} for message {} ({}) failed: {}. Messages wait for every file. Inspect the current status of transfer {} and retry after correcting the cause{}.",
             detail["direction"].as_str().unwrap_or("transfer"),detail["message_id"].as_str().unwrap_or(""),
             detail["peer"].as_str().unwrap_or(""),detail["error"].as_str().unwrap_or("unknown failure"),
-            detail["transfer_id"].as_str().unwrap_or(""),if detail["direction"]=="upload" {", or explicitly remove the failed file"} else {""});
+            detail["transfer_id"].as_str().unwrap_or(""),if detail["direction"]=="upload" {", or explicitly remove the failed file"} else {""}) };
         let extra = json!({"transfer_failure":id,"transfer_id":detail["transfer_id"],"message_id":detail["message_id"]});
         tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_name,kind,notice,body,extra,state) VALUES($1,$2,'@system','user','@user','status',true,$3,$4,'pending')", &[&crate::util::uid("m"),&org,&body,&extra]).await?;
         let agents = recipients(e,&tx,org,&detail).await?;
