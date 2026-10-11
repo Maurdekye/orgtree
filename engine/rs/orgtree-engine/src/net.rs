@@ -186,7 +186,7 @@ pub struct Net {
     /// the participants of the last pass
     parts: ArcSwap<Vec<Part>>,
     /// Live requests only; durable intent remains in PostgreSQL.
-    transfer_stops: papaya::HashMap<String, CancellationToken>,
+    pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]
     rig_workers: std::sync::atomic::AtomicBool,
     kick: tokio::sync::Notify,
