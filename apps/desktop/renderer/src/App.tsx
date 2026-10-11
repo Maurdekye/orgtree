@@ -24,7 +24,7 @@ import {
   getMailById, getOrgMd,
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
-  getCodexUsage, getCodexUsagePeek, getLangServers, getOpenRouterUsage, getOpenRouterUsagePeek,
+  getCodexUsage, getCodexUsagePeek, getLangServers, getOpenRouterKeysUsage, getOpenRouterUsage, getOpenRouterUsagePeek,
   getProviders, getAppTree, patchedTreeCache,
   getUsage, getUsagePeek, killAll,
   markRead, openWs,
@@ -2173,6 +2173,11 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   // installed" case, so it degrades through the same `shown.openrouter &&`
   // gate below rather than a bespoke branch.
   const orr = useUsageReadout('openrouter_usage', getOpenRouterUsage)
+  // every stored OpenRouter key by its lane (several keys at once, ruling
+  // 2026-10-11): the original key is the `orr` card above; each ADDED key
+  // (`openrouter-N`) gets a card of its own with its spend, cap and the
+  // shared account balance. Cache-only: the engine's usage loop reads them.
+  const orrKeys = useAppRead('openrouter_keys_usage', getOpenRouterKeysUsage)
   // the user's own model servers: nothing to meter, so each shows as local
   // with no usage limit, and the one limit it does have — agents at once
   const langservers = useAppRead('langservers', getLangServers)
@@ -2273,13 +2278,25 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
         : <div className="dim">usage unavailable until refresh succeeds</div>}
     </div> })
   }
+  const addedKeys = Object.entries(orrKeys ?? {}).filter(([lane]) => lane !== 'openrouter')
   if (shown.openrouter && (orr.value || orr.failure || orr.pending)) {
+    // beside added keys the original names itself as they do
+    const name = addedKeys.length ? orrKeys?.openrouter?.name : undefined
     cards.push({ provider: 'openrouter', lane: 'openrouter', node: <div className="usage-acct" key={'host:openrouter:' + (orr.value?.account ?? 'openrouter')}>
       <UsageAcctHead label={orr.value?.provider ?? 'OpenRouter'}
-        parts={[orr.value?.label]} provider="OpenRouter" state={orr} />
+        parts={name ? [name] : [orr.value?.label]} provider="OpenRouter" state={orr} />
       {orr.value
         ? <UsageBars u={orr.value} />
         : <div className="dim">usage unavailable until refresh succeeds</div>}
+    </div> })
+  }
+  for (const [lane, u] of shown.openrouter ? addedKeys : []) {
+    cards.push({ provider: 'openrouter', lane, node: <div className="usage-acct" key={'openrouter-key:' + lane}>
+      <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">OpenRouter</span>
+        <span className="dim"> · {u.name ?? lane} ({lane})</span></span></div>
+      {u.available
+        ? <UsageBars u={u} />
+        : <div className="dim">{u.error ?? 'usage unavailable until the next reading'}</div>}
     </div> })
   }
   for (const srv of (langServerDoc(langservers)?.servers ?? []).filter((x) => x.enabled)) {

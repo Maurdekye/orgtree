@@ -951,6 +951,26 @@ export const setOpenRouterKey = (key: string): Promise<OpenRouterDoc> =>
   })
 export const clearOpenRouterKey = (): Promise<OpenRouterDoc> =>
   req('/api/openrouter/key', { method: 'DELETE' })
+// several keys at once (docket use-several-openrouter-keys-at-once, ruling
+// 2026-10-11): each key is its own account. The original key keeps the
+// `openrouter` lane; an added one is `openrouter-N`. A key crosses the wire
+// once, inward; the answers are the panel's document (`keys` lists them).
+export const addOpenRouterKey = (key: string, label?: string): Promise<OpenRouterDoc & { added: string; added_lane: string }> =>
+  req('/api/openrouter/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(label?.trim() ? { key, label } : { key }),
+  })
+/** rename a key (`label`; empty clears the name) and/or replace its secret (`key`) */
+export const updateOpenRouterKey = (id: string, change: { key?: string; label?: string }): Promise<OpenRouterDoc> =>
+  req(`/api/openrouter/keys/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(change),
+  })
+/** remove a key; an added key's agents move to the original key first */
+export const removeOpenRouterKey = (id: string): Promise<OpenRouterDoc> =>
+  req(`/api/openrouter/keys/${encodeURIComponent(id)}`, { method: 'DELETE' })
 /** choose the CLI that NEWLY HIRED OpenRouter agents get. Moves nobody who is
  *  already running — each agent keeps the harness it was hired on. */
 export const setOpenRouterHarness = (harness: string): Promise<OpenRouterDoc> =>
@@ -1128,6 +1148,11 @@ export const getOpenRouterUsage = (force = false): Promise<AccountUsage> =>
   req(`/api/openrouter/usage${force ? '?force=true' : ''}`)
 export const getOpenRouterUsagePeek = (): Promise<UsagePeek> =>
   req('/api/openrouter/usage/peek')
+/** every stored OpenRouter key's last reading by its lane (`openrouter` is
+ *  the original key, `openrouter-N` an added one). Cache-only: the engine's
+ *  usage loop reads the keys and pushes `openrouter_keys_usage`. */
+export const getOpenRouterKeysUsage = (): Promise<Record<string, AccountUsage & { name?: string }>> =>
+  req('/api/openrouter/keys/usage')
 // usage history (docket track-usage-over-time-and-show-usage-analytics,
 // phase 2): what the engine recorded over a period, downsampled per series in
 // the database — at most ~300 buckets a series, never the raw table

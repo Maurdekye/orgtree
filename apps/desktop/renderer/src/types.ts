@@ -1386,6 +1386,29 @@ export interface OpenRouterDoc {
   user_enabled: boolean
   /** which CLI drives OpenRouter agents — see `OpenRouterHarness` */
   harness?: OpenRouterHarness
+  /** every stored key, the original first (several keys at once, ruling
+   *  2026-10-11). The top-level fields above describe the original key. */
+  keys?: OpenRouterKey[]
+  /** whether any key is stored (the original may have been removed) */
+  any_key?: boolean
+}
+/** one stored OpenRouter key, secret-free. `lane` is how the usage board,
+ *  the org's account list and placement name it: `openrouter` for the
+ *  original key, its id (`openrouter-N`) for an added one. `name` is what to
+ *  show: the user's `label`, else openrouter.ai's `key_label`, else
+ *  "OpenRouter key N". `connected` is null before its first reading. */
+export interface OpenRouterKey {
+  id: string
+  lane: string
+  original: boolean
+  label: string | null
+  name: string
+  key_label: string | null
+  enabled: boolean
+  connected: boolean | null
+  reason: string | null
+  limits: UsageLimit[]
+  observed_at: string | null
 }
 /** one candidate CLI and why it can or cannot run an OpenRouter agent.
  *  `state` is deliberately four-valued (`missing` · `unavailable` ·
