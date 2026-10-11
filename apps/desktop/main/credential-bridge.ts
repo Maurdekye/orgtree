@@ -16,7 +16,7 @@ const hostOK = (value: unknown): value is string => typeof value === 'string' &&
 function lookupEnv(): NodeJS.ProcessEnv {
   const env = {...process.env}
   for (const key of Object.keys(env)) {
-    if (/^(ORGTREE_CREDENTIAL_|ORGTREE_REAL_GH$|ORGTREE_GH_LAUNCH_ACTIVE$|GIT_CONFIG_(COUNT|KEY_.*|VALUE_.*|PARAMETERS)$|GIT_ASKPASS$|SSH_ASKPASS$)/i.test(key)) delete env[key]
+    if (/^(ORGTREE_CREDENTIAL_|ORGTREE_ORIGINAL_GIT_ASKPASS$|ORGTREE_ASKPASS_ACTIVE$|ORGTREE_REAL_GH$|ORGTREE_GH_LAUNCH_ACTIVE$|GIT_CONFIG_(COUNT|KEY_.*|VALUE_.*|PARAMETERS)$|GIT_ASKPASS$|SSH_ASKPASS$)/i.test(key)) delete env[key]
   }
   const pathKey = Object.keys(env).find(key => key.toLowerCase() === 'path')
   if (pathKey) env[pathKey] = (env[pathKey] || '').split(path.delimiter).filter(dir => !dir.split(/[\\/]/).some(part => part.toLowerCase() === 'credential-adapters')).join(path.delimiter)
