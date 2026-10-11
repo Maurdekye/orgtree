@@ -121,3 +121,20 @@ test('§6 the text stays readable on every surface it is rendered on', () => {
       `${colour} on ${name} ${surface} is ${contrast(colour, surface).toFixed(2)}:1, under the 4.5:1 AA floor`)
   }
 })
+
+test('Language Server Gold remains distinct from existing presets and every status palette', t => {
+  const gold = THEMES.langserver.accent
+  for (const [id, theme] of Object.entries(THEMES)) {
+    if (id === 'langserver') continue
+    const distance = deltaE(gold, theme.accent)
+    t.diagnostic(`${id}: ΔE ${distance.toFixed(2)}`)
+    assert.ok(distance >= FLOOR, `${id}: gold is only ΔE ${distance.toFixed(1)} away`)
+  }
+  for (const status of ['work', 'review', 'backlog', 'approved', 'deploy-ready', 'ok', 'warn', 'bad', 'ice']) {
+    for (const value of token(status)) {
+      const distance = deltaE(gold, value)
+      t.diagnostic(`--${status} ${value}: ΔE ${distance.toFixed(2)}`)
+      assert.ok(distance >= FLOOR, `--${status} ${value}: gold is only ΔE ${distance.toFixed(1)} away`)
+    }
+  }
+})

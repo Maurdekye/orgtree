@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
+import { THEME_ACCENTS } from '../packages/contracts/visual-theme.ts'
 
 // Keep conversion dependency-free: the SVG remains the source of truth and this
 // small rasterizer creates the Windows ICO frames used by Electron/electron-builder.
@@ -16,6 +17,7 @@ const trayColors = {
   codex: [34, 196, 189],
   antigravity: [117, 165, 255],
   openrouter: [182, 154, 250],
+  langserver: [1, 3, 5].map(i => parseInt(THEME_ACCENTS.langserver.slice(i, i + 2), 16)),
 }
 // Keep the loading mark grey while using the established Orgtree neutral as a
 // lighter iris, so the state remains legible against its outer grey shell.

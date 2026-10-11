@@ -123,7 +123,7 @@ function token(el: Element, name: string, depth = 0): string {
 test('organization mode reaches all provider-scoped agent surfaces, nested destinations and inline account shades without touching status or tier identity', () => {
   native(); localStorage.clear(); applyTheme('custom:#8435cf'); applyContrast('charcoal')
   const removeCss = stylesheet(), host = document.createElement('div')
-  const families = ['claude','openai','google','openrouter']
+  const families = ['claude','openai','google','openrouter','langserver']
   const surfaces = ['sq','desk-body','pinwin','pin-snap-preview','tray-row','edge-jump','desk-nav-chip','proc-state active','cc-spin','eye-count','tab-count','badge']
   host.innerHTML = families.map(p => surfaces.map(cls => `<div class="${cls} prov-${p}"></div>`).join('')).join('')
     + '<div class="sq prov-openai" style="--provider-accent:#123456"><div class="desk-body prov-openai"><a class="desk-nav-chip prov-claude">destination</a><div class="md"><a href="#test">transcript link</a></div><span class="statuschip working">Working</span><span class="tier t-luna">Luna</span><div class="mailbtn"><b class="count prov-openai">3</b></div></div></div>'

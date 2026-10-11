@@ -6,7 +6,7 @@ import { ContrastSetting } from './contrast'
 import { AgentColorSetting } from './agentcolors'
 import { applyRainbow, stopRainbow, startRainbowSync, watchRainbow, saveRainbow, hueGesture, RAINBOW_OFF } from './rainbow'
 import type { RainbowPreference } from './rainbow'
-import { isVisualTheme, isCustomTheme, VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
+import { isVisualTheme, isCustomTheme, VISUAL_THEMES, THEME_ACCENTS } from '../../../../packages/contracts/visual-theme'
 import type { VisualTheme, PresetVisualTheme } from '../../../../packages/contracts/visual-theme'
 
 type ProviderPayload = { providers?: Array<{ id?: unknown; status?: { installed?: unknown } }> }
@@ -19,6 +19,7 @@ export const THEMES = {
   codex: { label: 'Codex Teal', accent: '#22c4bd', hover: '#64ddd7', soft: 'rgba(34,196,189,.16)' },
   antigravity: { label: 'Antigravity Blue', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
   openrouter: { label: 'OpenRouter Lavender', accent: '#b69afa', hover: '#d0baff', soft: 'rgba(182,154,250,.16)' },
+  langserver: { label: 'Language Server Gold', ...customTheme(THEME_ACCENTS.langserver) },
 } satisfies Record<PresetVisualTheme, { label: string; accent: string; hover: string; soft: string }>
 
 const STORAGE_KEY = 'orgtree-visual-theme'
@@ -50,6 +51,8 @@ export function applyTheme(value: unknown) {
   // The existing native-popout observer copies this root style, including
   // subsequent updates. Semantic status and scoped provider colors stay intact.
   const style = document.documentElement.style
+  // Provider and tier identity must keep this colour even with another theme.
+  style.setProperty('--langserver-gold', THEME_ACCENTS.langserver)
   style.setProperty('--accent', theme.accent)
   style.setProperty('--accent-hover', theme.hover)
   style.setProperty('--accent-soft', theme.soft)

@@ -37,9 +37,10 @@ test('Display persists only appearance, honors broadcasts over stale load, and r
   fail=true
   await act(async()=>{select.value='claude';select.dispatchEvent(new window.Event('change',{bubbles:true}))})
   assert.match(document.querySelector('[role=alert]').textContent,/Disk unavailable/)
-  assert.equal(select.value,'openrouter')
-  assert.equal(document.documentElement.style.getPropertyValue('--accent'),THEMES.openrouter.accent)
-  assert.equal(document.documentElement.style.length,7,'only accent tokens and their organization copies changed')
+  assert.equal(select.value,'langserver')
+  assert.equal(document.documentElement.style.getPropertyValue('--accent'),THEMES.langserver.accent)
+  assert.equal(document.documentElement.style.getPropertyValue('--langserver-gold'),THEMES.langserver.accent)
+  assert.equal(document.documentElement.style.length,8,'accent tokens, their organization copies and shared Language Server identity changed')
   await act(async()=>root.unmount());stop();assert.equal(listeners.size,0);dom.window.close()
 })
 
@@ -55,6 +56,7 @@ test('fresh theme follows installed-provider priority without persisting a provi
   assert.equal(defaultThemeForProviders({providers:[{id:'google',status:{installed:true}},{id:'openai',status:{installed:true}}]}),'codex')
   assert.equal(defaultThemeForProviders({providers:[{id:'google',status:{installed:true}}]}),'antigravity')
   assert.equal(defaultThemeForProviders({providers:[]}),'claude')
+  assert.equal(defaultThemeForProviders({providers:[{id:'langserver',status:{installed:true}}]}),'claude','remote servers keep the existing CLI-only initial theme rule')
   const stop=startThemeSync()
   assert.equal(document.documentElement.style.getPropertyValue('--accent'),THEMES.claude.accent)
   assert.equal(localStorage.getItem('orgtree-visual-theme'),null,'unresolved detection does not persist the provisional Claude fallback')

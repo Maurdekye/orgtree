@@ -146,7 +146,7 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   assert.equal(new Preferences(legacyNeutral).get().visualThemeExplicit, true)
   fs.writeFileSync(path.join(temp, 'legacy-unset.json'), JSON.stringify({visualTheme:'orgtree',visualThemeExplicit:false}))
   assert.equal(new Preferences(path.join(temp, 'legacy-unset.json')).get().visualThemeExplicit, false)
-  for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
+  for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter','langserver']) {
     prefs.set({visualTheme})
     assert.deepEqual(new Preferences(file).get(), {...defaults,visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false,startupMode:'restore'})
   }

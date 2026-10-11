@@ -1601,7 +1601,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     const family = providerOf(node.tier ?? '')
     const base = family === 'openai' ? THEMES.codex.accent
       : family === 'google' ? THEMES.antigravity.accent
-      : family === 'openrouter' ? THEMES.openrouter.accent : THEMES.claude.accent
+      : family === 'openrouter' ? THEMES.openrouter.accent
+      : family === 'langserver' ? THEMES.langserver.accent : THEMES.claude.accent
     // Only the provider channel varies; work/status colors remain independent.
     Object.assign(style, { '--provider-accent': accountTint(base, node.account_tint_ordinal) })
   }

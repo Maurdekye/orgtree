@@ -8194,7 +8194,7 @@ main:has(> .orgbar.native-header) > .error {
      the light --warn #805b0b. The plain darker gold sits on --warn.
    - --prov-langserver-ink is the text on an accent fill: dark on the gold
      (7.35:1), white on the deep gold (10.93:1). */
-:root { --prov-langserver: #cda206; --tier-langserver: #cda206; --prov-langserver-ink: #17191d; }
+:root { --prov-langserver: var(--langserver-gold); --tier-langserver: var(--langserver-gold); --prov-langserver-ink: #17191d; }
 :root:is(.contrast-light, .contrast-solarized-light) { --prov-langserver: #4d3a02; --prov-langserver-ink: #ffffff; }
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
   .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,

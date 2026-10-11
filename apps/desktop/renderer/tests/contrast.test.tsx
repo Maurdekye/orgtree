@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { ContrastSetting, applyContrast, startContrastSync } from '../src/contrast'
-import { ThemeSetting, applyTheme } from '../src/themes'
+import { ThemeSetting, applyTheme, THEMES } from '../src/themes'
+import { readableAgentAccent } from '../src/agentcolors'
 import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { DesktopEvent } from '../../../../packages/contracts'
 import { CONTRAST_THEMES } from '../../../../packages/contracts/contrast-theme'
@@ -40,7 +41,10 @@ test('Appearance offers the exact four contrast choices independently of custom 
       assert.equal(localStorage.getItem('orgtree-visual-theme'), 'custom:#8435cf')
       assert.ok(document.documentElement.classList.contains('mobile'), 'unrelated root classes survive')
     }
-    await change(accent, 'codex')
+    assert.ok([...accent.options].some(o => o.value === 'langserver' && o.textContent === 'Language Server Gold'))
+    await change(accent, 'langserver')
+    assert.equal(localStorage.getItem('orgtree-visual-theme'), 'langserver')
+    assert.equal(document.documentElement.style.getPropertyValue('--accent'), THEMES.langserver.accent)
     assert.deepEqual(chosen(), ['obsidian-black'])
     assert.equal(localStorage.getItem('orgtree-contrast-theme'), 'obsidian-black')
     stop(); applyContrast('charcoal')
@@ -48,6 +52,37 @@ test('Appearance offers the exact four contrast choices independently of custom 
     assert.deepEqual(chosen(), ['obsidian-black'], 'startup restores without opening settings')
     stopReloaded()
   } finally { await view.unmount(); stop(); localStorage.clear(); document.documentElement.classList.remove('mobile'); applyContrast('charcoal') }
+})
+
+test('Language Server provider ink and Gold preset agent text stay readable on dark and light surfaces', t => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const style = document.createElement('style')
+  style.textContent = css
+  document.head.appendChild(style)
+  const luminance = (hex: string) => [1,3,5].map(i => parseInt(hex.slice(i,i+2),16)/255)
+    .map(n => n <= .04045 ? n/12.92 : ((n+.055)/1.055)**2.4)
+    .reduce((sum,n,i) => sum+n*[.2126,.7152,.0722][i]!,0)
+  const ratio = (a: string,b: string) => (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05)
+  applyTheme('langserver')
+  try {
+    for (const id of CONTRAST_THEMES) {
+      applyContrast(id)
+      const computed = getComputedStyle(document.documentElement)
+      const value = (name: string): string => {
+        const v = computed.getPropertyValue(name).trim(), ref = /^var\((--[\w-]+)\)$/.exec(v)
+        return ref ? value(ref[1]!) : v
+      }
+      const surfaces = ['--bg','--side','--panel','--panel-2','--input'].map(value)
+      const provider = value('--prov-langserver'), ink = value('--prov-langserver-ink')
+      for (const bg of surfaces) assert.ok(ratio(provider,bg) >= 4.5, `${id}: provider text on ${bg}`)
+      assert.ok(ratio(ink,provider) >= 4.5, `${id}: provider label on filled accent`)
+      assert.equal(value('--tier-langserver'), THEMES.langserver.accent, 'tier identity keeps the existing gold')
+      const preset = readableAgentAccent(THEMES.langserver.accent, surfaces)
+      t.diagnostic(`${id}: provider ${provider} text minimum ${Math.min(...surfaces.map(bg => ratio(provider,bg))).toFixed(2)}:1; fill ${ratio(ink,provider).toFixed(2)}:1; preset agent text minimum ${Math.min(...surfaces.map(bg => ratio(preset.text,bg))).toFixed(2)}:1`)
+      for (const bg of surfaces) assert.ok(ratio(preset.text,bg) >= 4.5, `${id}: preset agent text on ${bg}`)
+      assert.ok(ratio(preset.ink,THEMES.langserver.accent) >= 4.5, `${id}: preset label on filled accent`)
+    }
+  } finally { style.remove(); applyContrast('charcoal'); applyTheme('claude') }
 })
 
 test('browser settings follow other windows, resets and same-window changes; an unavailable store leaves the prior selection', async () => {

@@ -1,5 +1,5 @@
 /** Appearance only: never use these values as provider or route identities. */
-export const VISUAL_THEMES = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter'] as const
+export const VISUAL_THEMES = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'langserver'] as const
 export type PresetVisualTheme = typeof VISUAL_THEMES[number]
 export type VisualTheme = PresetVisualTheme | `custom:#${string}`
 export const isCustomTheme = (value: unknown): value is `custom:#${string}` =>
@@ -14,6 +14,8 @@ export const THEME_ACCENTS: Record<PresetVisualTheme, string> = {
   codex: '#22c4bd',
   antigravity: '#75a5ff',
   openrouter: '#b69afa',
+  // Existing Language Server chat/tier gold; renderer CSS shares this token.
+  langserver: '#cda206',
 }
 
 export function themeAccent(theme?: VisualTheme | string | null): string {
