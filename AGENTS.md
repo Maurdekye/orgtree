@@ -15,6 +15,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Canvas sibling drags and their Undo preview before the reorder endpoint answers.
+  Preview Rust's live-sibling midpoint ordering through the shared chart/list tree;
+  clear only the matching operation on refusal or after success plus an agreeing
+  tree (five-second success fallback). An old response/read/timer cannot cancel a
+  newer pending drag. [verified: renderer `canvas/pendingorder.ts`,
+  `canvas/OrgCanvas.tsx`, 2026-10-11; proof: `docs/rust-engine/move-preview.md`]
+
 - Desk pending mail folds at six rendered rows per run, after event deduplication.
   Keep current-turn input above its response and later mail below; optimistic and
   failed sends stay outside. Disclosure is local and retains mounted cards; reveal
