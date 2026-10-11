@@ -126,6 +126,18 @@ export default async function (rig, { flags }) {
       && turn.prompt?.includes('REPLAY-PRIMARY-PROOF'), { home: start?.codex_home })
   }
   p.check('secondary capacity mark survives every primary switch', markBefore === JSON.stringify(rig.sql(`SELECT * FROM ot.account_marks WHERE account=${quote(B)}`)))
+  // The same shared route resolves each native provider, never the old binding.
+  // Synthetic frozen rows avoid making any real provider quota request.
+  for (const [tier, provider] of [['haiku', 'claude'], ['flash', 'google']]) {
+    await freeze()
+    rig.exec(`UPDATE ot.agents SET tier=${quote(tier)},provider=${quote(provider)},session_id=NULL WHERE id=${id}`)
+    const beforeTurns = rig.turns('mira').length
+    const result = await http(`${provider}/primary`)
+    p.check(`${provider} qualified native primary resolves independently of secondary`,
+      result.ok && result.json?.account === `${provider}/primary` && seat().account === null && !seat().frozen, result)
+    if (result.ok) await rig.waitTurns('mira', beforeTurns + 1, { timeout: 60000 })
+  }
+  rig.exec(`UPDATE ot.agents SET tier='sol',provider='openai',session_id=NULL WHERE id=${id}`)
   await freeze()
   await rig.api('PUT', `/api/accounts/${C}/enabled`, { enabled: false })
   await refuse('disabled registered target retains freeze', C, /inactive/)
