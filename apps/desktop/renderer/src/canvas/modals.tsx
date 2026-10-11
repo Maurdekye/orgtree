@@ -401,13 +401,22 @@ export function HireDefaultsTab({ tree, slug, toast, close,
   const allMcp = tools.mcp.includes('*')
   return (
     <>
-      {/* folder access FIRST — the same order as the per-agent config (user
-          ruling), which is the order the ⚙ panel used */}
-      <SetGroup title="Folder access"
-        note="the org's holdings — also the folder defaults for every hire">
-        <SetBlock hint={'additions apply to FUTURE hires; removing one '
-          + 'revokes it everywhere, and an RW→RO downgrade reaches every '
-          + 'grant already handed out'}>
+      {/* the ⚙ panel's own danger row. It is not a hire default, but that
+          panel was the only place it has ever been reachable from — dropping
+          it with the modal would delete the capability, not move it. */}
+      <SetGroup title="Agent actions">
+        <SetBlock hint="Retire all agents in this organization. Context is kept; rehire restores any of them.">
+          <div className="row">
+            <button className="danger" onClick={() => setAsking(true)}>
+              dissolve all agents</button>
+          </div>
+        </SetBlock>
+      </SetGroup>
+
+      {/* Scope starts with folder access; tool sections follow its other fields. */}
+      <SetGroup title="Folders"
+        note="Organization holdings and defaults for future hires">
+        <SetBlock hint={`${FOLDERS_HINT} Additions apply to future hires; removing a folder revokes it everywhere, and changing RW to RO updates existing grants.`}>
           <div className="dirlist">
             {tree.workspace && (
               <div className="dirrow">
@@ -431,8 +440,8 @@ export function HireDefaultsTab({ tree, slug, toast, close,
               </div>
             ))}
             <div className="dirrow">
-              <input placeholder="add an absolute path"
-                aria-label="add an absolute path"
+              <input placeholder="Add a folder path"
+                aria-label="Add a folder path"
                 value={newPath} onChange={(e) => setNewPath(e.target.value)} />
               <button type="button" className="iconbtn" title="browse for a folder"
                 onClick={() => pickFolder().then((r) => {
@@ -449,33 +458,10 @@ export function HireDefaultsTab({ tree, slug, toast, close,
         </SetBlock>
       </SetGroup>
 
-      <SetGroup title="Agent hire defaults"
-        note="granted to hires that state no tools of their own">
-        <SetBlock label="Native Tools" hint={NATIVE_TOOLS_HINT}>
-          {TOOL_LABELS.map(([k, label, hint]) => (
-            <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
-              onChange={next => setTools({ ...tools, [k]: next })} />
-          ))}
-        </SetBlock>
-        <SetBlock label="Orgtree tools">
-          <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
-        </SetBlock>
-        <SetBlock label="MCP Servers">
-          <SetToggle label="all registered MCP servers"
-            labelContent="all registered servers (current and future)" checked={allMcp}
-            onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
-          {allMcp && (
-            <McpCurrentServers servers={servers} />
-          )}
-          {!allMcp && <McpChecklist servers={servers}
-            checked={(s) => tools.mcp.includes(s)}
-            onToggle={(s, on) => setTools({
-              ...tools,
-              mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
-            })} />}
-        </SetBlock>
-        <SetRow label="org-structure visibility">
-          <select value={vis} aria-label="org-structure visibility"
+      <SetGroup title="Scope"
+        note="Defaults for future hires; existing agents keep their settings">
+        <SetRow label="Visible agents" hint={VISIBLE_AGENTS_HINT}>
+          <select value={vis} aria-label="Visible agents"
             onChange={(e) => setVis(e.target.value)}>
             {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
@@ -484,18 +470,14 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             /settings, not the defaults endpoint. It is a DEFAULT: existing
             agents keep the mode they were hired with and change one at a
             time in their own ⚙. */}
-        <SetRow label="permission mode for NEW agents"
-          hint="existing agents keep theirs — change those in the agent's own ⚙">
-          <select value={pm} aria-label="permission mode for new agents"
+        <SetRow label="File and command access" hint={FILE_ACCESS_HINT}>
+          <select value={pm} aria-label="File and command access"
             onChange={(e) => setPm(e.target.value)}>
-            <option value="plan">plan — read-only planning seat</option>
-            <option value="default">default — asks (headless: auto-denies)</option>
-            <option value="acceptEdits">acceptEdits — the normal seat</option>
-            <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
+            {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </SetRow>
-        <SetRow label="provider for NEW agents"
-          hint="existing agents keep theirs — change those in the agent's own ⚙">
+        <SetRow label="Provider"
+          hint="Choose the provider for the default account used by future hires.">
           <select aria-label="Provider for default account" value={selectedProvider}
             onChange={(e) => {
               setBrowseProvider(e.target.value)
@@ -506,26 +488,37 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             ))}
           </select>
         </SetRow>
-        <SetRow label="account for NEW agents"
+        <SetRow label="Account"
           hint={account
-            ? 'new agents are hired on this account unless a hire picks another; existing agents keep theirs'
-            : "Uses each hire's default account."}>
+            ? 'Choose the signed-in account future hires use unless a hire picks another.'
+            : "Uses each hire's default account; existing agents keep theirs."}>
           <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
             host={hostIdentity} eligible={orgAllowed} ineligibleNote="not used by this org"
             label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />
           {account && <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>}
         </SetRow>
-      </SetGroup>
-
-      {/* the ⚙ panel's own danger row. It is not a hire default, but that
-          panel was the only place it has ever been reachable from — dropping
-          it with the modal would delete the capability, not move it. */}
-      <SetGroup title="Dissolve all agents">
-        <SetBlock hint="every agent in the entire org is retired at once. Context is kept; rehire brings any of them back.">
-          <div className="row">
-            <button className="danger" onClick={() => setAsking(true)}>
-              dissolve all agents</button>
-          </div>
+        <SetBlock label="Native Tools" hint={NATIVE_TOOLS_HINT}>
+          {TOOL_LABELS.map(([k, label, hint]) => (
+            <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
+              onChange={next => setTools({ ...tools, [k]: next })} />
+          ))}
+        </SetBlock>
+        <SetBlock label="Orgtree Tools" hint={ORGTREE_TOOLS_HINT}>
+          <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
+        </SetBlock>
+        <SetBlock label="MCP Servers" hint={MCP_SERVERS_HINT}>
+          <SetToggle label="all registered MCP servers"
+            labelContent="All registered servers (current and future)" checked={allMcp}
+            onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
+          {allMcp && (
+            <McpCurrentServers servers={servers} />
+          )}
+          {!allMcp && <McpChecklist servers={servers}
+            checked={(s) => tools.mcp.includes(s)}
+            onToggle={(s, on) => setTools({
+              ...tools,
+              mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
+            })} />}
         </SetBlock>
       </SetGroup>
 
@@ -656,7 +649,8 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     <ModalOverPins><PinFrame kind="draft-scope" title="Draft permissions" panel="settings" close={close} pinnable={false}>
         <h3><SettingsIcon fontSize="inherit" /> Permissions <span className="dim">
           · applied with the hire</span></h3>
-        <div className="field-label">folder access</div>
+        <div className="field-label">Folders</div>
+        <p className="set-hint">{FOLDERS_HINT}</p>
         <div className="dirlist">
           {dirs.map((d, i) => (
             <div className="dirrow" key={d.path}>
@@ -673,7 +667,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             </div>
           ))}
           <div className="dirrow">
-            <input placeholder="add an absolute path"
+            <input placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
             <button type="button" className="iconbtn" title="browse for a folder"
               onClick={() => pickFolder().then((r) => {
@@ -687,31 +681,17 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             }}>add</button>
           </div>
         </div>
-        <div className="field-label">Native Tools</div>
-        <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
-        {TOOL_LABELS.map(([k, label, hint]) => (
-          <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
-            onChange={next => setTools({ ...tools, [k]: next })} />
-        ))}
-        <div className="field-label">Orgtree tools</div>
-        <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
-        <div className="field-label">MCP Servers</div>
-        <SetToggle label="all registered servers (current and future)" checked={allMcp}
-          onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
-        {!allMcp && <McpChecklist servers={servers}
-          checked={(s) => tools.mcp.includes(s)}
-          onToggle={(s, on) => setTools({
-            ...tools,
-            mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
-          })} />}
-        <div className="field-label">org-structure visibility</div>
-        <select value={vis} onChange={(e) => setVis(e.target.value)}>
+        <div className="field-label">Visible agents</div>
+        <p className="set-hint">{VISIBLE_AGENTS_HINT}</p>
+        <select aria-label="Visible agents" value={vis} onChange={(e) => setVis(e.target.value)}>
           {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
-        <div className="field-label">thinking effort</div>
+        <div className="field-label">Thinking effort</div>
+        <p className="set-hint">Choose how much effort the model spends reasoning.</p>
         <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'} levels={tierEffortLevels(tree.slug, draft.tier)}
           inheritLabel="inherit — org default" title={EFFORT_CHANGE_HELP} onSet={setEffort} />
-        <div className="field-label">account</div>
+        <div className="field-label">Account</div>
+        <p className="set-hint">Choose the signed-in account this agent uses.</p>
         {/* ⚠ ELIGIBLE ACCOUNTS ONLY (user ruling 2026-09-15), read from the
             staffing availability that was warmed when the org loaded — this
             selector starts no load of its own. `peek` and not an await: if the
@@ -728,6 +708,25 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         {selectedAccount && <button type="button" onClick={() => {
           setAcct(''); setAcctTouched(true)
         }}>Use machine default</button>}
+        <div className="field-label">Native Tools</div>
+        <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
+        {TOOL_LABELS.map(([k, label, hint]) => (
+          <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
+            onChange={next => setTools({ ...tools, [k]: next })} />
+        ))}
+        <div className="field-label">Orgtree Tools</div>
+        <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
+        <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
+        <div className="field-label">MCP Servers</div>
+        <p className="set-hint">{MCP_SERVERS_HINT}</p>
+        <SetToggle label="all registered MCP servers" labelContent="All registered servers (current and future)" checked={allMcp}
+          onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
+        {!allMcp && <McpChecklist servers={servers}
+          checked={(s) => tools.mcp.includes(s)}
+          onToggle={(s, on) => setTools({
+            ...tools,
+            mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
+          })} />}
         <div className="hint">
           Grants clamp to what the parent holds (№30) — anything beyond its
           capability is trimmed at hire with a warning.
@@ -754,7 +753,7 @@ function McpChecklist({ servers, checked, onToggle }: McpChecklistProps) {
   return (
     <>
       {servers.length === 0 && (
-        <div className="hint dim">none registered</div>
+        <div className="hint dim">No MCP servers registered.</div>
       )}
       {servers.map((s) => (
         <SetToggle key={s} label={s} labelContent={<span className="mono">{s}</span>}
@@ -765,10 +764,22 @@ function McpChecklist({ servers, checked, onToggle }: McpChecklistProps) {
 }
 
 const VIS_OPTIONS = [
-  ['self', 'self'],
-  ['team', 'team'],
-  ['subtree', 'subtree'],
-  ['full', 'full (default)'],
+  ['self', 'Only this agent'],
+  ['team', 'Its team'],
+  ['subtree', 'Its team and all reports'],
+  ['full', 'Everyone'],
+] as const
+
+const FOLDERS_HINT = 'Choose which folders the agent can read or change.'
+const VISIBLE_AGENTS_HINT = 'Choose how much of the organization this agent can see.'
+const FILE_ACCESS_HINT = 'Unrestricted access removes approval prompts, including for shared skill files.'
+const ORGTREE_TOOLS_HINT = 'Tools provided by Orgtree to manage work, agents and communication.'
+const MCP_SERVERS_HINT = 'Choose which registered MCP servers the agent can use.'
+const PERMISSION_OPTIONS = [
+  ['plan', 'Read only'],
+  ['default', 'Ask before changes'],
+  ['acceptEdits', 'Allow normal changes'],
+  ['bypassPermissions', 'Unrestricted access'],
 ] as const
 
 /* D-106 (user ruling 2026-08-07): a grant deeper than the chain can carry no
@@ -1211,8 +1222,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
         </span></SetRow>
 
-        {node.state === 'live' && node.id !== USER && !node.isBearerOf &&
-          <CreditGrant key={`${node.id}:${node.generation}`} node={node} map={map} tree={tree} op={op} />}
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
             common case plus a per-field line only where the blast radius
             DIFFERS — a wider scope, a different mechanism, or no cost at
@@ -1324,7 +1333,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         )}
         </SettingsTabPanel>
         <SettingsTabPanel id="scope" idBase={tabId} active={tab === 'scope'}>
-        <SetBlock label="Folders" hint="Choose which folders the agent can read or change."><div className="dirlist">
+        {node.state === 'live' && node.id !== USER && !node.isBearerOf &&
+          <CreditGrant key={`${node.id}:${node.generation}`} node={node} map={map} tree={tree} op={op} />}
+        <SetBlock label="Folders" hint={FOLDERS_HINT}><div className="dirlist">
           {dirs.map((d, i) => (
             <div className="dirrow" key={d.path}>
               <span className="chip mono grow">{d.path}</span>
@@ -1369,6 +1380,20 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         </div>
 
         </SetBlock>
+        <SetRow label="Visible agents" hint={VISIBLE_AGENTS_HINT}><select value={vis} onChange={(e) => setVis(e.target.value)}>
+          {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select></SetRow>
+
+        {/* user ruling 2026-08-07: writing the machine's GLOBAL skills is
+            gated above every allow-rule and hook — only bypassPermissions
+            clears it, so the mode had to become settable per node. It was
+            reachable by API alone before this; agents still cannot set it
+            (orgtree_retool does not expose it), so raising one is the
+            user's act. */}
+        <SetRow label="File and command access" hint={FILE_ACCESS_HINT}><select value={pm} onChange={(e) => setPm(e.target.value)}>
+          {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></SetRow>
+
         <SetGroup title="Native Tools">
         <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
         {TOOL_LABELS.map(([k, label, hint]) => (
@@ -1378,14 +1403,15 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         ))}
         </SetGroup>
 
-        <SetGroup title="Orgtree tools">
+        <SetGroup title="Orgtree Tools">
+          <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
           <OrgtreeGroupToggles value={tools.orgtree} ceiling={parentTools?.orgtree}
             onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetGroup>
 
         <SetGroup title="MCP Servers">
-        <p className="set-hint">Choose tools from the shared registry; changes restart this agent.</p>
-        {servers.length === 0 && <div className="hint">No tools registered.</div>}
+        <p className="set-hint">{MCP_SERVERS_HINT} Changes restart this agent.</p>
+        {servers.length === 0 && <div className="hint">No MCP servers registered.</div>}
         {servers.map((s) => <SetToggle key={s} label={s}
           checked={(holdsAllMcp || tools.mcp.includes(s)) && parentHoldsMcp(s)}
           disabled={!parentHoldsMcp(s)} hint={!parentHoldsMcp(s) ? "The superior does not have this tool." : undefined}
@@ -1394,23 +1420,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               : (holdsAllMcp ? servers.filter(x => x !== s) : tools.mcp.filter(x => x !== s)),
           })} />)}
         </SetGroup>
-
-        <SetRow label="Visible agents" hint="Choose how much of the organization this agent can see."><select value={vis} onChange={(e) => setVis(e.target.value)}>
-          {VIS_OPTIONS.map(([v]) => <option key={v} value={v}>{{self:'Only this agent', team:'Its team', subtree:'Its team and all reports', full:'Everyone'}[v]}</option>)}
-        </select></SetRow>
-
-        {/* user ruling 2026-08-07: writing the machine's GLOBAL skills is
-            gated above every allow-rule and hook — only bypassPermissions
-            clears it, so the mode had to become settable per node. It was
-            reachable by API alone before this; agents still cannot set it
-            (orgtree_retool does not expose it), so raising one is the
-            user's act. */}
-        <SetRow label="File and command access" hint="Unrestricted access removes approval prompts, including for shared skill files."><select value={pm} onChange={(e) => setPm(e.target.value)}>
-          <option value="plan">Read only</option>
-          <option value="default">Ask before changes</option>
-          <option value="acceptEdits">Allow normal changes</option>
-          <option value="bypassPermissions">Unrestricted access</option>
-        </select></SetRow>
 
         </SettingsTabPanel>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
