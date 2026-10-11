@@ -18,6 +18,11 @@ export default async function (rig) {
     ] })
   const put = (provider, doc) => fs.writeFileSync(path.join(dir, `${provider}.json`), JSON.stringify(doc))
   put('openai', canned(old))
+  // Let the first automatic usage pass complete before measuring tool effects.
+  // The Google read is last in that pass; later normal cadence stays unchanged.
+  await rig.waitFor(() => fs.existsSync(path.join(dir, 'calls.log'))
+    && fs.readFileSync(path.join(dir, 'calls.log'), 'utf8').includes(' google'),
+    { what: 'initial automatic usage pass', timeout: 20000 })
   await rig.api('GET', '/api/codex/usage?force=true')
   const calls = () => fs.existsSync(path.join(dir, 'calls.log'))
     ? fs.readFileSync(path.join(dir, 'calls.log'), 'utf8').split('\n').filter(l => l.includes(' openai')).length : 0
@@ -43,7 +48,7 @@ export default async function (rig) {
     p.check('invalid or unavailable request refuses before probing: ' + JSON.stringify(args), !out.ok && calls() === before, out)
   }
   // Scope is read fresh through the real ancestor chain, not the served list.
-  const groups = value => rig.sql(`UPDATE ot.agents SET scope=jsonb_set(scope,'{tools}',
+  const groups = value => rig.exec(`UPDATE ot.agents SET scope=jsonb_set(scope,'{tools}',
     COALESCE(scope->'tools','{}'::jsonb) || jsonb_build_object('orgtree','${JSON.stringify(value)}'::jsonb),true) WHERE name='boss'`)
   groups({ inspection: true, runtime: false })
   const readOnly = await query({ accounts: ['openai/primary'] })
@@ -78,9 +83,9 @@ export default async function (rig) {
   p.check('absent local metering is explicit, quota unsupported, no invented zero', absent.ok
     && absent.json.accounts[0].reason === 'no_recorded_spend' && absent.json.accounts[0].quota === 'unsupported'
     && absent.json.accounts[0].spend === null, absent)
-  rig.sql('ALTER TABLE ot.account_spend RENAME TO usage_proof_spend')
+  rig.exec('ALTER TABLE ot.account_spend RENAME TO usage_proof_spend')
   try { await rig.api('GET', `/api/accounts/${K}/usage?force=true`) }
-  finally { rig.sql('ALTER TABLE ot.usage_proof_spend RENAME TO account_spend') }
+  finally { rig.exec('ALTER TABLE ot.usage_proof_spend RENAME TO account_spend') }
   const dbFailed = await query({ accounts: [K] })
   p.check('local metering DB error remains failed rather than zero', dbFailed.ok
     && dbFailed.json.accounts[0].reason === 'failed' && dbFailed.json.accounts[0].spend === null, dbFailed)
@@ -89,7 +94,7 @@ export default async function (rig) {
   const inactiveKeyRefresh = await query({ accounts: [K], refresh: true })
   p.check('inactive registered account remains inspectable but not refreshable', inactiveKey.ok
     && inactiveKey.json.accounts[0].enabled === false && !inactiveKeyRefresh.ok, { inactiveKey, inactiveKeyRefresh })
-  rig.sql(`UPDATE ot.accounts SET origin_org='another-rig-org' WHERE id='${K}'`)
+  rig.exec(`UPDATE ot.accounts SET origin_org='another-rig-org' WHERE id='${K}'`)
   await rig.api('PUT', `/api/accounts/${K}/enabled`, { enabled: true })
   const foreign = await query({ accounts: [K] })
   p.check('legacy origin restriction cannot be bypassed by exact ID', !foreign.ok, foreign)
