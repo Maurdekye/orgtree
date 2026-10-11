@@ -54,6 +54,7 @@ module.exports=async page=>{
     row.querySelector('button').click()
   })
   await page.waitFor(()=>[...document.querySelectorAll('.badge.free')].some(x=>x.innerText.includes('compose.bin')))
+  await page.eval(()=>[...document.querySelectorAll('.badge.free')].find(x=>x.innerText.includes('compose.bin')).scrollIntoView({block:'nearest'}))
   await page.screenshot('recovered-after-reload')
   return {replyBlocked,composeBlocked,retryCompleted:true,recoveredAfterReload:true}
 }

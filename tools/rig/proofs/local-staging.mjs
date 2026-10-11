@@ -84,6 +84,17 @@ export default async function(rig) {
     await rig.api('DELETE',`${base()}/${pending.id}`)
     await call({action:'notifications'})
     proof.check('explicit cancellation and successful completion stay silent',rig.sql(`SELECT id FROM ot.net_transfer_failures WHERE detail->>'transfer_id' IN ('${pending.id}','${t.id}','${done.id}')`).length===0)
+    const undeletable=await start(8,'cleanup-retry')
+    const bad=await body(undeletable.id,Buffer.alloc(1));await bad.text()
+    const blockedPath=rig.one(`SELECT path FROM ot.upload_stages WHERE id='${undeletable.id}'`).path
+    if(!path.resolve(blockedPath).startsWith(path.resolve(rig.data)+path.sep)) throw Error('fixture cleanup escaped rig data')
+    fs.mkdirSync(blockedPath)
+    rig.exec(`UPDATE ot.upload_stages SET cleaned_at=NULL WHERE id='${undeletable.id}'`)
+    await get(undeletable.id)
+    proof.check('a cleanup error leaves a retryable record',rig.one(`SELECT cleaned_at FROM ot.upload_stages WHERE id='${undeletable.id}'`).cleaned_at===null)
+    fs.rmdirSync(blockedPath)
+    await rig.waitFor(()=>rig.one(`SELECT cleaned_at FROM ot.upload_stages WHERE id='${undeletable.id}'`).cleaned_at!==null,{what:'cleanup retry after removable file',timeout:25000})
+    proof.check('background cleanup retries a prior removal error',true)
     const pages=[];let after=''
     do {const page=await rig.api('GET',`${base()}?after=${after}`);pages.push(...page.files);after=page.next||''} while(after)
     proof.check('saved tickets remain discoverable beyond the first page',expired.every(x=>pages.some(y=>y.id===x.id)))
