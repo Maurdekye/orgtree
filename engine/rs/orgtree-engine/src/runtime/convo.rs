@@ -109,6 +109,23 @@ pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
     Value::Object(inputs)
 }
 
+/// Consecutive prose blocks keep their existing paragraph/fold grouping;
+/// a tool between them is a boundary that must remain visible in that order.
+#[nolog]
+pub fn append_display_block(row: &mut Value, block: Value) {
+    let Some(blocks) = row["content_blocks"].as_array_mut() else { return };
+    if let Some(last) = blocks.last_mut() {
+        if last["kind"] == block["kind"] && block["kind"] != "tool" && last["sealed"] == block["sealed"] {
+            let before = last["text"].as_str().unwrap_or("");
+            let after = block["text"].as_str().unwrap_or("");
+            last["text"] = json!(if before.is_empty() { after.to_string() }
+                else if after.is_empty() { before.to_string() } else { format!("{before}\n\n{after}") });
+            return;
+        }
+    }
+    blocks.push(block);
+}
+
 #[logged]
 fn stamp(body: &mut Value, seq: i64) {
     if let Some(o) = body.as_object_mut() {

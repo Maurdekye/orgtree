@@ -3617,7 +3617,7 @@ impl Actor {
                         let cur = row["text"].as_str().unwrap_or("").to_string();
                         let add = block["text"].as_str().unwrap_or("");
                         row["text"] = json!(if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") });
-                        row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"text", "text":add}));
+                        convo::append_display_block(&mut row, json!({"kind":"text", "text":add}));
                         turn.draft.clear();
                         wrote_text = true;
                     }
@@ -3633,14 +3633,14 @@ impl Actor {
                         let room = 20_000usize.saturating_sub(cur.chars().count() + if cur.is_empty() { 0 } else { 2 });
                         let shown = convo::clip(add, room).0;
                         if !shown.is_empty() || add.is_empty() {
-                            row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"thinking", "text":shown, "sealed":add.is_empty()}));
+                            convo::append_display_block(&mut row, json!({"kind":"thinking", "text":shown, "sealed":add.is_empty()}));
                         }
                         turn.thinking.clear();
                         wrote_thought = true;
                     }
                     Some("redacted_thinking") => {
                         row["thinking_sealed"] = json!(true);
-                        row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"thinking", "sealed":true}));
+                        convo::append_display_block(&mut row, json!({"kind":"thinking", "sealed":true}));
                         turn.thinking.clear();
                         wrote_thought = true;
                     }
@@ -3659,7 +3659,7 @@ impl Actor {
                         }
                         // Keep native block order without duplicating tool inputs
                         // or results; the block resolves the current chip by id.
-                        row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"tool", "id":id}));
+                        convo::append_display_block(&mut row, json!({"kind":"tool", "id":id}));
                         turn.tools.insert(id.clone(), mid.clone());
                         wrote_tool = Some(id);
                     }
