@@ -1,7 +1,7 @@
 import { beginOpen, useOpenCommit } from '../opentiming'
 import { useRecordMailbox } from '../recordpanelhooks'
 import type { UploadOptions } from '../api'
-import { useStaging, StagingRows } from './staging'
+import { useStaging, StagingRows, SavedLocalFiles } from './staging'
 // canvas/mail.tsx — the mail interfaces: the shared webmail MailList +
 // MailFolders, a node's InboxView tab and its modal form (NodeInboxModal),
 // the org-inbox viewer (OrgInboxModal), and the org record. One mail
@@ -975,6 +975,8 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         </div>
       )}
       <StagingRows staging={staging} />
+      {upload && slug && <SavedLocalFiles slug={slug} attached={attached.map(a=>a.path)} disabled={sendDisabled}
+        onAttach={f=>setAttached(a=>a.some(x=>x.path===f.id)?a:[...a,{name:f.name,path:f.id,bytes:f.bytes}])} />}
       <div className={'mail-reply' + (noticeArmed && notice ? ' notice-armed' : '')}>
         {/* the composer's left column, exactly as the desk composer builds it
             (b38d9d9): the notice toggle ABOVE the attach button, both in the
@@ -1944,6 +1946,8 @@ function ComposeModal({ slug, net, entries, toast, close }: {
             }
           }} />
         <StagingRows staging={staging} />
+        <SavedLocalFiles slug={slug} attached={staged.map(s=>s.id)} disabled={busy||!attachable}
+          onAttach={f=>setStaged(s=>s.some(x=>x.id===f.id)?s:[...s,{id:f.id,name:f.name}])} />
         <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
           <input ref={fileRef} type="file" multiple hidden
             onChange={(e) => {

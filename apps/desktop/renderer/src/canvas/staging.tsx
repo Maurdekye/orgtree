@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { UploadOptions, UploadProgress } from '../api'
+import { savedLocalFiles, dismissLocalFile, cancelLocalFile, type StagingTicket, type UploadOptions, type UploadProgress } from '../api'
 import { fmtBytes } from './img'
 
 interface Pending { id: number; file: File; stop: AbortController; progress: UploadProgress; error?: string; cancelled?: boolean }
@@ -7,12 +7,13 @@ interface Pending { id: number; file: File; stop: AbortController; progress: Upl
 export function useStaging<T>(upload: (file: File, options: UploadOptions) => Promise<T>, complete: (file: File, result: T) => void) {
   const pending=useRef(new Map<number,Pending>())
   const seq=useRef(0), live=useRef(true)
+  const draft=useRef(crypto.randomUUID())
   const [rows,setRows]=useState<Pending[]>([])
   const refresh=()=>{ if(live.current) setRows([...pending.current.values()]) }
   useEffect(()=>{ live.current=true; return()=>{ live.current=false; for(const p of pending.current.values()) p.stop.abort() } },[])
   const run=(p:Pending)=>{
     const stop=p.stop
-    void upload(p.file,{signal:stop.signal,progress:value=>{
+    void upload(p.file,{draft:draft.current,signal:stop.signal,progress:value=>{
       if(pending.current.get(p.id)?.stop!==stop) return
       p.progress=value; refresh()
     }}).then(result=>{
@@ -53,5 +54,46 @@ export function StagingRows({staging}:{staging:ReturnType<typeof useStaging>}) {
       </div>
     </div>)}
     <small>Send waits for these files. Retry or remove any failed file.</small>
+  </div>
+}
+
+/** Recovery is explicit: a saved file never jumps into a different draft. */
+export function SavedLocalFiles({slug,attached,onAttach,disabled=false}:{slug:string;attached:string[];onAttach:(file:StagingTicket)=>void;disabled?:boolean}) {
+  const [open,setOpen]=useState(false),[files,setFiles]=useState<StagingTicket[]>([])
+  const [next,setNext]=useState<string|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+  const live=useRef(true)
+  useEffect(()=>{live.current=true;return()=>{live.current=false}},[])
+  const load=async(after='')=>{
+    setBusy(true);setError('')
+    try {
+      const result=await savedLocalFiles(slug,after)
+      if(live.current) {setFiles(old=>after?[...old,...result.files]:result.files);setNext(result.next)}
+    } catch(e) {if(live.current) setError(e instanceof Error?e.message:String(e))}
+    finally {if(live.current) setBusy(false)}
+  }
+  const change=async(file:StagingTicket)=>{
+    setBusy(true);setError('')
+    try {
+      if(file.state==='queued'||file.state==='uploading') await cancelLocalFile(slug,file.id)
+      else await dismissLocalFile(slug,file.id)
+      await load()
+    } catch(e) {if(live.current) {setError(e instanceof Error?e.message:String(e));setBusy(false)}}
+  }
+  return <div className="saved-local-files">
+    <button disabled={disabled} onClick={()=>{setOpen(!open);if(!open) void load()}} aria-expanded={open}>Saved local files</button>
+    {open && <div className="local-staging">
+      <small>Files kept on this computer from earlier drafts. Attach a finished file, or select the original file again for an interrupted upload. Message text is not saved here.</small>
+      {files.filter(f=>!attached.includes(f.id)).map(f=><div className="transfer-file" key={f.id} data-saved-file={f.id}>
+        <strong>{f.name}</strong><small>{f.state==='complete'?`${fmtBytes(f.bytes)} ? ready to attach`:f.error||'Local upload is still pending'}</small>
+        <div className="transfer-actions">
+          {f.state==='complete'&&<button disabled={busy||disabled} onClick={()=>onAttach(f)}>Attach saved file</button>}
+          <button disabled={busy||disabled} onClick={()=>void change(f)}>{f.state==='queued'||f.state==='uploading'?'Cancel upload':'Dismiss saved entry'}</button>
+        </div>
+      </div>)}
+      {!files.length&&!busy&&<small>No saved local files.</small>}
+      {error&&<small role="alert">{error}</small>}
+      <button disabled={busy} onClick={()=>void load()}>Refresh saved files</button>
+      {next&&<button disabled={busy} onClick={()=>void load(next)}>More saved files</button>}
+    </div>}
   </div>
 }

@@ -1269,8 +1269,8 @@ export const orgInboxSend = (
     body: JSON.stringify(replyTo ? { to, body, attachments, reply_to: replyTo } : { to, body, attachments }),
   })
 export interface UploadProgress { sent: number; total: number; phase: 'preparing' | 'uploading' | 'confirming' }
-export interface UploadOptions { signal?: AbortSignal; progress?: (value: UploadProgress) => void }
-interface StagingTicket { id: string; name: string; bytes: number; state: string; error?: string }
+export interface UploadOptions { draft?: string; signal?: AbortSignal; progress?: (value: UploadProgress) => void }
+export interface StagingTicket { id: string; name: string; bytes: number; state: string; error?: string }
 export const orgInboxUpload = async (
   slug: string, file: File, recipients: string[] = [], options: UploadOptions = {},
 ): Promise<{ id: string; name: string; bytes: number }> => {
@@ -1283,7 +1283,7 @@ export const orgInboxUpload = async (
   if (file.size > limit.max_attachment_bytes) throw Error(limit.too_large)
   if (options.signal?.aborted) throw new DOMException('Upload cancelled','AbortError')
   const ticket = await req<StagingTicket>(`/api/orgs/${slug}/org_inbox/staging`, {
-    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:file.name,bytes:file.size,to:limit.to}),
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:file.name,bytes:file.size,to:limit.to,draft:options.draft}),
   })
   const url = `/api/orgs/${slug}/org_inbox/staging/${encodeURIComponent(ticket.id)}`
   const cancel = () => req<StagingTicket>(url,{method:'DELETE'})
@@ -1291,7 +1291,9 @@ export const orgInboxUpload = async (
   try {
     return await new Promise<StagingTicket>((resolve,reject) => {
       const xhr = new XMLHttpRequest()
-      const abort = () => xhr.abort()
+      // Commit user intent before cutting the body: otherwise the server can
+      // mistake our intentional disconnect for a failure and notify the user.
+      const abort = () => { void cancel().catch(()=>{}).finally(()=>xhr.abort()) }
       const clean = () => options.signal?.removeEventListener('abort',abort)
       xhr.open('POST',url)
       xhr.timeout = 60 * 60 * 1000
@@ -1323,10 +1325,15 @@ export const orgInboxUpload = async (
     // Losing only the HTTP reply must not make a completed file disappear.
     const recovered=await req<StagingTicket>(url).catch(()=>null)
     if(recovered?.state==='complete') return recovered
-    await cancel().catch(()=>{})
     throw Error(recovered?.error || (err instanceof Error ? err.message : String(err)))
   }
 }
+export const savedLocalFiles = (slug:string, after=''):Promise<{files:StagingTicket[];next:string|null}> =>
+  req(`/api/orgs/${slug}/org_inbox/staging?after=${encodeURIComponent(after)}`)
+export const dismissLocalFile = (slug:string,id:string):Promise<{ok:boolean}> =>
+  req(`/api/orgs/${slug}/org_inbox/staging/${encodeURIComponent(id)}/dismiss`,{method:'POST'})
+export const cancelLocalFile = (slug:string,id:string):Promise<StagingTicket> =>
+  req(`/api/orgs/${slug}/org_inbox/staging/${encodeURIComponent(id)}`,{method:'DELETE'})
 // F-06: the network-identity reveal — loopback admin only; the ONE call that
 // returns the org secret (the settings panel's reveal/export)
 export const getOrgNet = (slug: string): Promise<OrgNetReveal> =>
