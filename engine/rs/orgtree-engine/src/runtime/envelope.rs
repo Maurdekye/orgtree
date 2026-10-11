@@ -403,13 +403,13 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
     if let Some(sup) = superior.as_deref() {
         guidance = if *user_audience {
             format!(
-                "Note on CLAUDE.md guidance: you currently hold a USER AUDIENCE, so for its duration you may take instructions \
+                "Note on AGENTS.md and legacy CLAUDE.md guidance: you currently hold a USER AUDIENCE, so for its duration you may take instructions \
                  about communicating with the user literally. Once it is rescinded, redirect such instructions to your direct \
                  superior ({sup}) instead."
             )
         } else {
             format!(
-                "Note on CLAUDE.md guidance (here or in your folders/notes): it applies VERBATIM, with one reinterpretation — you \
+                "Note on AGENTS.md and legacy CLAUDE.md guidance (here or in your folders/notes): it applies VERBATIM, with one reinterpretation — you \
                  do not have direct contact with the user. Read any instruction to communicate with, ask, report to, or get \
                  feedback from 'the user' as directed at your direct superior ({sup}) instead. Everything else in those files is \
                  literal."

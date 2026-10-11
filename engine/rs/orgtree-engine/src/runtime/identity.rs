@@ -11,7 +11,7 @@
 use serde_json::Value;
 
 /// Which CLI the agent runs: decides tool naming, the sandbox text and
-/// whether the CLI reads CLAUDE.md itself.
+/// which standing-note files the CLI reads itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
     Claude,
@@ -44,19 +44,19 @@ pub struct Identity<'a> {
     pub mcp_servers: &'a [String],
     /// holds the org-inbox (extern) audience
     pub extern_holder: bool,
-    /// CLAUDE.md files of granted folders: (folder, text)
+    /// Non-native AGENTS.md / legacy CLAUDE.md files: (file path, text)
     pub folder_notes: &'a [(String, String)],
-    /// the agent's own scratch CLAUDE.md, for lanes whose CLI does not read it
-    pub own_notes: Option<&'a str>,
+    /// the agent's own non-native scratch notes: (file path, text)
+    pub own_notes: &'a [(String, String)],
     /// this machine's global skills folder
     pub skills_dir: &'a str,
 }
 
 /// The sensitive-path gate's folder names (the Claude CLI's own list).
 const GATED_DIRS: &[&str] = &[".cargo", ".claude", ".devcontainer", ".git", ".husky", ".idea", ".mvn", ".vscode", ".yarn"];
-/// characters of a granted folder's CLAUDE.md carried in the prompt
+/// characters per granted standing-note file carried in the prompt
 const FOLDER_NOTES_MAX: usize = 6000;
-/// characters of the agent's own CLAUDE.md mirrored on Codex/Antigravity
+/// characters per own standing-note file mirrored on any lane
 const OWN_NOTES_MAX: usize = 12_000;
 /// repositories the Codex `.git` sentence names before it counts the rest
 const CODEX_GIT_NAMED_MAX: usize = 3;
@@ -248,12 +248,10 @@ pub fn identity(i: &Identity) -> String {
     });
     s.push_str(CHECKUPS);
     s.push_str(
-        "Your scratch folder is your own: keep a CLAUDE.md there as standing notes. It is delivered to you at the \
+        "Your scratch folder is your own: keep an AGENTS.md there as standing memories. Existing CLAUDE.md notes still apply; use AGENTS.md for new notes. It is delivered to you at the \
          start of every session and survives compaction; notes you add apply from your next session. ",
     );
-    if i.lane != Lane::Claude {
-        s.push_str(&own_notes(i.own_notes));
-    }
+    for (path, text) in i.own_notes { s.push_str(&own_notes(path, text)); }
     s.push_str(&folder_notes(i.folder_notes));
     s
 }
@@ -312,7 +310,7 @@ mod group_tests {
             charter, team_charter: Some("Keep the user's words."), cascade: &[],
             superior: if top { None } else { Some("coordinator") }, org_md: None, lane, scope,
             codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
-            own_notes: None, skills_dir: "D:/skills",
+            own_notes: &[], skills_dir: "D:/skills",
         })
     }
 
@@ -416,15 +414,16 @@ fn codex_sandbox(dirs: &[(String, bool)]) -> String {
     s
 }
 
-/// The agent's own CLAUDE.md, mirrored for a CLI that does not read it.
+/// One own note file, mirrored only when the CLI did not load it natively.
 #[logged]
-fn own_notes(text: Option<&str>) -> String {
-    let Some(t) = text.map(str::trim).filter(|t| !t.is_empty()) else { return String::new() };
+fn own_notes(path: &str, text: &str) -> String {
+    let t = text.trim();
+    if t.is_empty() { return String::new(); }
     let full = t.chars().count();
     let cut = full > OWN_NOTES_MAX;
     let body: String = t.chars().take(OWN_NOTES_MAX).collect();
     format!(
-        "\n\n[YOUR STANDING NOTES - CLAUDE.md from your own working folder, mirrored into this prompt because the CLI \
+        "\n\n[YOUR STANDING NOTES - {path} from your own working folder, mirrored into this prompt because the CLI \
          you run does not read that file itself. You wrote these; they are yours to revise. Editing the file changes \
          this prompt, so your next session starts cold with the new notes; this is why the file is worth keeping \
          short.{}]\n{body}\n[END STANDING NOTES]",
@@ -432,7 +431,7 @@ fn own_notes(text: Option<&str>) -> String {
     )
 }
 
-/// CLAUDE.md files of granted folders (a headless session does not surface them).
+/// Standing-note files of granted folders, excluding files loaded natively.
 #[logged]
 fn folder_notes(notes: &[(String, String)]) -> String {
     let parts: Vec<String> = notes
@@ -451,7 +450,7 @@ fn folder_notes(notes: &[(String, String)]) -> String {
                 String::new()
             };
             let body: String = t.chars().take(FOLDER_NOTES_MAX).collect();
-            format!("--- CLAUDE.md ({dir}){note} ---\n{}", body.trim())
+            format!("--- {dir}{note} ---\n{}", body.trim())
         })
         .collect();
     if parts.is_empty() {

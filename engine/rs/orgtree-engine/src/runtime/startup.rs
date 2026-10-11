@@ -6,18 +6,18 @@
 //! and resumes the SAME session with the new text (3.x parity, user
 //! 2026-10-09), never mid-turn, and the cache forecast names "startup".
 //!
-//! The scope is exactly 3.x's.
+//! Native startup context, including the installed Claude Code AGENTS.md fallback.
 //! - Claude: the managed-policy CLAUDE.md; <config>/CLAUDE.md; CLAUDE.md and
 //!   CLAUDE.local.md from the root down to the cwd; <cwd>/.claude/CLAUDE.md;
-//!   each granted folder's CLAUDE.md and CLAUDE.local.md; unscoped rules in
+//!   AGENTS.md fallback when the project chain has no nonempty Claude notes; unscoped rules in
 //!   <config>/rules and <cwd>/.claude/rules; `@` imports, five hops deep; and
 //!   the first 25 KiB / 200 lines of auto memory's MEMORY.md.
 //! - Codex: <CODEX_HOME>/AGENTS.md, and in each folder from a `.git` root (or
 //!   the cwd alone when there is none) down to the cwd, AGENTS.override.md or
 //!   else AGENTS.md (an override replaces AGENTS.md in its folder).
 //! - Deliberately not: memory topic files and path-scoped rules (read lazily,
-//!   when needed), skills folders (the CLI watches them live), AGENTS.md for
-//!   Claude and CLAUDE.md for Codex (neither CLI reads the other's file).
+//!   when needed), skills folders (the CLI watches them live), and CLAUDE.md
+//!   for Codex. Granted-folder notes are mirrored by the engine unless native.
 //!
 //! The manifest holds paths and content hashes, never the text, and a
 //! missing file adds nothing.
@@ -49,17 +49,55 @@ pub enum Inputs {
 /// The startup files' digest: equal exactly when no startup file changed.
 #[logged]
 pub fn digest(inputs: &Inputs) -> String {
-    let files = match inputs {
-        Inputs::Claude { cwd, config, home, add_dirs } => claude(cwd, config, home, add_dirs),
-        Inputs::Codex { cwd, home } => codex(cwd, home),
-        Inputs::None => return String::new(),
-    };
+    if matches!(inputs, Inputs::None) { return String::new(); }
+    let files = native_files(inputs);
     let manifest = serde_json::to_vec(&files).unwrap_or_default();
     hex::encode(&Sha256::digest(&manifest)[..12])
 }
 
+/// Native files only: used both for cache invalidation and avoiding duplicate delivery.
+#[nolog] // filesystem inventory helper; callers record the operation
+fn native_files(inputs: &Inputs) -> BTreeMap<String, String> {
+    match inputs {
+        Inputs::Claude { cwd, config, home, .. } => claude(cwd, config, home),
+        Inputs::Codex { cwd, home } => codex(cwd, home),
+        Inputs::None => BTreeMap::new(),
+    }
+}
+
+pub type Notes = Vec<(String, String)>;
+
+/// Read both generations of standing notes without modifying either file. Native
+/// files (including Claude imports) and repeated grants are delivered just once.
+#[logged]
+pub fn standing_notes(inputs: &Inputs, scratch: &Path, folders: &[PathBuf]) -> (Notes, Notes) {
+    let mut seen: HashSet<String> = native_files(inputs).keys().map(|p| file_key(Path::new(p))).collect();
+    let mut read = |root: &Path| -> Notes {
+        ["AGENTS.md", "CLAUDE.md"].into_iter().filter_map(|name| {
+            let path = root.join(name);
+            if seen.contains(&file_key(&path)) { return None; }
+            let text = std::fs::read_to_string(&path).ok()?;
+            seen.insert(file_key(&path));
+            Some((path.to_string_lossy().into_owned(), text))
+        }).collect()
+    };
+    let own = read(scratch);
+    let granted = folders.iter().flat_map(|p| read(p)).collect();
+    (own, granted)
+}
+
+#[nolog] // per candidate path
+fn file_key(path: &Path) -> String {
+    norm(&std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+#[nolog] // per candidate file
+fn nonempty(path: &Path) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|text| !text.trim().is_empty())
+}
+
 #[nolog] // `digest` logs the call
-fn claude(cwd: &Path, config: &Path, home: &Path, add_dirs: &[PathBuf]) -> BTreeMap<String, String> {
+fn claude(cwd: &Path, config: &Path, home: &Path) -> BTreeMap<String, String> {
     let mut m = Manifest { files: BTreeMap::new(), seen: HashSet::new(), home: home.to_path_buf() };
     // managed policy, then the user's own instructions
     if cfg!(windows) {
@@ -72,16 +110,18 @@ fn claude(cwd: &Path, config: &Path, home: &Path, add_dirs: &[PathBuf]) -> BTree
     m.add(&config.join("CLAUDE.md"), 0, false, false);
     // project instructions, from the root down to the cwd
     let chain: Vec<&Path> = cwd.ancestors().collect();
+    // Measured installed CLI: any nonempty project CLAUDE.md/CLAUDE.local.md
+    // suppresses AGENTS.md fallback for the whole ancestor chain. User config
+    // notes do not suppress it; empty project files do not suppress it either.
+    let project_notes = chain.iter().any(|dir| ["CLAUDE.md", "CLAUDE.local.md"].iter()
+        .any(|name| nonempty(&dir.join(name)))) || nonempty(&cwd.join(".claude/CLAUDE.md"));
     for dir in chain.iter().rev() {
         m.add(&dir.join("CLAUDE.md"), 0, false, false);
         m.add(&dir.join("CLAUDE.local.md"), 0, false, false);
+        if !project_notes { m.add(&dir.join("AGENTS.md"), 0, false, false); }
     }
     m.add(&cwd.join(".claude").join("CLAUDE.md"), 0, false, false);
-    // every granted folder's own instructions
-    for root in add_dirs {
-        m.add(&root.join("CLAUDE.md"), 0, false, false);
-        m.add(&root.join("CLAUDE.local.md"), 0, false, false);
-    }
+    // --add-dir does not load notes by default; claude::spawn clears the opt-in env flag.
     // unscoped rules load at start; path-scoped ones only when a matching file is read
     for rules in [config.join("rules"), cwd.join(".claude").join("rules")] {
         let mut found = Vec::new();
@@ -256,4 +296,43 @@ fn sha(data: &[u8]) -> String {
 fn norm(p: &Path) -> String {
     let s = p.to_string_lossy().to_string();
     if cfg!(windows) { s.replace('/', "\\").to_lowercase() } else { s }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standing_notes_preserve_both_files_and_skip_native_imports_and_repeat_grants() {
+        let root = std::env::temp_dir().join(format!("standing-notes-{}", uuid::Uuid::new_v4()));
+        let own = root.join("own");
+        let grant = root.join("grant");
+        for dir in [&own, &grant] { std::fs::create_dir_all(dir).unwrap(); }
+        std::fs::write(own.join("AGENTS.md"), "canonical own").unwrap();
+        std::fs::write(grant.join("AGENTS.md"), "canonical grant").unwrap();
+        std::fs::write(grant.join("CLAUDE.md"), "legacy grant").unwrap();
+        let claude = Inputs::Claude { cwd: own.clone(), config: root.join("config"), home: root.clone(), add_dirs: vec![grant.clone()] };
+        let dirs = vec![grant.clone(), grant.clone(), own.clone()];
+        let (o, g) = standing_notes(&claude, &own, &dirs);
+        assert!(o.is_empty()); // native fallback
+        assert_eq!(g.len(), 2);
+        let before = digest(&claude);
+        std::fs::write(own.join("AGENTS.md"), "canonical own edited").unwrap();
+        assert_ne!(before, digest(&claude));
+        std::fs::write(own.join("CLAUDE.md"), "legacy own").unwrap();
+        let (o, g) = standing_notes(&claude, &own, &dirs);
+        assert_eq!(o.iter().map(|(_,t)| t.as_str()).collect::<Vec<_>>(), ["canonical own edited"]);
+        assert_eq!(g.len(), 2);
+        std::fs::write(own.join("CLAUDE.md"), "legacy own\n@AGENTS.md").unwrap();
+        assert!(standing_notes(&claude, &own, &dirs).0.is_empty());
+        let codex = Inputs::Codex { cwd: own.clone(), home: root.join("codex") };
+        assert_eq!(standing_notes(&codex, &own, &dirs).0.len(), 1); // legacy only
+        std::fs::write(own.join("AGENTS.override.md"), "native override").unwrap();
+        assert_eq!(standing_notes(&codex, &own, &dirs).0.len(), 2); // canonical not read natively
+        let (o, g) = standing_notes(&Inputs::None, &own, &dirs);
+        assert_eq!((o.len(), g.len()), (2, 2)); // Antigravity
+        assert_eq!(std::fs::read_to_string(own.join("CLAUDE.md")).unwrap(), "legacy own\n@AGENTS.md");
+        // Only this test's verified unique temporary root is removed.
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

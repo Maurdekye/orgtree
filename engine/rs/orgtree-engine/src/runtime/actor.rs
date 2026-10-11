@@ -1417,7 +1417,7 @@ impl Actor {
     }
 
     /// The system prompt for this launch (runtime::identity). Reads the
-    /// agent's own and its granted folders' CLAUDE.md; no side effects.
+    /// agent's own and its granted folders' AGENTS.md and legacy CLAUDE.md; no side effects.
     fn identity(&self, ctx: &Ctx, external: &[String]) -> String {
         let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
         let lane = if codex {
@@ -1433,17 +1433,9 @@ impl Actor {
         let sb = if lane == prompt::Lane::Codex { self.codex_seat(may_write, pm).0 } else { codexrt::sandbox(may_write, pm, false) };
         // a read-only seat without the OS sandbox is held by the approval policy instead
         let sandbox = if sb.approval == "untrusted" { "untrusted" } else { sb.mode };
-        // granted folders' CLAUDE.md; the org workspace's is org.md, delivered on its own
-        let workspace = self.engine.cfg.workspace_dir(&ctx.org_slug);
-        let folder_notes: Vec<(String, String)> = ctx.effective["add_dirs"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|d| d["path"].as_str())
-            .filter(|p| crate::config::canonical(std::path::Path::new(p)).ok() != crate::config::canonical(&workspace).ok())
-            .filter_map(|p| std::fs::read_to_string(std::path::Path::new(p).join("CLAUDE.md")).ok().map(|t| (p.to_string(), t)))
-            .collect();
-        let own_notes = if lane == prompt::Lane::Claude { None } else { std::fs::read_to_string(ctx.scratch.join("CLAUDE.md")).ok() };
+        let folders: Vec<PathBuf> = ctx.effective["add_dirs"].as_array().into_iter().flatten()
+            .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
+        let (own_notes, folder_notes) = startup::standing_notes(&self.startup_inputs(ctx), &ctx.scratch, &folders);
         let skills = crate::rig::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
         prompt::identity(&prompt::Identity {
             name: &ctx.name,
@@ -1462,7 +1454,7 @@ impl Actor {
             mcp_servers: external,
             extern_holder: ctx.extern_holder,
             folder_notes: &folder_notes,
-            own_notes: own_notes.as_deref(),
+            own_notes: &own_notes,
             skills_dir: &skills,
         })
     }

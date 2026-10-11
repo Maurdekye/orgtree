@@ -1267,7 +1267,7 @@ fn r_reseeded(ev: &Value) -> Option<String> {
         return Some(format!(
             "{wc} re-seeded you after your previous session \
 was lost. Your role, charter, credits and reports are intact, but \
-your memory starts fresh — check your scratch CLAUDE.md and ask your \
+your memory starts fresh — check your scratch AGENTS.md (and legacy CLAUDE.md) and ask your \
 chain to re-orient you."
         ));
     }
@@ -1392,7 +1392,7 @@ whole), and you may orgtree_rehire \"{pred}\" as your own \
 subordinate to interrogate it directly. Your warm process and prompt cache \
 are gone with it, so this turn is a cold open and costs far more than a \
 normal one — expect it, and do not switch back and forth. Check your scratch \
-CLAUDE.md, and your breadcrumbs and mail are untouched; read them to pick up \
+AGENTS.md, any legacy CLAUDE.md, and your breadcrumbs and mail are untouched; read them to pick up \
 where you left off."
     ))
 }
