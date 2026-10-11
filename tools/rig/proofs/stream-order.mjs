@@ -26,7 +26,7 @@ export async function setup() {
     scenario: { default: { turns: [{ steps: [{ text: 'Ready.' }] }] } } } }
 }
 
-export default async function(rig) {
+export default async function(rig, { flags = {} } = {}) {
   const p = new Proof('stream-order')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
     { what: 'fixture turns idle', timeout: 60000 })
@@ -52,7 +52,8 @@ export default async function(rig) {
         { tool: 'Bash', args: { command: 'echo ORDER_TOOL' }, result: 'done' },
         { text: 'ORDER_SECOND_REPLY', chunk: 64, delay_ms: 3500 }, { sleep_ms: 3000 }] }] } }
     rig.scenario(scenario)
-    for (const agent of ['claude', 'codex', 'local', 'same', 'direct']) {
+    const only = flags.only?.split(',')
+    for (const agent of ['claude', 'codex', 'local', 'same', 'direct'].filter(name => !only || only.includes(name))) {
       const direct = ['same', 'direct'].includes(agent)
       const result = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'stream-order.cjs'), {
         args: { agent, direct }, preset: 'tall', out: path.join(p.dir, agent), timeout: 90000 })
