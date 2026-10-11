@@ -132,6 +132,21 @@ export default async function (rig) {
   const cr = await Promise.all([reorder('boss', 'concurrent-a', 0), reorder('boss', 'concurrent-b', 0)])
   p.check('concurrent sibling reorders retain all seats and deterministic order', cr.every(a => a.ok)
     && sibs('boss').length === count + 2 && new Set(sibs('boss')).size === count + 2, cr)
+  const beforeMove = sibs('boss').length
+  const membership = await Promise.all([
+    reorder('boss', 'first', beforeMove - 1),
+    rig.tool('boss', 'orgtree_move', { node: 'bob', new_parent: 'boss' }),
+  ])
+  p.check('concurrent deep move participates in placement snapshot', membership.every(a => a.ok)
+    && sibs('boss').length === beforeMove + 1 && sibs('boss')[beforeMove - 1] === 'first' && sibs('boss').at(-1) === 'bob', membership)
+  const beforeRootMove = sibs(null).length
+  const rootMembership = await Promise.all([
+    op({ op: 'reorder', node: 'user-root-first', index: beforeRootMove - 1 }),
+    op({ op: 'move', node: 'bob', new_parent: 'user' }),
+  ])
+  p.check('concurrent move into root participates in root placement snapshot', rootMembership.every(a => a.ok)
+    && sibs(null).length === beforeRootMove + 1 && sibs(null)[beforeRootMove - 1] === 'user-root-first'
+    && sibs(null).at(-1) === 'bob', rootMembership)
 
   await rig.api('POST', `/api/orgs/${rig.org}/nodes/boss/scope`, { tools: { orgtree: { team: false } } })
   r = await reorder('boss', 'alice', 0)
