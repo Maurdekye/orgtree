@@ -21,7 +21,7 @@ use crate::runtime::AgentMsg;
 const ORG_KEYS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "default_account",
     "permission_mode", "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire",
-    "cascade_alloc", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
+    "cascade_alloc", "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
     "quick_chat",
 ];
 
@@ -179,7 +179,7 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
         },
         "default_tools" => bad("default_tools is an object of tool switches".into()),
         "auto_resume" | "auto_resume_compact" | "cascade_hire" | "cascade_alloc" | "org_inbox_multi_holder"
-        | "account_fallback_default" | "headless" => {
+        | "org_inbox_enabled" | "account_fallback_default" | "headless" => {
             if v.is_boolean() {
                 Ok(v.clone())
             } else {

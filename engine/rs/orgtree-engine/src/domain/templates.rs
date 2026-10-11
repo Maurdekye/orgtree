@@ -50,7 +50,7 @@ pub struct Template {
 pub const ORG_SETTINGS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "permission_mode",
     "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire", "cascade_alloc",
-    "org_inbox_multi_holder", "account_fallback_default",
+    "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default",
 ];
 
 #[derive(Deserialize, Debug, Clone)]

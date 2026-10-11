@@ -48,7 +48,7 @@ pub fn setting_defaults() -> Value {
         "fable_filter_model": null,
         "headless": false,
         "dirs": [],
-        "org_inbox_multi_holder": false,
+        "org_inbox_enabled": true, "org_inbox_multi_holder": false,
     })
 }
 
@@ -285,7 +285,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "unread": counts.get::<_, i64>(1),
                 "holders": holders,
                 "multi_holder_enabled": settings["org_inbox_multi_holder"].as_bool().unwrap_or(false),
-                "visible": total > 0 || !holders.is_empty(),
+                "enabled": settings["org_inbox_enabled"].as_bool().unwrap_or(true), "visible": settings["org_inbox_enabled"].as_bool().unwrap_or(true) && (total > 0 || !holders.is_empty()),
             }})
         }
         "net" => {
