@@ -574,18 +574,34 @@ else {
   // background engine's login registration (unixboot.ts). A running engine is
   // left running; the change applies from the next start.
   let unixBootInputs: BootInputs | null = null
+  /** ONE CHANGE AT A TIME, from the tray or Settings. A change takes seconds
+   *  (on Windows: the permission prompt, the elevated change and reading it
+   *  back), and the switch shows the saved value until it has finished. A
+   *  second change meanwhile would read the tasks before the first had
+   *  changed them and ask Windows for permission again, so it is refused.
+   *  While this is true the tray says the change is under way (rebuildTray). */
+  let startupChanging = false
   const changeRunOnStartup = async (enabled: boolean) => {
-    if (process.platform === 'win32' && app.isPackaged) {
-      const tasks = await readStartupTasks()
-      if (!tasks) throw new Error('Orgtree could not read its startup tasks, so "run on startup" was not changed.')
-      if (tasks.boot !== null && tasks.boot !== enabled) await writeRunOnStartup(enabled)
-    } else if (unixBootInputs) {
-      if (enabled) {
-        const outcome = await enableBootEngine(unixBootInputs)
-        if (outcome.error) throw new Error(`The background engine could not be set to start at login (${outcome.manager}): ${outcome.error}`)
-      } else await disableBootEngine(unixBootInputs)
+    // Set before anything asynchronous, and cleared only by the change that set it.
+    if (startupChanging) throw new Error('Orgtree is still changing "run on startup". Try again once that has finished.')
+    startupChanging = true
+    try {
+      rebuildTray()
+      if (process.platform === 'win32' && app.isPackaged) {
+        const tasks = await readStartupTasks()
+        if (!tasks) throw new Error('Orgtree could not read its startup tasks, so "run on startup" was not changed.')
+        if (tasks.boot !== null && tasks.boot !== enabled) await writeRunOnStartup(enabled)
+      } else if (unixBootInputs) {
+        if (enabled) {
+          const outcome = await enableBootEngine(unixBootInputs)
+          if (outcome.error) throw new Error(`The background engine could not be set to start at login (${outcome.manager}): ${outcome.error}`)
+        } else await disableBootEngine(unixBootInputs)
+      }
+      return setPreferences({ startAtLogin: enabled })
+    } finally {
+      startupChanging = false
+      rebuildTray()
     }
-    return setPreferences({ startAtLogin: enabled })
   }
   /** What the switch shows is what really starts: on an all-users Windows
    *  installation the boot task's state wins over a stored value that
@@ -693,7 +709,7 @@ else {
     // old preference. Keep that SAME menu accurate even while it is open;
     // replacing an open native menu is deliberately avoided below.
     const startup = trayMenu?.getMenuItemById('run-on-startup')
-    if (startup) startup.checked = prefs.startAtLogin
+    if (startup) { startup.checked = prefs.startAtLogin; startup.enabled = !startupChanging }
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     tray.setToolTip(`Orgtree - ${label()}` + (attentionTotal > 0 ? ` - ${attentionTotal} need${attentionTotal === 1 ? 's' : ''} your attention` : ''))
     // Without update support (dev-channel install, unpackaged development)
@@ -725,7 +741,10 @@ else {
         sendTo(record.id, { type: 'phone-panel', data: {} })
       })() } },
       { type: 'separator' },
-      { id: 'run-on-startup', label: 'Run on startup', type: 'checkbox', checked: prefs.startAtLogin, click: item => {
+      // The checkmark is the saved value; while a change is under way the
+      // label says so instead, and the item cannot start a second one.
+      { id: 'run-on-startup', label: startupChanging ? 'Run on startup (changing…)' : 'Run on startup', type: 'checkbox',
+        checked: prefs.startAtLogin, enabled: !startupChanging, click: item => {
         void changeRunOnStartup(item.checked).catch((error: Error) => {
           rebuildTray()
           void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
@@ -754,7 +773,14 @@ else {
       { label: 'Quit Orgtree', click: () => app.quit() },
     ])
     trayMenu.on('menu-will-show', () => { trayMenuOpen = true; rebuildTray() })
-    trayMenu.on('menu-will-close', () => { trayMenuOpen = false })
+    // A built menu's labels are fixed. If a startup change began or ended
+    // while this menu was open, build the next one once it has closed
+    // (after the click that closed it has run).
+    const builtChanging = startupChanging
+    trayMenu.on('menu-will-close', () => {
+      trayMenuOpen = false
+      if (builtChanging !== startupChanging) setTimeout(rebuildTray)
+    })
     refreshTrayUpdates()
     refreshTrayEngine()
     tray.setContextMenu(trayMenu)
