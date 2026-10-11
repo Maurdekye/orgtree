@@ -485,12 +485,12 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
             refuse!(BadRequest, "a hire needs a charter: the agent's role and standing instructions, written in full");
         }
         if s("hire_type") == Some("superior") {
-            let t = s("target").unwrap_or(my_name);
-            req["above"] = json!(t);
+            req["above"] = s("target").map_or(Value::Null, |t| json!(t));
         } else {
             req["parent"] = json!(s("target").unwrap_or(my_name));
         }
     }
+    req["_caller_generation"] = json!(my_gen);
     req["staff_item"] = args.clone();
     let hired = ops::run(engine, org, Actor::Agent { id: my_id, name: my_name.to_string() }, &req).await?;
     let mut out = json!({ "node": hired["node"], "item": hired["item"], "hire": hired,

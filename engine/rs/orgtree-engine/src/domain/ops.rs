@@ -41,6 +41,8 @@ impl Actor {
 #[derive(Default, Debug)]
 pub(crate) struct Effects {
     agents: HashSet<i64>,
+    /// A self-hired parent is promoted only after composite authorization, before commit.
+    self_parent: Option<(String, Value)>,
     stop: Vec<i64>,
     reconfigure: Vec<i64>,
     wake: Vec<i64>,
@@ -644,6 +646,16 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
             out["kickoff"] = json!(uid);
         }
     }
+    if let Some((name, inherited_scope)) = fx.self_parent.take() {
+        // All composite rights were checked while this newly admitted seat was
+        // still a report. No warm, mail, or topology effect escapes before commit.
+        self_subjugate(engine, org, tx, actor, &json!({"target": name}), fx).await?;
+        let parent = node_by_name(tx, org.id, &name).await?;
+        // Promotion normally takes the caller's configured scope. A new hire
+        // gets only the effective capability captured at admission instead.
+        tx.execute("UPDATE ot.agents SET scope=$2 WHERE id=$1", &[&parent.id, &inherited_scope]).await?;
+        out["above_self"] = json!(true);
+    }
     if crate::runtime::watchdogs::events::interested(engine,"agents.live") {
         let ids=tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live'", &[&org.id]).await?.iter().map(|r|r.get(0)).collect();
         fx.pulses.push(crate::changes::Change::EngineEvent(crate::runtime::watchdogs::events::live_count(org.id,ids)));
@@ -903,9 +915,23 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     // where it goes: under `parent` (null = the user), or as `above`'s new superior
     let anchor = match str_arg(req, "above") {
         Some(a) => Some(node_by_name(tx, org.id, a).await?),
+        None if req["hire_type"] == "superior" => match actor {
+            Actor::Agent { id, .. } => Some(node_by_id(tx, *id).await?),
+            Actor::User => refuse!(BadRequest, "superior hiring needs a target"),
+        },
         None => None,
     };
+    let self_parent = matches!((actor, &anchor), (Actor::Agent { id, .. }, Some(a)) if *id == a.id);
+    if self_parent {
+        let a = anchor.as_ref().unwrap();
+        if a.state != "live" { refuse!(Conflict, "self-superior hiring needs a live caller"); }
+        let generation: i32 = tx.query_one("SELECT generation FROM ot.agents WHERE id=$1", &[&a.id]).await?.get(0);
+        if req["_caller_generation"].as_i64() != Some(generation as i64) {
+            refuse!(Conflict, "caller changed before parent hiring; retry from the current session");
+        }
+    }
     let parent: Option<Node> = match (&anchor, str_arg(req, "parent")) {
+        (Some(a), _) if self_parent => Some(a.clone()),
         (Some(a), _) => match a.parent {
             Some(p) => Some(node_by_id(tx, p).await?),
             None => None,
@@ -934,7 +960,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     let mut siblings = ordering::siblings(tx, org.id, parent_id, anchor.as_ref().map(|a| a.id)).await?;
     let index = ordering::position(req, &siblings, agent)?;
     // a superior inserted above `anchor` also carries the anchor's stake
-    let anchor_stake = anchor.as_ref().map(|a| a.seat + a.grant).unwrap_or(0.0);
+    let anchor_stake = anchor.as_ref().filter(|_| !self_parent).map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = grant + anchor_stake;
     let need = seat + grant - anchor_stake;
     let raised = match &parent {
@@ -949,13 +975,23 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     let mut warnings: Vec<String> = Vec::new();
     let sc = if let Some(a) = &anchor {
         if a.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
-        insertion_authority(tx, actor, a).await?;
+        if !self_parent { insertion_authority(tx, actor, a).await?; }
         for field in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
             if !req[field].is_null() { refuse!(BadRequest, "superior insertion inherits target scope; omit {field}"); }
         }
         let target_scope = capability(tx, a.id, &caps.settings).await?;
+        if self_parent {
+            let tool = if req.get("staff_item").is_some() { "orgtree_staff" } else { "orgtree_hire" };
+            if !super::tool_groups::allows(&target_scope["tools"], tool) {
+                refuse!(Forbidden, "caller no longer holds {tool}");
+            }
+        }
         let mut inherited = hire_scope(&caps, req);
         for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] { inherited[k] = target_scope[k].clone(); }
+        if self_parent && req["account_fallback"].is_null() {
+            inherited["account_fallback"] = json!(target_scope["account_fallback"].as_bool()
+                .or(caps.settings["account_fallback_default"].as_bool()).unwrap_or(false));
+        }
         inherited
     } else {
         let mut sc = hire_scope(&caps, req);
@@ -1053,7 +1089,9 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             }
         }
     }
-    if let Some(a) = &anchor {
+    if self_parent {
+        fx.self_parent = Some((name.clone(), sc.clone()));
+    } else if let Some(a) = &anchor {
         tx.execute("UPDATE ot.agents SET parent_id = $2, sibling_order = 1, row_version = row_version + 1 WHERE id = $1", &[&a.id, &id])
             .await?;
         fx.agents.insert(a.id);

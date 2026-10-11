@@ -373,7 +373,9 @@ fn all() -> Vec<Value> {
         tool(
             "orgtree_hire",
             "Hire a report under you or under `target` in your team (or, with hire_type 'superior', insert a \
-             superior above `target`). Write its charter in full. Seat + grant must fit your free credits (with \
+             superior above `target`, default yourself, even at top level). Above yourself, seat + grant come from \
+             your free credits: grant is the new parent's free allocation; your external budget stays fixed. \
+             Scope is inherited: omit scope fields. Write its charter in full. Other hires' seat + grant must fit (with \
              credit cascade on, your chain is raised as needed). `index` is REQUIRED: zero-based among live siblings, \
              0..existing_count (last appends). Superior insertion excludes its target, which becomes its child. \
              Use orgtree_state_inspect for sibling_index/live_sibling_count. `kickoff` sends it a first message.",

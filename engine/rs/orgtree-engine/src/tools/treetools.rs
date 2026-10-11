@@ -25,11 +25,13 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
         req = json!({});
     }
     req["op"] = json!(op);
+    req["_caller_generation"] = json!(me.generation);
     match op {
         "hire" => {
             if arg_str(args, "hire_type") == Some("superior") {
-                let t = arg_str(args, "target").or_else(|| arg_str(args, "parent")).unwrap_or(&me.name);
-                req["above"] = json!(t);
+                // No target means the authenticated ID, not a name that can be
+                // renamed/reused between this lookup and the op transaction.
+                req["above"] = arg_str(args, "target").or_else(|| arg_str(args, "parent")).map_or(Value::Null, |t| json!(t));
             } else if let Some(t) = arg_str(args, "target").or_else(|| arg_str(args, "parent")) {
                 req["parent"] = json!(t);
             } else {
