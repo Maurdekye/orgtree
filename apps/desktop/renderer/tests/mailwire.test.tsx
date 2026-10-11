@@ -23,6 +23,7 @@
 
 import { flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { useState } from 'react'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgInboxModal } from '../src/canvas/mail'
@@ -656,4 +657,30 @@ test('§13.3 a downgrade raises nobody — the cascade is one-directional', () =
   // strip a manager on its way up
   const got = cascadePreview(chain(), 'leaf', { vis: 'self', pm: 'default' })
   assert.deepEqual(got, [], JSON.stringify(got))
+})
+
+uiTest('disabled org inbox disappears with its audience edges and returns without losing history', async ({ mount }) => {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  const saved = tree(['ceo'])
+  let enable!: (enabled: boolean) => void
+  function Scene() {
+    const [enabled, setEnabled] = useState(true)
+    enable = setEnabled
+    // Keep visible=true to verify the explicit policy wins over stale visibility.
+    return <OrgCanvas tree={{ ...saved, org_inbox: { ...saved.org_inbox, enabled } }}
+      op={() => Promise.resolve({} as never)} slug="isolated-policy" toast={noop} />
+  }
+  const { el } = await mount(<Scene />)
+  await flush()
+  assert.ok(el.querySelector('.sq.orginbox'), 'enabled inbox is on the canvas')
+  const edges = el.querySelectorAll('.edge.aud-line').length
+  assert.ok(edges > 0, 'fixture includes a visible holder edge')
+  const contents = JSON.stringify(saved.org_inbox)
+  await inAct(async () => { enable(false); await flush() })
+  assert.equal(el.querySelector('.sq.orginbox'), null)
+  assert.equal(el.querySelectorAll('.edge.aud-line').length, 0, 'no dangling holder wire')
+  await inAct(async () => { enable(true); await flush() })
+  assert.ok(el.querySelector('.sq.orginbox'), 're-enable restores the node')
+  assert.equal(el.querySelectorAll('.edge.aud-line').length, edges)
+  assert.equal(JSON.stringify(saved.org_inbox), contents, 'records and grants remain intact')
 })
