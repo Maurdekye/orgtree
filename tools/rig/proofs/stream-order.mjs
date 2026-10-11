@@ -14,7 +14,7 @@ function sameMessageSteps() {
     stream({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: value } }),
     { sleep_ms: 3500 }, assistant({ type: 'text', text: value }),
   ]
-  return [...text('ORDER_FIRST_REPLY ??\n\n' + '??'.repeat(4096), 0),
+  return [...text('ORDER_FIRST_REPLY \u{1F600}\n\n' + '\u{1F600}'.repeat(4096), 0),
     assistant({ type: 'tool_use', id: 'same-tool', name: 'Bash', input: { command: 'echo ORDER_TOOL' } }),
     { raw: { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'same-tool', content: 'done' }] } } },
     ...text('ORDER_SECOND_REPLY', 2), { sleep_ms: 3000 }]
@@ -75,7 +75,7 @@ export default async function(rig, { flags = {} } = {}) {
     p.check('long Unicode reply stores prose once and only bounded offset metadata', !!long
       && JSON.stringify(long.content_blocks).length < 300
       && rows.every(r => r.content_blocks.every(b => !('text' in b)))
-      && long.text.slice(long.content_blocks[0].start, long.content_blocks[0].end).endsWith('??'.repeat(4096))
+      && long.text.slice(long.content_blocks[0].start, long.content_blocks[0].end).endsWith('\u{1F600}'.repeat(4096))
       && long.text.slice(long.content_blocks.at(-1).start, long.content_blocks.at(-1).end) === 'ORDER_SECOND_REPLY',
       long && { textCodeUnits: long.text.length, metadataBytes: Buffer.byteLength(JSON.stringify(long.content_blocks)) })
     p.keep(rig, { agents: ['claude', 'codex', 'local', 'same', 'direct'] })

@@ -8,14 +8,14 @@ import type { ChatMessage } from '../src/types'
 import { Msg } from '../src/canvas/desk'
 
 test('one native message keeps text/tool/text order and resolves amended tool chips', async t => {
-  const row: ChatMessage = { role: 'assistant', text: 'FIRST ??\n\nSECOND',
+  const row: ChatMessage = { role: 'assistant', text: 'FIRST \u{1F600}\n\nSECOND',
     tools: [{ id: 'call', name: 'Bash', arg: 'MIDDLE', result: 'done' }],
     content_blocks: [{ kind: 'text', start: 0, end: 8 }, { kind: 'tool', id: 'call' }, { kind: 'text', start: 10, end: 16 }] }
   const view = await mountView(<Msg m={row} slug="org" nid="blocks" />, h => h)
   t.after(() => view.unmount())
   const text = view.el.textContent ?? ''
   assert.ok(text.indexOf('FIRST') < text.indexOf('MIDDLE') && text.indexOf('MIDDLE') < text.indexOf('SECOND'), text)
-  assert.deepEqual([...view.el.querySelectorAll('.msgtext')].map(e => e.textContent?.trim()), ['FIRST ??', 'SECOND'])
+  assert.deepEqual([...view.el.querySelectorAll('.msgtext')].map(e => e.textContent?.trim()), ['FIRST \u{1F600}', 'SECOND'])
 })
 
 test('stream commits replace partials before the following phase, across stale polls and row amendments', async t => {
