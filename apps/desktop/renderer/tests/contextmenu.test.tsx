@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // contextmenu.test.tsx — THE APPLICATION CONTEXT MENU (user request 2026-09-07:
 // application objects showed the browser's default menu rather than their own
 // actions). Two halves:
@@ -500,11 +501,11 @@ uiTest('§B2c mail row: a Sent list (no refOf) offers no reference; an outgoing 
 
 uiTest('§B2d the node inbox wires the node-box reference; the desk\'s scaled row still gets a body-level menu', async (t) => {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => Promise.resolve({
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string) => Promise.resolve({
     ok: true, status: 200, headers: new Headers(),
     json: () => Promise.resolve(String(url).includes('/inbox')
       ? { delivered: [ROW({ id: 'm9' })], pending: [], sent: [] } : {}),
-  })) as unknown as typeof fetch
+  })) as unknown as typeof fetch)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   const v = await mountView(<InboxView slug="org" nid="me" tier={null} />, (h) => h)
   t.after(() => v.unmount())
@@ -550,14 +551,14 @@ uiTest('§B3b gallery row: Dismiss runs the pane\'s dismiss — the same DELETE;
   assert.deepEqual(goneLabels, ['Open reader', 'Copy title', 'Copy reference'])
   const calls: { method: string; url: string }[] = []
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string, init?: RequestInit) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string, init?: RequestInit) => {
     calls.push({ method: init?.method ?? 'GET', url: String(url) })
     const docs = { documents: [
       { id: 'd1', node: 'me', title: 'Live doc', at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
     ] }
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(String(url).includes('/documents') && (init?.method ?? 'GET') === 'GET' ? docs : {}) })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   const v = await mountView(<AgentGalleryView slug="org" nid="me" node={undefined} toast={noop} />, (h) => h)
   t.after(() => v.unmount())
@@ -586,7 +587,7 @@ uiTest('§B3c org gallery row: Close closes the OPEN document and nothing else �
     { id: 'd1', node: 'me', title: 'First plan', at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
     { id: 'd2', node: 'you', title: 'Second plan', at: '2026-09-07T09:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
   ]
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string, init?: RequestInit) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     const path = String(url)
     calls.push({ method, url: path })
@@ -596,7 +597,7 @@ uiTest('§B3c org gallery row: Close closes the OPEN document and nothing else �
         : { documents: docs, total: docs.length }
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   let closedPanel = 0
   const v = await mountView(
@@ -653,14 +654,14 @@ const mkItem = (o: Partial<WorkItem>): WorkItem => ({
 } as unknown as WorkItem)
 function mockWork(items: WorkItem[]): { method: string; url: string }[] {
   const calls: { method: string; url: string }[] = []
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string, init?: RequestInit) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     calls.push({ method, url: String(url) })
     const body = String(url).includes('/work-items')
       ? { items, counts: { attention: 0, active: items.length, archived: 0, backlogged: 0 }, now: '2026-09-05T10:00:00.000Z' }
       : String(url).includes('/inbox') ? { pending: [], delivered: [], sent: [] } : {}
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(body) })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   globalThis.fetch = compatibilityWorkFixture(globalThis.fetch)
   return calls
 }

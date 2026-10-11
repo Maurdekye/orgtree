@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // mailsender.test.tsx — THE SENDER'S MODEL CHIP AND CLICK-TO-DESK, on the two
 // surfaces the first pass missed: the mail LIST ROW and the INLINE TRANSCRIPT.
 //
@@ -1178,11 +1179,11 @@ test('§12.4 …and it is WIRED: NodeInboxModal carries the tree down to the row
     // NodeInboxModal → InboxView → MailList chain, and requires the jump back.
     useFakeClock()
     const had = (globalThis as { fetch?: typeof fetch }).fetch
-    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = (() =>
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers((() =>
       Promise.resolve({
         ok: true, status: 200, headers: new Headers(),
         json: () => Promise.resolve({ pending: [], sent: [], delivered: ROWS }),
-      })) as unknown as typeof fetch
+      })) as unknown as typeof fetch)
     t.after(() => {
       (globalThis as { fetch?: typeof fetch }).fetch = had; realClock()
     })
@@ -1224,7 +1225,7 @@ async function deskInbox(t: TestContext, opts: { onJump?: (id: string) => void }
   const s = new FakeServer()
   installFetch(s)
   const inner = (globalThis as { fetch: typeof fetch }).fetch
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((
     url: string, init?: unknown,
   ) => (String(url).includes('/inbox')
     ? Promise.resolve({
@@ -1232,7 +1233,7 @@ async function deskInbox(t: TestContext, opts: { onJump?: (id: string) => void }
       json: () => Promise.resolve({ pending: [], sent: [], delivered: ROWS }),
     })
     : (inner as (u: string, i?: unknown) => Promise<unknown>)(url, init))
-  ) as unknown as typeof fetch
+  ) as unknown as typeof fetch)
   const nd = node(`ms${++_n}`, { tier: 'opus' })
   const map = new Map<string, CanvasNode>([
     [nd.id, nd],

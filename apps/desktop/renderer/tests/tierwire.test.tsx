@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // tierwire.test.tsx — `tierOf` is WIRED, not merely accepted.
 //
 // ⚠ WHY THIS FILE EXISTS. `MailList` gained a `tierOf` resolver so a mail
@@ -25,13 +26,13 @@ const INBOX = {
 
 function stubFetch() {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string) => {
     const body = String(url).includes('/inbox') ? INBOX : {}
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body),
     })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   return () => { (globalThis as { fetch?: typeof fetch }).fetch = had }
 }
 

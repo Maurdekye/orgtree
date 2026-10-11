@@ -116,13 +116,20 @@ test('a superior at the top has a centred sibling arc at every depth, including 
   }
 })
 
-test('colliding neighbouring teams move equally in opposite directions only as far as needed', () => {
+test('colliding neighbouring teams push their superiors apart symmetrically and stay centred below them', () => {
+  const before = layout(eye([node('a'), node('b')]), new Map(), 'circular')
   const t = layout(eye([node('a', flat(4, 'a')), node('b', flat(4, 'b'))]), new Map(), 'circular')
-  const shiftA = relativeAngles(t, 'a', ['a0', 'a3']).reduce((a, b) => a + b, 0) / 2
-  const shiftB = relativeAngles(t, 'b', ['b0', 'b3']).reduce((a, b) => a + b, 0) / 2
+  const shiftA = signedAngle(ringAngles(t, ['a'])[0]! - ringAngles(before, ['a'])[0]!)
+  const shiftB = signedAngle(ringAngles(t, ['b'])[0]! - ringAngles(before, ['b'])[0]!)
   assert.ok(shiftA > 0 && shiftB < 0)
   assert.ok(Math.abs(shiftA + shiftB) < 1e-9, 'equal displacement shares the collision')
-  assert.ok(Math.abs(chord(t, 'a3', 'b0') - 190) < 1e-6, 'arcs touch at one neighbour pitch')
+  for (const parent of ['a', 'b']) {
+    const offset = relativeAngles(t, parent, [`${parent}0`, `${parent}3`]).reduce((a, b) => a + b, 0) / 2
+    assert.ok(Math.abs(offset) < 1e-6, 'the settled parent stays aligned with its team')
+  }
+  // Spring relaxation can settle beyond contact while aligning the parents;
+  // its hard constraint is minimum clearance, not the old fixed-parent gap.
+  assert.ok(chord(t, 'a3', 'b0') >= 190 - 1e-6, 'neighbouring arcs keep at least one pitch of clearance')
   assert.equal(overlaps(t), false)
 })
 

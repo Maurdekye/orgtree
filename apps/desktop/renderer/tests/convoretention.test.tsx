@@ -188,7 +188,7 @@ test('older outstanding refresh remains protected after newer refresh fails', as
   assert.equal((await f.view('fetch')).now().loaded, false)
 })
 
-test('older-page fetch is retained until it settles after last unsubscribe', async t => {
+test('a closed visit cancels paging but retains its entry until the outstanding request settles', async t => {
   const f = setup(t)
   f.bodies.set('page', { before: 'cursor', conversation_id: 'conversation', has_older: true })
   const v = await f.view('page')
@@ -198,9 +198,17 @@ test('older-page fetch is retained until it settles after last unsubscribe', asy
   await v.unmount(); await f.pressure()
   const during = await f.view('page')
   assert.equal(during.now().loaded, true)
-  assert.equal(during.now().loadingOlder, true)
-  await during.unmount()
+  assert.equal(during.now().loadingOlder, false, 'a reopened visit does not inherit the closed visit page flight')
+  assert.equal(f.held.get('page')!.length, 2, 'the reopened visit requests a fresh tail')
+  f.held.get('page')!.shift()!(new Response(JSON.stringify({
+    messages: [{ role: 'assistant', text: 'stale closed-visit history', seq: 0 }],
+    conversation_id: 'conversation', has_older: false,
+  })))
+  await inAct(() => flush(4))
+  assert.equal(during.now().chat?.messages.some(row => row.text === 'stale closed-visit history'), false)
   f.held.get('page')!.shift()!(f.response('page'))
+  await inAct(() => flush(4))
+  await during.unmount()
   await flush(4); await f.pressure()
   assert.equal((await f.view('page')).now().loaded, false)
 })

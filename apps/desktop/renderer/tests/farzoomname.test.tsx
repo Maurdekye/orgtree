@@ -166,7 +166,7 @@ test('§2 Stylesheet places model token at upper-left resting corner and centers
   // Name reveals on hover/focus
   assert.match(
     css,
-    /\.sq\.mini:hover\s+\.sq-far-name[^{]*\{[^}]*opacity:\s*1[^}]*max-width:\s*180px/s,
+    /\.sq\.mini:hover\s+\.sq-far-name[^{]*\{[^}]*opacity:\s*1[^}]*max-width:\s*600px/s,
     'hover reveals sq-far-name with opacity and max-width expansion',
   )
 })

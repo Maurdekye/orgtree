@@ -5,21 +5,39 @@ import { orgInboxUpload } from '../src/api'
 import { HostHub } from '../src/canvas/hosthub'
 
 const g = globalThis as unknown as Record<string, unknown>
-test('attachment preflight uses the smallest recipient limit before sending any bytes', async () => {
+test('attachment preflight uses the smallest recipient limit before sending any bytes', async t => {
   const requests: { url: string; init?: RequestInit }[] = []
+  const uploads: { method: string; url: string; body: unknown }[] = []
+  const originalXhr = g.XMLHttpRequest
+  t.after(() => { if (originalXhr === undefined) delete g.XMLHttpRequest; else g.XMLHttpRequest = originalXhr })
+  g.XMLHttpRequest = class {
+    upload = {}
+    method = ''; url = ''; status = 200
+    responseText = JSON.stringify({ id: 'ticket', name: 'test.txt', bytes: 3, state: 'complete' })
+    onload?: () => void
+    open(method: string, url: string) { this.method = method; this.url = url }
+    getResponseHeader() { return null }
+    send(body: unknown) { uploads.push({ method: this.method, url: this.url, body }); this.onload?.() }
+  }
   g.fetch = async (url: string, init?: RequestInit) => {
     requests.push({ url, init })
+    if (url.endsWith('/staging')) return new Response(JSON.stringify({ id: 'ticket', state: 'preparing' }))
     return new Response(JSON.stringify({ max_attachment_bytes: url.includes('small') ? 3 : 8, too_large: 'small hub limit' }))
   }
   try {
     await assert.rejects(orgInboxUpload('org', new File(['1234'], 'test.txt'), ['@net:large', '@net:small']), /small hub limit/)
     assert.equal(requests.length, 2)
     assert.ok(requests.every(r => !r.init?.body))
+    assert.equal(uploads.length, 0, 'an oversized file never starts an upload')
     requests.length = 0
     await orgInboxUpload('org', new File(['123'], 'test.txt'), ['@net:large', '@net:small'])
     assert.equal(requests.length, 3)
-    assert.match(requests[2].url, /to=%40net%3Asmall/)
-    assert.ok(requests[2].init?.body instanceof File, 'original file streams directly to fetch')
+    assert.match(requests[2].url, /\/staging$/)
+    assert.equal(JSON.parse(requests[2].init?.body as string).to, '@net:small')
+    assert.equal(uploads.length, 1)
+    assert.equal(uploads[0].method, 'POST')
+    assert.match(uploads[0].url, /\/staging\/ticket$/)
+    assert.ok(uploads[0].body instanceof File, 'original file streams through the staging ticket upload')
   } finally { delete g.fetch }
 })
 

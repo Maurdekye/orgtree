@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // mailroute.test.tsx — a `@mail:` reference clicked in a panel that owns no
 // mailbox, routed to the panel that does.
 //
@@ -122,10 +123,10 @@ function tree(nodeIds: string[]): TreePayload {
  *  either way, and this suite is about WHICH panel opens */
 function quietServer() {
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    (() => Promise.resolve({
+    withoutMailTransfers((() => Promise.resolve({
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve({}),
-    })) as unknown as typeof fetch
+    })) as unknown as typeof fetch)
 }
 
 const heads = (el: HTMLElement) =>
@@ -219,7 +220,7 @@ uiTest('§5b a DOCUMENT pointer opens the reader on that id, once',
 /** the user's inbox holding ONE message with `body` */
 function inboxServer(bodyText: string) {
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string) => {
+    withoutMailTransfers(((url: string) => {
       const path = String(url)
       const payload = path.includes('/inbox')
         ? { pending: [], sent: [], delivered: [{
@@ -231,7 +232,7 @@ function inboxServer(bodyText: string) {
         ok: true, status: 200, headers: new Headers(),
         json: () => Promise.resolve(payload),
       })
-    }) as unknown as typeof fetch
+    }) as unknown as typeof fetch)
 }
 
 uiTest('§7 a reference written INSIDE A MAIL is a control, and it reaches the '
@@ -318,7 +319,7 @@ function userBoxServer(answer: () => Promise<unknown>) {
     id, from: 'ceo', to: 'user_inbox', kind: 'message',
     at: '2026-09-05T09:00:00.000Z', body, read: true,
   })
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string) => {
     const path = String(url)
     if (path.includes('/mail/user/')) return answer()
     const payload = path.includes('/inbox')
@@ -331,7 +332,7 @@ function userBoxServer(answer: () => Promise<unknown>) {
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(payload),
     })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   return () => { (globalThis as { fetch?: typeof fetch }).fetch = had }
 }
 

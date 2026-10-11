@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // deskrefs.test.tsx — canonical references written in the DESK CHAT's prose.
 //
 // The desk is where most prose in this app is actually read, and it was the
@@ -372,13 +373,13 @@ const INBOX_REF = {
 
 function stubInbox() {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string) => {
     const body = String(url).includes('/inbox') ? INBOX_REF : {}
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body),
     })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   return () => { (globalThis as { fetch?: typeof fetch }).fetch = had }
 }
 

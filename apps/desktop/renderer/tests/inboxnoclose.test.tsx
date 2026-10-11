@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // The inbox modals have no footer `close` button any more (user, 2026-09-28:
 // "also remove this close button from the inbox modal").
 //
@@ -53,13 +54,13 @@ const SURFACES = {
 
 async function setup(t: TestContext, which: keyof typeof SURFACES, pending = [MAIL]) {
   const oldFetch = globalThis.fetch
-  globalThis.fetch = (async (url: string) => {
+  globalThis.fetch = withoutMailTransfers((async (url: string) => {
     const path = String(url)
     const body = path.includes('/inbox') ? { pending, delivered: [], sent: [] }
       : path.includes('/audiences') ? { audiences: [], requests: [] }
         : path.includes('/events') ? { events: [] } : {}
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
-  }) as typeof fetch
+  }) as typeof fetch)
   const state = { closed: 0 }
   const view = await mountView(
     <CurrentOrg.Provider value="mine">{SURFACES[which](() => { state.closed++ })}</CurrentOrg.Provider>,

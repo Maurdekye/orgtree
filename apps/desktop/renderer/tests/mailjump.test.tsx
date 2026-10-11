@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // mailjump.test.tsx — a reference to a MESSAGE, followed.
 //
 // Astra rejected the first design outright ("do not silently open a mailbox")
@@ -419,7 +420,7 @@ const OUTSIDE = {
 
 function stubBox(onLookup?: () => void) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string) => {
     const u = String(url)
     let body: unknown = {}
     if (u.includes('/mail/node/')) {
@@ -433,7 +434,7 @@ function stubBox(onLookup?: () => void) {
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body),
     })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   return () => { (globalThis as { fetch?: typeof fetch }).fetch = had }
 }
 
@@ -542,14 +543,14 @@ uiTest('§11c a reference to retained mail outside the window opens the folder '
 /** a box stub whose one-message lookup is controlled by the caller */
 function stubAsk(answer: () => Promise<unknown>) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string) => {
     const u = String(url)
     if (u.includes('/mail/node/')) return answer()
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(u.includes('/inbox') ? { ...NODE_BOX } : {}),
     })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   return () => { (globalThis as { fetch?: typeof fetch }).fetch = had }
 }
 

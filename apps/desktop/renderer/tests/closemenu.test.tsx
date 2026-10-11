@@ -1,3 +1,4 @@
+import { withoutMailTransfers } from './mailtransfers.fixture'
 // closemenu.test.tsx — EVERY "Close" A CONTEXT MENU OFFERS, ON THE REAL SURFACE.
 //
 // The user reported (2026-09-12) that Close in the presented-documents menu
@@ -134,7 +135,7 @@ async function app(t: TestContext) {
     if (path.endsWith('/inbox')) return json({ pending: [], delivered: [], sent: [] })
     return json({})
   }) as unknown as typeof fetch
-  g.fetch = legacyAppBackend(stub); (window as unknown as Record<string, unknown>).fetch = legacyAppBackend(stub)
+  g.fetch = withoutMailTransfers(legacyAppBackend(stub)); (window as unknown as Record<string, unknown>).fetch = withoutMailTransfers(legacyAppBackend(stub))
   // App navigates with the bare global `history`; jsdom puts it on `window`,
   // and in this bundle `globalThis` is not `window`.
   g.history ??= window.history
@@ -262,8 +263,8 @@ test('§4 a POPPED-OUT panel: Close closes its native window and clears the '
   window.open = (() => childWindow) as typeof window.open
   globalThis.MutationObserver = child.window.MutationObserver
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = legacyAppBackend((async () => ({ ok: true, status: 200, headers: new Headers(),
-    json: () => Promise.resolve({}) })) as unknown as typeof fetch)
+  g.fetch = withoutMailTransfers(legacyAppBackend((async () => ({ ok: true, status: 200, headers: new Headers(),
+    json: () => Promise.resolve({}) })) as unknown as typeof fetch))
   let view: { el: HTMLElement; unmount: () => Promise<void> } | null = null
   try {
     view = await mountView(<CurrentOrg.Provider value="mine">
@@ -365,7 +366,7 @@ test('§7 the same Close on a panel reached outside the header, and on a '
   // a fetch that never settles: the doc reader stays in its loading frame,
   // which is the third non-pinnable surface and is the one a user meets by
   // accident rather than by choice
-  g.fetch = legacyAppBackend((() => new Promise(() => {})) as unknown as typeof fetch)
+  g.fetch = withoutMailTransfers(legacyAppBackend((() => new Promise(() => {})) as unknown as typeof fetch))
   t.after(() => { g.fetch = had })
 
   let connClosed = 0
@@ -488,7 +489,7 @@ const OTHER_SURFACES: {
 function quietServer(): () => void {
   const g = globalThis as unknown as Record<string, unknown>
   const had = g.fetch
-  g.fetch = legacyAppBackend((async (url: RequestInfo | URL) => {
+  g.fetch = withoutMailTransfers(legacyAppBackend((async (url: RequestInfo | URL) => {
     const path = String(url)
     const body = path.includes('/openrouter/models') ? { query: '', offset: 0, limit: 8, total: 0, items: [] }
       : path.includes('/work-items') ? { items: [], counts: { attention: 0, active: 0, archived: 0, backlogged: 0 }, now: '2026-09-12T00:00:00Z' }
@@ -498,7 +499,7 @@ function quietServer(): () => void {
               : path.includes('/providers') ? { providers: [] }
                 : {}
     return { ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(body) }
-  }) as unknown as typeof fetch)
+  }) as unknown as typeof fetch))
   return () => { g.fetch = had }
 }
 
@@ -622,7 +623,7 @@ test('§9 both document galleries: Close closes the OPEN document only', async (
     { id: 'd2', node: 'me', title: 'Two', at: '2026-09-07T09:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
   ]
   const calls: string[] = []
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = legacyAppBackend(((url: string, init?: RequestInit) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(legacyAppBackend(((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     calls.push(method)
     const one = String(url).match(/\/documents\/([^/?]+)$/)
@@ -631,7 +632,7 @@ test('§9 both document galleries: Close closes the OPEN document only', async (
         : { documents: docs, total: docs.length }
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }) as unknown as typeof fetch)
+  }) as unknown as typeof fetch))
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
 
   // the org-wide gallery — the surface the user reported

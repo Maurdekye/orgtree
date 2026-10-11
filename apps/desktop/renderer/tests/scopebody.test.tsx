@@ -135,7 +135,7 @@ test('settings retain configured rights while the current chain narrows the disp
   assert.equal(selectWith(el, 'bypassPermissions').value, 'acceptEdits')
   assert.equal(selectWith(el, 'full').value, 'team')
   assert.equal([...el.querySelectorAll<HTMLInputElement>('.set-row input[type="checkbox"]')]
-    .filter((box) => box.checked).length, 4)
+    .filter((box) => box.checked).length, 11)
   await pickEffort(el, 2)
   await save(el)
   assert.equal(sent.length, 1, 'the configured panel must reach the actual scope POST')

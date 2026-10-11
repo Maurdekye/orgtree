@@ -3,6 +3,12 @@
  * an old mock body as a valid foreground page. Native paging has its own tests. */
 export function compatibilityWorkFixture(fetcher: typeof fetch, opts: { pages?: boolean } = {}): typeof fetch {
   return ((url: RequestInfo | URL, init?: RequestInit) => {
+    // These legacy mail/docket fixtures have no attachment jobs. Transfer UI
+    // mounts alongside them now; its list endpoint has a distinct wire shape.
+    // Transfer-specific suites supply their own transport, outside this adapter.
+    if (/\/transfers(?:\?|$)/.test(String(url))) {
+      return Promise.resolve(new Response(JSON.stringify({ transfers: [], next_cursor: null })))
+    }
     if (/\/work-items-foreground(?:\?|$)|\/work-item-references(?:\?|$)/.test(String(url))) {
       return Promise.resolve({ status: 409, ok: false, headers: new Headers(),
         json: async () => ({ kind: 'compatibility' }) } as Response)
