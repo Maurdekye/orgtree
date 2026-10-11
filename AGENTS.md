@@ -15,6 +15,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+
+- Continue-on resolves `primary`, `default` and matching native
+  `<provider>/primary` (Claude/OpenAI/Google) in the shared runtime, storing NULL.
+  Revalidate org/auth/activation/tier usage and ambient marks; no probe or mark
+  clearing. Binding, freeze/pending release, audit and replay mail commit together.
+  Explicit registry targets and automatic fallback retain their policies. See
+  [primary continuation](docs/rust-engine/continue-primary.md).
+  [verified: `runtime/freeze.rs`, `runtime/freeze/continuation.rs`, 2026-10-11]
+
 - Canvas sibling drags and their Undo preview before the reorder endpoint answers.
   Preview Rust's live-sibling midpoint ordering through the shared chart/list tree;
   clear only the matching operation on refusal or after success plus an agreeing
