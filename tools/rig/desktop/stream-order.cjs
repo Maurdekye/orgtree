@@ -28,7 +28,7 @@ module.exports = async (page, { org, args }) => {
     }
     requestAnimationFrame(tick)
   })
-  await page.eval(async ({ org }) => {
+  await page.eval(async ({ org, agent }) => {
     window.orderWire = { tokens: 0, commits: 0, badTokens: 0 }
     const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/orgs/${org}/ws`)
     window.orderSocket = socket
@@ -41,7 +41,9 @@ module.exports = async (page, { org, args }) => {
       } else if (frame.convo_rows?.length) window.orderWire.commits++
     })
     await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject })
-  }, { org })
+    socket.send(JSON.stringify({ type: 'watch', agents: [agent] }))
+  }, { org, agent: args.agent })
+  await page.sleep(100)
   await page.api('POST', `/api/orgs/${org}/nodes/${args.agent}/message`, { text: 'ORDER-PROOF' })
   await page.waitFor(() => document.querySelector('.draft')?.textContent.includes('ORDER_FIRST_REPLY'))
   await page.screenshot('first-live')
