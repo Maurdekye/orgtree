@@ -782,6 +782,23 @@ pub struct ScratchQuery {
     path: String,
 }
 
+/// Native directory opening resolves the same stored folder as the actor,
+/// including imported paths and paths retained after an agent rename.
+/// This read neither lists contents nor creates a missing directory.
+#[logged]
+pub async fn scratch_folder(
+    State(e): State<Arc<Engine>>,
+    Path((slug, nid)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    let client = e.db.get().await?;
+    let dir: Option<String> = client.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
+    drop(client);
+    let root = dir.map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&org.slug).join(&a.name));
+    Ok(Json(json!({ "path": root.to_string_lossy() })))
+}
+
 #[logged]
 pub async fn scratch(
     State(e): State<Arc<Engine>>,
