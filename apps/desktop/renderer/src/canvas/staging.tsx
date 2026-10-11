@@ -27,6 +27,7 @@ export function useStaging<T>(upload: (file: File, options: UploadOptions) => Pr
   }
   return {
     rows, blocked:()=>pending.current.size>0,
+    newDraft:()=>{ draft.current=crypto.randomUUID() },
     add:(file:File)=>{
       const p:Pending={id:++seq.current,file,stop:new AbortController(),progress:{sent:0,total:file.size,phase:'preparing'}}
       pending.current.set(p.id,p); refresh(); run(p)

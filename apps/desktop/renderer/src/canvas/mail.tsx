@@ -940,7 +940,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     // user has typed more since, the refused text goes first.
     const sentDraft = draft
     const sentAttached = attached
-    setDraft(''); setAttached([])
+    setDraft(''); setAttached([]); staging.newDraft()
     const res = onSend(t || '(file attached)', paths.length ? paths : undefined, armed)
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       const mine = ++sendSeq.current
