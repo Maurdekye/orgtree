@@ -1041,7 +1041,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // so it can step clear of every one of them (placeOrgInbox: the circle
     // view's rings can grow round to its usual place) and of what they always
     // draw beside them: credit bars (as tall as the holding) and document chips
-    if (tree.org_inbox?.visible) {
+    if ((tree.org_inbox?.enabled !== false && tree.org_inbox?.visible)) {
       const at = placeOrgInbox(t, (id, p) => {
         const n = map.get(id)
         return cardFurniture(id, p, inboxPxc, {
@@ -1063,7 +1063,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (fp) t.set(hid, { x: fp.x, y: fp.y })
     }
     return t
-  }, [vroot, map, tree.org_inbox?.visible, hidden, chartLayout, inboxPxc, draftCredits])
+  }, [vroot, map, (tree.org_inbox?.enabled !== false && tree.org_inbox?.visible), hidden, chartLayout, inboxPxc, draftCredits])
   const [view, setView] = useState<View>(() => {
     // fit-on-load: center the initial tree in a typical viewport (re-fit against
     // the REAL viewport once mounted — see the mount effect below)
@@ -1091,6 +1091,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const edgesSvgRef = useRef<SVGSVGElement | null>(null)
   const glStylesRef = useRef<{ sig: string; styles: WireStyles } | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
+  useEffect(() => {
+    if (tree.org_inbox?.enabled === false || !tree.org_inbox?.visible) {
+      setDropId(current => current === INBOX ? null : current)
+    }
+  }, [tree.org_inbox?.enabled, tree.org_inbox?.visible])
   // FR-3: desks pinned to screenspace (pins.tsx). Desktop only — the mobile
   // sheet is the phone's window, and startNodeDrag bails on isMobile for
   // reasons (no hover, no cheap escape under a finger) that apply here too.
@@ -1251,7 +1256,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const eyePressRef = useRef(false)
 
   const posOf = (id: string): Pt | undefined =>
-    springs.current.get(id) ?? targetRef.current.get(id)
+    id === INBOX && !targetRef.current.has(INBOX) ? undefined : springs.current.get(id) ?? targetRef.current.get(id)
   // the canvas Agents List's sibling order: by position, top to bottom then
   // left to right — except on rings, which already follow tree order
   // counterclockwise (sorting their siblings by y/x zig-zags across the arc)
@@ -2789,6 +2794,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 
     const finish = () => setFrame((f) => f + 1)   // springs glide back/onward
     if (drop === INBOX) {
+      if (!targetRef.current.has(INBOX)) { finish(); return }
       // dropping on the mailbox grants the org-inbox audience, never reparents
       audienceAction(slug, 'grant', id, 'extern')
         .then(() => toast([`${id} now reads and answers the org inbox`],
@@ -3625,7 +3631,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         + (w.once ? ' oneshot' : '')
         + (w.spent ? ' spent' : '') })
   }
-  if (tree.org_inbox?.visible && posOf(INBOX)) {
+  if ((tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX)) {
     // no box↔eye tether (user revision) — the panel stands alone; only
     // audience lines to its holders. Those connect FACING sides: an agent
     // left of the box joins from its RIGHT side (user spec), an agent right
@@ -4032,7 +4038,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             </button>
           )
         })}
-        {tree.org_inbox?.visible && posOf(INBOX) && (
+        {(tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX) && (
           <div className={'sq orginbox' + (dropId === INBOX ? ' drop' : '')}
             style={{
               transform: `translate(${posOf(INBOX)!.x}px, ${posOf(INBOX)!.y}px)`,

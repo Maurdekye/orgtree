@@ -855,6 +855,7 @@ export interface TreePayload {
     total?: number
     unread: number
     holders: string[]          // ledger.py extern_holders() -> list[str]
+    enabled?: boolean          // missing on older engines: enabled
     multi_holder_enabled: boolean
     visible: boolean
   }
@@ -2212,6 +2213,7 @@ export interface SettingsRequest {
   cascade_hire?: boolean | null
   cascade_alloc?: boolean | null
   /** organization-level external inbox holder policy */
+  org_inbox_enabled?: boolean | null
   org_inbox_multi_holder?: boolean | null
   // F-06
   net_hub_address?: string | null      // global defaults only

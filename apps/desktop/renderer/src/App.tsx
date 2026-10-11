@@ -2946,6 +2946,8 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const setCascadeHire = set('cascadeHire', cascadeHire)
   const cascadeAlloc = val('cascadeAlloc', tree.cascade_alloc !== false)
   const setCascadeAlloc = set('cascadeAlloc', cascadeAlloc)
+  const orgInboxEnabled = val('orgInboxEnabled', tree.org_inbox?.enabled !== false)
+  const setOrgInboxEnabled = set('orgInboxEnabled', orgInboxEnabled)
   const multiHolder = val('multiHolder',
     tree.org_inbox?.multi_holder_enabled === true)
   const setMultiHolder = set('multiHolder', multiHolder)
@@ -3172,6 +3174,9 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                 hint="off: limited to the superior's own free credits" />
             </SetGroup>
             <SetGroup title="External org inbox">
+              <SetToggle label="allow outside communication through the org inbox"
+                checked={orgInboxEnabled} onChange={setOrgInboxEnabled}
+                hint="off: blocks mail to and from other orgs and mailhub peers, and hides the inbox node; same-org mail is unchanged" />
               <SetToggle
                 label="allow multiple org-inbox audience holders"
                 checked={multiHolder} onChange={setMultiHolder}
@@ -3227,6 +3232,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                   default_effort: defEffort,
                   cascade_hire: cascadeHire,
                   cascade_alloc: cascadeAlloc,
+                  org_inbox_enabled: orgInboxEnabled,
                   org_inbox_multi_holder: multiHolder,
                   auto_cheap_compact: { enabled: accOn,
                     occ: (+accOcc || 25) / 100 },
