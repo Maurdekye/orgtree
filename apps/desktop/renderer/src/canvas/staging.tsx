@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { savedLocalFiles, dismissLocalFile, cancelLocalFile, type StagingTicket, type UploadOptions, type UploadProgress } from '../api'
 import { fmtBytes } from './img'
+import { mintClientOp } from '../convo'
 
 interface Pending { id: number; file: File; stop: AbortController; progress: UploadProgress; error?: string; cancelled?: boolean }
 /** Keep a chosen file in the draft until it completes or the user removes it. */
 export function useStaging<T>(upload: (file: File, options: UploadOptions) => Promise<T>, complete: (file: File, result: T) => void) {
   const pending=useRef(new Map<number,Pending>())
   const seq=useRef(0), live=useRef(true)
-  const draft=useRef(crypto.randomUUID())
+  const draft=useRef(mintClientOp())
   const [rows,setRows]=useState<Pending[]>([])
   const refresh=()=>{ if(live.current) setRows([...pending.current.values()]) }
   // Closing a panel leaves the local request running; its durable ticket can
@@ -29,7 +30,7 @@ export function useStaging<T>(upload: (file: File, options: UploadOptions) => Pr
   }
   return {
     rows, blocked:()=>pending.current.size>0,
-    newDraft:()=>{ draft.current=crypto.randomUUID() },
+    newDraft:()=>{ draft.current=mintClientOp() },
     add:(file:File)=>{
       const p:Pending={id:++seq.current,file,stop:new AbortController(),progress:{sent:0,total:file.size,phase:'preparing'}}
       pending.current.set(p.id,p); refresh(); run(p)

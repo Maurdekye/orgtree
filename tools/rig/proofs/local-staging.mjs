@@ -55,6 +55,7 @@ export default async function(rig) {
     proof.file('desktop-result.json',ui)
     proof.check('compose and reply display staging and block premature send',ui.ok,ui.error??ui.value)
     proof.check('premature Enter never queued a message',rig.sql("SELECT id FROM ot.org_inbox WHERE dir='out'").length===0)
+    proof.check('closing the composer leaves its upload running',ui.ok && ui.value?.closedPanel)
     proof.check('a fresh browser can reattach a completed ticket without uploading again',ui.ok && ui.value?.recoveredAfterReload)
     const listed=await rig.api('GET',base())
     proof.check('saved listing exposes metadata, never local paths',listed.files.some(f=>f.id===done.id) && listed.files.every(f=>!('path' in f)))
