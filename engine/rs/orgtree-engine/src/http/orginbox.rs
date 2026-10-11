@@ -74,7 +74,7 @@ pub struct UploadQuery {
 }
 
 #[logged]
-async fn target_limit(e: &Engine, org_id: i64, to: &str) -> anyhow::Result<crate::net::AttachmentLimit> {
+pub(super) async fn target_limit(e: &Engine, org_id: i64, to: &str) -> anyhow::Result<crate::net::AttachmentLimit> {
     if to.starts_with("@net:") { crate::net::attachment_limit(e, org_id, to).await }
     else { Ok(crate::net::AttachmentLimit { bytes: ATTACHMENT_MAX as u64, legacy: false, per_message: false }) }
 }

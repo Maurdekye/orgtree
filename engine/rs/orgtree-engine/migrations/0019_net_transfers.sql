@@ -79,3 +79,17 @@ CREATE UNIQUE INDEX net_transfer_failure_open ON ot.net_transfer_failures(messag
 CREATE INDEX net_transfer_failure_pending ON ot.net_transfer_failures(created_at) WHERE notified_at IS NULL;
 
 CREATE INDEX net_incoming_peer_pending ON ot.net_incoming(org_id,hub,(envelope->>'from'),created_at,id) WHERE state<>'complete';
+
+-- Browser-to-engine staging is separate from message transport. Only complete
+-- tickets have an ot.uploads row and can be attached to an outgoing message.
+CREATE TABLE ot.upload_stages (
+    id text PRIMARY KEY,
+    org_id bigint NOT NULL REFERENCES ot.orgs(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    path text NOT NULL,
+    total bigint NOT NULL CHECK (total >= 0),
+    received bigint NOT NULL DEFAULT 0,
+    state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','uploading','complete','failed','cancelled')),
+    error text,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);

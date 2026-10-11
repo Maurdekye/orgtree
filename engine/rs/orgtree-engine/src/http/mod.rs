@@ -17,6 +17,7 @@ pub mod nodes;
 pub mod orgops;
 pub mod orgs;
 pub mod settings;
+pub mod staging;
 pub mod templates;
 pub mod tree;
 
@@ -84,6 +85,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/org_inbox/send", post(orginbox::send))
         .route("/api/orgs/{slug}/org_inbox/upload", post(orginbox::upload).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/api/orgs/{slug}/org_inbox/upload_limit", get(orginbox::upload_limit))
+        .route("/api/orgs/{slug}/org_inbox/staging", post(staging::start))
+        .route("/api/orgs/{slug}/org_inbox/staging/{id}", get(staging::status).delete(staging::cancel).post(staging::upload).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/api/orgs/{slug}/audiences", get(dogs::audiences_get).post(dogs::audiences_post))
         .route("/api/orgs/{slug}/documents", get(docs::list))
         .route("/api/orgs/{slug}/documents/viewed", post(docs::viewed))
