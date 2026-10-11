@@ -1,4 +1,4 @@
-﻿// Native adapter protocol/precedence proof, synthetic values only. No Git config
+// Native adapter protocol/precedence proof, synthetic values only. No Git config
 // is written outside this isolated evidence directory; no actual credential store.
 import fs from 'node:fs'
 import path from 'node:path'

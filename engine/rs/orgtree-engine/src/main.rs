@@ -1,8 +1,8 @@
 //! Orgtree engine.
 //!
-//! `orgtree-engine [serve]`  â€” the engine (started by the desktop or by `host`)
-//! `orgtree-engine host`     â€” the boot-time supervisor run by the scheduled task
-//! `orgtree-engine mcp-bridge` â€” stdio MCP bridge for CLIs that need one
+//! `orgtree-engine [serve]`  — the engine (started by the desktop or by `host`)
+//! `orgtree-engine host`     — the boot-time supervisor run by the scheduled task
+//! `orgtree-engine mcp-bridge` — stdio MCP bridge for CLIs that need one
 
 #![allow(dead_code)]
 #![recursion_limit = "256"]

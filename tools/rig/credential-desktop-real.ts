@@ -1,4 +1,4 @@
-﻿// Runs the unchanged production desktop credential broker, without a window.
+// Runs the unchanged production desktop credential broker, without a window.
 // Its startup file belongs only to the isolated rig and is removed with that run.
 import { CredentialBridge } from '../../apps/desktop/main/credential-bridge'
 import fs from 'node:fs'

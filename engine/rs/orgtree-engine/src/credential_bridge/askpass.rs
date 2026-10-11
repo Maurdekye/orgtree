@@ -1,4 +1,4 @@
-﻿//! Native Git askpass: no shell, no credential persistence, no tracing.
+//! Native Git askpass: no shell, no credential persistence, no tracing.
 use super::{lookup, safe_field, valid_host, Duration, MAX};
 use std::process::{ExitCode, Stdio};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
