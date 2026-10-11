@@ -602,7 +602,10 @@ fn holds_item(held: &Value, item: &Value) -> bool {
         Some("dir") => held["add_dirs"].as_array().is_some_and(|dirs| dirs.iter().any(|d| {
             d["path"] == item["path"] && (d["mode"] == "rw" || d["mode"] == item["mode"])
         })),
-        Some("tool") => item["tool"].as_str().and_then(|t| held["tools"][t].as_bool()).unwrap_or(false),
+        Some("tool") => item["tool"].as_str().is_some_and(|t| {
+            super::tool_groups::request_group(t).map(|g| super::tool_groups::enabled(&held["tools"], g))
+                .unwrap_or_else(|| held["tools"][t].as_bool().unwrap_or(false))
+        }),
         Some("mcp") => held["tools"]["mcp"].as_array().is_some_and(|servers| {
             servers.iter().any(|s| s == "*" || s == &item["server"])
         }),
@@ -644,8 +647,8 @@ pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
             }
             "tool" => {
                 let t = it["tool"].as_str().unwrap_or("").trim();
-                if !["bash", "web", "edit", "subagents"].contains(&t) {
-                    refuse!(BadRequest, "a tool item names bash, web, edit or subagents");
+                if !["bash", "web", "edit", "subagents"].contains(&t) && super::tool_groups::request_group(t).is_none() {
+                    refuse!(BadRequest, "a tool item names bash, web, edit, subagents or orgtree.<group>");
                 }
                 json!({ "kind": "tool", "tool": t })
             }
@@ -683,7 +686,9 @@ pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
         for item in &clean {
             match item["kind"].as_str().unwrap_or("") {
                 "dir" => wanted["folders"].as_array_mut().unwrap().push(json!({"path":item["path"],"mode":item["mode"]})),
-                "tool" => if let Some(tool)=item["tool"].as_str() { wanted["tools"][tool]=json!(true); },
+                // Group names remain in the typed event's `items` labels.
+                // Its legacy ToolWant object only accepts the four built-ins.
+                "tool" => if let Some(tool)=item["tool"].as_str().filter(|t| super::tool_groups::request_group(t).is_none()) { wanted["tools"][tool]=json!(true); },
                 "mcp" => { if wanted["tools"]["mcp"].is_null() { wanted["tools"]["mcp"]=json!([]); } wanted["tools"]["mcp"].as_array_mut().unwrap().push(item["server"].clone()); },
                 "permission_mode" => wanted["permission_mode"]=item["mode"].clone(),
                 _=>{},
@@ -1256,7 +1261,7 @@ async fn apply_scope(
             },
             Some("tool") => {
                 if let Some(t) = it["tool"].as_str() {
-                    tools[t] = json!(true);
+                    super::tool_groups::grant_requested(&mut tools, t);
                 }
             }
             Some("mcp") => {

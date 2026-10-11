@@ -21,6 +21,7 @@ pub mod reminders;
 pub mod sched;
 pub mod startup;
 pub mod tasks;
+pub mod tool_policy;
 pub mod watchdogs;
 
 use std::collections::HashMap;

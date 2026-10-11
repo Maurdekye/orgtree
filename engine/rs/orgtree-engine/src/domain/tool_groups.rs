@@ -43,6 +43,22 @@ pub fn allows(tools: &Value, name: &str) -> bool {
     required(name).is_some_and(|groups| groups.iter().all(|g| enabled(tools, g)))
 }
 
+/// Group requests reuse scope cards' existing `kind: tool` identity.
+#[nolog]
+pub fn request_group(name: &str) -> Option<&str> {
+    name.strip_prefix("orgtree.").filter(|g| GROUPS.contains(g))
+}
+
+#[logged]
+pub fn grant_requested(tools: &mut Value, name: &str) {
+    if let Some(group) = request_group(name) {
+        if !tools["orgtree"].is_object() { tools["orgtree"] = json!({}); }
+        tools["orgtree"][group] = json!(true);
+    } else {
+        tools[name] = json!(true);
+    }
+}
+
 #[logged]
 pub fn schema() -> Value {
     let properties: Map<String, Value> = GROUPS.iter().map(|g| ((*g).to_owned(), json!({"type": "boolean"}))).collect();

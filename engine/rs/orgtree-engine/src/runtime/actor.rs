@@ -1467,19 +1467,7 @@ impl Actor {
 
         let tools = &ctx.effective["tools"];
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
-        let mut disallowed: Vec<String> = vec!["AskUserQuestion".into(), "EnterPlanMode".into(), "ExitPlanMode".into()];
-        if !on("bash") {
-            disallowed.extend(["Bash".into(), "PowerShell".into(), "BashOutput".into(), "KillShell".into()]);
-        }
-        if !on("web") {
-            disallowed.extend(["WebSearch".into(), "WebFetch".into()]);
-        }
-        if !on("edit") {
-            disallowed.extend(["Edit".into(), "Write".into(), "NotebookEdit".into(), "MultiEdit".into()]);
-        }
-        if !on("subagents") {
-            disallowed.extend(["Task".into(), "Agent".into()]);
-        }
+        let disallowed = super::tool_policy::claude_disallowed(tools);
         let mut servers = Map::new();
         // the agent's own tools are never deferred behind tool search
         servers.insert("orgtree".into(), json!({ "type": "sdk", "name": "orgtree", "alwaysLoad": true }));
@@ -1506,10 +1494,8 @@ impl Actor {
         if on("web") {
             allowed.extend(["WebSearch".into(), "WebFetch".into()]);
         }
-        if ctx.superior.is_none() {
-            // 3.x user ruling: standing listeners are for top-level agents
-            // only, so only they are allowed Monitor (and TaskStop to end one)
-            allowed.extend(["Monitor".into(), "TaskStop".into()]);
+        if on("bash") || on("subagents") {
+            allowed.push("TaskStop".into());
         }
         let mut add_dirs: Vec<String> = Vec::new();
         let mut deny: Vec<String> = Vec::new();
@@ -2080,6 +2066,7 @@ impl Actor {
         }
         let bridge_env=self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation);
         config.extend(crate::credential_bridge::codex_overrides(&bridge_env));
+        config.extend(super::tool_policy::codex_overrides(tools));
         let spec = CodexSpec {
             exe,
             cwd: ctx.scratch.clone(),

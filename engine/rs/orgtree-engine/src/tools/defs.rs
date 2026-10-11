@@ -414,7 +414,7 @@ fn all() -> Vec<Value> {
                         "kind": { "type": "string", "enum": ["dir", "tool", "mcp", "permission_mode"] },
                         "path": { "type": "string", "description": "dir: the absolute folder path" },
                         "mode": { "type": "string", "description": "dir: ro|rw; permission_mode: the mode" },
-                        "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents"] },
+                        "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents", "orgtree.docket", "orgtree.team", "orgtree.messaging", "orgtree.inspection", "orgtree.watchdogs", "orgtree.runtime", "orgtree.user"] },
                         "server": { "type": "string", "description": "mcp: the server name" } }, "required": ["kind"] } },
                     "reason": { "type": "string" } }),
             &["items", "reason"],
