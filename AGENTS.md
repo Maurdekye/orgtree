@@ -408,6 +408,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Copy audit and lightweight verification: [agent-settings-copy.md](docs/rust-engine/agent-settings-copy.md).
   [decided: user 2026-10-11 17:35–17:39Z and 19:46Z; verified: renderer `canvas/modals.tsx`]
 
+- Hiring a superior above self, including at the root, preserves the caller's
+  external seat-plus-grant allocation: the new seat and requested free grant
+  come only from the caller's existing free credits. The new parent inherits
+  the caller's **effective** scope, never broader configured defaults. Validate
+  composite actions before promotion and commit both atomically; publish no
+  intermediate topology or effects. See [parent-hire accounting and authority](docs/rust-engine/parent-hire.md).
+  [verified: `engine/rs/orgtree-engine/src/domain/ops.rs`; isolated parent-hire
+  rig 26/26, 2026-10-11]
+
 - Native tray refresh must resynchronize the **Run on startup** checkbox from
   committed preferences even while its menu is open, and when that menu is
   shown again. Do not replace an open native Menu object: update the existing
