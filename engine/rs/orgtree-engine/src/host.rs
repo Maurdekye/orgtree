@@ -447,14 +447,16 @@ fn once() -> u8 {
         let reason = state.failure.get().cloned().unwrap_or_else(|| {
             if child.exit_code().is_some() { "engine exited before readiness".into() } else { "engine did not become ready in time".into() }
         });
+        let core_stopping = !refused && core_fault(&root, pid, "engine failed before readiness");
         let released = end_engine(&child, &root, refused, Duration::from_secs(10));
         say(Some(&root), &format!("{reason}{}", if released { "" } else { "; engine tree release could not be verified" }));
-        return if refused { EXIT_ROOT_OWNED } else { 1 };
+        return if refused { EXIT_ROOT_OWNED } else if core_stopping && released { 0 } else { 1 };
     }
     if let Err(e) = write_descriptor(&root, port, pid, &token) {
         say(Some(&root), &format!("could not write the attach descriptor: {e}"));
+        let core_stopping = core_fault(&root, pid, "engine control descriptor failed");
         end_engine(&child, &root, false, Duration::from_secs(10));
-        return 1;
+        return if core_stopping { 0 } else { 1 };
     }
     say(Some(&root), &format!("engine ready on 127.0.0.1:{port} (pid {pid})"));
     let watch = Arc::new(Liveness::new());

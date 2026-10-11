@@ -21,6 +21,7 @@ mod core_policy;
 mod core_process;
 mod core_state;
 mod core_monitor;
+mod core_startup;
 mod credential_context;
 mod credential_bridge;
 mod domain;
@@ -62,7 +63,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tokio_postgres::NoTls;
-use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::engine::{Boot, Engine};
@@ -145,13 +145,14 @@ fn serve() -> ExitCode {
 
 #[logged]
 async fn run(cfg: Config) -> Result<()> {
+    let mut startup = core_startup::Startup::begin(&cfg)?;
     let root_id = cfg.data_root_id.clone();
     let progress = move |phase: &str| launch::progress(phase, &root_id);
     let listener = launch::bind_port(&cfg.data_root).context("could not bind the engine port")?;
     let port = listener.local_addr()?.port();
 
-    let mut cluster = pg::Cluster::start(&cfg, &progress).await?;
-    let result = run_with_cluster(cfg, &cluster, listener, port, &progress).await;
+    let mut cluster = pg::Cluster::start_observed(&cfg, &progress, &startup.cancelled).await?;
+    let result = run_with_cluster(cfg, &cluster, listener, port, &progress, &mut startup).await;
     progress("engine-stop-database");
     cluster.stop().await;
     result
@@ -164,7 +165,18 @@ async fn run_with_cluster(
     listener: std::net::TcpListener,
     port: u16,
     progress: &dyn Fn(&str),
+    startup: &mut core_startup::Startup,
 ) -> Result<()> {
+    let preparation = async {
+    #[cfg(debug_assertions)]
+    if rig::active() {
+        let delay = std::env::var("ORGTREE_RIG_CORE_STARTUP_DELAY_MS").ok()
+            .and_then(|v| v.parse::<u64>().ok()).unwrap_or(0).min(180_000);
+        if delay != 0 {
+            progress("database-convert-rig-delay");
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
+    }
     cluster.ensure_database(pg::ENGINE_DB).await?;
     {
         let (mut client, conn) = cluster.connect_config(pg::ENGINE_DB).connect(NoTls).await?;
@@ -183,8 +195,15 @@ async fn run_with_cluster(
         let client = pool.get().await?;
         settings::AppSettings::load(&client).await?
     };
+    Ok::<_, anyhow::Error>((pool, settings_doc))
+    };
+    let (pool, settings_doc) = tokio::select! {
+        biased;
+        _ = startup.cancelled.cancelled() => anyhow::bail!("core process exited before readiness"),
+        result = preparation => result?,
+    };
     let boot = Boot {
-        id: uuid::Uuid::new_v4().simple().to_string(),
+        id: startup.generation.clone(),
         pid: std::process::id(),
         started_at: chrono::Utc::now(),
         port,
@@ -205,7 +224,7 @@ async fn run_with_cluster(
         credentials: credential_context::CredentialContext::new(),
         credential_bridge: crate::credential_bridge::Bridge::new(),
         core,
-        shutdown: CancellationToken::new(),
+        shutdown: startup.cancelled.clone(),
         stopping: AtomicBool::new(false),
         orgs: orgs::OrgDirectory::default(),
         agents: runtime::AgentRegistry::default(),
@@ -226,7 +245,6 @@ async fn run_with_cluster(
     #[cfg(unix)]
     stop_on_signals(&engine);
     credential_context::start(&engine);
-    core_monitor::start(&engine, core_inbox);
     // tool-bridge sockets a killed earlier run left (Windows pipes go with their process)
     #[cfg(unix)]
     bridge::clear_stale(&engine.cfg.data_root);
@@ -283,6 +301,10 @@ async fn run_with_cluster(
     let listener = tokio::net::TcpListener::from_std(listener)?;
     let shutdown = engine.shutdown.clone();
     tokio::spawn(runtime::convo::repair_old_args(engine.clone()));
+    // Missing members cannot register until control is available. Keep the
+    // stamped-identity startup watcher until this point, then hand off once.
+    startup.finish();
+    core_monitor::start(&engine, core_inbox);
     progress("engine-ready");
     launch::ready(port, &cfg.data_root_id);
     runtime::watchdogs::events::machine(&engine,"engine.started",serde_json::json!({"commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}));

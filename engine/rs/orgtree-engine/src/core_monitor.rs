@@ -58,8 +58,9 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
     let previous = core_state::read(root);
     let mut state = Snapshot { generation: engine.boot.id.clone(), engine: identity, host: if boot { parent.clone() } else { None },
         desktop: if boot { None } else { parent }, helper: None, sessions: vec![], transition_until: 0, transition_desktop: None, installing: false };
-    if let Some(old) = previous.as_ref().filter(|s| core_state::transition(s)) {
+    if let Some(old) = previous.as_ref().filter(|s| s.engine == state.engine || core_state::transition(s)) {
         state.desktop = old.desktop.clone();
+        state.helper = old.helper.clone();
         state.transition_until = old.transition_until;
         state.transition_desktop = old.transition_desktop.clone();
         state.installing = old.installing;
@@ -73,6 +74,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
     engine.core.state.store(Some(Arc::new(state.clone())));
     let began = Instant::now(); let mut policy = Policy::new(boot);
     let mut desktop_gone = None; let mut helper_gone = None;
+    let mut host_gone = None;
     let mut timer = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
@@ -128,6 +130,8 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                 let decision = if core_state::stopped(root, &state) { Decision::Stop("core shutdown already requested") }
                     else if state.transition_until != 0 && signed_in == Some(true) {
                         if core_state::transition(&state) { Decision::Keep } else { Decision::Stop("intentional transition timed out or desktop exited") }
+                    } else if signed_in == Some(true) && boot && presence(state.host.as_ref(), &mut host_gone) == crate::core_policy::Presence::Gone {
+                        Decision::Stop("boot host exited")
                     } else {
                         policy.tick(began.elapsed().as_millis() as u64, signed_in,
                             presence(state.desktop.as_ref(), &mut desktop_gone), presence(state.helper.as_ref(), &mut helper_gone))

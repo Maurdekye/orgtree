@@ -56,6 +56,10 @@ impl Cluster {
     /// Locate (or, on a fresh root that allows it, create) the cluster and
     /// start postgres.exe as a child of this process.
     pub async fn start(cfg: &Config, progress: &dyn Fn(&str)) -> Result<Cluster> {
+        Self::start_observed(cfg, progress, &tokio_util::sync::CancellationToken::new()).await
+    }
+
+    pub async fn start_observed(cfg: &Config, progress: &dyn Fn(&str), cancelled: &tokio_util::sync::CancellationToken) -> Result<Cluster> {
         let bin = cfg
             .pg_bin
             .clone()
@@ -117,7 +121,15 @@ impl Cluster {
         progress("database-start");
         let child = cmd.spawn().context("could not start postgres")?;
         let mut cluster = Cluster { data_dir, cluster_dir, bin, port, password, child: Some(child) };
-        cluster.wait_ready(progress).await?;
+        let ready = tokio::select! {
+            biased;
+            _ = cancelled.cancelled() => Err(anyhow!("core process exited during database startup")),
+            result = cluster.wait_ready(progress) => result,
+        };
+        if let Err(error) = ready {
+            cluster.stop().await;
+            return Err(error);
+        }
         cluster.write_attach();
         Ok(cluster)
     }
