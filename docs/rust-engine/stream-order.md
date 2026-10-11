@@ -7,7 +7,7 @@ the earlier reply. The next reply could also replace that retained draft before
 the fetch returned. Claude Code (including language-server agents) and Codex
 shared this renderer path.
 
-The actor now includes `convo_rows` in stream frames: only successfully committed,
+The actor now includes `convo_rows` in non-token stream frames: only successfully committed,
 sanitized conversation rows since its previous frame, with their durable
 `row_id`, `seq` and `convo_revision`. Full tool inputs stay in the separate
 database column; they never enter this queue. The actor-owned queue coalesces
@@ -19,11 +19,13 @@ update that installs their replacements. Old engines retain the original
 fallback path. The renderer retains stream commits until an actual fetched row
 acknowledges that revision. Rows carried forward locally while merging a cursor
 page are not acknowledgments. After a cursor merge, Rust rows use their canonical
-sequence order; an overlapping page must not append an earlier reply after newer
+sequence order, carrying sequence-less cards/ghosts after their preceding
+sequence-bearing row (leading ones stay leading); an overlapping page must not append an earlier reply after newer
 streamed rows. A fetch issued before the latest stream frame cannot resurrect
 the frame's retired transient rows.
 
-Claude's `content_blocks` preserves native block order inside a single API
+Claude's `content_blocks` uses UTF-16 start/end offsets into the existing text
+and thinking fields (no copied prose), preserving native block order inside a single API
 message, including text/tool/text. Tool blocks refer to existing chips by id,
 so later results update the same chip without copying its input. Older stored
 rows keep the legacy display layout. Codex starts a separate tool row when its

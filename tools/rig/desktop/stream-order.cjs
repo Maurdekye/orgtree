@@ -28,6 +28,20 @@ module.exports = async (page, { org, args }) => {
     }
     requestAnimationFrame(tick)
   })
+  await page.eval(async ({ org }) => {
+    window.orderWire = { tokens: 0, commits: 0, badTokens: 0 }
+    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/orgs/${org}/ws`)
+    window.orderSocket = socket
+    socket.addEventListener('message', event => {
+      const frame = JSON.parse(event.data)
+      if (frame.type !== 'node_stream') return
+      if (['delta', 'thinking'].includes(frame.kind)) {
+        window.orderWire.tokens++
+        if ('convo_rows' in frame || 'draft_clear' in frame || 'thinking_clear' in frame) window.orderWire.badTokens++
+      } else if (frame.convo_rows?.length) window.orderWire.commits++
+    })
+    await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject })
+  }, { org })
   await page.api('POST', `/api/orgs/${org}/nodes/${args.agent}/message`, { text: 'ORDER-PROOF' })
   await page.waitFor(() => document.querySelector('.draft')?.textContent.includes('ORDER_FIRST_REPLY'))
   await page.screenshot('first-live')
@@ -70,5 +84,6 @@ module.exports = async (page, { org, args }) => {
   }
   await page.screenshot('final')
   const badFrames = await page.eval(() => { window.orderSampling = false; return window.orderBadFrames })
-  return { liveThought, liveSecond, final, finalThought, badFrames }
+  const wire = await page.eval(() => { window.orderSocket.close(); return window.orderWire })
+  return { liveThought, liveSecond, final, finalThought, badFrames, wire }
 }
