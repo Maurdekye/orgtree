@@ -352,3 +352,35 @@ test('§7 an old read agreeing with a pending Undo does not end it', async (t) =
   await advance(1000, 50)
   assertAt(at(m.el, 'x'), was, 'no flash back to b before the Undo lands')
 })
+
+test('sibling reorder previews its slot while the reorder request is unresolved', async t => {
+  useFakeClock(); t.after(realClock)
+  setChartLayout('row'); t.after(() => inAct(() => setChartLayout('row')))
+  const initial = tree([mkNode('boss', [mkNode('x'), mkNode('b'), mkNode('c')])])
+  const confirmed = tree([mkNode('boss', [mkNode('b'), mkNode('c'), mkNode('x')])])
+  const want = await settledAt(t, confirmed, 'x')
+  const was = await settledAt(t, initial, 'x')
+  const m = await mountCanvas(t, initial, async () => ({}))
+  const fallback = globalThis.fetch
+  const requests: unknown[] = []
+  globalThis.fetch = (url, init) => {
+    if (String(url).endsWith('/nodes/x/reorder')) {
+      requests.push(JSON.parse(String(init?.body)))
+      return new Promise(() => {})
+    }
+    return fallback(url, init)
+  }
+  const from = at(m.el, 'x'), last = at(m.el, 'c')
+  const start = client(m.el, { x: from.x + NODE_W / 2, y: from.y + NODE_H / 2 })
+  // Empty canvas beyond the final sibling: a reorder, not a reparent drop.
+  const end = client(m.el, { x: last.x + NODE_W + 20, y: last.y + NODE_H / 2 })
+  const source = card(m.el, 'x')!
+  for (const [type, point] of [['pointerdown', start], ['pointermove', end], ['pointerup', end]] as const)
+    await inAct(() => source.dispatchEvent(new W.PointerEvent(type, {
+      bubbles: true, button: 0, pointerId: 1, ...point,
+    })))
+  assert.deepEqual(requests, [{ after: 'c' }], 'the real reorder route is held pending')
+  assert.ok(!near(was, want), 'fixture changes the slot')
+  await advance(3000, 50)
+  assertAt(at(m.el, 'x'), want, 'pending reorder must animate into the new slot')
+})
