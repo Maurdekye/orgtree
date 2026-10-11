@@ -203,7 +203,7 @@ pub async fn net(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiR
 }
 
 #[derive(Deserialize,Debug)]
-pub struct TransferQuery { agent: Option<String> }
+pub struct TransferQuery { agent: Option<String>, cursor: Option<String> }
 
 #[logged]
 pub async fn transfers(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<TransferQuery>) -> ApiResult<Json<Value>> {
@@ -213,7 +213,7 @@ pub async fn transfers(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Q
         let row = c.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live'", &[&o.id,&name]).await?;
         match row { Some(row) => Some(row.get::<_,i64>(0)), None => return Ok(Json(json!({"transfers":[]}))) }
     } else { None };
-    Ok(Json(crate::net::control::inspect(&e,o.id,actor,None).await?))
+    Ok(Json(crate::net::control::page(&e,o.id,actor,None,q.cursor.as_deref()).await?))
 }
 
 #[logged]

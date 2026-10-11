@@ -173,8 +173,8 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_transfers",
-            "Inspect attachment transfers for mail you sent, and incoming mail if you hold the org inbox audience. list returns the newest 100; get takes id. Byte counts distinguish processed from confirmed bytes. retry resumes a failed or cancelled transfer; cancel stops its network request and holds the message. remove explicitly omits a failed/cancelled outgoing file and releases the message when all remaining files are ready. Messages wait until every file is ready. Success sends no notification.",
-            json!({"action":{"type":"string","enum":["list","get","retry","cancel","remove"]},"id":{"type":"string"}}),
+            "Inspect attachment transfers for mail you sent, and incoming mail if you hold the org inbox audience. list returns up to 100, unfinished first, then newest history; pass next_cursor as cursor for the next page. get takes id. Byte counts distinguish processed from confirmed bytes. retry resumes a failed or cancelled transfer; cancel stops its network request and holds the message. remove explicitly omits a failed/cancelled outgoing file and releases the message when all remaining files are ready. Messages wait until every file is ready. Success sends no notification.",
+            json!({"action":{"type":"string","enum":["list","get","retry","cancel","remove"]},"id":{"type":"string"},"cursor":{"type":"string"}}),
             &["action"],
         ),
         tool(

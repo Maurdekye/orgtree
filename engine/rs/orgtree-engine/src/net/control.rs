@@ -14,14 +14,37 @@ async fn audience(e: &Engine, org: i64, actor: Option<i64>) -> Result<bool> {
     Ok(holders.contains(&r.get::<_,String>(0)))
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Cursor {
+    history: bool,
+    at: chrono::DateTime<chrono::Utc>,
+    id: String,
+}
+
 /// At most 100 jobs per page. A specific id is checked by the same authority
 /// predicate, so guessing an id never reveals another sender's transfer.
 #[logged]
 pub async fn inspect(e: &Engine, org: i64, actor: Option<i64>, id: Option<&str>) -> Result<Value> {
+    page(e, org, actor, id, None).await
+}
+
+#[logged]
+pub async fn page(e: &Engine, org: i64, actor: Option<i64>, id: Option<&str>, cursor: Option<&str>) -> Result<Value> {
+    let cursor: Option<Cursor> = match cursor {
+        Some(raw) if raw.len() <= 1024 => match serde_json::from_str(raw) {
+            Ok(value) => Some(value),
+            Err(_) => crate::refuse!(BadRequest,"invalid transfer cursor"),
+        },
+        Some(_) => crate::refuse!(BadRequest,"invalid transfer cursor"),
+        None => None,
+    };
+    let after_history = cursor.as_ref().map(|c| c.history);
+    let after_at = cursor.as_ref().map(|c| c.at);
+    let after_id = cursor.as_ref().map(|c| c.id.as_str());
     let incoming = audience(e,org,actor).await?;
     let rows = e.db.get().await?.query(
-        "SELECT value FROM (
-          SELECT t.created_at,t.id,jsonb_build_object('id',t.id,'direction','upload','message_id',i.uid,
+        "SELECT value,history,created_at,id FROM (
+          SELECT t.created_at,t.id,(t.state IN ('complete','removed')) AS history,jsonb_build_object('id',t.id,'direction','upload','message_id',i.uid,
             'peer',i.peer,'state',t.state,'name',t.source->>'name','total',t.total,'processed',t.processed,
             'confirmed',t.confirmed,'attempt',t.attempt,'error',t.error,'updated_at',t.updated_at) AS value
           FROM ot.net_transfers t JOIN ot.org_inbox i ON i.id=t.inbox_id
@@ -29,16 +52,21 @@ pub async fn inspect(e: &Engine, org: i64, actor: Option<i64>, id: Option<&str>)
             AND ($2::bigint IS NULL OR EXISTS(SELECT 1 FROM ot.agents a WHERE a.id=$2 AND a.org_id=$1
                 AND a.state='live' AND i.by_name=a.name AND i.at>=a.created_at))
           UNION ALL
-          SELECT n.created_at,n.id,jsonb_build_object('id',n.id,'direction','download','message_id',n.net_id,
+          SELECT n.created_at,n.id,(n.state='complete') AS history,jsonb_build_object('id',n.id,'direction','download','message_id',n.net_id,
             'peer',n.envelope->>'from','state',n.state,'attempt',n.attempt,'error',n.error,'updated_at',n.updated_at,
             'files',COALESCE((SELECT jsonb_agg(jsonb_build_object('id',d.id,'name',d.name,'total',d.total,
               'processed',d.processed,'confirmed',d.confirmed,'complete',d.complete,'restart_reason',d.restart_reason)
               ORDER BY d.file_no) FROM ot.net_downloads d WHERE d.incoming_id=n.id),'[]'::jsonb)) AS value
           FROM ot.net_incoming n WHERE n.org_id=$1 AND $4 AND ($3::text IS NULL OR n.id=$3)
-        ) jobs ORDER BY created_at DESC,id DESC LIMIT 100", &[&org,&actor,&id,&incoming]).await?;
-    let values: Vec<Value> = rows.iter().map(|r| r.get(0)).collect();
+        ) jobs WHERE $5::boolean IS NULL OR history>$5 OR (history=$5 AND (created_at,id)<($6::timestamptz,$7::text))
+        ORDER BY history,created_at DESC,id DESC LIMIT 101", &[&org,&actor,&id,&incoming,&after_history,&after_at,&after_id]).await?;
+    let next = if rows.len() > 100 {
+        let r = &rows[99];
+        Some(serde_json::to_string(&Cursor { history: r.get(1), at: r.get(2), id: r.get(3) })?)
+    } else { None };
+    let values: Vec<Value> = rows.iter().take(100).map(|r| r.get(0)).collect();
     if id.is_some() && values.is_empty() { crate::refuse!(NotFound,"transfer not found in your accessible mail"); }
-    Ok(json!({"transfers":values}))
+    Ok(json!({"transfers":values,"next_cursor":next}))
 }
 
 #[logged]
