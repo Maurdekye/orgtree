@@ -122,7 +122,7 @@ export default async function(rig) {
       const began=Date.now()
       await stopped('transition-timeout',210000)
       p.check('timeout: bounded allowance ends even with all processes alive',Date.now()-began>=175000&&Date.now()-began<210000)
-    } else if(process.env.ORGTREE_CORE_RIG_PHASE==='install') {
+    } else if(['install','install-order'].includes(process.env.ORGTREE_CORE_RIG_PHASE)) {
       await begin('install');await ready('install')
       p.check('install: authenticated replacement accepted',(await action('install')).ok)
       const until=state().transition_until
@@ -132,14 +132,19 @@ export default async function(rig) {
       fs.writeFileSync(config,JSON.stringify({root,engine,result:desktopResult}))
       await launcher.start(rigEnv,`"${process.execPath}" "${desktopScript}" "${config}"`)
       deskPid=(await rig.waitFor(()=>JSON.parse(fs.readFileSync(desktopResult,'utf8')),{what:'replacement desktop'})).pid
+      await rig.waitFor(()=>state().desktop?.pid===deskPid,{what:'replacement desktop registered first'})
+      p.check('install: desktop completes before replacement helper starts',(await action('complete')).ok)
+      await new Promise(resolve=>setTimeout(resolve,8000))
+      p.check('install: completion waits beyond death grace without extending original deadline',
+        alive(enginePid)&&alive(deskPid)&&state().installing&&state().completion_requested&&state().transition_until===until)
       await launcher.start({...rigEnv,ORGTREE_V2_DATA:root},`"${broker}"`)
       const {ps}=await import('./credential-broker.mjs')
       helperPid=Number(ps(`(Get-Process orgtree-credential-broker -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq ${q(broker)}}).Id`))
       await ready('install replacement')
-      p.check('install: new desktop and helper identities accepted without extending deadline',state().transition_until===until)
-      p.check('install: replacement completes',(await action('complete')).ok&&state().transition_until===0)
+      p.check('install: late helper identity accepted and pending completion clears atomically',state().transition_until===0&&!state().installing&&!state().completion_requested)
       kill(deskPid);await stopped('install')
 
+      if(process.env.ORGTREE_CORE_RIG_PHASE==='install') {
       await begin('pre-ready-timeout');await ready('pre-ready-timeout')
       p.check('pre-ready-timeout: transition accepted',(await action('transition')).ok)
       const a=descriptor()
@@ -150,6 +155,7 @@ export default async function(rig) {
       const delayedPid=enginePid
       await stopped('pre-ready-timeout',210000)
       p.check('pre-ready-timeout: expired transition stops before control readiness',!fs.existsSync(path.join(root,'engine-attach.json'))||descriptor().enginePid!==delayedPid)
+      }
     } else {
       await begin('sign-out');await ready('sign-out')
       fs.writeFileSync(path.join(root,'core-rig-signed-out'),'debug rig WTS input only')
