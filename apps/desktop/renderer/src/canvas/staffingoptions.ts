@@ -38,6 +38,8 @@ export interface StaffingAccount {
   provider: string
   ambient: boolean
   email?: string | null
+  /** an OpenRouter key's name (it has no email) */
+  label?: string | null
 }
 export interface StaffingTier {
   tier: string

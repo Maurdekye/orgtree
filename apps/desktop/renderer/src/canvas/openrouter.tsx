@@ -1,5 +1,6 @@
 import { PinFrame } from './modalpin'
 import { ProviderDialog } from './providerdialog'
+import { OpenRouterAddedKeys, OriginalKeyActive, OriginalKeyNameButton, originalKeyName } from './openrouterkeys'
 import { useAppValue } from '../appfeed'
 // canvas/openrouter.tsx — the OpenRouter lane's settings surface (user spec
 // 2026-09-02, verbatim intent):
@@ -207,6 +208,9 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
 
   const off = provider?.user_enabled === false
   const keySet = !!doc?.key_set
+  // any key at all (the original may be gone while added keys remain): the
+  // favorites and the lane's state follow it, the original's row `keySet`
+  const anyKey = !!(doc?.any_key ?? keySet)
   // an older backend serves no `harness` at all, and the head's clause simply
   // does not appear for it. The CHOICE itself lives in App settings → Runtime
   // (OpenRouterHarnessSetting); the head only reports it.
@@ -237,7 +241,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
           ? `, runs on ${labelOf(harness, harness.selected)}`
           : ''}</span>
         <span className="set-head-right">
-          {!off && keySet && !provider?.hire_enabled
+          {!off && anyKey && !provider?.hire_enabled
             && <span className="acct-preview-tag">preview</span>}
         </span>
       </div>
@@ -285,16 +289,17 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
             <div className="acct-main">
               <span className="acct-grip acct-ghost">⠿</span>
               <span className="acct-email orr-standing"
-                title={[`${doc.label ?? 'OpenRouter key'} · ${verdict}`,
+                title={[`${originalKeyName(doc)} · ${verdict}`,
                   ...(doc.connected ? standing : [doc.reason ?? ''])]
                   .filter(Boolean).join(' · ')}>
-                {doc.label ?? 'OpenRouter key'}
+                {originalKeyName(doc)}
                 <span className={verdictClass}> · {verdict}</span>
               </span>
               <button className="acct-btn"
                 title="re-check the key and its credit standing at openrouter.ai"
                 disabled={busy} onClick={() => run(getOpenRouter(true), '')}>
                 <AutorenewIcon fontSize="inherit" /></button>
+              <OriginalKeyNameButton doc={doc} busy={busy} run={run} />
               <button className="acct-btn" title="replace the key — the favorites stay"
                 disabled={busy} aria-haspopup="dialog" onClick={() => setEditingKey(true)}>
                 <EditIcon fontSize="inherit" /></button>
@@ -311,14 +316,18 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
                   {doc.reason ?? 'not checked at openrouter.ai yet — re-check to see the credit standing'}
                 </span>}
             </div>
+            <OriginalKeyActive doc={doc} busy={busy} run={run} />
           </div>
         </div>
       )}
+      {/* several keys at once (ruling 2026-10-11): each added key's row and
+          "Add another OpenRouter key" — canvas/openrouterkeys.tsx */}
+      {doc && <OpenRouterAddedKeys doc={doc} busy={busy} run={run} />}
 
       {/* the favorites ROW: a chip per favorite that a click deselects (or,
           dimmed, selects again), then "+" for the picker. Rendered only once
           a key exists. */}
-      {doc && keySet && (
+      {doc && anyKey && (
         <ToggleChips busy={busy} label="OpenRouter models that can be hired"
           chips={shown.map((t) => {
             const on = favorites.some((f) => f.model === t.model)
@@ -335,7 +344,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
             open: pickerOpen, onClick: () => setPickerOpen(true),
           }} />
       )}
-      {doc && keySet && !off && provider?.reason && provider.hire_enabled === false
+      {doc && anyKey && !off && provider?.reason && provider.hire_enabled === false
         && favorites.length > 0
         && <div className="dim acct-prov-note">{provider.reason}</div>}
 

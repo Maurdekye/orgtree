@@ -31,7 +31,7 @@ export const quickStaffPath = (org: string, item: string) =>
   `/api/orgs/${encodeURIComponent(org)}/work-items/${encodeURIComponent(item)}/quick-staff`
 
 const accountLabel = (a: StaffingAccount): string =>
-  a.email ? `${a.id} · ${a.email}` : a.id
+  a.email ? `${a.id} · ${a.email}` : a.label ? `${a.id} · ${a.label}` : a.id
 
 // Shared between every row/surface of one ticket. Keep the same operation id
 // on a network retry; a new selection gets its own id. The server also checks

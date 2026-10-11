@@ -968,6 +968,16 @@ export const updateOpenRouterKey = (id: string, change: { key?: string; label?: 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(change),
   })
+/** switch one key on or off app-wide (user 2026-10-11: every key is
+ *  individually disableable; reversible, nothing is deleted). An inactive key
+ *  serves no new turn; its agents' mail waits until it is on again or they
+ *  move. Answers the refreshed panel document. */
+export const setOpenRouterKeyEnabled = (id: string, enabled: boolean): Promise<OpenRouterDoc> =>
+  req(`/api/accounts/${encodeURIComponent(id)}/enabled`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  }).then(() => req<OpenRouterDoc>('/api/openrouter'))
 /** remove a key; an added key's agents move to the original key first */
 export const removeOpenRouterKey = (id: string): Promise<OpenRouterDoc> =>
   req(`/api/openrouter/keys/${encodeURIComponent(id)}`, { method: 'DELETE' })

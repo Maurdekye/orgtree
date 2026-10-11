@@ -57,6 +57,16 @@ export function accountProvider(value: string, rows: AccountChoiceRow[]): string
  * Limited/unobserved accounts remain choices; their standing is disclosed. */
 export function providerAccounts(rows: AccountChoiceRow[], provider: string,
                                  host?: HostIdentity) {
+  // OpenRouter keys have no email: `default` is the original key and each
+  // added key (`openrouter-N`) reads by the name the user gave it
+  if (provider === 'openrouter') {
+    return [
+      { value: primaryAccount(provider), text: 'default · original OpenRouter key' },
+      ...rows.filter(row => row.provider === provider && !row.ambient).map(row => ({
+        value: row.id, text: `${row.id} · ${row.label?.trim() || 'OpenRouter key'}`,
+      })),
+    ]
+  }
   return [
     { value: primaryAccount(provider), text: accountIdentity('default', primaryEmail(rows, provider, host)) },
     ...rows.filter(row => row.provider === provider && !row.ambient).map(row => ({

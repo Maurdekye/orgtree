@@ -2308,7 +2308,8 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
         {offered.length ? ` · ${offered.join(', ')}` : ' · no model offered'}</div>
     </div> })
   }
-  for (const r of registered) {
+  // an added OpenRouter key is a registry row too, but has its card above
+  for (const r of registered.filter((x) => x.provider !== 'openrouter')) {
     cards.push({ provider: r.provider, lane: r.id, node: <RegisteredAccountSection key={r.id}
       row={r} multiple={multipleAccounts(r.provider)} /> })
   }
