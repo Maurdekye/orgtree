@@ -165,6 +165,35 @@ pub fn classify(error: &str, res: &Value, gateway: bool, died_in_flight: bool) -
     None
 }
 
+/// How many times in a row a language-server agent whose context filled is
+/// moved to a fresh session before the failure is reported as terminal (a
+/// completed turn starts the count again).
+pub const CTX_RESET_MAX: i64 = 3;
+
+/// A turn that ended because the conversation outgrew the model's window and
+/// the CLI's own compaction did not save it: Claude Code's "Prompt is too
+/// long" (with or without "automatic compaction failed"), its stop at the
+/// window ("reached its context window limit"), Codex's "ran out of room",
+/// its compaction without a summary, an answer the window cut off (on a
+/// language server Codex sets no reply limit), and a server's own overflow
+/// words.
+#[logged]
+pub fn context_full(error: &str) -> bool {
+    let e = error.to_lowercase();
+    [
+        "prompt is too long",
+        "automatic compaction failed",
+        "summarization produced empty response",
+        "reached its context window limit",
+        "ran out of room in the model's context window",
+        "compaction completed without an assistant summary",
+        "incomplete response returned, reason: max_output_tokens",
+    ]
+    .iter()
+    .any(|w| e.contains(w))
+        || crate::lsproxy::context_overflow(error).is_some()
+}
+
 /// `4m47s` / `35s` / `0.4s` (3.x `_dur`).
 #[logged]
 pub fn dur(secs: f64) -> String {
@@ -200,8 +229,9 @@ pub async fn clear_runs(engine: &Engine, agent_id: i64) -> Result<()> {
     client
         .execute(
             "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run' - 'hard_fail_run' - 'last_wall'
+                    - 'ctx_reset_run'
               WHERE id = $1 AND (extra ? 'net_fail_run' OR extra ? 'balance_probe_run' OR extra ? 'parked_run'
-                                 OR extra ? 'hard_fail_run' OR extra ? 'last_wall')",
+                                 OR extra ? 'hard_fail_run' OR extra ? 'last_wall' OR extra ? 'ctx_reset_run')",
             &[&agent_id],
         )
         .await?;

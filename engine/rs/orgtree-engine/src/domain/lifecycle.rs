@@ -177,7 +177,8 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
         } else { object.clone() };
         let ev=crate::events::typed(variant,by,object,fields);
         let body=match op {
-            "cheap_compact" => format!("{} now has a fresh session. Its previous session {} remains in history; the seat and team are unchanged.",n.name,d["old_session"].as_str().unwrap_or("")),
+            "cheap_compact" => format!("{} now has a fresh session{}. Its previous session {} remains in history; the seat and team are unchanged.",n.name,
+                d["why"].as_str().map(|w| format!(" ({w})")).unwrap_or_default(),d["old_session"].as_str().unwrap_or("")),
             "compacted" => format!("{}'s provider compacted the conversation within its current session. Earlier history remains readable.",n.name),
             "switch_model" => format!("{} changed from {} to {} (by {by}). A provider change starts a new provider session and cache namespace.",n.name,d["from"].as_str().unwrap_or(""),n.tier),
             _ => format!("{}: {} changed by {by}.",variant,n.name),

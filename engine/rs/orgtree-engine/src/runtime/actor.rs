@@ -1735,6 +1735,58 @@ impl Actor {
         Ok(Some(note))
     }
 
+    /// The language server's window filled and the CLI could not compact the
+    /// conversation: as a cheap compact does, the agent goes on in a fresh
+    /// session that starts with a handoff note (the whole conversation saved
+    /// in its folder), and a system message wakes it to carry on. `run`: the
+    /// how-manieth fresh session in a row; only the first one tells it and
+    /// its superior with the fresh-session notice (once, not at every retry).
+    async fn fresh_after_full(&mut self, run: i64) -> Result<()> {
+        let mut client = self.engine.db.get().await?;
+        let tx = client.transaction().await?;
+        let session: Option<String> =
+            tx.query_one("SELECT session_id FROM ot.agents WHERE id = $1", &[&self.id]).await?.get(0);
+        tx.execute(
+            "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true, compacted_unrun = true,
+                    extra = jsonb_set(extra - 'cache_receipt', '{handoff_due}', to_jsonb($2::text)),
+                    row_version = row_version + 1
+              WHERE id = $1",
+            &[&self.id, &"your context window filled up and your CLI could not compact the conversation"],
+        )
+        .await?;
+        if let Some(s) = &session {
+            tx.execute(
+                "UPDATE ot.agent_sessions SET ended_at = now(), end_reason = 'context full (fresh session)'
+                  WHERE agent_id = $1 AND session_id = $2 AND ended_at IS NULL",
+                &[&self.id, s],
+            )
+            .await?;
+        }
+        let told = if run == 1 {
+            crate::domain::lifecycle::record(&tx, self.org_id, "cheap_compact", "@system", Some(self.id),
+                &json!({ "old_session": session.clone().unwrap_or_default(),
+                         "why": "its context window filled up and its CLI could not compact the conversation" }))
+            .await?
+        } else {
+            Vec::new()
+        };
+        tx.commit().await?;
+        let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(),
+                          "text": "The context window filled up and the CLI could not compact the conversation: the agent goes on in a fresh session with a summary" });
+        self.convo.append(&client, row).await?;
+        drop(client);
+        crate::changes::notify_id(&self.engine, self.org_id, told.into_iter().map(Change::Mailbox).collect());
+        tracing::info!(agent = %self.name, old_session = ?session, "fresh session: the context filled and the CLI could not compact it");
+        self.receipt = None;
+        self.sent_print = None;
+        self.reconfigured = true;
+        crate::domain::mail::system_event(&self.engine, self.org_id, self.id,
+            "Your context window filled up and your CLI could not compact the conversation, so you now run on a fresh \
+             session: the note above has what you were working on. Carry on where you left off.",
+            false, None)
+        .await
+    }
+
     /// The Claude CLI launch for this agent's next turn: binary, launch
     /// files, environment and session. `keepalive`: the same launch as a
     /// disposable prompt-cache read (`SpawnSpec::keepalive`). Also returns the
@@ -4245,6 +4297,21 @@ impl Actor {
                 None => {}
             }
         }
+        // A language server's window filled and the CLI could not compact the
+        // conversation (live 2026-10-11: "Prompt is too long · automatic
+        // compaction failed: summarization produced empty response"): the
+        // agent goes on in a fresh session seeded with a handoff note, a few
+        // times in a row at most (a completed turn starts the count again).
+        let mut fresh: Option<i64> = None;
+        if let (Some(e), true) = (error.as_deref(), langserver && !classified && freeze_rec.is_none() && !turn.interrupted && !turn.killed) {
+            if recovery::context_full(e) {
+                let run = recovery::bump(&self.engine, self.id, "ctx_reset_run").await?;
+                if run <= recovery::CTX_RESET_MAX {
+                    fresh = Some(run);
+                    classified = true;
+                }
+            }
+        }
         // the CLI holds the prompt once it produced anything: settle the mail
         // as delivered; a turn that never started gives its mail back. A Codex
         // thread holds it once turn/start was accepted (3.x), so a provider
@@ -4296,7 +4363,15 @@ impl Actor {
                 ],
             )
             .await?;
-        let window = catalog::tier(&self.tier_of(&client).await).and_then(|t| t.context).map(|c| c as i32);
+        let tier_now = self.tier_of(&client).await;
+        // a language server's model has the window its server gives it (App
+        // settings › Providers), which the user can change: always the latest
+        let window = catalog::tier(&tier_now).and_then(|t| t.context).map(|c| c as i32).or_else(|| {
+            langserver
+                .then(|| crate::langserver::route_of(&self.engine, &tier_now))
+                .flatten()
+                .map(|(_, m)| crate::langserver::context_of(&m) as i32)
+        });
         let measured = occupancy > 0 && !turn.compact;
         client
             .execute(
@@ -4305,7 +4380,7 @@ impl Actor {
                         occupancy = CASE WHEN $3 THEN $4 ELSE occupancy END,
                         occupancy_est = CASE WHEN $3 THEN false WHEN $9 THEN true ELSE occupancy_est END,
                         compacted_unrun = CASE WHEN $9 THEN true WHEN $3 THEN false ELSE compacted_unrun END,
-                        context_window = coalesce(context_window, $5),
+                        context_window = CASE WHEN $13 AND $5::int IS NOT NULL THEN $5 ELSE coalesce(context_window, $5) END,
                         session_id = coalesce($6, session_id), inflight_at = NULL, last_denials = $7,
                         last_error = $8,
                         frozen = coalesce($10, frozen),
@@ -4317,6 +4392,7 @@ impl Actor {
                     &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &turn.compact,
                     &freeze_rec, &self.cost_seen,
                     &(agy && catalog::antigravity_claude(&turn.serving_tier) && input + cache_read + output > 0),
+                    &langserver,
                 ],
             )
             .await?;
@@ -4353,6 +4429,11 @@ impl Actor {
             let _ = self.convo.append(&client, row).await;
         }
         drop(client);
+        if let Some(run) = fresh {
+            if let Err(e) = self.fresh_after_full(run).await {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "no fresh session after the context filled");
+            }
+        }
         if cache_read > 0 || cache_write > 0 {
             self.receipt = Some((Utc::now(), ttl as i64));
             self.save_receipt().await;
