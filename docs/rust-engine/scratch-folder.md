@@ -33,3 +33,14 @@ handling. `tools/rig/proofs/scratch-folder.mjs` checks stored, renamed, custom,
 archived, fallback, missing, deleted and unauthenticated engine lookups. The
 injected opener does not prove an interactive File Explorer/Finder/Linux launch;
 native visual acceptance remains for the running desktop build.
+
+Measured on 2026-10-11: cargo check and debug engine build passed; two native
+tests, one renderer capability/menu/toast check, and TypeScript checking passed.
+The isolated rig passed all 12 checks, including real rename/retire operations,
+the production native helper against the real authenticated endpoint, a file
+replacing the folder, cross-organization lookup and unauthenticated refusal.
+Its evidence records source engine, existing fake CLI and native-helper bundle
+SHA-256 hashes. The run stopped and removed its disposable staging; cleanup
+reported no remaining runs or stray processes. The final integration rebase
+changed desktop imports and preserved both switchboard and agent actions; the
+engine source tree remained identical to the checked/built/proved source.
