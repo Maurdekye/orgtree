@@ -55,6 +55,13 @@ pub fn list() -> Vec<Value> {
 }
 
 #[logged]
+pub fn scoped(tools: &Value) -> Vec<Value> {
+    list().into_iter().filter(|t| {
+        t["name"].as_str().is_some_and(|name| crate::domain::tool_groups::allows(tools, name))
+    }).collect()
+}
+
+#[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({
         "name": name,
@@ -101,7 +108,8 @@ fn scope_props(dirs: &str) -> Value {
             "description": dirs },
         "tools": { "type": "object", "properties": {
             "bash": { "type": "boolean" }, "web": { "type": "boolean" }, "edit": { "type": "boolean" },
-            "subagents": { "type": "boolean" }, "mcp": { "type": "array", "items": { "type": "string" } } } },
+            "subagents": { "type": "boolean" }, "mcp": { "type": "array", "items": { "type": "string" } },
+            "orgtree": crate::domain::tool_groups::schema() } },
         "org_visibility": { "type": "string", "enum": VIS },
         "permission_mode": { "type": "string", "enum": PM },
         "effort": { "type": "string", "enum": EFFORT },

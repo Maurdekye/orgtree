@@ -381,7 +381,7 @@ async fn read_stdout(
                 // every control request (tool call, hook) is its own request
                 let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
                 tokio::spawn(tracing::Instrument::instrument(async move {
-                    let response = if keepalive { Ok(answer_keepalive(&req)) } else { answer_control(&engine, &caller, &actor, &req).await };
+                    let response = if keepalive { Ok(answer_keepalive(&engine, &caller, &req).await) } else { answer_control(&engine, &caller, &actor, &req).await };
                     let line = match response {
                         Ok(r) => json!({ "type": "control_response",
                                          "response": { "subtype": "success", "request_id": id, "response": r } }),
@@ -438,14 +438,14 @@ const KEEPALIVE_DENIED: &str = "Automated prompt-cache keepalive: tool execution
 /// keeps the real turn's prefix; a tool call, a hook or a permission prompt
 /// is refused, so nothing runs on this machine.
 #[logged]
-fn answer_keepalive(req: &Value) -> Value {
+async fn answer_keepalive(engine: &Arc<Engine>, caller: &Caller, req: &Value) -> Value {
     match req["subtype"].as_str() {
         Some("mcp_message") => {
             let msg = &req["message"];
             let resp = match msg["method"].as_str() {
                 Some("tools/call") => json!({ "jsonrpc": "2.0", "id": msg["id"],
                     "result": { "content": [{ "type": "text", "text": KEEPALIVE_DENIED }], "isError": true } }),
-                _ => crate::tools::mcp_handshake(msg),
+                _ => crate::tools::handle_mcp(engine, caller, msg).await,
             };
             json!({ "mcp_response": resp })
         }

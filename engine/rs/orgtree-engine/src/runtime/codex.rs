@@ -840,8 +840,8 @@ async fn answer(engine: &Arc<Engine>, caller: &Caller, actor: &AgentTx, method: 
 
 /// The agent's `orgtree_*` tools as Codex dynamic tools.
 #[logged]
-pub fn dynamic_tools() -> Vec<Value> {
-    crate::tools::defs::list()
+pub fn dynamic_tools(tools: &Value) -> Vec<Value> {
+    crate::tools::defs::scoped(tools)
         .into_iter()
         .map(|t| json!({ "type": "function", "name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"] }))
         .collect()

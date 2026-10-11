@@ -80,7 +80,8 @@ pub fn normalize_tools(t: &Value) -> Value {
         .unwrap_or_default();
     mcp.sort();
     mcp.dedup();
-    json!({ "bash": b("bash"), "web": b("web"), "edit": b("edit"), "subagents": b("subagents"), "mcp": mcp })
+    json!({ "bash": b("bash"), "web": b("web"), "edit": b("edit"), "subagents": b("subagents"), "mcp": mcp,
+        "orgtree": super::tool_groups::normalize(t) })
 }
 
 #[logged]
@@ -184,7 +185,8 @@ pub fn clamp_tools(child: &Value, parent: &Value) -> Value {
     } else {
         c.into_iter().filter(|s| p.contains(s)).collect()
     };
-    json!({ "bash": both("bash"), "web": both("web"), "edit": both("edit"), "subagents": both("subagents"), "mcp": mcp })
+    json!({ "bash": both("bash"), "web": both("web"), "edit": both("edit"), "subagents": both("subagents"), "mcp": mcp,
+        "orgtree": super::tool_groups::intersect(child, parent) })
 }
 
 /// The effective scope of a node whose configured scope is `child`, under a
@@ -245,6 +247,11 @@ pub fn raise(current: &Value, wanted: &Value) -> Value {
         for k in ["bash", "web", "edit", "subagents"] {
             if want["tools"][k] == true { out["tools"][k] = json!(true); }
         }
+        for g in super::tool_groups::GROUPS {
+            if wanted["tools"]["orgtree"][*g] == true {
+                out["tools"]["orgtree"][*g] = json!(true);
+            }
+        }
         let mut mcp = out["tools"]["mcp"].as_array().cloned().unwrap_or_default();
         for m in want["tools"]["mcp"].as_array().into_iter().flatten() {
             if !mcp.contains(m) { mcp.push(m.clone()); }
@@ -277,6 +284,21 @@ pub fn raise(current: &Value, wanted: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn group_denials_survive_normalization_and_parent_intersection() {
+        let parent = json!({"tools":{"orgtree":{"team":false,"docket":false}}});
+        let child = json!({"tools":{"orgtree":{"messaging":false}}});
+        let effective = clamp(&child, &parent);
+        assert_eq!(effective["tools"]["orgtree"]["team"], false);
+        assert_eq!(effective["tools"]["orgtree"]["docket"], false);
+        assert_eq!(effective["tools"]["orgtree"]["messaging"], false);
+        assert_eq!(effective["tools"]["orgtree"]["watchdogs"], true);
+        assert!(require_grant(&json!({"tools":{"orgtree":{"team":true}}}), &parent).is_err());
+        let raised = raise(&effective, &json!({"tools":{"orgtree":{"messaging":true}}}));
+        assert_eq!(raised["tools"]["orgtree"]["messaging"], true);
+        assert_eq!(raised["tools"]["orgtree"]["team"], false);
+    }
 
     #[test]
     fn dirs_diff_matches_paths_and_reports_modes() {

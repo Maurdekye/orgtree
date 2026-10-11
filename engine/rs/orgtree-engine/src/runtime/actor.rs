@@ -1524,7 +1524,8 @@ impl Actor {
             }
         }
         let settings = if deny.is_empty() { json!({}) } else { json!({ "permissions": { "deny": deny } }) };
-        let tools_print = format!("{}|{}|{}", disallowed.join(","), allowed.join(","), mcp);
+        let tools_print = format!("{}|{}|{}|{}", disallowed.join(","), allowed.join(","), mcp,
+            crate::domain::tool_groups::normalize(tools));
         let dirs_print = format!("{}|{}", add_dirs.join(";"), settings);
         let print = Fingerprint {
             parts: vec![
@@ -2089,7 +2090,7 @@ impl Actor {
             effort: Some(codexrt::codex_effort(&ctx.effort)).filter(|_| route.map(|r| r.reasoning).unwrap_or(true)),
             sandbox,
             instructions: plan.identity.clone(),
-            dynamic_tools: codexrt::dynamic_tools(),
+            dynamic_tools: codexrt::dynamic_tools(tools),
             config,
             resume: resume.clone(),
             may_write,

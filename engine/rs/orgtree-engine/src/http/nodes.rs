@@ -624,6 +624,11 @@ async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64
                 tools[k] = json!(true);
             }
         }
+        for group in crate::domain::tool_groups::GROUPS {
+            if crate::domain::tool_groups::enabled(&child["tools"], group) {
+                tools["orgtree"][*group] = json!(true);
+            }
+        }
         let mut mcp: Vec<String> = tools["mcp"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
         if !mcp.iter().any(|m| m == "*") {
             for m in child["tools"]["mcp"].as_array().cloned().unwrap_or_default() {

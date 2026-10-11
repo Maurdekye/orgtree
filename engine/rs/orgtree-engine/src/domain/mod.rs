@@ -15,6 +15,7 @@ pub mod runtime_notices;
 pub mod ops;
 pub mod orginbox;
 pub mod scope;
+pub mod tool_groups;
 pub mod staffing;
 pub mod staging;
 pub mod templates;

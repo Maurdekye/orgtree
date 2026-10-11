@@ -27,14 +27,21 @@ pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> V
             return json!({ "jsonrpc": "2.0", "id": id, "result": call(engine, caller, &msg["params"]).await });
         }
     }
-    mcp_handshake(msg)
+    let cards = if msg["method"] == "tools/list" {
+        match caller_tools(engine, caller).await {
+            Ok(tools) => defs::scoped(&tools),
+            Err(_) => return json!({"jsonrpc":"2.0", "id":msg["id"],
+                "error":{"code":-32603,"message":"Could not read the agent's tool scope"}}),
+        }
+    } else { Vec::new() };
+    mcp_handshake(msg, cards)
 }
 
 /// The in-process server's answers that run nothing (every method but
 /// `tools/call`): the handshake and the tool list. A prompt-cache keepalive
 /// answers with these, so its request lists exactly the real turn's tools.
 #[logged]
-pub fn mcp_handshake(msg: &Value) -> Value {
+pub fn mcp_handshake(msg: &Value, cards: Vec<Value>) -> Value {
     let id = msg.get("id").cloned();
     let method = msg["method"].as_str().unwrap_or("");
     let Some(id) = id.filter(|i| !i.is_null()) else {
@@ -48,7 +55,7 @@ pub fn mcp_handshake(msg: &Value) -> Value {
             "serverInfo": { "name": "orgtree", "version": env!("CARGO_PKG_VERSION") },
         })),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": defs::list() })),
+        "tools/list" => Ok(json!({ "tools": cards })),
         "resources/list" => Ok(json!({ "resources": [] })),
         "prompts/list" => Ok(json!({ "prompts": [] })),
         other => Err(json!({ "code": -32601, "message": format!("method not found: {other}") })),
@@ -146,6 +153,12 @@ impl Done {
 
 #[logged]
 async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value) -> Result<Done> {
+    if crate::domain::tool_groups::required(name).is_some() && name != "orgtree_status" {
+        let tools = caller_tools(engine, caller).await?;
+        if !crate::domain::tool_groups::allows(&tools, name) {
+            crate::refuse!(Forbidden, "{name} is disabled by your Orgtree tool group scope");
+        }
+    }
     match name {
         "orgtree_message" => mailtools::message(engine, caller, args, false).await,
         "orgtree_send_notice" => mailtools::message(engine, caller, args, true).await,
@@ -200,6 +213,29 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
 }
 
 // ------------------------------------------------------------ shared helpers
+
+/// Read the current ancestor ceiling as well as the caller's own switches.
+/// A stale process cannot keep a capability removed by retooling its parent.
+#[logged]
+async fn caller_tools(engine: &Engine, caller: &Caller) -> Result<Value> {
+    let client = engine.db.get().await?;
+    let rows = client.query(
+        "WITH RECURSIVE chain(id,parent_id,scope,depth) AS (
+           SELECT id,parent_id,scope,0 FROM ot.agents WHERE id=$1 AND org_id=$2
+           UNION ALL SELECT a.id,a.parent_id,a.scope,c.depth+1 FROM ot.agents a JOIN chain c ON a.id=c.parent_id
+             WHERE a.org_id=$2 AND c.depth<1024)
+         SELECT scope, parent_id, depth FROM chain ORDER BY depth DESC", &[&caller.agent_id, &caller.org_id]).await?;
+    let Some(top) = rows.first() else { crate::refuse!(Forbidden, "agent scope is unavailable"); };
+    if top.get::<_, Option<i64>>(1).is_some() {
+        crate::refuse!(Forbidden, "agent scope ancestry is incomplete");
+    }
+    let mut tools = json!({"mcp":["*"]});
+    for row in rows {
+        let scope: Value = row.get(0);
+        tools = crate::domain::scope::clamp_tools(&scope["tools"], &tools);
+    }
+    Ok(tools)
+}
 
 /// The caller's own row, read fresh.
 #[derive(Debug, serde::Serialize)]
