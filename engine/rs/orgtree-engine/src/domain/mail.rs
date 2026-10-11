@@ -182,6 +182,7 @@ impl Outgoing {
 
 #[derive(Debug, serde::Serialize)]
 pub struct Sent {
+    pub transfer_ids: Vec<String>,
     pub uid: String,
     pub to: String,
     pub recipient_state: String,
@@ -259,7 +260,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
             ch.push(Change::Mailbox(a));
         }
         changes::notify(engine, &org, ch);
-        return Ok(Sent { uid: mail_uid, to: "user".into(), recipient_state: "live".into(), delivery: "delivered to your inbox".into(), deferred: false });
+        return Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: "user".into(), recipient_state: "live".into(), delivery: "delivered to your inbox".into(), deferred: false });
     }
     // an agent
     let target = client
@@ -334,7 +335,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
             h.send(crate::runtime::AgentMsg::Wake);
         }
     }
-    Ok(Sent { uid: mail_uid, to, recipient_state: state, delivery, deferred })
+    Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to, recipient_state: state, delivery, deferred })
 }
 
 /// A bare recipient is resolved only when no internal agent has that name.

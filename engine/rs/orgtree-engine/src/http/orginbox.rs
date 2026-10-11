@@ -191,7 +191,7 @@ pub async fn send(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     if let Err(err)=async { e.db.get().await?.execute("UPDATE ot.upload_stages SET hidden=true WHERE org_id=$1 AND id=ANY($2)", &[&o.id,&b.attachments]).await?; Ok::<_,anyhow::Error>(()) }.await {
         tracing::warn!(error=%err,"saved upload recovery entries not hidden");
     }
-    Ok(Json(json!({ "id": sent.uid, "warnings": [], "delivery": sent.delivery })))
+    Ok(Json(json!({ "id": sent.uid, "warnings": [], "delivery": sent.delivery, "transfer_ids": sent.transfer_ids })))
 }
 
 /// `GET /api/orgs/{slug}/net`: the org's network identity and hubs — the

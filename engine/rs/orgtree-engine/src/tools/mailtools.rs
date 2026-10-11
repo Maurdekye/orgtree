@@ -41,6 +41,7 @@ struct Letter {
 
 /// One recipient's delivery.
 struct Delivered {
+    transfer_ids: Vec<String>,
     text: String,
     uid: String,
     box_name: String,
@@ -86,7 +87,7 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     };
     if single {
         let d = send_one(engine, &letter, &to, true, arg_str(args, "reply_to")).await?;
-        return Ok(Done { text: d.text, card: Some(json!({ "mail": { "id": d.uid, "to": d.box_name } })) });
+        return Ok(Done { text: d.text, card: Some(json!({ "mail": { "id": d.uid, "to": d.box_name, "transfer_ids": d.transfer_ids } })) });
     }
     if let Some(r) = arg_str(args, "reply_to") {
         letter.reply = Some(mail::agent_reply_quote(engine, letter.me.org_id, letter.me.id, &letter.me.name, r).await?);
@@ -98,7 +99,7 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
         match send_one(engine, &letter, to, false, None).await {
             Ok(d) => {
                 lines.push(format!("- {to}: {}", d.text));
-                mails.push(json!({ "id": d.uid, "to": d.box_name }));
+                mails.push(json!({ "id": d.uid, "to": d.box_name, "transfer_ids": d.transfer_ids }));
             }
             Err(e) => match e.downcast_ref::<crate::domain::UserError>() {
                 Some(why) => lines.push(format!("- {to}: refused: {why}")),
@@ -236,15 +237,19 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
     let local_reply = out.reply_to.as_ref().is_some_and(|q| q.get("net_id").is_none());
     let sent = mail::send(engine, me.org_id, out).await?;
     let box_name = if to_user { "user_inbox".to_string() } else { sent.to.clone() };
+    let verb = if sent.to.starts_with("@net:") { "Queued" } else { "Sent" };
     let mut text = if single {
-        format!("Sent to {} (id {}). {}", sent.to, sent.uid, sent.delivery)
+        format!("{verb} to {} (id {}). {}", sent.to, sent.uid, sent.delivery)
     } else {
-        format!("sent (id {}). {}", sent.uid, sent.delivery)
+        format!("{verb} (id {}). {}", sent.uid, sent.delivery)
     };
     if local_reply && sent.to.starts_with("@net:") {
         text.push_str(" The message it answers did not come over the mail hub, so the recipient gets the reply without a link to it.");
     }
-    Ok(Delivered { text, uid: sent.uid, box_name })
+    if !sent.transfer_ids.is_empty() {
+        text.push_str(&format!(" Transfer IDs: {}. Use orgtree_transfers action=get id=<id> for progress or action=list for all your transfers.", sent.transfer_ids.join(", ")));
+    }
+    Ok(Delivered { transfer_ids: sent.transfer_ids, text, uid: sent.uid, box_name })
 }
 
 #[logged]

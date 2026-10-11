@@ -36,11 +36,10 @@ struct Job {
     attempt: i32,
 }
 
-/// Prepare jobs without doing file/network I/O. An empty result means wait.
+/// IDs are allocated in the same transaction as the queued message, before
+/// returning to its sender. The route is bound later, when a hub is chosen.
 #[logged]
-pub(super) async fn ready(engine: &Engine, org: i64, inbox: i64, hub: &str, address: &str, files: &[Value]) -> Result<Option<Vec<String>>> {
-    let mut c = engine.db.get().await?;
-    let tx = c.transaction().await?;
+pub(super) async fn plan(tx: &tokio_postgres::Transaction<'_>, org: i64, inbox: i64, hub: &str, address: &str, files: &[Value]) -> Result<Vec<String>> {
     for (index, file) in files.iter().enumerate() {
         let total = file["bytes"].as_u64().and_then(|n| i64::try_from(n).ok()).unwrap_or(0);
         let id = crate::util::uid("transfer");
@@ -55,6 +54,17 @@ pub(super) async fn ready(engine: &Engine, org: i64, inbox: i64, hub: &str, addr
         )
         .await?;
     }
+    Ok(tx.query("SELECT id FROM ot.net_transfers WHERE inbox_id=$1 ORDER BY file_no", &[&inbox]).await?
+        .iter().map(|r| r.get(0)).collect())
+}
+
+/// Prepare jobs without doing file/network I/O. An empty result means wait.
+#[logged]
+pub(super) async fn ready(engine: &Engine, org: i64, inbox: i64, hub: &str, address: &str, files: &[Value]) -> Result<Option<Vec<String>>> {
+    let mut c = engine.db.get().await?;
+    let tx = c.transaction().await?;
+    plan(&tx, org, inbox, hub, address, files).await?;
+    tx.execute("UPDATE ot.net_transfers SET hub=$2,address=$3 WHERE inbox_id=$1 AND hub='' AND address=''", &[&inbox,&hub,&address]).await?;
     tx.execute("UPDATE ot.org_inbox SET hub=$2 WHERE id=$1 AND hub IS NULL", &[&inbox, &hub]).await?;
     let rows = tx.query("SELECT state,result_id,address,error FROM ot.net_transfers WHERE inbox_id=$1 ORDER BY file_no", &[&inbox]).await?;
     tx.commit().await?;
@@ -513,14 +523,17 @@ pub(super) async fn rig_attempt(e: &Arc<Engine>, org: i64, args: &Value) -> Resu
         }
         let count = args["file_count"].as_u64().unwrap_or(1).clamp(1,10);
         let files: Vec<Value> = (0..count).map(|n| json!({"path":path.to_string_lossy(),"name":format!("proof-{n}.bin"),"bytes":total})).collect();
-        let (uid, _) = queue_row(e, org, "peer.rig", "transfer proof", args["by"].as_str().unwrap_or("user"), "message", &files, None).await?;
+        let (uid, _, queued_ids) = queue_row(e, org, "peer.rig", "transfer proof", args["by"].as_str().unwrap_or("user"), "message", &files, None).await?;
         let c = e.db.get().await?;
         let inbox: i64 = c.query_one("SELECT id FROM ot.org_inbox WHERE uid=$1", &[&uid]).await?.get(0);
         drop(c);
+        if args["unbound"] == true {
+            return Ok(json!({"id":queued_ids[0],"ids":queued_ids,"inbox":inbox,"queued":true}));
+        }
         let available = ready(e, org, inbox, "rig-transfer", address, &files).await?;
         let c = e.db.get().await?;
         let ids: Vec<String> = c.query("SELECT id FROM ot.net_transfers WHERE inbox_id=$1 ORDER BY file_no", &[&inbox]).await?.iter().map(|r|r.get(0)).collect();
-        return Ok(json!({"id":ids[0],"ids":ids,"inbox":inbox,"ready":available.is_some()}));
+        return Ok(json!({"id":ids[0],"ids":ids,"inbox":inbox,"ready":available.is_some(),"queued_ids":queued_ids}));
     }
     let id = args["id"].as_str().unwrap_or("");
     let c = e.db.get().await?;

@@ -1047,7 +1047,7 @@ pub async fn queue(
     kind: &str,
     attachments: &[Value],
     reply_to: Option<&Value>,
-) -> Result<(String, String)> {
+) -> Result<(String, String, Vec<String>)> {
     if offline() {
         crate::refuse!(Unprocessable, "network mail (@net:) is paused for this run (the engine started in safe start)");
     }
@@ -1096,22 +1096,25 @@ async fn queue_row(
     kind: &str,
     attachments: &[Value],
     reply_to: Option<&Value>,
-) -> Result<(String, String)> {
+) -> Result<(String, String, Vec<String>)> {
     let uid = crate::util::uid("x");
     let net_id = uuid::Uuid::new_v4().simple().to_string();
     let to = format!("@net:{peer}");
     let reply = reply_to.map(|r| crate::util::pg_json(r).into_owned());
-    let client = engine.db.get().await?;
-    client
-        .execute(
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let row = tx
+        .query_one(
             "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to)
-             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9)",
+             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9) RETURNING id",
             &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply],
         )
         .await?;
+    let ids = transfers::plan(&tx, org_id, row.get(0), "", "", attachments).await?;
+    tx.commit().await?;
     drop(client);
     kick(engine);
-    Ok((uid, to))
+    Ok((uid, to, ids))
 }
 
 /// Focused rig check: no identity registration, listener or network request.
@@ -1119,7 +1122,7 @@ async fn queue_row(
 #[logged]
 pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str) -> Result<Value> {
     anyhow::ensure!(crate::rig::active(), "rig mode required");
-    let (uid, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", kind, &[], None).await?;
+    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", kind, &[], None).await?;
     let client = engine.db.get().await?;
     let row = client.query_one(
         "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to FROM ot.org_inbox WHERE uid=$1", &[&uid],

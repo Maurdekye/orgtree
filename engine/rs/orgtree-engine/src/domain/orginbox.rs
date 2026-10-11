@@ -127,13 +127,14 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         ensure_holders(engine, org_id, Some((*id, name.as_str()))).await?;
     }
     if let Some(peer) = to.strip_prefix("net:") {
-        let (uid, to) = crate::net::queue(engine, org_id, peer, &out.body, &by, &out.kind, &out.attachments, out.reply_to.as_ref()).await?;
+        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, &out.kind, &out.attachments, out.reply_to.as_ref()).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
         return Ok(Sent {
+            transfer_ids,
             uid,
             to,
             recipient_state: "remote".into(),
-            delivery: "Queued for the mail hub; it leaves as soon as a hub accepts it (the org inbox shows its progress).".into(),
+            delivery: "Queued for the mail hub. The message waits until all files are uploaded; inspect transfer_ids with orgtree_transfers (the org inbox also shows progress).".into(),
             deferred: false,
         });
     }
@@ -189,7 +190,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     } else {
         format!("Delivered to {}'s org inbox and to {}.", dst.slug, holders.join(", "))
     };
-    Ok(Sent { uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() || route.waiting })
+    Ok(Sent { transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() || route.waiting })
 }
 
 /// Effective live audience holders; newest grant wins in single-holder mode.
