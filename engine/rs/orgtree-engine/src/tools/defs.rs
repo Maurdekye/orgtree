@@ -38,6 +38,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_retire",
         "orgtree_dissolve",
         "orgtree_move",
+        "orgtree_reorder",
         "orgtree_rename",
         "orgtree_reallocate",
         "orgtree_switch_model",
@@ -63,13 +64,25 @@ pub fn scoped(tools: &Value) -> Vec<Value> {
 
 #[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
-    json!({
+    let mut out = json!({
         "name": name,
         "description": description,
         "inputSchema": { "type": "object", "properties": properties, "required": required },
         // an agent's own hands are never deferred behind tool search
         "_meta": { "anthropic/alwaysLoad": true },
-    })
+    });
+    if name == "orgtree_staff" {
+        // New hires require placement; archived-seat restoration retains its
+        // existing optional fields. Staff may select rehire with either form.
+        out["inputSchema"]["allOf"] = json!([{
+            "if": { "not": { "anyOf": [
+                { "required": ["node"] },
+                { "required": ["staff_mode"], "properties": { "staff_mode": { "const": "rehire" } } }
+            ] } },
+            "then": { "required": ["name", "tier", "grant", "charter", "index"] }
+        }]);
+    }
+    out
 }
 
 const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
@@ -341,19 +354,22 @@ fn all() -> Vec<Value> {
             "orgtree_hire",
             "Hire a report under you or under `target` in your team (or, with hire_type 'superior', insert a \
              superior above `target`). Write its charter in full. Seat + grant must fit your free credits (with \
-             credit cascade on, your chain is raised as needed). `kickoff` sends it a first message.",
+             credit cascade on, your chain is raised as needed). `index` is REQUIRED: zero-based among live siblings, \
+             0..existing_count (last appends). Superior insertion excludes its target, which becomes its child. \
+             Use orgtree_state_inspect for sibling_index/live_sibling_count. `kickoff` sends it a first message.",
             merge(
                 json!({
                     "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
                     "charter": { "type": "string" }, "parent": { "type": "string" }, "target": { "type": "string" },
                     "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
+                    "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
                     "kickoff": { "type": "string", "description": "first message to send it" },
                     "harness": { "type": "string", "enum": ["claude-code", "codex-cli"] },
                     "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
                 }),
                 seat_scope_props(DIRS_HIRE),
             ),
-            &["name", "tier", "grant", "charter"],
+            &["name", "tier", "grant", "charter", "index"],
         ),
         tool(
             "orgtree_rehire",
@@ -394,6 +410,14 @@ fn all() -> Vec<Value> {
             &[],
         ),
         tool("orgtree_rename", "Rename an agent below you.", json!({ "node": { "type": "string" }, "name": { "type": "string" } }), &["node", "name"]),
+        tool(
+            "orgtree_reorder",
+            "Place a live descendant at a zero-based final index among its current live siblings. Remove it first, \
+             then insert at index 0..remaining_count. Parent, scope and credits stay unchanged. Self, superior, peers \
+             and unrelated agents are refused. orgtree_state_inspect exposes sibling_index/live_sibling_count.",
+            json!({ "node": { "type": "string" }, "index": { "type": "integer", "minimum": 0 } }),
+            &["node", "index"],
+        ),
         tool(
             "orgtree_reallocate",
             "Give credits to (positive delta) or take unused credits from (negative) a report.",
@@ -588,6 +612,7 @@ fn all() -> Vec<Value> {
                         "parent": { "type": "string", "description": "parent WORK ITEM" },
                         "target": { "type": "string", "description": "seat destination" },
                         "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
+                        "index": { "type": "integer", "minimum": 0, "description": "REQUIRED for a new hire: zero-based live sibling insertion position (superior insertion excludes target); rehire retains existing placement" },
                         "harness": { "type": "string", "enum": ["claude-code", "codex-cli"] },
                         "kickoff_kind": { "type": "string", "enum": KINDS } }),
                 seat_scope_props(DIRS_HIRE),

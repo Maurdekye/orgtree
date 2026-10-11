@@ -1,5 +1,13 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Agent ordering, user 2026-10-11 23:14–23:15Z** (mb137ddaf7c1d,
+m848012229292, relayed by lead-astra): allow agents to reorder descendants and
+choose hire placement. Hiring by agents requires explicit values; placement
+index is no exception (supersedes the initial optional-index interpretation).
+Coordinator mechanics ruling 23:18Z: zero-based live siblings, excluding the
+reorder target or superior-insertion anchor before insertion. Scope, transaction
+rules and focused proof: [`agent-ordering.md`](agent-ordering.md).
+
 Every explicit decision the user (product owner) has made about the Rust rewrite, in the order
 made. These bind the plan ([`PLAN.md`](PLAN.md)) and the code. A later entry that changes an earlier
 one says so; nothing here is dropped without a new decision from the user. Add new decisions as

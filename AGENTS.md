@@ -28,6 +28,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [primary continuation](docs/rust-engine/continue-primary.md).
   [verified: `runtime/freeze.rs`, `runtime/freeze/continuation.rs`, `usage.rs`, 2026-10-12]
 
+- Agent `orgtree_reorder` accepts a live strict descendant and zero-based
+  final live sibling `index`; `orgtree_hire`/staff's new-hire form require
+  explicit `index` (0..existing live count). Superior insertion excludes its
+  anchor from that count. Inspection exposes live sibling indices and child
+  counts. Hire/reorder position decisions are serializable with bounded retry;
+  exhausted midpoint gaps normalize only that live sibling set atomically.
+  [decided: user 2026-10-11 23:15Z; verified from source: `domain/ops.rs`,
+  `domain/ops/ordering.rs`, `tools/defs.rs`; scope/proof: `docs/rust-engine/agent-ordering.md`]
+
 - Canvas sibling drags and their Undo preview before the reorder endpoint answers.
   Preview Rust's live-sibling midpoint ordering through the shared chart/list tree;
   clear only the matching operation on refusal or after success plus an agreeing

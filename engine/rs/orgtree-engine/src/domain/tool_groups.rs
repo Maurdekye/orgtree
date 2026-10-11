@@ -47,7 +47,7 @@ pub fn required(name: &str) -> Option<&'static [&'static str]> {
         "status" => &[],
         "work" => &["docket"],
         "staff" => &["docket", "team"],
-        "hire" | "rehire" | "retire" | "dissolve" | "move" | "rename" | "reallocate"
+        "hire" | "rehire" | "retire" | "dissolve" | "move" | "reorder" | "rename" | "reallocate"
         | "switch_model" | "cheap_compact" | "retool" | "swap" | "self_subjugate" => &["team"],
         "message" | "send_notice" | "inbox" | "audience" | "transfers" => &["messaging"],
         "chart" | "state_inspect" | "list_tiers" | "list_orgs" | "read_transcript" | "read_scratch" => &["inspection"],

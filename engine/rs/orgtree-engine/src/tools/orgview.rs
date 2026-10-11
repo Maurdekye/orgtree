@@ -250,6 +250,7 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
             "SELECT a.id, a.parent_id, a.scope, jsonb_build_object(
               'id', a.name, 'name', a.name, 'parent', (SELECT name FROM ot.agents p WHERE p.id=a.parent_id),
               'title', a.title, 'state', a.state, 'generation', a.generation, 'model', a.tier, 'tier', a.tier,
+              'sibling_order', a.sibling_order,
               'grant', a.grant_credits, 'seat_cost', a.seat, 'seat', a.seat, 'archived_at', a.archived_at,
               'free', CASE WHEN a.state='live' THEN a.grant_credits - (SELECT coalesce(sum(c.seat+c.grant_credits),0) FROM ot.agents c WHERE c.parent_id=a.id AND c.state='live') END,
               'account_binding', jsonb_build_object('present', coalesce(a.account,'')<>'', 'missing', coalesce(a.account,'') LIKE 'missing:%'),
@@ -270,6 +271,19 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
         }
     }
     tx.commit().await?;
+    // Rank the complete live sibling set before visibility/name filtering.
+    // Archived rows have no live index and do not consume an insertion slot.
+    let mut siblings: HashMap<Option<i64>, Vec<(i64, f64)>> = HashMap::new();
+    for (id, row) in &records {
+        if row["state"] == "live" {
+            siblings.entry(scopes[id].0).or_default().push((*id, row["sibling_order"].as_f64().unwrap_or(0.0)));
+        }
+    }
+    let mut positions = HashMap::new();
+    for list in siblings.values_mut() {
+        list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+        for (index, (id, _)) in list.iter().enumerate() { positions.insert(*id, (index, list.len())); }
+    }
     let own_scope = inspection_scope(caller.agent_id, &scopes, &ceiling)?;
     // the effective (ancestor-clamped) visibility decides what is shown, as
     // chart's (3.x capability_scope)
@@ -278,6 +292,9 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     for (id, mut row) in records {
         if (!archived && row["state"] != "live") || !inspection_visible(id, caller.agent_id, visibility, &scopes) { continue; }
         if !names.is_empty() && !names.iter().any(|n| row["name"] == *n) { continue; }
+        row["sibling_index"] = positions.get(&id).map(|p| json!(p.0)).unwrap_or(Value::Null);
+        row["live_sibling_count"] = json!(siblings.get(&scopes[&id].0).map(Vec::len).unwrap_or(0));
+        row["live_child_count"] = json!(siblings.get(&Some(id)).map(Vec::len).unwrap_or(0));
         let effective = inspection_scope(id, &scopes, &ceiling)?;
         let provider = catalog::provider_of(row["tier"].as_str().unwrap_or("")).to_string();
         row["provider"] = json!(provider);

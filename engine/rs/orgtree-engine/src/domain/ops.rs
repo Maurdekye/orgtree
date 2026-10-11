@@ -19,6 +19,8 @@ use crate::providers::catalog;
 use crate::refuse;
 use crate::runtime::AgentMsg;
 
+mod ordering;
+
 /// Who asks.
 #[derive(Clone, Debug)]
 pub enum Actor {
@@ -469,7 +471,12 @@ fn retryable(e: &anyhow::Error) -> bool {
 #[logged]
 async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op: &str, req: &Value, fx: &mut Effects) -> Result<Value> {
     let mut client = engine.db.get().await?;
-    let tx = client.transaction().await?;
+    // Position is chosen from a sibling snapshot. Predicate conflict detection
+    // protects empty/root sets and concurrent moves/hires; run retries 40001.
+    let isolation = if matches!(_op, "hire" | "reorder") {
+        tokio_postgres::IsolationLevel::Serializable
+    } else { tokio_postgres::IsolationLevel::ReadCommitted };
+    let tx = client.build_transaction().isolation_level(isolation).start().await?;
     let out = run_in_tx(engine, org, &tx, actor, req, fx).await?;
     tx.commit().await?;
     Ok(out)
@@ -792,6 +799,11 @@ async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&N
 
 #[logged]
 async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let agent = matches!(actor, Actor::Agent { .. });
+    ordering::index(req, agent)?;
+    if agent && (req["grant"].as_f64().is_none() || str_arg(req, "charter").is_none()) {
+        refuse!(BadRequest, "agent hires have no defaults — specify grant and charter explicitly");
+    }
     super::tool_groups::validate(&req["tools"])?;
     let name = valid_name(str_arg(req, "name").unwrap_or(""))?;
     let tier = str_arg(req, "tier").unwrap_or("").to_string();
@@ -834,6 +846,10 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     } else if matches!(actor, Actor::Agent { .. }) {
         refuse!(Forbidden, "only the user hires at the top level");
     }
+    if let Some(a) = &anchor { insertion_authority(tx, actor, a).await?; }
+    let parent_id = parent.as_ref().map(|p| p.id);
+    let mut siblings = ordering::siblings(tx, org.id, parent_id, anchor.as_ref().map(|a| a.id)).await?;
+    let index = ordering::position(req, &siblings, agent)?;
     // a superior inserted above `anchor` also carries the anchor's stake
     let anchor_stake = anchor.as_ref().map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = grant + anchor_stake;
@@ -887,14 +903,17 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             _ => refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, &org.slug, &crate::org_accounts::primary(provider), provider)),
         }
     }
-    let parent_id = parent.as_ref().map(|p| p.id);
-    let order: f64 = tx
-        .query_one(
+    // A user/internal hire without placement keeps the historical append rule,
+    // including a superior insertion (whose anchor used to count in max).
+    let order = if req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none() {
+        tx.query_one(
             "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
-            &[&org.id, &parent_id],
-        )
-        .await?
-        .get(0);
+            &[&org.id, &parent_id]).await?.get(0)
+    } else {
+        let (order, changed) = ordering::place(tx, &mut siblings, index).await?;
+        fx.agents.extend(changed);
+        order
+    };
     let charter = str_arg(req, "charter").map(str::to_string);
     let team_charter = str_arg(req, "team_charter").map(str::to_string);
     let title = str_arg(req, "title").map(str::to_string).unwrap_or_default();
@@ -957,7 +976,8 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     fx.events = true;
     fx.warm.push(id);
     fx.scratch.push(scratch);
-    let mut out = json!({ "node": name, "cascaded": raised });
+    let mut out = json!({ "node": name, "cascaded": raised, "parent": parent.as_ref().map(|p| &p.name),
+        "index": index, "sibling_order": order, "live_sibling_count": siblings.len() + 1 });
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings);
     }
@@ -966,6 +986,9 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
 
 #[logged]
 async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    if req.get("index").is_some() {
+        refuse!(BadRequest, "index places a new hire; rehire retains existing placement. Use reorder after restoration");
+    }
     super::tool_groups::validate(&req["tools"])?;
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if n.state == "live" {
@@ -1683,26 +1706,17 @@ async fn reprice(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
 async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     authorize(tx, actor, &n, "reorder").await?;
-    let sibs = tx
-        .query(
-            "SELECT name, sibling_order FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'
-               AND id <> $3 ORDER BY sibling_order, id",
-            &[&org.id, &n.parent, &n.id],
-        )
-        .await?;
-    let list: Vec<(String, f64)> = sibs.iter().map(|r| (r.get(0), r.get(1))).collect();
-    let pos = match (str_arg(req, "before"), str_arg(req, "after")) {
-        (Some(b), _) => list.iter().position(|(nm, _)| nm == b),
-        (None, Some(a)) => list.iter().position(|(nm, _)| nm == a).map(|i| i + 1),
-        _ => Some(list.len()),
-    };
-    let Some(pos) = pos else { refuse!(NotFound, "that sibling is not beside {}", n.name) };
-    let prev = if pos > 0 { list[pos - 1].1 } else { list.first().map(|x| x.1 - 2.0).unwrap_or(0.0) };
-    let next = if pos < list.len() { list[pos].1 } else { prev + 2.0 };
-    let order = (prev + next) / 2.0;
+    if n.state != "live" { refuse!(Conflict, "reorder needs a live target"); }
+    for field in ["parent", "new_parent", "target", "above"] {
+        if req.get(field).is_some() { refuse!(BadRequest, "reorder changes only sibling position; omit {field}"); }
+    }
+    let mut list = ordering::siblings(tx, org.id, n.parent, Some(n.id)).await?;
+    let pos = ordering::position(req, &list, matches!(actor, Actor::Agent { .. }))?;
+    let (order, changed) = ordering::place(tx, &mut list, pos).await?;
+    fx.agents.extend(changed);
     tx.execute("UPDATE ot.agents SET sibling_order = $2, row_version = row_version + 1 WHERE id = $1", &[&n.id, &order]).await?;
     fx.agents.insert(n.id);
-    Ok(json!({ "node": n.name, "sibling_order": order }))
+    Ok(json!({ "node": n.name, "index": pos, "live_sibling_count": list.len() + 1, "sibling_order": order }))
 }
 
 #[logged]

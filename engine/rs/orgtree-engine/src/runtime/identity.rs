@@ -267,7 +267,7 @@ fn scoped_tool_instructions(tools: &Value) -> String {
         text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. Send only to authorized audiences. ");
     }
     if crate::domain::tool_groups::enabled(tools, "team") {
-        text.push_str("On hire state the charter, folders, tool switches and visibility. Use kickoff to start work; hiring alone starts no turn. Never grant above your own effective scope. orgtree_retool on yourself changes only team_charter; your superior controls your own scope. ");
+        text.push_str("On hire state the charter, folders, tool switches, visibility and index explicitly. index is zero-based among live siblings; 0 is first and live_child_count appends. Superior insertion excludes its target from the former sibling set. orgtree_reorder changes only a live descendant's sibling position. orgtree_state_inspect exposes sibling_index, live_sibling_count and live_child_count. Use kickoff to start work; hiring alone starts no turn. Never grant above your own effective scope. orgtree_retool on yourself changes only team_charter; your superior controls your own scope. ");
     }
     text
 }
@@ -556,7 +556,9 @@ const TOOLS_SENTENCE: &str = "The tools: orgtree_message (reach your reports at 
 recipient yourself), \
 orgtree_send_notice (same reach, but PASSIVE: it lands in the recipient's mailbox and is read at their next turn without ever \
 starting one — prefer it for FYIs and progress notes that don't warrant interrupting or waking anyone), orgtree_hire (you \
-must state a charter, folders, every tool switch and visibility — no defaults. HIRING ALONE STARTS NO ONE: a hire sits idle \
+must state a charter, folders, every tool switch, visibility and index — no defaults. index is zero-based among live \
+siblings; inspect live_child_count before inserting. orgtree_reorder places a live descendant among its siblings. \
+HIRING ALONE STARTS NO ONE: a hire sits idle \
 until it receives a message, because the charter is who it is, not a task to begin. Pass `kickoff` and the hire begins \
 immediately; without `kickoff`, follow the hire with an orgtree_message or it will sit there forever. a rehire takes the \
 same, and can give the agent a new name), orgtree_retire/rehire/dissolve/reallocate, orgtree_retool (re-scope any agent in \
