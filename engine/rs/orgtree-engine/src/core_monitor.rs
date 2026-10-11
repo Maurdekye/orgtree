@@ -101,8 +101,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                         } else { false }
                     }
                     Command::Transition { who, finish, installing, .. } => {
-                        if stopped || state.desktop.as_ref() != Some(who)
-                            || (state.transition_until != 0 && !core_state::transition(&state)) { false }
+                        if !transition_allowed(&state, who, stopped) { false }
                         else if *finish {
                             // Production desktop attach can finish before the
                             // replacement helper registers. Keep the original
@@ -161,6 +160,13 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
 
 #[cfg(windows)]
 #[nolog]
+fn transition_allowed(state: &Snapshot, who: &Identity, stopped: bool) -> bool {
+    !stopped && state.desktop.as_ref() == Some(who)
+        && (state.transition_until == 0 || core_state::transition(state))
+}
+
+#[cfg(windows)]
+#[nolog]
 fn finish_ready_transition(state: &mut Snapshot, boot: bool) -> bool {
     let alive = |who: &Option<Identity>| who.as_ref().is_some_and(|who| core_process::life(who) == Life::Alive);
     if !state.completion_requested || !core_state::transition(state)
@@ -209,4 +215,55 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
     }
     #[cfg(not(windows))] let _ = args;
     std::process::ExitCode::SUCCESS
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    fn pending() -> Snapshot {
+        let identity = core_process::identity(std::process::id()).unwrap();
+        Snapshot { generation: "a".repeat(32), engine: identity.clone(), host: Some(identity.clone()),
+            desktop: Some(identity.clone()), helper: Some(identity.clone()), sessions: vec![],
+            transition_until: core_state::now() + 60_000, transition_desktop: Some(identity),
+            installing: true, completion_requested: true }
+    }
+    #[test]
+    fn complete_at_expiry_cannot_clear_or_rearm_before_timer() {
+        for offset in [0, -1] {
+            let mut state = pending();
+            state.transition_until = core_state::now() + offset;
+            let until = state.transition_until;
+            assert!(!transition_allowed(&state, state.desktop.as_ref().unwrap(), false));
+            assert!(!finish_ready_transition(&mut state, true));
+            assert_eq!(state.transition_until, until);
+            assert!(state.installing && state.completion_requested);
+        }
+    }
+    #[test]
+    fn pending_completion_checks_each_required_native_identity() {
+        for role in ["desktop", "host", "helper"] {
+            let mut state = pending();
+            let gone = Some(Identity { pid: u32::MAX, created: "0".into() });
+            match role { "desktop" => state.desktop = gone, "host" => state.host = gone, _ => state.helper = gone }
+            let until = state.transition_until;
+            assert!(!finish_ready_transition(&mut state, true), "{role}");
+            assert_eq!(state.transition_until, until);
+            assert!(state.completion_requested);
+        }
+        let mut state = pending();
+        state.helper = None;
+        assert!(!finish_ready_transition(&mut state, true));
+        assert!(state.completion_requested);
+        state.host = None;
+        assert!(finish_ready_transition(&mut state, false));
+    }
+    #[test]
+    fn pending_completion_finishes_once_members_are_ready() {
+        let mut state = pending();
+        assert!(transition_allowed(&state, state.desktop.as_ref().unwrap(), false));
+        assert!(finish_ready_transition(&mut state, true));
+        assert_eq!(state.transition_until, 0);
+        assert!(!state.completion_requested && !state.installing);
+        assert!(!finish_ready_transition(&mut state, true));
+    }
 }
