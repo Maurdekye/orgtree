@@ -37,6 +37,7 @@ pub struct CodexSpec {
     pub resume: Option<String>,
     pub may_write: bool,
     pub may_shell: bool,
+    pub may_subagents: bool,
     pub env: Vec<(String, String)>,
     /// Some: ask the sign-in helper to start this Codex in the user's
     /// session; if it cannot, start it here with this (Session 0) sandbox.
@@ -195,6 +196,12 @@ impl CodexProc {
             env.push(("OPENAI_API_KEY".into(), k.clone()));
         }
         env.extend(spec.env.iter().cloned());
+        if !spec.may_write || !spec.may_subagents {
+            let scoped_config = super::tool_policy::codex_scoped_catalog(
+                &spec.exe, &spec.cwd, &spec.config, &env, spec.may_write, spec.may_subagents,
+            ).await?;
+            spec.config.extend(scoped_config);
+        }
         let mut started: Option<(Io, host::Hosted)> = None;
         if let Some(fallback) = spec.host {
             match host::spawn(&engine, &spec, &env).await {
@@ -747,7 +754,7 @@ async fn read_stdout(
 ) {
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut buf: Vec<u8> = Vec::new();
-    // owned only by this task: request id → its waiter
+    // owned only by this task: request id â†’ its waiter
     let mut waiters: HashMap<i64, oneshot::Sender<Value>> = HashMap::new();
     let mut waiters_open = true;
     let reason = loop {

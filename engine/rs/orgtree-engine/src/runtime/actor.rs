@@ -2082,6 +2082,7 @@ impl Actor {
             resume: resume.clone(),
             may_write,
             may_shell: on("bash"),
+            may_subagents: on("subagents"),
             host,
             env: {
                 let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_NODE".into(), ctx.name.clone()),
