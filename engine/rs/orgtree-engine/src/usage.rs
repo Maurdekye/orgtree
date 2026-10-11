@@ -1185,6 +1185,14 @@ async fn apikey_spend_read(engine: &Engine, account: &str) -> Value {
 /// this same reservation; calling the inner reader avoids reacquiring it.
 #[logged]
 pub async fn refresh_permitted(engine: &Engine, provider: &str, account: &str, folder: Option<&str>, apikey: bool) -> bool {
+    // Preserve registered()'s rehearsal isolation: an imported scratch row
+    // cannot make this path open another data root's sign-in.
+    if crate::mailhub::safe_start() && folder.is_some_and(|dir| {
+        let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        !canon(Path::new(dir)).starts_with(canon(&engine.cfg.data_root))
+    }) {
+        return false;
+    }
     let out = if apikey { apikey_spend_read(engine, account).await } else {
         match provider {
             "claude" => claude_read(engine, folder, false).await,
