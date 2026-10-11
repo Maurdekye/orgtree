@@ -147,8 +147,9 @@ export default async function(rig) {
       await rig.waitFor(()=>!alive(enginePid)&&!alive(host.pid),{what:'old engine stopped'})
       launchHost(180000)
       enginePid=(await rig.waitFor(()=>{const s=state();return s.host?.pid===host.pid?s:null},{what:'delayed replacement journal'})).engine.pid
+      const delayedPid=enginePid
       await stopped('pre-ready-timeout',210000)
-      p.check('pre-ready-timeout: expired transition stops before control readiness',descriptor().enginePid!==enginePid)
+      p.check('pre-ready-timeout: expired transition stops before control readiness',!fs.existsSync(path.join(root,'engine-attach.json'))||descriptor().enginePid!==delayedPid)
     } else {
       await begin('sign-out');await ready('sign-out')
       fs.writeFileSync(path.join(root,'core-rig-signed-out'),'debug rig WTS input only')
