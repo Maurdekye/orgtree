@@ -28,11 +28,12 @@ impl Startup {
             if core_state::blocked(&cfg.data_root, &active) { anyhow::bail!("core session is stopped"); }
             let mut state = core_state::Snapshot { generation: out.generation.clone(), engine: identity,
                 host: if boot { parent.clone() } else { None }, desktop: if boot { None } else { parent },
-                helper: None, sessions: active, transition_until: 0, transition_desktop: None, installing: false };
+                helper: None, sessions: active, transition_until: 0, transition_desktop: None, installing: false, completion_requested: false };
             if let Some(old) = old.filter(core_state::transition) {
                 state.desktop = old.desktop; state.helper = old.helper;
                 state.transition_until = old.transition_until; state.transition_desktop = old.transition_desktop;
                 state.installing = old.installing;
+                state.completion_requested = old.completion_requested;
             }
             core_state::write(&cfg.data_root, &state)?;
             let root = cfg.data_root.clone(); let cancel = out.cancelled.clone();
@@ -51,6 +52,7 @@ impl Startup {
                         state.transition_until = 0;
                         state.transition_desktop = None;
                         state.installing = false;
+                        state.completion_requested = false;
                         let _ = core_state::write(&root, &state);
                     }
                     if active.is_empty() { gone_since = None; continue; }

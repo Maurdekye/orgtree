@@ -39,6 +39,8 @@ pub struct Snapshot {
     pub transition_desktop: Option<Identity>,
     #[serde(default)]
     pub installing: bool,
+    #[serde(default)]
+    pub completion_requested: bool,
 }
 
 #[nolog]
@@ -165,7 +167,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mut a = Snapshot { generation: "a".repeat(32), engine: Identity { pid: 99, created: "1".into() },
             host: None, desktop: None, helper: None, sessions: vec![Session { id: 1, logon: "2".into() }],
-            transition_until: 0, transition_desktop: None, installing: false };
+            transition_until: 0, transition_desktop: None, installing: false, completion_requested: false };
         write(&dir, &a).unwrap();
         stop(&dir, &a, "first").unwrap();
         assert!(blocked(&dir, &a.sessions));

@@ -57,13 +57,14 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
     let parent = engine.cfg.parent_pid.and_then(core_process::identity);
     let previous = core_state::read(root);
     let mut state = Snapshot { generation: engine.boot.id.clone(), engine: identity, host: if boot { parent.clone() } else { None },
-        desktop: if boot { None } else { parent }, helper: None, sessions: vec![], transition_until: 0, transition_desktop: None, installing: false };
+        desktop: if boot { None } else { parent }, helper: None, sessions: vec![], transition_until: 0, transition_desktop: None, installing: false, completion_requested: false };
     if let Some(old) = previous.as_ref().filter(|s| s.engine == state.engine || core_state::transition(s)) {
         state.desktop = old.desktop.clone();
         state.helper = old.helper.clone();
         state.transition_until = old.transition_until;
         state.transition_desktop = old.transition_desktop.clone();
         state.installing = old.installing;
+        state.completion_requested = old.completion_requested;
     }
     let mut sessions = core_process::Sessions::new();
     if let Some(found) = core_state::sessions(root, &mut sessions) {
@@ -100,16 +101,21 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                         } else { false }
                     }
                     Command::Transition { who, finish, installing, .. } => {
-                        if stopped || state.desktop.as_ref() != Some(who) { false }
+                        if stopped || state.desktop.as_ref() != Some(who)
+                            || (state.transition_until != 0 && !core_state::transition(&state)) { false }
                         else if *finish {
-                            state.transition_until = 0; state.transition_desktop = None; state.installing = false; true
+                            // Production desktop attach can finish before the
+                            // replacement helper registers. Keep the original
+                            // allowance until every required identity is alive.
+                            state.completion_requested = state.transition_until != 0; true
                         } else if state.transition_until == 0 {
                             state.transition_until = core_state::now() + crate::core_policy::TRANSITION_MAX_MS as i64;
                             state.transition_desktop = Some(who.clone());
-                            state.installing = *installing; true
+                            state.installing = *installing; state.completion_requested = false; true
                         } else { false }
                     }
                 };
+                if accepted { finish_ready_transition(&mut state, boot); }
                 let ok = accepted && core_state::write(root, &state).is_ok();
                 if ok { engine.core.state.store(Some(Arc::new(state.clone()))); }
                 match cmd { Command::Member { reply, .. } | Command::Transition { reply, .. } => { let _ = reply.send(ok); } }
@@ -123,12 +129,17 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                         state.sessions = current.clone();
                         state.desktop = if boot { None } else { engine.cfg.parent_pid.and_then(core_process::identity) };
                         state.helper = None; state.transition_until = 0; state.transition_desktop = None; state.installing = false;
+                        state.completion_requested = false;
                         desktop_gone = None; helper_gone = None; policy = Policy::new(boot);
                         let _ = core_state::write(root, &state);
                         engine.core.state.store(Some(Arc::new(state.clone())));
                     }
                 }
                 let signed_in = current.as_ref().map(|s| !s.is_empty());
+                if !core_state::stopped(root, &state) && finish_ready_transition(&mut state, boot) {
+                    let _ = core_state::write(root, &state);
+                    engine.core.state.store(Some(Arc::new(state.clone())));
+                }
                 let decision = if core_state::stopped(root, &state) { Decision::Stop("core shutdown already requested") }
                     else if state.transition_until != 0 && signed_in == Some(true) {
                         if core_state::transition(&state) { Decision::Keep } else { Decision::Stop("intentional transition timed out or desktop exited") }
@@ -146,6 +157,19 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
             }
         }
     }
+}
+
+#[cfg(windows)]
+#[nolog]
+fn finish_ready_transition(state: &mut Snapshot, boot: bool) -> bool {
+    let alive = |who: &Option<Identity>| who.as_ref().is_some_and(|who| core_process::life(who) == Life::Alive);
+    if !state.completion_requested || !core_state::transition(state)
+        || !alive(&state.desktop) || (boot && (!alive(&state.host) || !alive(&state.helper))) { return false; }
+    state.transition_until = 0;
+    state.transition_desktop = None;
+    state.installing = false;
+    state.completion_requested = false;
+    true
 }
 
 #[cfg(windows)]
