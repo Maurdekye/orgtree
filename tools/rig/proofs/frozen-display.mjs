@@ -12,6 +12,8 @@ const limited = reset => ({ once: true, match: 'PROOF-FREEZE', steps: [
 
 export default async function (rig) {
   const p = new Proof('frozen-display')
+  const seat = name => rig.one(`SELECT frozen, halt, limit_locked FROM ot.agents
+    WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${rig.org}') AND name = '${name}'`)
   const reset = Math.floor(Date.now() / 1000) + 7200
   rig.scenario({ agents: {
     kim: { turns: [limited(reset)] }, hana: { turns: [limited(reset)] },
@@ -22,7 +24,7 @@ export default async function (rig) {
     await rig.op({ op: 'hire', parent: 'boss', name, tier: 'luna', account_fallback: false })
     await rig.userMail(name, 'PROOF-FREEZE: preserve this request.')
     await rig.waitFor(() => rig.agentRow(name)?.frozen, { what: `${name} usage freeze`, timeout: 30000 })
-    const n = rig.agentRow(name)
+    const n = seat(name)
     p.check(`${name}: usage freeze never acquires legacy lock`, n.frozen.limit && !n.limit_locked && !n.halt,
       { frozen: n.frozen, limit_locked: n.limit_locked, halt: n.halt })
   }
@@ -36,10 +38,10 @@ export default async function (rig) {
   const held = rig.agentRow('kim').frozen
   const halt = rig.agentRow('alice').halt
   await rig.restart()
-  const migrated = rig.agentRow('kim')
+  const migrated = seat('kim')
   p.check('numbered migration clears stale flags while preserving freeze and halt',
     !migrated.limit_locked && JSON.stringify(migrated.frozen) === JSON.stringify(held)
-    && !rig.agentRow('alice').limit_locked && JSON.stringify(rig.agentRow('alice').halt) === JSON.stringify(halt)
+    && !seat('alice').limit_locked && JSON.stringify(rig.agentRow('alice').halt) === JSON.stringify(halt)
     && !!rig.one(`SELECT name FROM public.ot_migrations WHERE name = '${migration}'`))
 
   const desktop = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'frozen-display.cjs'),
@@ -50,7 +52,7 @@ export default async function (rig) {
     const { near, far, list } = desktop.value
     p.check('near card says Frozen and carries snowflake', /^Frozen/.test(near.text) && near.snowflake, near)
     p.check('far icons distinguish frozen and halted', far.frozen && far.halted, far)
-    p.check('list has Frozen, Halted, Working and Idle text', /Frozen/.test(list.kim)
+    p.check('list has Frozen, Halted, Working and Idle text', /Frozen/.test(list.kim) && !/halted/i.test(list.kim)
       && /Halted/.test(list.alice) && /Working/.test(list.bob) && /Idle/.test(list.carol), list)
   }
 
@@ -69,7 +71,7 @@ export default async function (rig) {
   await rig.restart()
   await rig.waitTurns('kim', 2, { timeout: 45000 })
   p.check('reset timer releases freeze and automatically replays request', !rig.agentRow('kim').frozen
-    && !rig.agentRow('kim').limit_locked && rig.fakeLog('kim').some(l => l.kind === 'turn'
+    && !seat('kim').limit_locked && rig.fakeLog('kim').some(l => l.kind === 'turn'
       && /Your usage limit has reset/.test(l.prompt) && /PROOF-FREEZE/.test(l.prompt)))
   p.check('explicit halt survives freeze recovery', !!rig.agentRow('alice').halt)
   p.keep(rig, { agents: ['kim','hana'], grep: /freeze|released|scheduled|0020/ })
