@@ -56,3 +56,12 @@ Use explicit existing engine and fake-CLI paths with the supported rig; the rig'
 default cargo target guard predates the current C-build-output ruling. This fix
 does not change that unrelated shared helper. Actual measured results belong in
 the ticket evidence, not inferred from these proof definitions.
+
+Measured 2026-10-11: scoped `cargo build --locked -j2 -p orgtree-engine --bins
+--tests` passed (6m58s); the focused cached-auth test passed 1/1. The supported
+rig passed 38/38 continuation checks and 3/3 signed-out checks, including replay
+turns completing without errors on all three native providers. Both runs were
+stopped and deleted. No live provider, credentials or hierarchy were exercised.
+The compiler's sole warning was a now-removed unused import in `tools/control.rs`;
+that one-line import deletion happened after the measured build and proofs,
+without changing their executable behavior or rebuilding the binary.
