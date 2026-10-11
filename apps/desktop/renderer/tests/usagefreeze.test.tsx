@@ -80,6 +80,27 @@ function renderCard(node: CanvasNode, mapMode = false) {
 
 
 const freeze=(until:number|null):TreeFrozen=>({at:null,until:null,until_ts:until,error:null,limit:true})
+test('list status stays readable for each freeze cause and ordinary states', async () => {
+ for (const [extra, label] of [
+  [{ frozen: freeze(null) }, 'Frozen'],
+  [{ frozen: { ...freeze(null), cause: 'auth' } }, 'Frozen · credential rejected'],
+  [{ frozen: { ...freeze(null), cause: 'balance' } }, 'Frozen · balance refused'],
+  [{ frozen: { ...freeze(null), limit: false, connection: true } }, 'Frozen · network'],
+  [{ halt: { phase: 'halted' }, frozen: freeze(null) }, 'Halted'],
+  [{ last_status: { status: 'working' } }, 'Working'],
+  [{ last_status: { status: 'blocked' } }, 'Blocked'],
+  [{ last_status: { status: 'done' } }, 'Done'],
+  [{ busy: true }, 'Active'],
+  [{ waiting: true }, 'Queued'],
+  [{ phase: 'compacting' }, 'Compacting'],
+  [{}, 'Idle'],
+  [{ state: 'archived' }, 'archived'],
+ ] as [Partial<CanvasNode>, string][]) {
+  const v = await mountView(<TrayStatus node={makeNode(extra)} />, e => e)
+  try { assert.match(v.el.textContent ?? '', new RegExp(label), label) }
+  finally { await v.unmount() }
+ }
+})
 test('usage freeze takes presentation precedence; execution and recorded status are untouched',async()=>{
  const n=makeNode({busy:true,waiting:true,phase:'compacting',frozen:freeze(null),last_status:{status:'working',summary:'real report',at:'2026-01-01'} as any})
  const before=JSON.stringify(n)

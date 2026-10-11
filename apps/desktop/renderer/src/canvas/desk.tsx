@@ -715,7 +715,12 @@ export function TrayStatus({ node, turn, live = true }: {
     )
   }
   if (node.frozen) {
-    return <FrozenIcon fontSize="inherit" className="tray-frozen" />
+    return <span className="tray-status" title={node.frozen.error ?? undefined}>
+      <FrozenIcon fontSize="inherit" className="tray-frozen" titleAccess="Frozen" />
+      <span className="tray-status-label frozen">
+        {stateLabel('frozen')} · {FREEZE_LABEL[freezeKind(node.frozen, node.limit_locked) ?? 'limit']}
+      </span>
+    </span>
   }
   if (node.state !== 'live') {
     return <span className="dim">{node.state}</span>
