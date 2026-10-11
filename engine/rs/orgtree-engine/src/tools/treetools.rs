@@ -25,9 +25,9 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
         req = json!({});
     }
     req["op"] = json!(op);
-    req["_caller_generation"] = json!(me.generation);
     match op {
         "hire" => {
+            req["_caller_generation"] = json!(me.generation);
             if arg_str(args, "hire_type") == Some("superior") {
                 // No target means the authenticated ID, not a name that can be
                 // renamed/reused between this lookup and the op transaction.

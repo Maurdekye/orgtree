@@ -20,6 +20,9 @@ export default async function (rig) {
   const has = name => !!ledger()[name]
   const unchanged = (a,b) => JSON.stringify(a)===JSON.stringify(b)
 
+  const selfRetool=await rig.tool('boss','orgtree_retool',{node:'boss',team_charter:'Self charter still works.'})
+  p.check('hire admission metadata does not break self team-charter updates',selfRetool.ok&&rig.one(`SELECT team_charter FROM ot.agents WHERE org_id=${ORG} AND name='boss'`).team_charter==='Self charter still works.',selfRetool)
+
   await hire('root-self',12)
   await hire('kept-child',3,'root-self')
   let before=ledger()
