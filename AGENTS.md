@@ -107,6 +107,29 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   newer pending drag. [verified: renderer `canvas/pendingorder.ts`,
   `canvas/OrgCanvas.tsx`, 2026-10-11; proof: `docs/rust-engine/move-preview.md`]
 
+- **Several OpenRouter keys at once.** Each key is its own hidden registry row (provider
+  `openrouter`, kind `apikey`, secret in `ot.account_secrets`). The original row keeps
+  id `openrouter-key` and **lane `openrouter`**, so allowlists, usage history and running
+  agents carry over. Added keys are `openrouter-N` (N from 2, never reused); an added key's
+  lane is its id. Use only `openrouter::lane`/`id_of_lane`/`seat_key` and
+  `org_accounts::lane_of`/`seat_lane`. An unbound OpenRouter seat (`account` NULL or
+  `primary`) bills the original key, so the original is the lane's `default` and never a
+  pickable row.
+  - **Usage:** cache and history keys are lanes. The original's reading stays
+    `openrouter_usage`; every key's reading is `openrouter_keys_usage` or
+    `GET /api/openrouter/keys/usage`. The prepaid balance belongs to the OpenRouter
+    account, so each key's row says "account balance".
+  - **Placement** follows the other providers: explicit key, org default, template
+    balancing, opt-in fallback; removal is reassign-or-freeze.
+  - **Toggles:** every key, the original included, has its own active switch
+    (`PUT /api/accounts/{id}/enabled`). Org lanes carry `enabled` and `disabled_reason`;
+    an org tick cannot turn on a key switched off app-wide.
+  - **Global:** favorites and the harness are global.
+
+  [decided: user 2026-10-11 22:35Z and 22:50Z, coordinator on ids/lanes; verified:
+  `src/openrouter.rs`, `src/org_accounts.rs`, `src/usage.rs`; detail:
+  `docs/rust-engine/openrouter-keys.md`]
+
 - Desk pending mail folds at six rendered rows per run, after event deduplication.
   Keep current-turn input above its response and later mail below; optimistic and
   failed sends stay outside. Disclosure is local and retains mounted cards; reveal
