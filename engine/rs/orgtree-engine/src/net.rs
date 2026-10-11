@@ -961,6 +961,11 @@ fn outgoing_payload(row: &tokio_postgres::Row, net_id: &str, from: &str, attachm
     if let Some(answers) = row.get::<_, Option<Value>>(9).as_ref().and_then(|q| q["net_id"].as_str()) {
         payload["reply_to"] = json!(answers);
     }
+    // a question with preset answers: the list in its body, as the meta
+    // Hubchat shows as buttons (a hub without that feature drops the key)
+    if let Some(meta) = cards::meta(&row.get::<_, String>(8), &row.get::<_, String>(3)) {
+        payload["meta"] = meta;
+    }
     payload
 }
 
@@ -1140,9 +1145,9 @@ async fn queue_row(
 /// Focused rig check: no identity registration, listener or network request.
 #[cfg(debug_assertions)]
 #[logged]
-pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str) -> Result<Value> {
+pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str, body: &str) -> Result<Value> {
     anyhow::ensure!(crate::rig::active(), "rig mode required");
-    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", None, kind, &[], None).await?;
+    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", body, "agent", None, kind, &[], None).await?;
     let client = engine.db.get().await?;
     let row = client.query_one(
         "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to FROM ot.org_inbox WHERE uid=$1", &[&uid],
@@ -1412,3 +1417,6 @@ pub fn unregister(engine: &Engine, net: Value) {
         }
     });
 }
+
+#[path = "net_cards.rs"]
+pub(crate) mod cards;

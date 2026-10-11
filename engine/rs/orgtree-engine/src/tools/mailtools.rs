@@ -69,6 +69,27 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     if !KINDS.contains(&kind) {
         crate::refuse!(BadRequest, "kind must be one of {}", KINDS.join(", "));
     }
+    // a question to a Hubchat address may carry preset answers: a numbered
+    // list in the body, which the hub payload turns into the buttons Hubchat
+    // shows (net_cards; the user's design 2026-10-11)
+    let body = match args.get("options").filter(|v| !v.is_null()) {
+        Some(o) => {
+            if kind != "question" {
+                crate::refuse!(BadRequest, "options go with kind question");
+            }
+            let targets: Vec<&str> = match &list { Some(l) => l.iter().map(String::as_str).collect(), None => vec![to.as_str()] };
+            if !targets.iter().all(|t| t.starts_with("@net:")) {
+                crate::refuse!(BadRequest, "options are for questions to @net: addresses: Hubchat shows them as buttons");
+            }
+            if body.trim().is_empty() {
+                crate::refuse!(BadRequest, "a question with options needs the question in body");
+            }
+            let options = crate::net::cards::options(o)?;
+            crate::net::cards::with_block(&body, &options, args["multiple"].as_bool().unwrap_or(false))
+        }
+        None if args["multiple"].as_bool() == Some(true) => crate::refuse!(BadRequest, "multiple goes with options"),
+        None => body,
+    };
     let mut urgent_reason = None;
     if args["urgent"].as_bool().unwrap_or(false) {
         if single && !is_user(&to) {
