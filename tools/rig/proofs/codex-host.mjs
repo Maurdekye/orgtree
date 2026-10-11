@@ -242,7 +242,7 @@ export default async function (rig) {
     p.check('5 told danger-full-access, and its write landed', /`sandbox_mode` is `danger-full-access`/.test(told('PROOF-F-W'))
       && (read('hwriter', 'fw-shell.txt') ?? '').includes('PROOF-F-W-SHELL-OK'), told('PROOF-F-W').slice(0, 400))
     p.check('desktop credential lease remains renewable after helper death', await registerDesk() === 200 && renewalFailures === 0, {renewalFailures})
-    p.check('dead host can be replaced before its lease expires', await registerDesk({role:'host',caps:['spawn']}) === 200)
+    p.check('dead host can be replaced', await registerDesk({role:'host',caps:['spawn']}) === 200)
     p.check('host release does not release desktop credentials', await registerDesk({role:'host',caps:['spawn'],release:true}) === 200 && await registerDesk() === 200)
     p.note('helper log', (() => { try { return fs.readFileSync(path.join(rig.data, 'credential-broker.log'), 'utf8').split(/\r?\n/).filter(Boolean).slice(-12) } catch { return null } })())
   } finally {

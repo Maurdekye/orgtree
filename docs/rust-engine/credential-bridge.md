@@ -245,7 +245,7 @@ runner (openai/codex#46412), so the engine runs Codex there without it
 Codex seats in the user's session instead, where the sandbox works.
 
 - **Who is hosted:** in Session 0, a seat whose sandbox is `read-only` or
-  `workspace-write`, when the bridge holder registered `caps: ["spawn"]` (only
+  `workspace-write`, when the independent Codex host registered `role: "host", caps: ["spawn"]` (only
   the helper does; the desktop broker never hosts) and its process is alive
   (`Bridge::can_host`, `codexrt::seat_sandbox`). A `bypassPermissions` seat
   stays in Session 0, so no unsandboxed agent runs beside the user's sign-ins.
@@ -284,3 +284,34 @@ hosted Codex and the seat's next turn runs in Session 0 mode. Not measured in
 the rig: an engine really in Session 0 (that rig engine ran in session 1 with
 Session 0 forced), the helper's sweep after an engine exit, and whether the
 engine's own job could be nested on a hosted child.
+
+
+### Desktop credentials and standby Codex hosting (2026-10-11)
+
+The desktop can hold the credential lease while a sign-in helper holds a
+separate Codex host lease. Previously the desktop's normal ownership prevented
+the standby helper from hosting, leaving sandboxed seats on the Session 0
+fallback path whenever the window was open.
+
+Registrations without a `role` retain the credential behavior. The helper now
+renews `role: "host"` (requiring `caps: ["spawn"]`) and `role: "credentials"`
+every tick, independently. Each slot uses the same desktop-token check,
+pipe-server PID, same-SID interactive proof, secret-authenticated ping,
+20-second lease and compare-and-swap publication. A live holder keeps its role;
+release affects only that role. An unknown role or a host without the capability
+is refused. A standby helper never displaces the desktop's credential holder.
+
+`can_host`, the helper PID check and spawn/kill requests use the host slot;
+credential grants, lookups, readiness and availability events still use the
+credential slot. Host expiry, process death or PID reuse disables hosting.
+Without a host, the existing direct-launch fallback and single sandbox-disabled
+log line apply. A warm seat changes placement on its next restart/turn according
+to the existing runtime policy. No desktop or installer change is needed.
+
+Validation for this delta is recorded in the docket. `codex-host.mjs` now keeps
+an interactive desktop-like broker registered throughout, supplies only synthetic
+git/gh credentials, and proves sandboxed helper children, independent leases,
+helper-death fallback and continued credential ownership. Set
+`ORGTREE_RIG_EVIDENCE_HOME` to a D: rig directory when the descriptor trust check
+requires the separately authorized run state under an owner-only profile path.
+No live credential lookup is needed for this coexistence proof.
