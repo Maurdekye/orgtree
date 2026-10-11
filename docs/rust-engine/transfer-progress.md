@@ -14,8 +14,14 @@ Cleanup checks at most 32 tickets every five seconds, with a keyset cursor so ac
 
 Local failure intent commits with failure state. Draft failures create only a user notice, since no receiving or sending agent is involved yet. The shared dispatcher inserts notices and their delivery marker atomically. Cancellation does not overwrite an existing failure or erase its notice. Completing a file never creates a notice.
 
+## Queue admission and inspection
+
+The message and outgoing transfer IDs commit together, before the send result returns. Tool responses carry those IDs with the queued message; agents can immediately inspect them with `orgtree_transfers`. Selecting a registered hub later binds the route without replacing IDs. A failed transfer insert rolls back the queued message too.
+
+Both schedulers filter eligible organization/hub/address tuples before selecting a job. A backlog for disconnected hubs cannot hide ready work; hub concurrency exclusion applies to both directions. Inspection lists unfinished work before completed history and returns at most 100 records with a `next_cursor`. The desktop has page controls, and agents pass that cursor to the list tool. Every page applies the same sender/audience restrictions.
+
 ## Verification and remaining work
 
 The disposable rig proof is `tools/rig/proofs/local-staging.mjs`, with real HTTP bodies, PostgreSQL, engine restarts, a throttled offscreen desktop, and explicitly aged scratch records. It covers send gates, one writer, stalled cancellation, lost completion responses, reload/reselection, saved-file pagination, failure aggregation, live-writer expiry exclusion and retry after a filesystem cleanup error. Runtime results belong in the docket evidence; this document is not itself a test result.
 
-The wider feature is still in progress: send-result transfer identifiers, eligibility and inspection bounds, integration rebase, Hubchat work, and joint 1 GiB / interrupted socket / process restart / Android device acceptance remain. A small-file or graceful-restart proof does not establish those acceptance results.
+The wider feature is still in progress: integration rebase, Hubchat work, and joint 1 GiB / interrupted socket / process restart / Android device acceptance remain. A small-file or graceful-restart proof does not establish those acceptance results.

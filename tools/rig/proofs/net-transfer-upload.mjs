@@ -165,6 +165,13 @@ export default async function (rig) {
     const visibleInbox=await rig.api('GET',`/api/orgs/${rig.org}/org_inbox`)
     const missingUid=rig.one(`SELECT uid FROM ot.org_inbox WHERE id=${missing.inbox}`).uid
     proof.check('removed file is absent from the visible sent manifest', !visibleInbox.entries.find(i=>i.id===missingUid)?.attachments?.length)
+    const queuedBefore=rig.one("SELECT count(*)::int AS n FROM ot.org_inbox WHERE dir='out'").n
+    rig.exec("ALTER TABLE ot.net_transfers ADD CONSTRAINT rig_reject_transfer CHECK(total<>777)")
+    let refused=false
+    try {await call({action:'plan',bytes:777,unbound:true})} catch {refused=true}
+    rig.exec("ALTER TABLE ot.net_transfers DROP CONSTRAINT rig_reject_transfer")
+    proof.check('transfer persistence failure rolls back the queued message',refused &&
+      rig.one("SELECT count(*)::int AS n FROM ot.org_inbox WHERE dir='out'").n===queuedBefore)
     const unbound=await call({action:'plan',bytes:1024,file_count:2,by:'rhea',unbound:true})
     const beforeBind=rig.sql(`SELECT id,hub,address,state FROM ot.net_transfers WHERE inbox_id=${unbound.inbox} ORDER BY file_no`)
     const immediately=await rig.tool('rhea','orgtree_transfers',{action:'get',id:unbound.ids[0]})
