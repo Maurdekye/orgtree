@@ -15,6 +15,8 @@ use serde_json::{json, Value};
 use crate::engine::Engine;
 use crate::util::{gist, iso};
 
+pub mod query;
+
 const TTL: Duration = Duration::from_secs(30);
 /// a peek older than this is no claim about now
 const PEEK_MAX: Duration = Duration::from_secs(900);
@@ -260,14 +262,67 @@ pub struct Usage {
     cache: papaya::HashMap<String, Cached>,
     /// Authentication observations have their own age, separate from last-good bars.
     auth: papaya::HashMap<String, AuthEvidence>,
+    /// Single-flight reservation shared by HTTP, timers and manual readers.
+    probing: papaya::HashMap<String, ()>,
+    /// Manual attempt floor (failures count); automatic cadence is unchanged.
+    manual: papaya::HashMap<String, Instant>,
     /// a provider that told us to wait: not before this
     cooldown: papaya::HashMap<String, Instant>,
     /// the last usage-history row of each series
     pub history: papaya::HashMap<String, crate::usage_history::Last>,
 }
 
+pub struct Probe<'a> {
+    usage: &'a Usage,
+    key: String,
+}
+
+impl Drop for Probe<'_> {
+    fn drop(&mut self) {
+        self.usage.probing.pin().remove(&self.key);
+    }
+}
+
+pub enum RefreshGate<'a> {
+    Ready(Probe<'a>),
+    Skip(&'static str, Option<u64>),
+}
+
 #[logged]
 impl Usage {
+    #[nolog]
+    fn reserve(&self, key: &str) -> Option<Probe<'_>> {
+        self.probing.pin().try_insert(key.to_owned(), ()).ok()?;
+        Some(Probe { usage: self, key: key.to_owned() })
+    }
+
+    /// Shared reservation is held until the reader finishes or is cancelled.
+    pub fn refresh_gate(&self, key: &str, provider: &str) -> RefreshGate<'_> {
+        let Some(guard) = self.reserve(key) else { return RefreshGate::Skip("in_progress", None) };
+        let now = Instant::now();
+        let floor = if provider == "google" { 300 } else { 60 };
+        if let Some(last) = self.manual.pin().get(key) {
+            let until = *last + Duration::from_secs(floor);
+            if until > now {
+                return RefreshGate::Skip("rate_limited", Some(until.duration_since(now).as_secs().max(1)));
+            }
+        }
+        if let Some(until) = self.cooling(key) {
+            return RefreshGate::Skip("rate_limited", Some(until.saturating_duration_since(now).as_secs().max(1)));
+        }
+        if self.snapshot(key, Utc::now())["age_seconds"].as_u64().is_some_and(|age| age < floor) {
+            return RefreshGate::Skip("reused", None);
+        }
+        self.manual.pin().insert(key.to_owned(), now);
+        RefreshGate::Ready(guard)
+    }
+
+    #[nolog]
+    fn busy_reading(&self, key: &str) -> Value {
+        let mut v = self.fresh(key, Duration::MAX).unwrap_or_else(|| json!({"available":false}));
+        v["error"] = json!("usage read already in progress");
+        v
+    }
     #[nolog]
     fn fresh(&self, key: &str, max: Duration) -> Option<Value> {
         self.cache.pin().get(key).filter(|c| c.at.elapsed() < max).map(|c| c.data.clone())
@@ -362,6 +417,19 @@ impl Usage {
             None => json!({ "available": false, "provider": provider }),
         }
     }
+
+    /// Safe cache projection for an on-demand reader. Never fetches, reads
+    /// credentials, or serializes the cached provider document unchanged.
+    pub fn snapshot(&self, key: &str, now: DateTime<Utc>) -> Value {
+        let pin = self.cache.pin();
+        match pin.get(key) {
+            Some(c) => {
+                let cached_at = now - chrono::Duration::from_std(c.at.elapsed()).unwrap_or_default();
+                query::reading(Some(&c.data), Some(cached_at), now)
+            }
+            None => query::reading(None, None, now),
+        }
+    }
 }
 
 fn home() -> PathBuf {
@@ -396,6 +464,13 @@ fn claude_dir(config_dir: Option<&str>) -> PathBuf {
 /// The Claude usage bars of one login (`config_dir` None: the machine's own).
 #[logged]
 pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
+    let key = claude_key(config_dir);
+    let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
+    claude_read(engine, config_dir, force).await
+}
+
+#[logged]
+async fn claude_read(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("claude", config_dir) {
         // the canned reading stands in for the probe, cache included; it may
         // play a slow provider
@@ -535,6 +610,13 @@ pub fn codex_key(home: Option<&str>) -> String {
 /// One Codex login's rate limits (`home` None: the machine's own `~/.codex`).
 #[logged]
 pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
+    let key = codex_key(home);
+    let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
+    codex_read(engine, account, home, force).await
+}
+
+#[logged]
+async fn codex_read(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
     let rig_url = crate::rig::codex_usage_url();
     if let Some(v) = rig_url.is_none().then(|| crate::rig::usage("openai", home)).flatten() {
         if let Some(ms) = v["rig_delay_ms"].as_u64() {
@@ -807,6 +889,12 @@ fn codex_limits(raw: &Value) -> Value {
 /// Antigravity's own `/usage` (zero tokens, verified per run), for the machine's login.
 #[logged]
 pub async fn antigravity(engine: &Engine, force: bool) -> Value {
+    let Some(_guard) = engine.usage.reserve("agy") else { return engine.usage.busy_reading("agy") };
+    antigravity_read(engine, force).await
+}
+
+#[logged]
+async fn antigravity_read(engine: &Engine, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("google", None) {
         engine.usage.put("agy", &v);
         if crate::rig::canned_reading(&v) {
@@ -968,7 +1056,14 @@ pub async fn refresh_openrouter(engine: &Engine, force: bool) {
 /// The stored OpenRouter key's credit standing (`GET /api/v1/key`).
 #[logged]
 pub async fn openrouter(engine: &Engine, force: bool) -> Value {
+    let Some(_guard) = engine.usage.reserve("openrouter") else { return engine.usage.busy_reading("openrouter") };
+    openrouter_read(engine, force).await
+}
+
+#[logged]
+async fn openrouter_read(engine: &Engine, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("openrouter", None) {
+        engine.usage.put("openrouter", &v);
         return v;
     }
     if !force {
@@ -1054,24 +1149,53 @@ fn openrouter_limits(ks: &serde_json::Map<String, Value>) -> Vec<Value> {
 /// A metered key account's spend so far (local metering is the figure).
 #[logged]
 pub async fn apikey_spend(engine: &Engine, account: &str) -> Value {
+    let key = format!("apikey:{account}");
+    let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
+    apikey_spend_read(engine, account).await
+}
+
+#[logged]
+async fn apikey_spend_read(engine: &Engine, account: &str) -> Value {
     let row = match engine.db.get().await {
-        Ok(c) => c
-            .query_opt(
+        Ok(c) => c.query_opt(
                 "SELECT usd_total::float8, turns, extract(epoch FROM since)::float8, extract(epoch FROM updated_at)::float8
                    FROM ot.account_spend WHERE account = $1",
                 &[&account],
             )
-            .await
-            .ok()
-            .flatten(),
-        Err(_) => None,
+            .await.map_err(|_| ()),
+        Err(_) => Err(()),
     };
-    let spend = match row {
-        Some(r) => json!({ "usd_total": r.get::<_, f64>(0), "turns": r.get::<_, i32>(1),
-                           "since": r.get::<_, Option<f64>>(2).map(|x| x as i64), "updated_at": r.get::<_, Option<f64>>(3).map(|x| x as i64) }),
-        None => json!({ "usd_total": 0.0, "turns": 0, "since": null, "updated_at": null }),
+    let mut out = match row {
+        Ok(Some(r)) => json!({ "available": true, "mode": "apikey", "currency": "USD", "limits": [],
+            "spend": { "usd_total": r.get::<_, f64>(0), "turns": r.get::<_, i32>(1),
+                           "since": r.get::<_, Option<f64>>(2).map(|x| x as i64), "updated_at": r.get::<_, Option<f64>>(3).map(|x| x as i64) } }),
+        Ok(None) => json!({"available":false,"mode":"apikey","reason":"no_recorded_spend","limits":[]}),
+        Err(()) => json!({"available":false,"mode":"apikey","reason":"failed","limits":[]}),
     };
-    json!({ "available": true, "mode": "apikey", "currency": "USD", "spend": spend, "limits": [] })
+    out["observed_at"] = json!(iso(Utc::now()));
+    engine.usage.put(&format!("apikey:{account}"), &out);
+    out
+}
+
+/// Refresh under a permit already obtained by the tool. Public readers take
+/// this same reservation; calling the inner reader avoids reacquiring it.
+#[logged]
+pub async fn refresh_permitted(engine: &Engine, provider: &str, account: &str, folder: Option<&str>, apikey: bool) -> bool {
+    let out = if apikey { apikey_spend_read(engine, account).await } else {
+        match provider {
+            "claude" => claude_read(engine, folder, false).await,
+            "openai" => codex_read(engine, account, folder, false).await,
+            "google" => antigravity_read(engine, false).await,
+            "openrouter" => openrouter_read(engine, false).await,
+            _ => return false,
+        }
+    };
+    // Match existing successful-probe history behavior, no transaction spans
+    // provider I/O. Primary readers record their own history already.
+    if apikey {
+        crate::usage_history::record(engine, account, provider, Utc::now(), &out).await;
+    }
+    out["available"] == true && out["error"].is_null()
 }
 
 // ------------------------------------------------------------ what the windows read
@@ -1469,5 +1593,45 @@ mod wham_tests {
     #[test]
     fn no_rate_limits_is_not_available() {
         assert_eq!(codex_limits(&wham_rate_limits(&json!({ "plan_type": "free" })))["available"], json!(false));
+    }
+}
+
+#[cfg(test)]
+mod query_gate_tests {
+    use super::*;
+
+    #[test]
+    fn shared_reservation_and_drop_block_duplicate_probes() {
+        let usage = Usage::default();
+        let guard = usage.reserve("agy").unwrap();
+        assert!(usage.reserve("agy").is_none());
+        assert!(matches!(usage.refresh_gate("agy", "google"), RefreshGate::Skip("in_progress", None)));
+        drop(guard);
+        assert!(matches!(usage.refresh_gate("agy", "google"), RefreshGate::Ready(_)));
+        assert!(matches!(usage.refresh_gate("agy", "google"), RefreshGate::Skip("rate_limited", Some(_))));
+    }
+
+    #[test]
+    fn manual_attempt_floor_includes_failures_and_does_not_gate_automatic_reads() {
+        let usage = Usage::default();
+        let RefreshGate::Ready(permit) = usage.refresh_gate("key", "openai") else { panic!("first attempt") };
+        drop(permit);
+        assert!(matches!(usage.refresh_gate("key", "openai"), RefreshGate::Skip("rate_limited", Some(_))));
+        assert!(usage.reserve("key").is_some());
+        usage.manual.pin().insert("key".into(), Instant::now() - Duration::from_secs(61));
+        assert!(matches!(usage.refresh_gate("key", "openai"), RefreshGate::Ready(_)));
+        usage.manual.pin().insert("agy".into(), Instant::now() - Duration::from_secs(61));
+        assert!(matches!(usage.refresh_gate("agy", "google"), RefreshGate::Skip("rate_limited", Some(_))));
+    }
+
+    #[test]
+    fn provider_cooldown_survives_manual_floor_and_cache_reads_have_no_effect() {
+        let usage = Usage::default();
+        usage.cooldown.pin().insert("key".into(), Instant::now() + Duration::from_secs(3600));
+        assert!(matches!(usage.refresh_gate("key", "claude"), RefreshGate::Skip("rate_limited", Some(secs)) if secs > 3500));
+        let snapshot = usage.snapshot("key", Utc::now());
+        assert_eq!(snapshot["reason"], "no_cache");
+        assert!(usage.manual.pin().get("key").is_none());
+        assert!(usage.probing.pin().get("key").is_none());
     }
 }

@@ -7,6 +7,7 @@ pub mod defs;
 mod mailtools;
 mod orgview;
 mod treetools;
+mod usage;
 
 use std::sync::Arc;
 
@@ -167,6 +168,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_inbox" => mailtools::inbox(engine, caller, args).await,
         "orgtree_chart" => orgview::chart(engine, caller, args).await,
         "orgtree_state_inspect" => orgview::state_inspect(engine, caller, args).await,
+        "orgtree_usage" => usage::usage(engine, caller, args).await,
         "orgtree_list_tiers" => orgview::list_tiers(engine).await,
         "orgtree_list_orgs" => orgview::list_orgs(engine, caller).await,
         "orgtree_read_transcript" => orgview::read_transcript(engine, caller, args).await,

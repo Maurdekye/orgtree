@@ -13,6 +13,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_transfers", "orgtree_inbox",
         "orgtree_chart",
         "orgtree_state_inspect",
+        "orgtree_usage",
         "orgtree_list_tiers",
         "orgtree_list_orgs",
         "orgtree_read_transcript",
@@ -240,6 +241,18 @@ fn all() -> Vec<Value> {
                 "include_archived": { "type": "boolean" },
             }),
             &[],
+        ),
+        tool(
+            "orgtree_usage",
+            "Read provider usage during a turn. Default: saved cache only; no probes. Exact accounts/providers/windows filters, OR within each list and AND across lists. Account IDs match the usage board; windows match kind or group, not display label. Missing/stale/unsupported readings remain explicit, never zero. inspection permission is required. refresh=true attempts one explicit active account, additionally requiring inherited runtime permission; it may reuse a recent reading or report cooldown/in_progress. Manual floors are 60 seconds (Google 300), longer provider cooldowns remain. No inference or account switching. Accounts page by ID (20, at most 100); next_cursor continues. At most 64 matching windows per account, with explicit truncation.",
+            json!({
+                "accounts":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
+                "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","openrouter","langserver"]},"minItems":1,"maxItems":32},
+                "windows":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
+                "refresh":{"type":"boolean","description":"default false; exactly one explicit active account, runtime permission required"},
+                "limit":{"type":"integer","minimum":1,"maximum":100,"description":"account page size, default 20"},
+                "cursor":{"type":"string","description":"next_cursor from a previous cached account page"}
+            }), &[],
         ),
         tool("orgtree_list_tiers", "Model tiers you can hire on, with seat prices in credits.", json!({}), &[]),
         tool("orgtree_list_orgs", "Other organizations: on this machine ('@org:<slug>' mail) and on the mail hubs this organization uses ('@net:<address>' mail, under \"remote\").", json!({}), &[]),
