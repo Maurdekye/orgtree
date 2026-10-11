@@ -33,7 +33,9 @@ export default async function(rig) {
     ORGTREE_ENGINE_ALLOW_INITDB:'1', ORGTREE_NET_OFFLINE:'1',
     ORGTREE_CLAUDE_BIN:path.join(rig.dir,'bin','claude.exe'),ORGTREE_CODEX_BIN:path.join(rig.dir,'bin','codex.exe'),
     ORGTREE_AGY_BIN:path.join(rig.dir,'bin','agy.exe'), ORGTREE_TAILSCALE_BIN:path.join(rig.dir,'bin','tailscale.cmd'),
-    ORGTREE_FAKECLI_DIR:rig.fakeDir,ORGTREE_FAKECLI_HOME:path.join(root,'rig-home')}
+    ORGTREE_FAKECLI_DIR:rig.fakeDir,ORGTREE_FAKECLI_HOME:path.join(root,'rig-home'),
+    ORGTREE_RIG_BOOT_ISOLATED:'1',ORGTREE_RIG_SESSION0:'1'}
+  const rigEnv={ORGTREE_ENGINE_RIG:'1',ORGTREE_ENGINE_SAFE_START:'1'}
   let host, hostExit, deskPid=0, helperPid=0, enginePid=0, desktopResult=''
   const launchHost = delay => {
     host = spawn(engine,['host'],{env:{...env,ORGTREE_RIG_CORE_STARTUP_DELAY_MS:String(delay)},windowsHide:true,stdio:['ignore','ignore','pipe']})
@@ -50,10 +52,10 @@ export default async function(rig) {
     desktopResult=result
     const config=path.join(p.dir,label+'-config.json')
     fs.writeFileSync(config,JSON.stringify({root,engine,result}))
-    await launcher.start({},`"${process.execPath}" "${desktopScript}" "${config}"`)
+    await launcher.start(rigEnv,`"${process.execPath}" "${desktopScript}" "${config}"`)
     deskPid=(await rig.waitFor(()=>JSON.parse(fs.readFileSync(result,'utf8')),{what:'desktop controller'})).pid
     if(helper) {
-      await launcher.start({ORGTREE_V2_DATA:root},`"${broker}"`)
+      await launcher.start({...rigEnv,ORGTREE_V2_DATA:root},`"${broker}"`)
       // Only this unique copied executable belongs to this proof.
       const {ps}=await import('./credential-broker.mjs')
       helperPid=Number(ps(`(Get-Process orgtree-credential-broker -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq ${q(broker)}}).Id`))
@@ -79,7 +81,7 @@ export default async function(rig) {
     return await rig.waitFor(()=>{const r=JSON.parse(fs.readFileSync(desktopResult+'.reply','utf8'));return r.id===id?r:null},{what:'desktop '+action,timeout:15000})
   }
   try {
-    if(process.env.ORGTREE_CORE_RIG_PHASE!=='transitions') {
+    if(!process.env.ORGTREE_CORE_RIG_PHASE) {
     for (const role of ['desktop','helper','engine','host']) {
       await begin(role);await ready(role)
       p.check(role+': all authenticated stamped members registered',true)
@@ -101,7 +103,7 @@ export default async function(rig) {
     await begin('missing-helper',{helper:false});await ready('missing-helper',false)
     const start=Date.now();await stopped('missing-helper',150000)
     p.check('missing-helper: grace is bounded',Date.now()-start>=110000&&Date.now()-start<150000)
-    } else {
+    } else if(process.env.ORGTREE_CORE_RIG_PHASE==='transitions') {
       await begin('restart');await ready('restart')
       p.check('restart: authenticated transition accepted',(await action('transition')).ok)
       const until=state().transition_until
@@ -120,6 +122,41 @@ export default async function(rig) {
       const began=Date.now()
       await stopped('transition-timeout',210000)
       p.check('timeout: bounded allowance ends even with all processes alive',Date.now()-began>=175000&&Date.now()-began<210000)
+    } else {
+      await begin('sign-out');await ready('sign-out')
+      fs.writeFileSync(path.join(root,'core-rig-signed-out'),'debug rig WTS input only')
+      await rig.waitFor(()=>state().sessions.length===0,{what:'signed-out policy input'})
+      kill(deskPid);kill(helperPid)
+      await new Promise(resolve=>setTimeout(resolve,8000))
+      p.check('sign-out: interactive processes gone, background host and engine kept',alive(host.pid)&&alive(enginePid))
+      const a=descriptor()
+      await fetch(`http://127.0.0.1:${a.port}/api/desktop/shutdown`,{method:'POST',headers:{'X-Orgtree-Desktop-Token':a.token}})
+      await rig.waitFor(()=>!alive(enginePid)&&!alive(host.pid),{what:'signed-out normal stop'})
+      p.check('sign-out: no signed-in fault latch was written',!fs.existsSync(path.join(root,`core-stop-${state().generation}.json`)))
+      fs.unlinkSync(path.join(root,'core-rig-signed-out'))
+      helperPid=deskPid=enginePid=0
+      p.note('Sign-out is simulated WTS input in a debug-only isolated rig; actual Windows logoff was not performed.')
+
+      await begin('graceful');await ready('graceful')
+      const attach=descriptor(), view=Object.create(rig)
+      view.run={...run,url:`http://127.0.0.1:${attach.port}`,token:attach.token}
+      Object.defineProperty(view,'data',{get:()=>root})
+      const org=await view.api('POST','/api/orgs',{name:'Core drain proof',dirs:[],net_autoconnect:false})
+      view.run.org=org.slug
+      rig.scenario({agents:{lu:{turns:[{name:'hold',match:'CORE-DRAIN',steps:[{text:'Holding for lifecycle proof.'},{hang:true}]}]}},default:{turns:[{steps:[{text:'OK.'}]}]}})
+      await view.op({op:'hire',name:'lu',tier:'luna',grant:1,charter:'Isolated lifecycle proof.',permission_mode:'acceptEdits',tools:{bash:true,edit:true}})
+      await view.userMail('lu','CORE-DRAIN')
+      await rig.waitFor(()=>rig.fakeLog('lu').some(l=>l.kind==='hang'),{what:'Codex protocol fixture mid-turn'})
+      const {ps}=await import('./credential-broker.mjs')
+      const pid=Number(ps(`(Get-CimInstance Win32_Process | Where-Object {$_.ParentProcessId -eq ${helperPid} -and $_.Name -eq 'codex.exe'}).ProcessId`))
+      p.check('graceful: Codex protocol fixture is hosted by sign-in helper',pid>0)
+      kill(deskPid);await stopped('graceful')
+      const log=fs.readFileSync(path.join(root,'diagnostics','logs','codex-kills.log'),'utf8')
+      p.check('graceful: hosted child exited through graceful drain',pid>0&&log.includes(`codex-graceful-exit pid=${pid} `))
+      p.check('graceful: hosted child received no forced termination',pid>0&&!new RegExp(`codex-forced-termination pid=${pid} `).test(log))
+      p.file('codex-drain.log',log)
+      p.file('fake-codex.jsonl',rig.fakeLog('lu').map(l=>JSON.stringify(l)).join('\n'))
+      p.note('Hosted Codex uses the scripted protocol fixture, not model inference; native launcher and shutdown path are production.')
     }
     return p.summary()
   } finally {
