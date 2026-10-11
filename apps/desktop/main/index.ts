@@ -1993,7 +1993,9 @@ else {
       if (process.platform === 'win32' && engineOptions.binary) {
         coreLifecycle = new CoreLifecycle(engineOptions.binary, engineOptions.dataRoot, credentialBridge,
           () => ({origin: engine.origin, token: engine.token}), stopCoreApplication)
-        await coreLifecycle.begin()
+        if (await coreLifecycle.begin(process.argv.includes('--background'))) {
+          stopCoreApplication(); return
+        }
         coreLifecycle.start()
       }
       if (app.isPackaged && !engineOptions.binary) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)

@@ -20,7 +20,12 @@ export class CoreLifecycle {
         })
     })
   }
-  async begin(): Promise<void> { await this.native('begin') }
+  async begin(automatic = false): Promise<boolean> {
+    // A late login launch is another automatic retry, not the user's explicit
+    // request to open a fresh application after a failed cohort.
+    if (automatic) return (await this.native('status')).stopped === true
+    await this.native('begin'); return false
+  }
   async transition(installing = false): Promise<void> {
     const e = this.endpoint()
     if (await this.bridge.core(e.origin, e.token, installing ? 'install' : 'transition')) {
