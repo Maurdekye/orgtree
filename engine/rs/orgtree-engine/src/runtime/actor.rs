@@ -248,6 +248,9 @@ struct Turn {
     model: Option<String>,
     draft: String,
     thinking: String,
+    partial_serial: u64,
+    draft_order: Option<u64>,
+    thinking_order: Option<u64>,
     compact: bool,
     /// the request this turn's CLI stream is logged under
     span: tracing::Span,
@@ -300,6 +303,9 @@ impl Turn {
             model: None,
             draft: String::new(),
             thinking: String::new(),
+            partial_serial: 0,
+            draft_order: None,
+            thinking_order: None,
             compact,
             cards: HashMap::new(),
             span: tracing::Span::none(),
@@ -2879,6 +2885,18 @@ impl Actor {
         // update, before the next phase can appear. Never send raw tool input:
         // ConvoWriter retains exactly the sanitized, already-committed body.
         let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "" });
+        // One ordinal per partial, shared by token frames and HTTP snapshots.
+        // Arrival through either transport must not change the display order.
+        if matches!(kind, "delta" | "thinking" | "thinking_start") {
+            if let Some(t) = self.turn.as_mut() {
+                let slot = if kind == "delta" { &mut t.draft_order } else { &mut t.thinking_order };
+                if slot.is_none() {
+                    t.partial_serial += 1;
+                    *slot = Some(t.partial_serial);
+                }
+                frame["stream_order"] = json!(*slot);
+            }
+        }
         if !matches!(kind, "delta" | "thinking") {
             frame["convo_rows"] = json!(self.convo.take_pending());
             frame["draft_clear"] = json!(self.turn.as_ref().is_none_or(|t| t.draft.is_empty()));
@@ -3171,6 +3189,7 @@ impl Actor {
                         acc["last_prompt"] = json!(inp + cached);
                     }
                     t.draft.clear();
+                    t.draft_order = None;
                     t.agy_text.remove(&idx).unwrap_or_default()
                 };
                 if text.trim().is_empty() {
@@ -3302,6 +3321,7 @@ impl Actor {
                 if !completed {
                     if let Some(t) = self.turn.as_mut() {
                         t.draft.clear();
+                        t.draft_order = None;
                     }
                     self.set_activity("writing", None);
                     return Ok(());
@@ -3318,6 +3338,7 @@ impl Actor {
                     t.rows.insert(id.clone(), (seq, row));
                     t.codex_row = Some(id);
                     t.draft.clear();
+                    t.draft_order = None;
                 }
                 self.text_landed();
             }
@@ -3325,6 +3346,7 @@ impl Actor {
                 if !completed {
                     if let Some(t) = self.turn.as_mut() {
                         t.thinking.clear();
+                        t.thinking_order = None;
                     }
                     self.stream("thinking_start", json!({}));
                     self.set_activity("thinking", None);
@@ -3349,6 +3371,7 @@ impl Actor {
                     t.rows.insert(id.clone(), (seq, row));
                     t.codex_row = Some(id);
                     t.thinking.clear();
+                    t.thinking_order = None;
                 }
                 self.stream("thought", json!({}));
             }
@@ -3577,6 +3600,7 @@ impl Actor {
                     Some("thinking") | Some("redacted_thinking") => {
                         if let Some(t) = self.turn.as_mut() {
                             t.thinking.clear();
+                            t.thinking_order = None;
                         }
                         self.stream("thinking_start", json!({}));
                         self.set_activity("thinking", None);
@@ -3588,6 +3612,7 @@ impl Actor {
                     Some("text") => {
                         if let Some(t) = self.turn.as_mut() {
                             t.draft.clear();
+                            t.draft_order = None;
                         }
                         self.set_activity("writing", None);
                     }
@@ -3664,6 +3689,7 @@ impl Actor {
                         let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
                         convo::append_display_block(&mut row, json!({"kind":"text", "start":start, "end":start + add.encode_utf16().count()}));
                         turn.draft.clear();
+                        turn.draft_order = None;
                         wrote_text = true;
                     }
                     Some("thinking") => {
@@ -3682,12 +3708,14 @@ impl Actor {
                             convo::append_display_block(&mut row, json!({"kind":"thinking", "start":start, "end":start + shown.encode_utf16().count(), "sealed":add.is_empty()}));
                         }
                         turn.thinking.clear();
+                        turn.thinking_order = None;
                         wrote_thought = true;
                     }
                     Some("redacted_thinking") => {
                         row["thinking_sealed"] = json!(true);
                         convo::append_display_block(&mut row, json!({"kind":"thinking", "sealed":true}));
                         turn.thinking.clear();
+                        turn.thinking_order = None;
                         wrote_thought = true;
                     }
                     Some("tool_use") | Some("server_tool_use") => {
@@ -4723,12 +4751,13 @@ impl Actor {
         let mut transient = Vec::new();
         if let Some(t) = &self.turn {
             if !t.draft.is_empty() {
-                transient.push(json!({ "event_id": format!("draft-{}", t.id), "role": "assistant", "kind": "draft", "text": t.draft }));
+                transient.push(json!({ "event_id": format!("draft-{}", t.id), "role": "assistant", "kind": "draft", "text": t.draft, "stream_order": t.draft_order }));
             }
             if !t.thinking.is_empty() {
-                transient.push(json!({ "event_id": format!("think-{}", t.id), "role": "assistant", "kind": "thinking", "text": t.thinking }));
+                transient.push(json!({ "event_id": format!("think-{}", t.id), "role": "assistant", "kind": "thinking", "text": t.thinking, "stream_order": t.thinking_order }));
             }
         }
+        transient.sort_by_key(|row| row["stream_order"].as_u64().unwrap_or(0));
         LiveView {
             busy: self.turn.is_some(),
             turn_activity: self.turn.as_ref().map(|t| t.activity).unwrap_or(false),
