@@ -27,7 +27,10 @@ export default async function (rig) {
     const r = await runDesktop(rig, path.join(import.meta.dirname, '../desktop/langserver-theme.cjs'), {
       preset: 'wide', out: path.join(p.dir, 'desktop'), timeout: 120000,
     })
-    p.check('offscreen renderer completed without errors', r.ok !== false && !r.value?.errors?.length, r.error ?? r.value?.errors)
+    const warnings = (r.value?.errors ?? []).filter(e => e.includes('Electron Security Warning (Insecure Content-Security-Policy)'))
+    const errors = (r.value?.errors ?? []).filter(e => !warnings.includes(e))
+    if (warnings.length) p.note('Electron development CSP warning from the offscreen rig', warnings)
+    p.check('offscreen renderer completed without application errors', r.ok !== false && !errors.length, r.error ?? errors)
     const v = r.value ?? {}
     p.check('the settings picker offers and saves Language Server Gold', v.label === 'Language Server Gold'
       && v.stored === 'langserver' && v.accent === THEME_ACCENTS.langserver, v)

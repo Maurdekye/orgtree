@@ -137,4 +137,11 @@ test('Language Server Gold remains distinct from existing presets and every stat
       assert.ok(distance >= FLOOR, `--${status} ${value}: gold is only ΔE ${distance.toFixed(1)} away`)
     }
   }
+  const lightInk = token('prov-langserver')[0]!
+  for (const status of ['work', 'review', 'backlog', 'approved', 'deploy-ready', 'ok', 'warn', 'bad', 'ice']) {
+    // Check every declared status value so declaration order is irrelevant.
+    const closest = Math.min(...token(status).map(value => deltaE(lightInk, value)))
+    t.diagnostic(`deep gold vs --${status}: minimum ΔE ${closest.toFixed(2)}`)
+    assert.ok(closest >= FLOOR, `deep gold is only ΔE ${closest.toFixed(1)} from --${status}`)
+  }
 })
