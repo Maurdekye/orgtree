@@ -9,7 +9,7 @@ import { runDesktop } from '../../../../tools/rig/desktop.mjs'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const [output, evidence] = process.argv.slice(2, 4).map(p => path.resolve(p))
 const fixture = process.argv[4] || 'provider-dialog'
-if (!['provider-dialog', 'provider-toggle'].includes(fixture)) throw new Error('Unknown fixture')
+if (!['provider-dialog', 'provider-toggle', 'switchboard-menu'].includes(fixture)) throw new Error('Unknown fixture')
 if (!output || !evidence) throw new Error('Supply build output and evidence directories')
 mkdirSync(output, { recursive: true })
 mkdirSync(evidence, { recursive: true })
