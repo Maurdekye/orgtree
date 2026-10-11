@@ -19,6 +19,11 @@ net.createServer(s => {
     let v = {}
     try { v = JSON.parse(raw.slice(0, end)) } catch {}
     if (v.secret !== secret) return s.destroy()
+    // Opt-in synthetic credentials only; never reads the user's credential stores.
+    if (process.argv[3] && v.host === 'rig-proof.example' && ['git', 'gh'].includes(v.kind)) {
+      fs.appendFileSync(process.argv[3], JSON.stringify({kind:v.kind, host:v.host})+'\n')
+      return s.end(v.kind === 'git' ? 'username=rig-proof\npassword=rig-proof-desktop\n\n' : 'rig-proof-desktop')
+    }
     s.end(v.kind === 'ping' ? 'ready' : 'orgtree-credential-error invalid-request\n')
   })
 }).listen(pipe, () => fs.writeFileSync(process.argv[2], JSON.stringify({ pipe, secret, pid: process.pid })))
