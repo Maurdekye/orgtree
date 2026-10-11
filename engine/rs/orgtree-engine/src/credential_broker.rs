@@ -615,6 +615,8 @@ mod win {
         let skip = |k: &str| {
             let k = k.to_ascii_uppercase();
             k.starts_with("ORGTREE_CREDENTIAL_")
+                || k == "ORGTREE_ORIGINAL_GIT_ASKPASS"
+                || k == "ORGTREE_ASKPASS_ACTIVE"
                 || k == "ORGTREE_REAL_GH"
                 || k == "ORGTREE_GH_LAUNCH_ACTIVE"
                 || k == "GIT_CONFIG_COUNT"

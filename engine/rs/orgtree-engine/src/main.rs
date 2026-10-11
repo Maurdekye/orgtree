@@ -1,8 +1,8 @@
 //! Orgtree engine.
 //!
-//! `orgtree-engine [serve]`  — the engine (started by the desktop or by `host`)
-//! `orgtree-engine host`     — the boot-time supervisor run by the scheduled task
-//! `orgtree-engine mcp-bridge` — stdio MCP bridge for CLIs that need one
+//! `orgtree-engine [serve]`  â€” the engine (started by the desktop or by `host`)
+//! `orgtree-engine host`     â€” the boot-time supervisor run by the scheduled task
+//! `orgtree-engine mcp-bridge` â€” stdio MCP bridge for CLIs that need one
 
 #![allow(dead_code)]
 #![recursion_limit = "256"]
@@ -67,6 +67,9 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if std::env::current_exe().ok().and_then(|p|p.file_name().map(|n|n.to_string_lossy().to_lowercase())) == Some("gh.exe".into()) {
         return credential_bridge::cli("gh", &args[1..]);
+    }
+    if std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase())) == Some("orgtree-git-askpass.exe".into()) {
+        return credential_bridge::askpass::cli(&args[1..]);
     }
     match args.get(1).map(String::as_str) {
         None | Some("serve") => serve(),

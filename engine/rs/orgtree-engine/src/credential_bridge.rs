@@ -15,6 +15,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub mod askpass;
+
 const NO_DESKTOP: &str = "Orgtree credential bridge: nothing in a signed-in Windows session is serving credentials: ask the user to sign in to Windows, or to open the Orgtree app if they are signed in [no-desktop].";
 pub const UNAVAILABLE: &str = "Open Orgtree in your signed-in Windows session to restore git/GitHub access. Agents keep running; no engine restart is needed.";
 const MAX: usize = 65536;
@@ -200,7 +202,8 @@ impl Bridge {
         if std::fs::create_dir_all(&dir).is_err() {
             return vec![];
         }
-        let shim = dir.join("gh.exe");
+        for name in ["gh.exe", "orgtree-git-askpass.exe"] {
+        let shim = dir.join(name);
         if !shim.exists() && std::fs::hard_link(&exe, &shim).is_err() && !shim.exists() {
             // Cross-volume installs: publish only a complete copy. Concurrent
             // agents may race the rename, but never observe a partial binary.
@@ -214,6 +217,7 @@ impl Bridge {
             if result.is_err() && !shim.exists() {
                 return vec![];
             }
+        }
         }
         let secret = format!(
             "{}{}",
@@ -236,7 +240,7 @@ impl Bridge {
 
 #[nolog]
 fn adapter_environment(
-    exe: &std::path::Path,
+    _exe: &std::path::Path,
     dir: std::path::PathBuf,
     agent: i64,
     port: u16,
@@ -246,13 +250,9 @@ fn adapter_environment(
     let real_gh = std::env::split_paths(&old_path)
         .map(|p| p.join("gh.exe"))
         .find(|p| p.is_file() && !adapter_path(p));
-    let path = std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&old_path)))
+    let path = std::env::join_paths(std::iter::once(dir.clone()).chain(std::env::split_paths(&old_path)))
         .unwrap_or(old_path);
     let n = git_config_slot(std::env::var("GIT_CONFIG_COUNT").ok().as_deref());
-    let quoted = exe
-        .to_string_lossy()
-        .replace('\\', "/")
-        .replace('\'', "'\\''");
     let mut env = vec![
         ("ORGTREE_CREDENTIAL_AUTH".into(), secret),
         (
@@ -266,13 +266,17 @@ fn adapter_environment(
     if let Some(n) = n {
         env.extend([
             ("GIT_CONFIG_COUNT".into(), (n + 1).to_string()),
-            (format!("GIT_CONFIG_KEY_{n}"), "credential.helper".into()),
+            (format!("GIT_CONFIG_KEY_{n}"), "credential.sanitizePrompt".into()),
             (
                 format!("GIT_CONFIG_VALUE_{n}"),
-                format!("!'{}' credential-helper", quoted),
+                "true".into(),
             ),
             ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+            ("GIT_ASKPASS".into(), dir.join("orgtree-git-askpass.exe").to_string_lossy().into_owned()),
         ]);
+    }
+    if let Ok(original) = std::env::var("GIT_ASKPASS") {
+        env.push(("ORGTREE_ORIGINAL_GIT_ASKPASS".into(), original));
     }
     if let Some(real) = real_gh {
         env.push(("PATH".into(), path.to_string_lossy().into_owned()));
@@ -991,6 +995,27 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
         // its real executable below without an injected token.
         // Every failure prints one secret-free line to stderr; the native
         // credential path still runs afterwards.
+        lookup(kind, &host, &path, &username).await
+    };
+    if kind == "git" {
+        tokio::io::stdout()
+            .write_all(&answer)
+            .await
+            .map_err(|_| ())?;
+        return Ok(0);
+    }
+    let native = gh_command(&real.ok_or(())?, args, token_env, &answer, explicit)?;
+    let mut cmd = tokio::process::Command::from(native);
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(crate::winproc::CREATE_NO_WINDOW);
+    }
+    let status = cmd.status().await.map_err(|_| ())?;
+    Ok(status.code().unwrap_or(1).clamp(0, 255) as u8)
+}
+
+#[nolog]
+async fn lookup(kind: &str, host: &str, path: &str, username: &str) -> Vec<u8> {
         const MISCONFIGURED: &str = "Orgtree credential bridge: this process's bridge settings are missing or invalid; a new turn or CLI process gets fresh ones [misconfigured].";
         let lookup = async {
             let endpoint = std::env::var("ORGTREE_CREDENTIAL_URL").map_err(|_| MISCONFIGURED.to_string())?;
@@ -1056,22 +1081,6 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
                 vec![]
             }
         }
-    };
-    if kind == "git" {
-        tokio::io::stdout()
-            .write_all(&answer)
-            .await
-            .map_err(|_| ())?;
-        return Ok(0);
-    }
-    let native = gh_command(&real.ok_or(())?, args, token_env, &answer, explicit)?;
-    let mut cmd = tokio::process::Command::from(native);
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(crate::winproc::CREATE_NO_WINDOW);
-    }
-    let status = cmd.status().await.map_err(|_| ())?;
-    Ok(status.code().unwrap_or(1).clamp(0, 255) as u8)
 }
 
 /// Keep native gh unchanged when the broker is absent or an explicit token wins.
@@ -1141,7 +1150,7 @@ pub fn cleanup_adapters(engine: &Engine) {
         };
         for file in files.take(256).flatten() {
             let name = file.file_name().to_string_lossy().into_owned();
-            let known = name == "gh.exe"
+            let known = name == "gh.exe" || name == "orgtree-git-askpass.exe"
                 || name
                     .strip_suffix(".tmp")
                     .map(|s| uuid::Uuid::parse_str(s).is_ok())
