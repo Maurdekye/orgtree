@@ -646,7 +646,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
       else on. Never the task's own state: an update disables the task while it replaces files.
       Register then writes both tasks enabled or disabled accordingly and starts them only when
       on. A fresh installation defaults to on, as before.
-    Proof: `tests/run-on-startup.test.mjs` (the scripts against throwaway tasks and an HKCU key),
+    Proof: `tests/disruptive/run-on-startup.test.mjs` (the scripts against throwaway tasks and an HKCU key),
     `tests/boot-installer.test.ps1`, `tests/unix-boot-engine.test.mjs`.
 71. **The bundled mail hub 2.1.0's first start is a one-way step; no automatic backup**
     (user 2026-10-10 19:42Z, via the coordinator: bundle hub 2.1.0, optional UnifiedPush, in

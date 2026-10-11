@@ -5,7 +5,7 @@
 // the switch reads "run on startup", with a hint that says what off means; a
 // change main reports as declined (a Windows permission prompt the user said
 // No to) shows main's message and leaves the switch on; an accepted change
-// turns it off. What main does with the change is tests/run-on-startup.test.mjs
+// turns it off. What main does with the change is tests/disruptive/run-on-startup.test.mjs
 // (the tasks) and tests/unix-boot-engine.test.mjs (macOS/Linux).
 // Run: node tools/rig/build-ui.mjs, then
 //      node tools/rig/rig.mjs run tools/rig/proofs/run-on-startup.mjs --ui <bundle>
