@@ -101,7 +101,7 @@ function rows(el: HTMLElement): { kind: string; text: string }[] {
     const c = n.classList
     const kind = c.contains('pending') && c.contains('pendrow') ? 'pending'
       : c.contains('pending') ? 'ghost'
-        : c.contains('draft') ? 'draft'
+        : c.contains('draft') || n.querySelector('.draft') ? 'draft'
           : c.contains('live') ? 'live'
             : c.contains('user') ? 'user'
               : c.contains('sys') ? 'sys' : 'assistant'
