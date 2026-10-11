@@ -18,7 +18,17 @@ Local failure intent commits with failure state. Draft failures create only a us
 
 The message and outgoing transfer IDs commit together, before the send result returns. Tool responses carry those IDs with the queued message; agents can immediately inspect them with `orgtree_transfers`. Selecting a registered hub later binds the route without replacing IDs. A failed transfer insert rolls back the queued message too.
 
-Both schedulers filter eligible organization/hub/address tuples before selecting a job. A backlog for disconnected hubs cannot hide ready work; hub concurrency exclusion applies to both directions. Inspection lists unfinished work before completed history and returns at most 100 records with a `next_cursor`. The desktop has page controls, and agents pass that cursor to the list tool. Every page applies the same sender/audience restrictions.
+Queue admission scans at most 100 peer heads per pass and advances its cursor past held or unavailable peers, preserving order within each peer. Both schedulers filter eligible organization/hub/address tuples before selecting a job. A backlog for disconnected hubs cannot hide ready work; hub concurrency exclusion applies to both directions. Inspection lists unfinished work before completed history and returns at most 100 records with a `next_cursor`. The desktop has page controls, and agents pass that cursor to the list tool. Every page applies the same sender/audience restrictions.
+
+## Recovery and identity boundaries
+
+Outgoing transfer authority and failure recipients use the sender agent ID and generation captured at admission. Renaming an agent does not transfer its work to another agent taking that name. Older rows without a captured identity remain user-managed; no name-based identity is inferred.
+
+Inbound publication commits the org-inbox entry and all selected holder mailbox copies in one short transaction. A failed holder insert rolls the whole publication back; retry after a crash following commit sees the existing inbox entry and does not duplicate mailbox copies. Wakes and feed changes follow commit.
+
+If a crash leaves confirmed bytes equal to the expected total but no completed marker, the download revalidates the last byte and EOF using Range/If-Range. It does not repeatedly request an impossible range starting at the total.
+
+`tools/rig/proofs/net-transfer-review.mjs` covers rename takeover and notice routing, failed second-holder insertion and replay across restart, the EOF checkpoint, and admission of new unbound work behind 150 held/unavailable peer heads.
 
 ## Verification and remaining work
 
