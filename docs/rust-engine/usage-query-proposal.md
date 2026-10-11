@@ -158,9 +158,19 @@ composed with the shared reservation before a multi-key tool claim is verified.
 Measured first check: cargo check --locked -j2 -p orgtree-engine --bin
 orgtree-engine passed in 5m01s at source 8ffda24, using the approved C target.
 Evidence: D:\orgtree-work\evidence\usage-query-sol\cargo-check-20261011.log.
-This precedes the latest scope revalidation and rebase onto rust-engine d0789c9;
-those need rechecking. Rust parsing/formatting of new helper files, Node proof
-syntax and git diff --check passed. Targeted tests and changed-path rig execution
-have not run; queued behind earlier builders. The proof checks safe tool output;
+Focused cargo test --locked -j2 -p orgtree-engine --bin orgtree-engine usage::
+passed 11 tests, zero failed, 83 filtered, in 3m49s at committed7259d30.
+Evidence: D:\orgtree-work\evidence\usage-query-sol\cargo-test-20261011.log.
+Subsequent rebase onto rust-engine4fa41d4 and6da8b55's global provider-switch
+composition need final build verification. Rust parsing/formatting of new helper
+files, Node proof syntax and git diff --check passed. Changed-path rig execution
+has not run; queued behind earlier builders. The proof checks safe tool output;
 it does not yet establish log secrecy. Existing raw reader logging is a separate
 verification concern. No live provider behavior is measured.
+
+Global provider availability composes the existing settings.provider_enabled
+switch with each account/server enabled flag, matching the canonical org-lanes
+contract. Org allowlists filter visibility separately. Neither org permission
+nor a cached reading activates globally inactive accounts or servers. Synthetic
+proof now includes global provider-off, individual server-off and org server
+exclusion; these cases are prepared but unrun.

@@ -100,7 +100,7 @@ export default async function (rig) {
     && providerOff.json.accounts[0].enabled === false && !providerOffRefresh.ok && calls() === before + 1,
     { providerOff, providerOffRefresh })
   await rig.api('PUT', '/api/providers/openai/enabled', { enabled: true })
-  const server = await rig.api('POST', '/api/langservers', { preset: 'llamacpp', address: 'http://127.0.0.1:9',
+  const { server } = await rig.api('POST', '/api/langservers', { preset: 'llamacpp', address: 'http://127.0.0.1:9',
     harness: 'codex-cli', label: 'Usage proof server', max_agents: 2, models: [{ id: 'usage-proof-model', context: 65536 }] })
   const serverLane = `langserver:${server.id}`
   const local = await query({ accounts: [serverLane] })
