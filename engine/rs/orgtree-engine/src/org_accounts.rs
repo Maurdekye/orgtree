@@ -147,13 +147,21 @@ pub fn lanes(engine: &Engine, org_slug: &str) -> Vec<Value> {
     let off = disabled(org_slug);
     let view = engine.accounts.view();
     let mut out = Vec::new();
-    let mut push = |id: String, provider: &str, label: String| {
-        out.push(json!({ "id": id, "provider": provider, "label": label, "allowed": !off.contains(&id) }));
+    // `allowed` is the org's own choice; `enabled` is whether the app may use
+    // the lane at all (App settings › Providers), which an org tick cannot
+    // override (user 2026-10-11 22:50), and `disabled_reason` says why not
+    let mut push = |id: String, provider: &str, label: String, why_off: Option<&str>| {
+        out.push(json!({ "id": id, "provider": provider, "label": label, "allowed": !off.contains(&id),
+                         "enabled": why_off.is_none(), "disabled_reason": why_off }));
     };
+    let provider_off = |p: &str| (!engine.settings.provider_enabled(p)).then_some("turned off in App settings › Providers");
     for provider in [catalog::CLAUDE, catalog::OPENAI, catalog::GOOGLE] {
-        push(primary(provider), provider, format!("{} (default sign-in)", catalog::provider_label(provider)));
+        let why = provider_off(provider).or_else(|| (!engine.settings.subscription_inference(provider))
+            .then_some("the signed-in subscription is inactive in App settings › Providers"));
+        push(primary(provider), provider, format!("{} (default sign-in)", catalog::provider_label(provider)), why);
         for a in view.all().into_iter().filter(|a| a.provider == provider && !a.ambient && a.available_origin(org_slug)) {
-            push(a.id.clone(), provider, a.display());
+            let why = provider_off(provider).or_else(|| (!a.enabled).then_some("this account is inactive in App settings › Providers"));
+            push(a.id.clone(), provider, a.display(), why);
         }
     }
     // one tick per OpenRouter key (ruling 2026-10-11)
@@ -165,12 +173,15 @@ pub fn lanes(engine: &Engine, org_slug: &str) -> Vec<Value> {
         } else {
             format!("OpenRouter: {} ({})", crate::openrouter::display(engine, a), crate::openrouter::lane(&a.id))
         };
-        push(crate::openrouter::lane(&a.id), catalog::OPENROUTER, label);
+        let why = provider_off(catalog::OPENROUTER).or_else(|| (!a.enabled).then_some("this key is inactive in App settings › Providers"));
+        push(crate::openrouter::lane(&a.id), catalog::OPENROUTER, label, why);
     }
     for s in crate::langserver::servers(engine) {
         let id = s["id"].as_str().unwrap_or("").to_string();
         let label = s["label"].as_str().filter(|l| !l.is_empty()).unwrap_or(&id).to_string();
-        push(format!("langserver:{id}"), catalog::LANGSERVER, format!("{label} (language server)"));
+        let why = provider_off(catalog::LANGSERVER)
+            .or_else(|| (s["enabled"].as_bool() == Some(false)).then_some("this server is turned off in App settings › Providers"));
+        push(format!("langserver:{id}"), catalog::LANGSERVER, format!("{label} (language server)"), why);
     }
     out
 }

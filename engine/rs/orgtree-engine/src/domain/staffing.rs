@@ -79,8 +79,9 @@ fn accountless(provider: &str) -> bool {
 #[logged]
 fn host_for(engine: &Engine, org_slug: &str, tier: &str, provider: &str) -> bool {
     let lane = crate::org_accounts::tier_lane(engine, tier).unwrap_or_else(|| crate::org_accounts::primary(provider));
-    // an unbound OpenRouter seat needs the original key stored
-    let original = provider != catalog::OPENROUTER || engine.accounts.view().get(crate::openrouter::ACCOUNT_ID).is_some();
+    // an unbound OpenRouter seat needs the original key stored and active
+    let original = provider != catalog::OPENROUTER
+        || engine.accounts.view().get(crate::openrouter::ACCOUNT_ID).is_some_and(|a| a.enabled);
     original && host_ready(engine, provider) && crate::org_accounts::allowed(Some(org_slug), &lane)
 }
 

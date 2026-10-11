@@ -63,7 +63,9 @@ pub async fn list(State(e): State<Arc<Engine>>, Query(q): Query<OrgQuery>) -> Ap
     let rows: Vec<Value> = view
         .all()
         .into_iter()
-        .filter(|a| a.provider != "openrouter" && a.available_to(org))
+        // an added OpenRouter key is a pickable account; the original is
+        // the lane's `default` (`openrouter/primary`), like a host login
+        .filter(|a| a.id != crate::openrouter::ACCOUNT_ID && a.available_to(org))
         .map(|a| crate::accounts::row(a, bound.get(&a.id).cloned().unwrap_or_default(), now))
         .collect();
     Ok(Json(json!({ "accounts": rows, "primary": "claude/primary", "host_identity": host_identity() })))
@@ -188,10 +190,10 @@ pub struct EnabledBody {
 /// finishes); its agents' mail waits until it is active again or they move.
 #[logged]
 pub async fn set_enabled(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<EnabledBody>) -> ApiResult<Json<Value>> {
+    // every OpenRouter key, the original included, is switched on its own
+    // (user 2026-10-11 22:50: each key individually disableable)
     let client = e.db.get().await?;
-    let n = client
-        .execute("UPDATE ot.accounts SET enabled = $2 WHERE id = $1 AND id <> $3", &[&id, &b.enabled, &crate::openrouter::ACCOUNT_ID])
-        .await?;
+    let n = client.execute("UPDATE ot.accounts SET enabled = $2 WHERE id = $1", &[&id, &b.enabled]).await?;
     drop(client);
     if n == 0 {
         return Err(ApiError::not_found(format!("no account {id}")));
@@ -201,8 +203,18 @@ pub async fn set_enabled(State(e): State<Arc<Engine>>, Path(id): Path<String>, J
     for o in e.orgs.all() {
         crate::changes::notify(&e, &o, vec![crate::changes::Change::Tiers]);
     }
+    let openrouter = e.accounts.view().get(&id).is_some_and(|a| a.provider == crate::providers::catalog::OPENROUTER);
+    if openrouter {
+        crate::openrouter::publish(&e).await;
+    }
     if b.enabled {
-        crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Account(id.clone())).await;
+        // the original key's agents are the unbound ones
+        let which = if id == crate::openrouter::ACCOUNT_ID {
+            crate::accounts::Waiting::Native(crate::providers::catalog::OPENROUTER.to_string())
+        } else {
+            crate::accounts::Waiting::Account(id.clone())
+        };
+        crate::accounts::wake_waiting(&e, which).await;
     }
     let view = e.accounts.view();
     let row = view.get(&id).map(|a| crate::accounts::row(a, Vec::new(), chrono::Utc::now())).unwrap_or(Value::Null);

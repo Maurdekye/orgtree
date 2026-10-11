@@ -415,6 +415,8 @@ pub fn row(a: &AccountInfo, bound: Vec<Value>, now: DateTime<Utc>) -> Value {
 pub fn publish(engine: &Engine) {
     let view = engine.accounts.view();
     let now = Utc::now();
-    let rows: Vec<Value> = view.all().into_iter().filter(|a| a.provider != "openrouter").map(|a| row(a, Vec::new(), now)).collect();
+    // added OpenRouter keys are pickable accounts; the original key is the
+    // lane's `default`, never a row (as before several keys)
+    let rows: Vec<Value> = view.all().into_iter().filter(|a| a.id != crate::openrouter::ACCOUNT_ID).map(|a| row(a, Vec::new(), now)).collect();
     engine.app.set_value("accounts", json!({ "accounts": rows }));
 }
