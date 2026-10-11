@@ -25,13 +25,16 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   their Claude Code/Codex/Antigravity origin, and gives every native toggle a
   concise description. Shared hire-default and draft-scope controls use the same
   copy. The external registry section is **MCP Servers** (superseding the initial
-  MCP Tools wording). Credit grant belongs in Scope, and the three tool sections
-  come last in Native Tools / Orgtree Tools / MCP Servers order. Agent settings
+  MCP Tools wording). Credit grant belongs in Scope. Agent settings has a Tools
+  tab immediately after Scope, containing Native Tools / Orgtree Tools / MCP
+  Servers in that order; folders come last in Scope. This supersedes placing
+  tools at the bottom of Scope. Hire Defaults and draft forms retain their
+  existing tab structure. Agent settings
   and Hire Defaults share equivalent field labels, descriptions and option text,
   retaining current-agent versus future-hire context and org folder revocation
   semantics. Preserve bindings, defaults and superior-permission enforcement.
   Copy audit and lightweight verification: [agent-settings-copy.md](docs/rust-engine/agent-settings-copy.md).
-  [decided: user 2026-10-11 17:35–17:39Z; verified: renderer `canvas/modals.tsx`]
+  [decided: user 2026-10-11 17:35–17:39Z and 19:46Z; verified: renderer `canvas/modals.tsx`]
 
 - Native tray refresh must resynchronize the **Run on startup** checkbox from
   committed preferences even while its menu is open, and when that menu is
