@@ -451,16 +451,16 @@ export function HireDefaultsTab({ tree, slug, toast, close,
 
       <SetGroup title="Agent hire defaults"
         note="granted to hires that state no tools of their own">
-        <SetBlock label="tools">
-          {TOOL_LABELS.map(([k, label]) => (
-            <SetToggle key={k} label={label} checked={!!tools[k]}
+        <SetBlock label="Native Tools" hint={NATIVE_TOOLS_HINT}>
+          {TOOL_LABELS.map(([k, label, hint]) => (
+            <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
               onChange={next => setTools({ ...tools, [k]: next })} />
           ))}
         </SetBlock>
         <SetBlock label="Orgtree tools">
           <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetBlock>
-        <SetBlock label="MCP servers">
+        <SetBlock label="MCP Servers">
           <SetToggle label="all registered MCP servers"
             labelContent="all registered servers (current and future)" checked={allMcp}
             onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
@@ -687,14 +687,15 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             }}>add</button>
           </div>
         </div>
-        <div className="field-label">tools</div>
-        {TOOL_LABELS.map(([k, label]) => (
-          <SetToggle key={k} label={label} checked={!!tools[k]}
+        <div className="field-label">Native Tools</div>
+        <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
+        {TOOL_LABELS.map(([k, label, hint]) => (
+          <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
             onChange={next => setTools({ ...tools, [k]: next })} />
         ))}
         <div className="field-label">Orgtree tools</div>
         <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
-        <div className="field-label">MCP servers</div>
+        <div className="field-label">MCP Servers</div>
         <SetToggle label="all registered servers (current and future)" checked={allMcp}
           onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
         {!allMcp && <McpChecklist servers={servers}
@@ -831,11 +832,12 @@ export function cascadePreview(
   return out
 }
 
+const NATIVE_TOOLS_HINT = "Tools built into the agent's native harness, such as Claude Code, Codex or Antigravity."
 const TOOL_LABELS = [
-  ['bash', 'terminal (Bash)'],
-  ['web', 'web browsing (search + fetch)'],
-  ['edit', 'file editing (Write / Edit / notebooks)'],
-  ['subagents', 'ephemeral subagents (Task / Agent tool)'],
+  ['bash', 'Run commands', 'Run terminal commands and programs.'],
+  ['web', 'Browse the web', 'Search the web and open web pages.'],
+  ['edit', 'Edit files', 'Create and change files in granted folders, including notebooks.'],
+  ['subagents', 'Use helper agents', 'Delegate tasks to temporary helper agents within the harness.'],
 ] as const
 
 const ORGTREE_GROUPS: ReadonlyArray<readonly [OrgtreeToolGroup, string, string]> = [
@@ -1367,10 +1369,11 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         </div>
 
         </SetBlock>
-        <SetGroup title="Tools">
-        {TOOL_LABELS.map(([k]) => (
-          <SetToggle key={k} label={{bash: 'Run commands', web: 'Browse the web', edit: 'Edit files', subagents: 'Use helper agents'}[k]} checked={Boolean(tools[k] && parentHolds(k))}
-            disabled={!parentHolds(k)} hint={!parentHolds(k) ? "The superior does not have this permission." : undefined}
+        <SetGroup title="Native Tools">
+        <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
+        {TOOL_LABELS.map(([k, label, hint]) => (
+          <SetToggle key={k} label={label} checked={Boolean(tools[k] && parentHolds(k))}
+            disabled={!parentHolds(k)} hint={!parentHolds(k) ? `${hint} The superior does not have this permission.` : hint}
             onChange={checked => setTools({ ...tools, [k]: checked })} />
         ))}
         </SetGroup>
@@ -1380,7 +1383,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetGroup>
 
-        <SetGroup title="Connected tools">
+        <SetGroup title="MCP Servers">
         <p className="set-hint">Choose tools from the shared registry; changes restart this agent.</p>
         {servers.length === 0 && <div className="hint">No tools registered.</div>}
         {servers.map((s) => <SetToggle key={s} label={s}
