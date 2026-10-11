@@ -54,14 +54,14 @@ export default async function (rig) {
   p.check('user hire with a folder inside one boss holds is taken as asked', within.ok && dirs('dee') === 'sub:ro', { hire: within.ok || within.detail, dirs: dirs('dee') })
 
   // ---------------------------------------------------------------- an agent hires
-  const bare = await rig.tool('boss', 'orgtree_hire', { name: 'eli', tier: 'haiku', grant: 0, charter: 'You help boss.' })
+  const bare = await rig.tool('boss', 'orgtree_hire', { index: 0, name: 'eli', tier: 'haiku', grant: 0, charter: 'You help boss.' })
   p.check('boss hiring without stating folders, tools and visibility is refused (agent hires have no defaults)', !bare.ok
     && /no defaults/.test(bare.text ?? '') && /add_dirs/.test(bare.text ?? '') && /tools/.test(bare.text ?? '') && !scopeOf('eli'), bare.text?.slice(0, 300))
   const tools = { bash: true, edit: true, subagents: false, mcp: [] }
-  const web = await rig.tool('boss', 'orgtree_hire', { name: 'fay', tier: 'haiku', grant: 0, charter: 'You help boss.',
+  const web = await rig.tool('boss', 'orgtree_hire', { index: 0, name: 'fay', tier: 'haiku', grant: 0, charter: 'You help boss.',
     add_dirs: [], tools: { ...tools, web: true }, org_visibility: 'team' })
   p.check('boss cannot pass on the web tool he does not hold', !web.ok && /web/.test(web.text ?? '') && !scopeOf('fay'), web.text?.slice(0, 200))
-  const ok = await rig.tool('boss', 'orgtree_hire', { name: 'gus', tier: 'haiku', grant: 0, charter: 'You help boss.',
+  const ok = await rig.tool('boss', 'orgtree_hire', { index: 0, name: 'gus', tier: 'haiku', grant: 0, charter: 'You help boss.',
     add_dirs: [{ path: a, mode: 'ro' }], tools: { ...tools, web: false }, org_visibility: 'team' })
   p.check('boss hiring with everything stated and within his own scope works', ok.ok && dirs('gus') === 'alpha:ro', { text: ok.text?.slice(0, 200), dirs: dirs('gus') })
 
@@ -75,7 +75,7 @@ export default async function (rig) {
   const bossVis = scopeOf('boss')?.org_visibility ?? 'subtree'
   p.check('user hire asking for more visibility than boss holds: clamped to boss\'s, with a warning', ivoScope?.org_visibility === bossVis
     && new RegExp(`org_visibility clamped to the parent's own \\(${bossVis}\\)`).test(warned), { vis: ivoScope?.org_visibility, bossVis, warnings: ivo.r?.warnings })
-  const wide = await rig.tool('boss', 'orgtree_hire', { name: 'jon', tier: 'haiku', grant: 0, charter: 'You help boss.',
+  const wide = await rig.tool('boss', 'orgtree_hire', { index: 0, name: 'jon', tier: 'haiku', grant: 0, charter: 'You help boss.',
     add_dirs: [], tools: { ...tools, web: false }, org_visibility: 'full' })
   p.check('boss asking for more visibility than he holds for his hire is refused (D-021)', !wide.ok && /exceeds the parent's own/.test(wide.text ?? '')
     && !scopeOf('jon'), wide.text?.slice(0, 200))
