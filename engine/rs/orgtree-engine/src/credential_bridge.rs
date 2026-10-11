@@ -59,9 +59,14 @@ struct Broker {
     /// The broker process's creation time, so a reused PID is not the holder.
     created: u64,
     expires: Instant,
-    /// The sign-in helper starts Codex app-servers in the user's session
-    /// (registration `caps: ["spawn"]`); the desktop broker does not.
-    spawn: bool,
+}
+#[nolog]
+fn live(b: &Broker) -> bool {
+    b.expires > Instant::now() && b.created != 0 && process_stamp(b.pid) == Some(b.created)
+}
+#[nolog]
+fn same_holder(b: &Broker, pipe: &str, secret: &str, pid: u32) -> bool {
+    b.pipe == pipe && b.pid == pid && equal(&b.secret, secret)
 }
 struct Grant {
     secret: String,
@@ -72,6 +77,8 @@ struct Grant {
 }
 pub struct Bridge {
     broker: ArcSwapOption<Broker>,
+    /// Independent lease: the desktop can serve credentials while a helper hosts Codex.
+    codex_host: ArcSwapOption<Broker>,
     grants: papaya::HashMap<i64, Arc<Grant>>,
     slots: tokio::sync::Semaphore,
     reported_ready: AtomicBool,
@@ -82,6 +89,7 @@ impl Bridge {
     pub fn new() -> Self {
         Self {
             broker: ArcSwapOption::empty(),
+            codex_host: ArcSwapOption::empty(),
             grants: papaya::HashMap::new(),
             slots: tokio::sync::Semaphore::new(16),
             reported_ready: AtomicBool::new(false),
@@ -137,25 +145,20 @@ impl Bridge {
     }
     /// Whether a live sign-in helper can start Codex in the user's session.
     pub fn can_host(&self) -> bool {
-        self.broker.load().as_ref().is_some_and(|b| {
-            b.spawn
-                && b.expires > Instant::now()
-                && b.created != 0
-                && process_stamp(b.pid) == Some(b.created)
-        })
+        self.codex_host.load().as_ref().is_some_and(|b| live(b))
     }
     /// The helper's pid, which connects the pipes of a Codex it starts.
     pub fn host_pid(&self) -> Option<u32> {
-        self.broker.load().as_ref().filter(|b| b.spawn).map(|b| b.pid)
+        self.codex_host.load().as_ref().filter(|b| live(b)).map(|b| b.pid)
     }
     /// A spawn or kill request to the sign-in helper. A spawn carries the
     /// child's environment (its API key), so nothing here is logged; the
     /// answer is the helper's reply or a fixed, secret-free code.
     pub async fn host(&self, mut request: Value) -> Result<Vec<u8>, String> {
         let broker = self
-            .broker
+            .codex_host
             .load_full()
-            .filter(|b| b.spawn)
+            .filter(|b| live(b))
             .ok_or_else(|| "host-gone".to_string())?;
         request["diagnostics"] = json!(1);
         match exchange(&broker, request).await {
@@ -441,10 +444,16 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             return Err(Fail::Denied);
         }
         let pid = u32::try_from(value["pid"].as_u64().ok_or(())?).map_err(|_| ())?;
-        let slot = &engine.credential_bridge.broker;
+        let host_only = match value.get("role").and_then(Value::as_str) {
+            None if value.get("role").is_none() => false,
+            Some("credentials") => false,
+            Some("host") if value["caps"].as_array().is_some_and(|c| c.iter().any(|v| v == "spawn")) => true,
+            _ => return Err(Fail::Denied),
+        };
+        let slot = if host_only { &engine.credential_bridge.codex_host } else { &engine.credential_bridge.broker };
         let current = slot.load_full();
-        // One broker at a time (the desktop or the sign-in helper). Only the
-        // holder, proven by its pipe and secret, may release the slot.
+        // Each role has its own lease. Only its holder, proven by its
+        // pipe and secret, may release that role; the other stays unchanged.
         if value["release"].as_bool() == Some(true) {
             if let Some(c) = current
                 .as_ref()
@@ -452,8 +461,8 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             {
                 let previous = slot.compare_and_swap(&current, None);
                 if previous.as_ref().map(|p| Arc::ptr_eq(p, c)).unwrap_or(false) {
-                    tracing::info!(pid, "Credential broker released the bridge");
-                    publish_availability(engine);
+                    tracing::info!(pid, host_only, "Signed-in broker released its role");
+                    if !host_only { publish_availability(engine); }
                 }
             }
             return Ok(b"released".to_vec());
@@ -461,10 +470,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
         // A live lease whose broker process still runs keeps the slot; the
         // other broker retries on its next poll. No flapping between the two.
         if current.as_ref().is_some_and(|c| {
-            c.pipe != pipe
-                && c.expires > Instant::now()
-                && c.created != 0
-                && process_stamp(c.pid) == Some(c.created)
+            !same_holder(c, pipe, secret, pid) && live(c)
         }) {
             return Err(Fail::Held);
         }
@@ -474,9 +480,6 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             pid,
             created: 0,
             expires: Instant::now() + Duration::from_secs(20),
-            spawn: value["caps"]
-                .as_array()
-                .is_some_and(|c| c.iter().any(|v| v == "spawn")),
         };
         if exchange(&broker, json!({"kind":"ping"}))
             .await
@@ -498,9 +501,10 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             return Err(Fail::Held);
         }
         if current.as_ref().map(|c| c.pipe != fresh.pipe).unwrap_or(true) {
-            tracing::info!(pid, "Credential broker took the bridge");
+            if host_only { tracing::info!(pid, "Sign-in helper took the Codex host slot"); }
+            else { tracing::info!(pid, "Credential broker took the bridge"); }
         }
-        publish_availability(engine);
+        if !host_only { publish_availability(engine); }
         return Ok(b"ready".to_vec());
     }
     let agent = value["agent"].as_i64().ok_or(())?;
@@ -1179,4 +1183,43 @@ fn gh_bridge_host(mut host: String, args: &[String]) -> Option<String> {
         }
     }
     (valid_host(&host) && host.matches(':').count() <= 1).then_some(host)
+}
+
+#[cfg(all(test, windows))]
+mod host_slot_tests {
+    use super::*;
+
+    #[nolog]
+    fn lease(expired: bool, wrong_stamp: bool) -> Arc<Broker> {
+        let pid = std::process::id();
+        Arc::new(Broker { pipe: "test-pipe".into(), secret: "test-only".into(), pid,
+            created: process_stamp(pid).unwrap() + u64::from(wrong_stamp),
+            expires: if expired { Instant::now() - Duration::from_secs(1) }
+                else { Instant::now() + Duration::from_secs(20) } })
+    }
+
+    #[test]
+    #[nolog]
+    fn host_and_credential_lifetimes_are_independent() {
+        let bridge = Bridge::new();
+        bridge.broker.store(Some(lease(false, false)));
+        assert!(bridge.ready());
+        assert!(!bridge.can_host());
+        bridge.codex_host.store(Some(lease(false, false)));
+        assert!(bridge.can_host());
+        assert_eq!(bridge.host_pid(), Some(std::process::id()));
+        bridge.broker.store(None);
+        assert!(!bridge.ready());
+        assert!(bridge.can_host());
+        bridge.broker.store(Some(lease(false, false)));
+        for host in [lease(true, false), lease(false, true)] {
+            bridge.codex_host.store(Some(host));
+            assert!(!bridge.can_host());
+            assert_eq!(bridge.host_pid(), None);
+            assert!(bridge.ready());
+        }
+        bridge.codex_host.store(None);
+        assert!(bridge.ready());
+        assert!(!bridge.can_host());
+    }
 }

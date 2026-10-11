@@ -165,6 +165,7 @@ mod win {
         let mut engine: Option<Attached> = None;
         let mut last = "";
         let mut hosted_before = 0usize;
+        let mut last_host_status = None;
         loop {
             if engine.is_none() {
                 match attach(&root).await {
@@ -185,7 +186,18 @@ mod win {
                 }
             }
             if let Some(a) = &engine {
-                let (state, detail) = match register(a, &pipe, &secret).await {
+                // Independent lease: keep hosting even while the desktop owns credentials.
+                let host_status = register(a, &pipe, &secret, "host").await;
+                if last_host_status != Some(host_status) {
+                    match host_status {
+                        Ok(200) => note(&root, "holding the Codex host slot"),
+                        Ok(409) => note(&root, "standing by: another helper holds the Codex host slot"),
+                        Ok(_) => note(&root, "Codex host registration refused; will retry"),
+                        Err(_) => note(&root, "Codex host registration unavailable; will retry"),
+                    }
+                    last_host_status = Some(host_status);
+                }
+                let (state, detail) = match register(a, &pipe, &secret, "credentials").await {
                     Ok(200) => ("holding the bridge", String::new()),
                     Ok(409) => ("standing by: another broker holds the bridge", String::new()),
                     Ok(status) => ("the engine refused the registration; will re-attach", format!(" (HTTP {status})")),
@@ -259,8 +271,8 @@ mod win {
     }
 
     #[nolog]
-    async fn register(a: &Attached, pipe: &str, secret: &str) -> Result<u16, ()> {
-        let body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id(), "caps": ["spawn"]}).to_string();
+    async fn register(a: &Attached, pipe: &str, secret: &str, role: &str) -> Result<u16, ()> {
+        let body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id(), "caps": ["spawn"], "role": role}).to_string();
         http(a.port, "POST", "/api/desktop/credential-bridge", &a.token, Some(body)).await.map(|(s, _)| s)
     }
 
