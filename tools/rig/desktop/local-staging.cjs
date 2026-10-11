@@ -58,7 +58,7 @@ module.exports=async page=>{
   await page.screenshot('recovered-after-reload')
   await attach('.cmp-modal input[type=file]','closed-panel.bin')
   await page.waitFor('.cmp-modal .local-staging progress')
-  await page.click({selector:'.cmp-modal button',text:'cancel',exact:true})
+  await page.click({selector:'.cmp-modal button',text:'cancel',scroll:true})
   await page.waitFor('.cmp-modal',{gone:true})
   await page.click({selector:'button',text:'compose mail'})
   await page.click({selector:'button',text:'other address…'})
