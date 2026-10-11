@@ -421,11 +421,15 @@ impl Usage {
     /// Safe cache projection for an on-demand reader. Never fetches, reads
     /// credentials, or serializes the cached provider document unchanged.
     pub fn snapshot(&self, key: &str, now: DateTime<Utc>) -> Value {
+        self.snapshot_selected(key, now, &query::Selection::default())
+    }
+
+    pub fn snapshot_selected(&self, key: &str, now: DateTime<Utc>, selection: &query::Selection) -> Value {
         let pin = self.cache.pin();
         match pin.get(key) {
             Some(c) => {
                 let cached_at = now - chrono::Duration::from_std(c.at.elapsed()).unwrap_or_default();
-                query::reading(Some(&c.data), Some(cached_at), now)
+                query::reading_selected(Some(&c.data), Some(cached_at), now, selection)
             }
             None => query::reading(None, None, now),
         }
