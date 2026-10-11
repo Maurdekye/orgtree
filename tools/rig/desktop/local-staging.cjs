@@ -47,14 +47,31 @@ module.exports=async page=>{
   await page.click({selector:'button',text:'compose mail'})
   await page.click({selector:'button',text:'other address…'})
   await page.click('input[placeholder="@net:slug / @org:slug"]'); await page.type('@org:test')
-  await page.click({selector:'.saved-local-files > button',text:'Saved local files'})
-  await page.waitFor(()=>[...document.querySelectorAll('[data-saved-file]')].some(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file')))
+  await page.click({selector:'.cmp-modal .saved-local-files > button',text:'Saved local files'})
+  await page.waitFor(()=>[...document.querySelectorAll('.cmp-modal [data-saved-file]')].some(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file')))
   await page.eval(()=>{
-    const row=[...document.querySelectorAll('[data-saved-file]')].find(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file'))
+    const row=[...document.querySelectorAll('.cmp-modal [data-saved-file]')].find(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file'))
     row.querySelector('button').click()
   })
   await page.waitFor(()=>[...document.querySelectorAll('.badge.free')].some(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file')))
   await page.eval(()=>[...document.querySelectorAll('.badge.free')].find(x=>x.innerText.includes('compose.bin')).scrollIntoView({block:'nearest'}))
   await page.screenshot('recovered-after-reload')
-  return {replyBlocked,composeBlocked,retryCompleted:true,recoveredAfterReload:true}
+  await attach('.cmp-modal input[type=file]','closed-panel.bin')
+  await page.waitFor('.cmp-modal .local-staging progress')
+  await page.click({selector:'.cmp-modal button',text:'cancel',exact:true})
+  await page.waitFor('.cmp-modal',{gone:true})
+  await page.click({selector:'button',text:'compose mail'})
+  await page.click({selector:'button',text:'other address…'})
+  await page.click('input[placeholder="@net:slug / @org:slug"]'); await page.type('@org:test')
+  // Wait through the API for local completion; the closed composer's upload
+  // must keep going without any mounted component or draft callback.
+  await page.waitFor(async()=>{
+    const entry=performance.getEntriesByType('resource').find(x=>/\/org_inbox\/staging\?/.test(x.name))
+    if(!entry) return false
+    const data=await fetch(entry.name).then(r=>r.json())
+    return data.files.some(f=>f.name==='closed-panel.bin'&&f.state==='complete')
+  })
+  await page.click({selector:'.cmp-modal .saved-local-files > button',text:'Saved local files'})
+  await page.waitFor(()=>[...document.querySelectorAll('.cmp-modal [data-saved-file]')].some(x=>x.innerText.includes('closed-panel.bin')))
+  return {replyBlocked,composeBlocked,retryCompleted:true,recoveredAfterReload:true,closedPanel:true}
 }
