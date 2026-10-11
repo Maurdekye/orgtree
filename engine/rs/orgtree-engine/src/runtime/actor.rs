@@ -2837,10 +2837,12 @@ impl Actor {
         // Install completed rows and retire their partials in one renderer
         // update, before the next phase can appear. Never send raw tool input:
         // ConvoWriter retains exactly the sanitized, already-committed body.
-        let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "",
-            "convo_rows": self.convo.take_pending(),
-            "draft_clear": self.turn.as_ref().is_none_or(|t| t.draft.is_empty()),
-            "thinking_clear": kind != "thinking_start" && self.turn.as_ref().is_none_or(|t| t.thinking.is_empty()) });
+        let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "" });
+        if !matches!(kind, "delta" | "thinking") {
+            frame["convo_rows"] = json!(self.convo.take_pending());
+            frame["draft_clear"] = json!(self.turn.as_ref().is_none_or(|t| t.draft.is_empty()));
+            frame["thinking_clear"] = json!(kind != "thinking_start" && self.turn.as_ref().is_none_or(|t| t.thinking.is_empty()));
+        }
         if let (Some(f), Some(e)) = (frame.as_object_mut(), extra.as_object()) {
             for (k, v) in e {
                 f.insert(k.clone(), v.clone());
@@ -3617,7 +3619,9 @@ impl Actor {
                         let cur = row["text"].as_str().unwrap_or("").to_string();
                         let add = block["text"].as_str().unwrap_or("");
                         row["text"] = json!(if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") });
-                        convo::append_display_block(&mut row, json!({"kind":"text", "text":add}));
+                        // UTF-16 offsets match JavaScript String.slice, including non-BMP text.
+                        let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
+                        convo::append_display_block(&mut row, json!({"kind":"text", "start":start, "end":start + add.encode_utf16().count()}));
                         turn.draft.clear();
                         wrote_text = true;
                     }
@@ -3633,7 +3637,8 @@ impl Actor {
                         let room = 20_000usize.saturating_sub(cur.chars().count() + if cur.is_empty() { 0 } else { 2 });
                         let shown = convo::clip(add, room).0;
                         if !shown.is_empty() || add.is_empty() {
-                            convo::append_display_block(&mut row, json!({"kind":"thinking", "text":shown, "sealed":add.is_empty()}));
+                            let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
+                            convo::append_display_block(&mut row, json!({"kind":"thinking", "start":start, "end":start + shown.encode_utf16().count(), "sealed":add.is_empty()}));
                         }
                         turn.thinking.clear();
                         wrote_thought = true;
