@@ -21,7 +21,10 @@ impl Startup {
             let parent = cfg.parent_pid.and_then(core_process::identity);
             let old = core_state::read(&cfg.data_root);
             let mut sessions = core_process::Sessions::new();
-            let active = sessions.as_mut().and_then(|s| s.read()).unwrap_or_default();
+            // An unreadable session query is not a fresh logon and cannot
+            // discard a stopped generation's automatic-restart suppression.
+            let active = sessions.as_mut().and_then(|s| s.read())
+                .unwrap_or_else(|| old.as_ref().map(|s| s.sessions.clone()).unwrap_or_default());
             if core_state::blocked(&cfg.data_root, &active) { anyhow::bail!("core session is stopped"); }
             let mut state = core_state::Snapshot { generation: out.generation.clone(), engine: identity,
                 host: if boot { parent.clone() } else { None }, desktop: if boot { None } else { parent },

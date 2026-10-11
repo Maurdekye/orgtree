@@ -78,7 +78,7 @@ impl Cluster {
                 );
             }
             progress("database-init");
-            initdb(&bin, &cluster_dir, &data_dir, &creds_file).await?;
+            initdb(&bin, &cluster_dir, &data_dir, &creds_file, cancelled).await?;
         }
         let password = read_password(&creds_file)?;
         let port = pick_pg_port(&cluster_dir);
@@ -340,7 +340,7 @@ fn is_postgres(_pid: u32) -> bool {
 }
 
 #[logged]
-async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Path) -> Result<()> {
+async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Path, cancelled: &tokio_util::sync::CancellationToken) -> Result<()> {
     use rand::RngCore;
     let secrets = cluster_dir.join("secrets");
     std::fs::create_dir_all(&secrets)?;
@@ -367,10 +367,16 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
         .args(["-A", "scram-sha-256", "-E", "UTF8", "--locale=C", "--no-instructions"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     winproc::no_window(&mut cmd);
-    let out = cmd.output().await.context("could not run initdb")?;
+    let out = tokio::select! {
+        biased;
+        _ = cancelled.cancelled() => Err(anyhow!("core process exited during database initialization")),
+        result = cmd.output() => result.context("could not run initdb"),
+    };
     std::fs::remove_file(&pwfile).ok();
+    let out = out?;
     if !out.status.success() {
         bail!("initdb failed: {}", String::from_utf8_lossy(&out.stderr));
     }

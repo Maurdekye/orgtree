@@ -91,7 +91,9 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                 let stopped = core_state::stopped(root, &state);
                 let accepted = match &cmd {
                     Command::Member { desktop, who, .. } => {
-                        let replacement = *desktop && state.installing && core_state::transition(&state);
+                        let previous = if *desktop { &state.desktop } else { &state.helper };
+                        let replacement = state.installing && core_state::transition(&state)
+                            && (*desktop || previous.as_ref().is_some_and(|p| core_process::life(p) == Life::Gone));
                         let member = if *desktop { &mut state.desktop } else { &mut state.helper };
                         if !stopped && (replacement || member.as_ref().is_none_or(|old| old == who)) {
                             *member = Some(who.clone()); true

@@ -3,8 +3,8 @@
 //! A process probe is tri-state: access/probe failures are not evidence of death.
 //! The owner supplies monotonic elapsed milliseconds and authenticated transitions.
 
-/// Startup allowance after the operator signs in (implementation value, not a
-/// user-specified deadline). Matches the existing boot readiness silence budget.
+/// Missing-member allowance once control is ready and the operator is signed in
+/// (implementation value, not a user-specified sign-in deadline).
 pub const STARTUP_GRACE_MS: u64 = 120_000;
 /// An explicitly requested replacement must finish; it cannot disable monitoring
 /// permanently. The desktop's installer path may need to stop a busy engine.
