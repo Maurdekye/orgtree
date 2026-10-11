@@ -217,11 +217,31 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
     }
 }
 
+/// Aligned route columns keep org, hub and address together. Filter before
+/// SQL's limit so a disconnected backlog cannot hide an eligible transfer.
+#[logged]
+pub(super) fn eligible(e: &Engine, parts: &[Part], active: &HashSet<String>) -> (Vec<i64>, Vec<String>, Vec<String>) {
+    let mut orgs = Vec::new();
+    let mut hubs = Vec::new();
+    let mut addresses = Vec::new();
+    for part in parts {
+        for (hub, address) in &part.hubs {
+            if part.registered.contains(hub) && !active.contains(address) && !backed_off(e, address) {
+                orgs.push(part.org_id);
+                hubs.push(hub.clone());
+                addresses.push(address.clone());
+            }
+        }
+    }
+    (orgs, hubs, addresses)
+}
+
 #[logged]
 async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option<(Job, Part)>> {
     let parts = e.net.parts.load_full();
     let addresses: Vec<String> = active.iter().cloned().collect();
     let orgs: Vec<i64> = parts.iter().map(|p| p.org_id).collect();
+    let (eligible_orgs, eligible_hubs, eligible_addresses) = eligible(e, &parts, active);
     let mut c = e.db.get().await?;
     let tx = c.transaction().await?;
     // A result write can fail transiently after the worker exits. Reclaim
@@ -237,9 +257,10 @@ async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option<(Job, Part
             "SELECT t.id,t.org_id,t.inbox_id,t.hub,t.address,t.source,t.total,t.session_id,t.sha256,t.attempt
         FROM ot.net_transfers t JOIN ot.org_inbox i ON i.id=t.inbox_id
         WHERE t.state IN ('queued','retry_wait') AND t.next_at<=now() AND i.state='queued'
-          AND NOT(t.address=ANY($1)) AND t.org_id=ANY($2)
-        ORDER BY t.next_at,t.updated_at,t.id LIMIT 50 FOR UPDATE OF t SKIP LOCKED",
-            &[&addresses, &orgs],
+          AND EXISTS(SELECT 1 FROM unnest($1::bigint[],$2::text[],$3::text[]) AS route(org,hub,address)
+            WHERE route.org=t.org_id AND route.hub=t.hub AND route.address=t.address)
+        ORDER BY t.next_at,t.updated_at,t.id LIMIT 1 FOR UPDATE OF t SKIP LOCKED",
+            &[&eligible_orgs, &eligible_hubs, &eligible_addresses],
         )
         .await?;
     for r in rows {
@@ -261,9 +282,6 @@ async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option<(Job, Part
         else {
             continue;
         };
-        if backed_off(e, &job.address) {
-            continue;
-        }
         tx.execute("UPDATE ot.net_transfers SET state='preparing',attempt=attempt+1,error=NULL,updated_at=now() WHERE id=$1", &[&job.id]).await?;
         tx.commit().await?;
         return Ok(Some((job, part.clone())));

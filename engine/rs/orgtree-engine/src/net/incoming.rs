@@ -67,6 +67,7 @@ pub(super) async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option
     let parts = e.net.parts.load_full();
     let addresses: Vec<String> = active.iter().cloned().collect();
     let orgs: Vec<i64> = parts.iter().map(|p| p.org_id).collect();
+    let (eligible_orgs, eligible_hubs, eligible_addresses) = transfers::eligible(e, &parts, active);
     let mut c = e.db.get().await?;
     let tx = c.transaction().await?;
     tx.execute(
@@ -74,7 +75,7 @@ pub(super) async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option
         &[&addresses, &orgs],
     )
     .await?;
-    let rows = tx.query("SELECT n.id,n.org_id,n.hub,n.address,n.envelope,n.attempt FROM ot.net_incoming n WHERE n.state IN ('queued','retry_wait') AND n.next_at<=now() AND NOT(n.address=ANY($1)) AND n.org_id=ANY($2) AND NOT EXISTS(SELECT 1 FROM ot.net_incoming older WHERE older.org_id=n.org_id AND older.hub=n.hub AND older.envelope->>'from'=n.envelope->>'from' AND older.state<>'complete' AND (older.created_at,older.id)<(n.created_at,n.id)) ORDER BY n.next_at,n.created_at LIMIT 50 FOR UPDATE OF n SKIP LOCKED",&[&addresses,&orgs]).await?;
+    let rows = tx.query("SELECT n.id,n.org_id,n.hub,n.address,n.envelope,n.attempt FROM ot.net_incoming n WHERE n.state IN ('queued','retry_wait') AND n.next_at<=now() AND EXISTS(SELECT 1 FROM unnest($1::bigint[],$2::text[],$3::text[]) AS route(org,hub,address) WHERE route.org=n.org_id AND route.hub=n.hub AND route.address=n.address) AND NOT EXISTS(SELECT 1 FROM ot.net_incoming older WHERE older.org_id=n.org_id AND older.hub=n.hub AND older.envelope->>'from'=n.envelope->>'from' AND older.state<>'complete' AND (older.created_at,older.id)<(n.created_at,n.id)) ORDER BY n.next_at,n.created_at LIMIT 1 FOR UPDATE OF n SKIP LOCKED",&[&eligible_orgs,&eligible_hubs,&eligible_addresses]).await?;
     for r in rows {
         let job = Job { id: r.get(0), org: r.get(1), hub: r.get(2), address: r.get(3), envelope: r.get(4), attempt: r.get(5) };
         let Some(part) = parts
@@ -83,9 +84,6 @@ pub(super) async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option
         else {
             continue;
         };
-        if backed_off(e, &job.address) {
-            continue;
-        }
         tx.execute("UPDATE ot.net_incoming SET state='downloading',attempt=attempt+1,error=NULL,updated_at=now() WHERE id=$1", &[&job.id]).await?;
         tx.commit().await?;
         return Ok(Some((job, part.clone())));
