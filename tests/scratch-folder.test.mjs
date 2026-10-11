@@ -14,6 +14,31 @@ await build({ entryPoints: ['apps/desktop/main/scratch-folder.ts'], outfile: bun
 const { openAgentScratchFolder } = createRequire(import.meta.url)(bundle)
 test.after(() => fs.rm(temp, { recursive: true, force: true }))
 
+test('production IPC registration restricts folder opening to the caller organization', async () => {
+  const source = await fs.readFile('apps/desktop/main/index.ts', 'utf8')
+  const start = source.indexOf("    handle('desktop:open-agent-scratch-folder'")
+  assert.ok(start >= 0)
+  const end = source.indexOf("    handleApp('desktop:open-charter-folder'", start)
+  assert.ok(end > start)
+  const calls = []
+  const engine = { origin: 'http://127.0.0.1:1234', token: 'fixture' }
+  let callback
+  const options = { dataRoot: temp }
+  const register = new Function('handle', 'engineRestartOptions', 'windows', 'engine', 'shell', 'openAgentScratchFolder', source.slice(start, end))
+  register((channel, fn) => { assert.equal(channel, 'desktop:open-agent-scratch-folder'); callback = fn },
+    options, { identity: id => id === 'mine-window' ? { org: 'mine' } : { kind: 'homepage' } }, engine,
+    { openPath: async directory => { calls.push(['shell', directory]); return '' } },
+    async (current, org, node, opener) => { calls.push([current, org, node]); await opener(temp); return { ok: true } })
+  assert.equal(callback({ id: 'mine-window' }, 'other', 'alice').ok, false)
+  assert.equal(callback({ id: 'home-window' }, 'mine', 'alice').ok, false)
+  assert.deepEqual(calls, [])
+  assert.deepEqual(await callback({ id: 'mine-window' }, 'mine', 'alice'), { ok: true })
+  assert.deepEqual(calls, [[engine, 'mine', 'alice'], ['shell', temp]])
+  options.dataRoot = ''
+  assert.equal(callback({ id: 'mine-window' }, 'mine', 'alice').ok, false)
+  assert.equal(calls.length, 2)
+})
+
 test('identity lookup authenticates, opens only an existing directory, and reports native errors', async () => {
   const directory = path.join(temp, 'stored folder & literal $name')
   await fs.mkdir(directory)
