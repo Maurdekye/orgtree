@@ -36,6 +36,7 @@ impl Startup {
             }
             core_state::write(&cfg.data_root, &state)?;
             let root = cfg.data_root.clone(); let cancel = out.cancelled.clone();
+            let parent_pid = cfg.parent_pid;
             out.watcher = Some(tokio::spawn(async move {
                 let mut gone_since = None;
                 loop {
@@ -43,12 +44,23 @@ impl Startup {
                     let Some(active) = core_state::sessions(&root, &mut sessions) else { continue };
                     if active != state.sessions {
                         state.sessions = active.clone();
+                        // A real logoff/logon boundary must not carry dead
+                        // interactive identities into the next startup epoch.
+                        state.desktop = if boot { None } else { parent_pid.and_then(core_process::identity) };
+                        state.helper = None;
+                        state.transition_until = 0;
+                        state.transition_desktop = None;
+                        state.installing = false;
                         let _ = core_state::write(&root, &state);
                     }
                     if active.is_empty() { gone_since = None; continue; }
                     let gone = [&state.host, &state.desktop, &state.helper].into_iter().flatten()
                         .any(|who| core_process::life(who) == Life::Gone);
                     if core_state::stopped(&root, &state) {
+                        cancel.cancel(); break;
+                    }
+                    if state.transition_until != 0 && !core_state::transition(&state) {
+                        let _ = core_state::stop(&root, &state, "intentional transition expired before readiness");
                         cancel.cancel(); break;
                     }
                     if gone && !core_state::transition(&state) {
