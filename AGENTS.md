@@ -15,6 +15,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- The bundled mail hub is pinned to released **2.1.1** (`2c22e3d`), fixing
+  resumable-upload recovery without changing schema 9 or adding API routes.
+  Packaging must record and verify this exact submodule revision; advancing the
+  remote alone never updates an installer. See [hub 2.1.1 adoption](docs/rust-engine/mailhub-211-pin.md).
+  [verified: upstream v2.1.1 tag, transfers delta and package pin guard, 2026-10-11]
 
 - Agent settings calls the built-in harness permissions **Native Tools**, explains
   their Claude Code/Codex/Antigravity origin, and gives every native toggle a
