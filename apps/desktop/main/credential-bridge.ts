@@ -128,6 +128,23 @@ export class CredentialBridge {
     } catch { /* next existing desktop poll retries; the engine lease expires */ }
     finally {this.ticking=false}
   }
+  /** Separate from the credential lease: a standing-by desktop is still a
+   * required core member. The same pipe/SID/process proof authenticates it. */
+  async core(origin: string, token: string, action: 'desktop' | 'transition' | 'install' | 'complete' = 'desktop'): Promise<boolean> {
+    if (process.platform !== 'win32') return false
+    if (!origin || !token) throw new Error('The engine is not available for this operation.')
+    const url = new URL(origin)
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') throw new Error('Invalid engine address')
+    await this.start()
+    const response = await fetch(origin + '/api/desktop/credential-bridge', {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(7000),
+      headers: {[TOKEN_HEADER]: token, 'Content-Type': 'application/json'},
+      body: JSON.stringify({pipe: this.pipe, secret: this.secret, pid: process.pid, core: action}),
+    })
+    if (!response.ok) throw new Error('The engine could not confirm the application lifecycle operation.')
+    const result = await response.json() as {stopped?: boolean}
+    return result.stopped === true
+  }
   /** Quitting: hand the bridge to the sign-in broker (orgtree-credential-broker)
    *  now instead of at its next poll. The engine releases only the holder:
    *  this pipe and secret. A 409 [held] from tick() means that broker holds it. */

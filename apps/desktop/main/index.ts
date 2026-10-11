@@ -1,4 +1,5 @@
 import { CredentialBridge } from './credential-bridge'
+import { CoreLifecycle } from './core-lifecycle'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
@@ -307,6 +308,13 @@ else {
   })
   const engine = new Engine()
   const credentialBridge = new CredentialBridge()
+  let coreLifecycle: CoreLifecycle | undefined
+  const stopCoreApplication = () => {
+    if (quitting || quitComplete) return
+    quitConfirmed = true
+    app.quit()
+  }
+  engine.on('core-fault', stopCoreApplication)
   // Native image readers and Windows shell integration cannot reliably read
   // files inside app.asar. Packaged runtime icons are unpacked by the build;
   // development keeps the source-tree path.
@@ -659,7 +667,11 @@ else {
   const restartEngine = async () => {
     const options = engineRestartOptions
     if (!options || engineRestartBlocked() || engine.restartInProgress) return
-    const attempt = engine.restart(options)
+    const attempt = (async () => {
+      await coreLifecycle?.transition()
+      await engine.restart(options)
+      await coreLifecycle?.complete()
+    })()
     refreshTrayEngine()   // in flight from here: the row says so and stops accepting clicks
     try { await attempt }
     catch (error) {
@@ -809,6 +821,7 @@ else {
     quitConfirmed = true
     updateLog.record('installer-upgrade-began')
     try {
+      await coreLifecycle?.transition(true)
       await bounded(saveWindowLayout(), UPDATE_DEADLINES.layoutMs)
       if (!await engine.stopGracefullyForInstaller(INSTALLER_UPGRADE_STOP_BUDGET_MS)) {
         updateLog.record('installer-upgrade-refused', 'the engine did not stop within its budget')
@@ -829,7 +842,10 @@ else {
       // helper reports it and offers Retry/Cancel; the app remains usable.
       updateLog.record('installer-upgrade-refused', error)
     } finally {
-      if (!quitComplete) installerUpgradeShutdown = false
+      if (!quitComplete) {
+        installerUpgradeShutdown = false
+        await coreLifecycle?.complete().catch(() => {})
+      }
     }
   }
   const quitAfterLastView = () => {
@@ -1136,9 +1152,11 @@ else {
     // no state disturbed — a maintenance request then lands in its designed
     // failure report, and the idle auto-path simply retries later — because
     // installing over a live engine is never acceptable.
+    await coreLifecycle?.transition(true)
     if (!engine.managed) { await engine.stopAttachedForUpdate(); updateLog.record('engine-stopped', 'attached boot engine confirmed stopped') }
     if (quitting) return
     quitting = true
+    coreLifecycle?.stop()
     // ⚠ NOT ASKED HERE. An update install and an installer upgrade are
     // shutdowns the user has already approved, and they are bounded end to
     // end precisely because a dialog in the middle of them is what wedges the
@@ -1608,6 +1626,7 @@ else {
       return
     }
     quitting = true
+    coreLifecycle?.stop()
     // ⚠ CAPTURED BEFORE ANYTHING IS TORN DOWN, and it latches: teardown
     // closes every window, and if those closes counted as the user closing
     // them the reopen set would be emptied and the next launch would restore
@@ -1971,6 +1990,11 @@ else {
       // The tray's restart entry restarts THIS engine, with the runtime,
       // data root and UI directory it was started with - never a set of its own.
       engineRestartOptions = engineOptions
+      if (process.platform === 'win32' && engineOptions.binary) {
+        coreLifecycle = new CoreLifecycle(engineOptions.binary, engineOptions.dataRoot, credentialBridge,
+          () => ({origin: engine.origin, token: engine.token}), stopCoreApplication)
+        await coreLifecycle.begin()
+      }
       if (app.isPackaged && !engineOptions.binary) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)
       // A boot-host engine (operator's scheduled task) publishes a verified
       // attach descriptor; adopt it instead of racing it for the root lock.
@@ -2022,6 +2046,7 @@ else {
           }
         }
       }
+      if (coreLifecycle) { await coreLifecycle.complete(); coreLifecycle.start() }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       // The preload origin is fixed per window; session signing reads LIVE
       // engine values so a recovered attachment's new token keeps working.
@@ -2054,11 +2079,13 @@ else {
             // Graceful and authenticated, with proof of exit - the stop an
             // update uses - so PostgreSQL shuts down cleanly. Then the task,
             // which the operator may start without elevation.
+            await coreLifecycle?.transition()
             await engine.stopAttachedForUpdate()
             await startBootTask()
             if (!await engine.reattachBackground(engineOptions, 120000)) {
               throw new Error('The background engine was restarted, but Orgtree has not reconnected to it yet. It keeps trying.')
             }
+            await coreLifecycle?.complete()
             if (engine.origin === initialOrigin) {
               for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
             }
@@ -2414,7 +2441,7 @@ else {
         void credentialBridge.tick(engine.origin, engine.token)
         stats = await engine.stats(); rebuildTray()
         void updater.tick().catch(() => {})
-        if (stats === null && !engine.managed && !backgroundEngineRestart) {
+        if (stats === null && !engine.managed && !backgroundEngineRestart && !coreLifecycle) {
           await engine.verifyAttached()
           if (!engine.managed && engine.status.state === 'stopped' && !quitting) {
             const outcome = await engine.recoverAttached(engineOptions)

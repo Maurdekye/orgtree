@@ -305,6 +305,7 @@ export class Engine extends EventEmitter {
     const env = { ...process.env, ...(binary ? {} : postgresRuntimeEnvironment(options.directory, options.packagedPostgres)),
       ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
       ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
+    if (binary && process.platform === 'win32') Object.assign(env, {ORGTREE_CORE_MODE: 'managed'})
     // Never inherit a v1 backend port or root selector.
     delete env['ORGTREE_PORT' as keyof typeof env]
     // Fresh bootstrap is an installed-app capability, never inherited from a
@@ -872,6 +873,13 @@ export class Engine extends EventEmitter {
     watch.record(await this.probeAlive(child.pid ?? -1, root))
     if (this.liveness?.child !== child || !watch.hung()) return
     if (this.stopping || this.restarting || !this.managed || this.child !== child || !this.hungRestartAllowed()) return
+    if (process.platform === 'win32' && this.lastOptions?.binary) {
+      // Signed-in Windows core faults stop the application; the existing Quit
+      // path drains providers before its bounded fallback. Do not auto-revive.
+      this.stopLiveness()
+      this.emit('core-fault')
+      return
+    }
     const attempt = this.endHungEngine(child, root, watch)
     this.restarting = attempt
     try { await attempt } catch { /* the engine's status carries the reason */ } finally { this.restarting = undefined }
