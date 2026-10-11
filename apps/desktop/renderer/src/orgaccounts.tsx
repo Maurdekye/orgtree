@@ -7,6 +7,7 @@
 // list. Saves at once, like Autonomy: a refusal is instant feedback.
 import { useCallback, useEffect, useState } from 'react'
 import { getOrgAccounts, saveSettings } from './api'
+import { useAppValue } from './appfeed'
 import type { OrgAccountLane } from './types'
 import { SetToggle } from './canvas/settingskit'
 
@@ -18,16 +19,19 @@ const PROVIDERS: [string, string][] = [
 ]
 
 export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }) {
+  const providers = useAppValue('providers')
   const [lanes, setLanes] = useState<OrgAccountLane[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const load = useCallback(() => getOrgAccounts(slug)
     .then((r) => { setLanes(r.accounts); setError(null) })
     .catch((e: Error) => setError(e.message)), [slug])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, providers])
 
   const set = (id: string, allowed: boolean) => {
-    if (!lanes) return
+    if (!lanes || busy) return
+    const lane = lanes.find(l => l.id === id)
+    if (!lane || (allowed && lane.enabled === false)) return
     const next = lanes.map((l) => (l.id === id ? { ...l, allowed } : l))
     setBusy(true)
     saveSettings(slug, { disabled_accounts: next.filter((l) => !l.allowed).map((l) => l.id) })
@@ -47,7 +51,9 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
         This org's agents only ever run on the ticked accounts: hires, account changes, the automatic account
         fallback and the balancing never pick an unticked one. An agent already on an account you untick finishes its
         turn, then moves to another ticked account of the same provider, or stops and says so when none is left. A
-        newly signed-in account starts ticked.
+        newly signed-in account starts ticked. These switches only control this org's access;
+        they cannot turn on an account or server disabled in App settings. Language-server agents
+        keep their server rather than moving to a different one.
       </div>
       {PROVIDERS.map(([p, name]) => {
         const group = lanes.filter((l) => l.provider === p)
@@ -56,8 +62,13 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
           <div key={p} className="org-accounts-group">
             <div className="field-label">{name}</div>
             {group.map((l) => (
-              <SetToggle key={l.id} label={l.label} checked={l.allowed} disabled={busy}
-                hint={l.label === l.id ? undefined : l.id}
+              <SetToggle key={l.id} label={l.label} checked={l.allowed}
+                disabled={busy || (!l.allowed && l.enabled === false)}
+                hint={<>{l.label === l.id ? null : l.id}
+                  {l.enabled === false && <>{l.label === l.id ? '' : ' · '}
+                    {l.disabled_reason || 'turned off in App settings › Providers'}.
+                    {' '}Enable it in Providers before allowing it here.</>}
+                </>}
                 onChange={(next) => set(l.id, next)} />
             ))}
           </div>

@@ -680,6 +680,12 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
           </div>
         </div>
       </div>
+      <div className="ls-server-toggle">
+        <SetToggle label={`Use ${s.label}`} checked={s.enabled} disabled={busy}
+          hint="For all orgs. Off: no new hires; existing agents wait for this server to be enabled again."
+          onChange={(enabled) => { void run(updateLangServer(s.id, { enabled }),
+            `${s.label} ${enabled ? 'enabled' : 'disabled'}`, (v) => v.doc) }} />
+      </div>
       {!draft && (
         <ToggleChips busy={busy} label={`${s.label} models`} className="ls-toggles"
           chips={chipIds.map((id) => {

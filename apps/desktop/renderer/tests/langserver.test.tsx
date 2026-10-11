@@ -57,10 +57,12 @@ function server(ids: string[] = [LATEST, V64]): LangServer {
 }
 
 /** a scripted engine: the server lists `list` (302 models by default), or does not answer */
-function stubFetch(seen: Seen[], opts: { list?: LangServerProbeModel[], down?: boolean, offered?: string[] } = {}) {
+function stubFetch(seen: Seen[], opts: { list?: LangServerProbeModel[], down?: boolean, offered?: string[], second?: boolean, keySet?: boolean } = {}) {
   const s = server(opts.offered)
+  s.key_set = opts.keySet ?? false
+  const other = { ...server(), id: 'other', label: 'Other server' }
   const doc = (): LangServerDoc => ({
-    servers: [s],
+    servers: opts.second ? [s, other] : [s],
     presets: [{ id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', claude: true, codex: true,
       harnesses: [{ id: 'claude-code', label: 'Claude Code', available: true, why: '' }],
       note: 'Ollama 0.14 or later serves both harnesses.' }] as unknown as LangServerDoc['presets'],
@@ -142,7 +144,8 @@ test('§1 a server is one read-only line: name · preset · harness · address, 
     const digest = [...row.querySelectorAll('.acct-provenance span')].map((x) => x.textContent)
     assert.deepEqual(digest.slice(0, 5), ['on', '1 at once', '2 models', 'key: none', 'seat 1'])
     assert.ok(digest.includes('answering · version 0.40.2 · 302 models on the server'), digest.join(' | '))
-    assert.equal(card.querySelectorAll('input, select, textarea').length, 0, 'nothing is editable before ✎')
+    assert.equal(card.querySelectorAll('input:not([type="checkbox"]), select, textarea').length, 0,
+      'configuration stays in the dialog; only the direct server switch is editable')
     const chips = [...card.querySelectorAll('.ls-toggles .orr-tog')]
     assert.deepEqual(chips.map((c) => c.querySelector('.orr-card')?.textContent), ['Q', 'Q'], 'letters from the models')
     assert.deepEqual(chips.map((c) => c.querySelector('.orr-sel-name')?.textContent), [LATEST, V64])
@@ -445,5 +448,31 @@ test('save lifecycle: a pending save cannot be dismissed; a rejected save keeps 
     await inAct(async () => { rejectSave!(new Error('synthetic save failure')); await flush(8) })
     assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!.value, '7')
     assert.ok(toasts.flat().some(t => t.includes('synthetic save failure')))
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+
+test('direct server switch changes only that server enabled flag and preserves configuration', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { second: true, keySet: true })
+  const view = await mountSection([])
+  try {
+    const toggle = () => view.el.querySelector<HTMLInputElement>('input[aria-label="Use Ollama"]')!
+    const other = () => view.el.querySelector<HTMLInputElement>('input[aria-label="Use Other server"]')!
+    assert.equal(toggle().checked, true)
+    await click(toggle())
+    assert.equal(toggle().checked, false)
+    assert.equal(other().checked, true)
+    assert.equal(document.querySelector('.provider-dialog'), null, 'direct switch needs no configuration dialog')
+    assert.ok(view.el.querySelector('.ls-server .ls-digest')!.textContent?.includes('key: set'))
+    assert.ok(view.el.textContent?.includes(LATEST), 'offered model configuration retained')
+    await click(toggle())
+    assert.equal(toggle().checked, true)
+    assert.equal(other().checked, true)
+    assert.deepEqual(seen.filter(r => r.method === 'PATCH').map(r => ({ path: r.path, body: r.body })), [
+      { path: '/api/langservers/ollama', body: { enabled: false } },
+      { path: '/api/langservers/ollama', body: { enabled: true } },
+    ])
+    assert.equal(seen.filter(r => r.method === 'DELETE' || r.path.endsWith('/key')).length, 0)
   } finally { await view.unmount(); delete g.fetch }
 })

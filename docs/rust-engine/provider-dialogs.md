@@ -24,6 +24,36 @@ clears an unsent secret without writing. Favorites and the Runtime harness choic
 are untouched. The concurrent multi-key ticket owns additive account APIs and can
 reuse this shell; this change does not implement that separate feature.
 
+## Individual availability (2026-10-11)
+
+Each saved language server also has a direct **Use [server]** switch in Providers.
+It calls the existing server PATCH with only `enabled`; disabling and re-enabling
+preserve its URL, secret, models and other configuration. This is app-wide. The
+existing provider-wide switch remains authoritative, and the configure dialog
+retains the same server setting. Existing engine placement/turn rules are unchanged.
+
+Org Settings > Accounts controls each `langserver:<id>` lane's org-local `allowed`
+preference through the existing disabled-accounts setting. The account-list response
+adds optional `enabled` and `disabled_reason` fields for effective app-wide
+availability (engine changes owned by the multiple-OpenRouter-keys ticket).
+An app-disabled lane cannot be newly allowed here. A previously allowed lane stays
+checked as the saved org preference, displays the global-disable reason, and can
+still be revoked. Restoring global availability does not undo an org's revocation.
+Older responses without those fields retain the prior controls. Provider feed
+changes refresh the lane list; a rejected save retains the previous checkbox value.
+
+These generic org controls cover OpenRouter keys as well. Their individual Providers
+controls and backend lane metadata belong to the separate multi-key implementation.
+
+Measured renderer follow-up: 15 language-server/org-account tests pass, including
+independent off/on, secret/model preservation, org-only writes, globally-off guards,
+legacy payloads and rejected saves. Typecheck passes. The synthetic visual fixture
+is `provider-toggle` (optional third argument to the visual command below): it checks
+five toggle states at two viewport sizes in dark/light (20/20 pass; desktop Providers
+and narrow light Org Settings screenshots inspected). It checks switch bounds and
+scroll reachability, not the pre-existing PinFrame header's negative-margin overflow.
+No installed-app or engine integration claim is made for the new lane metadata.
+
 ## Verification
 
 Measured on the renderer source with synthetic responses only:

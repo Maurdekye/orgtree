@@ -2829,4 +2829,8 @@ export interface OrgAccountLane {
   provider: string
   label: string
   allowed: boolean
+  /** App-wide availability; distinct from this org's saved access preference.
+   * Older engines omit it. An org cannot enable an app-disabled lane. */
+  enabled?: boolean
+  disabled_reason?: string | null
 }
