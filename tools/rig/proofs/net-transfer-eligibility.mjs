@@ -1,5 +1,8 @@
 // Real scheduler must see eligible work beyond disconnected route backlogs.
 import http from 'node:http'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { runDesktop } from '../desktop.mjs'
 import { Proof } from '../proof.mjs'
 export async function setup() {
   return {fixture:{org:{name:'Transfer eligibility'},agents:[{name:'rhea',tier:'luna',grant:4}],
@@ -52,6 +55,34 @@ export default async function(rig) {
     proof.check('download progresses beyond disconnected backlog',rig.one("SELECT state FROM ot.net_incoming WHERE net_id='eligible'").state==='complete' && downloads===1)
     proof.check('hub and address must match the same registered route',rig.one("SELECT count(*)::int AS n FROM ot.net_transfers WHERE id LIKE 'offline-out-%' AND attempt<>0").n===0 &&
       rig.one("SELECT count(*)::int AS n FROM ot.net_incoming WHERE id LIKE 'offline-in-%' AND attempt<>0").n===0)
+    rig.exec(`INSERT INTO ot.net_transfers(id,org_id,inbox_id,file_no,hub,address,source,total,state,created_at)
+      SELECT 'history-'||n,t.org_id,t.inbox_id,1000+n,t.hub,t.address,t.source,t.total,'complete',now()+interval '1 second'
+      FROM ot.net_transfers t CROSS JOIN generate_series(1,300) n WHERE t.id='${out.id}'`)
+    let cursor=null,seen=new Set(),pages=0,first
+    do {
+      const data=await rig.api('GET',`/api/orgs/${rig.org}/transfers${cursor?'?cursor='+encodeURIComponent(cursor):''}`)
+      if(!first) first=data
+      for(const row of data.transfers) {if(seen.has(row.id)) throw Error('duplicate paged transfer');seen.add(row.id)}
+      if(data.transfers.length>100) throw Error('unbounded page')
+      cursor=data.next_cursor;pages++
+      if(pages>10) throw Error('pagination did not end')
+    } while(cursor)
+    proof.check('unfinished work stays visible before 300 newer completed transfers',first.transfers.length===100 && first.transfers.every(t=>t.state==='queued'))
+    proof.check('bounded keyset pages reach every upload and download',seen.size===542 && pages===6,{total:seen.size,pages})
+    let agentCursor=null,agentRows=[]
+    do {
+      const result=await rig.tool('rhea','orgtree_transfers',{action:'list',...(agentCursor?{cursor:agentCursor}:{})})
+      if(!result.ok) throw Error(result.text)
+      agentRows.push(...result.json.transfers);agentCursor=result.json.next_cursor
+    } while(agentCursor)
+    proof.check('agent cursor preserves ownership on every page',agentRows.length===121 && agentRows.every(t=>t.direction==='download'))
+    let invalid=false
+    try {await rig.api('GET',`/api/orgs/${rig.org}/transfers?cursor=invalid`)} catch(e) {invalid=e.status===400}
+    proof.check('malformed cursor is a user error',invalid)
+    const ui=await runDesktop(rig,path.join(path.dirname(fileURLToPath(import.meta.url)),'../desktop/net-transfer-pages.cjs'),
+      {out:path.join(proof.dir,'desktop'),timeout:60000})
+    proof.file('desktop-result.json',ui)
+    proof.check('desktop can page forward and return to unfinished work',ui.ok,ui.error ?? ui.value)
     proof.keep(rig,{grep:/transfer|incoming|claim/})
     return proof.summary()
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve))}
