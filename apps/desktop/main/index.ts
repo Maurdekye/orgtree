@@ -676,8 +676,13 @@ else {
       : image)
     for (const window of BrowserWindow.getAllWindows()) applyWindowIcon(window, image)
     if (!tray) return
-    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     const prefs = preferences.get()
+    // UAC can finish after another tray refresh has built a menu from the
+    // old preference. Keep that SAME menu accurate even while it is open;
+    // replacing an open native menu is deliberately avoided below.
+    const startup = trayMenu?.getMenuItemById('run-on-startup')
+    if (startup) startup.checked = prefs.startAtLogin
+    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     tray.setToolTip(`Orgtree - ${label()}` + (attentionTotal > 0 ? ` - ${attentionTotal} need${attentionTotal === 1 ? 's' : ''} your attention` : ''))
     // Without update support (dev-channel install, unpackaged development)
     // the four update rows would only mislead: their ids are absent, which
@@ -708,7 +713,7 @@ else {
         sendTo(record.id, { type: 'phone-panel', data: {} })
       })() } },
       { type: 'separator' },
-      { label: 'Run on startup', type: 'checkbox', checked: prefs.startAtLogin, click: item => {
+      { id: 'run-on-startup', label: 'Run on startup', type: 'checkbox', checked: prefs.startAtLogin, click: item => {
         void changeRunOnStartup(item.checked).catch((error: Error) => {
           rebuildTray()
           void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
@@ -736,7 +741,7 @@ else {
         click: () => { void restartEngine() } },
       { label: 'Quit Orgtree', click: () => app.quit() },
     ])
-    trayMenu.on('menu-will-show', () => { trayMenuOpen = true })
+    trayMenu.on('menu-will-show', () => { trayMenuOpen = true; rebuildTray() })
     trayMenu.on('menu-will-close', () => { trayMenuOpen = false })
     refreshTrayUpdates()
     refreshTrayEngine()
