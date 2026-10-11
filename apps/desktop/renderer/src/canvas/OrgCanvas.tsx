@@ -1,5 +1,6 @@
 import { QueuedModelBadge } from './nextturn'
 import { toggleAgentHalt } from './haltcontrol'
+import { withPendingOrder, type PendingOrder, type ReorderSlot } from './pendingorder'
 import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } from './draftfocus'
 import { useAppRead } from '../appfeed'
 import { adoptPinLayer, canvasBox, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
@@ -722,7 +723,34 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [tree])   // eslint-disable-line react-hooks/exhaustive-deps
   const pendingTargets = useMemo(
     () => new Map([...pendingMoves].map(([id, e]) => [id, e.to] as const)), [pendingMoves])
-  const shownTree = useMemo(() => withPendingMoves(tree, pendingTargets), [tree, pendingTargets])
+  // Sibling drags use a separate endpoint, but must feed the same layout and
+  // springs immediately. Like reparenting, only an answered operation can be
+  // retired by an agreeing read; an old response/timer cannot retire its Undo.
+  const [pendingOrders, setPendingOrders] = useState<ReadonlyMap<string, PendingOrder>>(() => new Map())
+  useEffect(() => { setPendingOrders(new Map()) }, [slug])
+  const dropPendingOrder = useCallback((id: string, entry: PendingOrder) => {
+    setPendingOrders(m => {
+      if (m.get(id) !== entry) return m
+      const next = new Map(m); next.delete(id); return next
+    })
+  }, [])
+  const settlePendingOrder = useCallback((id: string, entry: PendingOrder) => {
+    if (withPendingOrder(treeRef.current, entry) === treeRef.current) {
+      dropPendingOrder(id, entry); return
+    }
+    setPendingOrders(m => m.get(id) !== entry ? m
+      : new Map(m).set(id, Object.assign(entry, { settled: true })))
+    setTimeout(() => dropPendingOrder(id, entry), PENDING_MOVE_MS)
+  }, [dropPendingOrder])
+  useEffect(() => {
+    for (const [id, entry] of pendingOrders)
+      if (entry.settled && withPendingOrder(tree, entry) === tree) dropPendingOrder(id, entry)
+  }, [tree]) // eslint-disable-line react-hooks/exhaustive-deps
+  const shownTree = useMemo(() => {
+    let shown = withPendingMoves(tree, pendingTargets)
+    for (const entry of pendingOrders.values()) shown = withPendingOrder(shown, entry)
+    return shown
+  }, [tree, pendingTargets, pendingOrders])
   const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, draft)),
     [shownTree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
   // hide-retired (user resumed 2026-09-10 13:25): a DISPLAY prune of the
@@ -2775,6 +2803,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // and a refusal (already toasted by `op`) sends the card back
       const moveShown = (b: Parameters<OpFn>[0], to: string | null) => {
         const entry: PendingMove = { to, settled: false }
+        setPendingOrders(m => new Map([...m].filter(([, e]) => !e.block.includes(id))))
         setPendingMoves((m) => new Map(m).set(id, entry))
         return op(b).then(
           () => { settlePendingMove(id, entry) },
@@ -2814,11 +2843,25 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const req = chartLayout === 'circular' ? d.reorder?.request
       : beforeSib ? { before: beforeSib } : { after: sibs[sibs.length - 1] }
     if (!req) { finish(); return }
-    const chain = async (lead: { before?: string; after?: string }) => {
-      let prev: string | null = null
-      for (const m of block) {
-        await reorderNode(slug, m, prev ? { after: prev } : lead)
-        prev = m
+    const chain = async (lead: ReorderSlot) => {
+      const entry: PendingOrder = {
+        parent: parent == null || parent === USER ? null : parent,
+        block, slot: lead, settled: false,
+      }
+      setPendingOrders(m => {
+        const next = new Map([...m].filter(([, e]) => !e.block.some(k => members.has(k))))
+        next.set(id, entry); return next
+      })
+      try {
+        let prev: string | null = null
+        for (const member of block) {
+          await reorderNode(slug, member, prev ? { after: prev } : lead)
+          prev = member
+        }
+        settlePendingOrder(id, entry)
+      } catch (error) {
+        dropPendingOrder(id, entry)
+        throw error
       }
     }
     // №17: a successful accidental reorder used to be completely silent

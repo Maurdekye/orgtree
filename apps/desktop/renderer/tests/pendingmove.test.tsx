@@ -28,7 +28,8 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { resetConvos } from '../src/convo'
-import { NODE_H, NODE_W, setChartLayout, treeParents, withPendingMoves } from '../src/canvas/shared'
+import { NODE_H, NODE_W, USER, setChartLayout, treeParents, withPendingMoves } from '../src/canvas/shared'
+import { withPendingOrder } from '../src/canvas/pendingorder'
 import type { OpRequest } from '../src/canvas/shared'
 import type { TreeNode, TreePayload } from '../src/types'
 import { projectTree } from '../src/recordprojection'
@@ -154,7 +155,7 @@ const card = (el: HTMLElement, id: string) =>
   el.querySelector(`[data-first-use-agent="${id}"]`) as HTMLElement | null
 /** the card's world position (its translate) */
 function at(el: HTMLElement, id: string): { x: number; y: number } {
-  const c = card(el, id)
+  const c = id === USER ? el.querySelector<HTMLElement>('.sq.user') : card(el, id)
   assert.ok(c, `card ${id} rendered`)
   const [x, y] = nums(c!.style.transform)
   return { x: x!, y: y! }
@@ -383,4 +384,173 @@ test('sibling reorder previews its slot while the reorder request is unresolved'
   assert.ok(!near(was, want), 'fixture changes the slot')
   await advance(3000, 50)
   assertAt(at(m.el, 'x'), want, 'pending reorder must animate into the new slot')
+})
+
+// Independent authoritative fixtures carry the midpoint key returned by Rust;
+// the child subtree and the sibling with an unrelated change must survive.
+const reorderTree = (last = false, root = false) => {
+  const nodes = [
+    { ...mkNode('x', [mkNode('child')]) as TreeNode, ui_order: last ? 3 : 0 },
+    { ...mkNode('b') as TreeNode, ui_order: 1 },
+    { ...mkNode('c') as TreeNode, ui_order: 2 },
+  ]
+  if (last) nodes.push(nodes.shift()!)
+  return tree(root ? nodes : [mkNode('boss', nodes)])
+}
+
+function holdReorders() {
+  const fallback = globalThis.fetch
+  const calls: { body: unknown; yes: () => void; no: () => void }[] = []
+  globalThis.fetch = (url, init) => {
+    if (String(url).endsWith('/reorder')) return new Promise((resolve, reject) => {
+      calls.push({ body: JSON.parse(String(init?.body)),
+        yes: () => resolve(new Response('{}', { status: 200 })),
+        no: () => reject(new Error('reorder refused')) })
+    })
+    return fallback(url, init)
+  }
+  return calls
+}
+
+async function dragSibling(el: HTMLElement, id: string, anchor: string,
+  mode: 'row' | 'circular', side: 'before' | 'after' = 'after') {
+  const from = at(el, id), dest = at(el, anchor)
+  let endWorld = { x: dest.x + (side === 'after' ? NODE_W + 30 : -30), y: dest.y + NODE_H / 2 }
+  if (mode === 'circular') {
+    const eye = at(el, USER)
+    const angle = Math.atan2(dest.y - eye.y, eye.x - dest.x) + (side === 'after' ? 0.1 : -0.1)
+    const radius = Math.hypot(dest.x - eye.x, dest.y - eye.y) * 1.6
+    endWorld = { x: eye.x - radius * Math.cos(angle) + NODE_W / 2,
+      y: eye.y + radius * Math.sin(angle) + NODE_H / 2 }
+  }
+  const start = client(el, { x: from.x + NODE_W / 2, y: from.y + NODE_H / 2 })
+  const end = client(el, endWorld), source = card(el, id)!
+  for (const [type, point] of [['pointerdown', start], ['pointermove', end], ['pointerup', end]] as const)
+    await inAct(() => { source.dispatchEvent(new W.PointerEvent(type, {
+      bubbles: true, button: 0, pointerId: 1, ...point,
+    })) })
+  await flush(2)
+}
+
+for (const mode of ['row', 'circular'] as const) for (const success of [true, false])
+  test(`${mode}: pending sibling reorder ${success ? 'confirms without jumping' : 'rolls back on refusal'}`, async t => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    const initial = reorderTree(), confirmed = reorderTree(true)
+    const want = await settledAt(t, confirmed, 'x'), was = await settledAt(t, initial, 'x')
+    const child = await settledAt(t, confirmed, 'child')
+    const m = await mountCanvas(t, initial, async () => ({})), calls = holdReorders()
+    await dragSibling(m.el, 'x', 'c', mode)
+    assert.deepEqual(calls.map(c => c.body), [{ after: 'c' }])
+    await advance(3000, 50)
+    assertAt(at(m.el, 'x'), want, 'unanswered request already has the final placement')
+    assertAt(at(m.el, 'child'), child, 'subtree follows')
+    await inAct(() => (m.el.querySelector('.tray-toggle') as HTMLElement).click())
+    const list = () => [...m.el.querySelectorAll('.tray-row')].map(r => r.getAttribute('data-copy-agent-name'))
+    assert.deepEqual(list(), ['boss', 'b', 'c', 'x', 'child'])
+    // An agreeing pre-ack read must not drop the pending overlay: a subsequent
+    // older snapshot can still arrive while the route is unresolved.
+    await m.show(confirmed)
+    await m.show(initial)
+    await advance(1000, 50)
+    assertAt(at(m.el, 'x'), want, 'stale read cannot cancel an unanswered operation')
+    await inAct(() => { success ? calls[0]!.yes() : calls[0]!.no() })
+    if (success) {
+      await m.show(confirmed)
+      assertAt(at(m.el, 'x'), want, 'confirmation keeps the current spring position')
+      await advance(50, 10)
+      assertAt(at(m.el, 'x'), want, 'confirmation never starts a return spring')
+    }
+    await advance(1000, 50)
+    assertAt(at(m.el, 'x'), success ? want : was, 'route and authoritative tree reconcile')
+    assert.deepEqual(list(), success ? ['boss', 'b', 'c', 'x', 'child'] : ['boss', 'x', 'child', 'b', 'c'])
+    if (success) {
+      await m.show(initial)
+      await advance(1000, 50)
+      assertAt(at(m.el, 'x'), was, 'a later authoritative reorder wins after confirmation')
+    } else assert.ok(m.notices.some(n => n.lines[0]?.includes('reorder refused')))
+  })
+
+test('root reorder Undo previews at once and survives stale reads and the old fallback timer', async t => {
+  useFakeClock(); t.after(realClock)
+  const initial = reorderTree(false, true), confirmed = reorderTree(true, true)
+  const was = await settledAt(t, initial, 'x')
+  const m = await mountCanvas(t, initial, async () => ({})), calls = holdReorders()
+  await dragSibling(m.el, 'x', 'c', 'row')
+  await inAct(() => calls[0]!.yes())
+  await advance(100, 50)
+  const undo = m.notices.find(n => n.lines[0] === 'x reordered')?.undo
+  assert.ok(undo)
+  await inAct(() => { void undo() })
+  assert.deepEqual(calls[1]!.body, { before: 'b' })
+  await m.show(initial)
+  await m.show(confirmed)
+  await advance(6000, 50)
+  assertAt(at(m.el, 'x'), was, 'old success timer and stale reads cannot end pending Undo')
+  await inAct(() => calls[1]!.yes())
+  await m.show(initial)
+  await advance(1000, 50)
+  assertAt(at(m.el, 'x'), was, 'Undo confirmation does not jump')
+})
+
+test('older refusal cannot cancel a later sibling drag; latest refusal follows the actual tree', async t => {
+  useFakeClock(); t.after(realClock)
+  const initial = reorderTree(), confirmed = reorderTree(true)
+  const was = await settledAt(t, initial, 'x'), want = await settledAt(t, confirmed, 'x')
+  const m = await mountCanvas(t, initial, async () => ({})), calls = holdReorders()
+  await dragSibling(m.el, 'x', 'c', 'row')
+  await advance(2000, 50)
+  await dragSibling(m.el, 'x', 'b', 'row', 'before')
+  assert.deepEqual(calls.map(c => c.body), [{ after: 'c' }, { before: 'b' }])
+  await m.show(confirmed)
+  await inAct(() => calls[0]!.no())
+  await advance(2000, 50)
+  assertAt(at(m.el, 'x'), was, 'older failure leaves newer preview intact')
+  await inAct(() => calls[1]!.no())
+  await advance(2000, 50)
+  assertAt(at(m.el, 'x'), want, 'rollback uses current authoritative state')
+})
+
+test('reorder transform preserves unrelated branches and refuses vanished/moved anchors', () => {
+  const initial = reorderTree()
+  const entry = { parent: 'boss', block: ['x'], slot: { after: 'c' }, settled: false }
+  const snapshot = JSON.stringify(initial)
+  const preview = withPendingOrder(initial, entry)
+  assert.deepEqual(preview.roots[0]!.children.map(n => n.id), ['b', 'c', 'x'])
+  assert.equal(preview.roots[0]!.children[0], initial.roots[0]!.children[1])
+  assert.equal(preview.roots[0]!.children[2]!.children, initial.roots[0]!.children[0]!.children)
+  assert.equal(JSON.stringify(initial), snapshot)
+  assert.equal(withPendingOrder(initial, { ...entry, slot: { after: 'missing' } }), initial)
+  assert.equal(withPendingOrder(initial, { ...entry, parent: null }), initial)
+  assert.equal(withPendingOrder(initial, { ...entry, block: ['missing'] }), initial)
+  assert.equal(withPendingOrder(preview, entry), preview)
+})
+
+test('reorder midpoint retains archived interleaving and sequential block order', () => {
+  const node = (id: string, order: number, state = 'live') => ({
+    ...mkNode(id) as TreeNode, ui_order: order, state,
+  })
+  const initial = tree([node('x', -1), node('b', 0), node('retired', 0.5, 'archived'), node('c', 2)])
+  const entry = { parent: null, block: ['x'], slot: { after: 'b' }, settled: false }
+  const preview = withPendingOrder(initial, entry)
+  assert.deepEqual(preview.roots.map(n => n.id), ['b', 'retired', 'x', 'c'])
+  assert.equal(preview.roots[2]!.ui_order, 1, 'midpoint ignores archived neighbours, as Rust does')
+  const block = withPendingOrder(initial, { ...entry, block: ['x', 'b'], slot: { after: 'c' } })
+  assert.deepEqual(block.roots.map(n => n.id), ['retired', 'c', 'x', 'b'])
+  assert.deepEqual(block.roots.slice(2).map(n => n.ui_order), [3, 4])
+})
+
+test('successful reorder with no matching refresh expires; pending reorders do not', async t => {
+  useFakeClock(); t.after(realClock)
+  const initial = reorderTree(), confirmed = reorderTree(true)
+  const was = await settledAt(t, initial, 'x'), want = await settledAt(t, confirmed, 'x')
+  const m = await mountCanvas(t, initial, async () => ({})), calls = holdReorders()
+  await dragSibling(m.el, 'x', 'c', 'row')
+  await advance(6000, 50)
+  assertAt(at(m.el, 'x'), want, 'network latency cannot expire the preview')
+  await inAct(() => calls[0]!.yes())
+  await advance(1000, 50)
+  assertAt(at(m.el, 'x'), want, 'success retains preview until matching refresh or fallback')
+  await advance(6000, 50)
+  assertAt(at(m.el, 'x'), was, 'bounded fallback yields to the current authoritative tree')
 })
