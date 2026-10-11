@@ -42,6 +42,10 @@ Existing pre-readiness limits remain:
 An authenticated explicit restart or installer replacement has one 180-second
 transition allowance. Repeated calls cannot extend it. Ordinary retries cannot
 clear stopped-generation evidence. An expired transition stops the cohort.
+Desktop completion can precede replacement helper registration. Its completion
+request therefore remains pending within the original deadline until all required
+native identities are alive. Member registration can finish that pending request;
+completion cannot clear an expired allowance before the periodic observer runs.
 
 Windows tears down interactive processes slightly before WTS may report logoff.
 Known interactive process death therefore gets five seconds for session
@@ -87,12 +91,26 @@ edge refinements, which have their own targeted replacement proof.
 | `162508` | 13/13 | Restart and real transition deadline |
 | `163318` | 9/9 | Simulated sign-out, graceful hosted drain |
 | `163835` | 12/12 | Installer member replacement, pre-ready expiry |
+| `164856` | expected failure | Original binary, desktop completes before helper starts |
+| `165047` | 8/8 | Fixed desktop-first completion, delayed helper registration |
 
 Each run is under `rig/agy-astra/evidence/core-lifecycle-20261011T<suffix>`
 in the D: work area, with result JSON and preserved diagnostics. All four
 temporary profile-state copies were removed after exact resolved-path validation
 and checking that their processes were gone; their temporary interactive tasks
 were removed. No ACL was changed. Build locks were released.
+
+Independent review found that the initial installer proof waited for both members
+before completing, hiding production's asynchronous startup order. The new
+desktop-first case fails against the original binary and passes against the fix:
+completion stays pending beyond the five-second death grace, keeps the same
+deadline, and finishes when the delayed helper registers. Both additional
+temporary profile-state copies were checked and removed too. Native boundary
+tests cover completion at/past expiry and each required member already gone.
+After the review fix, workspace tests passed 88/88 (helper 3, engine 85),
+including all three new completion-boundary tests. The fixed native build
+passed in 35.33 seconds. Earlier desktop checks are unchanged by this engine-only
+fix; the revised production-order rig passed all eight checks.
 
 Limits: normal Windows logoff is simulated, not performed on the live session;
 the hosted child is a scripted Codex protocol fixture, not a model inference run.
