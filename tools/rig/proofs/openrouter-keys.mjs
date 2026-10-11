@@ -145,6 +145,9 @@ export default async function (rig) {
   const resumed = await rig.waitFor(() => rig.turns('keytwo').slice(before).some((t) => t.ended_at && !t.error) ? true : null,
     { what: 'keytwo to run once its key is on again', timeout: 60000 }).catch(() => false)
   p.check('switched on again, the waiting mail runs on it', resumed === true)
+  const l2on = ((await rig.api('GET', `/api/orgs/${rig.org}/accounts-allowed`)).accounts ?? []).find((l) => l.id === 'openrouter-2')
+  p.check('switched on again: the org lane reads enabled with no reason, still allowed', l2on?.enabled === true
+    && l2on?.disabled_reason == null && l2on?.allowed === true, l2on)
 
   // ---------------------------------------------------------------- per org
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: ['openrouter-2'] })
@@ -153,7 +156,11 @@ export default async function (rig) {
   lanes = (await rig.api('GET', `/api/orgs/${rig.org}/accounts-allowed`)).accounts ?? []
   p.check('the org list shows one tick per key', lanes.filter((l) => l.provider === 'openrouter').map((l) => l.id).join(',') === 'openrouter,openrouter-2',
     lanes.filter((l) => l.provider === 'openrouter'))
+  const revoked = lanes.find((l) => l.id === 'openrouter-2')
+  p.check('org-revoked: allowed=false while app-wide enabled stays true', revoked?.allowed === false && revoked?.enabled === true, revoked)
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: [] })
+  const restored = ((await rig.api('GET', `/api/orgs/${rig.org}/accounts-allowed`)).accounts ?? []).find((l) => l.id === 'openrouter-2')
+  p.check('org re-allowed: allowed=true and enabled=true again', restored?.allowed === true && restored?.enabled === true, restored)
 
   // ---------------------------------------------------------------- removal
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'turns to settle', timeout: 60000 })
