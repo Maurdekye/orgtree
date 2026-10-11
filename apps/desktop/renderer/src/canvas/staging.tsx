@@ -10,7 +10,9 @@ export function useStaging<T>(upload: (file: File, options: UploadOptions) => Pr
   const draft=useRef(crypto.randomUUID())
   const [rows,setRows]=useState<Pending[]>([])
   const refresh=()=>{ if(live.current) setRows([...pending.current.values()]) }
-  useEffect(()=>{ live.current=true; return()=>{ live.current=false; for(const p of pending.current.values()) p.stop.abort() } },[])
+  // Closing a panel leaves the local request running; its durable ticket can
+  // be recovered later. Only explicit Cancel/Remove aborts the upload.
+  useEffect(()=>{ live.current=true; return()=>{ live.current=false } },[])
   const run=(p:Pending)=>{
     const stop=p.stop
     void upload(p.file,{draft:draft.current,signal:stop.signal,progress:value=>{
