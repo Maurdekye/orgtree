@@ -899,11 +899,12 @@ export function savePopups(
   return r?.warnings ?? []
 }
 
-type NodeConfigTab = 'charter' | 'model' | 'scope'
+type NodeConfigTab = 'charter' | 'model' | 'scope' | 'tools'
 const NODE_CONFIG_TABS = [
   { id: 'charter', label: 'Charter' },
   { id: 'model', label: 'Model' },
   { id: 'scope', label: 'Scope' },
+  { id: 'tools', label: 'Tools' },
 ] satisfies { id: NodeConfigTab; label: string }[]
 
 interface NodeConfigProps {
@@ -1335,6 +1336,20 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         <SettingsTabPanel id="scope" idBase={tabId} active={tab === 'scope'}>
         {node.state === 'live' && node.id !== USER && !node.isBearerOf &&
           <CreditGrant key={`${node.id}:${node.generation}`} node={node} map={map} tree={tree} op={op} />}
+        <SetRow label="Visible agents" hint={VISIBLE_AGENTS_HINT}><select value={vis} onChange={(e) => setVis(e.target.value)}>
+          {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select></SetRow>
+
+        {/* user ruling 2026-08-07: writing the machine's GLOBAL skills is
+            gated above every allow-rule and hook — only bypassPermissions
+            clears it, so the mode had to become settable per node. It was
+            reachable by API alone before this; agents still cannot set it
+            (orgtree_retool does not expose it), so raising one is the
+            user's act. */}
+        <SetRow label="File and command access" hint={FILE_ACCESS_HINT}><select value={pm} onChange={(e) => setPm(e.target.value)}>
+          {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></SetRow>
+
         <SetBlock label="Folders" hint={FOLDERS_HINT}><div className="dirlist">
           {dirs.map((d, i) => (
             <div className="dirrow" key={d.path}>
@@ -1380,20 +1395,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         </div>
 
         </SetBlock>
-        <SetRow label="Visible agents" hint={VISIBLE_AGENTS_HINT}><select value={vis} onChange={(e) => setVis(e.target.value)}>
-          {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-        </select></SetRow>
-
-        {/* user ruling 2026-08-07: writing the machine's GLOBAL skills is
-            gated above every allow-rule and hook — only bypassPermissions
-            clears it, so the mode had to become settable per node. It was
-            reachable by API alone before this; agents still cannot set it
-            (orgtree_retool does not expose it), so raising one is the
-            user's act. */}
-        <SetRow label="File and command access" hint={FILE_ACCESS_HINT}><select value={pm} onChange={(e) => setPm(e.target.value)}>
-          {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select></SetRow>
-
+        </SettingsTabPanel>
+        <SettingsTabPanel id="tools" idBase={tabId} active={tab === 'tools'}>
         <SetGroup title="Native Tools">
         <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
         {TOOL_LABELS.map(([k, label, hint]) => (
