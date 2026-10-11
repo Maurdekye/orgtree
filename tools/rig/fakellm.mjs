@@ -341,6 +341,31 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`)
     ev('message_start', { message: { id: msgId, type: 'message', role: 'assistant', model: b?.model, content: [],
       stop_reason: null, stop_sequence: null, usage: { input_tokens: input, output_tokens: 1 } } })
+    // Explicit timed blocks exercise real harness streaming (including reasoning)
+    // through lsproxy, rather than substituting native CLI events.
+    if (reply.stream_blocks) {
+      void (async () => {
+        for (const [index, part] of reply.stream_blocks.entries()) {
+          const thinking = part.kind === 'thinking'
+          ev('content_block_start', { index, content_block: thinking
+            ? { type: 'thinking', thinking: '', signature: '' } : { type: 'text', text: '' } })
+          ev('content_block_delta', { index, delta: thinking
+            ? { type: 'thinking_delta', thinking: part.text } : { type: 'text_delta', text: part.text } })
+          for (let i = 0; i < (part.chunks ?? 0); i++) {
+            await new Promise(resolve => setTimeout(resolve, part.chunk_ms ?? 35))
+            ev('content_block_delta', { index, delta: thinking
+              ? { type: 'thinking_delta', thinking: ' word' } : { type: 'text_delta', text: ' word' } })
+          }
+          await new Promise(resolve => setTimeout(resolve, part.delay_ms ?? 0))
+          if (thinking) ev('content_block_delta', { index, delta: { type: 'signature_delta', signature: 'fake' } })
+          ev('content_block_stop', { index })
+        }
+        ev('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 100 } })
+        ev('message_stop', {})
+        res.end()
+      })().catch(error => res.destroy(error))
+      return
+    }
     let at = 0
     if (out.think) {
       ev('content_block_start', { index: at, content_block: { type: 'thinking', thinking: '', signature: '' } })

@@ -53,3 +53,32 @@ overlapping cursor pages, tool revisions, atomic partial retirement, final
 deduplication, and native block order. TypeScript checking and an engine debug
 build accompany the rig proof. Results and source revisions are recorded on
 the docket item `streamed-reply-text-shows-after-the-thought-tool`.
+
+## Simultaneous partials and request rate (alpha.8 follow-up)
+
+A remaining path ordered HTTP partial snapshots as draft then thought, while
+websocket-only partials were rendered in separate thought then draft buckets.
+A snapshot arriving while both were pending could therefore reverse either
+production order. Each actor now gives a partial a small per-turn ordinal when
+it first streams. Tokens carry only that ordinal, and HTTP partials carry the
+same value and are sorted by it. The renderer projects snapshots and current
+accumulators into one live tail. A committed row still retires its partial
+atomically with the replacement, as above. No prose is duplicated in storage.
+
+Record-mode panel invalidations fire for every stream frame. The conversation
+hook subscribed to those invalidations in addition to consuming the frame in
+`ingestStream`, producing one chat GET per token. The duplicate hook is gone;
+completed phases, turn events, focus and history recovery retain their normal
+refresh paths. Token delivery alone does not issue HTTP requests.
+
+`reasoning-order.mjs` uses the installed real Claude Code CLI, an isolated
+fake llama.cpp Anthropic Messages SSE endpoint, lsproxy, and the real engine
+and renderer. It emits thinking/text blocks in both orders, with 200 timed
+token chunks per turn, and counts chat GETs. It uses no real model or user
+server. `partial-order.mjs` separately delays native block completion so two
+partials coexist across a focus-triggered snapshot, in both orders on Claude
+Code, Codex and a scratch language-server lane. Both capture live/final DOM
+order and screenshots. Normal block-by-block closure through the real CLI did
+not reproduce the ordering inversion by itself; the delayed-completion
+snapshot case reproduces it. The request storm reproduces through the real
+CLI without delayed completions.
