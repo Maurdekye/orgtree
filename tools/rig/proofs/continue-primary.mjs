@@ -135,7 +135,12 @@ export default async function (rig, { flags }) {
     const result = await http(`${provider}/primary`)
     p.check(`${provider} qualified native primary resolves independently of secondary`,
       result.ok && result.json?.account === `${provider}/primary` && seat().account === null && !seat().frozen, result)
-    if (result.ok) await rig.waitTurns('mira', beforeTurns + 1, { timeout: 60000 })
+    if (result.ok) {
+      const turns = await rig.waitTurns('mira', beforeTurns + 1, { timeout: 60000 })
+      const replay = rig.fakeLog('mira').filter(l => l.kind === 'turn').at(-1)
+      p.check(`${provider} native continuation finishes its replay turn`,
+        !turns.at(-1)?.error && replay?.prompt?.includes('REPLAY-PRIMARY-PROOF'), turns.at(-1))
+    }
   }
   rig.exec(`UPDATE ot.agents SET tier='sol',provider='openai',session_id=NULL WHERE id=${id}`)
   await freeze()
