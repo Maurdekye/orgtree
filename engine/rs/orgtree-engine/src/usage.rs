@@ -1096,7 +1096,9 @@ pub async fn refresh_openrouter(engine: &Engine, force: bool) {
         if a.id == crate::openrouter::ACCOUNT_ID {
             publish(engine, "openrouter", &v);
         }
-        by_lane.insert(crate::openrouter::lane(&a.id), v);
+        let mut named = v;
+        named["name"] = json!(crate::openrouter::display(engine, &a));
+        by_lane.insert(crate::openrouter::lane(&a.id), named);
     }
     engine.app.set_value("openrouter_keys_usage", Value::Object(by_lane));
     crate::openrouter::publish(engine).await;
@@ -1116,18 +1118,19 @@ pub fn openrouter_reading(engine: &Engine, lane: &str) -> Option<Value> {
 }
 
 /// One OpenRouter key's credit standing, cached and recorded under its lane
-/// (the original key's as before several keys: `openrouter`). One read per
-/// lane at a time, as for every other usage probe.
-#[nolog]
+/// (the original key's as before several keys: `openrouter`). The public
+/// reader; `openrouter_key_read` is the read itself (a probe reservation
+/// per lane wraps it here, not there).
+#[logged]
 pub async fn openrouter_key_usage(engine: &Engine, id: &str, force: bool) -> Value {
     let lane = crate::openrouter::lane(id);
     let Some(_guard) = engine.usage.reserve(&lane) else { return engine.usage.busy_reading(&lane) };
-    openrouter_key_read(engine, id, &lane, force).await
+    openrouter_key_read(engine, id, force).await
 }
 
-#[nolog]
-async fn openrouter_key_read(engine: &Engine, id: &str, lane: &str, force: bool) -> Value {
-    let lane = lane.to_owned();
+#[logged]
+async fn openrouter_key_read(engine: &Engine, id: &str, force: bool) -> Value {
+    let lane = crate::openrouter::lane(id);
     if let Some(v) = crate::rig::usage(&lane, None) {
         // a canned reading stands in for the check, cache included, so a rig
         // proof sees each key on the board
@@ -1677,6 +1680,21 @@ mod wham_tests {
         assert_eq!(limits[2]["kind"], json!("weekly_scoped"));
         assert_eq!(limits[2]["model"], json!("GPT-5 Codex Spark"));
         assert_eq!(limits[2]["is_active"], json!(true));
+    }
+
+    /// The prepaid balance is the OpenRouter account's, shared by its keys:
+    /// each key's row says "account balance" (ruling 2026-10-11), and every
+    /// OpenRouter tier spends that one credit row.
+    #[test]
+    fn an_openrouter_key_row_names_the_account_balance() {
+        let ks = |v: serde_json::Value| v.as_object().unwrap().clone();
+        let capped = super::openrouter_limits(&ks(json!({ "usage": 8.49, "limit": 25.0, "total_credits": 30.0, "total_usage": 11.43 })));
+        assert_eq!(capped[0]["label"], json!("$8.49 of $25.00 spend cap · $18.57 account balance"));
+        assert!(super::spends("openrouter", "or-x", &capped[0]));
+        let prepaid = super::openrouter_limits(&ks(json!({ "usage": 3.0, "total_credits": 3.0, "total_usage": 3.0 })));
+        assert_eq!(prepaid[0]["label"], json!("$3.00 credits used · $0.00 account balance"));
+        assert_eq!(prepaid[0]["is_active"], json!(true));
+        assert!(!super::spends("claude", "opus", &prepaid[0]));
     }
 
     #[test]

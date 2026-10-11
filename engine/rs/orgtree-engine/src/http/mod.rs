@@ -134,6 +134,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/openrouter", get(accounts::openrouter_doc))
         .route("/api/openrouter/key", axum::routing::put(accounts::openrouter_key).delete(accounts::openrouter_key_clear))
         .route("/api/openrouter/keys", axum::routing::post(accounts::openrouter_key_add))
+        .route("/api/openrouter/keys/usage", get(accounts::openrouter_keys_usage))
         .route("/api/openrouter/keys/{id}", axum::routing::put(accounts::openrouter_key_update).delete(accounts::openrouter_key_remove))
         .route("/api/openrouter/harness", axum::routing::put(accounts::openrouter_harness))
         .route("/api/openrouter/models", get(accounts::openrouter_models))

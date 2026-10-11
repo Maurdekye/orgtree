@@ -546,6 +546,21 @@ pub async fn openrouter_key_clear(State(e): State<Arc<Engine>>) -> ApiResult<Jso
     Ok(Json(crate::openrouter::doc(&e, false).await))
 }
 
+/// `GET /api/openrouter/keys/usage`: every stored key's last reading by its
+/// lane, as the `openrouter_keys_usage` value pushes it. Cache-only: the
+/// usage loop reads the keys, a window never makes it fetch.
+#[logged]
+pub async fn openrouter_keys_usage(State(e): State<Arc<Engine>>) -> Json<Value> {
+    let mut out = serde_json::Map::new();
+    for a in crate::openrouter::keys(&e) {
+        let lane = crate::openrouter::lane(&a.id);
+        let mut v = usage::openrouter_reading(&e, &lane).unwrap_or_else(|| json!({ "available": false, "error": "not read yet" }));
+        v["name"] = json!(crate::openrouter::display(&e, &a));
+        out.insert(lane, v);
+    }
+    Json(Value::Object(out))
+}
+
 /// A key row added, renamed, replaced or removed: every surface that lists
 /// keys or offers tiers follows (providers, staffing options, the usage
 /// board, the panel's document).

@@ -53,6 +53,22 @@ pub fn lane(id: &str) -> String {
     if id == ACCOUNT_ID { LANE.to_string() } else { id.to_string() }
 }
 
+#[cfg(test)]
+mod lane_tests {
+    /// The compatibility mapping the coordinator approved: the original row
+    /// keeps the `openrouter` lane, an added key's lane is its id, both ways.
+    #[test]
+    fn the_original_key_keeps_its_lane() {
+        assert_eq!(super::lane(super::ACCOUNT_ID), "openrouter");
+        assert_eq!(super::lane("openrouter-2"), "openrouter-2");
+        assert_eq!(super::id_of_lane("openrouter"), super::ACCOUNT_ID);
+        assert_eq!(super::id_of_lane("openrouter-3"), "openrouter-3");
+        for id in [super::ACCOUNT_ID, "openrouter-2"] {
+            assert_eq!(super::id_of_lane(&super::lane(id)), id);
+        }
+    }
+}
+
 /// The key row behind a lane name (`lane`'s inverse).
 #[nolog]
 pub fn id_of_lane(lane: &str) -> String {

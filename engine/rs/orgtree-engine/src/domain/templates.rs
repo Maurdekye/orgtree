@@ -1025,6 +1025,35 @@ mod tests {
         assert_eq!(p[3].account.as_deref(), Some("primary"));
     }
 
+    /// Several OpenRouter keys (ruling 2026-10-11): an OpenRouter slot is
+    /// placed on its keys like any login, the original key being `primary`,
+    /// and the balancing rule ranks the keys by their spend readings.
+    #[test]
+    fn an_openrouter_slot_is_placed_on_its_keys() {
+        let rows = vec![row(1, None, "lead", "opus", 4.0, 1.0), row(2, Some(1), "or", "or-qwen-qwen3", 0.5, 0.0)];
+        let t: Template = serde_json::from_value(from_rows("t", "T", None, &rows, None, None, &Value::Null, &Include::default())).unwrap();
+        let mut av = claude_only();
+        av.tiers.insert("or-qwen-qwen3".into(), offer(0.5, "openrouter"));
+        // one key: the original, as before several keys
+        let (p, blocked) = plan(&t, &Choices::default(), &av, &[]).unwrap();
+        assert!(blocked.is_empty());
+        assert_eq!(p[1].account.as_deref(), Some("primary"));
+        // an added key with less of its cap spent comes first
+        let o = av.tiers.get_mut("or-qwen-qwen3").unwrap();
+        o.accounts = vec!["openrouter-2".into()];
+        o.readings.insert("primary".into(), Reading { reset: None, used: Some(80.0) });
+        o.readings.insert("openrouter-2".into(), Reading { reset: None, used: Some(10.0) });
+        let (p, _) = plan(&t, &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(p[1].account.as_deref(), Some("openrouter-2"));
+        // only added keys left (the original removed or switched off)
+        let o = av.tiers.get_mut("or-qwen-qwen3").unwrap();
+        o.default_ok = false;
+        o.readings.clear();
+        let (p, blocked) = plan(&t, &Choices::default(), &av, &[]).unwrap();
+        assert!(blocked.is_empty());
+        assert_eq!(p[1].account.as_deref(), Some("openrouter-2"));
+    }
+
     #[test]
     fn quick_chat_defaults_keep_explicit_choices_and_refuse_bad_ones() {
         let q = quick_chat(&json!({ "superior": null, "effort": "" })).unwrap();
