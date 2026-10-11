@@ -155,7 +155,12 @@ cache keys, and `usage::openrouter_key_usage(engine,id,force)`. Original registr
 themselves. The original reader retains its signature. Both branches must be
 composed with the shared reservation before a multi-key tool claim is verified.
 
-Initial source checks: Rust parsing/formatting of new helper files and Node
-syntax checking of the rig proof; git diff --check. Cargo check/test and changed
-path rig execution have not yet run: queued behind earlier builders. The rig
-proof uses canned usage/fake CLIs only. No live provider behavior is measured.
+Measured first check: cargo check --locked -j2 -p orgtree-engine --bin
+orgtree-engine passed in 5m01s at source 8ffda24, using the approved C target.
+Evidence: D:\orgtree-work\evidence\usage-query-sol\cargo-check-20261011.log.
+This precedes the latest scope revalidation and rebase onto rust-engine d0789c9;
+those need rechecking. Rust parsing/formatting of new helper files, Node proof
+syntax and git diff --check passed. Targeted tests and changed-path rig execution
+have not run; queued behind earlier builders. The proof checks safe tool output;
+it does not yet establish log secrecy. Existing raw reader logging is a separate
+verification concern. No live provider behavior is measured.
