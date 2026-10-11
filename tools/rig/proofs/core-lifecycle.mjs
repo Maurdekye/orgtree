@@ -2,6 +2,7 @@
 // C: holds only disposable trusted state; binaries, scripts and evidence stay D:.
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import {spawn, spawnSync} from 'node:child_process'
 import {build} from 'esbuild'
 import {cleanEnv, stopRun, writeRun, alive} from '../lib.mjs'
@@ -12,7 +13,8 @@ export async function setup() { return {name:'core-lifecycle', fixture:'none'} }
 export default async function(rig) {
   const p = new Proof('core-lifecycle')
   const root = process.env.ORGTREE_CORE_RIG_STATE
-  if (!root || path.resolve(root).toLowerCase() !== 'c:\\users\\ncola_k8bx\\appdata\\local\\orgtree-rig-core-agy') throw Error('exact authorized isolated state root required')
+  const allowed = path.join(os.homedir(), 'AppData', 'Local', 'orgtree-rig-core-agy')
+  if (!root || path.resolve(root).toLowerCase() !== allowed.toLowerCase()) throw Error('exact authorized isolated state root required')
   if (fs.existsSync(root)) throw Error('state root already exists; inspect before reuse')
   const run = rig.refresh()
   writeRun(rig.dir, {busy:new Date().toISOString()})
@@ -32,7 +34,7 @@ export default async function(rig) {
     ORGTREE_CLAUDE_BIN:path.join(rig.dir,'bin','claude.exe'),ORGTREE_CODEX_BIN:path.join(rig.dir,'bin','codex.exe'),
     ORGTREE_AGY_BIN:path.join(rig.dir,'bin','agy.exe'), ORGTREE_TAILSCALE_BIN:path.join(rig.dir,'bin','tailscale.cmd'),
     ORGTREE_FAKECLI_DIR:rig.fakeDir,ORGTREE_FAKECLI_HOME:path.join(root,'rig-home')}
-  let host, hostExit, deskPid=0, helperPid=0, enginePid=0
+  let host, hostExit, deskPid=0, helperPid=0, enginePid=0, desktopResult=''
   const launchHost = delay => {
     host = spawn(engine,['host'],{env:{...env,ORGTREE_RIG_CORE_STARTUP_DELAY_MS:String(delay)},windowsHide:true,stdio:['ignore','ignore','pipe']})
     host.stderr.on('data', c => fs.appendFileSync(path.join(p.dir,'host.log'),c))
@@ -45,6 +47,7 @@ export default async function(rig) {
     launchHost(delay)
     enginePid=(await rig.waitFor(()=>{const s=state();return s.host?.pid===host.pid?s:null},{what:label+' startup journal'})).engine.pid
     const result=path.join(p.dir,label+'-desktop.json')
+    desktopResult=result
     const config=path.join(p.dir,label+'-config.json')
     fs.writeFileSync(config,JSON.stringify({root,engine,result}))
     await launcher.start({},`"${process.execPath}" "${desktopScript}" "${config}"`)
@@ -70,7 +73,13 @@ export default async function(rig) {
     p.check(label+': task retry exits successfully without recreating engine',retry.status===0&&!alive(enginePid),{exit:retry.status})
     helperPid=deskPid=enginePid=0
   }
+  async function action(action) {
+    const id=Date.now()
+    fs.writeFileSync(desktopResult+'.command',JSON.stringify({id,action}))
+    return await rig.waitFor(()=>{const r=JSON.parse(fs.readFileSync(desktopResult+'.reply','utf8'));return r.id===id?r:null},{what:'desktop '+action,timeout:15000})
+  }
   try {
+    if(process.env.ORGTREE_CORE_RIG_PHASE!=='transitions') {
     for (const role of ['desktop','helper','engine','host']) {
       await begin(role);await ready(role)
       p.check(role+': all authenticated stamped members registered',true)
@@ -92,6 +101,26 @@ export default async function(rig) {
     await begin('missing-helper',{helper:false});await ready('missing-helper',false)
     const start=Date.now();await stopped('missing-helper',150000)
     p.check('missing-helper: grace is bounded',Date.now()-start>=110000&&Date.now()-start<150000)
+    } else {
+      await begin('restart');await ready('restart')
+      p.check('restart: authenticated transition accepted',(await action('transition')).ok)
+      const until=state().transition_until
+      p.check('restart: a second transition cannot extend deadline',!(await action('transition')).ok&&state().transition_until===until)
+      const a=descriptor()
+      await fetch(`http://127.0.0.1:${a.port}/api/desktop/shutdown`,{method:'POST',headers:{'X-Orgtree-Desktop-Token':a.token}})
+      await rig.waitFor(()=>!alive(enginePid)&&!alive(host.pid),{what:'deliberate old engine stop'})
+      p.check('restart: desktop and helper survive deliberate engine stop',[deskPid,helperPid].every(alive))
+      launchHost(0)
+      enginePid=(await rig.waitFor(()=>{const s=state();return s.host?.pid===host.pid?s:null},{what:'replacement engine journal'})).engine.pid
+      await ready('restart')
+      p.check('restart: completion clears inherited allowance',(await action('complete')).ok&&state().transition_until===0)
+      kill(deskPid);await stopped('restart')
+      await begin('transition-timeout');await ready('transition-timeout')
+      p.check('timeout: authenticated transition accepted',(await action('transition')).ok)
+      const began=Date.now()
+      await stopped('transition-timeout',210000)
+      p.check('timeout: bounded allowance ends even with all processes alive',Date.now()-began>=175000&&Date.now()-began<210000)
+    }
     return p.summary()
   } finally {
     // Normal authenticated shutdown first; forced cleanup only isolated subjects.

@@ -18,5 +18,19 @@ const core = new CoreLifecycle(cfg.engine, cfg.root, bridge, endpoint, () => {
 })
 fs.writeFileSync(cfg.result, JSON.stringify({pid: process.pid, started: true}))
 core.start()
-setInterval(() => {}, 1000)
-
+let busy = false
+setInterval(() => {
+  if (busy || !fs.existsSync(cfg.result + '.command')) return
+  busy = true
+  const {id, action} = JSON.parse(fs.readFileSync(cfg.result + '.command', 'utf8'))
+  fs.unlinkSync(cfg.result + '.command')
+  void (async () => {
+    try {
+      if (action === 'complete') await core.complete()
+      else if (action === 'transition' || action === 'install') await core.transition(action === 'install')
+      else throw new Error('unknown rig action')
+      fs.writeFileSync(cfg.result + '.reply', JSON.stringify({id, ok:true}))
+    } catch { fs.writeFileSync(cfg.result + '.reply', JSON.stringify({id, ok:false})) }
+    finally { busy = false }
+  })()
+}, 500)
