@@ -29,6 +29,12 @@ use std::process::ExitCode;
 #[cfg(windows)]
 #[path = "credential_broker_host.rs"]
 mod codex_host;
+#[cfg(windows)]
+#[allow(dead_code, unused_imports)] // shared process probe API; broker needs only reads
+mod core_process;
+#[cfg(windows)]
+#[allow(dead_code)] // journal mutations also used by the engine/native desktop probe
+mod core_state;
 
 #[cfg(not(windows))]
 #[nolog]
@@ -166,7 +172,25 @@ mod win {
         let mut last = "";
         let mut hosted_before = 0usize;
         let mut last_host_status = None;
+        let mut core_sessions = crate::core_process::Sessions::new();
         loop {
+            if let Some(active) = core_sessions.as_mut().and_then(|s| s.read()) {
+                if let Some(state) = crate::core_state::read(&root) {
+                    crate::core_state::observe_engine(&root, &state, &active);
+                }
+                if crate::core_state::blocked(&root, &active) {
+                    // The engine drains its hosted CLIs first. If it died, sweep
+                    // gives broken stdin its existing grace and logs any force.
+                    if crate::codex_host::sweep() == 0 {
+                        write_events();
+                        note(&root, "core session stopped; exiting");
+                        return ExitCode::SUCCESS;
+                    }
+                    write_events();
+                    tokio::time::sleep(TICK).await;
+                    continue;
+                }
+            }
             if engine.is_none() {
                 match attach(&root).await {
                     Ok(a) => {

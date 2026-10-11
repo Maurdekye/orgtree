@@ -310,6 +310,17 @@ fn once() -> u8 {
         }
     };
     let _ = std::fs::create_dir_all(&root);
+    #[cfg(windows)] {
+        if let Some(mut sessions) = crate::core_process::Sessions::new() {
+            if let Some(active) = sessions.read() {
+                if let Some(old) = crate::core_state::read(&root) { crate::core_state::observe_engine(&root, &old, &active); }
+                if crate::core_state::blocked(&root, &active) {
+                    say(Some(&root), "core session stopped; waiting for a new desktop launch");
+                    return 0;
+                }
+            }
+        }
+    }
     let ui = match ui_dir() {
         Ok(u) => u,
         Err(e) => {
@@ -350,6 +361,8 @@ fn once() -> u8 {
     env.push(("ORGTREE_V2_UI_DIR".into(), ui.to_string_lossy().to_string()));
     // the engine watches this host: if the task is ended, the engine stops
     env.push(("ORGTREE_V2_PARENT_PID".into(), std::process::id().to_string()));
+    env.retain(|(key, _)| key != "ORGTREE_CORE_MODE");
+    env.push(("ORGTREE_CORE_MODE".into(), "boot".into()));
     env.extend(pg);
     let elevated = win::is_elevated();
     let as_admin = win::run_as_administrator();
@@ -468,6 +481,7 @@ fn once() -> u8 {
     let mut stopping = false;
     let code = loop {
         if let Some(c) = child.exit_code() {
+            if core_fault(&root, pid, "engine process exited") { stopping = true; }
             break Some(c);
         }
         if !stopping && STOP.load(Ordering::SeqCst) {
@@ -480,6 +494,7 @@ fn once() -> u8 {
             break child.exit_code();
         }
         if watch.hung() {
+            let core_stopping = core_fault(&root, pid, "engine stopped answering");
             record_liveness(&root, json!({ "event": "hung", "enginePid": pid, "silentSeconds": watch.silent_for().as_secs(),
                                             "failedProbes": watch.failures.load(Ordering::SeqCst) }));
             let released = end_engine(&child, &root, false, HUNG_RELEASE_WAIT);
@@ -488,7 +503,7 @@ fn once() -> u8 {
             if child.exit_code().is_some() {
                 remove_descriptor(&root);
             }
-            return if released { EXIT_ENGINE_HUNG } else { 1 };
+            return if core_stopping && released { 0 } else if released { EXIT_ENGINE_HUNG } else { 1 };
         }
         std::thread::sleep(Duration::from_millis(200));
     };
@@ -505,6 +520,23 @@ fn once() -> u8 {
         Some(0) | None => 0,
         Some(c) => u8::try_from(c).unwrap_or(1).max(1),
     }
+}
+
+/// A signed-in cohort must end as a unit, rather than the host or Task
+/// Scheduler recreating only its engine. Pre-login recovery is unchanged.
+#[nolog]
+fn core_fault(root: &Path, pid: u32, reason: &str) -> bool {
+    #[cfg(windows)] {
+        let Some(state) = crate::core_state::read(root).filter(|s| s.engine.pid == pid) else { return false };
+        if crate::core_state::transition(&state) { return false; }
+        let active = crate::core_process::Sessions::new().and_then(|mut s| s.read());
+        if active.as_ref().is_some_and(|a| !a.is_empty()) {
+            let _ = crate::core_state::stop(root, &state, reason);
+            return true;
+        }
+    }
+    #[cfg(not(windows))] let _ = (root, pid, reason);
+    false
 }
 
 /// The ready handshake's shared state (atomics; the failure text is set once).

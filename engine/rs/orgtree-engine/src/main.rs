@@ -19,6 +19,8 @@ mod codex_kills;
 mod config;
 mod core_policy;
 mod core_process;
+mod core_state;
+mod core_monitor;
 mod credential_context;
 mod credential_bridge;
 mod domain;
@@ -76,6 +78,7 @@ fn main() -> ExitCode {
     match args.get(1).map(String::as_str) {
         None | Some("serve") => serve(),
         Some("host") => host::run(),
+        Some("core-control") => core_monitor::cli(&args[2..]),
         Some("credential-helper") => credential_bridge::cli("git", &args[2..]),
         Some("mcp-bridge") => bridge::run(&args[2..]),
         Some("agy-hook") => bridge::hook(&args[2..]),
@@ -194,12 +197,14 @@ async fn run_with_cluster(
     let max_turns = settings.max_concurrent_turns();
     let (app, app_inbox) = appfeed::AppFeed::new();
     let (sched, sched_inbox) = runtime::sched::Scheduler::new(max_turns);
+    let (core, core_inbox) = core_monitor::Core::channel();
     let engine = Arc::new(Engine {
         cfg: cfg.clone(),
         db: pool,
         boot,
         credentials: credential_context::CredentialContext::new(),
         credential_bridge: crate::credential_bridge::Bridge::new(),
+        core,
         shutdown: CancellationToken::new(),
         stopping: AtomicBool::new(false),
         orgs: orgs::OrgDirectory::default(),
@@ -221,6 +226,7 @@ async fn run_with_cluster(
     #[cfg(unix)]
     stop_on_signals(&engine);
     credential_context::start(&engine);
+    core_monitor::start(&engine, core_inbox);
     // tool-bridge sockets a killed earlier run left (Windows pipes go with their process)
     #[cfg(unix)]
     bridge::clear_stale(&engine.cfg.data_root);

@@ -106,7 +106,8 @@ mod win {
                 let mut rows = ptr::null_mut(); let mut count = 0;
                 if WTSEnumerateSessionsW(ptr::null_mut(), 0, 1, &mut rows, &mut count) == 0 { return None; }
                 let mut found = Vec::new(); let mut seen = Vec::new(); let mut failed = false;
-                for row in std::slice::from_raw_parts(rows, count as usize) {
+                let rows_slice = if count == 0 { &[][..] } else if rows.is_null() { return None } else { std::slice::from_raw_parts(rows, count as usize) };
+                for row in rows_slice {
                     if row.SessionId == 0 { continue; }
                     let mut bytes = ptr::null_mut(); let mut n = 0;
                     if WTSQuerySessionInformationW(ptr::null_mut(), row.SessionId, WTSSessionInfo, &mut bytes, &mut n) == 0 {
@@ -118,14 +119,14 @@ mod win {
                     }
                     let info = *(bytes as *const WTSINFOW);
                     WTSFreeMemory(bytes.cast());
-                    let user = text(&info.UserName);
+                    let Some(user) = session_text(row.SessionId, WTSUserName) else { failed = true; continue };
                     if user.is_empty() || info.LogonTime <= 0 { continue; }
                     let key = (row.SessionId, info.LogonTime);
                     seen.push(key);
                     let owns = match self.owners.get(&key) {
                         Some(owns) => Some(*owns),
                         None => {
-                            let domain = text(&info.Domain);
+                            let Some(domain) = session_text(row.SessionId, WTSDomainName) else { failed = true; continue };
                             let account = if domain.is_empty() { user } else { format!("{domain}\\{user}") };
                             let answer = account_sid(&account).map(|sid| sid == self.own_sid);
                             if let Some(answer) = answer { self.owners.insert(key, answer); }
@@ -140,6 +141,7 @@ mod win {
                 }
                 if !rows.is_null() { WTSFreeMemory(rows.cast()); }
                 self.owners.retain(|key, _| seen.contains(key));
+                found.sort_by_key(|s| s.id);
                 if failed { None } else { Some(found) }
             }
         }
@@ -148,6 +150,20 @@ mod win {
     #[nolog]
     fn text(value: &[u16]) -> String {
         String::from_utf16_lossy(&value[..value.iter().position(|v| *v == 0).unwrap_or(value.len())])
+    }
+
+    // WTSINFOW's fixed username/domain arrays truncate long names. Use the
+    // full strings for SID resolution, retaining its logon time as epoch.
+    #[nolog]
+    fn session_text(session: u32, class: WTS_INFO_CLASS) -> Option<String> {
+        unsafe {
+            let mut bytes = ptr::null_mut(); let mut len = 0;
+            if WTSQuerySessionInformationW(ptr::null_mut(), session, class, &mut bytes, &mut len) == 0 { return None; }
+            let answer = if bytes.is_null() || len > 65536 { None }
+                else { Some(text(std::slice::from_raw_parts(bytes, len as usize / 2))) };
+            if !bytes.is_null() { WTSFreeMemory(bytes.cast()); }
+            answer
+        }
     }
 
     #[nolog]
@@ -163,5 +179,24 @@ mod win {
             sid.truncate(sid_len as usize);
             Some(sid)
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    #[test]
+    fn creation_stamp_distinguishes_reused_pid_and_missing_pid() {
+        let mut current = identity(std::process::id()).unwrap();
+        assert_eq!(life(&current), Life::Alive);
+        current.created = "0".into();
+        assert_eq!(life(&current), Life::Gone);
+        assert_eq!(life(&Identity { pid: u32::MAX, created: "0".into() }), Life::Gone);
+    }
+    #[test]
+    fn operator_session_probe_is_readable_and_stable() {
+        let mut sessions = Sessions::new().unwrap();
+        let first = sessions.read().expect("WTS operator sessions should be queryable");
+        assert_eq!(sessions.read(), Some(first));
     }
 }

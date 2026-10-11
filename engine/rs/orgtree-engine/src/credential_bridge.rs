@@ -448,6 +448,22 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             return Err(Fail::Denied);
         }
         let pid = u32::try_from(value["pid"].as_u64().ok_or(())?).map_err(|_| ())?;
+        if let Some(action) = value.get("core").and_then(Value::as_str) {
+            // Core membership is independent of credential ownership. Even when
+            // the helper holds that lease, prove the desktop's pipe/SID/session.
+            if !matches!(action, "desktop" | "transition" | "install" | "complete") { return Err(Fail::Denied); }
+            let probe = Broker { pipe: pipe.into(), secret: secret.into(), pid, created: 0,
+                expires: Instant::now() + Duration::from_secs(20) };
+            if exchange(&probe, json!({"kind":"ping"})).await.map_err(|_| Fail::Unavailable)? != b"ready" {
+                return Err(Fail::Denied);
+            }
+            let accepted = if action == "desktop" { engine.core.member(true, pid).await }
+                else { engine.core.transition(pid, action == "complete", action == "install").await };
+            let stopping = engine.is_stopping() || engine.core.state.load().as_ref()
+                .is_some_and(|s| crate::core_state::stopped(&engine.cfg.data_root, s));
+            if !accepted && !stopping { return Err(Fail::Denied); }
+            return Ok(json!({"stopped":stopping}).to_string().into_bytes());
+        }
         let host_only = match value.get("role").and_then(Value::as_str) {
             None if value.get("role").is_none() => false,
             Some("credentials") => false,
@@ -494,6 +510,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
         }
         // The ping proved `pid` serves the pipe as the interactive operator.
         broker.created = process_stamp(pid).unwrap_or(0);
+        if host_only && !engine.core.member(false, pid).await { return Err(Fail::Denied); }
         let fresh = Arc::new(broker);
         let previous = slot.compare_and_swap(&current, Some(fresh.clone()));
         let swapped = match (&*previous, &current) {
