@@ -1,0 +1,53 @@
+# Live conversation order and thought spacing
+
+The desk used to keep a completed streamed reply in its separate draft area
+until an HTTP transcript refresh arrived. That area is below live thinking and
+saved tool rows. A following thought or tool could consequently appear above
+the earlier reply. The next reply could also replace that retained draft before
+the fetch returned. Claude Code (including language-server agents) and Codex
+shared this renderer path.
+
+The actor now includes `convo_rows` in stream frames: only successfully committed,
+sanitized conversation rows since its previous frame, with their durable
+`row_id`, `seq` and `convo_revision`. Full tool inputs stay in the separate
+database column; they never enter this queue. The actor-owned queue coalesces
+amendments by sequence and holds at most 128 rows. An exceptional larger batch
+still exists in the transcript and is recovered by the normal refresh.
+
+`draft_clear` and `thinking_clear` retire consumed partials in the same renderer
+update that installs their replacements. Old engines retain the original
+fallback path. The renderer retains stream commits until an actual fetched row
+acknowledges that revision. Rows carried forward locally while merging a cursor
+page are not acknowledgments. After a cursor merge, Rust rows use their canonical
+sequence order; an overlapping page must not append an earlier reply after newer
+streamed rows. A fetch issued before the latest stream frame cannot resurrect
+the frame's retired transient rows.
+
+Claude's `content_blocks` preserves native block order inside a single API
+message, including text/tool/text. Tool blocks refer to existing chips by id,
+so later results update the same chip without copying its input. Older stored
+rows keep the legacy display layout. Codex starts a separate tool row when its
+previous row already contains reply text.
+
+Live thought bodies and expanded saved thoughts use the same component and CSS.
+The old live root used `white-space: pre-wrap`, preserving Markdown's HTML
+separator newlines between paragraphs as additional blank lines. The shared
+thought body keeps those separators collapsed, while preserving the intended
+single and double newlines inside the text.
+
+## Verification
+
+`tools/rig/proofs/stream-order.mjs` and `desktop/stream-order.cjs` drive the real
+engine, PostgreSQL and renderer through scripted Claude Code and Codex CLIs.
+A third agent uses the scratch llama.cpp provider with the scripted Claude
+Code harness. Chat HTTP responses are delayed 2.5 seconds while websocket
+frames continue. The proof captures screenshots, live/final DOM order, reply
+counts, paint samples and thought HTML/line/block metrics. Additional cases
+cover Claude records sharing one API message id and Codex text/tool/text.
+No real model inference, live agent or live database is used.
+
+`apps/desktop/renderer/tests/streamorder.test.tsx` checks stale HTTP snapshots,
+overlapping cursor pages, tool revisions, atomic partial retirement, final
+deduplication, and native block order. TypeScript checking and an engine debug
+build accompany the rig proof. Results and source revisions are recorded on
+the docket item `streamed-reply-text-shows-after-the-thought-tool`.
