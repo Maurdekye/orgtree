@@ -16,6 +16,18 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Native tray refresh must resynchronize the **Run on startup** checkbox from
+  committed preferences even while its menu is open, and when that menu is
+  shown again. Do not replace an open native Menu object: update the existing
+  item in place. A UAC write can finish after a refresh constructed a menu from
+  the old value; refreshing only updater/engine/mailhub rows leaves startup's
+  checkmark stale despite a successful save. Keep rejection restoration and
+  UAC/task-write semantics intact. See [startup toggle acceptance and tray
+  regression](docs/rust-engine/startup-toggle-acceptance.md).
+  [verified from source-composition regression and live saved-state differential,
+  2026-10-11; packaged native repaint remains a next-alpha verification limit]
+
+
 - Antigravity Claude 5.5 uses separate `agy-sonnet` / `agy-opus` tiers (seats
   2 / 4), enabled together in Runtime settings and off by default. They have
   no versions, keep Antigravity provider/account/theme, and share only the
