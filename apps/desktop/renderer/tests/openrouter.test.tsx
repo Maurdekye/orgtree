@@ -112,8 +112,10 @@ test('§1 no key: the section offers key entry and nothing else; setting it '
   const picker = { open: false }
   const view = await mountSection(picker)
   try {
-    const input = view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="OpenRouter API key"]')
+    assert.equal(view.el.querySelector('input[type="password"]'), null, 'no inline form')
+    await inAct(async () => { view.el.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click(); await flush(4) })
+    const input = document.querySelector<HTMLInputElement>(
+      '[aria-label="Add OpenRouter key"] input[aria-label="OpenRouter API key"]')
     assert.ok(input, 'key input rendered')
     assert.equal(input.type, 'password')
     assert.equal(view.el.querySelector('.orr-favs'), null, 'no favorites row yet')
@@ -128,7 +130,7 @@ test('§1 no key: the section offers key entry and nothing else; setting it '
     })
     // the entry row is the Claude section's "paste a new key" row: the ✓
     // spans the two button columns
-    const btn = view.el.querySelector<HTMLButtonElement>('button.acct-add[title="set the key"]')!
+    const btn = document.querySelector<HTMLButtonElement>('.provider-dialog button[title="set the key"]')!
     assert.ok(btn, 'the ✓ button sets the key')
     await inAct(async () => { btn.click(); await flush(10) })
     const put = seen.find((r) => r.method === 'PUT' && r.path === '/api/openrouter/key')
@@ -159,9 +161,9 @@ test('§1 no key: the section offers key entry and nothing else; setting it '
     }
     // replace → the entry row comes back with a ✕ that keeps the current key
     await inAct(async () => { btns[1]!.click(); await flush(4) })
-    assert.ok(view.el.querySelector('input[aria-label="OpenRouter API key"]'),
-      'replace opens the entry row')
-    const keep = view.el.querySelector<HTMLButtonElement>('button[title="keep the current key"]')!
+    assert.ok(document.querySelector('input[aria-label="OpenRouter API key"]'),
+      'replace opens the key dialog')
+    const keep = document.querySelector<HTMLButtonElement>('button[title="keep the current key"]')!
     assert.ok(keep, 'a ✕ keeps the current key')
     await inAct(async () => { keep.click(); await flush(4) })
     assert.ok(view.el.querySelector('.orr-keyrow .orr-standing'), 'the key row is back')
@@ -522,4 +524,32 @@ async () => {
     await view.unmount(); delete g.fetch
     CATALOG.splice(-2)
   }
+})
+
+
+test('key dialog Cancel and Escape discard unsaved secrets without changing the stored account', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { keySet: true })
+  const view = await mountSection({ open: false })
+  try {
+    const edit = view.el.querySelector<HTMLButtonElement>('button[title^="replace the key"]')!
+    await inAct(async () => { edit.click(); await flush(3) })
+    const dialog = document.querySelector('[role="dialog"][aria-label="Replace OpenRouter key"]')!
+    assert.ok(dialog)
+    assert.equal(view.el.contains(dialog), false)
+    const input = dialog.querySelector<HTMLInputElement>('input')!
+    await inAct(async () => {
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, 'synthetic-unsaved-key')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush(2)
+    })
+    await inAct(async () => {
+      window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
+      await flush(3)
+    })
+    assert.equal(document.querySelector('.provider-dialog'), null)
+    assert.equal(seen.filter(r => r.method !== 'GET').length, 0)
+    await inAct(async () => { edit.click(); await flush(3) })
+    assert.equal(document.querySelector<HTMLInputElement>('.provider-dialog input')!.value, '', 'secret draft cleared on dismiss')
+  } finally { await view.unmount(); delete g.fetch }
 })

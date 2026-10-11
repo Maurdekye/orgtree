@@ -80,6 +80,8 @@ function stubFetch(seen: Seen[], opts: { list?: LangServerProbeModel[], down?: b
       payload = opts.down
         ? { reachable: false, error: 'nothing is answering at that address (is the server running?)', models: [] }
         : { reachable: true, version: '0.40.2', listed: all.length, models: only.length ? all.filter((m) => only.includes(m.id)) : all }
+    } else if (path === '/api/langservers' && method === 'POST') {
+      payload = { server: s, doc: doc() }
     } else if (path === '/api/langservers/ollama' && method === 'PATCH') {
       const b = body as Record<string, unknown>
       for (const k of ['label', 'address', 'max_agents', 'seat', 'enabled'] as const) {
@@ -166,8 +168,10 @@ test('§2 ✎ opens a draft: Cancel drops it and sends nothing; Save sends only 
   try {
     const edit = () => view.el.querySelector<HTMLButtonElement>('.ls-server-row button[title="edit this server"]')
     await click(edit())
-    const form = view.el.querySelector('.ls-edit')!
+    const form = document.querySelector('.ls-edit')!
     assert.ok(form, 'the draft form opens')
+    assert.ok(form.closest('[role="dialog"][aria-label="Configure Ollama"]'))
+    assert.equal(view.el.contains(form), false, 'configuration is outside the Providers section')
     for (const l of ['server name', 'server address', 'agents at once', 'seat price', 'API key']) {
       assert.ok(form.querySelector(`input[aria-label="${l}"]`), `the form has ${l}`)
     }
@@ -176,16 +180,16 @@ test('§2 ✎ opens a draft: Cancel drops it and sends nothing; Save sends only 
     await typeInto(form.querySelector<HTMLInputElement>('input[aria-label="agents at once"]')!, '3')
     assert.ok(form.textContent?.includes('unsaved changes'))
     await click([...form.querySelectorAll('button')].find((b) => b.textContent === 'Cancel'))
-    assert.equal(view.el.querySelector('.ls-edit'), null, 'Cancel closes the draft')
+    assert.equal(document.querySelector('.ls-edit'), null, 'Cancel closes the draft')
     assert.equal(seen.filter((r) => r.method === 'PATCH').length, 0, 'Cancel sends nothing')
     assert.ok([...view.el.querySelectorAll('.acct-provenance span')].some((s) => s.textContent === 'seat 1'), 'the summary keeps seat 1')
     await click(edit())
-    await typeInto(view.el.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '2')
-    await click([...view.el.querySelectorAll('.ls-edit button')].find((b) => b.textContent === 'Save'))
+    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '2')
+    await click([...document.querySelectorAll('.ls-edit button')].find((b) => b.textContent === 'Save'))
     const patches = seen.filter((r) => r.method === 'PATCH')
     assert.equal(patches.length, 1, 'one PATCH')
     assert.deepEqual(patches[0]!.body, { seat: 2 }, 'only the seat changed')
-    assert.equal(view.el.querySelector('.ls-edit'), null, 'Save closes the draft')
+    assert.equal(document.querySelector('.ls-edit'), null, 'Save closes the draft')
     assert.deepEqual(toasts.at(-1), ['saved Ollama · 1 agent repriced'])
     assert.ok([...view.el.querySelectorAll('.acct-provenance span')].some((s) => s.textContent === 'seat 2'))
   } finally { await view.unmount(); delete g.fetch }
@@ -198,8 +202,8 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
   const view = await mountSection([])
   try {
     await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
-    await click(view.el.querySelector('.ls-edit .ls-favs'))
-    const dialog = view.el.querySelector('[role="dialog"]')!
+    await click(document.querySelector('.ls-edit .ls-favs'))
+    const dialog = document.querySelector('[aria-label="Language Server model selection"]')!
     assert.ok(dialog, 'the browser opens')
     assert.ok(seen.some((r) => r.path === '/api/langservers/probe' && r.body && !('only' in r.body)), 'the whole list is asked for')
     const h3 = () => dialog.querySelector('h3')?.textContent
@@ -236,7 +240,7 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
     assert.equal(h3(), 'Models on Ollama · 2 offered')
     assert.equal(seen.filter((r) => r.method === 'PATCH').length, 0, 'nothing is sent from the browser')
     await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'done'))
-    await click([...view.el.querySelectorAll('.ls-edit button')].find((b) => b.textContent === 'Save'))
+    await click([...document.querySelectorAll('.ls-edit button')].find((b) => b.textContent === 'Save'))
     const patch = seen.find((r) => r.method === 'PATCH')
     assert.deepEqual(patch?.body, { models: [{ id: LATEST, offered: false }, { id: 'model-000:7b', offered: true, context: 32768 }] })
   } finally { await view.unmount(); delete g.fetch }
@@ -261,8 +265,8 @@ test('§4 a click on a chip withdraws its model at once, and a second click offe
     assert.deepEqual(patches(), [{ models: [{ id: LATEST, offered: false }] }])
     assert.deepEqual(pressed(view.el), [[LATEST, 'false'], [V64, 'true']], 'withdrawn: dimmed, in its place')
     assert.deepEqual(toasts.at(-1), [`${LATEST} is withdrawn: no new hires on it; agents already on it keep running`])
-    assert.equal(view.el.querySelector('.ls-edit'), null, 'no edit form')
-    assert.equal(view.el.querySelector('[role="dialog"]'), null, 'no browser')
+    assert.equal(document.querySelector('.ls-edit'), null, 'no edit form')
+    assert.equal(document.querySelector('[aria-label="Language Server model selection"]'), null, 'no browser')
     const digest = [...view.el.querySelectorAll('.acct-provenance span')].map((x) => x.textContent)
     assert.ok(digest.includes('1 model'), digest.join(' | '))
     await click(chipNamed(view.el, LATEST))
@@ -338,9 +342,9 @@ test('§8 "+" opens the browser saving at once: an offer when clicked, a window 
   const view = await mountSection(toasts)
   try {
     await click(view.el.querySelector('.ls-toggles .orr-more'))
-    const dialog = view.el.querySelector('[role="dialog"]')!
+    const dialog = document.querySelector('[aria-label="Language Server model selection"]')!
     assert.ok(dialog, 'the browser opens')
-    assert.equal(view.el.querySelector('.ls-edit'), null, 'without the edit form')
+    assert.equal(document.querySelector('.ls-edit'), null, 'without the edit form')
     const h3 = () => dialog.querySelector('h3')?.textContent
     assert.equal(h3(), 'Models on Ollama · 2 offered · each change is saved at once')
     const patches = () => seen.filter((r) => r.method === 'PATCH').map((r) => r.body)
@@ -364,7 +368,82 @@ test('§8 "+" opens the browser saving at once: an offer when clicked, a window 
     await click(dialog.querySelector(`.orr-selected button[aria-label="withdraw ${LATEST}"]`))
     assert.deepEqual(patches()[3], { models: [{ id: LATEST, offered: false }] })
     await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'done'))
-    assert.equal(view.el.querySelector('[role="dialog"]'), null, 'done closes it')
+    assert.equal(document.querySelector('[aria-label="Language Server model selection"]'), null, 'done closes it')
     assert.deepEqual(pressed(view.el), [['model-000:7b', 'true'], [LATEST, 'false'], [V64, 'true']], 'the card follows')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+
+test('add dialog: adding a server opens a separate dialog; Cancel discards and Save keeps the original payload', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen)
+  const view = await mountSection([])
+  const add = () => view.el.querySelector('button[title^="add a model server"]')
+  const dialog = () => document.querySelector('[role="dialog"][aria-label="Add language server"]')
+  try {
+    assert.equal(dialog(), null)
+    await click(add())
+    assert.ok(dialog())
+    assert.equal(view.el.querySelector('.ls-add'), null, 'no inline form remains')
+    await typeInto(dialog()!.querySelector<HTMLInputElement>('input[aria-label="server address"]')!, 'http://discard.test')
+    await click([...dialog()!.querySelectorAll('button')].find(b => b.textContent === 'Cancel'))
+    assert.equal(dialog(), null)
+    assert.equal(seen.filter(r => r.path === '/api/langservers' && r.method === 'POST').length, 0)
+    await click(add())
+    assert.equal(dialog()!.querySelector<HTMLInputElement>('input[aria-label="server address"]')!.value, 'http://127.0.0.1:11434')
+    await click([...dialog()!.querySelectorAll('button')].find(b => b.textContent === 'Add server'))
+    assert.equal(dialog(), null, 'successful add closes only the dialog')
+    assert.deepEqual(seen.find(r => r.path === '/api/langservers' && r.method === 'POST')?.body,
+      { preset: 'ollama', address: 'http://127.0.0.1:11434', harness: 'claude-code', max_agents: 1, seat: 1, models: [] })
+    assert.ok(view.el.querySelector('.ls-section'), 'Providers remains mounted')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('nested dialogs: Escape closes the model picker before the edit dialog and discards no saved settings', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen)
+  const view = await mountSection([])
+  const escape = () => inAct(async () => {
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await flush(3)
+  })
+  try {
+    await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
+    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '7')
+    await click(document.querySelector('.ls-edit .ls-favs'))
+    assert.ok(document.querySelector('[aria-label="Language Server model selection"]'))
+    await escape()
+    assert.equal(document.querySelector('[aria-label="Language Server model selection"]'), null)
+    assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!.value, '7')
+    await escape()
+    assert.equal(document.querySelector('.provider-dialog'), null)
+    assert.equal(seen.filter(r => r.method === 'PATCH').length, 0)
+    assert.ok(view.el.querySelector('.ls-section'))
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('save lifecycle: a pending save cannot be dismissed; a rejected save keeps the draft for correction', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen)
+  const original = g.fetch as typeof fetch
+  let rejectSave: ((e: Error) => void) | undefined
+  g.fetch = (url: string, init?: RequestInit) => init?.method === 'PATCH'
+    ? new Promise((_resolve, reject) => { rejectSave = reject }) : original(url, init)
+  const toasts: string[][] = []
+  const view = await mountSection(toasts)
+  try {
+    await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
+    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '7')
+    await click([...document.querySelectorAll('.ls-edit button')].find(b => b.textContent === 'Save'))
+    assert.ok(rejectSave)
+    await inAct(async () => {
+      window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
+      await flush(3)
+    })
+    assert.ok(document.querySelector('.ls-edit'), 'in-flight save keeps dialog open')
+    assert.ok([...document.querySelectorAll<HTMLButtonElement>('.ls-edit button')].find(b => b.textContent === 'Cancel')!.disabled)
+    await inAct(async () => { rejectSave!(new Error('synthetic save failure')); await flush(8) })
+    assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!.value, '7')
+    assert.ok(toasts.flat().some(t => t.includes('synthetic save failure')))
   } finally { await view.unmount(); delete g.fetch }
 })

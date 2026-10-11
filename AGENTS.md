@@ -654,6 +654,13 @@ measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
 
 ## Keep this file current
 
+- OpenRouter key add/replace and language-server add/configure forms open in
+  separate `ProviderDialog` surfaces above App settings; keep their API bindings,
+  draft/save semantics and nested model browser intact. The dialog uses
+  `ModalOverPins`, so it must not be moved back inside a pinned settings stacking
+  context. See [provider dialogs](docs/rust-engine/provider-dialogs.md).
+  [decided: user 2026-10-11; verified: renderer provider dialog tests, 2026-10-11]
+
 **When you find an engine gotcha or a design invariant, or a new decision or ruling is
 made, update this file in the same landing as the change it concerns.** If no code
 changed, land a small follow-up commit that touches only this file.

@@ -1,9 +1,10 @@
 import { PinFrame } from './modalpin'
+import { ProviderDialog } from './providerdialog'
 import { useAppValue } from '../appfeed'
 // canvas/openrouter.tsx — the OpenRouter lane's settings surface (user spec
 // 2026-09-02, verbatim intent):
 //
-//   · key entry in the providers list (App settings → Providers);
+//   · key entry opened from Providers in its own dialog (user 2026-10-11);
 //   · once a key is registered, a separate ROW of model-card icons (the
 //     favorites) appears below it — the row highlights as one control, and
 //     clicking it opens the MODEL SELECTION modal;
@@ -48,7 +49,7 @@ import {
   clearOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
   setOpenRouterHarness, setOpenRouterKey,
 } from '../api'
-import { AutorenewIcon, CheckIcon, CloseIcon, DeleteIcon, EditIcon } from '../icons'
+import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
 import type {
   OpenRouterDoc, OpenRouterHarness, OpenRouterModel, OpenRouterModelsPage,
   OpenRouterSort, ProviderInfo, ProviderTier,
@@ -180,7 +181,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [keyDraft, setKeyDraft] = useState('')
-  const [replacing, setReplacing] = useState(false)
+  const [editingKey, setEditingKey] = useState(false)
 
   const adopt = (d: OpenRouterDoc) => {
     setDoc(d); setErr(null)
@@ -201,7 +202,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
     const k = keyDraft.trim()
     if (!k) return
     run(setOpenRouterKey(k), 'OpenRouter key saved')
-    setKeyDraft(''); setReplacing(false)
+    setKeyDraft(''); setEditingKey(false)
   }
 
   const off = provider?.user_enabled === false
@@ -244,43 +245,40 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
       {err && <div className="dim acct-prov-note">could not read OpenRouter state: {err}</div>}
       {!doc && !err && <div className="dim acct-prov-note">reading OpenRouter state…</div>}
 
-      {/* the ENTRY row — the Claude section's "paste a new key" row, same
-          columns: ghost grip · field · ✓ spanning the two button columns
-          (+ ✕ while replacing, so the current key is kept with one click) */}
-      {doc && (!keySet || replacing) && (
-        <div className="acct-line">
-          <span className="acct-gutter" />
-          <div className="acct-row acct-new orr-keyrow">
-            <div className="acct-main">
-              <span className="acct-grip acct-ghost">⠿</span>
-              <input type="password" autoComplete="off" spellCheck={false}
-                placeholder={replacing
-                  ? 'paste the new OpenRouter API key'
-                  : 'paste an OpenRouter API key (sk-or-…)'}
-                aria-label="OpenRouter API key"
-                value={keyDraft} disabled={busy}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') saveKey() }} />
-              <button className="acct-btn acct-add"
-                title={replacing ? 'replace the key' : 'set the key'}
-                disabled={busy || !keyDraft.trim()} onClick={saveKey}>
-                <CheckIcon fontSize="inherit" /></button>
-              {replacing && <button className="acct-btn" title="keep the current key"
+      {doc && !keySet && <button type="button" className="acct-secondary-btn"
+        disabled={busy} aria-haspopup="dialog" onClick={() => setEditingKey(true)}>Add OpenRouter key</button>}
+      {doc && editingKey && (
+        <ProviderDialog title={keySet ? 'Replace OpenRouter key' : 'Add OpenRouter key'}
+          busy={busy} close={() => { setEditingKey(false); setKeyDraft('') }}>
+          <div className="provider-key-form">
+            <label htmlFor="openrouter-key-draft">API key</label>
+            <input type="password" autoComplete="off" spellCheck={false}
+              id="openrouter-key-draft" placeholder={keySet
+                ? 'paste the new OpenRouter API key'
+                : 'paste an OpenRouter API key (sk-or-\u2026)'}
+              aria-label="OpenRouter API key"
+              value={keyDraft} disabled={busy}
+              onChange={(e) => setKeyDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveKey() }} />
+            <div className="ls-actions">
+              <button type="button" className="acct-secondary-btn"
+                title={keySet ? 'replace the key' : 'set the key'}
+                disabled={busy || !keyDraft.trim()} onClick={saveKey}>Save</button>
+              <button type="button" className="acct-secondary-btn" title="keep the current key"
                 disabled={busy}
-                onClick={() => { setReplacing(false); setKeyDraft('') }}>
-                <CloseIcon fontSize="inherit" /></button>}
-            </div>
-            <div className="acct-provenance">
-              <span>stored on this machine, never shown again</span>
-              <span>get one at openrouter.ai/keys</span>
+                onClick={() => { setEditingKey(false); setKeyDraft('') }}>Cancel</button>
             </div>
           </div>
-        </div>
+          <div className="acct-provenance">
+            <span>stored on this machine, never shown again</span>
+            <span>get one at openrouter.ai/keys</span>
+          </div>
+        </ProviderDialog>
       )}
 
       {/* the KEY row — identity + verdict, then the credit standing, then
           three icon buttons: re-check · replace · forget */}
-      {doc && keySet && !replacing && (
+      {doc && keySet && (
         <div className="acct-line">
           <span className="acct-gutter" />
           <div className="acct-row orr-keyrow">
@@ -298,7 +296,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
                 disabled={busy} onClick={() => run(getOpenRouter(true), '')}>
                 <AutorenewIcon fontSize="inherit" /></button>
               <button className="acct-btn" title="replace the key — the favorites stay"
-                disabled={busy} onClick={() => setReplacing(true)}>
+                disabled={busy} aria-haspopup="dialog" onClick={() => setEditingKey(true)}>
                 <EditIcon fontSize="inherit" /></button>
               <button className="acct-btn acct-del"
                 title="forget the key — nothing on OpenRouter can be hired until a new one is set; the favorites stay"

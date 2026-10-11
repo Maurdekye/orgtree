@@ -22,7 +22,8 @@
 // button", "it should look similar to openrouter"): the OpenRouter key row's
 // shape — name · preset · harness · address with ⟳ ✎ ✕, a digest line under
 // it — and the offered models as chips where OpenRouter has its favorites.
-// ✎ opens the settings as a draft that Save applies and Cancel discards.
+// ✎ opens a separate dialog with a draft that Save applies and Cancel discards
+// (user 2026-10-11); adding a server uses the same dialog shell.
 //
 // MODELS ARE CHOSEN IN A BROWSER (lsbrowser.tsx): a server may list hundreds.
 //
@@ -63,6 +64,8 @@ import type {
   LangServer, LangServerDoc, LangServerPreset, LangServerProbe, LangServerProbeModel, ProviderInfo,
 } from '../types'
 import { LangServerBrowser } from './lsbrowser'
+import { ModalOverPins } from './modalpin'
+import { ProviderDialog } from './providerdialog'
 import { CHIP_NAMES_MAX, ModelCard, ToggleChips } from './modelbrowser'
 import {
   fmtTokens, LANE_CARD_COLOR, monogram, probeFacts, startWindow, variantName, wantsVariant, windowMismatch,
@@ -175,6 +178,7 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
         <span className="dim"> · models on your own servers</span>
         <span className="set-head-right">
           <button type="button" className="acct-secondary-btn" disabled={busy || adding || !doc?.presets.length}
+            aria-haspopup="dialog"
             title="add a model server: Ollama, LM Studio, llama.cpp, vLLM or a custom one"
             onClick={() => setAdding(true)}>Add server</button>
         </span>
@@ -345,6 +349,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
   })
 
   return (
+    <ProviderDialog title="Add language server" busy={busy} close={onCancel}>
     <div className="ls-add" role="group" aria-label="add a language server">
       <SetRow label="Server"
         hint={preset?.note}>
@@ -443,7 +448,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
         <button type="button" className="acct-secondary-btn" disabled={busy} onClick={onCancel}>Cancel</button>
         {!models.length && <span className="dim">No model picked yet: you can find and offer models later.</span>}
       </div>
-      {browsing && probe?.reachable && (
+      {browsing && probe?.reachable && (<ModalOverPins>
         <LangServerBrowser title={`Models on ${label.trim() || preset?.label || 'the server'}`}
           models={probe.models} picked={picked} minContext={doc.min_context} defaultContext={doc.default_context}
           ollama={presetId === 'ollama'} busy={busy}
@@ -451,8 +456,9 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
             ? <VariantButton model={m.id} busy={busy} onCreate={() => makeVariant(m)} /> : null}
           onPick={(id, w) => setPicked((cur) => withPick(cur, id, w))}
           onClose={() => setBrowsing(false)} />
-      )}
+      </ModalOverPins>)}
     </div>
+    </ProviderDialog>
   )
 }
 
@@ -655,7 +661,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
               title="ask the server whether it answers, and the windows it runs the offered models with (loads no model)"
               onClick={checkNow}><AutorenewIcon fontSize="inherit" className={checking ? 'cc-spin' : undefined} /></button>
             <button type="button" className={'acct-btn' + (draft ? ' on' : '')} disabled={busy}
-              aria-pressed={!!draft} title={draft ? 'close without saving' : 'edit this server'}
+              aria-haspopup="dialog" aria-pressed={!!draft} title={draft ? 'close without saving' : 'edit this server'}
               onClick={() => (draft ? cancel() : startEdit())}>
               <EditIcon fontSize="inherit" /></button>
             <button type="button" className="acct-btn acct-del" disabled={busy}
@@ -693,6 +699,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
       )}
       {!draft && <MismatchLines items={mismatches} />}
       {draft && (
+        <ProviderDialog title={`Configure ${s.label}`} busy={busy} close={cancel}>
         <div className="ls-add ls-edit" role="group" aria-label={`edit ${s.label}`}>
           <SetRow label="Name">
             <input type="text" aria-label="server name" value={draft.label} disabled={busy}
@@ -740,8 +747,9 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
               && <span className="dim">unsaved changes</span>}
           </div>
         </div>
+        </ProviderDialog>
       )}
-      {browsing && (
+      {browsing && (<ModalOverPins>
         <LangServerBrowser title={`Models on ${draft?.label.trim() || s.label}`} live={!draft}
           models={found?.reachable ? found.models : []}
           missing={found?.reachable
@@ -753,7 +761,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
             ? <VariantButton model={m.id} busy={busy} onCreate={() => makeVariant(m)} /> : null}
           onPick={draft ? (id, w) => setDraft((d) => (d ? { ...d, picked: withPick(d.picked, id, w) } : d)) : pickNow}
           onClose={() => setBrowsing(false)} />
-      )}
+      </ModalOverPins>)}
     </div>
   )
 }

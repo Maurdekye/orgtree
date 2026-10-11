@@ -8264,6 +8264,14 @@ main:has(> .orgbar.native-header) > .error {
 .ls-add { margin-top: 8px; padding: 6px 10px 8px; border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--prov-langserver) 50%, var(--line)); }
 .ls-edit { margin-left: var(--acct-rail); }
+/* Provider forms are separate dialogs; retain the common scrolling settings
+   frame, without the old inline card border or account-column indentation. */
+.provider-dialog { width: min(660px, 94vw); }
+.provider-dialog > * { flex-shrink: 0; }
+.provider-dialog > .modalpin-bar { display: none; }
+.provider-dialog .ls-add { margin: 0; padding: 0; border: 0; }
+.provider-key-form { display: flex; flex-direction: column; gap: 10px; }
+.provider-key-form > input { min-width: 0; width: 100%; box-sizing: border-box; }
 .ls-find, .ls-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 6px 0; font-size: 12px; }
 /* the offered models: the favorites row's chips, in the lane's gold */
