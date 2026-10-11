@@ -17,9 +17,9 @@
 // the first whose `match` substrings all occur in the request's LAST user
 // turn (case-insensitive) answers it. A request whose last user turn carries
 // a tool result is answered by the first rule whose `afterCall` substrings
-// all occur in the arguments of the call that result answers (Responses
-// only), else by `afterTool` (default: the text "Done."); each such request
-// logs `tool_call` and `tool_output`, so a script can chain steps:
+// all occur in the arguments of the call that result answers, else by
+// `afterTool` (default: the text "Done."); each such request logs
+// `tool_call` (and, on Responses, `tool_output`), so a script can chain steps:
 //   { afterCall: ['STEP-1'], tool: 'exec_command', input: { cmd: 'echo STEP-2' } }
 // No rule matches: the text "OK.".
 //   { match: ['TOKEN'], tool: 'orgtree_status', input: { status: 'done', summary: '…' } }
@@ -55,6 +55,34 @@
 // 500 with llama.cpp's Jinja words and logs `strict_refused`. A rule with
 // `refuse: '<words>'` refuses its request that way whatever the mode.
 // Every request logs `auth_sha` (sha256 of its Authorization header, 12 hex).
+//
+// WINDOW (`window: N`): the server's context, the way llama.cpp's n_ctx
+// bounds a slot, counted here as a request's JSON characters / 4 (the same
+// count its usage reports). A request at or over it is refused the way
+// llama.cpp b11540 refuses it (400, "request (N tokens) exceeds the available
+// context size (W tokens), try increasing it", exceed_context_size_error) and
+// logs `overflow`; an answer that would run past it stops where the window
+// ends (Messages stop_reason "max_tokens", Responses status "incomplete") and
+// logs `cut`. A rule's `think: N` answers with N characters of reasoning
+// first (a thinking block; a Responses reasoning item), the way a reasoning
+// model thinks before it writes, so a cut can leave nothing but thinking.
+// `charsPerToken` (default 4) sets that count: 3 makes the server count more
+// tokens than a CLI estimates (a denser tokenizer than the CLI assumes).
+//
+// A MODEL'S HABITS, per rule: `withTool: true` answers a turn whose last user
+// message carries a tool result as well (a summary request after a tool
+// call); `toolIfOffered: { tool, input }` calls that tool instead of
+// answering whenever the request offers tools (a model that keeps working
+// rather than writing the summary it was asked for); and `think` is skipped
+// when the request turns thinking off (Messages `thinking.type: "disabled"`
+// or `chat_template_kwargs.enable_thinking: false`; Responses
+// `reasoning.effort: "none"`). `thinkingSwitches` names the switches this
+// server honours (default all: 'anthropic' the Messages thinking field,
+// 'template' chat_template_kwargs, 'effort' the Responses effort); llama.cpp
+// honours 'template' and 'effort' and ignores 'anthropic' (source 2026-10).
+// A rule's `respond: (lastText, whole) => reply` makes its reply from the
+// turn's text and the whole request (its JSON, as a model sees all of it).
+// Each request logs `offered` (tools) and `thinking_off`.
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -66,7 +94,9 @@ const MODEL = 'fake-model:latest'
 const id = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`
 
 export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool = { text: 'Done.' },
-  models = [{ name: MODEL, context: 131072, running: 65536 }], bodies = null, strict = false } = {}) {
+  models = [{ name: MODEL, context: 131072, running: 65536 }], bodies = null, strict = false, window = 0,
+  charsPerToken = 4, thinkingSwitches = ['anthropic', 'template', 'effort'] } = {}) {
+  const honours = (sw) => thinkingSwitches.includes(sw)
   models = models.map((m) => ({ ...m }))
   const requests = []
   const note = (r) => {
@@ -133,6 +163,25 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
         return 'After the optional system message, conversation roles must alternate user/assistant/user/assistant/...'
     }
     return null
+  }
+  // WINDOW (see the header): a request's size in the count its usage reports
+  const tokens = (b) => Math.ceil(JSON.stringify(b ?? {}).length / charsPerToken)
+  const reasoning = (n) => 'The model works through the conversation before it answers. '.repeat(Math.ceil(n / 60) || 1).slice(0, n)
+  /** the answer as far as the window lets it run: thinking first, then text */
+  function fit(input, think, text) {
+    if (!window) return { think, text, cut: false }
+    let room = Math.max(0, (window - input) * charsPerToken)
+    const t = think.slice(0, room)
+    room -= t.length
+    const x = text.slice(0, Math.max(0, room))
+    return { think: t, text: x, cut: t.length < think.length || x.length < text.length }
+  }
+  // llama.cpp's answer when a request does not fit the context
+  function overflow(req, res, api, b, n, said) {
+    note({ path: `/v1/${api}`, method: 'POST', ...auth(req), model: b?.model ?? null, overflow: { prompt: n, window },
+      body_file: keepBody(`${api}-overflow`, b), last_user: said.slice(-200) })
+    json(res, 400, { error: { code: 400, type: 'exceed_context_size_error', n_prompt_tokens: n, n_ctx: window,
+      message: `request (${n} tokens) exceeds the available context size (${window} tokens), try increasing it` } })
   }
   // llama.cpp's answer when the chat template raises
   function refuse(req, res, api, b, why, lastText) {
@@ -212,7 +261,14 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
   }
 
   /** the reply a request gets, from the last user turn's text */
-  function pick(lastText, toolResult, call = '') {
+  function pick(lastText, toolResult, call = '', body = null) {
+    const r = choose(lastText, toolResult, call)
+    return typeof r.respond === 'function' ? { ...r, ...r.respond(lastText ?? '', JSON.stringify(body ?? {})) } : r
+  }
+  function choose(lastText, toolResult, call) {
+    const said = (lastText ?? '').toLowerCase()
+    const over = rules.find((r) => r.withTool && !r.afterCall && (r.match ?? []).every((m) => said.includes(String(m).toLowerCase())))
+    if (toolResult && over) return over
     if (toolResult) {
       const c = call.toLowerCase()
       return rules.find((r) => r.afterCall && r.afterCall.every((m) => c.includes(String(m).toLowerCase()))) ?? afterTool
@@ -220,6 +276,16 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const t = (lastText ?? '').toLowerCase()
     return rules.find((r) => !r.afterCall && (r.match ?? []).every((m) => t.includes(String(m).toLowerCase()))) ?? { text: 'OK.' }
   }
+  /** a rule's reply as this request shapes it: a tool call when tools are
+   *  offered and the rule says so; no thinking when the request turns it off */
+  function habits(reply, offered, thinkingOff) {
+    let r = reply
+    if (r.toolIfOffered && offered) r = { ...r, tool: r.toolIfOffered.tool, input: r.toolIfOffered.input, think: r.think }
+    if (thinkingOff) r = { ...r, think: 0 }
+    return r
+  }
+  /** a cut inside the thinking ends the answer there: no tool call follows */
+  const ends = (reply, out) => (out.cut && reply.tool ? { ...reply, tool: undefined } : reply)
   /** the name the harness offered an orgtree tool under */
   const toolName = (names, want) => names.find((n) => n === want || n.endsWith(`__${want}`)) ?? want
 
@@ -234,39 +300,66 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const said = parts.filter((c) => c.type === 'text' && !reminder(c.text)).map((c) => c.text).join('\n')
     const names = (b?.tools ?? []).map((t) => t.name).filter(Boolean)
     const system = typeof b?.system === 'string' ? b.system : (b?.system ?? []).map((s) => s.text ?? '').join('\n')
-    const reply = pick(lastText, toolResult)
+    // the call a tool result answers: its input picks an `afterCall` rule
+    const answered = parts.filter((c) => c.type === 'tool_result').map((c) => c.tool_use_id)
+    const use = toolResult ? msgs.flatMap((m) => (m.role === 'assistant' && Array.isArray(m.content) ? m.content : []))
+      .filter((c) => c.type === 'tool_use' && answered.includes(c.id)).at(-1) : null
+    const call = use ? JSON.stringify(use.input ?? {}) : ''
+    const thinkingOff = (honours('anthropic') && b?.thinking?.type === 'disabled')
+      || (honours('template') && b?.chat_template_kwargs?.enable_thinking === false)
+    let reply = habits(pick(lastText, toolResult, call, b), names.length > 0, thinkingOff)
     const refusal = reply.refuse ?? (strict ? strictRefusal('messages', b) : null)
     if (refusal) return refuse(req, res, 'messages', b, refusal, said)
     // a slow server: the rule's delay before anything is sent
     if (reply.delay_ms && !waited) { setTimeout(() => messages(req, res, b, true), reply.delay_ms); return }
+    const input = tokens(b)
+    if (window && input >= window) return overflow(req, res, 'messages', b, input, said)
+    const out = fit(input, reasoning(reply.think ?? 0), reply.tool ? '' : (reply.text ?? 'OK.'))
+    reply = ends(reply, out)
     note({ path: '/v1/messages', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
       body_chars: JSON.stringify(b ?? {}).length, body_file: keepBody('messages', b),
       max_tokens: b?.max_tokens ?? null, thinking: b?.thinking ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, system_chars: system.length,
-      messages: msgs.length, tool_result: toolResult, last_user: said.slice(-200), reply })
-    const input = Math.ceil((JSON.stringify(b ?? {}).length) / 4)
+      messages: msgs.length, tool_result: toolResult, tool_call: toolResult ? call : null, last_user: said.slice(-200), reply,
+      usage_in: input, offered: names.length > 0, thinking_off: thinkingOff,
+      ...(window ? { window, cut: out.cut } : {}), ...(reply.think ? { think_chars: out.think.length, text_chars: out.text.length } : {}) })
     const block = reply.tool
       ? { type: 'tool_use', id: id('toolu'), name: toolName(names, reply.tool), input: {} }
       : { type: 'text', text: '' }
-    const stop = reply.tool ? 'tool_use' : 'end_turn'
+    const stop = out.cut ? 'max_tokens' : reply.tool ? 'tool_use' : 'end_turn'
+    const outTokens = Math.max(8, Math.ceil((out.think.length + out.text.length) / 4))
     const msgId = id('msg')
     if (!b?.stream) {
-      const content = reply.tool ? [{ ...block, input: reply.input ?? {} }] : [{ type: 'text', text: reply.text ?? 'OK.' }]
+      const content = [
+        ...(out.think ? [{ type: 'thinking', thinking: out.think, signature: 'fake' }] : []),
+        ...(reply.tool ? [{ ...block, input: reply.input ?? {} }] : out.text || !out.think ? [{ type: 'text', text: out.text }] : []),
+      ]
       return json(res, 200, { id: msgId, type: 'message', role: 'assistant', model: b?.model, content, stop_reason: stop,
-        stop_sequence: null, usage: { input_tokens: input, output_tokens: 8 } })
+        stop_sequence: null, usage: { input_tokens: input, output_tokens: outTokens } })
     }
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`)
     ev('message_start', { message: { id: msgId, type: 'message', role: 'assistant', model: b?.model, content: [],
       stop_reason: null, stop_sequence: null, usage: { input_tokens: input, output_tokens: 1 } } })
-    ev('content_block_start', { index: 0, content_block: block })
-    if (reply.tool) {
-      ev('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(reply.input ?? {}) } })
-    } else {
-      ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: reply.text ?? 'OK.' } })
+    let at = 0
+    if (out.think) {
+      ev('content_block_start', { index: at, content_block: { type: 'thinking', thinking: '', signature: '' } })
+      ev('content_block_delta', { index: at, delta: { type: 'thinking_delta', thinking: out.think } })
+      ev('content_block_delta', { index: at, delta: { type: 'signature_delta', signature: 'fake' } })
+      ev('content_block_stop', { index: at })
+      at++
     }
-    ev('content_block_stop', { index: 0 })
-    ev('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: 8 } })
+    // a cut inside the thinking leaves no text block at all
+    if (reply.tool || out.text || !out.think) {
+      ev('content_block_start', { index: at, content_block: block })
+      if (reply.tool) {
+        ev('content_block_delta', { index: at, delta: { type: 'input_json_delta', partial_json: JSON.stringify(reply.input ?? {}) } })
+      } else {
+        ev('content_block_delta', { index: at, delta: { type: 'text_delta', text: out.text } })
+      }
+      ev('content_block_stop', { index: at })
+    }
+    ev('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: outTokens } })
     ev('message_stop', {})
     res.end()
   }
@@ -283,13 +376,20 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const names = (b?.tools ?? []).map((t) => t.name ?? t.function?.name).filter(Boolean)
     // the call a tool result answers: its arguments pick an `afterCall` rule
     const call = toolResult ? input.find((x) => x.type === 'function_call' && x.call_id === lastItem.call_id) : null
-    const reply = pick(lastText, toolResult, call?.arguments ?? '')
+    const thinkingOff = (honours('effort') && b?.reasoning?.effort === 'none')
+      || (honours('template') && b?.chat_template_kwargs?.enable_thinking === false)
+    let reply = habits(pick(lastText, toolResult, call?.arguments ?? '', b), names.length > 0, thinkingOff)
     const refusal = reply.refuse ?? (strict ? strictRefusal('responses', b) : null)
     if (refusal) return refuse(req, res, 'responses', b, refusal, said)
     if (reply.delay_ms && !waited) { setTimeout(() => responses(req, res, b, true), reply.delay_ms); return }
+    const inputTokens = tokens(b)
+    if (window && inputTokens >= window) return overflow(req, res, 'responses', b, inputTokens, said)
+    const out = fit(inputTokens, reasoning(reply.think ?? 0), reply.tool ? '' : (reply.text ?? 'OK.'))
+    reply = ends(reply, out)
     // the usage this answer reports (Codex sums it into its thread total)
-    const usage = { input_tokens: Math.ceil(JSON.stringify(b ?? {}).length / 4), input_tokens_details: { cached_tokens: 0 },
-      output_tokens: 8, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 0 }
+    const usage = { input_tokens: inputTokens, input_tokens_details: { cached_tokens: 0 },
+      output_tokens: Math.max(8, Math.ceil((out.think.length + out.text.length) / 4)),
+      output_tokens_details: { reasoning_tokens: Math.ceil(out.think.length / 4) }, total_tokens: 0 }
     usage.total_tokens = usage.input_tokens + usage.output_tokens
     note({ path: '/v1/responses', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
       usage_in: usage.input_tokens, usage_out: usage.output_tokens,
@@ -299,7 +399,9 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
       store: b?.store ?? null, reasoning: b?.reasoning ?? null, tools: names.length,
       orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, instructions_chars: String(b?.instructions ?? '').length,
       items: input.length, tool_result: toolResult, last_user: said.slice(-200), reply,
-      tool_call: call?.arguments ?? null, tool_output: toolResult ? text(lastItem.output).slice(0, 2000) : null })
+      tool_call: call?.arguments ?? null, tool_output: toolResult ? text(lastItem.output).slice(0, 2000) : null,
+      offered: names.length > 0, thinking_off: thinkingOff,
+      ...(window ? { window, cut: out.cut } : {}), ...(reply.think ? { think_chars: out.think.length, text_chars: out.text.length } : {}) })
     const respId = id('resp')
     const created = Math.floor(Date.now() / 1000)
     const base = { id: respId, object: 'response', created_at: created, model: b?.model, output: [] }
@@ -309,31 +411,48 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
         arguments: JSON.stringify(reply.input ?? {}), status: 'completed' }
     } else {
       item = { type: 'message', id: id('msg'), status: 'completed', role: 'assistant',
-        content: [{ type: 'output_text', text: reply.text ?? 'OK.', annotations: [] }] }
+        content: [{ type: 'output_text', text: out.text, annotations: [] }] }
     }
-    if (!b?.stream) return json(res, 200, { ...base, status: 'completed', output: [item], usage })
+    const thought = out.think ? { type: 'reasoning', id: id('rs'), summary: [{ type: 'summary_text', text: out.think }] } : null
+    // a cut inside the reasoning leaves no message at all
+    const output = [...(thought ? [thought] : []), ...(reply.tool || out.text || !out.think ? [item] : [])]
+    const status = out.cut ? 'incomplete' : 'completed'
+    const ended = { ...base, status, output, usage, ...(out.cut ? { incomplete_details: { reason: 'max_output_tokens' } } : {}) }
+    if (!b?.stream) return json(res, 200, ended)
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     let seq = 0
     const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, sequence_number: seq++, ...data })}\n\n`)
     ev('response.created', { response: { ...base, status: 'in_progress' } })
     ev('response.in_progress', { response: { ...base, status: 'in_progress' } })
-    if (reply.tool) {
-      ev('response.output_item.added', { output_index: 0, item: { ...item, arguments: '', status: 'in_progress' } })
-      ev('response.function_call_arguments.delta', { item_id: item.id, output_index: 0, delta: item.arguments })
-      ev('response.function_call_arguments.done', { item_id: item.id, output_index: 0, arguments: item.arguments })
-      ev('response.output_item.done', { output_index: 0, item })
-    } else {
-      const t = item.content[0].text
-      ev('response.output_item.added', { output_index: 0, item: { ...item, status: 'in_progress', content: [] } })
-      ev('response.content_part.added', { item_id: item.id, output_index: 0, content_index: 0,
-        part: { type: 'output_text', text: '', annotations: [] } })
-      ev('response.output_text.delta', { item_id: item.id, output_index: 0, content_index: 0, delta: t })
-      ev('response.output_text.done', { item_id: item.id, output_index: 0, content_index: 0, text: t })
-      ev('response.content_part.done', { item_id: item.id, output_index: 0, content_index: 0,
-        part: { type: 'output_text', text: t, annotations: [] } })
-      ev('response.output_item.done', { output_index: 0, item })
+    let oi = 0
+    if (thought) {
+      ev('response.output_item.added', { output_index: oi, item: { ...thought, summary: [] } })
+      ev('response.reasoning_summary_part.added', { item_id: thought.id, output_index: oi, summary_index: 0,
+        part: { type: 'summary_text', text: '' } })
+      ev('response.reasoning_summary_text.delta', { item_id: thought.id, output_index: oi, summary_index: 0, delta: out.think })
+      ev('response.reasoning_summary_text.done', { item_id: thought.id, output_index: oi, summary_index: 0, text: out.think })
+      ev('response.reasoning_summary_part.done', { item_id: thought.id, output_index: oi, summary_index: 0,
+        part: { type: 'summary_text', text: out.think } })
+      ev('response.output_item.done', { output_index: oi, item: thought })
+      oi++
     }
-    ev('response.completed', { response: { ...base, status: 'completed', output: [item], usage } })
+    if (reply.tool) {
+      ev('response.output_item.added', { output_index: oi, item: { ...item, arguments: '', status: 'in_progress' } })
+      ev('response.function_call_arguments.delta', { item_id: item.id, output_index: oi, delta: item.arguments })
+      ev('response.function_call_arguments.done', { item_id: item.id, output_index: oi, arguments: item.arguments })
+      ev('response.output_item.done', { output_index: oi, item })
+    } else if (out.text || !out.think) {
+      const t = item.content[0].text
+      ev('response.output_item.added', { output_index: oi, item: { ...item, status: 'in_progress', content: [] } })
+      ev('response.content_part.added', { item_id: item.id, output_index: oi, content_index: 0,
+        part: { type: 'output_text', text: '', annotations: [] } })
+      ev('response.output_text.delta', { item_id: item.id, output_index: oi, content_index: 0, delta: t })
+      ev('response.output_text.done', { item_id: item.id, output_index: oi, content_index: 0, text: t })
+      ev('response.content_part.done', { item_id: item.id, output_index: oi, content_index: 0,
+        part: { type: 'output_text', text: t, annotations: [] } })
+      ev('response.output_item.done', { output_index: oi, item })
+    }
+    ev(out.cut ? 'response.incomplete' : 'response.completed', { response: ended })
     res.end()
   }
 
