@@ -1994,6 +1994,7 @@ else {
         coreLifecycle = new CoreLifecycle(engineOptions.binary, engineOptions.dataRoot, credentialBridge,
           () => ({origin: engine.origin, token: engine.token}), stopCoreApplication)
         await coreLifecycle.begin()
+        coreLifecycle.start()
       }
       if (app.isPackaged && !engineOptions.binary) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)
       // A boot-host engine (operator's scheduled task) publishes a verified
@@ -2079,17 +2080,23 @@ else {
             // Graceful and authenticated, with proof of exit - the stop an
             // update uses - so PostgreSQL shuts down cleanly. Then the task,
             // which the operator may start without elevation.
-            await coreLifecycle?.transition()
+            await coreLifecycle?.transition(true)
             await engine.stopAttachedForUpdate()
             await startBootTask()
             if (!await engine.reattachBackground(engineOptions, 120000)) {
               throw new Error('The background engine was restarted, but Orgtree has not reconnected to it yet. It keeps trying.')
             }
-            await coreLifecycle?.complete()
             if (engine.origin === initialOrigin) {
+              await coreLifecycle?.complete()
               for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
             }
-            else { await saveWindowLayout(); relaunchApp(); app.quit() }
+            else {
+              // The new desktop completes the bounded replacement. Quitting
+              // this old origin must not stop the engine we just attached to.
+              await saveWindowLayout()
+              coreLifecycle?.stop(); quitComplete = true
+              relaunchApp(); app.quit()
+            }
           } finally { backgroundEngineRestart = false; rebuildTray() }
         }
         return runAsAdministratorState()
