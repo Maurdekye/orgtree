@@ -72,4 +72,3 @@ module.exports = async (page, { org, args }) => {
   const badFrames = await page.eval(() => { window.orderSampling = false; return window.orderBadFrames })
   return { liveThought, liveSecond, final, finalThought, badFrames }
 }
-
