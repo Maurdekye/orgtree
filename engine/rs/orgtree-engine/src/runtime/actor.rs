@@ -4404,7 +4404,6 @@ impl Actor {
                         session_id = coalesce($6, session_id), inflight_at = NULL, last_denials = $7,
                         last_error = $8,
                         frozen = coalesce($10, frozen),
-                        limit_locked = coalesce(($10::jsonb->>'limit')::boolean, false) OR limit_locked,
                         extra = jsonb_set(extra, '{cost_seen}', to_jsonb($11::float8)),
                         row_version = row_version + 1
                   WHERE id = $1",

@@ -25,6 +25,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0017_langserver_secrets", include_str!("../migrations/0017_langserver_secrets.sql")),
     ("0018_document_viewed", include_str!("../migrations/0018_document_viewed.sql")),
     ("0019_net_transfers", include_str!("../migrations/0019_net_transfers.sql")),
+    ("0020_clear_legacy_limit_locks", include_str!("../migrations/0020_clear_legacy_limit_locks.sql")),
 ];
 
 #[logged]
