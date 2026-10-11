@@ -55,6 +55,10 @@ export default async function (rig) {
     r = await hire(name, index)
     p.check(`hire ${name} commits at explicit index`, r.ok && joined('boss') === expected && r.json.index === index, r.json)
   }
+  r = await reorder('boss', 'middle', 4)
+  p.check('agent reorder moves last using final index', r.ok && joined('boss') === 'first,alice,carol,last,middle', r.json)
+  r = await reorder('boss', 'middle', 2)
+  p.check('agent reorder moves to middle using final index', r.ok && joined('boss') === 'first,alice,middle,carol,last', r.json)
   for (const [i, bad] of [undefined, -1, 1.5, '1', null, false, 6].entries()) {
     await refusedWithoutWrites(`hire rejects index ${JSON.stringify(bad)} atomically`, () => hire(`bad-${i}`, bad), /index/)
   }
@@ -62,6 +66,8 @@ export default async function (rig) {
     await refusedWithoutWrites(`hire still requires explicit ${field}`, () => hire(`missing-${field.replaceAll('_', '-')}`, 0,
       { [field]: undefined }), /explicit|defaults/)
   }
+  await refusedWithoutWrites('explicit user destination cannot silently hire under caller', () => hire('bad-root-destination', 0,
+    { target: 'user' }), /only the user hires/)
   const staffArgs = { title: 'Ordering staff refusal', objective: 'Isolated ordering proof.', name: 'staff-bad', tier: 'haiku', grant: 0,
     charter: 'Isolated staff proof helper.', ...scope }
   const workCount = () => rig.one(`SELECT count(*)::int AS n FROM ot.work_items WHERE org_id=${orgId}`).n
@@ -81,8 +87,15 @@ export default async function (rig) {
   p.check('archived row index is null; live index counts full set before filtering', r.ok
     && r.json.nodes.find(a => a.name === 'carol')?.sibling_index === null
     && r.json.nodes.find(a => a.name === 'alice')?.sibling_index === sibs('boss').indexOf('alice'), r.json)
+  await refusedWithoutWrites('rehire refuses a supplied new-hire index', () => rig.tool('boss', 'orgtree_rehire', { node: 'carol', index: 0 }), /rehire retains/)
+  r = await rig.tool('boss', 'orgtree_rehire', { node: 'carol' })
+  p.check('rehire without index remains accepted', r.ok && sibs('boss').includes('carol'), r.json)
+  await rig.op({ op: 'retire', node: 'carol' })
   r = await hire('empty-first', 0, { target: 'bob' })
   p.check('hire index zero under empty parent succeeds', r.ok && joined('bob') === 'empty-first', r.json)
+  r = await hire('only-superior', 0, { hire_type: 'superior', target: 'empty-first', add_dirs: undefined, tools: undefined, org_visibility: undefined })
+  p.check('superior hire over only child accepts index zero', r.ok && joined('bob') === 'only-superior'
+    && joined('only-superior') === 'empty-first', r.json)
   r = await hire('superior-mid', 1, { hire_type: 'superior', target: 'middle', add_dirs: undefined, tools: undefined, org_visibility: undefined })
   p.check('superior hire index excludes anchor and reparents it', r.ok && sibs('boss')[1] === 'superior-mid'
     && joined('superior-mid') === 'middle' && !sibs('boss').includes('middle'), r.json)

@@ -35,8 +35,10 @@ its established exception. Non-agent/internal hires may still omit placement,
 using the historical append calculation. Existing user before/after reorder
 requests retain their midpoint behavior.
 
-Hire (including staff's hire) and reorder use serializable operation
-transactions and the existing bounded deadlock/serialization retry. Live
+Hire (including staff's hire), reorder and the existing sibling membership/order
+writers (rehire, moves, swaps, self-subjugation, retirement, dissolution and
+deletion) use serializable operation transactions and the existing bounded
+deadlock/serialization retry. Live
 siblings are fetched/locked in pages of 256. This protects concurrent empty,
 root, and ordinary sibling-set mutations without a global ordering lock.
 Placement and hire/docket/credit effects commit together, with no separate
@@ -59,3 +61,9 @@ tool-group denial against a disposable database and fake CLI.
 
 Execution and exact evidence will be recorded after the shared build slot is
 available. Source implementation alone is not measured runtime proof.
+
+Measured pre-proof check on source `559c862`: `cargo check --offline -j 2
+-p orgtree-engine` exits 0 in 4m17s using the owner's isolated C target.
+The clean rebase from `0e2b2c5` to `4fa41d4` has two `=` range-diff entries.
+The subsequent explicit-user-destination and topology-writer isolation
+refinements still require compilation and runtime proof.

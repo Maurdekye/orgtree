@@ -472,8 +472,11 @@ fn retryable(e: &anyhow::Error) -> bool {
 async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op: &str, req: &Value, fx: &mut Effects) -> Result<Value> {
     let mut client = engine.db.get().await?;
     // Position is chosen from a sibling snapshot. Predicate conflict detection
-    // protects empty/root sets and concurrent moves/hires; run retries 40001.
-    let isolation = if matches!(_op, "hire" | "reorder") {
+    // protects empty/root sets. Membership/order writers participate too,
+    // so a move/restore/archive cannot escape the placement snapshot.
+    // run retries 40001; no global topology lock is introduced.
+    let isolation = if matches!(_op, "hire" | "reorder" | "rehire" | "move" | "moves"
+        | "swap" | "self_subjugate" | "retire" | "dissolve" | "rescind" | "delete") {
         tokio_postgres::IsolationLevel::Serializable
     } else { tokio_postgres::IsolationLevel::ReadCommitted };
     let tx = client.build_transaction().isolation_level(isolation).start().await?;
@@ -828,7 +831,8 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             Some(p) => Some(node_by_id(tx, p).await?),
             None => None,
         },
-        (None, Some(p)) if p != "user" && p != "@user" => Some(node_by_name(tx, org.id, p).await?),
+        (None, Some("user" | "@user")) => None,
+        (None, Some(p)) => Some(node_by_name(tx, org.id, p).await?),
         _ => match actor {
             Actor::Agent { id, .. } => Some(node_by_id(tx, *id).await?),
             Actor::User => None,
