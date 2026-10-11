@@ -3770,7 +3770,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               The remaining pending mail is genuinely still waiting and stays
               at the bottom, after the live tail, where it is true. */}
           {viewPendNow.length > 0 && pendingDivider(pendWaiting)}
-          {viewPendNow.length > 0 && <PendingRun key={`${slug}/${node.id}/now`} count={viewPendNow.length}>
+          {viewPendNow.length > 0 && <PendingRun key={`${slug}/${node.id}/now`} count={viewPendNow.length}
+            onToggle={() => { if (stickRef.current) pin(); calcPin() }}>
             {viewPendNow.map(pendBubble)}
           </PendingRun>}
           {/* keyed on the server's row id (`n`), never the index: rows retire
@@ -3856,7 +3857,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               bottom. The one being delivered INTO the running turn was hoisted
               above the live tail — see pendNow. */}
           {viewPendNow.length === 0 && viewPendLater.length > 0 && pendingDivider(pendWaiting)}
-          {viewPendLater.length > 0 && <PendingRun key={`${slug}/${node.id}/later`} count={viewPendLater.length}>
+          {viewPendLater.length > 0 && <PendingRun key={`${slug}/${node.id}/later`} count={viewPendLater.length}
+            onToggle={() => { if (stickRef.current) pin(); calcPin() }}>
             {viewPendLater.map(pendBubble)}
           </PendingRun>}
           {/* №17 for GHOSTS (user bug 2026-09-03: "i sent an invalid command

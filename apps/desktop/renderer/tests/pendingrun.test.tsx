@@ -129,3 +129,26 @@ test('reply locate opens a collapsed pending target before scrolling and keeps i
   await refresh(slug)
   assert.equal(run.open, true)
 })
+
+test('disclosure keeps bottom follow but does not pull a reader who scrolled upward', async t => {
+  resetConvos(); localStorage.clear()
+  const slug = 'pending-run-follow', s = new FakeServer(); fill(s, 6); installFetch(s)
+  const view = await mountView(desk(slug), el => el)
+  t.after(async () => { await view.unmount(); resetConvos() })
+  await refresh(slug)
+  const run = runs(view.el)[0], scroller = view.el.querySelector<HTMLElement>('.msgs')!
+  // jsdom has no layout: model the disclosure's height change explicitly.
+  Object.defineProperties(scroller, {
+    scrollHeight: { configurable: true, get: () => run.open ? 1200 : 300 },
+    clientHeight: { configurable: true, value: 100 },
+  })
+  scroller.scrollTop = 300
+  await toggle(run)
+  assert.equal(scroller.scrollTop, 1200, 'the existing pin runs after native disclosure')
+  await inAct(() => {
+    scroller.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, deltaY: -100 }))
+    scroller.scrollTop = 75
+  })
+  await toggle(run)
+  assert.equal(scroller.scrollTop, 75, 'upward intent remains respected')
+})

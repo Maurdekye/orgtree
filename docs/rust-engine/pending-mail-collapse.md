@@ -19,16 +19,16 @@ Cards remain mounted inside the disclosure, retaining their content, individual
 folds, reply anchors, attachment links and retraction controls. This saves vertical
 space, not payload or DOM memory. Nothing is acknowledged, delivered or fetched by
 opening the group. Reply navigation opens a containing pending disclosure
-synchronously before scrolling to its target.
+synchronously before scrolling to its target. Disclosure changes call the desk's existing pin/header recalculation: only a reader already following the bottom is pinned.
 
 ## Verification
 
 Measured: TypeScript no-emit check passes. The new mounted `pendingrun` cases and
 existing `turnpend`, `pending-style`, `pendexpand`, `noticeborder`, `askhandoff`
-suites pass: 51 tests, zero failures. Tests cover five/six threshold, arrivals and
+suites pass: 52 tests, zero failures. Tests cover five/six threshold, arrivals and
 shrinking queues, retained card DOM, independent runs around a live response,
 deduplicated counts, typed notices, optimistic/failed send visibility, delivery
-handover, and reply-target reveal before scroll. Existing suites emit React act
+handover, reply-target reveal before scroll, and bottom-follow versus upward-scroll intent. Existing suites emit React act
 warnings. The test process is bounded to 2 GB, 120 seconds and one file at a time.
 
 No engine or live data was used. jsdom proves DOM state/order, not painted layout,
