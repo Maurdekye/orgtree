@@ -6,6 +6,9 @@ Measured on Windows, 2026-10-11, by agy-astra. Merge candidate: **3b3810f**, bas
 
 The release ancestry is merged and no application or test code changed. The engine and main-path rig checks pass. The full desktop and renderer suites are **not green**: all 57 failures also reproduced on 230039d. This report is evidence for review, not a release approval.
 
+Follow-up: [test repairs and green-suite verification](release-420-test-repairs.md)
+records the subsequent test-only fixes and their measured results.
+
 The 16 commits absent from rust-engine's ancestry did not mean their functional changes were absent. Inspection found the required behavior already on 230039d. Resolving the seven conflicted files in favor of the current candidate preserves both the released fixes and newer 4.2 behavior. The merge's net tree change is exactly docs/release-notes-4.1.2.md and docs/release-notes-4.1.3.md (27 lines). Version strings stay 4.2.0-alpha.8. The tag is now an ancestor.
 
 ## Preserved behavior
