@@ -167,6 +167,17 @@ uiTest('"Jump to the switchboard" lands exactly where the eye button does', asyn
   assert.ok(same(cam(host), viaMenu), `button ${show(cam(host))} vs menu ${show(viaMenu)}`)
 })
 
+uiTest('switchboard card Focus uses the same camera move as the HUD switchboard action', async host => {
+  await rightClick(host.querySelector('.sq.user')!)
+  await pick('Focus')
+  const viaMenu = cam(host)
+  assert.ok(host.querySelector('.eye-desk'))
+  await press(hud(host, HUD_FIT))
+  assert.ok(!same(cam(host), viaMenu))
+  await press(hud(host, HUD_SWITCHBOARD))
+  assert.ok(same(cam(host), viaMenu))
+})
+
 uiTest('"Focus last desk" focuses the most recently focused agent desk, named in the label', async (host, viewport) => {
   await clickCard(cardOf(host, 'ceo'))
   await press(hud(host, HUD_FIT))

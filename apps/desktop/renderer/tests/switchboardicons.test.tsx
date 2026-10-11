@@ -38,7 +38,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { EyeDesk, UserNode } from '../src/canvas/cards'
 import { SettingsPanel } from '../src/App'
-import { setAgentShortcutsOn, USER } from '../src/canvas/shared'
+import { setAgentShortcutsOn, USER, hireTierChoices, tierLabel } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult, TreePayload } from '../src/types'
 
@@ -253,6 +253,8 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
   const opened: string[] = []
   const view = await mountView(eye({
     onInbox: () => opened.push('inbox'), onGear: () => opened.push('gear'),
+    onFocus: () => opened.push('focus'), onDocket: () => opened.push('docket'),
+    onPresentations: () => opened.push('presentations'),
   }), (el) => el)
   t.after(async () => { await view.unmount() })
 
@@ -265,14 +267,56 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
   assert.equal(took, true, 'the eye must take the right-click, not leave it '
     + 'to the browser menu')
   assert.deepEqual(menuLabels(),
-    ['Open inbox', 'Org settings', 'Cheap-compact all agents…',
+    ['Focus', 'Hire an agent ▸', 'Open inbox', 'Open global docket', 'Open presentations', 'Org settings', 'Cheap-compact all agents…',
       'Halt all agents…', 'Retire all agents…'])
+
+  const menu = document.querySelector('.ctxmenu')!
+  const order = [...menu.children].map(e => e.getAttribute('role') === 'separator' ? 'sep' : e.textContent)
+  assert.equal(order.filter(x => x === 'sep').length, 1)
+  assert.equal(order[order.indexOf('Cheap-compact all agents…') - 1], 'sep', 'separator precedes lifecycle actions like agent menus')
+  for (const name of ['Open inbox', 'Open global docket', 'Open presentations'])
+    assert.equal(menuItem(name)!.getAttribute('aria-haspopup'), null, 'Open entries stay flat')
 
   await inAct(async () => { menuItem('Open inbox')!.click(); await flush(2) })
   assert.deepEqual(opened, ['inbox'])
   await rightClick(view.el.querySelector('.sq.user')!)
   await inAct(async () => { menuItem('Org settings')!.click(); await flush(2) })
   assert.deepEqual(opened, ['inbox', 'gear'])
+  for (const name of ['Focus', 'Open global docket', 'Open presentations']) {
+    await rightClick(view.el.querySelector('.sq.user')!)
+    await inAct(async () => { menuItem(name)!.click(); await flush(2) })
+  }
+  assert.deepEqual(opened, ['inbox', 'gear', 'focus', 'docket', 'presentations'])
+})
+
+test('switchboard hire uses the existing provider choices and opens the chosen draft callback only', async t => {
+  const spawned: string[] = []
+  const providers = {}
+  const view = await mountView(eye({ ...providers, onSpawn: tier => spawned.push(tier) }), el => el)
+  t.after(() => view.unmount())
+  await rightClick(view.el.querySelector('.sq.user')!)
+  await inAct(async () => { menuItem('Hire an agent ▸')!.click(); await flush(2) })
+  assert.deepEqual(spawned, [], 'opening tier choices never hires')
+  const items = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-submenu [role="menuitem"]')]
+  const choices = hireTierChoices(providers)
+  assert.deepEqual(items.map(b => ({ label: b.textContent, disabled: b.disabled })),
+    choices.map(c => ({ label: tierLabel(c.tier), disabled: c.offer !== 'offer' })))
+  const selected = choices.findIndex(c => c.offer === 'offer')
+  assert.ok(selected >= 0)
+  await inAct(async () => { items[selected].click(); await flush(2) })
+  assert.deepEqual(spawned, [choices[selected].tier])
+})
+
+test('switchboard Unhalt is non-dangerous like the agent menu, and missing optional routes are omitted', async t => {
+  const node = { id: 'paused', state: 'live', halt: { phase: 'halted' }, children: [] } as unknown as CanvasNode
+  const view = await mountView(eye({ map: new Map([[node.id, node]]) }), el => el)
+  t.after(() => view.unmount())
+  await rightClick(view.el.querySelector('.sq.user')!)
+  assert.ok(menuItem('Unhalt all agents…'))
+  assert.equal(menuItem('Unhalt all agents…')!.classList.contains('danger'), false)
+  assert.equal(menuItem('Focus')!.disabled, true)
+  assert.equal(menuItem('Open global docket'), undefined)
+  assert.equal(menuItem('Open presentations'), undefined)
 })
 
 test('§1e Retire all agents asks first, and only then sends the one request '

@@ -142,6 +142,9 @@ export interface OrgCanvasProps {
   agentList?: { current: AgentListSource | null }
   /** open the user's inbox, optionally jumped to a specific mail id */
   onInbox?: (jump?: string) => void
+  /** Open the current org's global docket and full presentations gallery. */
+  onDocket?: () => void
+  onPresentations?: () => void
   /** open the work docket at ONE item — a tool chip's docket link */
   onWorkItem?: (slug: string) => void
   /** D-199: open the accounts panel — the route out of the no-harness state,
@@ -421,7 +424,7 @@ export const HUD_FIT = 'fit the whole org'
 export const HUD_SWITCHBOARD = 'jump to the switchboard'
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
-export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
+export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
   renderOrgSlot, canvasContent = 'shown', agentList }: OrgCanvasProps) {
@@ -3891,6 +3894,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 onInbox?.()
               }}
               onGear={onOrgSettings}
+              onDocket={onDocket} onPresentations={onPresentations}
               onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
               /* switchboard panel headers mirror the desk header identically
                  (user spec 2026-08-19): the gen badge and gear in each panel

@@ -288,6 +288,32 @@ uiTest('§2 ENTER in the name field confirms the hire, with no click',
       'the hire fired but not with the typed name')
   })
 
+uiTest('switchboard Hire an agent opens the same draft and submits at root, never under an existing agent', async k => {
+  const { act: inAct } = await import('react')
+  const eye = k.host.querySelector('.sq.user')!
+  assert.ok(eye)
+  await inAct(async () => {
+    eye.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }))
+    await flush(2)
+  })
+  const hire = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find(b => b.textContent?.startsWith('Hire an agent'))!
+  assert.ok(hire)
+  await inAct(async () => { hire.click(); await flush(2) })
+  const tier = document.querySelector<HTMLButtonElement>('.ctxmenu-submenu [role="menuitem"]:not(:disabled)')!
+  assert.ok(tier)
+  await inAct(async () => { tier.click(); await flush(2) })
+  await advance(200)
+  assert.equal(k.ops.length, 0, 'choosing a tier opens a draft, not an immediate hire')
+  assert.ok(draftInput(k.host))
+  await k.type(draftInput(k.host)!, 'newbie')
+  await k.press('Enter')
+  assert.equal(k.ops.length, 1)
+  assert.equal(k.ops[0].op, 'hire')
+  assert.equal(k.ops[0].parent, null)
+  assert.equal(k.ops[0].above, undefined)
+})
+
 // ==========================================================================
 uiTest('§3 CTRL+ENTER confirms it too', async (k) => {
   await clickHireBadge(k.host)

@@ -1763,6 +1763,8 @@ export default function App() {
                    directly — so it is the same call the chrome's gear makes,
                    and lands on whichever tab was last open. */
                 onOrgSettings={() => toggleSurface('org-settings', showSettings, setShowSettings)}
+                onDocket={() => toggleSurface('docket', showDocket, setShowDocket)}
+                onPresentations={() => toggleSurface('gallery', showGallery, setShowGallery)}
                 onInbox={(jump: unknown) => {
                   if (typeof jump === 'string') {
                     // a targeted jump opens AND surfaces a pinned window —

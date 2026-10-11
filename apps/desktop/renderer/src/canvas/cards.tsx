@@ -43,6 +43,7 @@ import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { AgentBatchHaltConfirm, AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
+import { hireTierChoices } from './shared'
 import type { RetireKind } from './agentmenu'
 import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
@@ -76,6 +77,9 @@ interface UserNodeProps {
    *  the card, which appears only with agent-card shortcuts turned on, and
    *  the card's context menu, which does not depend on that setting. */
   onInbox?: () => void
+  /** Org-wide surfaces owned by the shell, not an arbitrary agent's views. */
+  onDocket?: () => void
+  onPresentations?: () => void
   /** open GENERAL org settings — the whole modal, not one of its tabs (user
    *  ruling 2026-09-11). When absent, the ⚙ and the menu entry both
    *  disappear rather than becoming dead controls. */
@@ -107,7 +111,7 @@ interface UserNodeProps {
 
 export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
   antigravityHire, openrouterHire, langserverHire,
-  pxc, zoom, onInbox, onGear, onSpawn,
+  pxc, zoom, onInbox, onDocket, onPresentations, onGear, onSpawn,
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
@@ -138,8 +142,23 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   // Retire-all is here and nowhere else on the canvas; its other door is the
   // Hire defaults tab in org settings.
   const menuEntries = (): MenuEntry[] => {
-    const entries: MenuEntry[] = []
+    // Same action order and lifecycle separator as agentMenuEntries. The user
+    // explicitly keeps this menu's three Open actions flat (2026-10-11).
+    const choices = hireTierChoices({ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire })
+    const entries: MenuEntry[] = [
+      { label: 'Focus', onSelect: () => onFocus?.(), disabled: !onFocus },
+      { label: 'Hire an agent', title: 'Choose a tier to open its hire form',
+        submenuOnly: true, disabled: choices.length === 0, onSelect: () => {},
+        children: choices.map(({ tier, offer, reason }) => ({
+          label: tierLabel(tier), disabled: offer !== 'offer',
+          title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire at the top level` : reason,
+          onSelect: () => onSpawn(tier),
+        })),
+      },
+    ]
     if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox() })
+    if (onDocket) entries.push({ label: 'Open global docket', onSelect: () => onDocket() })
+    if (onPresentations) entries.push({ label: 'Open presentations', onSelect: () => onPresentations() })
     if (onGear) {
       entries.push({ label: 'Org settings',
         title: 'the whole settings modal — hire defaults are a tab of it',
@@ -147,7 +166,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     }
     // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx).
     // Each target still runs the normal op and its checks.
-    entries.push({
+    entries.push('sep', {
       label: 'Cheap-compact all agents…', warning: true,
       title: 'give every live agent a fresh session; old sessions stay '
         + 'consultable, mid-turn agents are skipped',
@@ -155,10 +174,10 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     })
     const targets = allAgents(map)
     const unhalt = targets.length > 0 && targets.every((n) => n.halt?.phase === 'halted')
-    entries.push({ label: unhalt ? 'Unhalt all agents…' : 'Halt all agents…', danger: true,
+    entries.push({ label: unhalt ? 'Unhalt all agents…' : 'Halt all agents…', danger: !unhalt,
       disabled: !targets.length, title: `${unhalt ? 'Release' : 'Halt'} all ${targets.length} live agents`,
       onSelect: () => setAskingHaltAll(unhalt) })
-    entries.push('sep', {
+    entries.push({
       label: 'Retire all agents…', danger: true,
       title: 'retires every agent in the org at once; context is kept',
       onSelect: () => setAskingRetireAll(true),
