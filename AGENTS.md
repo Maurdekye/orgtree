@@ -46,6 +46,17 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   regression](docs/rust-engine/startup-toggle-acceptance.md).
   [verified from source-composition regression and live saved-state differential,
   2026-10-11; packaged native repaint remains a next-alpha verification limit]
+- **Run on startup** changes one at a time (`changeRunOnStartup`, tray and
+  Settings alike). The checkmark is the SAVED value. It changes only once the
+  change has finished: about 2 s in a non-elevated stand-in, never measured
+  after a real Yes. Until then the tray item is disabled and reads "Run on
+  startup (changing…)". The pending flag is
+  set before anything asynchronous and cleared only in that change's `finally`.
+  A second request is refused without touching it. Never show the new value
+  early, and never force an open menu closed: a menu open when a change begins
+  or ends is rebuilt after it closes.
+  [decided: lead-astra 2026-10-11 20:00Z; verified: tests/startup-tray.test.mjs
+  on the real closures; native menu view unverified (agents run in Session 0)]
 
 
 - Antigravity Claude 5.5 uses separate `agy-sonnet` / `agy-opus` tiers (seats
