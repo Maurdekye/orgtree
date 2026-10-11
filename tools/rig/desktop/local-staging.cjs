@@ -53,7 +53,7 @@ module.exports=async page=>{
     const row=[...document.querySelectorAll('.cmp-modal [data-saved-file]')].find(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file'))
     row.querySelector('button').click()
   })
-  await page.waitFor(()=>[...document.querySelectorAll('.badge.free')].some(x=>x.innerText.includes('compose.bin') && x.innerText.includes('Attach saved file')))
+  await page.waitFor(()=>[...document.querySelectorAll('.cmp-modal .badge.free')].some(x=>x.innerText.includes('compose.bin')))
   await page.eval(()=>[...document.querySelectorAll('.badge.free')].find(x=>x.innerText.includes('compose.bin')).scrollIntoView({block:'nearest'}))
   await page.screenshot('recovered-after-reload')
   await attach('.cmp-modal input[type=file]','closed-panel.bin')
