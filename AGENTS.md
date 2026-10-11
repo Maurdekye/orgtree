@@ -118,9 +118,18 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Busy pipe/slot bursts wait briefly and never mark a broker dead. Startup
   reclaims stale static shim links; see the Antigravity terminal verification
   limit in the bridge document. Its routes bypass wire logging. Never persist bridge
-  secrets or pass the desktop token to agents. No separate startup helper.
+  secrets or pass the desktop token to agents. The sign-in helper is described below.
   [recorded-decision and verified-from-source: 2026-10-07; DECISIONS 51;
   `docs/rust-engine/credential-bridge.md`]
+
+- Windows Codex hosting has a separate leased host slot: the sign-in helper can
+  host sandboxed seats while the desktop retains the credential bridge. Git uses
+  native askpass after the existing helpers; unknown prompts and bridge misses
+  retain original askpass precedence. Explicit credential.interactive=false/never
+  disables bridge lookup. Production sandbox network policy is unchanged;
+  network Git still requires escalation. [verified: 2026-10-11;
+  `engine/rs/orgtree-engine/src/credential_bridge.rs`, `credential_bridge/askpass.rs`;
+  details and measured limits: `docs/rust-engine/sandbox-git-credentials.md`]
 
 - Cold-turn admission and forecasts share the measured-context threshold gate.
   Compatible receipts carry an expiry verdict for the composer's shared clock;

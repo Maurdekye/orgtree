@@ -33,15 +33,21 @@ commands ask signed-in Electron main for the user's configured credentials.
   opens retry ERROR_PIPE_BUSY every 25 ms for at most one second. Busy exhaustion
   and the desktop's explicit saturation response never withdraw broker readiness. Broker commands have six-second timeouts and no interactive
   credential prompts. Failures never echo tool stderr or credential bytes.
-- Git gets one process-local GIT_CONFIG_* helper entry appended to its normal
-  helper chain; no empty helper reset and no gitconfig edit. Existing helpers
-  retain precedence. An unavailable broker returns an empty successful helper
-  answer, allowing later helpers to continue; it never disables native helpers. The adapter supports HTTPS get only; store
-  and erase do nothing. Desktop runs its real git credential fill with the exact
-  host/path/username and its own normal helper configuration, from its home
-  directory, removing recursive adapter/askpass overrides. Only username/password
-  are returned. The user's credential manager may manage its own existing store;
-  Orgtree itself never persists a credential.
+- Git gets a native `GIT_ASKPASS` executable alias and process-local
+  `credential.sanitizePrompt=true`; no helper reset or gitconfig edit. All existing
+  helpers retain precedence. The adapter parses only recognized HTTPS prompts,
+  preserving encoded host/path/username, and asks the same bridge endpoint.
+  A bridge miss or unknown prompt falls through to the original GIT_ASKPASS,
+  core.askPass, then SSH_ASKPASS, including explicit empty overrides. Terminal
+  prompting stays disabled. `credential.interactive=false/never` deliberately
+  prevents bridge lookup too. Store/erase remain with Git's configured helpers;
+  measured get/store calls are identical to the former appended bridge helper.
+  Desktop runs its real git credential fill with its normal helper configuration
+  from its home directory, removing recursive adapter/askpass overrides. Only
+  username/password are returned. Orgtree never persists credentials. Native
+  askpass avoids the MSYS signal-pipe failure inside the Codex Windows sandbox;
+  existing helpers can still print MSYS diagnostics before askpass succeeds.
+  See [sandbox Git evidence](sandbox-git-credentials.md).
 - PATH puts gh.exe (a hardlink, or complete atomic copy, of the engine adapter)
   ahead of the original absolute gh executable. On each invocation it selects the
   host from GH_HOST, repository origin or explicit hostname/repository arguments,
