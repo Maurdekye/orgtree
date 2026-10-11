@@ -149,9 +149,10 @@ export default async function (rig, { flags }) {
     await refuse(`failed ${table} insertion rolls back binding/freeze/pending/audit/mail`, 'primary', /write failure|database|db error|internal/i, http)
     rig.exec(`DROP TRIGGER proof_continuation_fail ON ot.${table}; DROP FUNCTION ot.proof_continuation_fail()`)
   }
+  const beforeRegistered = rig.turns('mira').length
   const registered = await tool(C)
   p.check('ordinary registered-account continuation preserved', registered.ok && seat().account === C && !seat().frozen, registered)
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE agent_id=${id} AND ended_at IS NULL`).length === 0, { what: 'last turn settled' })
+  if (registered.ok) await rig.waitTurns('mira', beforeRegistered + 1, { timeout: 60000 })
   // Native mark with unknown usage: no reading can mean zero or clear that mark.
   const A = (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'imported',
     path: path.join(rig.data, 'rig-home', '.codex') })).id
