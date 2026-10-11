@@ -1033,7 +1033,7 @@ pub async fn on_inbound(engine: &Arc<Engine>, org_id: i64, from: &str, body: &st
              On your PC, click New code and scan again.\n\nSetup code: {code} expired"
         ),
     };
-    if let Err(e) = crate::net::queue(engine, org_id, from, &reply, "orgtree", "message", &[], None).await {
+    if let Err(e) = crate::net::queue(engine, org_id, from, &reply, "orgtree", None, "message", &[], None).await {
         tracing::warn!(error = %format!("{e:#}"), %from, "the setup code answer could not be queued");
     }
 }
