@@ -294,6 +294,7 @@ async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> R
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
         || path.ends_with("/upload")
+        || path.contains("/org_inbox/staging/")
         || path.ends_with("/file")
         || path.contains("/toolimg/")
         || path.contains("/toolinput/")
