@@ -9,6 +9,26 @@ pub fn enabled(tools: &Value, group: &str) -> bool {
     tools.get("orgtree").and_then(|g| g.get(group)).and_then(Value::as_bool).unwrap_or(true)
 }
 
+/// Reject misspelled or non-boolean grants at mutation boundaries. A missing
+/// group remains compatible with existing scopes; invalid input is not a grant.
+#[logged]
+pub fn validate(tools: &Value) -> anyhow::Result<()> {
+    if let Some(groups) = tools.get("orgtree") {
+        let Some(groups) = groups.as_object() else {
+            crate::refuse!(BadRequest, "tools.orgtree must be an object of group switches");
+        };
+        for (name, value) in groups {
+            if !GROUPS.contains(&name.as_str()) {
+                crate::refuse!(BadRequest, "unknown Orgtree tool group {name}");
+            }
+            if !value.is_boolean() {
+                crate::refuse!(BadRequest, "tools.orgtree.{name} must be true or false");
+            }
+        }
+    }
+    Ok(())
+}
+
 #[logged]
 pub fn normalize(tools: &Value) -> Value {
     Value::Object(GROUPS.iter().map(|g| ((*g).to_owned(), json!(enabled(tools, g)))).collect())
@@ -69,6 +89,15 @@ pub fn schema() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_group_grants_are_refused() {
+        for bad in [json!({"orgtree":null}), json!({"orgtree":{"docket":"false"}}), json!({"orgtree":{"typo":false}})] {
+            assert!(validate(&bad).is_err());
+        }
+        assert!(validate(&json!({})).is_ok());
+        assert!(validate(&json!({"orgtree":{"docket":false}})).is_ok());
+    }
 
     #[test]
     fn every_served_tool_has_a_group_and_status_survives_all_off() {

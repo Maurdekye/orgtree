@@ -792,6 +792,7 @@ async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&N
 
 #[logged]
 async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    super::tool_groups::validate(&req["tools"])?;
     let name = valid_name(str_arg(req, "name").unwrap_or(""))?;
     let tier = str_arg(req, "tier").unwrap_or("").to_string();
     let seat = seat_of(engine, &tier)?;
@@ -965,6 +966,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
 
 #[logged]
 async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    super::tool_groups::validate(&req["tools"])?;
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if n.state == "live" {
         // asking for what is already true is a no-op, not an error (3.x)
@@ -1992,6 +1994,7 @@ enum Dirs {
 #[allow(clippy::too_many_arguments)]
 #[logged]
 async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, preauthorized: bool, dirs_mode: Dirs) -> Result<Value> {
+    super::tool_groups::validate(&req["tools"])?;
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     let own = matches!(actor, Actor::Agent { id, .. } if *id == n.id);
     if own {

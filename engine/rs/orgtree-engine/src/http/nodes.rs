@@ -467,6 +467,7 @@ pub(crate) async fn apply_user_scope_in_tx(
     let row = tx
         .query_one("SELECT scope, charter, team_charter, tier FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
+    crate::domain::tool_groups::validate(&b["tools"])?;
     let before: Value = row.get(0);
     let mut sc = scope::normalize(&before);
     let obj = sc.as_object_mut().unwrap();
