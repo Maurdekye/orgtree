@@ -65,19 +65,23 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
     out
 }
 
-/// A lane that bills no account: OpenRouter's stored key, or the user's own
-/// language servers. Its hires name no account and need no sign-in.
+/// A lane that bills no account: the user's own language servers. Its hires
+/// name no account and need no sign-in. (OpenRouter's keys are accounts
+/// since several keys, ruling 2026-10-11: an unbound seat bills the
+/// original key, the way another provider's bills its own login.)
 #[nolog]
 fn accountless(provider: &str) -> bool {
-    provider == catalog::OPENROUTER || provider == catalog::LANGSERVER
+    provider == catalog::LANGSERVER
 }
 
 /// `host_ready`, and the org has not switched that lane off (its provider's
-/// own login, or the OpenRouter / language-server lane of an accountless tier).
+/// own login, OpenRouter's original key, or a language server's lane).
 #[logged]
 fn host_for(engine: &Engine, org_slug: &str, tier: &str, provider: &str) -> bool {
     let lane = crate::org_accounts::tier_lane(engine, tier).unwrap_or_else(|| crate::org_accounts::primary(provider));
-    host_ready(engine, provider) && crate::org_accounts::allowed(Some(org_slug), &lane)
+    // an unbound OpenRouter seat needs the original key stored
+    let original = provider != catalog::OPENROUTER || engine.accounts.view().get(crate::openrouter::ACCOUNT_ID).is_some();
+    original && host_ready(engine, provider) && crate::org_accounts::allowed(Some(org_slug), &lane)
 }
 
 /// Whether a hire that names no account can run `provider`: the host login
@@ -137,13 +141,22 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
         .into_iter()
         .filter(|a| {
             a.provider == provider
+                // the original OpenRouter key is the default (`default_ok`), not a pick
+                && a.id != crate::openrouter::ACCOUNT_ID
                 && a.available_to(Some(org_slug))
                 && crate::accounts::active(engine, provider, Some(a))
                 && a.auth != "signed_out"
                 && a.limited_for(tier, now).is_none()
                 && crate::usage::at_limit(engine, Some(a), tier).is_none()
         })
-        .map(|a| json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email }))
+        .map(|a| {
+            let mut v = json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email });
+            // an OpenRouter key has no email: the pickers show its name
+            if a.provider == catalog::OPENROUTER {
+                v["label"] = json!(crate::openrouter::display(engine, a));
+            }
+            v
+        })
         .collect();
     out.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
     out

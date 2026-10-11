@@ -73,7 +73,8 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
         || crate::accounts::ambient_dir(&provider, config_dir.as_deref()) {
         refuse!(Conflict, "{id} is a primary account and cannot be removed");
     }
-    if !matches!(provider.as_str(), "claude" | "openai" | "google") {
+    // an added OpenRouter key's agents move to the original key (its primary)
+    if !matches!(provider.as_str(), "claude" | "openai" | "google" | "openrouter") {
         refuse!(Conflict, "{id} has no provider primary to move its bindings to");
     }
     let mut out = None;

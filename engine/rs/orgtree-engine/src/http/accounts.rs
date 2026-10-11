@@ -546,6 +546,82 @@ pub async fn openrouter_key_clear(State(e): State<Arc<Engine>>) -> ApiResult<Jso
     Ok(Json(crate::openrouter::doc(&e, false).await))
 }
 
+/// A key row added, renamed, replaced or removed: every surface that lists
+/// keys or offers tiers follows (providers, staffing options, the usage
+/// board, the panel's document).
+#[logged]
+async fn openrouter_keys_mutated(e: &Arc<Engine>, read: Option<&str>) {
+    crate::accounts::publish(e);
+    crate::providers::publish(e);
+    for o in e.orgs.all() {
+        crate::changes::notify(e, &o, vec![crate::changes::Change::Tiers]);
+    }
+    // the changed key is read now, so its row is on the board at once
+    if let Some(id) = read {
+        let _ = usage::openrouter_key_usage(e, id, true).await;
+    }
+    usage::refresh_openrouter(e, false).await;
+}
+
+#[derive(Deserialize)]
+pub struct AddKeyBody {
+    key: String,
+    label: Option<String>,
+}
+
+impl std::fmt::Debug for AddKeyBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AddKeyBody {{ key: *****, label: {:?} }}", self.label)
+    }
+}
+
+/// `POST /api/openrouter/keys`: add a key beside the others (the body is a
+/// secret: not logged). Answers the panel's document and the new key's id.
+pub async fn openrouter_key_add(State(e): State<Arc<Engine>>, Json(b): Json<AddKeyBody>) -> ApiResult<Json<Value>> {
+    tracing::info!(label = ?b.label, "add OpenRouter key");
+    let id = crate::openrouter::add_key(&e, &b.key, b.label.as_deref()).await?;
+    openrouter_keys_mutated(&e, Some(&id)).await;
+    let mut doc = crate::openrouter::doc(&e, id == crate::openrouter::ACCOUNT_ID).await;
+    doc["added"] = json!(id);
+    doc["added_lane"] = json!(crate::openrouter::lane(&id));
+    Ok(Json(doc))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateKeyBody {
+    key: Option<String>,
+    label: Option<String>,
+}
+
+impl std::fmt::Debug for UpdateKeyBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UpdateKeyBody {{ key: {}, label: {:?} }}", if self.key.is_some() { "*****" } else { "None" }, self.label)
+    }
+}
+
+/// `PUT /api/openrouter/keys/{id}`: rename a key (`label`, empty clears it)
+/// and/or replace its secret (`key`; the body is a secret: not logged).
+pub async fn openrouter_key_update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<UpdateKeyBody>) -> ApiResult<Json<Value>> {
+    let id = crate::openrouter::id_of_lane(&id);
+    tracing::info!(key = %id, replace = b.key.is_some(), label = ?b.label, "update OpenRouter key");
+    crate::openrouter::update_key(&e, &id, b.key.as_deref(), b.label.as_deref()).await?;
+    let replaced = b.key.as_deref().is_some_and(|k| !k.trim().is_empty());
+    openrouter_keys_mutated(&e, replaced.then_some(id.as_str())).await;
+    Ok(Json(crate::openrouter::doc(&e, replaced && id == crate::openrouter::ACCOUNT_ID).await))
+}
+
+/// `DELETE /api/openrouter/keys/{id}`: remove a key. An added key's agents
+/// and defaults move to the original key first (the registry's removal).
+#[logged]
+pub async fn openrouter_key_remove(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let id = crate::openrouter::id_of_lane(&id);
+    let out = crate::openrouter::remove_key(&e, &id).await?;
+    openrouter_keys_mutated(&e, None).await;
+    let mut doc = crate::openrouter::doc(&e, false).await;
+    doc["removed"] = out;
+    Ok(Json(doc))
+}
+
 #[derive(Deserialize, Debug)]
 pub struct HarnessBody {
     harness: String,

@@ -287,7 +287,10 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
     // already filtered on their own); a move nobody asked for needs proof of
     // room in the login's reading (3.x `account_fallback.capacity`)
     for id in &candidates {
-        let Some(a) = view.get(id).filter(|a| !a.is_apikey() && (subs || !crate::accounts::is_ambient(a))).cloned() else { continue };
+        // every OpenRouter login is a key, read like a subscription's room
+        let Some(a) = view.get(id)
+            .filter(|a| (!a.is_apikey() || a.provider == crate::providers::catalog::OPENROUTER) && (subs || !crate::accounts::is_ambient(a)))
+            .cloned() else { continue };
         // a slow or hung provider proves nothing: that login is skipped
         if tokio::time::timeout(FALLBACK_READ, crate::usage::registered(engine, &a, false)).await.is_err() {
             tracing::info!(account = %a.id, tier, "account fallback: the usage read timed out; no proven room");

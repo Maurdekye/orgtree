@@ -511,8 +511,9 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
             let mut note = note;
             let account = offer.and_then(|o| {
                 let fits = |a: &str| (a == "primary" && o.default_ok) || o.accounts.iter().any(|x| x == a);
-                // OpenRouter bills its key; a language server bills nobody
-                if o.provider == catalog::OPENROUTER || o.provider == catalog::LANGSERVER {
+                // a language server bills nobody (an OpenRouter tier is placed
+                // on its keys like any login: `primary` is the original key)
+                if o.provider == catalog::LANGSERVER {
                     None
                 } else if let Some(a) = s.account.as_ref().filter(|a| fits(a)) {
                     Some(a.clone())

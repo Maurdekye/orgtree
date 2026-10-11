@@ -226,14 +226,18 @@ pub fn codex_usage_url() -> Option<String> {
 }
 
 /// The OpenRouter key check in rig mode: what
-/// `<root>\rig-home\rig-usage\openrouter-key.json` says — `{"status": 200,
-/// "data": {...}}` (the key is accepted) or `{"status": 401}` (refused) — and
-/// no network when there is no such file. None outside rig mode (the real check).
+/// `<root>\rig-home\rig-usage\openrouter-key@<lane>.json` (one key's own,
+/// e.g. `openrouter-key@openrouter-2.json`), else `openrouter-key.json`, says
+/// — `{"status": 200, "data": {...}}` (the key is accepted) or
+/// `{"status": 401}` (refused) — and no network when there is no such file.
+/// None outside rig mode (the real check).
 #[logged]
-pub fn openrouter_key() -> Option<std::result::Result<serde_json::Map<String, serde_json::Value>, (bool, String)>> {
+pub fn openrouter_key(lane: &str) -> Option<std::result::Result<serde_json::Map<String, serde_json::Value>, (bool, String)>> {
     let home = RIG.get().cloned().flatten()?;
-    let canned = std::fs::read(home.join("rig-usage").join("openrouter-key.json"))
-        .ok()
+    let dir = home.join("rig-usage");
+    let canned = [dir.join(format!("openrouter-key@{lane}.json")), dir.join("openrouter-key.json")]
+        .iter()
+        .find_map(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
     Some(match canned {
         None => Err((false, "rig mode: no network".into())),

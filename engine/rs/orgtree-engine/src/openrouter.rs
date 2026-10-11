@@ -31,24 +31,247 @@ const USER_AGENT: &str = concat!("orgtree-engine/", env!("CARGO_PKG_VERSION"));
 type Catalog = Option<(Instant, Arc<Vec<Value>>)>;
 static CATALOG: LazyLock<ArcSwap<Catalog>> = LazyLock::new(|| ArcSwap::from_pointee(None));
 
-/// The stored key (a secret: never logged, never returned to a window).
-pub async fn key(engine: &Engine) -> Option<String> {
+// ------------------------------------------------------------ the keys
+//
+// Several keys at once (ruling 2026-10-11, docket
+// use-several-openrouter-keys-at-once): each key is a hidden registry row
+// (provider `openrouter`, kind `apikey`) with its secret in
+// `ot.account_secrets`. The original key keeps its row `openrouter-key` and
+// its lane `openrouter`; an added key is `openrouter-N` and its lane is its
+// id. An OpenRouter seat with no binding bills the original key.
+
+/// The lane the original key is named by wherever a lane is named (the org
+/// account list, the usage board, the usage cache and its history).
+pub const LANE: &str = "openrouter";
+/// The longest name a key may be given.
+const KEY_LABEL_MAX: usize = 80;
+
+/// The lane of an OpenRouter key row: the original key keeps `openrouter`,
+/// an added key is its own id.
+#[nolog]
+pub fn lane(id: &str) -> String {
+    if id == ACCOUNT_ID { LANE.to_string() } else { id.to_string() }
+}
+
+/// The key row behind a lane name (`lane`'s inverse).
+#[nolog]
+pub fn id_of_lane(lane: &str) -> String {
+    if lane == LANE { ACCOUNT_ID.to_string() } else { lane.to_string() }
+}
+
+/// The key row an OpenRouter seat bills: an OpenRouter key it is bound to
+/// (an id the registry no longer holds included, so the launch says so
+/// rather than billing another key), else the original key (no binding,
+/// `primary`, or a binding to another provider's login).
+#[nolog]
+pub fn seat_key(engine: &Engine, account: Option<&str>) -> String {
+    match crate::accounts::choice(account) {
+        crate::accounts::Choice::Account(id) if id == LANE => ACCOUNT_ID.to_string(),
+        crate::accounts::Choice::Account(id) => match engine.accounts.view().get(&id) {
+            Some(a) if a.provider != crate::providers::catalog::OPENROUTER => ACCOUNT_ID.to_string(),
+            _ => id,
+        },
+        _ => ACCOUNT_ID.to_string(),
+    }
+}
+
+/// Every stored key row: the original first, then the added ones in the
+/// order they were added.
+#[nolog]
+pub fn keys(engine: &Engine) -> Vec<crate::accounts::AccountInfo> {
+    let view = engine.accounts.view();
+    let mut out: Vec<_> = view.all().into_iter().filter(|a| a.provider == crate::providers::catalog::OPENROUTER).cloned().collect();
+    out.sort_by_key(|a| (a.id != ACCOUNT_ID, a.ord, a.id.clone()));
+    out
+}
+
+/// Whether any key is stored (the lane is offered).
+#[nolog]
+pub fn any_key(engine: &Engine) -> bool {
+    engine.accounts.view().all().iter().any(|a| a.provider == crate::providers::catalog::OPENROUTER)
+}
+
+/// The name the user gave a key, if any (the original row was created with
+/// the placeholder "OpenRouter", which is no name).
+#[nolog]
+pub fn user_label(a: &crate::accounts::AccountInfo) -> Option<String> {
+    let l = a.label.trim();
+    (!l.is_empty() && !(a.id == ACCOUNT_ID && l == "OpenRouter")).then(|| l.to_string())
+}
+
+/// What a key is called: the user's name for it, else the label
+/// openrouter.ai reports for it (its last reading), else "OpenRouter key N"
+/// by its place in the list.
+#[nolog]
+pub fn display(engine: &Engine, a: &crate::accounts::AccountInfo) -> String {
+    if let Some(l) = user_label(a) {
+        return l;
+    }
+    if let Some(l) = crate::usage::openrouter_reading(engine, &lane(&a.id))
+        .and_then(|v| v["key_label"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string))
+    {
+        return l;
+    }
+    let n = keys(engine).iter().position(|k| k.id == a.id).map(|i| i + 1).unwrap_or(1);
+    format!("OpenRouter key {n}")
+}
+
+/// A key row's secret (never logged, never returned to a window).
+pub async fn key_of(engine: &Engine, id: &str) -> Option<String> {
     let client = engine.db.get().await.ok()?;
     client
-        .query_opt("SELECT secret FROM ot.account_secrets WHERE account_id = $1", &[&ACCOUNT_ID])
+        .query_opt(
+            "SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts a ON a.id = s.account_id
+              WHERE s.account_id = $1 AND a.provider = 'openrouter'",
+            &[&id],
+        )
         .await
         .ok()
         .flatten()
         .map(|r| r.get(0))
 }
 
-/// Store a pasted key (store first: it is the user's only copy here).
+/// The original key (a secret: never logged, never returned to a window).
+pub async fn key(engine: &Engine) -> Option<String> {
+    key_of(engine, ACCOUNT_ID).await
+}
+
+#[nolog]
+fn clean_label(label: Option<&str>) -> Result<Option<String>> {
+    let Some(l) = label.map(str::trim) else { return Ok(None) };
+    if l.chars().count() > KEY_LABEL_MAX {
+        crate::refuse!(BadRequest, "a key's name is at most {KEY_LABEL_MAX} characters");
+    }
+    Ok(Some(l.to_string()))
+}
+
+/// The key row already holding this secret, other than `except`. Not
+/// logged: it takes the key.
+async fn holder_of(client: &tokio_postgres::Client, key: &str, except: Option<&str>) -> Result<Option<String>> {
+    Ok(client
+        .query_opt(
+            "SELECT a.id FROM ot.account_secrets s JOIN ot.accounts a ON a.id = s.account_id
+              WHERE a.provider = 'openrouter' AND s.secret = $1 AND a.id IS DISTINCT FROM $2 LIMIT 1",
+            &[&key, &except],
+        )
+        .await?
+        .map(|r| r.get(0)))
+}
+
+/// After a key row was added, replaced or removed: the registry snapshot
+/// and `openrouter.key_set` (whether any key is stored) follow.
+async fn keys_changed(engine: &Engine) -> Result<()> {
+    engine.accounts.reload(engine).await?;
+    let any = any_key(engine);
+    let mut client = engine.db.get().await?;
+    engine.settings.merge(&mut client, json!({ "openrouter": { "key_set": any } })).await?;
+    Ok(())
+}
+
+/// Add a pasted key beside the others (store first: it is the user's only
+/// copy here). With no original key stored it becomes the original (lane
+/// `openrouter`); otherwise it is the next `openrouter-N` (N from 2, never
+/// an id used before). Returns its id. Not logged: it takes the key.
+pub async fn add_key(engine: &Engine, key: &str, label: Option<&str>) -> Result<String> {
+    let key = key.trim();
+    if key.is_empty() {
+        crate::refuse!(BadRequest, "paste an OpenRouter API key");
+    }
+    let label = clean_label(label)?.unwrap_or_default();
+    let mut client = engine.db.get().await?;
+    if let Some(other) = holder_of(&client, key, None).await? {
+        crate::refuse!(Conflict, "this key is already stored as {}", lane(&other));
+    }
+    let tx = client.transaction().await?;
+    let original = tx.query_opt("SELECT 1 FROM ot.accounts WHERE id = $1", &[&ACCOUNT_ID]).await?.is_none();
+    let id = if original {
+        ACCOUNT_ID.to_string()
+    } else {
+        let n: i64 = tx
+            .query_one(
+                "SELECT greatest(coalesce(max(substring(id FROM '^openrouter-([0-9]+)$')::bigint), 1), 1) + 1 FROM
+                   (SELECT id FROM ot.accounts WHERE provider = 'openrouter'
+                    UNION ALL SELECT id FROM ot.removed_accounts WHERE provider = 'openrouter') ids",
+                &[],
+            )
+            .await?
+            .get(0);
+        format!("openrouter-{n}")
+    };
+    let row_label = if original && label.is_empty() { "OpenRouter".to_string() } else { label };
+    tx.execute(
+        "INSERT INTO ot.accounts (id, provider, kind, label, auth, enabled, ord)
+         VALUES ($1, 'openrouter', 'apikey', $2, 'unobserved', true,
+                 (SELECT coalesce(max(ord), 0) + 1 FROM ot.accounts WHERE provider = 'openrouter'))",
+        &[&id, &row_label],
+    )
+    .await?;
+    tx.execute("INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2)", &[&id, &key]).await?;
+    tx.commit().await?;
+    drop(client);
+    keys_changed(engine).await?;
+    Ok(id)
+}
+
+/// Rename a key row (an empty name clears it) and/or replace its secret.
+/// Not logged: it takes the key.
+pub async fn update_key(engine: &Engine, id: &str, key: Option<&str>, label: Option<&str>) -> Result<()> {
+    let key = key.map(str::trim).filter(|k| !k.is_empty());
+    let label = clean_label(label)?;
+    let mut client = engine.db.get().await?;
+    if client.query_opt("SELECT 1 FROM ot.accounts WHERE id = $1 AND provider = 'openrouter'", &[&id]).await?.is_none() {
+        crate::refuse!(NotFound, "no OpenRouter key {id}");
+    }
+    if let Some(k) = key {
+        if let Some(other) = holder_of(&client, k, Some(id)).await? {
+            crate::refuse!(Conflict, "this key is already stored as {}", lane(&other));
+        }
+    }
+    let tx = client.transaction().await?;
+    if let Some(l) = &label {
+        let l = if l.is_empty() && id == ACCOUNT_ID { "OpenRouter" } else { l.as_str() };
+        tx.execute("UPDATE ot.accounts SET label = $2 WHERE id = $1", &[&id, &l]).await?;
+    }
+    if let Some(k) = key {
+        tx.execute(
+            "INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2) ON CONFLICT (account_id) DO UPDATE SET secret = EXCLUDED.secret",
+            &[&id, &k],
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    drop(client);
+    keys_changed(engine).await
+}
+
+/// Remove a key row. The original goes as `clear_key` always did; an added
+/// key through the registry's removal, which first moves every agent and
+/// default bound to it onto the original key (ruling 2026-10-11).
+#[logged]
+pub async fn remove_key(engine: &Arc<Engine>, id: &str) -> Result<Value> {
+    if id == ACCOUNT_ID || id == LANE {
+        clear_key(engine).await?;
+        return Ok(json!({ "removed": ACCOUNT_ID, "rebound": [] }));
+    }
+    if !keys(engine).iter().any(|k| k.id == id) {
+        crate::refuse!(NotFound, "no OpenRouter key {id}");
+    }
+    let out = crate::domain::account_removal::remove(engine, id).await?;
+    keys_changed(engine).await?;
+    Ok(out)
+}
+
+/// Store a pasted key as the original key (store first: it is the user's
+/// only copy here). `PUT /api/openrouter/key`, as before several keys.
 pub async fn set_key(engine: &Engine, key: &str) -> Result<()> {
     let key = key.trim();
     if key.is_empty() {
         crate::refuse!(BadRequest, "paste an OpenRouter API key");
     }
     let mut client = engine.db.get().await?;
+    if let Some(other) = holder_of(&client, key, Some(ACCOUNT_ID)).await? {
+        crate::refuse!(Conflict, "this key is already stored as {}", lane(&other));
+    }
     let tx = client.transaction().await?;
     tx.execute(
         "INSERT INTO ot.accounts (id, provider, kind, label, auth, enabled) VALUES ($1, 'openrouter', 'apikey', 'OpenRouter', 'unobserved', true)
@@ -62,8 +285,8 @@ pub async fn set_key(engine: &Engine, key: &str) -> Result<()> {
     )
     .await?;
     tx.commit().await?;
-    engine.settings.merge(&mut client, json!({ "openrouter": { "key_set": true } })).await?;
-    Ok(())
+    drop(client);
+    keys_changed(engine).await
 }
 
 /// 3.x kept the key and the favorites in `<data>/openrouter/state.json`,
@@ -140,8 +363,10 @@ pub async fn import_legacy(engine: &Engine) {
 pub async fn clear_key(engine: &Engine) -> Result<()> {
     let mut client = engine.db.get().await?;
     client.execute("DELETE FROM ot.accounts WHERE id = $1", &[&ACCOUNT_ID]).await?;
-    engine.settings.merge(&mut client, json!({ "openrouter": { "key_set": false, "label": null } })).await?;
-    Ok(())
+    engine.settings.merge(&mut client, json!({ "openrouter": { "label": null } })).await?;
+    drop(client);
+    // another key may still be stored: `key_set` says whether any is
+    keys_changed(engine).await
 }
 
 /// The `or-<model>` tier of a catalog model.
@@ -532,11 +757,45 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
                     "image": f["image"] })
         })
         .collect();
+    let keys = keys_doc(engine, connected, &reason);
+    let any = !keys.is_empty();
     json!({
-        "installed": key_set, "connected": connected, "key_set": key_set, "kind": if key_set { json!("api-key") } else { Value::Null },
+        "installed": any, "connected": connected, "key_set": key_set, "kind": if key_set { json!("api-key") } else { Value::Null },
         "label": label, "credits": credits, "reason": reason, "favorites": favs.len(), "favorites_max": 0, "tiers": tiers,
         "user_enabled": engine.settings.provider_enabled("openrouter"), "harness": harness(engine),
+        "keys": keys, "any_key": any,
     })
+}
+
+/// Every stored key as the panel lists it (secret-free): its id and lane,
+/// the user's name for it and what it is called, and its standing. The
+/// original key's standing is the check `doc` just made; an added key's is
+/// its last usage reading (the usage loop reads every key).
+#[logged]
+fn keys_doc(engine: &Engine, original_connected: bool, original_reason: &Value) -> Vec<Value> {
+    keys(engine)
+        .iter()
+        .map(|a| {
+            let lane = lane(&a.id);
+            let reading = crate::usage::openrouter_reading(engine, &lane);
+            let (connected, reason) = if a.id == ACCOUNT_ID {
+                (json!(original_connected), original_reason.clone())
+            } else {
+                match &reading {
+                    Some(v) if v["available"] == json!(true) => (json!(true), Value::Null),
+                    Some(v) => (json!(false), v["error"].clone()),
+                    None => (Value::Null, Value::Null),
+                }
+            };
+            json!({
+                "id": a.id, "lane": lane, "original": a.id == ACCOUNT_ID, "label": user_label(a), "name": display(engine, a),
+                "key_label": reading.as_ref().map(|v| v["key_label"].clone()).unwrap_or(Value::Null),
+                "enabled": a.enabled, "connected": connected, "reason": reason,
+                "limits": reading.as_ref().map(|v| v["limits"].clone()).unwrap_or(json!([])),
+                "observed_at": reading.as_ref().map(|v| v["observed_at"].clone()).unwrap_or(Value::Null),
+            })
+        })
+        .collect()
 }
 
 /// What the key check says when openrouter.ai refuses the stored key.
@@ -559,8 +818,8 @@ pub fn key_refused(engine: &Arc<Engine>) {
 /// prepaid balance, `total_credits` − `total_usage`; it answers a normal
 /// inference key, measured in 3.x). Err((true, _)): openrouter.ai refused the
 /// key. Not logged: it holds the key.
-pub async fn key_standing(key: &str) -> std::result::Result<Map<String, Value>, (bool, String)> {
-    if let Some(canned) = crate::rig::openrouter_key() {
+pub async fn key_standing(lane: &str, key: &str) -> std::result::Result<Map<String, Value>, (bool, String)> {
+    if let Some(canned) = crate::rig::openrouter_key(lane) {
         return canned;
     }
     let client = reqwest::Client::builder()
@@ -603,7 +862,7 @@ pub async fn key_standing(key: &str) -> std::result::Result<Map<String, Value>, 
 /// The stored key's standing (see `key_standing`).
 async fn key_info(engine: &Engine, _force: bool) -> Result<Map<String, Value>> {
     let k = key(engine).await.ok_or_else(|| anyhow!("no key is stored"))?;
-    key_standing(&k).await.map_err(|(_, e)| anyhow!(e))
+    key_standing(LANE, &k).await.map_err(|(_, e)| anyhow!(e))
 }
 
 /// Push the lane's document (the OpenRouter panel reads it).

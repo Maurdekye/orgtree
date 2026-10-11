@@ -149,6 +149,13 @@ pub fn antigravity_limit(engine: &Engine, tier: &str) -> Option<String> {
 #[nolog]
 fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts::AccountInfo>) -> Option<Value> {
     use crate::providers::catalog;
+    // an OpenRouter key's reading is its credit standing, by its lane (`None`
+    // is the original key)
+    if provider == catalog::OPENROUTER {
+        let id = account.filter(|a| a.provider == catalog::OPENROUTER).map(|a| a.id.as_str()).unwrap_or(crate::openrouter::ACCOUNT_ID);
+        let v = openrouter_reading(engine, &crate::openrouter::lane(id))?;
+        return v["available"].as_bool().unwrap_or(false).then_some(v);
+    }
     if account.is_some_and(|a| a.is_apikey()) {
         return None;
     }
@@ -183,6 +190,8 @@ fn spends(provider: &str, tier: &str, w: &Value) -> bool {
             let pool = catalog::antigravity_pool(tier);
             w["group"].as_str().is_some_and(|g| g == format!("{pool}-5h") || g == format!("{pool}-weekly"))
         }
+        // every OpenRouter tier spends its key's one credit row
+        catalog::OPENROUTER => w["group"] == "credits",
         _ => false,
     }
 }
@@ -197,6 +206,11 @@ pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>,
     let provider = crate::providers::catalog::provider_of(tier);
     let v = reading_of(engine, provider, account)?;
     v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).find_map(|w| {
+        // an OpenRouter key's spent row may carry no percent (a prepaid
+        // balance at zero): its own `is_active` says it is spent
+        if provider == crate::providers::catalog::OPENROUTER && w["percent"].is_null() && w["is_active"] == json!(true) {
+            return Some(format!("its latest reading shows {}", w["label"].as_str().unwrap_or("its credit spent")));
+        }
         let p = w["percent"].as_f64().filter(|p| p.is_finite() && *p >= 100.0)?;
         let window = w["label"].as_str().or(w["kind"].as_str()).unwrap_or("usage");
         Some(format!("its latest reading shows the {window} window at {}% (resets {})", p.round() as i64,
@@ -235,6 +249,13 @@ pub fn has_room(engine: &Engine, account: Option<&crate::accounts::AccountInfo>,
     };
     if spent.is_empty() || needed.iter().any(|k| !spent.iter().any(|w| w["kind"].as_str() == Some(*k))) {
         return false;
+    }
+    // an OpenRouter key has no rolling window: room is a credit row that is
+    // not spent (under its cap, or a balance left)
+    if provider == catalog::OPENROUTER {
+        return spent.iter().all(|w| {
+            !w["is_active"].as_bool().unwrap_or(false) && w["percent"].as_f64().is_none_or(|p| p.is_finite() && p < 100.0)
+        });
     }
     let now = Utc::now();
     spent.iter().all(|w| {
@@ -1062,64 +1083,93 @@ fn agy_log_email(log: &str) -> Option<String> {
 
 // ------------------------------------------------------------ OpenRouter
 
-/// Read the OpenRouter lane again and push it: its usage (when a key is
-/// stored) and the panel's document, whose `connected` is the key check.
-/// The usage loop does this every 5 minutes; a refused turn at once.
+/// Read every stored OpenRouter key again and push them: the original
+/// key's usage as before (`openrouter_usage`), every key's by lane
+/// (`openrouter_keys_usage`), and the panel's document, whose `connected` is
+/// the original key's check. The usage loop does this every 5 minutes; a
+/// refused turn at once.
 #[logged]
 pub async fn refresh_openrouter(engine: &Engine, force: bool) {
-    let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
-    if key_set {
-        let v = openrouter(engine, force).await;
-        publish(engine, "openrouter", &v);
+    let mut by_lane = serde_json::Map::new();
+    for a in crate::openrouter::keys(engine) {
+        let v = openrouter_key_usage(engine, &a.id, force).await;
+        if a.id == crate::openrouter::ACCOUNT_ID {
+            publish(engine, "openrouter", &v);
+        }
+        by_lane.insert(crate::openrouter::lane(&a.id), v);
     }
+    engine.app.set_value("openrouter_keys_usage", Value::Object(by_lane));
     crate::openrouter::publish(engine).await;
 }
 
-/// The stored OpenRouter key's credit standing (`GET /api/v1/key`).
-#[nolog]
+/// The original OpenRouter key's credit standing (`GET /api/v1/key`).
+#[logged]
 pub async fn openrouter(engine: &Engine, force: bool) -> Value {
-    let Some(_guard) = engine.usage.reserve("openrouter") else { return engine.usage.busy_reading("openrouter") };
-    openrouter_read(engine, force).await
+    openrouter_key_usage(engine, crate::openrouter::ACCOUNT_ID, force).await
+}
+
+/// One OpenRouter key's last cached reading, by its lane (`openrouter` for
+/// the original key, the id of an added one). Never a fetch.
+#[nolog]
+pub fn openrouter_reading(engine: &Engine, lane: &str) -> Option<Value> {
+    engine.usage.cache.pin().get(lane).map(|c| c.data.clone())
+}
+
+/// One OpenRouter key's credit standing, cached and recorded under its lane
+/// (the original key's as before several keys: `openrouter`). One read per
+/// lane at a time, as for every other usage probe.
+#[nolog]
+pub async fn openrouter_key_usage(engine: &Engine, id: &str, force: bool) -> Value {
+    let lane = crate::openrouter::lane(id);
+    let Some(_guard) = engine.usage.reserve(&lane) else { return engine.usage.busy_reading(&lane) };
+    openrouter_key_read(engine, id, &lane, force).await
 }
 
 #[nolog]
-async fn openrouter_read(engine: &Engine, force: bool) -> Value {
-    if let Some(v) = crate::rig::usage("openrouter", None) {
-        engine.usage.put("openrouter", &v);
+async fn openrouter_key_read(engine: &Engine, id: &str, lane: &str, force: bool) -> Value {
+    let lane = lane.to_owned();
+    if let Some(v) = crate::rig::usage(&lane, None) {
+        // a canned reading stands in for the check, cache included, so a rig
+        // proof sees each key on the board
+        if crate::rig::canned_reading(&v) {
+            engine.usage.put(&lane, &v);
+        }
         return v;
     }
     if !force {
-        if let Some(v) = engine.usage.fresh("openrouter", Duration::from_secs(60)) {
+        if let Some(v) = engine.usage.fresh(&lane, Duration::from_secs(60)) {
             return v;
         }
     }
     let observed = Utc::now();
-    let mut out = match crate::openrouter::key(engine).await {
+    let mut out = match crate::openrouter::key_of(engine, id).await {
         None => json!({ "available": false, "error": "no API key — add one in App settings › Providers",
                         "reauth_evidence": "not_connected" }),
-        Some(key) => match openrouter_fetch(&key).await {
+        Some(key) => match openrouter_fetch(&lane, &key).await {
             Ok(v) => v,
             Err(e) => json!({ "available": false, "error": "OpenRouter usage check failed", "detail": gist(&e, 300) }),
         },
     };
-    out["account"] = json!("openrouter");
+    out["account"] = json!(lane);
+    out["key_id"] = json!(id);
     out["provider"] = json!("OpenRouter");
     if out.get("label").and_then(Value::as_str).is_none() {
         out["label"] = json!("OpenRouter API key");
     }
     out["observed_at"] = json!(iso(Utc::now()));
-    crate::usage_history::record(engine, "openrouter", "openrouter", observed, &out).await;
-    engine.usage.put("openrouter", &out);
+    crate::usage_history::record(engine, &lane, "openrouter", observed, &out).await;
+    engine.usage.put(&lane, &out);
     out
 }
 
-async fn openrouter_fetch(key: &str) -> Result<Value, String> {
-    match crate::openrouter::key_standing(key).await {
+async fn openrouter_fetch(lane: &str, key: &str) -> Result<Value, String> {
+    match crate::openrouter::key_standing(lane, key).await {
         Err((true, e)) => Ok(json!({ "available": false, "error": e, "reauth_required": true, "reauth_evidence": "measured_403" })),
         Err((false, e)) => Err(e),
         Ok(ks) => {
-            let label = ks.get("label").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("OpenRouter API key");
-            let mut out = json!({ "available": true, "label": label, "limits": openrouter_limits(&ks) });
+            let own = ks.get("label").and_then(Value::as_str).filter(|s| !s.is_empty());
+            let label = own.unwrap_or("OpenRouter API key");
+            let mut out = json!({ "available": true, "label": label, "key_label": own, "limits": openrouter_limits(&ks) });
             if ks.get("is_free_tier") == Some(&json!(true)) {
                 out["plan"] = json!("free tier");
             }
@@ -1148,7 +1198,9 @@ fn openrouter_limits(ks: &serde_json::Map<String, Value>) -> Vec<Value> {
         let percent = (usage / limit * 100.0).clamp(0.0, 100.0);
         let mut label = format!("${usage:.2} of ${limit:.2} spend cap");
         if let Some(b) = balance {
-            label.push_str(&format!(" · ${b:.2} balance"));
+            // the prepaid balance is the OpenRouter account's, shared by
+            // every key of it (ruling 2026-10-11: say so on each key's row)
+            label.push_str(&format!(" · ${b:.2} account balance"));
         } else if let Some(rem) = f("limit_remaining") {
             label.push_str(&format!(" · ${rem:.2} remaining"));
         }
@@ -1161,7 +1213,7 @@ fn openrouter_limits(ks: &serde_json::Map<String, Value>) -> Vec<Value> {
     if let Some(b) = balance {
         let active = b <= 0.0;
         let sev = if active { "critical" } else if b <= 1.0 { "warning" } else { "normal" };
-        return vec![row(None, sev, active, format!("${usage:.2} credits used · ${b:.2} remaining balance"))];
+        return vec![row(None, sev, active, format!("${usage:.2} credits used · ${b:.2} account balance"))];
     }
     vec![row(None, "normal", false, format!("${usage:.2} spent · no spend cap"))]
 }
@@ -1244,7 +1296,9 @@ pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force
         return json!({ "available": false, "account": a.id, "provider": a.provider, "label": a.display(),
                        "error": "not read in safe start: this account's sign-in belongs to another data folder" });
     }
-    let mut u = if a.is_apikey() {
+    let mut u = if a.provider == crate::providers::catalog::OPENROUTER {
+        openrouter_key_usage(engine, &a.id, force).await
+    } else if a.is_apikey() {
         let spend = apikey_spend(engine, &a.id).await;
         crate::usage_history::record(engine, &a.id, &a.provider, Utc::now(), &spend).await;
         spend
@@ -1443,10 +1497,11 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     let pin = engine.usage.cache.pin();
     let own = account.and_then(|a| view.get(a)).filter(|a| !crate::accounts::is_ambient(a)).map(|a| a.id.clone());
     let selected_lane = match (provider, &own) {
+        // an OpenRouter seat's lane is its key's (the original: `openrouter`)
+        ("openrouter", _) => crate::openrouter::lane(&crate::openrouter::seat_key(engine, account)),
         (_, Some(id)) => id.clone(),
         ("openai", None) => "openai/primary".into(),
         ("google", None) => "google/primary".into(),
-        ("openrouter", None) => "openrouter".into(),
         ("langserver", _) => crate::langserver::route_of(engine, tier)
             .map(|(s, _)| format!("langserver:{}", s["id"].as_str().unwrap_or("")))
             .unwrap_or_else(|| "langserver".into()),
@@ -1464,8 +1519,10 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         lanes.push((a.id.clone(), codex_key(a.config_dir.as_deref()), a.email.clone()));
     }
     lanes.push(("google/primary".into(), "agy".into(), None));
-    if crate::providers::openrouter_key_set(engine) {
-        lanes.push(("openrouter".into(), "openrouter".into(), None));
+    // every OpenRouter key this org may see, by its lane (its cache key too)
+    for a in registered.iter().filter(|a| a.provider == "openrouter") {
+        let lane = crate::openrouter::lane(&a.id);
+        lanes.push((lane.clone(), lane, None));
     }
     // only the accounts this org may use: an agent never plans onto one it
     // switched off (Org settings › Accounts)
@@ -1547,7 +1604,8 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
             key_lines.push(format!("{lane}|{window}|{band}|{hour}|{state}"));
         }
     }
-    for a in registered.iter().filter(|a| a.is_apikey()) {
+    // an OpenRouter key is listed above under its lane, not again here
+    for a in registered.iter().filter(|a| a.is_apikey() && a.provider != "openrouter") {
         roster.push(format!("{} (API key, metered)", a.id));
     }
     // the user's own model servers: no usage window, only an agents-at-once cap

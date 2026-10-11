@@ -1401,8 +1401,25 @@ impl Actor {
         }
         let fav = crate::openrouter::favorite(&self.engine, &ctx.tier)
             .ok_or_else(|| anyhow!("{} is not an OpenRouter model this app knows; switch this agent to another tier", ctx.tier))?;
-        let key = crate::openrouter::key(&self.engine).await.ok_or_else(|| {
-            anyhow!("this agent runs on an OpenRouter tier and no OpenRouter API key is set (App settings › Providers › OpenRouter)")
+        // the seat's own key: an added key it is bound to, else the original
+        let id = crate::openrouter::seat_key(&self.engine, ctx.account.as_deref());
+        let lane = crate::openrouter::lane(&id);
+        if let Some(a) = self.engine.accounts.view().get(&id) {
+            if !a.enabled {
+                return Err(anyhow!("the OpenRouter key {lane} is inactive (App settings › Providers); activate it or move this agent to another key"));
+            }
+        }
+        if !crate::org_accounts::allowed(Some(&ctx.org_slug), &lane) {
+            return Err(anyhow!("{lane} is not used by this org (Org settings › Accounts); the agent moves at its next turn"));
+        }
+        let key = crate::openrouter::key_of(&self.engine, &id).await.ok_or_else(|| {
+            if id == crate::openrouter::ACCOUNT_ID && crate::openrouter::any_key(&self.engine) {
+                anyhow!("this agent runs on the original OpenRouter key, which was removed; move it to another OpenRouter key")
+            } else if id == crate::openrouter::ACCOUNT_ID {
+                anyhow!("this agent runs on an OpenRouter tier and no OpenRouter API key is set (App settings › Providers › OpenRouter)")
+            } else {
+                anyhow!("this agent's OpenRouter key {lane} is no longer stored; move it to another OpenRouter key (App settings › Providers › OpenRouter)")
+            }
         })?;
         let codex = ctx.harness.as_deref() == Some("codex-cli");
         Ok(OrRoute { key, codex, reasoning: fav["reasoning"].as_bool().unwrap_or(false), local: None })

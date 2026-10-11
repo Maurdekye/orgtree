@@ -106,6 +106,11 @@ impl AccountsView {
     pub fn continue_candidates(&self, tier: &str, current: Option<&str>, org_slug: &str) -> Vec<String> {
         let provider = crate::providers::catalog::provider_of(tier);
         let now = Utc::now();
+        // an unbound OpenRouter seat is on the original key: not a move to it
+        let current = match current {
+            None if provider == crate::providers::catalog::OPENROUTER => Some(crate::openrouter::ACCOUNT_ID),
+            c => c,
+        };
         self.all()
             .into_iter()
             .filter(|a| {
