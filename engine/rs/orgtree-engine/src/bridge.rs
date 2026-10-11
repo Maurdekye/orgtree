@@ -429,7 +429,7 @@ mod tests {
     /// initialize, list the tools and call one, through `serve` and the relay
     /// (a named pipe on Windows, a Unix socket elsewhere).
     #[tokio::test]
-    async fn tools_list_and_a_tool_call_round_trip() {
+    async fn requests_round_trip_and_missing_scope_fails_closed() {
         let root = data_root("rt");
         let cancel = CancellationToken::new();
         let name = serve(Engine::for_tests(root.clone()), caller(), cancel.clone()).expect("serve");
@@ -445,14 +445,14 @@ mod tests {
         // a notification gets no answer, so the next line answers the next request
         to_bridge.write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n").await.unwrap();
         let list = ask(&mut to_bridge, &mut lines, json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).await;
-        let tools: Vec<&str> = list["result"]["tools"].as_array().expect("a tool list").iter().filter_map(|t| t["name"].as_str()).collect();
-        assert!(tools.contains(&"orgtree_message") && tools.contains(&"orgtree_list_tiers"), "{tools:?}");
+        // This transport-only engine has no database. Never give the caller
+        // default permissions when its stored scope cannot be read. The rig
+        // covers successful scoped listing and calls against a real database.
+        assert_eq!(list["error"]["code"], -32603, "{list}");
         let call = ask(&mut to_bridge, &mut lines, json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": { "name": "orgtree_list_tiers", "arguments": {} } })).await;
         assert_eq!(call["id"], 3, "{call}");
-        assert!(call["result"]["isError"].is_null(), "{call}");
-        let text = call["result"]["content"][0]["text"].as_str().expect("the tool's text");
-        assert!(serde_json::from_str::<Value>(text).expect("JSON")["tiers"].is_array(), "{text}");
+        assert_eq!(call["result"]["isError"], true, "{call}");
 
         // the CLI closing its side ends the relay
         to_bridge.shutdown().await.unwrap();
