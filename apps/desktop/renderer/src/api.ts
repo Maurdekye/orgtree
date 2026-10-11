@@ -1363,10 +1363,10 @@ export const retractMail = (
   slug: string, nid: string, mid: string,
 ): Promise<{ retracted: string }> =>
   req(`/api/orgs/${slug}/nodes/${nid}/mail/${mid}`, { method: 'DELETE' })
-export const uploadFile = (slug: string, nid: string, file: File): Promise<UploadResult> =>
+export const uploadFile = (slug: string, nid: string, file: File, signal?: AbortSignal): Promise<UploadResult> =>
   // a large file over a slow link legitimately outlasts the default ceiling
   req<UploadResult>(`/api/orgs/${slug}/nodes/${nid}/upload?name=${encodeURIComponent(file.name)}`, {
-    method: 'POST', body: file,
+    method: 'POST', body: file, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(SLOW_TIMEOUT_MS)]) : undefined,
   }, SLOW_TIMEOUT_MS)
 // direct <a href> download target (browser handles the transfer)
 export const fileBase = (slug: string, nid: string): string =>

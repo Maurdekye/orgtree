@@ -918,7 +918,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   const fileRef = useRef<HTMLInputElement | null>(null)
   const attachable = Boolean((upload || slug) && target) && !sendDisabled
   const staging = useStaging((file, options) => upload ? upload(file, options)
-    : slug && target ? uploadFile(slug, target, file) : Promise.reject(Error('Choose a recipient first')),
+    : slug && target ? uploadFile(slug, target, file, options.signal) : Promise.reject(Error('Choose a recipient first')),
     (file, r) => setAttached(a => [...a, {name:file.name,path:r.path,bytes:r.bytes}]))
   const attach = staging.add
   const send = () => {
