@@ -1,6 +1,6 @@
 # Coupled Windows core lifecycle
 
-Draft implementation and evidence notes, 2026-10-11. Not yet merged or installed.
+Implementation and evidence notes, 2026-10-11. Not yet merged or installed.
 
 The user ruled that a signed-in operator must not be left with a partly running
 application after a core process dies. The cohort comprises the desktop, engine,
@@ -48,16 +48,57 @@ Known interactive process death therefore gets five seconds for session
 reconciliation. A real normal sign-out removes the interactive membership and
 keeps existing background engine behavior; an unknown WTS reading is not sign-out.
 
-## Verification status
+## Verification
 
-- Measured: seven native/policy tests passed at `26baf24`, including Windows
-  creation-stamp probes and WTS session enumeration, plus stale-generation guards.
-- Measured: engine/broker debug build passed after the pre-readiness changes;
-  desktop typecheck passed at `8027558`.
-- In progress: real isolated lifecycle matrix using production native components
-  and the production desktop controller without an Electron window.
-- Not yet proved: complete explicit-transition/sign-out matrix and hosted Codex
-  graceful-drain evidence. No live process fault injection has been performed.
+The isolated rig runs actual Windows engine, boot host and sign-in helper
+executables, plus the production desktop lifecycle and credential controllers
+bundled into a Node process. It does not run the Electron UI or an installer.
+
+- Fault/startup matrix: 33 checks passed. Each core member was terminated in
+  turn; all survivors stopped and automatic task retry did not revive the cohort.
+  Ordinary child exit left it alive. A known parent death stopped pre-ready
+  startup, a valid 130-second conversion delay survived, and a missing helper
+  stopped the application after the 120-second registration grace.
+- Restart matrix: 13 checks passed. Authenticated replacement kept the desktop
+  and helper alive, the successor inherited its deadline, completion cleared it,
+  repeated requests could not extend it, and the actual 180-second timeout
+  stopped all members.
+- Sign-out/drain matrix: 9 checks passed. Debug-only simulated WTS sign-out kept
+  the background host and engine running. On a separate desktop fault, a hosted
+  Codex protocol fixture exited through the production graceful drain, with a
+  durable graceful-exit record and no forced-termination record.
+- Desktop controller tests: 7 checks passed, including automatic versus explicit
+  launch, uncertain probes, definite native stop, and transition actions.
+- Installer-style replacement and pre-ready expiry: 12 checks passed. Replaced
+  desktop/helper identities registered without extending the deadline; completion
+  restored fault detection. A converting successor stopped at the inherited
+  deadline before becoming ready, and task retry did not recreate it.
+- Final source checks: workspace cargo check passed; workspace tests 85/85
+  passed (helper 3, engine 82); renderer typecheck passed. Final native build
+  took 18.73 seconds; cargo check took 22.00 seconds.
+
+Evidence is produced by `tools/rig/proofs/core-lifecycle.mjs`; the docket records
+the exact run paths and source versions. The first matrices precede final startup
+edge refinements, which have their own targeted replacement proof.
+
+| Rig run suffix (UTC, 2026-10-11) | Checks | Coverage |
+| --- | ---: | --- |
+| `161843` | 33/33 | Faults, startup, slow conversion |
+| `162508` | 13/13 | Restart and real transition deadline |
+| `163318` | 9/9 | Simulated sign-out, graceful hosted drain |
+| `163835` | 12/12 | Installer member replacement, pre-ready expiry |
+
+Each run is under `rig/agy-astra/evidence/core-lifecycle-20261011T<suffix>`
+in the D: work area, with result JSON and preserved diagnostics. All four
+temporary profile-state copies were removed after exact resolved-path validation
+and checking that their processes were gone; their temporary interactive tasks
+were removed. No ACL was changed. Build locks were released.
+
+Limits: normal Windows logoff is simulated, not performed on the live session;
+the hosted child is a scripted Codex protocol fixture, not a model inference run.
+Manual startup's optional boot roles are covered by policy tests. The Electron
+installer and real Windows sign-out remain release-environment checks. No live
+process fault injection has been performed.
 
 The approved profile directory is disposable rig state only. Build artifacts,
 script bundles and evidence stay on D:. The hand-in must record checked cleanup.

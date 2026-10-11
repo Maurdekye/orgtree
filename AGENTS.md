@@ -143,6 +143,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `engine/rs/orgtree-engine/src/credential_bridge.rs`, `credential_bridge/askpass.rs`;
   details and measured limits: `docs/rust-engine/sandbox-git-credentials.md`]
 
+- Signed-in Windows core members stop together after confirmed stamped process
+  death; automatic retries cannot revive a stopped generation. Missing required
+  members have bounded registration grace, explicit replacements a nonextendable
+  allowance. Sign-out keeps the background engine; hide-to-tray and agent child
+  exit do not stop the cohort. Manual startup excludes boot-only roles. Preserve
+  graceful Codex drain and native unknown-versus-dead distinctions.
+  [decided: user 2026-10-11; verified: `core_startup.rs`, `core_monitor.rs`,
+  `core_state.rs`; DECISIONS 72, `docs/rust-engine/core-lifecycle.md`]
+
 - Cold-turn admission and forecasts share the measured-context threshold gate.
   Compatible receipts carry an expiry verdict for the composer's shared clock;
   reset clears the old receipt before publishing. Idle reconfiguration replaces
