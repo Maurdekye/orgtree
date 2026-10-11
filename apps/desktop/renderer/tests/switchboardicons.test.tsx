@@ -466,8 +466,8 @@ test('§3 the ⚙ panel became a tab: every control it had is reachable there, '
 
   const panel = view.el.querySelector('[role="tabpanel"]:not([hidden])')!
   // the four controls the ⚙ panel carried, plus its danger row
-  assert.ok(panel.querySelector('select[aria-label="org-structure visibility"]'))
-  assert.ok(panel.querySelector('select[aria-label="permission mode for new agents"]'))
+  assert.ok(panel.querySelector('select[aria-label="Visible agents"]'))
+  assert.ok(panel.querySelector('select[aria-label="File and command access"]'))
   assert.ok(panel.querySelector('input[aria-label="all registered MCP servers"]'))
   assert.ok(panel.querySelector('.dirlist'), 'folder access did not come across')
   assert.ok([...panel.querySelectorAll('button')]
@@ -492,16 +492,14 @@ test('§4 the tab shows the org’s SAVED values, not fresh defaults', async (t)
   // ignored `tree` and rendered its own fallbacks fails here rather than
   // passing by coincidence
   assert.equal(view.el.querySelector<HTMLSelectElement>(
-    'select[aria-label="org-structure visibility"]')!.value, 'team')
+    'select[aria-label="Visible agents"]')!.value, 'team')
   assert.equal(view.el.querySelector<HTMLSelectElement>(
-    'select[aria-label="permission mode for new agents"]')!.value, 'plan')
-  const tools = [...view.el.querySelectorAll<HTMLInputElement>(
-    '.set-row input[type="checkbox"]')]
-  const byLabel = (word: string) => tools.find((i) =>
-    i.parentElement?.parentElement?.textContent?.toLowerCase().includes(word))
-  assert.equal(byLabel('bash')?.checked, false, 'bash: false was not honoured')
-  assert.equal(byLabel('web')?.checked, true)
-  assert.equal(byLabel('subagent')?.checked, false)
+    'select[aria-label="File and command access"]')!.value, 'plan')
+  const byLabel = (label: string) => view.el.querySelector<HTMLInputElement>(
+    `.set-row input[type="checkbox"][aria-label="${label}"]`)
+  assert.equal(byLabel('Run commands')?.checked, false, 'bash: false was not honoured')
+  assert.equal(byLabel('Browse the web')?.checked, true)
+  assert.equal(byLabel('Use helper agents')?.checked, false)
 
   // the org's own folder holding is listed, with the workspace shown as the
   // permanent RW row rather than an editable one
@@ -523,16 +521,16 @@ test('§5 one save carries the tab’s edits, and keeps the two-endpoint split '
   await open(view.el, 'Hire defaults')
   await inAct(async () => { await flush(10) })
   await setField(view.el.querySelector<HTMLSelectElement>(
-    'select[aria-label="org-structure visibility"]')!, 'subtree')
+    'select[aria-label="Visible agents"]')!, 'subtree')
   await setField(view.el.querySelector<HTMLSelectElement>(
-    'select[aria-label="permission mode for new agents"]')!, 'acceptEdits')
+    'select[aria-label="File and command access"]')!, 'acceptEdits')
 
   // wander to another tab and back: the panel's one buffer must hold the
   // edit, the way it does for Basic's fields
   await open(view.el, 'Basic')
   await open(view.el, 'Hire defaults')
   assert.equal(view.el.querySelector<HTMLSelectElement>(
-    'select[aria-label="org-structure visibility"]')!.value, 'subtree')
+    'select[aria-label="Visible agents"]')!.value, 'subtree')
 
   seen.length = 0
   await inAct(async () => { save(view.el).click(); await flush(12) })

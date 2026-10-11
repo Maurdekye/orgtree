@@ -229,8 +229,15 @@ configTest('§2 an absent provider contributes no optgroup and no option',
     for (const t of CLAUDE) assert.ok(vals.includes(t), `${t} missing`)
     // and not as an EMPTY group either — a bare "Codex" heading is still a
     // mention, and an empty optgroup renders its label.
-    assert.ok(!(el.textContent ?? '').includes('Codex'))
-    assert.ok(!(el.textContent ?? '').includes('Antigravity'))
+    // The user-required Native Tools subtitle names harness examples even
+    // when absent. Exempt only that exact static explanation; every other
+    // part of the dialog must still omit the absent providers entirely.
+    const originHint = "Tools built into the agent's native harness, such as Claude Code, Codex or Antigravity."
+    assert.equal([...el.querySelectorAll('.set-hint')]
+      .filter((hint) => hint.textContent === originHint).length, 1)
+    const providerUi = (el.textContent ?? '').replace(originHint, '')
+    assert.ok(!providerUi.includes('Codex'))
+    assert.ok(!providerUi.includes('Antigravity'))
   })
 
 configTest('§2 SIGNED OUT is the opposite case: listed, disabled, with reason',
