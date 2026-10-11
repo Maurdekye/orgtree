@@ -1496,7 +1496,7 @@ export interface MailTransfer extends Partial<TransferFile> {
   id: string; direction: 'upload' | 'download'; message_id: string; peer: string
   state: string; error?: string | null; attempt: number; files?: TransferFile[]
 }
-export const getMailTransfers = (slug: string, agent?: string, signal?: AbortSignal): Promise<{transfers: MailTransfer[]}> =>
-  req(`/api/orgs/${slug}/transfers${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`, {signal})
+export const getMailTransfers = (slug: string, agent?: string, signal?: AbortSignal, cursor?: string): Promise<{transfers: MailTransfer[]; next_cursor: string | null}> =>
+  req(`/api/orgs/${slug}/transfers?${new URLSearchParams({...agent ? {agent} : {}, ...cursor ? {cursor} : {}})}`, {signal})
 export const changeMailTransfer = (slug: string, id: string, action: 'retry' | 'cancel' | 'remove'): Promise<{transfers: MailTransfer[]}> =>
   req(`/api/orgs/${slug}/transfers/${encodeURIComponent(id)}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})

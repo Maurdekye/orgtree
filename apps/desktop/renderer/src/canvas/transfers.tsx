@@ -33,15 +33,20 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
   const [reload, setReload] = useState(0)
   const [history, setHistory] = useState(false)
   const [expanded, setExpanded] = useState(true)
+  const [cursors, setCursors] = useState<string[]>([])
+  const [next, setNext] = useState<string | null>(null)
+  const cursor = cursors.at(-1)
+  useEffect(() => { setCursors([]); setNext(null); setRows([]) }, [slug, agent])
   useEffect(() => {
     const stop = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     const poll = async () => {
       let active = false
       try {
-        const data = await getMailTransfers(slug, agent, AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]))
+        const data = await getMailTransfers(slug, agent, AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]), cursor)
         if (stop.signal.aborted) return
         setRows(data.transfers)
+        setNext(data.next_cursor)
         setError(null)
         active = data.transfers.some(t => !terminal.has(t.state))
       } catch (err) {
@@ -52,7 +57,7 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
     }
     void poll()
     return () => { stop.abort(); clearTimeout(timer) }
-  }, [slug, agent, reload])
+  }, [slug, agent, reload, cursor])
   const change = async (id: string, action: 'retry' | 'cancel' | 'remove') => {
     setBusy(id)
     try {
@@ -63,7 +68,7 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
     } catch (err) { setError(err instanceof Error ? err.message : 'Transfer action failed') }
     finally { setBusy(null) }
   }
-  if (!rows.length && !error) return null
+  if (!rows.length && !error && !cursors.length) return null
   const active = rows.filter(t => !terminal.has(t.state))
   const shown = history ? rows : active.length ? active : rows.slice(0, 3)
   return <section className="mail-transfers" aria-label="Attachment transfers">
@@ -91,6 +96,10 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
         </div>
       </article>
     })}</div>}
-    {history && <small className="dim">Newest {rows.length} transfers (up to 100).</small>}
+    {expanded && <div className="transfer-actions">
+      {!!cursors.length && <button onClick={() => setCursors(old => old.slice(0, -1))}>Previous transfers</button>}
+      {next && <button onClick={() => { setCursors(old => [...old, next]); setHistory(true) }}>More transfers</button>}
+      {(history || next || !!cursors.length) && <small className="dim">Page {cursors.length + 1}, {rows.length} transfers. Unfinished first, then newest history.</small>}
+    </div>}
   </section>
 }
