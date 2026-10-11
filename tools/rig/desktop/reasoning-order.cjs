@@ -19,7 +19,8 @@ module.exports = async (page, { org, args }) => {
       const text = document.querySelector('.msgs')?.textContent || ''
       const [first, second] = window.orderTokens.map(t => text.indexOf(t))
       if (first >= 0 && second >= 0) window.reasonSamples++
-      if (first >= 0 && second >= 0 && second < first && window.reasonBad.length < 10) window.reasonBad.push(text)
+      const duplicate = window.orderTokens.some(t => text.split(t).length > 2)
+      if (((first >= 0 && second >= 0 && second < first) || duplicate) && window.reasonBad.length < 10) window.reasonBad.push(text)
       if (window.reasonSampling) requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)

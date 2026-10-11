@@ -1701,6 +1701,14 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     queueLive(e, { draftOrder: ev.stream_order ?? e.s.draftOrder, draft: (base + ev.text).slice(-12000), draftEventId: eventId, draftReplyQuote: ev.reply_quote })
     return
   }
+  if (Array.isArray(ev.convo_rows)) {
+    // New-engine frames say exactly which partials were consumed. The other
+    // partial can still be streaming; legacy phase heuristics must not retire
+    // it when the completed row's HTTP reconciliation returns.
+    if (ev.kind === 'text') e.textSeen += 1
+    nudge(slug, ev.node)
+    return
+  }
   // A durable row landed (text / tool / sticky output): the thinking phase is
   // over and the draft has been superseded by the real message.
   //

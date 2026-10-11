@@ -128,3 +128,27 @@ test('live partial order survives HTTP-only, websocket-only and mixed transport 
     assert.deepEqual(livePartials([reply, thought], base).map(r => r.kind), expected)
   }
 })
+
+
+test('completing text does not retire a still-pending thought on HTTP reconciliation', async t => {
+  useFakeClock()
+  const server = new FakeServer()
+  server.busy = true
+  installFetch(server)
+  let snapshot: Convo | null = null
+  function Probe() { snapshot = useConvo('org', 'overlap'); return null }
+  const view = await mountView(<Probe />, h => h)
+  t.after(async () => { await view.unmount(); resetConvos(); realClock() })
+  await advance(6000)
+  await inAct(() => ingestStream('org', { node: 'overlap', kind: 'thinking_start', text: '', stream_order: 2,
+    convo_rows: [], draft_clear: false, thinking_clear: false }))
+  await inAct(() => ingestStream('org', { node: 'overlap', kind: 'thinking', text: 'still pending', stream_order: 2 }))
+  await advance(20)
+  await inAct(() => ingestStream('org', { node: 'overlap', kind: 'text', text: '',
+    convo_rows: [{ role: 'assistant', text: 'first', seq: 10, row_id: 'first', convo_revision: 1 }],
+    draft_clear: true, thinking_clear: false }))
+  await advance(250)
+  assert.equal(snapshot!.thinking, 'still pending')
+  assert.equal(snapshot!.thinkingOrder, 2)
+  assert.notEqual(snapshot!.thinkSecs, null)
+})

@@ -21,7 +21,7 @@ function steps(codex, thoughtFirst) {
     }
     out.push({ sleep_ms: index ? 10000 : 2500 })
   }
-  return [...out, ...done, { sleep_ms: 1000 }]
+  return [...out, done[0], { sleep_ms: 1500 }, done[1], { sleep_ms: 1000 }]
 }
 export async function setup() {
   return { fixture: { org: { name: 'Partial order' }, agents: [{ name:'root',tier:'sonnet',grant:12 }],
@@ -45,6 +45,7 @@ export default async function(rig, { flags = {} } = {}) {
       p.file(`${args.agent}.json`,result)
       p.check(`${args.agent}: scenario`,result.ok,result.error)
       if(result.ok) {
+        p.check(`${args.agent}: both partials observed before completion`,result.value.live.thinking.length>0 && result.value.live.drafts.length>0,result.value.live)
         p.check(`${args.agent}: live order stable across snapshots`,result.value.samples>10 && result.value.bad.length===0,{samples:result.value.samples,bad:result.value.bad})
         p.check(`${args.agent}: final order matches`,result.value.final.ordered,result.value.final)
         p.check(`${args.agent}: bounded chat requests`,result.value.requests.length<=18,{count:result.value.requests.length})
