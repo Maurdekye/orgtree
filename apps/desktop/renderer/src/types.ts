@@ -938,6 +938,11 @@ export interface ToolChip {
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
 export interface ChatMessage {
+  /** Rust conversation revision; a delayed poll must not replace a newer stream commit. */
+  convo_revision?: number
+  /** Native Claude block order, including text before a tool in the same message. */
+  content_blocks?: ({ kind: 'text'; text: string } | { kind: 'thinking'; text?: string; sealed?: boolean }
+    | { kind: 'tool'; id: string })[]
   assistant_id?: string
   assistant_ids?: string[]
   assistant_scope?: string

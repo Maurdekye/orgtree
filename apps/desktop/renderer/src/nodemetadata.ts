@@ -6,6 +6,9 @@ export type NodeStreamFrame = {
   type: 'node_stream'; rev?: number; event_id?: string; reply_quote?: string;
   node: string; kind: string; text?: string; sticky?: boolean; id?: string;
   assistant_row?: unknown; segments?: unknown; delivery?: unknown;
+  convo_rows?: import('./types').ChatMessage[];
+  committed_row?: import('./types').ChatMessage;
+  draft_clear?: boolean; thinking_clear?: boolean;
   count?: number | null; last_turn_count?: number | null; provider?: string;
   source?: string | null; reason?: string | null; emitted_at_ms?: number;
   waiting?: boolean; state?: string | null; forecast?: CacheForecast | null;

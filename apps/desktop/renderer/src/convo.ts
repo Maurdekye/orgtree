@@ -224,6 +224,7 @@ interface Entry {
   assistantGaps: Map<string, ChatMessage[]>
   assistantNative: Set<string>
   committedRows: Map<string, ChatMessage>
+  orderedStream?: boolean
   pageInFlight?: boolean
   /** identity of the current older-page request; stale callbacks may not
    * clear a newer request's latch after a reset/remount. */
@@ -839,7 +840,7 @@ function serverOpIds(c: ChatPayload | null): Set<string> {
 /** A steer frame can carry the complete, already-saved transcript row.
  * Install it through the same message list as polling, then retain it across
  * stale fetches until the fetched range contains its durable identity. */
-function mergeCommitted(e: Entry, c: ChatPayload, fetched = false): ChatPayload {
+function mergeCommitted(e: Entry, c: ChatPayload, fetched?: ReadonlyMap<string | undefined, ChatMessage>): ChatPayload {
   // Poll-only delivery needs the same queue/transcript reconciliation as a
   // streamed commit. Otherwise a stale pending row briefly duplicates its
   // already-visible transcript row when no steer frame was received.
@@ -857,10 +858,24 @@ function mergeCommitted(e: Entry, c: ChatPayload, fetched = false): ChatPayload 
   }
   const messages = mergeAssistantRows(combined)
   for (const [id, row] of e.committedRows) {
-    if (ids.has(id)) { if (fetched) e.committedRows.delete(id); continue }
-    const index = messages.findIndex(existing => !!existing.ts && !!row.ts && existing.ts > row.ts)
+    if (ids.has(id)) {
+      const index = messages.findIndex(existing => (existing.row_id ?? existing.event_id) === id)
+      if (index >= 0 && (row.convo_revision ?? 0) > (messages[index]!.convo_revision ?? 0)) messages[index] = row
+      // Only the actual HTTP page confirms a commit. Rows retained from the
+      // current view during an incremental merge are not server acknowledgments.
+      const confirmed = fetched?.get(id)
+      if (confirmed && (confirmed.convo_revision ?? 0) >= (row.convo_revision ?? 0)) e.committedRows.delete(id)
+      continue
+    }
+    const index = messages.findIndex(existing => row.seq !== undefined && existing.seq !== undefined
+      ? existing.seq > row.seq : !!existing.ts && !!row.ts && existing.ts > row.ts)
     messages.splice(index < 0 ? messages.length : index, 0, row)
   }
+  // A cursor response may call a row "new" that the stream already installed.
+  // The incremental merge appends fetched additions after its retained tail;
+  // put these Rust rows back in transcript sequence order before publishing.
+  if (e.orderedStream) messages.sort((a, b) =>
+    a.seq !== undefined && b.seq !== undefined ? a.seq - b.seq : 0)
   const mailIds = new Set(messages.flatMap(row => [...segmentMailIds(row.segments, 'operator')]))
   return { ...c, messages: uniqueFileCards(messages), pending_mail: (c.pending_mail ?? []).filter(row => !row.id || !mailIds.has(row.id)) }
 }
@@ -921,6 +936,8 @@ export function refreshConvo(slug: string, nid: string,
   return getChat(slug, nid, e.s.win, undefined, after).then(async (c) => {
     if (!ownsRequest()) return
     if (!stillFreshest()) return
+    const fetchedCommits = new Map([...c.messages, ...(c.message_updates ?? [])]
+      .map(row => [row.row_id ?? row.event_id, row]))
     const tailBefore = c.before
     const changedAssistantScope = !!c.assistant_scope && !!e.s.chat?.assistant_scope
       && c.assistant_scope !== e.s.chat.assistant_scope
@@ -1016,7 +1033,10 @@ export function refreshConvo(slug: string, nid: string,
       const latest = drainAssistantGaps(e, id, fetched)
       if (latest !== fetched) e.assistantRows.set(id, latest)
     }
-    c = mergeCommitted(e, c, true)
+    c = mergeCommitted(e, c, fetchedCommits)
+    // A fetch issued before a stream transition may still contain its retired
+    // draft/thought. The current accumulators cover the live tail in that case.
+    if (e.orderedStream && startedAt < e.streamAt) c = { ...c, transient: [] }
     // A pending ghost graduates once the SERVER'S OWN copy is visible — by
     // CONTAINMENT, not equality, since the turn text is a mail envelope by
     // then. Two things count as visible, and both must, because the message
@@ -1534,6 +1554,38 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
   // keeps the ordering against durable rows exactly what it was before
   // tokens were buffered at all; only the number of notifications changed.
   if (ev.kind !== 'delta' && ev.kind !== 'thinking') flushLive(e)
+  if (Array.isArray(ev.convo_rows)) {
+    e.orderedStream = true
+    e.streamAt = Date.now()
+    // The same wire frame carries the saved replacements AND which partials
+    // they consumed. Publish them together, never clear first and wait for HTTP.
+    if (ev.convo_rows.length
+        || (ev.draft_clear && (!!liveField(e, 'draft') || e.s.chat?.transient?.some(r => ['draft', 'delta'].includes(r.kind))))
+        || (ev.thinking_clear && (!!liveField(e, 'thinking') || e.s.thinkSecs !== null
+          || e.s.chat?.transient?.some(r => ['thinking', 'thinking_start', 'thought'].includes(r.kind))))) {
+      flushLive(e)
+      for (const row of ev.convo_rows) {
+        if (!row.row_id || !Number.isSafeInteger(row.seq) || !Number.isSafeInteger(row.convo_revision)) continue
+        const old = e.committedRows.get(row.row_id)
+        if (!old || (old.convo_revision ?? 0) <= row.convo_revision!) e.committedRows.set(row.row_id, row)
+      }
+      const current = e.s.chat ?? { busy: true, queued: 0, responding: true,
+        last_error: null, occupancy: null, messages: [], mail_pending: 0, pending_mail: [] }
+      const chat = mergeCommitted(e, { ...current, transient: (current.transient ?? []).filter(row =>
+        !(ev.draft_clear && ['draft', 'delta'].includes(row.kind))
+        && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))) })
+      const cleared: Partial<Convo> = {}
+      if (ev.draft_clear) {
+        cleared.draft = ''; cleared.draftEventId = undefined; cleared.draftReplyQuote = undefined
+        e.staleDraft = false
+      }
+      if (ev.thinking_clear) {
+        cleared.thinking = ''; cleared.thinkingEventId = undefined; cleared.thinkingReplyQuote = undefined
+        cleared.thinkSecs = null; e.thinkT0 = 0; stopClock(e); e.staleThink = false
+      }
+      patch(k, { chat, ...cleared })
+    }
+  }
   if (isAssistantSnapshot(ev.assistant_row)) {
     let row = ev.assistant_row
     if (e.s.chat?.assistant_scope && e.s.chat.assistant_scope !== row.assistant_scope) {

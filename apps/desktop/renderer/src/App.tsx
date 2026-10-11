@@ -1178,6 +1178,9 @@ export default function App() {
         ingestStream(slug, {
           node: data.node, kind: data.kind, text: data.text ?? '',
           ...(data.assistant_row !== undefined ? { assistant_row: data.assistant_row } : {}),
+          ...(Array.isArray(data.convo_rows) ? { convo_rows: data.convo_rows,
+            draft_clear: data.draft_clear, thinking_clear: data.thinking_clear } : {}),
+          ...(data.committed_row ? { committed_row: data.committed_row } : {}),
           ...(typeof data.event_id === 'string' ? { event_id: data.event_id } : {}),
           ...(typeof data.reply_quote === 'string' ? { reply_quote: data.reply_quote } : {}),
           ...(data.segments !== undefined ? { segments: data.segments } : {}),

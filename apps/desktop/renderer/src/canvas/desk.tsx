@@ -3820,7 +3820,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
             {['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? (row.event_id === convo.thinkingEventId && thinking || row.text
-                ? <div className="msg live thinking md" dangerouslySetInnerHTML={md(row.event_id === convo.thinkingEventId && thinking ? thinking : row.text, undefined, false, true)} />
+                ? <ThoughtBody text={row.event_id === convo.thinkingEventId && thinking ? thinking : row.text} live />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
                     {thinkSecs !== null && thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}</div>)
               // render-inline-html-custom-responses: these transient rows are
@@ -3839,7 +3839,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           {thinkingMark && <div className="reply-event"
             data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
             // haiku streams its reasoning: the text IS the indicator
-            ? <div className="msg live thinking md" dangerouslySetInnerHTML={md(thinking, undefined, false, true)} />
+            ? <ThoughtBody text={thinking} live />
             // opus/sonnet seal it: nothing to show but the fact and the clock,
             // which beats the blank panel this replaces
             : <div className="msg live thinking sealed">
@@ -4876,8 +4876,20 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   // relative image srcs in the text (`![](outbox/plot.png)`) resolve against
   // this node's own files — the way an agent embeds a picture in its reply
   const fb = fileBase(slug, nid)
+  const orderedBlocks = m.content_blocks?.length ? m.content_blocks.map((block, index) => {
+    if (block.kind === 'text') return <RefMdBody key={index} className="msgtext md" world={refs?.world}
+      onOpen={refs?.onOpen} html={md(block.text, fb, m.role === 'assistant')} />
+    if (block.kind === 'thinking') return <div key={index} className="reply-event"
+      data-reply-quote={block.text}><ThoughtLine text={block.text} secs={m.think_secs}
+        sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>
+    const chip = m.tools?.find(tool => tool.id === block.id)
+    return chip ? <ToolChip key={index} t={chip} slug={slug} nid={nid}
+      onMailLink={onMailLink} onWorkLink={onWorkLink}
+      onOpenDoc={refs ? id => refs.onOpen(resolveRef({kind:'doc', org:slug, id}, refs.world)) : undefined} /> : null
+  }) : null
   return (
     <div className={'msg ' + m.role + (m.oracle ? ' oracle' : '')}>
+      {orderedBlocks ?? <>
       {(m.thinking || m.thinking_sealed) &&
         <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
           sealed={m.thinking_sealed} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>}
@@ -4895,6 +4907,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
           tool output and presented documents. */}
       {text && <RefMdBody className="msgtext md" world={refs?.world}
         onOpen={refs?.onOpen} html={md(text, fb, m.role === 'assistant')} />}
+      </>}
       {m.assistant_state === 'partial' && <div className="dim small">partial response</div>}
       {/* the display copy was capped server-side (steered-log per-row cap) —
           without this line the tail is just silently missing and the message
@@ -4908,6 +4921,14 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     </div>
   )
 })
+
+function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {
+  // Identical block/paragraph whitespace while streaming and after attachment.
+  // pre-wrap on the old live root also rendered Markdown's HTML separator
+  // newlines, adding blank lines between paragraphs only while live.
+  return <div className={'thoughtbody md' + (live ? ' live' : '')}
+    dangerouslySetInnerHTML={md(text, undefined, false, live)} />
+}
 
 function ThoughtLine({ text, secs, sealed, foldKey }:
 { text?: string; secs?: number; sealed?: boolean; foldKey?: string }) {
@@ -4930,7 +4951,7 @@ function ThoughtLine({ text, secs, sealed, foldKey }:
         <PsychologyIcon fontSize="inherit" />
         {' '}thought for {dur} {open ? '▾' : '▸'}
       </button>
-      {open && <div className="thoughtbody md" dangerouslySetInnerHTML={md(text)} />}
+      {open && <ThoughtBody text={text} />}
     </div>
   )
 }
