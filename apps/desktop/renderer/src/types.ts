@@ -69,12 +69,15 @@ export interface DirGrant {
 }
 
 // schema.py ToolGrant — `mcp` is a sorted server-name list; ["*"] = all
+export type OrgtreeToolGroup = 'docket' | 'team' | 'messaging' | 'inspection' | 'watchdogs' | 'runtime' | 'user'
 export interface ToolGrant {
   bash: boolean
   web: boolean
   edit: boolean
   subagents: boolean
   mcp: string[]
+  /** Missing groups stay enabled, including scopes saved by older versions. */
+  orgtree?: Partial<Record<OrgtreeToolGroup, boolean>>
 }
 
 // schema.py NodeScope — permission_mode / org_visibility are `str` there, so

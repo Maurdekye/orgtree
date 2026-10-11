@@ -14,7 +14,7 @@ import { lineageCount } from '../archived'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ChatInit, DirGrant, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog,
+  ChatInit, DirGrant, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
 } from '../types'
 import {
   assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, getOrgAccounts,
@@ -457,6 +457,9 @@ export function HireDefaultsTab({ tree, slug, toast, close,
               onChange={next => setTools({ ...tools, [k]: next })} />
           ))}
         </SetBlock>
+        <SetBlock label="Orgtree tools">
+          <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
+        </SetBlock>
         <SetBlock label="MCP servers">
           <SetToggle label="all registered MCP servers"
             labelContent="all registered servers (current and future)" checked={allMcp}
@@ -689,6 +692,8 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <SetToggle key={k} label={label} checked={!!tools[k]}
             onChange={next => setTools({ ...tools, [k]: next })} />
         ))}
+        <div className="field-label">Orgtree tools</div>
+        <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
         <div className="field-label">MCP servers</div>
         <SetToggle label="all registered servers (current and future)" checked={allMcp}
           onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
@@ -802,6 +807,9 @@ export function cascadePreview(
       for (const k of ['bash', 'web', 'edit', 'subagents'] as const) {
         if (want.tools[k] && !(n.scope.tools as Record<string, unknown>)?.[k]) gains.push(k)
       }
+      for (const [group, label] of ORGTREE_GROUPS) {
+        if (want.tools.orgtree?.[group] !== false && n.scope.tools?.orgtree?.[group] === false) gains.push(label)
+      }
       const have = (n.scope.tools?.mcp ?? []) as string[]
       const wm = want.tools.mcp ?? []
       if (wm.includes('*') && !have.includes('*')) gains.push('mcp:*')
@@ -829,6 +837,28 @@ const TOOL_LABELS = [
   ['edit', 'file editing (Write / Edit / notebooks)'],
   ['subagents', 'ephemeral subagents (Task / Agent tool)'],
 ] as const
+
+const ORGTREE_GROUPS: ReadonlyArray<readonly [OrgtreeToolGroup, string, string]> = [
+  ['docket', 'Docket work', 'Read and update work items. Staffing a work item also needs Team management.'],
+  ['team', 'Team management', 'Hire, retire, move and configure agents; manage credits and models.'],
+  ['messaging', 'Messaging', 'Send and read mail, manage audiences and attachment transfers.'],
+  ['inspection', 'Organization reading', 'Read the chart, agent state, transcripts, scratch folders, tiers and organizations.'],
+  ['watchdogs', 'Watchdogs', 'Create and manage persistent watchers. Command watchers also need Run commands.'],
+  ['runtime', 'Runtime and accounts', 'Interrupt, halt or resume agents, change their account and inspect capacity marks.'],
+  ['user', 'User questions and delivery', 'Ask questions, present documents, send files and request more scope or credits.'],
+]
+
+function OrgtreeGroupToggles({ value, ceiling, onChange }: {
+  value: ToolGrant['orgtree']; ceiling?: ToolGrant['orgtree']; onChange: (value: ToolGrant['orgtree']) => void
+}) {
+  return <>
+    <p className="set-hint">Disabled groups remove their tools and instructions from the agent. Status reporting stays available.</p>
+    {ORGTREE_GROUPS.map(([key, label, description]) => <SetToggle key={key} label={label}
+      checked={value?.[key] !== false && ceiling?.[key] !== false} disabled={ceiling?.[key] === false}
+      hint={ceiling?.[key] === false ? 'The superior does not have this permission.' : description}
+      onChange={checked => onChange({ ...value, [key]: checked })} />)}
+  </>
+}
 /** The lines an agent-settings save is allowed to POP at the user.
  *
  * WARNINGS ONLY. A scope save returns two kinds of text (ledger.set_scope):
@@ -1343,6 +1373,11 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             disabled={!parentHolds(k)} hint={!parentHolds(k) ? "The superior does not have this permission." : undefined}
             onChange={checked => setTools({ ...tools, [k]: checked })} />
         ))}
+        </SetGroup>
+
+        <SetGroup title="Orgtree tools">
+          <OrgtreeGroupToggles value={tools.orgtree} ceiling={parentTools?.orgtree}
+            onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetGroup>
 
         <SetGroup title="Connected tools">
