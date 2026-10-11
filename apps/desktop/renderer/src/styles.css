@@ -8336,3 +8336,5 @@ main:has(> .orgbar.native-header) > .error {
 .transfer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .transfer-actions:empty { display: none; }
 .transfer-actions button { font-size: 11px; padding: 3px 7px; }
+
+.saved-local-files > .local-staging { max-height: 180px; overflow-y: auto; margin: 6px 0; }
