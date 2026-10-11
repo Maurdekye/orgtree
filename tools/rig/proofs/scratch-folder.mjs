@@ -1,10 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { createHash } from 'node:crypto'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('scratch-folder')
+  const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+  p.note('source binary provenance', {
+    engine: rig.run.engineSource, engineSha256: hash(rig.run.engineSource),
+    fakeCli: process.env.ORGTREE_RIG_FAKECLI,
+    fakeCliSha256: process.env.ORGTREE_RIG_FAKECLI ? hash(process.env.ORGTREE_RIG_FAKECLI) : null,
+    nativeBundleSha256: process.env.PROOF_SCRATCH_NATIVE_BUNDLE ? hash(process.env.PROOF_SCRATCH_NATIVE_BUNDLE) : null,
+  })
   const route = node => `/api/orgs/${rig.org}/nodes/${node}/scratch-folder`
   const get = node => rig.api('GET', route(node))
   const quote = s => `'${s.replaceAll("'", "''")}'`
@@ -37,8 +45,11 @@ export default async function (rig) {
   rig.exec("UPDATE ot.agents SET scratch_dir = NULL WHERE name = 'bob'")
   p.check('null scratch uses config fallback', (await get('bob')).path === path.join(rig.data, 'scratch', rig.org, 'bob'))
   rig.exec("UPDATE ot.agents SET state = 'deleted' WHERE name = 'bob'")
-  p.check('deleted agent refused', await get('bob').then(() => false, () => true))
-  p.check('unknown agent refused', await get('absent').then(() => false, () => true))
+  p.check('deleted agent refused', await get('bob').then(() => false, error => error.status === 404))
+  p.check('unknown agent refused', await get('absent').then(() => false, error => error.status === 404))
+  const other = await rig.api('POST', '/api/orgs', { name: 'Other Scratch Org', dirs: [], net_autoconnect: false })
+  p.check('agent identity is scoped to organization', await rig.api('GET',
+    `/api/orgs/${other.slug}/nodes/carol/scratch-folder`).then(() => false, error => error.status === 404))
   const unauth = await fetch(rig.url + route('carol'))
   p.check('unauthenticated identity lookup refused', unauth.status === 401 || unauth.status === 403, unauth.status)
   return p.summary()
