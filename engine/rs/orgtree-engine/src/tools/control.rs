@@ -10,7 +10,6 @@ use tokio::sync::oneshot;
 use super::{arg_str, downward, me, need_str, target, Done};
 use crate::engine::Engine;
 use crate::runtime::{self, freeze, AgentMsg, Caller};
-use crate::util::iso;
 
 /// Ask an agent's actor something and wait for the answer.
 #[logged]
