@@ -148,7 +148,10 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /handleApp\('desktop:run-as-admin'/)
   assert.match(main, /handleApp\('desktop:set-run-as-admin'/)
-  assert.match(main, /if \(stats === null && !engine\.managed && !backgroundEngineRestart\)/)
+  // With coordinated lifecycle active, native identity/death checks own
+  // shutdown; the legacy HTTP recovery poll must not resurrect that cohort.
+  // Deliberate restart remains excluded from the legacy path as before.
+  assert.match(main, /if \(stats === null && !engine\.managed && !backgroundEngineRestart && !coreLifecycle\)/)
   const setter = main.slice(main.indexOf("handleApp('desktop:set-run-as-admin'"))
   const order = ['engine.stopAttachedForUpdate()', 'startBootTask()', 'engine.reattachBackground(']
   const at = order.map(s => setter.indexOf(s))

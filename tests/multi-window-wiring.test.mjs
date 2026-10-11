@@ -156,8 +156,13 @@ test('an unfinished creation form is confirmed on a deliberate close and on a qu
   assert.match(main, /if \(gate\.action === 'busy'\) return false/)
   assert.match(main, /if \(!discard\) return false/)
   // ⚠ an update install and an installer upgrade are shutdowns the user
-  // already approved, and a dialog inside them is what wedges the app
-  assert.equal(main.split('quitConfirmed = true').length - 1, 3)
+  // already approved, and a dialog inside them is what wedges the app.
+  // A confirmed core-process fault also cannot wait for an interactive draft
+  // prompt: the signed-in cohort must shut down. Ordinary Quit still uses the
+  // creation gate above; pin the extra bypass to that fault handler.
+  assert.match(main, /const stopCoreApplication = \(\) => \{\s*if \(quitting \|\| quitComplete\) return\s*quitConfirmed = true\s*app\.quit\(\)\s*\}/)
+  assert.match(main, /engine\.on\('core-fault', stopCoreApplication\)/)
+  assert.equal(main.split('quitConfirmed = true').length - 1, 4)
 })
 
 test('a quit records what was open BEFORE teardown, in both shutdown routes', () => {
