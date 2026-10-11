@@ -50,7 +50,7 @@ export default async function (rig, { flags }) {
   const freeze = async () => {
     await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE agent_id=${id} AND ended_at IS NULL`).length === 0,
       { what: 'continuation turn settled', timeout: 60000 })
-    rig.exec(`UPDATE ot.agents SET account=${quote(B)},pending_account=${quote(C)},limit_locked=true,
+    rig.exec(`UPDATE ot.agents SET account=${quote(B)},pending_account=${quote(JSON.stringify({account:C}))}::jsonb,limit_locked=true,
       frozen='{"limit":true,"cause":"usage_limit","resume_texts":["REPLAY-PRIMARY-PROOF"],"until":"${later(3)}"}'::jsonb WHERE id=${id}`)
   }
   const http = account => rig.api('POST', `/api/orgs/${rig.org}/nodes/mira/continue-on`, { account })
