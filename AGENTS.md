@@ -29,6 +29,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [decided: user 2026-10-11 22:33Z; verified: renderer `canvas/pendingrun.tsx`,
   `canvas/desk.tsx`; scope and proof: `docs/rust-engine/pending-mail-collapse.md`]
 
+- Agent Open > Open scratch folder is a native directory-only action. Resolve
+  stored/imported/renamed paths through authenticated agent identity; never
+  reconstruct a path in the renderer or open a file. Missing folders report an
+  error without creation. [verified: `http/nodes.rs`, `main/scratch-folder.ts`,
+  2026-10-11; coordinator ruling; details: `docs/rust-engine/scratch-folder.md`]
 - The bundled mail hub is pinned to released **2.1.1** (`2c22e3d`), fixing
   resumable-upload recovery without changing schema 9 or adding API routes.
   Packaging must record and verify this exact submodule revision; advancing the

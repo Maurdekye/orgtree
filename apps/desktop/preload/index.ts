@@ -67,6 +67,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     openCharterFolder: () => ipcRenderer.invoke('desktop:open-charter-folder'),
     openTemplatesFolder: () => ipcRenderer.invoke('desktop:open-templates-folder'),
     openLogsFolder: () => ipcRenderer.invoke('desktop:open-logs-folder'),
+    openAgentScratchFolder: (org: string, node: string) => ipcRenderer.invoke('desktop:open-agent-scratch-folder', org, node),
     revealFile: (path: string) => ipcRenderer.invoke('desktop:reveal-file', path),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),

@@ -44,6 +44,7 @@ import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { AgentBatchHaltConfirm, AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { hireTierChoices } from './shared'
+import { scratchFolderAction } from '../scratch-folder'
 import type { RetireKind } from './agentmenu'
 import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
@@ -1446,6 +1447,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     return agentMenuEntries(node, {
       onOpenDesk: onRecenter,
       onInbox,
+      onScratchFolder: scratchFolderAction(slug, node.id, toast),
       onDocket,
       onTeamDocket,
       onPresentations: onOpenAgentGallery

@@ -56,6 +56,7 @@ export interface AgentMenuHandlers {
    *  a gap where it should be reads as a broken menu. */
   onOpenDesk?: () => void
   onInbox: () => void
+  onScratchFolder?: () => void
   onDocket?: () => void
   /** the reduced docket for this agent's WHOLE TEAM — it and everyone below
    *  it. For 2.1.5-RC1 this menu entry is the only door to that view, so the
@@ -141,6 +142,9 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   openEntries.push(
     { label: 'Open inbox', onSelect: () => h.onInbox() },
   )
+  if (h.onScratchFolder && (live || node.state === 'archived')) {
+    openEntries.push({ label: 'Open scratch folder', onSelect: h.onScratchFolder })
+  }
   const docket = h.onDocket
   if (docket) openEntries.push({ label: 'Open docket', onSelect: () => docket() })
   // …and the same docket widened to this agent's REPORTS. It sits next to

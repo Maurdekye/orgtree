@@ -77,6 +77,7 @@ import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
+import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
@@ -3143,6 +3144,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return agentMenuEntries(n, {
       onOpenDesk: go,
       onInbox: () => toggleNodeSurface('node-inbox', n.id, setInboxId),
+      onScratchFolder: scratchFolderAction(slug, n.id, toast),
       onDocket: () => toggleNodeSurface('agent-docket', n.id, setAgentDocketId),
       onTeamDocket: () => toggleNodeSurface('team-docket', n.id, setTeamDocketId),
       onPresentations: onOpenAgentGallery

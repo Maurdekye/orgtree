@@ -1,5 +1,6 @@
 import { CredentialBridge } from './credential-bridge'
 import { CoreLifecycle } from './core-lifecycle'
+import { openAgentScratchFolder } from './scratch-folder'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
@@ -1878,6 +1879,12 @@ else {
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
+    })
+    handle('desktop:open-agent-scratch-folder', (caller, org, node) => {
+      if (!engineRestartOptions?.dataRoot || windows.identity(caller.id)?.org !== org) {
+        return { ok: false, error: 'Open this agent from its local organization window.' }
+      }
+      return openAgentScratchFolder(engine, org, node, directory => shell.openPath(directory))
     })
     handleApp('desktop:open-charter-folder', async () => {
       const dir = path.join(os.homedir(), '.orgtree', 'charters')
