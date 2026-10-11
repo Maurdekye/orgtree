@@ -66,7 +66,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
         state.installing = old.installing;
     }
     let mut sessions = core_process::Sessions::new();
-    if let Some(found) = sessions.as_mut().and_then(|s| s.read()) {
+    if let Some(found) = core_state::sessions(root, &mut sessions) {
         if core_state::blocked(root, &found) { engine.request_shutdown(); return; }
         state.sessions = found;
     }
@@ -81,7 +81,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
             _ = engine.shutdown.cancelled() => {
                 // Quit/fault must suppress task recovery too. Sign-out and an
                 // authenticated replacement are the only background exceptions.
-                if sessions.as_mut().and_then(|s| s.read()).is_some_and(|s| !s.is_empty()) && !core_state::transition(&state) {
+                if core_state::sessions(root, &mut sessions).is_some_and(|s| !s.is_empty()) && !core_state::transition(&state) {
                     let _ = core_state::stop(root, &state, "engine shutdown");
                 }
                 break;
@@ -115,7 +115,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                 match cmd { Command::Member { reply, .. } | Command::Transition { reply, .. } => { let _ = reply.send(ok); } }
             }
             _ = timer.tick() => {
-                let current = sessions.as_mut().and_then(|s| s.read());
+                let current = core_state::sessions(root, &mut sessions);
                 if let Some(current) = &current {
                     if *current != state.sessions {
                         // A new interactive logon cannot reuse dead identities from
@@ -179,7 +179,7 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
         }
         if args[0] != "status" { return std::process::ExitCode::from(2); }
         let mut session = core_process::Sessions::new();
-        let active = session.as_mut().and_then(|s| s.read());
+        let active = core_state::sessions(root, &mut session);
         let stopped = core_state::read(root).is_some_and(|s| active.as_ref().is_some_and(|a| core_state::observe_engine(root, &s, a)));
         println!("{}", serde_json::json!({"stopped":stopped}));
     }

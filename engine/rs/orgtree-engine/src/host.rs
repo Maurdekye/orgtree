@@ -311,8 +311,9 @@ fn once() -> u8 {
     };
     let _ = std::fs::create_dir_all(&root);
     #[cfg(windows)] {
-        if let Some(mut sessions) = crate::core_process::Sessions::new() {
-            if let Some(active) = sessions.read() {
+        {
+            let mut sessions = crate::core_process::Sessions::new();
+            if let Some(active) = crate::core_state::sessions(&root, &mut sessions) {
                 if let Some(old) = crate::core_state::read(&root) { crate::core_state::observe_engine(&root, &old, &active); }
                 if crate::core_state::blocked(&root, &active) {
                     say(Some(&root), "core session stopped; waiting for a new desktop launch");
@@ -531,7 +532,7 @@ fn core_fault(root: &Path, pid: u32, reason: &str) -> bool {
     #[cfg(windows)] {
         let Some(state) = crate::core_state::read(root).filter(|s| s.engine.pid == pid) else { return false };
         if crate::core_state::transition(&state) { return false; }
-        let active = crate::core_process::Sessions::new().and_then(|mut s| s.read());
+        let active = crate::core_state::sessions(root, &mut crate::core_process::Sessions::new());
         if active.as_ref().is_some_and(|a| !a.is_empty()) {
             let _ = crate::core_state::stop(root, &state, reason);
             return true;

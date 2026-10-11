@@ -23,7 +23,7 @@ impl Startup {
             let mut sessions = core_process::Sessions::new();
             // An unreadable session query is not a fresh logon and cannot
             // discard a stopped generation's automatic-restart suppression.
-            let active = sessions.as_mut().and_then(|s| s.read())
+            let active = core_state::sessions(&cfg.data_root, &mut sessions)
                 .unwrap_or_else(|| old.as_ref().map(|s| s.sessions.clone()).unwrap_or_default());
             if core_state::blocked(&cfg.data_root, &active) { anyhow::bail!("core session is stopped"); }
             let mut state = core_state::Snapshot { generation: out.generation.clone(), engine: identity,
@@ -40,7 +40,7 @@ impl Startup {
                 let mut gone_since = None;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    let Some(active) = sessions.as_mut().and_then(|s| s.read()) else { continue };
+                    let Some(active) = core_state::sessions(&root, &mut sessions) else { continue };
                     if active != state.sessions {
                         state.sessions = active.clone();
                         let _ = core_state::write(&root, &state);

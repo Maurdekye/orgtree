@@ -174,7 +174,7 @@ mod win {
         let mut last_host_status = None;
         let mut core_sessions = crate::core_process::Sessions::new();
         loop {
-            if let Some(active) = core_sessions.as_mut().and_then(|s| s.read()) {
+            if let Some(active) = crate::core_state::sessions(&root, &mut core_sessions) {
                 if let Some(state) = crate::core_state::read(&root) {
                     crate::core_state::observe_engine(&root, &state, &active);
                 }

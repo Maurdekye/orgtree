@@ -9,6 +9,24 @@ use std::{io::{Read, Write}, path::{Path, PathBuf}};
 const FILE: &str = "core-lifecycle.json";
 const MAX: u64 = 16 * 1024;
 
+/// WTS in production. The debug rig can model normal sign-out without logging
+/// the real operator out; its marker is accepted only in a non-live rig root.
+#[nolog]
+pub fn sessions(root: &Path, source: &mut Option<core_process::Sessions>) -> Option<Vec<Session>> {
+    #[cfg(debug_assertions)]
+    if std::env::var("ORGTREE_ENGINE_RIG").as_deref() == Ok("1")
+        && std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() == Ok("1")
+        && root.join(".orgtree-rig-root").is_file()
+    {
+        let resolved = root.canonicalize().ok()?;
+        let live = dirs::data_dir()?.join("Orgtree v2").canonicalize().ok()?;
+        if !resolved.to_string_lossy().to_lowercase().starts_with(&live.to_string_lossy().to_lowercase())
+            && root.join("core-rig-signed-out").is_file() { return Some(vec![]); }
+    }
+    #[cfg(not(debug_assertions))] let _ = root;
+    source.as_mut().and_then(|s| s.read())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     pub generation: String,
