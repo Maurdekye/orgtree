@@ -49,6 +49,8 @@ export default async function (rig) {
   const readOnly = await query({ accounts: ['openai/primary'] })
   const denied = await query({ accounts: ['openai/primary'], refresh: true })
   p.check('inspection-only agent reads cache but cannot refresh', readOnly.ok && !denied.ok && calls() === before, { readOnly, denied })
+  const inherited = await rig.tool('alice', 'orgtree_usage', { accounts: ['openai/primary'], refresh: true })
+  p.check('runtime denial is inherited from superior', !inherited.ok && calls() === before, inherited)
   groups({ inspection: false, runtime: true })
   const noRead = await query({})
   p.check('live inspection denial refuses even with runtime', !noRead.ok && calls() === before, noRead)
@@ -68,6 +70,29 @@ export default async function (rig) {
   p.check('next manual refresh reports shared attempt floor', limited.ok && limited.json.refresh.status === 'rate_limited'
     && limited.json.refresh.retry_after_seconds > 0 && calls() === before + 1, limited)
   p.check('refresh creates no inference turn', rig.one('SELECT count(*) AS n FROM ot.turns').n === turns)
+  // API-key metering uses local DB only. Neither absent rows nor query errors
+  // may be transformed into a fabricated zero spend.
+  const K = (await rig.api('POST', '/api/accounts', { provider: 'claude', kind: 'apikey', key: 'sk-ant-api03-usage-rig-fake-key' })).id
+  await rig.api('GET', `/api/accounts/${K}/usage?force=true`)
+  const absent = await query({ accounts: [K] })
+  p.check('absent local metering is explicit, quota unsupported, no invented zero', absent.ok
+    && absent.json.accounts[0].reason === 'no_recorded_spend' && absent.json.accounts[0].quota === 'unsupported'
+    && absent.json.accounts[0].spend === null, absent)
+  rig.sql('ALTER TABLE ot.account_spend RENAME TO usage_proof_spend')
+  try { await rig.api('GET', `/api/accounts/${K}/usage?force=true`) }
+  finally { rig.sql('ALTER TABLE ot.usage_proof_spend RENAME TO account_spend') }
+  const dbFailed = await query({ accounts: [K] })
+  p.check('local metering DB error remains failed rather than zero', dbFailed.ok
+    && dbFailed.json.accounts[0].reason === 'failed' && dbFailed.json.accounts[0].spend === null, dbFailed)
+  await rig.api('PUT', `/api/accounts/${K}/enabled`, { enabled: false })
+  const inactiveKey = await query({ accounts: [K] })
+  const inactiveKeyRefresh = await query({ accounts: [K], refresh: true })
+  p.check('inactive registered account remains inspectable but not refreshable', inactiveKey.ok
+    && inactiveKey.json.accounts[0].enabled === false && !inactiveKeyRefresh.ok, { inactiveKey, inactiveKeyRefresh })
+  rig.sql(`UPDATE ot.accounts SET origin_org='another-rig-org' WHERE id='${K}'`)
+  await rig.api('PUT', `/api/accounts/${K}/enabled`, { enabled: true })
+  const foreign = await query({ accounts: [K] })
+  p.check('legacy origin restriction cannot be bypassed by exact ID', !foreign.ok, foreign)
   // Inactive native account remains inspectable, never refreshable.
   await rig.api('PUT', '/api/providers/openai/subscription-inference', { enabled: false })
   const inactive = await query({ accounts: ['openai/primary'] })
