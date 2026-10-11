@@ -98,6 +98,11 @@ fn lanes(engine: &Engine, org: &str) -> BTreeMap<String, Lane> {
             },
         );
     }
+    // Match the canonical app-wide provider switch as well as each lane's
+    // account/server switch. Inspection of either inactive state stays valid.
+    for lane in out.values_mut() {
+        lane.enabled &= engine.settings.provider_enabled(&lane.provider);
+    }
     out.retain(|id, _| crate::org_accounts::allowed(Some(org), id));
     out
 }

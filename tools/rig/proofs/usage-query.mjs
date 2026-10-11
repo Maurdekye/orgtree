@@ -93,6 +93,36 @@ export default async function (rig) {
   await rig.api('PUT', `/api/accounts/${K}/enabled`, { enabled: true })
   const foreign = await query({ accounts: [K] })
   p.check('legacy origin restriction cannot be bypassed by exact ID', !foreign.ok, foreign)
+  await rig.api('PUT', '/api/providers/openai/enabled', { enabled: false })
+  const providerOff = await query({ accounts: ['openai/primary'] })
+  const providerOffRefresh = await query({ accounts: ['openai/primary'], refresh: true })
+  p.check('global provider switch permits inspection and refuses refresh', providerOff.ok
+    && providerOff.json.accounts[0].enabled === false && !providerOffRefresh.ok && calls() === before + 1,
+    { providerOff, providerOffRefresh })
+  await rig.api('PUT', '/api/providers/openai/enabled', { enabled: true })
+  const server = await rig.api('POST', '/api/langservers', { preset: 'llamacpp', address: 'http://127.0.0.1:9',
+    harness: 'codex-cli', label: 'Usage proof server', max_agents: 2, models: [{ id: 'usage-proof-model', context: 65536 }] })
+  const serverLane = `langserver:${server.id}`
+  const local = await query({ accounts: [serverLane] })
+  const localRefresh = await query({ accounts: [serverLane], refresh: true })
+  p.check('local server quota is explicitly unsupported without inference', local.ok
+    && local.json.accounts[0].quota === 'unsupported' && local.json.accounts[0].concurrency_cap === 2
+    && localRefresh.ok && localRefresh.json.refresh.status === 'unsupported', { local, localRefresh })
+  await rig.api('PATCH', `/api/langservers/${server.id}`, { enabled: false })
+  const serverOff = await query({ accounts: [serverLane] })
+  const serverOffRefresh = await query({ accounts: [serverLane], refresh: true })
+  p.check('disabled server remains inspectable and cannot refresh', serverOff.ok
+    && serverOff.json.accounts[0].enabled === false && !serverOffRefresh.ok, { serverOff, serverOffRefresh })
+  await rig.api('PATCH', `/api/langservers/${server.id}`, { enabled: true })
+  await rig.api('PUT', '/api/providers/langserver/enabled', { enabled: false })
+  const serversOff = await query({ accounts: [serverLane] })
+  p.check('global language-server switch marks an individually active server inactive', serversOff.ok
+    && serversOff.json.accounts[0].enabled === false, serversOff)
+  await rig.api('PUT', '/api/providers/langserver/enabled', { enabled: true })
+  await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: [serverLane] })
+  const serverScoped = await query({ accounts: [serverLane] })
+  p.check('org server exclusion refuses exact cached lane', !serverScoped.ok, serverScoped)
+  await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: [] })
   // Inactive native account remains inspectable, never refreshable.
   await rig.api('PUT', '/api/providers/openai/subscription-inference', { enabled: false })
   const inactive = await query({ accounts: ['openai/primary'] })
