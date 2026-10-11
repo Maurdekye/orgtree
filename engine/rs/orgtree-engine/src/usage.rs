@@ -1131,12 +1131,11 @@ pub async fn openrouter_key_usage(engine: &Engine, id: &str, force: bool) -> Val
 #[logged]
 async fn openrouter_key_read(engine: &Engine, id: &str, force: bool) -> Value {
     let lane = crate::openrouter::lane(id);
-    if let Some(v) = crate::rig::usage(&lane, None) {
-        // a canned reading stands in for the check, cache included, so a rig
-        // proof sees each key on the board
-        if crate::rig::canned_reading(&v) {
-            engine.usage.put(&lane, &v);
-        }
+    // rig mode: a canned reading stands in for the check, cache included;
+    // without one the key check below is the rig's canned one too (never the
+    // network), so a rig proof reads each key through the real derivation
+    if let Some(v) = crate::rig::usage(&lane, None).filter(crate::rig::canned_reading) {
+        engine.usage.put(&lane, &v);
         return v;
     }
     if !force {

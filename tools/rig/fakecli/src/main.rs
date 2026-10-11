@@ -773,7 +773,14 @@ fn claude(raw: &[String]) -> i32 {
                               "env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": env_of("CLAUDE_CODE_USE_POWERSHELL_TOOL"),
                                        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": env_of("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
                                        "CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF": env_of("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF"),
-                                       "ORGTREE_NODE": env_of("ORGTREE_NODE") },
+                                       "ORGTREE_NODE": env_of("ORGTREE_NODE"),
+                                       // a gateway seat's endpoint and WHICH key it got: only the
+                                       // key's last 6 characters, never the key (rig keys are fake)
+                                       "ANTHROPIC_BASE_URL": env_of("ANTHROPIC_BASE_URL"),
+                                       "auth_token_tail": env_of("ANTHROPIC_AUTH_TOKEN").map(|t| {
+                                           let c: Vec<char> = t.chars().collect();
+                                           c[c.len().saturating_sub(6)..].iter().collect::<String>()
+                                       }) },
                               "forked_from": if args.fork { args.resume.clone() } else { None }, "max_turns": args.max_turns,
                               "model": args.model, "permission_mode": args.permission_mode, "effort": args.effort,
                               "add_dirs": args.add_dirs, "unknown_args": args.unknown,
