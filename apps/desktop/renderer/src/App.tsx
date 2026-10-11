@@ -1177,6 +1177,7 @@ export default function App() {
         // (user bug 2026-08-02). See convo.ts.
         ingestStream(slug, {
           node: data.node, kind: data.kind, text: data.text ?? '',
+          ...(typeof data.stream_order === 'number' ? { stream_order: data.stream_order } : {}),
           ...(data.assistant_row !== undefined ? { assistant_row: data.assistant_row } : {}),
           ...(Array.isArray(data.convo_rows) ? { convo_rows: data.convo_rows,
             draft_clear: data.draft_clear, thinking_clear: data.thinking_clear } : {}),

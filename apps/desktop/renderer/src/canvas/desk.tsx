@@ -1,3 +1,4 @@
+import { livePartials } from '../livePartials'
 import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
@@ -2114,8 +2115,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       && r.event_id !== convo.thinkingEventId) return false
     return true
   })
-  const transientThinking = transient.some(r => ['thinking', 'thinking_start', 'thought'].includes(r.kind))
-  const transientDraft = transient.some(r => ['draft', 'delta'].includes(r.kind))
   // copy-transcript-messages-from-the-context-menu: every event id on screen,
   // mapped to the COMPLETE text of the thing that id names. Built from the
   // rows already in memory rather than written into the DOM: a second
@@ -2864,15 +2863,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const viewLive = dedup.list(live_feed, (r) => r.kind === 'tool'
     ? toolKey(r.id) ?? eventKey(r.native_event_id ?? r.event_id)
     : eventKey(r.native_event_id ?? r.event_id))
-  const viewTransient = dedup.list(transient, (r) => eventKey(r.event_id))
-  // the standalone thinking/draft marks are the SAME events as their transient
-  // rows, drawn when no transient row carries them. `keep` is reached only
-  // when the mark would actually render, so a suppressed mark never reserves
-  // an id nothing drew.
-  const thinkingMark = !transientThinking && thinkSecs !== null && !!chat?.busy
-    && dedup.keep(eventKey(convo.thinkingEventId))
-  const draftMark = !transientDraft && !!draft
-    && dedup.keep(eventKey(convo.draftEventId))
+  const viewTransient = dedup.list(livePartials(transient, convo), (r) => eventKey(r.event_id))
   const viewPendLater = dedup.list(pendLater, (m) => eventKey(m.event_id))
   // every entry the separator stands above: durable rows being delivered or
   // still waiting, plus optimistic ghosts not yet confirmed
@@ -3815,12 +3806,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                     </div>
             }</div>
           ))}
-          {viewTransient.map(row => <div key={row.event_id} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
+          {viewTransient.map(row => <div key={row.event_id || row.kind} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
             onContextMenu={e => openReply(e, row)} className={['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
             {['thinking', 'thinking_start', 'thought'].includes(row.kind)
-              ? (row.event_id === convo.thinkingEventId && thinking || row.text
-                ? <ThoughtBody text={row.event_id === convo.thinkingEventId && thinking ? thinking : row.text} live />
+              ? (row.text
+                ? <ThoughtBody text={row.text} live />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
                     {thinkSecs !== null && thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}</div>)
               // render-inline-html-custom-responses: these transient rows are
@@ -3828,28 +3819,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               // — capture_reply_stream never produces 'user' here — but the
               // grant still names the agent-response case explicitly rather
               // than defaulting open on "not user".
-              : <RefMdBody className="md" world={deskRefs.world} onOpen={deskRefs.onOpen}
-                  html={md(row.event_id === convo.draftEventId && draft ? draft : row.text,
+              : <RefMdBody className={row.kind === 'draft' || row.kind === 'delta' ? 'md draft' : 'md'} world={deskRefs.world} onOpen={deskRefs.onOpen}
+                  html={md(row.text,
                     fileBase(slug, node.id), row.role === 'assistant',
                     // live only when this row IS the growing draft; a settled
                     // transient row is ordinary text and belongs in the
                     // ordinary cache
-                    row.event_id === convo.draftEventId && !!draft)} />}
+                    ['draft', 'delta'].includes(row.kind))} />}
           </div>)}
-          {thinkingMark && <div className="reply-event"
-            data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
-            // haiku streams its reasoning: the text IS the indicator
-            ? <ThoughtBody text={thinking} live />
-            // opus/sonnet seal it: nothing to show but the fact and the clock,
-            // which beats the blank panel this replaces
-            : <div className="msg live thinking sealed">
-                <PsychologyIcon fontSize="inherit" />{' '}thinking…
-                {thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}
-              </div>)}</div>}
-          {draftMark && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''} data-reply-quote={convo.draftReplyQuote}
-            onContextMenu={e => openReply(e, { event_id: convo.draftEventId })}><RefMdBody className="msg assistant live md draft"
-            world={deskRefs.world} onOpen={deskRefs.onOpen}
-            html={md(draft, fileBase(slug, node.id), true, true)} /></div>}
           {/* D-29: the turn has begun but the CLI has not produced anything
               yet — process launch, hooks, `init`, roughly six seconds during
               which the panel showed nothing but a spinner in the chrome. This

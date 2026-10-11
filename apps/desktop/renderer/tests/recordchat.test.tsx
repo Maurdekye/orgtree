@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { OrgRecordContext } from '../src/recordsession'
 import { RecordFeed } from '../src/recordfeed'
 import { publishAgentPanelEvent } from '../src/recordevents'
-import { refreshConvo, resetConvos, useConvo } from '../src/convo'
+import { ingestStream, ingestPulse, refreshConvo, resetConvos, useConvo } from '../src/convo'
 
 const feed = () => new RecordFeed({ snapshot: async () => { throw new Error('no baseline') },
   catchup: async () => { throw new Error('no catchup') }, project: r => r, publish: () => {}, error: e => { throw e } })
@@ -35,10 +35,10 @@ test('record chat has no heartbeat; only its agent events and focus fetch after 
       await flush()
     }); assert.equal(urls.length, 1)
     next = data([3], { incremental: true })
-    await inAct(async () => { publishAgentPanelEvent({ org: 'org', node: 'incremental', type: 'node_stream' }); await flush() })
+    await inAct(async () => { ingestStream('org', { node: 'incremental', kind: 'text', text: '' }); await advance(200) })
     assert.match(urls.at(-1)!, /after=2/); assert.equal(v.el.textContent, '1|2|3')
     next = data([], { incremental: true, after: '3' })
-    await inAct(async () => { publishAgentPanelEvent({ org: 'org', node: 'incremental', type: 'node_event', event: 'turn_done' }); await flush() })
+    await inAct(async () => { ingestPulse('org', { node: 'incremental', event: 'turn_done', t: Date.now() }); await flush() })
     assert.match(urls.at(-1)!, /after=3/); assert.equal(v.el.textContent, '1|2|3')
     next = data([], { incremental: true, after: '3', message_updates: [{ row_id: '3', event_id: '3', seq: 3, role: 'user', text: 'updated' }] })
     await inAct(async () => { window.dispatchEvent(new Event('focus')); await flush() })
@@ -56,7 +56,7 @@ test('record chat cursor replacement discards old rows and a burst keeps the vie
   try {
     await inAct(flush)
     next = data(Array.from({ length: 20 }, (_, i) => i + 3), { incremental: true })
-    await inAct(async () => { publishAgentPanelEvent({ org: 'org', node: 'replacement', type: 'node_stream' }); await flush() })
+    await inAct(async () => { ingestStream('org', { node: 'replacement', kind: 'text', text: '' }); await advance(200) })
     assert.equal(v.el.textContent, '15|16|17|18|19|20|21|22')
     next = data([100], { after_reset: true, conversation_id: 'new-session' })
     await inAct(async () => { window.dispatchEvent(new Event('focus')); await flush() })
@@ -72,11 +72,34 @@ test('events arriving during an incremental read cause one follow-up after that 
   try {
     await inAct(async () => { waiting[0](reply(data([1]))); await flush() })
     await inAct(() => {
-      for (let i = 0; i < 5; i++) publishAgentPanelEvent({ org: 'org', node: 'coalesced', type: 'node_stream' })
+      for (let i = 0; i < 5; i++) ingestPulse('org', { node: 'coalesced', event: 'turn_done', t: Date.now() })
     }); assert.equal(waiting.length, 2)
     await inAct(async () => { waiting[1](reply(data([2], { incremental: true }))); await flush() })
     assert.equal(waiting.length, 3); assert.match(urls[2], /after=2/)
     await inAct(async () => { waiting[2](reply(data([3], { incremental: true }))); await flush() })
     assert.equal(v.el.textContent, '1|2|3'); assert.equal(waiting.length, 3)
+  } finally { await v.unmount(); resetConvos(); f.dispose(); globalThis.fetch = old; realClock() }
+})
+
+
+test('record-mode token invalidations never refetch chat; phase completion still does', async () => {
+  useFakeClock()
+  const old = globalThis.fetch, f = feed(), urls: string[] = []
+  globalThis.fetch = async url => { urls.push(String(url)); return reply(data([1], { busy: true })) }
+  const v = await mountView(<OrgRecordContext.Provider value={{ slug: 'org', session: f }}><Panel node="tokens" /></OrgRecordContext.Provider>, el => el.textContent)
+  try {
+    await inAct(flush)
+    assert.equal(urls.length, 1)
+    for (let i = 0; i < 200; i++) {
+      await inAct(() => {
+        publishAgentPanelEvent({ org: 'org', node: 'tokens', type: 'node_stream' })
+        ingestStream('org', { node: 'tokens', kind: 'thinking', text: ' word', stream_order: 1 })
+      })
+      await advance(40)
+    }
+    assert.equal(urls.length, 1, 'token count must not determine HTTP request count')
+    await inAct(() => ingestStream('org', { node: 'tokens', kind: 'thought', text: '' }))
+    await advance(250)
+    assert.equal(urls.length, 2, 'the completed thought still reconciles from HTTP')
   } finally { await v.unmount(); resetConvos(); f.dispose(); globalThis.fetch = old; realClock() }
 })

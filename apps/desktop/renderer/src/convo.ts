@@ -28,7 +28,6 @@ import { applyAssistantDelta, assistantIds, isAssistantDelta, isAssistantSnapsho
 import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
 import { useCallback, useContext, useEffect, useSyncExternalStore } from 'react'
 import { OrgRecordContext } from './recordsession'
-import { onAgentPanelEvent } from './recordevents'
 import { watchNode } from './streamrooms'
 
 /** Only the newest CHAT_WINDOW rows are fetched and rendered; scrolling to the
@@ -187,9 +186,11 @@ export interface Convo {
   /** optimistic sent-message ghosts, until the server copy lands */
   pending: PendingGhost[]
   draft: string
+  draftOrder?: number
   draftEventId?: string
   draftReplyQuote?: string
   thinking: string
+  thinkingOrder?: number
   thinkingEventId?: string
   thinkingReplyQuote?: string
   /** elapsed seconds while thinking is in progress; null = not thinking */
@@ -757,10 +758,10 @@ export function useConvo(slug: string, nid: string, ownerWindow?: Window | null,
     const focus = () => { void refreshConvo(slug, nid) }
     const owner = ownerWindow ?? window
     owner.addEventListener('focus', focus)
-    const off = onAgentPanelEvent(event => {
-      if (event.org === slug && event.node === nid) void refreshConvo(slug, nid)
-    })
-    return () => { off(); owner.removeEventListener('focus', focus) }
+    // ingestStream/ingestPulse already consume these frames once per node.
+    // Panel invalidation also fires for every token; subscribing here turned
+    // token streaming into an unbounded HTTP loop in record mode.
+    return () => { owner.removeEventListener('focus', focus) }
   }, [slug, nid, eventDriven, ownerWindow, visible])
   const snap = useCallback(() => entry(k).s, [k])
   return useSyncExternalStore(sub, snap, snap)
@@ -1159,7 +1160,7 @@ export function refreshConvo(slug: string, nid: string,
     const missed = sameBoot && made !== null && Number.isFinite(made)
       && made > e.textSeen && !!e.s.draft
     if ((fresh && e.staleDraft) || idle || missed) {
-      retire.draft = ''; retire.draftEventId = undefined; retire.draftReplyQuote = undefined
+      retire.draft = ''; retire.draftOrder = undefined; retire.draftEventId = undefined; retire.draftReplyQuote = undefined
       e.staleDraft = false
     }
     // Re-sync when there is nothing on screen to protect, or when the count
@@ -1177,7 +1178,7 @@ export function refreshConvo(slug: string, nid: string,
       e.textSeen = made
     }
     if ((fresh && e.staleThink) || idle) {
-      retire.thinking = ''; retire.thinkingEventId = undefined; retire.thinkingReplyQuote = undefined
+      retire.thinking = ''; retire.thinkingOrder = undefined; retire.thinkingEventId = undefined; retire.thinkingReplyQuote = undefined
       retire.thinkSecs = null
       e.staleThink = false
     }
@@ -1188,12 +1189,14 @@ export function refreshConvo(slug: string, nid: string,
     if (c.busy && startedAt >= e.streamAt) {
       for (const row of c.transient ?? []) {
         if (['draft', 'delta'].includes(row.kind) && !e.s.draft && retire.draft === undefined) {
+          retire.draftOrder = row.stream_order
           retire.draft = row.text
           retire.draftEventId = row.event_id
           retire.draftReplyQuote = row.reply_quote
         }
         if (['thinking', 'thinking_start', 'thought'].includes(row.kind)
             && !e.s.thinking && retire.thinking === undefined) {
+          retire.thinkingOrder = row.stream_order
           retire.thinking = row.text
           retire.thinkingEventId = row.event_id
           retire.thinkingReplyQuote = row.reply_quote
@@ -1586,11 +1589,11 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
         && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))) })
       const cleared: Partial<Convo> = {}
       if (ev.draft_clear) {
-        cleared.draft = ''; cleared.draftEventId = undefined; cleared.draftReplyQuote = undefined
+        cleared.draft = ''; cleared.draftOrder = undefined; cleared.draftEventId = undefined; cleared.draftReplyQuote = undefined
         e.staleDraft = false
       }
       if (ev.thinking_clear) {
-        cleared.thinking = ''; cleared.thinkingEventId = undefined; cleared.thinkingReplyQuote = undefined
+        cleared.thinking = ''; cleared.thinkingOrder = undefined; cleared.thinkingEventId = undefined; cleared.thinkingReplyQuote = undefined
         cleared.thinkSecs = null; e.thinkT0 = 0; stopClock(e); e.staleThink = false
       }
       patch(k, { chat, ...cleared })
@@ -1672,7 +1675,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     e.streamAt = e.thinkT0
     startClock(k, e)
     e.staleThink = false
-    patch(k, { thinking: '', thinkSecs: 0, thinkingEventId: ev.event_id, thinkingReplyQuote: ev.reply_quote })
+    patch(k, { thinking: '', thinkingOrder: ev.stream_order, thinkSecs: 0, thinkingEventId: ev.event_id, thinkingReplyQuote: ev.reply_quote })
     return
   }
   if (ev.kind === 'thinking') {
@@ -1682,7 +1685,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     const base = liveBase(e, 'thinking', e.staleThink)
     const eventId = ev.event_id ?? (e.staleThink ? undefined : liveField(e, 'thinkingEventId'))
     e.staleThink = false
-    queueLive(e, { thinking: (base + ev.text).slice(-2000), thinkingEventId: eventId, thinkingReplyQuote: ev.reply_quote })
+    queueLive(e, { thinkingOrder: ev.stream_order ?? e.s.thinkingOrder, thinking: (base + ev.text).slice(-2000), thinkingEventId: eventId, thinkingReplyQuote: ev.reply_quote })
     return
   }
   if (ev.kind === 'delta') {
@@ -1695,7 +1698,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     // the draft could never be retired by state at all.
     const eventId = ev.event_id ?? (e.staleDraft ? undefined : liveField(e, 'draftEventId'))
     e.staleDraft = false
-    queueLive(e, { draft: (base + ev.text).slice(-12000), draftEventId: eventId, draftReplyQuote: ev.reply_quote })
+    queueLive(e, { draftOrder: ev.stream_order ?? e.s.draftOrder, draft: (base + ev.text).slice(-12000), draftEventId: eventId, draftReplyQuote: ev.reply_quote })
     return
   }
   // A durable row landed (text / tool / sticky output): the thinking phase is

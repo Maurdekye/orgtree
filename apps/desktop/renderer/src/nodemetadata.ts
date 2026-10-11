@@ -3,6 +3,7 @@ import type { CacheForecast, TreeNode } from './types'
 
 /** The node-stream wire shape shared by the org receiver and metadata store. */
 export type NodeStreamFrame = {
+  stream_order?: number;
   type: 'node_stream'; rev?: number; event_id?: string; reply_quote?: string;
   node: string; kind: string; text?: string; sticky?: boolean; id?: string;
   assistant_row?: unknown; segments?: unknown; delivery?: unknown;

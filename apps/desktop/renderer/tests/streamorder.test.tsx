@@ -110,3 +110,21 @@ test('sequence-less rows stay anchored to their preceding transcript row during 
   assert.deepEqual(snapshot!.chat!.messages.map(m => m.text),
     ['leading', 'earlier', 'earlier-card', 'later', 'later-card', 'later-ghost'])
 })
+
+
+test('live partial order survives HTTP-only, websocket-only and mixed transport views', async () => {
+  const { livePartials } = await import('../src/livePartials')
+  for (const thoughtFirst of [true, false]) {
+    const thinkingOrder = thoughtFirst ? 1 : 2, draftOrder = thoughtFirst ? 2 : 1
+    const thought = { kind: 'thinking', role: 'assistant', event_id: 't', text: 'thought', stream_order: thinkingOrder }
+    const reply = { kind: 'draft', role: 'assistant', event_id: 'd', text: 'reply', stream_order: draftOrder }
+    const expected = thoughtFirst ? ['thinking', 'draft'] : ['draft', 'thinking']
+    const base = { chat: { busy: true }, draft: '', thinking: '', thinkSecs: null } as Convo
+    const live = { ...base, thinking: 'thought new', draft: 'reply new', thinkSecs: 1, thinkingOrder, draftOrder }
+    for (const snapshot of [[], [reply], [thought], [reply, thought]]) {
+      assert.deepEqual(livePartials(snapshot, live).map(r => r.kind), expected)
+      assert.deepEqual(livePartials(snapshot, live).map(r => r.text), thoughtFirst ? ['thought new', 'reply new'] : ['reply new', 'thought new'])
+    }
+    assert.deepEqual(livePartials([reply, thought], base).map(r => r.kind), expected)
+  }
+})

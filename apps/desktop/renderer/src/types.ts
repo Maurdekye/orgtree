@@ -1109,7 +1109,7 @@ export interface LiveRowPayload {
   turnId?: string
 }
 
-export interface ChatTransient { reply_quote?: string; event_id: string; role: string; kind: string; text: string }
+export interface ChatTransient { stream_order?: number; reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
   after?: string
