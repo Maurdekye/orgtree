@@ -122,6 +122,33 @@ export default async function(rig) {
       const began=Date.now()
       await stopped('transition-timeout',210000)
       p.check('timeout: bounded allowance ends even with all processes alive',Date.now()-began>=175000&&Date.now()-began<210000)
+    } else if(process.env.ORGTREE_CORE_RIG_PHASE==='install') {
+      await begin('install');await ready('install')
+      p.check('install: authenticated replacement accepted',(await action('install')).ok)
+      const until=state().transition_until
+      kill(deskPid);kill(helperPid)
+      desktopResult=path.join(p.dir,'replacement-desktop.json')
+      const config=path.join(p.dir,'replacement-config.json')
+      fs.writeFileSync(config,JSON.stringify({root,engine,result:desktopResult}))
+      await launcher.start(rigEnv,`"${process.execPath}" "${desktopScript}" "${config}"`)
+      deskPid=(await rig.waitFor(()=>JSON.parse(fs.readFileSync(desktopResult,'utf8')),{what:'replacement desktop'})).pid
+      await launcher.start({...rigEnv,ORGTREE_V2_DATA:root},`"${broker}"`)
+      const {ps}=await import('./credential-broker.mjs')
+      helperPid=Number(ps(`(Get-Process orgtree-credential-broker -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq ${q(broker)}}).Id`))
+      await ready('install replacement')
+      p.check('install: new desktop and helper identities accepted without extending deadline',state().transition_until===until)
+      p.check('install: replacement completes',(await action('complete')).ok&&state().transition_until===0)
+      kill(deskPid);await stopped('install')
+
+      await begin('pre-ready-timeout');await ready('pre-ready-timeout')
+      p.check('pre-ready-timeout: transition accepted',(await action('transition')).ok)
+      const a=descriptor()
+      await fetch(`http://127.0.0.1:${a.port}/api/desktop/shutdown`,{method:'POST',headers:{'X-Orgtree-Desktop-Token':a.token}})
+      await rig.waitFor(()=>!alive(enginePid)&&!alive(host.pid),{what:'old engine stopped'})
+      launchHost(180000)
+      enginePid=(await rig.waitFor(()=>{const s=state();return s.host?.pid===host.pid?s:null},{what:'delayed replacement journal'})).engine.pid
+      await stopped('pre-ready-timeout',210000)
+      p.check('pre-ready-timeout: expired transition stops before control readiness',descriptor().enginePid!==enginePid)
     } else {
       await begin('sign-out');await ready('sign-out')
       fs.writeFileSync(path.join(root,'core-rig-signed-out'),'debug rig WTS input only')
