@@ -42,5 +42,18 @@ module.exports=async page=>{
   await page.click({selector:'.local-staging button',text:'Retry file'})
   await page.waitFor('.local-staging',{gone:true})
   await page.screenshot('compose-staged')
-  return {replyBlocked,composeBlocked,retryCompleted:true}
+  await page.cdp('Page.reload')
+  await page.waitFor('.sq.orginbox'); await page.click('.sq.orginbox')
+  await page.click({selector:'button',text:'compose mail'})
+  await page.click({selector:'button',text:'other address…'})
+  await page.click('input[placeholder="@net:slug / @org:slug"]'); await page.type('@org:test')
+  await page.click({selector:'.saved-local-files > button',text:'Saved local files'})
+  await page.waitFor(()=>[...document.querySelectorAll('[data-saved-file]')].some(x=>x.innerText.includes('compose.bin')))
+  await page.eval(()=>{
+    const row=[...document.querySelectorAll('[data-saved-file]')].find(x=>x.innerText.includes('compose.bin'))
+    row.querySelector('button').click()
+  })
+  await page.waitFor(()=>[...document.querySelectorAll('.badge.free')].some(x=>x.innerText.includes('compose.bin')))
+  await page.screenshot('recovered-after-reload')
+  return {replyBlocked,composeBlocked,retryCompleted:true,recoveredAfterReload:true}
 }

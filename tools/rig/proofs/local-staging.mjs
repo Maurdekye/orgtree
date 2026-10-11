@@ -11,7 +11,7 @@ export async function setup() {
 export default async function(rig) {
   const proof=new Proof('local-staging')
   const base=()=>`/api/orgs/${rig.org}/org_inbox/staging`
-  const start=bytes=>rig.api('POST',base(),{name:'stage.bin',bytes,to:'@org:test'})
+  const start=(bytes,draft='')=>rig.api('POST',base(),{name:'stage.bin',bytes,to:'@org:test',draft})
   const get=id=>rig.api('GET',`${base()}/${id}`)
   const body=(id,bytes)=>fetch(rig.url+`${base()}/${id}`,{method:'POST',headers:{[TOKEN_HEADER]:rig.token},body:bytes})
   const requests=[]
@@ -55,6 +55,38 @@ export default async function(rig) {
     proof.file('desktop-result.json',ui)
     proof.check('compose and reply display staging and block premature send',ui.ok,ui.error??ui.value)
     proof.check('premature Enter never queued a message',rig.sql("SELECT id FROM ot.org_inbox WHERE dir='out'").length===0)
+    proof.check('a fresh browser can reattach a completed ticket without uploading again',ui.ok && ui.value?.recoveredAfterReload)
+    const listed=await rig.api('GET',base())
+    proof.check('saved listing exposes metadata, never local paths',listed.files.some(f=>f.id===done.id) && listed.files.every(f=>!('path' in f)))
+    await rig.api('POST',`${base()}/${done.id}/dismiss`,{})
+    proof.check('dismissal hides only the saved entry and keeps published bytes',!(await rig.api('GET',base())).files.some(f=>f.id===done.id) && fs.readFileSync(saved.path,'utf8')==='abcd')
+    const group='one-draft-two-failures'
+    const a=await start(9,group), b=await start(9,group)
+    for(const item of [a,b]) {const r=await body(item.id,Buffer.alloc(1));await r.text();await get(item.id)}
+    await rig.api('DELETE',`${base()}/${a.id}`)
+    await call({action:'notifications'})
+    const failure=rig.one(`SELECT id FROM ot.net_transfer_failures WHERE message_key LIKE '%:${group}'`)
+    const failureMail=()=>rig.sql(`SELECT recipient_kind FROM ot.mail WHERE extra->>'transfer_failure'='${failure.id}'`)
+    proof.check('two failed draft files create one user notice, no agent mail, and retain their failure',failureMail().length===1 && failureMail()[0].recipient_kind==='user' && (await get(a.id)).state==='failed')
+    await rig.restart(); await call({action:'workers'}); await call({action:'notifications'})
+    proof.check('failure notice remains deduplicated across restart',failureMail().length===1)
+    const pending=await start(8,'active-writer');hold(pending.id)
+    await rig.waitFor(async()=> (await get(pending.id)).state==='uploading',{what:'writer for expiry race'})
+    rig.exec(`UPDATE ot.upload_stages SET updated_at=now()-interval '25 hours' WHERE id='${pending.id}'`)
+    const expired=[]
+    for(let i=0;i<36;i++) expired.push(await start(8,'expired-draft'))
+    rig.exec(`UPDATE ot.upload_stages SET updated_at=now()-interval '25 hours' WHERE id IN (${expired.map(x=>`'${x.id}'`).join(',')})`)
+    const partialPath=rig.one(`SELECT path FROM ot.upload_stages WHERE id='${expired[0].id}'`).path
+    fs.writeFileSync(partialPath,Buffer.from('partial'))
+    await rig.waitFor(()=>rig.one("SELECT count(*)::int n FROM ot.upload_stages WHERE draft='expired-draft' AND state='failed' AND cleaned_at IS NOT NULL").n===36,{what:'bounded background expiry across pages',timeout:45000})
+    proof.check('background cleanup reaches more than one batch without GET and removes partial bytes',!fs.existsSync(partialPath))
+    proof.check('expiry never steals a live writer',(await get(pending.id)).state==='uploading')
+    await rig.api('DELETE',`${base()}/${pending.id}`)
+    await call({action:'notifications'})
+    proof.check('explicit cancellation and successful completion stay silent',rig.sql(`SELECT id FROM ot.net_transfer_failures WHERE detail->>'transfer_id' IN ('${pending.id}','${t.id}','${done.id}')`).length===0)
+    const pages=[];let after=''
+    do {const page=await rig.api('GET',`${base()}?after=${after}`);pages.push(...page.files);after=page.next||''} while(after)
+    proof.check('saved tickets remain discoverable beyond the first page',expired.every(x=>pages.some(y=>y.id===x.id)))
     proof.keep(rig,{grep:/staging|ERROR/}); return proof.summary()
   } finally { for(const r of requests) r.destroy(); hub.closeAllConnections(); await new Promise(resolve=>hub.close(resolve)) }
 }
