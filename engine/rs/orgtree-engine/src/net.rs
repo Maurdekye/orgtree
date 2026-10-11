@@ -166,6 +166,8 @@ impl Part {
 
 #[derive(Default)]
 pub struct Net {
+    /// Fair bounded admission scan; unavailable peers cannot pin the first page.
+    drain_cursor: std::sync::atomic::AtomicI64,
     /// (org id, hub id) → connection status
     status: papaya::HashMap<(i64, String), Status>,
     /// hub address → its roster
@@ -840,6 +842,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         return Ok(());
     }
     let ids: Vec<i64> = parts.iter().map(|p| p.org_id).collect();
+    let cursor = engine.net.drain_cursor.load(std::sync::atomic::Ordering::Relaxed);
     let rows = {
         let client = engine.db.get().await?;
         client
@@ -847,13 +850,14 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
                 "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind, reply_to, hub FROM ot.org_inbox i
                   WHERE dir = 'out' AND state = 'queued' AND org_id = ANY($1)
                     AND NOT EXISTS (SELECT 1 FROM ot.org_inbox earlier WHERE earlier.org_id=i.org_id AND earlier.peer=i.peer
-                        AND earlier.dir='out' AND earlier.state='queued' AND earlier.id<i.id) ORDER BY id LIMIT 100",
-                &[&ids],
+                        AND earlier.dir='out' AND earlier.state='queued' AND earlier.id<i.id) ORDER BY (id<=$2),id LIMIT 100",
+                &[&ids,&cursor],
             )
             .await?
     };
     for r in rows {
         let row_id: i64 = r.get(0);
+        engine.net.drain_cursor.store(row_id,std::sync::atomic::Ordering::Relaxed);
         let org_id: i64 = r.get(1);
         let Some(p) = parts.iter().find(|p| p.org_id == org_id) else { continue };
         let peer = r.get::<_, String>(2).trim_start_matches("@net:").to_string();
@@ -1044,6 +1048,7 @@ pub async fn queue(
     peer: &str,
     body: &str,
     by: &str,
+    sender: Option<(i64,i32)>,
     kind: &str,
     attachments: &[Value],
     reply_to: Option<&Value>,
@@ -1081,7 +1086,7 @@ pub async fn queue(
         for a in attachments { limit.check(a["bytes"].as_u64().unwrap_or(0))?; }
         limit.check_message(body.len() as u64, attachments.iter().map(|a| a["bytes"].as_u64().unwrap_or(0)).sum())?;
     }
-    queue_row(engine, org_id, peer, body, by, kind, attachments, reply_to).await
+    queue_row(engine, org_id, peer, body, by, sender, kind, attachments, reply_to).await
 }
 
 /// Persist only; callers perform the transport/audience checks first.
@@ -1093,6 +1098,7 @@ async fn queue_row(
     peer: &str,
     body: &str,
     by: &str,
+    sender: Option<(i64,i32)>,
     kind: &str,
     attachments: &[Value],
     reply_to: Option<&Value>,
@@ -1100,14 +1106,16 @@ async fn queue_row(
     let uid = crate::util::uid("x");
     let net_id = uuid::Uuid::new_v4().simple().to_string();
     let to = format!("@net:{peer}");
+    let sender_id = sender.map(|s| s.0);
+    let sender_generation = sender.map(|s| s.1);
     let reply = reply_to.map(|r| crate::util::pg_json(r).into_owned());
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let row = tx
         .query_one(
-            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to)
-             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9) RETURNING id",
-            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply],
+            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to, sender_agent_id, sender_generation)
+             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9, $10, $11) RETURNING id",
+            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply, &sender_id, &sender_generation],
         )
         .await?;
     let ids = transfers::plan(&tx, org_id, row.get(0), "", "", attachments).await?;
@@ -1122,7 +1130,7 @@ async fn queue_row(
 #[logged]
 pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str) -> Result<Value> {
     anyhow::ensure!(crate::rig::active(), "rig mode required");
-    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", kind, &[], None).await?;
+    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", None, kind, &[], None).await?;
     let client = engine.db.get().await?;
     let row = client.query_one(
         "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to FROM ot.org_inbox WHERE uid=$1", &[&uid],

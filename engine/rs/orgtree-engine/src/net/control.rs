@@ -50,7 +50,7 @@ pub async fn page(e: &Engine, org: i64, actor: Option<i64>, id: Option<&str>, cu
           FROM ot.net_transfers t JOIN ot.org_inbox i ON i.id=t.inbox_id
           WHERE t.org_id=$1 AND ($3::text IS NULL OR t.id=$3)
             AND ($2::bigint IS NULL OR EXISTS(SELECT 1 FROM ot.agents a WHERE a.id=$2 AND a.org_id=$1
-                AND a.state='live' AND i.by_name=a.name AND i.at>=a.created_at))
+                AND a.state='live' AND i.sender_agent_id=a.id AND i.sender_generation=a.generation))
           UNION ALL
           SELECT n.created_at,n.id,(n.state='complete') AS history,jsonb_build_object('id',n.id,'direction','download','message_id',n.net_id,
             'peer',n.envelope->>'from','state',n.state,'attempt',n.attempt,'error',n.error,'updated_at',n.updated_at,

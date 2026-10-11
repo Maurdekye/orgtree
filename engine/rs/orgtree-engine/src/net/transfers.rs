@@ -523,7 +523,11 @@ pub(super) async fn rig_attempt(e: &Arc<Engine>, org: i64, args: &Value) -> Resu
         }
         let count = args["file_count"].as_u64().unwrap_or(1).clamp(1,10);
         let files: Vec<Value> = (0..count).map(|n| json!({"path":path.to_string_lossy(),"name":format!("proof-{n}.bin"),"bytes":total})).collect();
-        let (uid, _, queued_ids) = queue_row(e, org, "peer.rig", "transfer proof", args["by"].as_str().unwrap_or("user"), "message", &files, None).await?;
+        let by = args["by"].as_str().unwrap_or("user");
+        let sender = if by == "user" { None } else {
+            e.db.get().await?.query_opt("SELECT id,generation FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org,&by]).await?.map(|r| (r.get(0),r.get(1)))
+        };
+        let (uid, _, queued_ids) = queue_row(e, org, "peer.rig", "transfer proof", by, sender, "message", &files, None).await?;
         let c = e.db.get().await?;
         let inbox: i64 = c.query_one("SELECT id FROM ot.org_inbox WHERE uid=$1", &[&uid]).await?.get(0);
         drop(c);

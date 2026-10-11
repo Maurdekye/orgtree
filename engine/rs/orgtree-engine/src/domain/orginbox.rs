@@ -127,7 +127,8 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         ensure_holders(engine, org_id, Some((*id, name.as_str()))).await?;
     }
     if let Some(peer) = to.strip_prefix("net:") {
-        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, &out.kind, &out.attachments, out.reply_to.as_ref()).await?;
+        let sender = match &out.from { From::Agent { id,generation,.. } => Some((*id,*generation)), _ => None };
+        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref()).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
         return Ok(Sent {
             transfer_ids,
@@ -291,46 +292,70 @@ pub async fn deliver_inbound(
     reply_to: Option<&str>,
 ) -> Result<bool> {
     let Some(org) = engine.orgs.by_id(org_id) else { return Ok(false) };
-    let client = engine.db.get().await?;
+    // Resolve the route first, then commit the inbox row and every holder's
+    // mailbox copy together. A retry must never mistake half a fanout for a
+    // completed delivery. Wakes happen only after this short transaction.
+    let route = ensure_holders(engine, org_id, None).await?;
+    let mut client = engine.db.get().await?;
     let quote = match reply_to {
         Some(r) => net_quote(&client, org_id, r).await?,
         None => None,
     };
     let stored = quote.clone().or_else(|| reply_to.map(|r| json!({ "net_id": r })));
-    let n = client
-        .execute(
-            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub, reply_to)
-             SELECT $1, $2, 'in', $3, $4, $5, $6, $7, $8
-              WHERE NOT EXISTS (SELECT 1 FROM ot.org_inbox WHERE org_id = $2 AND dir = 'in' AND net_id = $6)",
-            &[&uid("x"), &org_id, &peer, &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&Value::Array(attachments.clone())).as_ref(), &net_id, &hub,
-              &crate::util::pg_json_option(&stored).as_ref()],
-        )
-        .await?;
-    if n == 0 {
-        return Ok(false);
-    }
-    let route = ensure_holders(engine, org_id, None).await?;
+    let tx = client.transaction().await?;
+    // Serialize only this org's publication boundary, including the duplicate
+    // check; different hubs may concurrently deliver to the same org.
+    tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org_id]).await?;
+    let n = tx.execute(
+        "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub, reply_to)
+         SELECT $1, $2, 'in', $3, $4, $5, $6, $7, $8
+          WHERE NOT EXISTS (SELECT 1 FROM ot.org_inbox WHERE org_id=$2 AND dir='in' AND net_id=$6)",
+        &[&uid("x"), &org_id, &peer, &crate::util::pg_text(body).as_ref(),
+          &crate::util::pg_json(&Value::Array(attachments.clone())).as_ref(), &net_id, &hub,
+          &crate::util::pg_json_option(&stored).as_ref()],
+    ).await?;
+    if n == 0 { return Ok(false); }
     let holders = &route.to;
-    drop(client);
-    changes::notify(engine, &org, vec![Change::OrgInbox]);
+    let mut delivered = Vec::new();
     for h in holders {
-        let mut m = Outgoing::new(From::Extern(peer.to_string()), h, body);
-        m.attachments = attachments.clone();
-        m.net_id = Some(net_id.to_string());
-        m.net_hub = Some(hub.to_string());
-        // a holder answered by its own message reads "your message"
-        m.reply_to = quote.clone().map(|mut q| {
+        let target = tx.query_opt(
+            "SELECT id,state,halt IS NOT NULL FROM ot.agents WHERE org_id=$1 AND name=$2 AND state<>'deleted' FOR SHARE",
+            &[&org_id,h],
+        ).await?.ok_or_else(|| anyhow::anyhow!("outside-mail holder no longer exists"))?;
+        let target_id: i64 = target.get(0);
+        let state: String = target.get(1);
+        anyhow::ensure!(state != "unrecoverable", "outside-mail holder cannot currently receive mail");
+        let halted: bool = target.get(2);
+        let mail_uid = uid("m");
+        let reply = quote.clone().map(|mut q| {
             if q["from"].as_str() == Some(h.as_str()) {
-                if let Some(o) = q.as_object_mut() {
-                    o.remove("from");
-                }
+                if let Some(o) = q.as_object_mut() { o.remove("from"); }
             }
             q
         });
-        if let Err(e) = mail::send(engine, org_id, m).await {
-            tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
-        }
+        let ev = crate::events::ordinary(peer, "message", false, body);
+        tx.execute(
+            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub)
+             VALUES($1,$2,$3,'agent',$4,$5,'message',$6,$7,$8,$9,'pending',$10,$11)",
+            &[&mail_uid,&org_id,&peer,&target_id,h,&crate::util::pg_text(body).as_ref(),
+              &crate::util::pg_json(&Value::Array(attachments.clone())).as_ref(),
+              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub],
+        ).await?;
+        delivered.push((target_id,h.clone(),mail_uid,state == "live" && !halted));
     }
+    tx.commit().await?;
+    drop(client);
+    let mut ch = vec![Change::OrgInbox];
+    for (id,name,mail_uid,wake) in delivered {
+        ch.push(Change::Mailbox(id));
+        ch.push(Change::Spark { from: "org_inbox".into(), to: name });
+        ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event(
+            "mail.waiting",crate::runtime::watchdogs::events::Scope::Agent(org_id,id),json!({"agent_id":id,"mail_id":mail_uid}),
+        )));
+        if wake { crate::runtime::wake(engine,org_id,id); }
+        if let Some(h) = engine.agents.get(id) { h.send(crate::runtime::AgentMsg::Wake); }
+    }
+    changes::notify(engine, &org, ch);
     if holders.is_empty() || route.waiting {
         super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await?;
     }

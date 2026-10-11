@@ -128,6 +128,12 @@ async fn download(e: &Engine, p: &Part, job: &Job, f: &File) -> Result<u64> {
     if f.expired || f.validator.is_none() || meta.as_ref().is_none_or(|m| m.len() < offset) {
         offset = 0
     }
+    // A crash can leave a durable last-byte checkpoint before the EOF/complete
+    // write. Revalidate the final byte and EOF instead of asking for bytes=N-,
+    // which is unsatisfiable and would retry forever on a correct 416 response.
+    if offset > 0 && f.total == Some(offset as i64) {
+        offset -= 1;
+    }
     if offset == 0 && f.confirmed > 0 {
         e.db.get()
             .await?

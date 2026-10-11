@@ -6,7 +6,7 @@ use tokio_postgres::Transaction;
 #[logged]
 pub(super) async fn record(tx: &Transaction<'_>, org: i64, id: &str, upload: bool, error: &str) -> Result<()> {
     let row = if upload {
-        tx.query_one("SELECT 'out:'||i.id::text,jsonb_build_object('message_id',i.uid,'peer',i.peer,'by',i.by_name,'at',i.at,'direction','upload','transfer_id',t.id) FROM ot.net_transfers t JOIN ot.org_inbox i ON i.id=t.inbox_id WHERE t.id=$1 AND t.org_id=$2", &[&id,&org]).await?
+        tx.query_one("SELECT 'out:'||i.id::text,jsonb_build_object('message_id',i.uid,'peer',i.peer,'sender_agent_id',i.sender_agent_id,'sender_generation',i.sender_generation,'direction','upload','transfer_id',t.id) FROM ot.net_transfers t JOIN ot.org_inbox i ON i.id=t.inbox_id WHERE t.id=$1 AND t.org_id=$2", &[&id,&org]).await?
     } else {
         tx.query_one("SELECT id,jsonb_build_object('message_id',net_id,'peer',envelope->>'from','direction','download','transfer_id',id) FROM ot.net_incoming WHERE id=$1 AND org_id=$2", &[&id,&org]).await?
     };
@@ -33,11 +33,11 @@ pub(super) async fn resolve(tx: &Transaction<'_>, id: &str, upload: bool) -> Res
 async fn recipients(e: &Engine, tx: &Transaction<'_>, org: i64, detail: &Value) -> Result<Vec<i64>> {
     if detail["direction"] == "local" { return Ok(vec![]); }
     if detail["direction"] == "upload" {
-        // Match the sender's generation lifetime; never send private failure
-        // context to a later hire which happens to reuse the same name.
-        let rows = tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live' AND created_at <= $3::text::timestamptz", &[&org,&detail["by"].as_str().unwrap_or(""),&detail["at"].as_str().unwrap_or("")]).await?;
-        if !rows.is_empty() { return Ok(rows.iter().map(|r|r.get(0)).collect()); }
-        if detail["by"] == "user" { return Ok(vec![]); }
+        // Names can move to an existing agent. Only the admitted identity may
+        // receive private failure details; unknown legacy senders notify user only.
+        let rows = tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND id=$2 AND generation=$3 AND state<>'deleted'",
+            &[&org,&detail["sender_agent_id"].as_i64(),&detail["sender_generation"].as_i64().map(|n| n as i32)]).await?;
+        return Ok(rows.iter().map(|r|r.get(0)).collect());
     }
     let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&org]).await?.get(0);
     let settings = crate::feed::groups::effective_settings(&raw,&e.settings.defaults());

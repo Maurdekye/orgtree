@@ -1,3 +1,7 @@
+-- Stable sender identity; old rows stay user-managed rather than guessing by name.
+ALTER TABLE ot.org_inbox ADD COLUMN sender_agent_id bigint;
+ALTER TABLE ot.org_inbox ADD COLUMN sender_generation integer;
+
 -- Private transport state. Messages stay queued until every attachment is complete.
 CREATE TABLE ot.net_transfers (
     id text PRIMARY KEY,
