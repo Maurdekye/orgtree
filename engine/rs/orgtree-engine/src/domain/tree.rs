@@ -16,6 +16,8 @@ pub struct TreeCtx<'a> {
     pub org_settings: &'a Value,
     pub now: DateTime<Utc>,
     pub accounts: &'a crate::accounts::AccountsView,
+    /// Native continuations eligible in the published settings/auth/usage snapshots.
+    pub continue_primaries: &'a std::collections::HashSet<String>,
     pub audiences_held: &'a HashMap<String, Vec<String>>,
     /// the org these bodies are for: legacy org keys stay inside their org
     pub org_slug: &'a str,
@@ -210,7 +212,12 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     let resumable = state == "live" && !frozen.is_null() && !halted;
     o.insert("resumable".into(), json!(resumable));
     let continue_accounts: Vec<String> = if resumable && frozen.get("limit").and_then(Value::as_bool).unwrap_or(true) {
-        ctx.accounts.continue_candidates(tier, account, ctx.org_slug)
+        let mut choices = ctx.accounts.continue_candidates(tier, account, ctx.org_slug);
+        let already_native = account.is_none() || account.and_then(|a| ctx.accounts.get(a)).is_some_and(|a| a.ambient);
+        if !already_native && ctx.continue_primaries.contains(tier) {
+            choices.push(crate::org_accounts::primary(catalog::provider_of(tier)));
+        }
+        choices
     } else {
         Vec::new()
     };

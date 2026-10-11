@@ -136,22 +136,7 @@ pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) ->
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
     downward(&client, &me, &t, "move").await?;
-    let tier: String = client.query_one("SELECT tier FROM ot.agents WHERE id = $1", &[&t.id]).await?.get(0);
     drop(client);
-    let view = engine.accounts.view();
-    if let Some(a) = view.get(account).filter(|a| a.available_origin(&caller.org_slug) && !a.available_to(Some(&caller.org_slug))) {
-        crate::refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, &caller.org_slug, &crate::org_accounts::lane_of(a), &a.provider));
-    }
-    let Some(acc) = view.get(account).filter(|a| a.available_to(Some(&caller.org_slug))).cloned() else {
-        crate::refuse!(NotFound, "no account {account}");
-    };
-    let provider = crate::providers::catalog::provider_of(&tier);
-    if acc.provider != provider {
-        crate::refuse!(BadRequest, "{account} is a {} account; {} runs on {}", acc.provider, t.name, provider);
-    }
-    if let Some(until) = acc.limited(chrono::Utc::now()) {
-        crate::refuse!(Conflict, "{account} is itself limited until {}; nothing changed", iso(until));
-    }
     let r = freeze::continue_on(engine, me.org_id, t.id, account, &format!("orgtree_continue_on by {}", me.name)).await?;
     Done::json(&r)
 }

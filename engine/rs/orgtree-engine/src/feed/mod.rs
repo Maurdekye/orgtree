@@ -427,7 +427,8 @@ impl Actor {
         let ceiling = scope::org_ceiling(&settings["dirs"]);
         let now = chrono::Utc::now();
         let slug = self.org_row["slug"].as_str().unwrap_or("");
-        let ctx = TreeCtx { org_settings: &settings, now, accounts: &accounts, audiences_held: &self.audiences_held, org_slug: slug };
+        let continue_primaries = crate::runtime::freeze::primary_tiers(&self.engine, slug);
+        let ctx = TreeCtx { org_settings: &settings, now, accounts: &accounts, continue_primaries: &continue_primaries, audiences_held: &self.audiences_held, org_slug: slug };
         let mut changed = Vec::new();
         for (_, id) in ordered {
             let raw = &self.live_raw[&id];
@@ -520,6 +521,7 @@ impl Actor {
                 org_settings: &settings,
                 now: chrono::Utc::now(),
                 accounts: &accounts,
+                continue_primaries: &HashSet::new(),
                 audiences_held: &self.audiences_held,
                 org_slug: self.org_row["slug"].as_str().unwrap_or(""),
             };
@@ -1074,10 +1076,12 @@ async fn read_sub(
     let settings = groups::effective_settings(&org_row["settings"], &engine.settings.defaults());
     let ceiling = scope::org_ceiling(&settings["dirs"]);
     let accounts = engine.accounts.view();
+    let continue_primaries = crate::runtime::freeze::primary_tiers(engine, org_row["slug"].as_str().unwrap_or(""));
     let ctx = TreeCtx {
         org_settings: &settings,
         now: chrono::Utc::now(),
         accounts: &accounts,
+        continue_primaries: &continue_primaries,
         audiences_held: audiences,
         org_slug: org_row["slug"].as_str().unwrap_or(""),
     };

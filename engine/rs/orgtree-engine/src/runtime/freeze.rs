@@ -15,6 +15,9 @@ use crate::changes::{self, Change};
 use crate::runtime::AgentMsg;
 use crate::util::{iso, parse_ts};
 
+mod continuation;
+pub use continuation::primary_tiers;
+
 /// Seconds past the stated reset before an automatic wake (clock skew).
 pub const WAKE_GRACE_S: i64 = 60;
 
@@ -319,64 +322,60 @@ pub async fn fall_back(engine: &Arc<Engine>, org_id: i64, agent_id: i64, tier: &
 /// its freeze held).
 #[logged]
 pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str) -> Result<Value> {
-    let view = engine.accounts.view();
-    let slug = engine.orgs.by_id(org_id).map(|o| o.slug.clone());
-    if let Some(s) = slug.as_deref() {
-        if let Some(a) = view.get(account).filter(|a| a.available_origin(s) && !a.available_to(Some(s))) {
-            crate::refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, s, &crate::org_accounts::lane_of(a), &a.provider));
-        }
-    }
-    let Some(acc) = view.get(account).filter(|a| a.available_to(Some(slug.as_deref().unwrap_or("")))).cloned() else {
-        crate::refuse!(NotFound, "no account {account}");
+    let Some(org) = engine.orgs.by_id(org_id) else {
+        crate::refuse!(NotFound, "no such org");
     };
-    let client = engine.db.get().await?;
-    let was = client
-        .query_opt("SELECT frozen, tier FROM ot.agents WHERE id = $1 AND state = 'live'", &[&agent_id])
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let was = tx
+        .query_opt("SELECT frozen, tier, account, name FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' FOR UPDATE", &[&agent_id, &org_id])
         .await?;
     let Some(was) = was else {
         crate::refuse!(NotFound, "that agent is not live");
     };
     let old: Option<Value> = was.get(0);
     let tier: String = was.get(1);
+    let previous: Option<String> = was.get(2);
+    let name: String = was.get(3);
     let was_frozen = old.is_some();
-    // every door (the user's, the agent tool's, the automatic fallback): never
-    // onto a login this org saw walled, or whose window the tier spends reads 100%
-    if let Some(until) = acc.limited_for(&tier, Utc::now()) {
-        crate::refuse!(Conflict, "{account} is itself limited for {tier} until {}; nothing changed", iso(until));
-    }
-    if let Some(why) = crate::usage::at_limit(engine, Some(&acc), &tier) {
-        crate::refuse!(Conflict, "{account} is at its limit for {tier} right now: {why}; nothing changed");
-    }
-    client
+    let target = continuation::resolve(engine, &org.slug, &tier, account)?;
+    let provider = crate::providers::catalog::provider_of(&tier);
+    let previous_lane = previous.as_deref().and_then(|a| engine.accounts.view().get(a).map(crate::org_accounts::lane_of))
+        .unwrap_or_else(|| crate::org_accounts::primary(provider));
+    let namespace_changed = previous_lane != target.lane;
+    let account_id = target.binding.as_deref().unwrap_or(&target.lane);
+    tx
         .execute(
             "UPDATE ot.agents SET account = $2, pending_account = NULL, frozen = NULL, limit_locked = false,
                     row_version = row_version + 1
               WHERE id = $1",
-            &[&agent_id, &account],
+            &[&agent_id, &target.binding],
         )
         .await?;
-    client
+    tx
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail)
-             VALUES ($1, 'account_switch', '@engine', $2, jsonb_build_object('account', $3::text, 'why', $4::text))",
-            &[&org_id, &agent_id, &account, &why],
+             VALUES ($1, 'account_switch', '@engine', $2, jsonb_build_object('account', $3::text, 'why', $4::text,
+                     'previous_account', $5::text, 'cache_namespace_changed', $6::boolean))",
+            &[&org_id, &agent_id, &account_id, &why, &previous_lane, &namespace_changed],
         )
         .await?;
+    let wake_text = with_replay(&format!("You now run on the account {}. {}Continue where you left off.", target.display,
+        if namespace_changed { "This account switch starts a new provider cache namespace. " } else { "" }), old.as_ref());
+    let wake_uid = continuation::queue_wake(&tx, org_id, agent_id, &name, &wake_text).await?;
+    tx.commit().await?;
     drop(client);
     if let Some(h) = engine.agents.get(agent_id) {
         h.send(AgentMsg::Reconfigured);
     }
-    changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::Credits, Change::Events, Change::History(agent_id)]);
-    mail::system_wake(
-        engine,
-        org_id,
-        agent_id,
-        &with_replay(&format!("You now run on the account {}. Continue where you left off.", acc.display()), old.as_ref()),
-    )
-    .await?;
+    changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::Credits, Change::Events, Change::History(agent_id),
+        Change::Mailbox(agent_id), Change::Spark { from: "@system".into(), to: name },
+        Change::EngineEvent(crate::runtime::watchdogs::events::event("mail.waiting",
+            crate::runtime::watchdogs::events::Scope::Agent(org_id, agent_id), json!({"agent_id":agent_id,"mail_id":wake_uid}))) ]);
+    crate::runtime::wake(engine, org_id, agent_id);
     Ok(json!({
         "switched": true, "resumed": true,
         "state": if was_frozen { "continued" } else { "switched_nothing_to_release" },
-        "account": account, "status": "resumed",
+        "account": account_id, "status": "resumed", "cache_namespace_changed": namespace_changed,
     }))
 }
