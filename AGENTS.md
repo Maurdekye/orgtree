@@ -15,6 +15,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Desk pending mail folds at six rendered rows per run, after event deduplication.
+  Keep current-turn input above its response and later mail below; optimistic and
+  failed sends stay outside. Disclosure is local and retains mounted cards; reveal
+  a pending reply target before scrolling. Mailbox/Attention grouping is unchanged.
+  [decided: user 2026-10-11 22:33Z; verified: renderer `canvas/pendingrun.tsx`,
+  `canvas/desk.tsx`; scope and proof: `docs/rust-engine/pending-mail-collapse.md`]
+
 - The bundled mail hub is pinned to released **2.1.1** (`2c22e3d`), fixing
   resumable-upload recovery without changing schema 9 or adding API routes.
   Packaging must record and verify this exact submodule revision; advancing the

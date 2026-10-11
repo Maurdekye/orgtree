@@ -679,3 +679,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     existing bounded database conversion handling; known deaths are watched before
     readiness. Implementation values and proof limits:
     [`core-lifecycle.md`](core-lifecycle.md).
+
+73. **Desk undelivered runs collapse at six or more rows** (user 2026-10-11 22:33Z,
+    mee853a883c0d, relayed by lead-astra). Apply independently to the shared desk's
+    current-turn input and later waiting mail after rendered-event deduplication.
+    Preserve their positions around the live response; optimistic/failed sends
+    stay visible. The local Show/Hide summary retains all cards/actions, and
+    reply navigation reveals its target before scrolling. No read/delivery side
+    effects and no MailList/Attention changes. Details: `pending-mail-collapse.md`.

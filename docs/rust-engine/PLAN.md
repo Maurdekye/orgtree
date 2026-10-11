@@ -330,6 +330,7 @@ toast saying this engine does not support it.
 | C6 | Cost diagnostics (unknown cost fields, OpenRouter "reported model" disclosure, cache-break diagnoser) | Removed; cost and tokens per turn kept |
 | C7 | Turn stats, denials list, context occupancy, thinking, tool chips with diffs, images, progress checklist (TodoWrite / Codex plan), subagent counts, pending mail bubbles, attachments, reply quotes, notice toggle, interrupt, halt, compact, cheap compact, scratch browser, file links, upload, history and mailbox tabs | Kept |
 | C8 | After an engine crash, interrupted turns resume with reconciled tool results | Interrupted turns resume with a "the engine restarted during your turn; continue" message; tool calls that were in flight are not reconciled |
+| C9 | Every undelivered desk mail/event card appears at full size | Runs of six or more rendered pending rows collapse behind a local Show/Hide disclosure (user 2026-10-11 22:33Z). Current-turn input and later queued mail keep their separate positions around the response; optimistic/failed sends stay visible. No mailbox/Attention or delivery-state changes. See `pending-mail-collapse.md` |
 
 ### D. Mail and inbox
 

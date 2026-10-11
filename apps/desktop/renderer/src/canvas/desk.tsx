@@ -1,4 +1,5 @@
 import { livePartials } from '../livePartials'
+import { PendingRun, revealPendingRun } from './pendingrun'
 import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
@@ -2187,7 +2188,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         ? [...surfaceDocument.querySelectorAll<HTMLElement>('[data-native-event]')]
           .find(el => el.dataset.nativeEvent === durable)
         : undefined)
-    if (element) leaveBottom()
+    if (element) {
+      revealPendingRun(element)
+      leaveBottom()
+    }
     element?.scrollIntoView?.({ block: 'center' })
   }
   const renderReply = (wire: unknown) => {
@@ -3766,7 +3770,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               The remaining pending mail is genuinely still waiting and stays
               at the bottom, after the live tail, where it is true. */}
           {viewPendNow.length > 0 && pendingDivider(pendWaiting)}
-          {viewPendNow.map(pendBubble)}
+          {viewPendNow.length > 0 && <PendingRun key={`${slug}/${node.id}/now`} count={viewPendNow.length}>
+            {viewPendNow.map(pendBubble)}
+          </PendingRun>}
           {/* keyed on the server's row id (`n`), never the index: rows retire
               from the MIDDLE of this list as the transcript catches up, and an
               index key would rename every row below the one that left */}
@@ -3850,7 +3856,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               bottom. The one being delivered INTO the running turn was hoisted
               above the live tail — see pendNow. */}
           {viewPendNow.length === 0 && viewPendLater.length > 0 && pendingDivider(pendWaiting)}
-          {viewPendLater.map(pendBubble)}
+          {viewPendLater.length > 0 && <PendingRun key={`${slug}/${node.id}/later`} count={viewPendLater.length}>
+            {viewPendLater.map(pendBubble)}
+          </PendingRun>}
           {/* №17 for GHOSTS (user bug 2026-09-03: "i sent an invalid command
               and it got stuck as a permanently undelivered message that i
               cant cancel"). The durable pending bubbles above have carried a
