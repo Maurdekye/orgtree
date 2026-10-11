@@ -1,7 +1,8 @@
 # On-demand usage query: audit and proposed contract
 
-Draft for lead-astra, 2026-10-11. This is a proposal, not a product ruling or
-implemented behavior. Ticket: `agents-can-query-usage-statistics-on-demand`.
+Contract approved through lead-astra, 2026-10-11 22:35Z. Source implementation
+and verification are in progress; approval is not evidence of a passing build.
+Ticket: `agents-can-query-usage-statistics-on-demand`.
 Source audit base: local `rust-engine` at `89268b7`.
 
 Agents receive a usage snapshot only at a turn boundary. Add `orgtree_usage`
@@ -50,7 +51,7 @@ No live account files, provider endpoints, provider settings, or usage databases
 were read during this audit. Request costs above are inferred from request type;
 no new live provider cost measurement was performed.
 
-## Recommended contract, pending coordinator ruling
+## Approved contract
 
 `orgtree_usage { accounts?, providers?, windows?, refresh?: false, limit?: 20,
 cursor? }` returns JSON. Filters are exact strings, arrays of at most 32 values;
@@ -138,11 +139,23 @@ is unsupported because no provider usage reader exists.
   and `tmp` children (the charter's generic cargo-target path is outside this
   agent's current C grant). Shared build lock/queue remain on D.
 
-## Decisions requested from lead-astra
+## Recorded rulings and current verification limits
 
-1. Approve the recommended cache-default plus bounded optional refresh,
-   inspection/runtime split, and exact floors/scope above; alternatively choose
-   a cache-only first tool, explicitly deferring mid-turn fresh probes.
-2. Confirm canonical OpenRouter lane IDs with its upcoming owner, and authorize
-   the exact C output children above. No provider-setting or installer work is
-   requested.
+User approval mf9c7f431147b (relayed by lead-astra m9a548e66fd50) selects saved
+cache by default plus optional fresh single-account refresh with inherited
+runtime permission, rate limiting, no inference and no account switching.
+Lead-astra approves the remaining mechanics above. Inactive accounts may be
+inspected but must refuse refresh. Exact C cargo-target/tmp children were
+authorized by lead-astra m6c900416bc77; the shared D build lock is unchanged.
+
+OpenRouter owner confirms its canonical contract (m0b3c97ec4248):
+`openrouter::lane(id)`, inverse `id_of_lane`, `org_accounts::lane_of`, per-lane
+cache keys, and `usage::openrouter_key_usage(engine,id,force)`. Original registry
+`openrouter-key` maps lane `openrouter`; secondary `openrouter-N` rows map to
+themselves. The original reader retains its signature. Both branches must be
+composed with the shared reservation before a multi-key tool claim is verified.
+
+Initial source checks: Rust parsing/formatting of new helper files and Node
+syntax checking of the rig proof; git diff --check. Cargo check/test and changed
+path rig execution have not yet run: queued behind earlier builders. The rig
+proof uses canned usage/fake CLIs only. No live provider behavior is measured.

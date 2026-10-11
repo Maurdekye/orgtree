@@ -695,3 +695,18 @@ All entries are dated 2026-10-06 unless stated otherwise.
     stay visible. The local Show/Hide summary retains all cards/actions, and
     reply navigation reveals its target before scrolling. No read/delivery side
     effects and no MailList/Attention changes. Details: `pending-mail-collapse.md`.
+
+74. **Agents can read usage on demand and optionally refresh one account**
+    (user 2026-10-11 22:35Z, mf9c7f431147b, relayed by lead-astra). Saved cache
+    is the default. Optional fresh refresh is rate limited, needs inherited
+    runtime permission and causes no inference or account switch. Coordinator
+    mechanics: inspection permission for cached reads; caller org allowlist and
+    account origin only; exact filters, bounded account/window pages; per-lane
+    manual attempt floors 60 seconds (Google 300), failures included; longer
+    provider cooldowns retained; shared reservations with automatic cadence
+    unchanged. Inactive accounts may be inspected, never refreshed. Preserve
+    explicit unavailable/stale/unsupported and original observation times;
+    return only safe projected fields, no credentials or raw provider errors.
+    OpenRouter's original lane is `openrouter` for `openrouter-key`; added
+    registry IDs retain distinct lanes. Full contract and verification limits:
+    [`usage-query-proposal.md`](usage-query-proposal.md).

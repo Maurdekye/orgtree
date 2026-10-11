@@ -43,14 +43,16 @@ export default async function (rig) {
     p.check('invalid or unavailable request refuses before probing: ' + JSON.stringify(args), !out.ok && calls() === before, out)
   }
   // Scope is read fresh through the real ancestor chain, not the served list.
-  rig.sql(`UPDATE ot.agents SET scope=jsonb_set(scope,'{tools,orgtree}', '{"inspection":true,"runtime":false}'::jsonb,true) WHERE name='boss'`)
+  const groups = value => rig.sql(`UPDATE ot.agents SET scope=jsonb_set(scope,'{tools}',
+    COALESCE(scope->'tools','{}'::jsonb) || jsonb_build_object('orgtree','${JSON.stringify(value)}'::jsonb),true) WHERE name='boss'`)
+  groups({ inspection: true, runtime: false })
   const readOnly = await query({ accounts: ['openai/primary'] })
   const denied = await query({ accounts: ['openai/primary'], refresh: true })
   p.check('inspection-only agent reads cache but cannot refresh', readOnly.ok && !denied.ok && calls() === before, { readOnly, denied })
-  rig.sql(`UPDATE ot.agents SET scope=jsonb_set(scope,'{tools,orgtree}', '{"inspection":false,"runtime":true}'::jsonb,true) WHERE name='boss'`)
+  groups({ inspection: false, runtime: true })
   const noRead = await query({})
   p.check('live inspection denial refuses even with runtime', !noRead.ok && calls() === before, noRead)
-  rig.sql(`UPDATE ot.agents SET scope=jsonb_set(scope,'{tools,orgtree}', '{"inspection":true,"runtime":true}'::jsonb,true) WHERE name='boss'`)
+  groups({ inspection: true, runtime: true })
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: ['openai/primary'] })
   const scoped = await query({})
   const outside = await query({ accounts: ['openai/primary'], refresh: true })
@@ -67,7 +69,7 @@ export default async function (rig) {
     && limited.json.refresh.retry_after_seconds > 0 && calls() === before + 1, limited)
   p.check('refresh creates no inference turn', rig.one('SELECT count(*) AS n FROM ot.turns').n === turns)
   // Inactive native account remains inspectable, never refreshable.
-  await rig.api('POST', '/api/app/settings', { subscription_inference: { openai: false } })
+  await rig.api('PUT', '/api/providers/openai/subscription-inference', { enabled: false })
   const inactive = await query({ accounts: ['openai/primary'] })
   const inactiveRefresh = await query({ accounts: ['openai/primary'], refresh: true })
   p.check('inactive account inspection is separate from refresh permission', inactive.ok && inactive.json.accounts[0].enabled === false

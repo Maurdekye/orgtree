@@ -59,6 +59,16 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   reconstruct a path in the renderer or open a file. Missing folders report an
   error without creation. [verified: `http/nodes.rs`, `main/scratch-folder.ts`,
   2026-10-11; coordinator ruling; details: `docs/rust-engine/scratch-folder.md`]
+
+- On-demand `orgtree_usage` reads the saved cache under inspection permission.
+  Optional single-account refresh also needs inherited runtime permission;
+  inactive accounts remain inspectable but cannot be refreshed. Manual attempt
+  floors are per lane across orgs (60 s, Google 300 s); shared reservations
+  prevent overlapping readers without slowing automatic cadence. Never re-date
+  old observations or serialize raw cached provider documents. Contract and
+  proof limits: [usage-query-proposal.md](docs/rust-engine/usage-query-proposal.md).
+  [decided: user/lead-astra 2026-10-11 22:35Z; verified: usage.rs, tools/usage.rs]
+
 - The bundled mail hub is pinned to released **2.1.1** (`2c22e3d`), fixing
   resumable-upload recovery without changing schema 9 or adding API routes.
   Packaging must record and verify this exact submodule revision; advancing the
