@@ -507,6 +507,12 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         && req.get("audiences").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
     if user_scope || staffing_audiences {
         tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org.id]).await?;
+    } else {
+        // Agent/event/mail INSERTs check their org FK with KEY SHARE. Acquire
+        // that compatible lifetime pin before node locks, even for staffing
+        // without audiences and ordinary event-producing tree operations.
+        // Ordinary operations share this row lock; no exclusive org mutex.
+        tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR KEY SHARE", &[&org.id]).await?;
     }
     let mut out = match canonical_op(op) {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
