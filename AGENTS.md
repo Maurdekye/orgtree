@@ -120,7 +120,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
     `GET /api/openrouter/keys/usage`. The prepaid balance belongs to the OpenRouter
     account, so each key's row says "account balance".
   - **Placement** follows the other providers: explicit key, org default, template
-    balancing, opt-in fallback; removal is reassign-or-freeze.
+    balancing, opt-in fallback; removal is reassign-or-freeze, the original included
+    (`account_removal::remove_original`: its seats move to the first other key a
+    continuation accepts, else a live seat freezes; defaults naming it are cleared).
+  - **Secrets:** a replacement bumps `extra.credential_gen`; the fingerprint's account
+    part carries `#credential-N`, so a warm CLI on the old secret is replaced at the next
+    turn boundary, and a usage read answered for a replaced key is discarded. Key writes
+    lock the OpenRouter rows and refuse a duplicate secret inside the transaction. The
+    usage readers are `#[nolog]` (readings carry provider text).
   - **Toggles:** every key, the original included, has its own active switch
     (`PUT /api/accounts/{id}/enabled`). Org lanes carry `enabled` and `disabled_reason`;
     an org tick cannot turn on a key switched off app-wide.

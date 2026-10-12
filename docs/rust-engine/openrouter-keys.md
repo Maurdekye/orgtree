@@ -37,7 +37,7 @@ All key endpoints are secret-free on the way out; a key crosses the wire once, i
 | `PUT` / `DELETE /api/openrouter/key` | Unchanged: sets or forgets the original key. |
 | `POST /api/openrouter/keys {key, label?}` | Adds a key and answers the document plus `added` and `added_lane`. With no original stored, the new key becomes the original. A secret already stored on another row is refused. |
 | `PUT /api/openrouter/keys/{id or lane} {key?, label?}` | Renames a key (an empty label clears the name) and/or replaces its secret. |
-| `DELETE /api/openrouter/keys/{id or lane}` | Removes a key. An added key goes through `account_removal`, so its agents, queued intents and defaults move to the original key first. Removing the original is the old `clear_key`. |
+| `DELETE /api/openrouter/keys/{id or lane}` | Removes a key. An added key goes through `account_removal`, so its agents, queued intents and defaults move to the original key first. Removing the original (`clear_key` → `account_removal::remove_original`) moves every seat it bills (unbound, bound to it, queued intents naming it) to the first other key a continuation would accept, in key order; a live seat with none freezes (cause `account`) saying so; org and app defaults naming it are cleared. Its id is not retired: a key added with none original stored is the original again. |
 | `PUT /api/accounts/{id}/enabled` | Now also accepts `openrouter-key`. Re-enabling the original wakes the unbound OpenRouter agents. |
 | `GET /api/openrouter/keys/usage` | Every key's last reading by lane, cache-only. |
 
@@ -83,9 +83,24 @@ last reading); else "OpenRouter key N".
 - **Startup:** the 3.x import refreshes the providers' OpenRouter tiers itself, so a carried
   favorite is hireable before the first provider discovery finishes.
 
+- **Secret replacement:** each replacement of a stored secret bumps the row's
+  `extra.credential_gen` (never the secret). The actor's fingerprint `account` part carries
+  `#credential-N` for the row the seat bills once N > 0, so a warm CLI (Claude Code or Codex
+  harness) started on the old secret is replaced at the next turn boundary, never mid-turn. A usage
+  read compares the generation before and after its request: an answer for a key replaced or
+  removed meanwhile is never cached or recorded; it reads the stored key again (twice at most).
+- **Duplicate secrets:** every key write locks the OpenRouter account rows (id order, bounded)
+  and checks for a holder of the same secret inside its transaction, so two concurrent writes of
+  one secret serialize and the second is refused (409).
+- **Spent keys:** any OpenRouter credit row with `is_active` is at its limit, with or without a
+  percent (a capped key whose account balance is zero reads under 100% of its cap).
+- **Logging:** the readers (`openrouter`, `openrouter_key_usage`, `openrouter_key_read`),
+  `GET /api/openrouter/keys/usage` and `keys_doc` are `#[nolog]`: a reading can carry the
+  provider's own text. `openrouter_key_usage` logs one safe line (lane, available, whether an
+  error/detail/re-auth is present).
+- **Startup:** the stored favorites become provider tiers before the first request on every start
+  (`providers::refresh_openrouter` in `main.rs`), not only after the 3.x import.
+
 ## Limits (inferred, not measured)
 
-- Removing the original key while added keys remain leaves unbound seats with nothing to bill. Their
-  next launch says the original was removed and asks for a move. New hires are placed on an added
-  key. No automatic rebind happens, because the ruling keeps fallback opt-in.
 - The cache forecast treats a key switch as an account change: a new cache namespace.
