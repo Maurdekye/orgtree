@@ -54,17 +54,37 @@ Per-hub acknowledgements and roster revisions avoid repeatedly transferring
 unchanged bytes. Incoming updates do not mint a new revision. The older state
 retained at a disconnected hub cannot overwrite a newer locally learned state.
 
-## Checkpoint and unrun verification
+## Verification checkpoint
 
-The first native source checkpoint passed `cargo check --locked -j2 -p
-orgtree-engine --bin orgtree-engine`, exit 0, without warnings. That check
-predates the settings revision projection, editor, middleware omission,
-decoder-cancellation retention and retry-cache cleanup changes.
+The user paused builds/tests at 10:48Z on 2026-10-12, then explicitly restored
+focused verification at 10:53Z while retaining the prohibition on publishing.
+No verification ran in between. At source `cbbd13b`:
 
-The user stopped all builds and tests at 10:48Z on 2026-10-12 pending completion
-of paused Claude work. No verification was started after that gate. This source
-checkpoint is **not verified or ready to integrate**. Outstanding: final native
-check, supported isolated HTTP/store/publication/isolation and log-secrecy proof,
-bounded mounted editor/crop/identity tests, renderer TypeScript check and fresh
-independent review. Existing hub and Hubchat component receipts do not prove this
-organization path, installed desktop, Android WebView, device or live hub behavior.
+- Native source check passed, exit 0, 7.37 seconds, warning-free. Debug engine
+  binaries built in 2m14, exit 0, for the supported isolated rig only.
+- Five mounted `orgpicture` cases passed under a kernel Job (2048 MiB/60 s,
+  bundling included): numeric owner on removal, late old-org load, oversized
+  selection before reading, native preview/original-to-save crop flow, failed
+  refresh and retry. TypeScript noEmit passed under the same containment.
+- `tools/rig/proofs/profile-pictures.mjs` passed 21 checks using the real engine
+  and new hub in their own PostgreSQL/HTTP fixture: native normalization, owner
+  refusal, malformed/oversized input and invalid crop, durable tombstones,
+  concurrent counters, unchanged mail counts, positive wire-log omission,
+  publication, local edit while isolated, re-enable, stale replay and remote
+  revision adoption without minting another version. Processes were stopped
+  through the supported rig lifecycle.
+
+The first rig run completed 18 passing checks but failed at its 35-second
+remote-adoption deadline. Logs showed adoption just after the last sample.
+The legacy roster poll can spend 25 seconds parked before the 10-second picture
+dispatch floor and pass scheduling; a rerun of the **same binary**, with a
+50-second bound, passed (35.6 seconds measured for remote adoption). This was a
+fixture deadline correction, not a claimed production fix. No new polling
+cadence was added.
+
+These are isolated component/HTTP proofs, not installed desktop, Android
+WebView, device or pixel acceptance. Cancellation permit lifetime is supported
+by source inspection and compilation, not a forced-cancellation runtime probe.
+Fresh independent review and the separately reviewed Hubchat saved-hub
+cancellation composition remain outstanding. No release, push or deployment is
+authorized by these results.

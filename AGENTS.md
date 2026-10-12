@@ -27,10 +27,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   incoming hub merges preserve logical revisions and removal tombstones.
   Optional publication uses the org-inbox isolation gate and enabled memberships.
   Image HTTP bodies are omitted before authentication and decoder slots stay
-  with blocking tasks after cancellation. Source checkpoint verification is
-  paused by the user; see [contract and limits](docs/rust-engine/profile-pictures.md).
+  with blocking tasks after cancellation. See the isolated proofs and remaining
+  acceptance limits in [the contract](docs/rust-engine/profile-pictures.md).
   [decided: user 2026-10-12; verified from source: `profile_pictures/`,
-  `http/pictures.rs`, `net/pictures.rs`; unrun changes documented, 2026-10-12]
+  `http/pictures.rs`, `net/pictures.rs`; focused proof limits documented, 2026-10-12]
 
 - Continue-on resolves `primary`, `default` and matching native
   `<provider>/primary` (Claude/OpenAI/Google) in the shared runtime, storing NULL.
