@@ -135,4 +135,9 @@ the build lock with a 30-second unit process timeout. Build/unit log:
 `scratch-open-sol-folder-grants-round2-build.log`. The corrected engine SHA256
 is `ff9e8717043f8131d5979c8ebaa46d45cc893a17b9110606dfe66f6385cbdd0d`.
 Both completed route receipts used the same 1536 MB / 300 s Job envelope.
+Fresh changed-path preservation receipt `approved-folder-grants-20261012T213109`
+passes all original 24 controls against that corrected binary, including
+ordinary-agent denial, skipped/denied items, unrelated latent scope,
+revocation, separate-org isolation, fake-CLI refresh and answer-mail rollback.
+The older 8/8 scope-request result remains a prior R1 checkpoint.
 No full suite, real provider turn or UI acceptance is implied.
