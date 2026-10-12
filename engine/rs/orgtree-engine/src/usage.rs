@@ -51,6 +51,19 @@ mod continuation_auth_tests {
     }
 
     #[test]
+    fn claude_recent_good_then_negative_auth() {
+        let usage = Usage::default();
+        let key = claude_key(None);
+        usage.claude_result(&key, json!({"available":true,"limits":[{"percent":10}]}));
+        let at = usage.cache.pin().get(&key).unwrap().at;
+        let result = usage.claude_result(&key, json!({"available":false,
+            "error":"rejected","reauth_required":true,"reauth_evidence":"measured_403"}));
+        assert_eq!(result["limits"][0]["percent"], 10);
+        assert_eq!(usage.cached_reauth_required(&key), Some(true));
+        assert_eq!(usage.cache.pin().get(&key).unwrap().at, at);
+    }
+
+    #[test]
     fn claude_failure_keeps_bar_age_and_records_recent_auth() {
         let usage = Usage::default();
         let key = claude_key(None);

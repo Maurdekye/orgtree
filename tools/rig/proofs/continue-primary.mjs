@@ -186,6 +186,15 @@ export default async function (rig, { flags }) {
   }
   put('openai@.codex', reading());
   await rig.api('GET', `/api/accounts/${A}/usage?force=true`)
+  put('openai@.codex', { available: false, reauth_required: true })
+  await rig.api('GET', `/api/accounts/${A}/usage?force=true`)
+  for (const [account, route] of [[A, tool], ['primary', http]]) {
+    await freeze()
+    await refuse(`explicit native-home negative auth blocks ${account === A ? 'ambient id' : account}`,
+      account, /requires sign-in/, route)
+  }
+  put('openai@.codex', reading());
+  await rig.api('GET', `/api/accounts/${A}/usage?force=true`)
   rig.exec(`INSERT INTO ot.account_marks(account,pool,until,provenance) VALUES (${quote(A)},'default','${later(3)}','observed')`)
   await rig.api('PUT', `/api/accounts/${A}/enabled`, { enabled: true })
   put('openai', { available: false, error: 'rig missing reading' }); await nativeRead()
