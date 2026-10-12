@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
+import {recordManagedExit} from './core-exit-log'
 import { exeName, postgresRuntimeEnvironment } from './postgres-runtime'
 import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
@@ -136,6 +137,9 @@ export class Engine extends EventEmitter {
   private credential = randomBytes(32).toString('hex')
   private endpoint = ''
   private stopping = false
+  private launchesCancelled = false
+  cancelLaunches(): void { this.launchesCancelled = true }
+  allowLaunches(): void { this.launchesCancelled = false }
   /** False when attached to a boot-host engine this process must not stop. */
   managed = true
   /** Resolved data root of the current attachment; '' when managed. */
@@ -145,6 +149,8 @@ export class Engine extends EventEmitter {
    *  only together: a PID is not an identity, but a PID whose descriptor is
    *  still on disk unchanged, under a root lock still held, is. */
   private attachedEnginePid = 0
+  private attachedManaged = false
+  get usesBackgroundTask(): boolean { return !this.managed && !this.attachedManaged }
   private attachedDescriptor = ''
   /** Why the last attach attempt was declined; empty when no descriptor existed. */
   attachDiagnostic = ''
@@ -227,6 +233,7 @@ export class Engine extends EventEmitter {
    *  clobber it (opus N3 — the guard was real but untestable inline). */
   childExited(child: ChildProcessWithoutNullStreams): void {
     if (this.child !== child) return
+    if (this.lastOptions) recordManagedExit(this.lastOptions.dataRoot, child.pid ?? 0, child.exitCode, child.signalCode)
     this.stopLiveness()
     this.endpoint = ''
     this.state({ state: 'stopped', message: this.stopping ? 'Engine stopped' : 'Engine exited. Restart Orgtree to recover.' })
@@ -270,6 +277,7 @@ export class Engine extends EventEmitter {
       if (identity.protocol !== 1) throw new Error('identity protocol mismatch')
       if (identity.pid !== attach.enginePid) throw new Error('identity process mismatch')
       if (typeof identity.dataRootId !== 'string' || canonicalPath(identity.dataRootId) !== canonicalPath(realRoot)) throw new Error('identity root mismatch')
+      this.attachedManaged = (JSON.parse(raw) as {managed?: boolean}).managed === true
       this.credential = attach.token
       this.endpoint = origin
       this.managed = false
@@ -288,6 +296,7 @@ export class Engine extends EventEmitter {
   }
 
   async start(options: EngineOptions): Promise<void> {
+    if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
     if (this.child) throw new Error('Engine already started')
     this.lastOptions = options
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
@@ -451,6 +460,26 @@ export class Engine extends EventEmitter {
       this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
       return 'failed'
     }
+  }
+
+  /** Native lifecycle already proved the old stamped engine gone. Root release
+   * still gates the next spawn; an independently recovered host is adopted. */
+  async recoverUnexpected(options: EngineOptions, allowSpawn = true): Promise<void> {
+    if (this.restarting || this.stopping || this.launchesCancelled) return
+    const attempt = (async () => {
+      if (this.child && this.child.exitCode === null && this.child.signalCode === null) return
+      this.stopLiveness()
+      this.child = undefined; this.endpoint = ''; this.managed = true
+      if (await this.attach(options)) return
+      if (this.launchesCancelled) return
+      if (!allowSpawn) throw new Error('Replacement engine is not yet ready to attach')
+      if (!await this.rootReleased(options)) throw new Error('Engine recovery is waiting for the old process tree to release its data root.')
+      await this.start(options)
+    })()
+    this.restarting = attempt
+    try { await attempt }
+    catch (error) { this.state({state: 'unavailable', message: 'Engine recovery failed. Use Restart engine to try again.'}); throw error }
+    finally { this.restarting = undefined }
   }
 
   /** Reattach to the boot engine after a deliberate restart of its task —
@@ -783,6 +812,12 @@ export class Engine extends EventEmitter {
     // An attached boot-host engine is not this window's to stop — the same
     // refusal `stop()` makes, for the same reason. `recoverAttached()` on the
     // poll is what brings that one back.
+    if (!this.managed && this.attachedManaged) {
+      const stopped = await this.stopForQuit()
+      if (stopped === 'unverified' || !await this.rootReleased(options)) throw new Error('The attached engine has not released its data root.')
+      this.managed = true; this.stopping = false; this.endpoint = ''
+      await this.start(options); return
+    }
     if (!this.managed) throw new Error('The engine is running in the background outside Orgtree, so Orgtree cannot restart it. Restart the background engine from its own task controls.')
     await this.stop()
     // `stop()` RESOLVING IS NOT DEATH — it returns right after kill(), which
@@ -873,14 +908,12 @@ export class Engine extends EventEmitter {
     watch.record(await this.probeAlive(child.pid ?? -1, root))
     if (this.liveness?.child !== child || !watch.hung()) return
     if (this.stopping || this.restarting || !this.managed || this.child !== child || !this.hungRestartAllowed()) return
-    if (process.platform === 'win32' && this.lastOptions?.binary) {
-      // Signed-in Windows core faults stop the application; the existing Quit
-      // path drains providers before its bounded fallback. Do not auto-revive.
-      this.stopLiveness()
-      this.emit('core-fault')
-      return
-    }
-    const attempt = this.endHungEngine(child, root, watch)
+    const attempt = (async () => {
+      // Retain the existing bounded graceful/Codex drain before any forced
+      // cleanup; only this engine is replaced, never the healthy desktop.
+      if (process.platform === 'win32' && this.lastOptions?.binary) await this.stopForQuit()
+      await this.endHungEngine(child, root, watch)
+    })()
     this.restarting = attempt
     try { await attempt } catch { /* the engine's status carries the reason */ } finally { this.restarting = undefined }
   }

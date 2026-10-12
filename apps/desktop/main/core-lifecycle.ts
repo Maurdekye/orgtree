@@ -6,12 +6,36 @@ import type {CredentialBridge} from './credential-bridge'
 export class CoreLifecycle {
   private busy = false
   private timer?: ReturnType<typeof setInterval>
+  private cancelled = false
+  private recovery?: (allowSpawn: boolean) => Promise<void>
+  private attachedGeneration?: string
+  private watchDesktop = false
+  private armed = false
+  private armedAt = 0
+  private armedGeneration?: string
+  private failure?: {generation: string; since: number; attempted: boolean}
+  configureRecovery(recover: (allowSpawn: boolean) => Promise<void>, watchDesktop: boolean): void {
+    this.recovery = recover; this.watchDesktop = watchDesktop
+  }
+  private command(action: 'arm' | 'quit' | 'engine'): Promise<{armed?: boolean; admitted?: boolean}> {
+    return new Promise((resolve, reject) => execFile(this.binary,
+      ['core-recovery', action, this.root, String(process.pid)],
+      {windowsHide: true, timeout: 5000, maxBuffer: 8192}, (error, stdout) => {
+        if (error) { reject(new Error('Native recovery control failed')); return }
+        try { resolve(JSON.parse(stdout)) } catch { reject(new Error('Invalid recovery reply')) }
+      }))
+  }
+  async cancelRecovery(): Promise<void> {
+    this.cancelled = true; this.stop()
+    try { await this.command('quit') }
+    catch (error) { this.cancelled = false; this.start(); throw error }
+  }
   constructor(private readonly binary: string, private readonly root: string,
     private readonly bridge: CredentialBridge,
     private readonly endpoint: () => {origin: string; token: string},
     private readonly shutdown: () => void) {}
 
-  private native(action: 'begin' | 'status'): Promise<{stopped?: boolean}> {
+  private native(action: 'begin' | 'status'): Promise<{stopped?: boolean; generation?: string; engineGone?: boolean; transitioning?: boolean}> {
     return new Promise((resolve, reject) => {
       execFile(this.binary, ['core-control', action, this.root], {windowsHide: true, timeout: 5000, maxBuffer: 8192},
         (error, stdout) => {
@@ -34,7 +58,8 @@ export class CoreLifecycle {
   }
   async complete(): Promise<void> {
     const e = this.endpoint()
-    if (await this.bridge.core(e.origin, e.token) || await this.bridge.core(e.origin, e.token, 'complete')) this.shutdown()
+    if (await this.bridge.core(e.origin, e.token) || await this.bridge.core(e.origin, e.token, 'complete')) { this.shutdown(); return }
+    this.attachedGeneration = (await this.native('status')).generation
   }
   start(): void {
     if (this.timer) return
@@ -44,12 +69,36 @@ export class CoreLifecycle {
   }
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = undefined }
   async tick(): Promise<void> {
-    if (this.busy) return
+    if (this.busy || this.cancelled) return
     this.busy = true
     try {
       // The local journal also covers the engine disappearing before the HTTP
       // registration can answer. No retry is allowed to clear its stop record.
-      if ((await this.native('status')).stopped) { this.shutdown(); return }
+      const state = await this.native('status')
+      if (state.stopped) { this.shutdown(); return }
+      if (state.generation !== this.armedGeneration || Date.now() - this.armedAt >= 60000) this.armed = false
+      if (this.watchDesktop && !this.armed && !state.engineGone) {
+        this.armed = (await this.command('arm')).armed === true
+        this.armedAt = Date.now(); this.armedGeneration = state.generation
+      }
+      if (!state.engineGone && state.generation && this.attachedGeneration
+        && state.generation !== this.attachedGeneration && this.recovery && !this.cancelled) {
+        // The boot supervisor may win the race. Adopt its healthy replacement
+        // rather than waiting forever for a death which has already recovered.
+        await this.recovery(false)
+        if (!this.cancelled) this.attachedGeneration = state.generation
+      }
+      if (state.engineGone && !state.transitioning && state.generation && this.recovery) {
+        if (this.failure?.generation !== state.generation) this.failure = {generation: state.generation, since: Date.now(), attempted: false}
+        const elapsed = Date.now() - this.failure.since
+        if (!this.failure.attempted && elapsed >= 5000 && elapsed < 120000 && !this.cancelled
+          && (await this.command('engine')).admitted && !this.cancelled) {
+          this.failure.attempted = true
+          await this.recovery(true)
+        }
+        return
+      }
+      if (!state.engineGone) this.failure = undefined
       const e = this.endpoint()
       if (e.origin && await this.bridge.core(e.origin, e.token)) this.shutdown()
     } catch { /* uncertain probes retry; they do not declare process death */ }

@@ -310,8 +310,12 @@ else {
   const engine = new Engine()
   const credentialBridge = new CredentialBridge()
   let coreLifecycle: CoreLifecycle | undefined
+  let coreStopRequested = false
+  let coreQuitPrepared = false
+  let resumeEngineStartup: (() => void) | undefined
   const stopCoreApplication = () => {
     if (quitting || quitComplete) return
+    coreStopRequested = true
     quitConfirmed = true
     app.quit()
   }
@@ -684,6 +688,7 @@ else {
   const restartEngine = async () => {
     const options = engineRestartOptions
     if (!options || engineRestartBlocked() || engine.restartInProgress) return
+    if (resumeEngineStartup) { resumeEngineStartup(); return }
     const attempt = (async () => {
       await coreLifecycle?.transition()
       await engine.restart(options)
@@ -1182,6 +1187,21 @@ else {
     await coreLifecycle?.transition(true)
     if (!engine.managed) { await engine.stopAttachedForUpdate(); updateLog.record('engine-stopped', 'attached boot engine confirmed stopped') }
     if (quitting) return
+    // Establish the durable no-recovery barrier before any teardown. If it
+    // cannot be recorded, retain the app and report a retryable Quit failure.
+    if (coreLifecycle && !coreStopRequested && !coreQuitPrepared) {
+      if (quitPrompting) return
+      quitPrompting = true; engine.cancelLaunches()
+      void coreLifecycle.cancelRecovery().then(() => {
+        coreQuitPrepared = true; quitPrompting = false; app.quit()
+      }).catch(async () => {
+        engine.allowLaunches(); quitPrompting = false
+        await dialog.showMessageBox({type: 'error', message: 'Orgtree could not safely cancel recovery before quitting.',
+          detail: 'No shutdown was started. Try Quit Orgtree again.'})
+      })
+      return
+    }
+    engine.cancelLaunches()
     quitting = true
     coreLifecycle?.stop()
     // ⚠ NOT ASKED HERE. An update install and an installer upgrade are
@@ -1584,6 +1604,7 @@ else {
         // Recorded before anything else: an exit nobody could explain is how
         // this arrived, and the log is the only thing that outlives it.
         try { updateLog.record('startup', `shutting down on ${signal} — a console this process was attached to closed, or was interrupted`) } catch { /* never worth failing the shutdown over */ }
+        if (coreLifecycle) { coreLifecycle.stop(); quitComplete = true }
         app.quit()
       })
     } catch { /* a platform without this signal simply has no handler */ }
@@ -1652,6 +1673,21 @@ else {
       }).catch(() => { quitPrompting = false })
       return
     }
+    // Establish the durable no-recovery barrier before any teardown. If it
+    // cannot be recorded, retain the app and report a retryable Quit failure.
+    if (coreLifecycle && !coreStopRequested && !coreQuitPrepared) {
+      if (quitPrompting) return
+      quitPrompting = true; engine.cancelLaunches()
+      void coreLifecycle.cancelRecovery().then(() => {
+        coreQuitPrepared = true; quitPrompting = false; app.quit()
+      }).catch(async () => {
+        engine.allowLaunches(); quitPrompting = false
+        await dialog.showMessageBox({type: 'error', message: 'Orgtree could not safely cancel recovery before quitting.',
+          detail: 'No shutdown was started. Try Quit Orgtree again.'})
+      })
+      return
+    }
+    engine.cancelLaunches()
     quitting = true
     coreLifecycle?.stop()
     // ⚠ CAPTURED BEFORE ANYTHING IS TORN DOWN, and it latches: teardown
@@ -1686,6 +1722,8 @@ else {
     // child running until the machine was rebooted. The update path does not
     // come through here at all (prepareAndHandOff sets quitComplete before its
     // own app.quit()), so this cannot disturb an install.
+    // Persist cancellation before drain so an in-flight recovery cannot
+    // resurrect the app after the user explicitly quits.
     void bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
       .then(() => bounded(engine.stopForQuit(QUIT_STOP_BUDGET_MS), QUIT_ENGINE_TOTAL_MS))
       .finally(() => { quitComplete = true; tray?.destroy(); app.quit() })
@@ -2026,7 +2064,7 @@ else {
       if (process.platform === 'win32' && engineOptions.binary) {
         coreLifecycle = new CoreLifecycle(engineOptions.binary, engineOptions.dataRoot, credentialBridge,
           () => ({origin: engine.origin, token: engine.token}), stopCoreApplication)
-        if (await coreLifecycle.begin(process.argv.includes('--background'))) {
+        if (await coreLifecycle.begin(process.argv.includes('--background') || process.argv.includes('--core-recovered'))) {
           stopCoreApplication(); return
         }
         coreLifecycle.start()
@@ -2060,6 +2098,7 @@ else {
         if (await engine.attach(engineOptions)) return true
         return engine.attachWithRetry(engineOptions)
       }
+      const initialEngine = async () => {
       if (!await bootAttached() && !await engine.attach(engineOptions)) {
         if (engine.attachDiagnostic) console.warn(`boot-engine descriptor rejected: ${engine.attachDiagnostic}`)
         if (engine.attachUnsafeFolder) console.warn(`unsafe folder blocks the background engine: ${engine.attachUnsafeFolder} (fix: chmod g-w,o-w ${shellQuote(engine.attachUnsafeFolder)})`)
@@ -2082,6 +2121,24 @@ else {
           }
         }
       }
+      }
+      let automaticStartupRetry = true
+      coreLifecycle?.configureRecovery(async () => {
+        if (!quitting && automaticStartupRetry) resumeEngineStartup?.()
+      }, app.isPackaged)
+      for (;;) {
+        try { await initialEngine(); break }
+        catch (error) {
+          if (!coreLifecycle || quitting) throw error
+          // The desktop remains available (including Quit and Restart engine).
+          // Native stamped-death admission can resume this same initializer;
+          // handlers/windows below are installed only once it succeeds.
+          automaticStartupRetry = !(error instanceof Error && error.message.startsWith(CONVERSION_FAILED))
+          await new Promise<void>(resolve => { resumeEngineStartup = resolve })
+          resumeEngineStartup = undefined
+          if (quitting) return
+        }
+      }
       if (coreLifecycle) { await coreLifecycle.complete(); coreLifecycle.start() }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       // The preload origin is fixed per window; session signing reads LIVE
@@ -2090,7 +2147,7 @@ else {
       const runAsAdministratorState = async (): Promise<RunAsAdministratorState> => {
         if (process.platform !== 'win32') return { available: false, enabled: false, reason: 'Only Windows has this setting.' }
         const enabled = await readRunAsAdministrator()
-        if (engine.managed) return { available: false, enabled, reason: "Orgtree is not using its background engine, so the engine runs with Orgtree's own rights." }
+        if (!engine.usesBackgroundTask) return { available: false, enabled, reason: "Orgtree is not using its background engine, so the engine runs with Orgtree's own rights." }
         return { available: true, enabled }
       }
       handleApp('desktop:run-as-admin', () => runAsAdministratorState())
@@ -2171,6 +2228,7 @@ else {
        *  2026-09-29). Every other caller registers here, before its load. */
       const buildMainWindow = (kind: OrgWindowKind, org?: string, { register: registerNow = true }: { register?: boolean } = {}) => {
         const id = randomUUID()
+        const windowOrigin = engine.origin
         const key = placementKey({ kind, org })
         const saved = key ? placement?.restoreWindow(key, displays()) : undefined
         const window = new BrowserWindow({ width: 1400, height: 900, ...saved?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
@@ -2179,7 +2237,7 @@ else {
             // The window id rides along for native-side logs only; the
             // renderer reads its identity over IPC, because a launch argument
             // is fixed for the window's life and this window's KIND is not.
-            additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`, `--orgtree-window-id=${id}`] } })
+            additionalArguments: [`--orgtree-ui-origin=${windowOrigin}`, `--orgtree-window-id=${id}`] } })
         const record: MainWindowRecord = {
           id, window, owned: new Set(), tearingDown: false, documentToken: '',
           outbox: windowOutbox<DesktopEvent>({ hold: type => HELD_EVENT_TYPES.has(type as DesktopEvent['type']) }),
@@ -2289,7 +2347,7 @@ else {
           record: recordWindowLoad,
           target: () => engine.origin,
           route: () => routeFor(id),
-          builtFor: () => initialOrigin,
+          builtFor: () => windowOrigin,
           load: url => !window.isDestroyed() ? window.loadURL(url) : Promise.resolve(),
           showHolding: html => !window.isDestroyed()
             ? window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
@@ -2365,6 +2423,33 @@ else {
         return record
       }
       createMainWindow = openWindow
+      coreLifecycle?.configureRecovery(async allowSpawn => {
+        if (quitting || installerUpgradeShutdown || backgroundEngineRestart || updateApplying) return
+        const before = engine.origin || initialOrigin
+        await engine.recoverUnexpected(engineOptions, allowSpawn)
+        if (quitting || installerUpgradeShutdown || !engine.origin) return
+        await coreLifecycle?.complete()
+        if (engine.origin === before) {
+          for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
+        } else {
+          // Rebuild only browser windows for a changed preload origin. Electron
+          // main (tray, recovery ownership, settings) remains the SAME process.
+          await bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
+          const replace = [...records.values()].map(record => ({record, identity: windows.get(record.id)}))
+          for (const {record, identity} of replace) {
+            if (!identity) continue
+            const bounds = record.window.getBounds()
+            const visible = record.window.isVisible()
+            record.tearingDown = true
+            for (const child of record.owned) if (!child.isDestroyed()) child.destroy()
+            record.window.destroy()
+            const next = await openWindow({kind: identity.kind, org: identity.org})
+            next.window.setBounds(bounds)
+            if (visible) revealWindow(next)
+          }
+        }
+      }, app.isPackaged)
+
       requestOrgWindow = async (org: unknown, callerId: string | null): Promise<OrgOpenOutcome> => {
         const outcome = await openOrg(windows, org, callerId, {
           focus: entry => { const record = records.get(entry.id); if (record) revealWindow(record) },
@@ -2694,7 +2779,8 @@ else {
       void refresh()
     } catch (error) {
       await dialog.showMessageBox({ type: 'error', message: 'Orgtree could not start its engine.', detail: error instanceof Error ? error.message : 'Unknown startup error' })
-      app.quit()
+      // A startup failure is not a manual Quit and cannot take down peers.
+      if (!coreLifecycle) app.quit()
     }
-  }).catch(() => app.quit())
+  }).catch(() => { if (!coreLifecycle) app.quit() })
 }
