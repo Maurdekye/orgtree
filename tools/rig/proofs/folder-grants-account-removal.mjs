@@ -129,6 +129,9 @@ export default async function (rig) {
   try { rig.exec(`UPDATE ot.agents SET account=${q(rollbackK)} WHERE org_id=${oid} AND name='binder'`); stale = false }
   catch (e) { stale = /was removed/.test(e.message) }
   p.check('deleted-account reference is still rejected', stale)
+  // fixture:none does not populate the ambient registry rows. Seed only a
+  // synthetic primary metadata row so this is the real primary refusal path.
+  rig.exec("INSERT INTO ot.accounts(id,provider,kind,label) VALUES('claude/primary','claude','managed','Synthetic primary') ON CONFLICT(id) DO NOTHING")
   const primary = await capture(() => rig.api('DELETE', '/api/accounts/claude%2Fprimary'))
   p.check('primary account remains protected', !primary.ok && primary.status === 409, primary)
   p.keep(rig, { agents: ['bound'], grep: /deadlock|removal|conflicted|scope|batch/i })
