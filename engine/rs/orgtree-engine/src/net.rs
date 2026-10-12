@@ -1304,6 +1304,8 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
     }
     let org_id = org["id"].as_i64().unwrap_or(0);
     let own = net.pointer("/identity/slug").and_then(Value::as_str).unwrap_or("").to_string();
+    let inbox_enabled = crate::domain::orginbox::enabled(&org["settings"]);
+    let (queued, stuck, stuck_err): (i64, i64, Option<String>) = if inbox_enabled {
     let q = client
         .query_one(
             "SELECT count(*), count(*) FILTER (WHERE last_err IS NOT NULL),
@@ -1312,7 +1314,8 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
             &[&org_id],
         )
         .await?;
-    let (queued, stuck, stuck_err): (i64, i64, Option<String>) = (q.get(0), q.get(1), q.get(2));
+        (q.get(0), q.get(1), q.get(2))
+    } else { (0, 0, None) };
     let state = net["state"].clone();
     let status = engine.net.status.pin();
     let rosters = engine.net.rosters.pin();
@@ -1337,10 +1340,10 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
                 "name": h["name"].as_str().map(str::to_string).or_else(|| names.get(&addr).cloned()),
                 // the version the hub reports; none from a v1 hub
                 "version": versions.get(&addr).cloned(),
-                "connected": st.connected,
+                "connected": inbox_enabled && st.connected,
                 // the implicit local hub stays out of sight until it has answered once
                 "hidden": id == LOCAL_HUB_ID && !(st.connected || registered),
-                "last_ok": st.last_ok, "error": st.error,
+                "last_ok": st.last_ok, "error": if inbox_enabled { st.error } else { Some("org inbox disabled".into()) },
                 "queued": if mine { queued } else { 0 },
                 "roster": roster,
             });

@@ -252,7 +252,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             let r = client
                 .query_one(
                     "SELECT count(*), count(*) FILTER (WHERE urgent), max(created_at)
-                       FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending'",
+                       FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending'",
                     &[&org_id],
                 )
                 .await?;

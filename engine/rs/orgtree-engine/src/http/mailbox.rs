@@ -39,7 +39,7 @@ pub async fn mark_read(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
     let n = client
         .execute(
             "UPDATE ot.mail SET state = 'read', read_at = now()
-              WHERE org_id = $1 AND recipient_kind = 'user' AND uid = ANY($2) AND state = 'pending'",
+              WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND uid = ANY($2) AND state = 'pending'",
             &[&o.id, &b.ids],
         )
         .await?;
@@ -54,7 +54,7 @@ pub async fn clear(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Ap
     let client = e.db.get().await?;
     client
         .execute(
-            "UPDATE ot.mail SET state = 'read', read_at = now() WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending'",
+            "UPDATE ot.mail SET state = 'read', read_at = now() WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending'",
             &[&o.id],
         )
         .await?;

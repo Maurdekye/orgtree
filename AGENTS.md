@@ -1,5 +1,7 @@
 # AGENTS.md — working on Orgtree
 
+- Org inbox isolation is an org-local, default-on boundary: `org_inbox_enabled=false` rejects new external sends before queue admission or hub contact, including local `@org:` delivery, and hides retained inbox/copies until re-enabled. Internal agent/user mail stays usable. Publication locks org IDs in ascending order; per-org I/O cancellation never unregisters an identity or recalls remote acceptance. See [isolation boundaries and proof limits](docs/rust-engine/org-inbox-isolation.md). [decided: user 2026-10-12; verified: `domain/orginbox.rs`, `net/isolation.rs`, `http/settings.rs`]
+
 This is the one file every agent working in this repository reads first. It collects the
 design facts, user rulings, architecture and working practices that are otherwise spread
 across `docs/`, past agents' notes, tickets and conversations, and it links to the detailed

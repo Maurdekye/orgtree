@@ -24,6 +24,10 @@ export default async function (rig) {
   const audiences = rig.sql(`SELECT grantee,revoked_at FROM ot.audiences WHERE org_id=${id(A)} ORDER BY id`)
   p.check('enabled history exposes accepted record', JSON.stringify(await rig.api('GET', `/api/orgs/${A}/org_inbox`)).includes(body))
   await set(false)
+  await rig.waitFor(async () => (await rig.api('GET', `/api/orgs/${A}`)).org_inbox?.enabled === false,
+    { what: 'disabled policy reaches feed', timeout: 5000 })
+  const hidden = (await rig.api('GET', `/api/orgs/${A}`)).org_inbox
+  p.check('live feed hides inbox entries, counts and holder visibility', hidden.visible === false && hidden.entries.length === 0 && hidden.unread === 0)
   for (const [label, org, who, to] of [
     ['outgoing local', A, 'boss', `@org:${B}`], ['incoming local', B, 'zoe', `@org:${A}`],
     ['outgoing network', A, 'boss', '@net:uncontacted-fixture'],
