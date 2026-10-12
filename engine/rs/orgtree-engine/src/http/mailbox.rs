@@ -85,7 +85,7 @@ pub async fn mail_by_id(
             .map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))),
         "user" => client
             .query_opt(
-                "SELECT to_jsonb(m) FROM ot.mail m WHERE org_id = $1 AND uid = $2 AND (recipient_kind = 'user' OR sender = '@user')",
+                "SELECT to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND uid = $2 AND (recipient_kind = 'user' OR sender = '@user')",
                 &[&o.id, &id],
             )
             .await?
@@ -94,7 +94,7 @@ pub async fn mail_by_id(
             let name = q.node.unwrap_or_default();
             client
                 .query_opt(
-                    "SELECT to_jsonb(m) FROM ot.mail m WHERE org_id = $1 AND uid = $2
+                    "SELECT to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND uid = $2
                         AND (recipient_name = $3 OR sender = $3)",
                     &[&o.id, &id, &name],
                 )

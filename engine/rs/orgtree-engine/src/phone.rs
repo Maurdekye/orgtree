@@ -921,6 +921,7 @@ async fn link(engine: &Arc<Engine>, org_id: i64, slug: &str, address: &str, via:
     // the roster call happens before the lock: a slow hub does not hold up
     // another link or unlink
     let name = person_name(engine, org_id, address).await;
+    let _inbox = crate::net::isolation::local(engine, org_id).await?;
     let _one = engine.phone.link_lock.lock().await;
     let previous = settings(engine)["link"].clone();
     let record = json!({ "org": slug, "org_id": org_id, "address": address, "name": name, "at": crate::util::now_iso(), "via": via });
@@ -966,6 +967,7 @@ fn first_answer(engine: &Engine, mid: &str) -> bool {
 /// counts against the live one. Called before the agents get the message.
 #[nolog]
 pub async fn on_inbound(engine: &Arc<Engine>, org_id: i64, from: &str, body: &str, mid: &str) {
+    if crate::domain::orginbox::require_enabled(engine, org_id).await.is_err() { return; }
     let Some(code) = code_line(body) else { return };
     enum Outcome {
         Link(String),

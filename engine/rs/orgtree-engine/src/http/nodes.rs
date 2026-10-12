@@ -739,6 +739,14 @@ pub async fn file(
     };
     let canon = crate::config::strip_verbatim(&canon);
     let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org.id]).await?.get(0);
+    if !crate::domain::orginbox::enabled(&settings) {
+        // The file route must not bypass a closed org-inbox viewer by naming
+        // its retained upload/download path directly.
+        let inbox_root = e.cfg.path("uploads").join(&org.slug).join("@org-inbox");
+        if scope::path_within(&canon.to_string_lossy(), &inbox_root.to_string_lossy()) {
+            return Err(ApiError::forbidden("the organization's inbox is disabled"));
+        }
+    }
     let mut roots: Vec<PathBuf> = vec![e.cfg.scratch_root(&org.slug), e.cfg.path("uploads"), e.cfg.workspace_dir(&org.slug), scratch];
     for d in settings["dirs"].as_array().cloned().unwrap_or_default() {
         if let Some(p) = d["path"].as_str() {

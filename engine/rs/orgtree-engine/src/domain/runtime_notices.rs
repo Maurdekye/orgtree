@@ -113,9 +113,15 @@ pub async fn external_unroutable(engine:&Arc<Engine>,org_id:i64,org:&str,peer:&s
     } else {
         format!("Mail from {peer} is in {org}'s org inbox, but no agent who could take it can run now (halted or frozen); it waits for {}.",waiting_for.join(", "))
     };
-    let mut out=Outgoing::new(From::System,"user",&text);
-    out.ev=Some(crate::events::typed("runtime.external_unroutable","@system",json!({"kind":"org","org":org}),json!({"peer":peer,"excerpt":crate::util::gist(body,300)})));
-    mail::send(engine,org_id,out).await?;
+    let mut c = engine.db.get().await?;
+    let tx = c.transaction().await?;
+    let settings: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org_id]).await?.get(0);
+    if !super::orginbox::enabled(&settings) { return Ok(()); }
+    let ev=crate::events::typed("runtime.external_unroutable","@system",json!({"kind":"org","org":org}),json!({"peer":peer,"excerpt":crate::util::gist(body,300)}));
+    tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_name,kind,body,ev,state) VALUES($1,$2,'@system','user','@user','message',$3,$4,'pending')",
+        &[&crate::util::uid("m"),&org_id,&text,&ev]).await?;
+    tx.commit().await?;
+    crate::changes::notify_id(engine,org_id,vec![crate::changes::Change::UserMail]);
     Ok(())
 }
 

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use arc_swap::ArcSwap;
-use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::Engine;
@@ -55,6 +55,15 @@ impl Drop for Paused {
     }
 }
 
+/// Short local side effects that cannot be safely cancelled halfway through.
+/// Never hold this across network I/O or acquire another gate recursively.
+#[nolog]
+pub async fn local(engine: &Engine, org: i64) -> Result<OwnedRwLockReadGuard<()>> {
+    let guard = engine.net.isolation.get(org).lock.clone().read_owned().await;
+    crate::domain::orginbox::require_enabled(engine, org).await?;
+    Ok(guard)
+}
+
 /// The future is not polled until every org admits this operation. Multi-org
 /// polls are cancelled if any covered org changes policy; their next pass
 /// rebuilds membership. Call at leaf I/O boundaries, never recursively.
@@ -83,5 +92,41 @@ pub async fn run<T>(engine: &Engine, orgs: &[i64], io: impl Future<Output = Resu
             for id in ids { crate::domain::orginbox::require_enabled(engine, id).await?; }
             io.await
         } => result,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+
+    #[tokio::test]
+    async fn pause_cancels_existing_epoch_and_waits_for_admitted_work() {
+        let gates = Gates::default();
+        let gate = gates.get(7);
+        let epoch = gate.epoch.load_full();
+        let active = gate.lock.clone().read_owned().await;
+        let pause = gates.pause(7);
+        tokio::pin!(pause);
+        assert!(pause.as_mut().now_or_never().is_none());
+        assert!(epoch.is_cancelled());
+        drop(active);
+        let paused = pause.await;
+        let next = gate.lock.clone().read_owned();
+        tokio::pin!(next);
+        assert!(next.as_mut().now_or_never().is_none());
+        drop(paused);
+        let _next = next.await;
+        assert!(!gate.epoch.load().is_cancelled());
+        assert!(epoch.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn changing_one_org_does_not_cancel_or_lock_another() {
+        let gates = Gates::default();
+        let other = gates.get(8);
+        let _paused = gates.pause(7).await;
+        assert!(!other.epoch.load().is_cancelled());
+        assert!(other.lock.clone().read_owned().now_or_never().is_some());
     }
 }

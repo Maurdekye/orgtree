@@ -221,7 +221,9 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
     wake_copies(engine, dst.id, delivered);
     if holders.is_empty() || route.waiting {
-        super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body,holders).await?;
+        if let Err(error) = super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body,holders).await {
+            tracing::warn!(org_id = dst.id, %error, "outside mail committed; fallback notice failed");
+        }
     }
     let delivery = if holders.is_empty() {
         format!("Stored in {}'s org inbox; it has no live agent to read it yet.", dst.slug)
@@ -362,7 +364,9 @@ pub async fn deliver_inbound(
     drop(client);
     wake_copies(engine, org_id, delivered);
     if holders.is_empty() || route.waiting {
-        super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await?;
+        if let Err(error) = super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await {
+            tracing::warn!(org_id, %error, "outside mail committed; fallback notice failed");
+        }
     }
     Ok(true)
 }

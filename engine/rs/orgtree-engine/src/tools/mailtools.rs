@@ -360,7 +360,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
             }
         };
         let rows = client.query("SELECT id, uid, sender, kind, state, created_at, body, notice FROM ot.mail
-            WHERE recipient_agent_id = $1 AND state IN ('pending','delivering') AND id > $2 ORDER BY id LIMIT $3",
+            WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state IN ('pending','delivering') AND id > $2 ORDER BY id LIMIT $3",
             &[&me.id, &after, &(limit + 1)]).await?;
         let has_more = rows.len() > limit as usize;
         let rows = &rows[..rows.len().min(limit as usize)];
@@ -380,11 +380,11 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     // mail you received or sent, and outside mail you sent from the org inbox
     // (what conversation lists; the same mail reply_to accepts)
     let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments, coalesce(recipient_agent_id = $1, false), recipient_name
-          FROM ot.mail WHERE uid = ANY($2) AND (recipient_agent_id = $1 OR sender_agent_id = $1)
+          FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND uid = ANY($2) AND (recipient_agent_id = $1 OR sender_agent_id = $1)
         UNION ALL
         SELECT o.uid, coalesce(o.by_name, 'user'), o.kind, coalesce(o.state, 'queued'), o.at, o.body, o.attachments, false, o.peer
           FROM ot.org_inbox o JOIN ot.agents a ON a.id = $1
-         WHERE o.uid = ANY($2) AND o.org_id = a.org_id AND o.dir = 'out' AND o.by_name = a.name AND o.at >= a.created_at
+         WHERE NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=o.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb) AND o.uid = ANY($2) AND o.org_id = a.org_id AND o.dir = 'out' AND o.by_name = a.name AND o.at >= a.created_at
         LIMIT 40", &[&me.id,&ids]).await?;
     let mut items = Vec::new();
     let mut missing = Vec::new();

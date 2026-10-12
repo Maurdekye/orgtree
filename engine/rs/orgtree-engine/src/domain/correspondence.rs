@@ -320,13 +320,13 @@ pub async fn recent_peers(client: &impl GenericClient, agent_id: i64, most: usiz
         .query(
             "WITH me AS (SELECT org_id, name, created_at FROM ot.agents WHERE id = $1)
              (SELECT sender_agent_id, sender, created_at FROM ot.mail
-               WHERE recipient_agent_id = $1 AND recipient_kind = 'agent' AND state <> 'retracted' ORDER BY id DESC LIMIT 200)
+               WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND recipient_kind = 'agent' AND state <> 'retracted' ORDER BY id DESC LIMIT 200)
              UNION ALL
              (SELECT recipient_agent_id, recipient_name, created_at FROM ot.mail
-               WHERE sender_agent_id = $1 ORDER BY id DESC LIMIT 200)
+               WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND sender_agent_id = $1 ORDER BY id DESC LIMIT 200)
              UNION ALL
              (SELECT NULL::bigint, o.peer, o.at FROM ot.org_inbox o, me
-               WHERE o.org_id = me.org_id AND o.dir = 'out' AND o.by_name = me.name AND o.at >= me.created_at
+               WHERE NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=o.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb) AND o.org_id = me.org_id AND o.dir = 'out' AND o.by_name = me.name AND o.at >= me.created_at
                ORDER BY o.at DESC LIMIT 50)",
             &[&agent_id],
         )

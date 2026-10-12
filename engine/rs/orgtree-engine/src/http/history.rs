@@ -43,8 +43,10 @@ pub async fn sources(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> 
         .iter()
         .map(|r| json!({ "id": r.get::<_, String>(0), "state": r.get::<_, String>(1), "generation": r.get::<_, i32>(2) }))
         .collect();
-    let collections: Vec<Value> =
-        SECTIONS.iter().map(|(id, label, needs)| json!({ "id": id, "label": label, "needs_node": needs })).collect();
+    let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&o.id]).await?.get(0);
+    let collections: Vec<Value> = SECTIONS.iter()
+        .filter(|(id, _, _)| *id != "org-mail" || crate::domain::orginbox::enabled(&settings))
+        .map(|(id, label, needs)| json!({ "id": id, "label": label, "needs_node": needs })).collect();
     Ok(Json(json!({ "collections": collections, "nodes": nodes })))
 }
 
@@ -93,20 +95,20 @@ pub async fn page(
         ),
         "node-mail" => (
             "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'from', sender, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
-               FROM ot.mail WHERE (recipient_agent_id = $1 OR sender_agent_id = $1) AND id < $2 ORDER BY id DESC LIMIT $3",
-            "SELECT count(*) FROM ot.mail WHERE recipient_agent_id = $1 OR sender_agent_id = $1",
+               FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND (recipient_agent_id = $1 OR sender_agent_id = $1) AND id < $2 ORDER BY id DESC LIMIT $3",
+            "SELECT count(*) FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND (recipient_agent_id = $1 OR sender_agent_id = $1)",
             agent,
         ),
         "user-mail" => (
             "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'from', sender, 'body', body, 'at', created_at, 'state', state)
-               FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user' AND id < $2 ORDER BY id DESC LIMIT $3",
-            "SELECT count(*) FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user'",
+               FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND id < $2 ORDER BY id DESC LIMIT $3",
+            "SELECT count(*) FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user'",
             o.id,
         ),
         "user-sent" => (
             "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
-               FROM ot.mail WHERE org_id = $1 AND sender = '@user' AND id < $2 ORDER BY id DESC LIMIT $3",
-            "SELECT count(*) FROM ot.mail WHERE org_id = $1 AND sender = '@user'",
+               FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND sender = '@user' AND id < $2 ORDER BY id DESC LIMIT $3",
+            "SELECT count(*) FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND sender = '@user'",
             o.id,
         ),
         "org-mail" => (
@@ -117,8 +119,8 @@ pub async fn page(
         ),
         "notices" => (
             "SELECT id, jsonb_build_object('kind', 'notice', 'from', sender, 'node', recipient_name, 'body', body, 'at', created_at)
-               FROM ot.mail WHERE org_id = $1 AND notice AND id < $2 ORDER BY id DESC LIMIT $3",
-            "SELECT count(*) FROM ot.mail WHERE org_id = $1 AND notice",
+               FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND notice AND id < $2 ORDER BY id DESC LIMIT $3",
+            "SELECT count(*) FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND notice",
             o.id,
         ),
         "documents" => (

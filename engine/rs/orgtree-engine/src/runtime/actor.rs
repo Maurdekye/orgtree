@@ -1108,7 +1108,7 @@ impl Actor {
         let row = client
             .query_one(
                 "SELECT a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, o.killswitch IS NOT NULL,
-                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice), a.frozen,
+                        EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice), a.frozen,
                         a.tier
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
                 &[&self.id],
@@ -2267,7 +2267,7 @@ impl Actor {
         let claimed = client
             .query(
                 "UPDATE ot.mail SET state = 'delivering', turn_id = $2
-                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                  WHERE id IN (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
                                 ORDER BY id LIMIT 32 FOR UPDATE SKIP LOCKED)
                   RETURNING id, to_jsonb(ot.mail.*)",
                 &[&self.id, &turn_id],
@@ -2323,7 +2323,7 @@ impl Actor {
         let claimed = client
             .query(
                 "UPDATE ot.mail SET state = 'delivering', turn_id = $2
-                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                  WHERE id IN (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
                                 ORDER BY id LIMIT 32 FOR UPDATE SKIP LOCKED)
                   RETURNING id, to_jsonb(ot.mail.*)",
                 &[&self.id, &turn_id],
@@ -2648,9 +2648,9 @@ impl Actor {
         // notices left over ride the next turns, oldest first
         let claimed = tx
             .query(
-                "WITH oldest AS (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                "WITH oldest AS (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
                                   ORDER BY id LIMIT 64 FOR UPDATE SKIP LOCKED),
-                      first_real AS (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' AND NOT notice
+                      first_real AS (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending' AND NOT notice
                                       ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
                  UPDATE ot.mail SET state = 'delivering', turn_id = $2
                   WHERE id IN (SELECT id FROM oldest UNION SELECT id FROM first_real)
@@ -2831,7 +2831,7 @@ impl Actor {
         let claimed = client
             .query(
                 "UPDATE ot.mail SET state = 'delivering', turn_id = $2
-                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                  WHERE id IN (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
                                 ORDER BY id LIMIT 32 FOR UPDATE SKIP LOCKED)
                   RETURNING id, to_jsonb(ot.mail.*)",
                 &[&self.id, &turn_id],
@@ -3870,7 +3870,7 @@ impl Actor {
             .query_one(
                 "SELECT a.last_status->>'status' = 'working', a.extra->>'cache_keepalive_at',
                         (SELECT greatest(t.started_at, t.ended_at) FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1),
-                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending'
+                        EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id AND m.state = 'pending'
                                    AND m.ev->>'variant' LIKE 'reminder.%')
                    FROM ot.agents a WHERE a.id = $1",
                 &[&self.id],
@@ -4353,7 +4353,7 @@ impl Actor {
         // waiting mail may drive a retry after an error; otherwise a broken
         // provider would spin forever on the same requeued opening message.
         self.followup_mail = client.query(
-            "SELECT uid FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+            "SELECT uid FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
               AND NOT notice ORDER BY id LIMIT 64", &[&self.id],
         ).await?.into_iter().map(|r| r.get(0)).collect();
         if requeue {

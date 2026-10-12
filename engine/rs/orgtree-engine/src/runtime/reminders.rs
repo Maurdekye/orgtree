@@ -154,7 +154,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
               WHERE a.org_id = $1 AND a.state = 'live' AND a.halt IS NULL AND a.frozen IS NULL AND NOT a.limit_locked
                 AND a.inflight_at IS NULL
                 AND NOT EXISTS (SELECT 1 FROM ot.turns t WHERE t.agent_id = a.id AND t.ended_at IS NULL)
-                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id
+                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id
                                  AND (m.state = 'delivering' OR (m.state = 'pending' AND NOT m.notice)))
               ORDER BY a.id LIMIT $2",
             &[&org.id, &MAX_AGENTS],
@@ -260,7 +260,7 @@ async fn claim(engine: &Engine, agent: i64, key: &str, now: DateTime<Utc>) -> Re
             "UPDATE ot.agents SET extra = jsonb_set(extra, ARRAY[$2::text], to_jsonb($3::text)), row_version = row_version + 1
               WHERE id = $1 AND state = 'live' AND halt IS NULL AND frozen IS NULL AND NOT limit_locked AND inflight_at IS NULL
                 AND NOT EXISTS (SELECT 1 FROM ot.turns t WHERE t.agent_id = $1 AND t.ended_at IS NULL)
-                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = $1
+                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = $1
                                  AND (m.state = 'delivering' OR (m.state = 'pending' AND NOT m.notice)))",
             &[&agent, &key, &iso(now)],
         )
@@ -333,7 +333,7 @@ async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value) -> Result
     // a turn that already took it owns it
     let client = engine.db.get().await?;
     let withdrawn = client
-        .execute("DELETE FROM ot.mail WHERE uid = $1 AND recipient_agent_id = $2 AND state = 'pending'", &[&sent.uid, &a.id])
+        .execute("DELETE FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND uid = $1 AND recipient_agent_id = $2 AND state = 'pending'", &[&sent.uid, &a.id])
         .await?;
     drop(client);
     changes::notify_id(engine, org_id, vec![Change::Mailbox(a.id)]);

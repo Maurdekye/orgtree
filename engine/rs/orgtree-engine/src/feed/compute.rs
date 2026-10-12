@@ -22,7 +22,7 @@ pub const ASK_HISTORY_KEEP: i64 = 12;
 const AGENT_SQL: &str = r#"
 SELECT a.id, (to_jsonb(a) - 'extra') || jsonb_build_object(
   'x_mail_pending', (SELECT count(*) FROM ot.mail m
-                      WHERE m.recipient_agent_id = a.id AND m.state IN __UNREAD_STATES__),
+                      WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id AND m.state IN __UNREAD_STATES__),
   'x_retired_children', (SELECT count(*) FROM ot.agents c
                       WHERE c.org_id = a.org_id AND c.parent_id = a.id AND c.state IN ('archived','unrecoverable')),
   'x_children_hold', (SELECT coalesce(sum(c.seat + c.grant_credits), 0) FROM ot.agents c
@@ -167,21 +167,21 @@ pub fn mail_entry(m: &Value) -> Value {
 pub async fn user_mail(client: &Client, org_id: i64) -> Result<(Vec<(i64, Value)>, Vec<(i64, Value)>, Vec<(i64, Value)>)> {
     let pending = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending'
+            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending'
              ORDER BY id DESC LIMIT $2",
             &[&org_id, &USER_PENDING_WINDOW],
         )
         .await?;
     let read = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'read'
+            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'read'
              ORDER BY id DESC LIMIT $2",
             &[&org_id, &USER_LOG_WINDOW],
         )
         .await?;
     let sent = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE org_id = $1 AND sender = '@user'
+            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND sender = '@user'
              ORDER BY id DESC LIMIT $2",
             &[&org_id, &USER_SENT_WINDOW],
         )
@@ -234,14 +234,14 @@ pub async fn events_window(client: &Client, org_id: i64) -> Result<(Vec<(i64, Va
 pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String, Value)>> {
     let pending = client
         .query(
-            &format!("SELECT id, to_jsonb(m) FROM ot.mail m WHERE recipient_agent_id = $1 AND state IN {}
+            &format!("SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state IN {}
              ORDER BY id LIMIT $2", crate::domain::mail::UNREAD_STATES),
             &[&agent_id, &MAILBOX_WINDOW],
         )
         .await?;
     let delivered = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE recipient_agent_id = $1 AND recipient_kind = 'agent'
+            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND recipient_kind = 'agent'
                AND state IN ('delivered','read','retracted')
              ORDER BY id DESC LIMIT $2",
             &[&agent_id, &MAILBOX_WINDOW],
@@ -249,7 +249,7 @@ pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String
         .await?;
     let sent = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE sender_agent_id = $1 ORDER BY id DESC LIMIT $2",
+            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND sender_agent_id = $1 ORDER BY id DESC LIMIT $2",
             &[&agent_id, &MAILBOX_WINDOW],
         )
         .await?;

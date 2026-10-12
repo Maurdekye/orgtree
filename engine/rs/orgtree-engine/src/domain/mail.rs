@@ -193,6 +193,9 @@ pub struct Sent {
 /// Store one message and wake its recipient.
 #[logged]
 pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Result<Sent> {
+    if matches!(out.from, From::Extern(_)) {
+        crate::refuse!(Forbidden, "outside mail must publish through the org inbox");
+    }
     let org = engine.orgs.by_id(org_id).ok_or_else(|| anyhow::Error::new(UserError::NotFound("organization".into())))?;
     if out.body.contains('\0') { out.body.retain(|c| c != '\0'); }
     if let Some(text) = &mut out.urgent_reason { if text.contains('\0') { text.retain(|c| c != '\0'); } }
@@ -370,7 +373,7 @@ async fn reply_event(client: &tokio_postgres::Client, org_id: i64, org: &str, wh
                 json!({ "body":body }))))
         }
         "mail" => {
-            let r = client.query_opt("SELECT sender, created_at, body, recipient_kind, recipient_name FROM ot.mail WHERE org_id=$1 AND uid=$2", &[&org_id,&id]).await?;
+            let r = client.query_opt("SELECT sender, created_at, body, recipient_kind, recipient_name FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id=$1 AND uid=$2", &[&org_id,&id]).await?;
             Ok(r.map(|r| {
                 let sender: String = r.get(0);
                 let at = crate::util::iso(r.get(1));
@@ -401,7 +404,7 @@ pub async fn agent_reply_quote(engine: &Engine, org_id: i64, agent_id: i64, agen
     let r = client
         .query_opt(
             "SELECT uid, sender, created_at, body, recipient_kind, recipient_name, net_id FROM ot.mail
-              WHERE org_id = $1 AND uid = $2 AND (recipient_agent_id = $3 OR sender_agent_id = $3)",
+              WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND uid = $2 AND (recipient_agent_id = $3 OR sender_agent_id = $3)",
             &[&org_id, &id, &agent_id],
         )
         .await?;

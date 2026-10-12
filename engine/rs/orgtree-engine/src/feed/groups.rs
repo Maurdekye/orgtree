@@ -58,6 +58,7 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
     let mut out = setting_defaults();
     let obj = out.as_object_mut().unwrap();
     for (k, v) in app_defaults {
+        if k == "org_inbox_enabled" { continue; }
         obj.insert(k.clone(), v.clone());
     }
     if let Some(s) = org_settings.as_object() {

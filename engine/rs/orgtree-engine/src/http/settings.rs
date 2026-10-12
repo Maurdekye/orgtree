@@ -430,6 +430,7 @@ pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(b): Json<Map<Strin
     let mut top = Map::new();
     for (k, v) in &b {
         match k.as_str() {
+            "org_inbox_enabled" => return Err(ApiError::bad_request("org inbox access is an organization setting, not a hire default")),
             "org_dirs" => {
                 defaults.insert("dirs".into(), Value::Array(dirs_of(v).0));
             }

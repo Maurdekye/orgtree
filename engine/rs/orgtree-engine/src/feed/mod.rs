@@ -282,7 +282,20 @@ impl Actor {
     #[nolog]
     fn handle(&mut self, msg: Msg) {
         match msg {
-            Msg::Invalidate(keys) => {
+            Msg::Invalidate(mut keys) => {
+                if keys.contains(&Key::Org) {
+                    // A changed inbox policy also invalidates already open
+                    // mailbox windows, including archived seats. Work is
+                    // bounded by active subscriptions, not retained history.
+                    keys.push(Key::UserMail);
+                    for socket in self.sockets.values() {
+                        for sub in socket.subs.values() {
+                            for window in &sub.windows {
+                                if let Window::Mailbox(id) = window { keys.push(Key::Mailbox(*id)); }
+                            }
+                        }
+                    }
+                }
                 for k in keys {
                     self.mark_subs_dirty(&k);
                     self.pending.insert(k);
