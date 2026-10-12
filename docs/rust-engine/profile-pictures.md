@@ -85,6 +85,8 @@ cadence was added.
 These are isolated component/HTTP proofs, not installed desktop, Android
 WebView, device or pixel acceptance. Cancellation permit lifetime is supported
 by source inspection and compilation, not a forced-cancellation runtime probe.
-Fresh independent review and the separately reviewed Hubchat saved-hub
-cancellation composition remain outstanding. No release, push or deployment is
+The separate Hubchat source is now composed onto saved-hub base `acdeab4`,
+with bound request and local generation admission checks and focused cancellation
+proofs recorded in that repository. Fresh multi-repository independent review
+remains outstanding. No release, push or deployment is
 authorized by these results.
