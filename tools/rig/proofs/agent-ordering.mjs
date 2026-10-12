@@ -44,6 +44,11 @@ export default async function (rig) {
   await refusedWithoutWrites('reorder rejects conflicting index/before', () => reorder('boss', 'carol', 0, { before: 'alice' }), /one placement/)
   await rig.op({ op: 'reorder', node: 'carol', after: 'alice' })
   p.check('existing user before/after ordering remains supported', joined('boss') === 'alice,carol')
+  r = await op({ op: 'reorder', node: 'carol', before: 'alice', after: null })
+  p.check('legacy null after remains omitted beside before', r.ok && joined('boss') === 'carol,alice', r)
+  r = await op({ op: 'reorder', node: 'carol', before: null, after: null })
+  p.check('legacy null before/after retains append', r.ok && joined('boss') === 'alice,carol', r)
+  await rig.op({ op: 'reorder', node: 'carol', after: 'alice' })
   r = await rig.tool('boss', 'orgtree_state_inspect', {})
   const rows = r.json?.nodes ?? []
   p.check('inspection exposes accurate ordered metadata', r.ok && rows.find(a => a.name === 'alice')?.sibling_index === 0
