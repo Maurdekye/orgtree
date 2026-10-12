@@ -710,3 +710,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
     OpenRouter's original lane is `openrouter` for `openrouter-key`; added
     registry IDs retain distinct lanes. Full contract and verification limits:
     [`usage-query-proposal.md`](usage-query-proposal.md).
+
+75. **Human hub mail is composed in Hubchat** (user 2026-10-12 08:41Z,
+    mdd198237e882). Remove the org-inbox window compose button and feature,
+    including human outside replies and dedicated send/upload/staging APIs.
+    Preserve agent mail, inbox history, recorded quotes, file access, transfer
+    custody and the integrated inbox-disable policy. No replacement composer
+    or launch flow. See [`org-inbox-viewer.md`](org-inbox-viewer.md).
