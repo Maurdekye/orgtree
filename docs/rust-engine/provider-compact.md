@@ -42,6 +42,9 @@ width equaled client width, and the corrected controls' label/button/link hit ar
 were at least 28px high. Baseline dark wide and light narrow screenshots and
 corrected wide/narrow screenshots in both themes were inspected, including narrow
 server rows. Source typecheck passes with explicit shared-dependency resolution.
-Focused behavioral checks and composition with the later checked OpenRouter/Muse
-rows remain pending. No installed app, live settings, provider inference, packaging
-or publication was tested.
+All 50 focused behavioral tests pass across account creation/removal, marks,
+API-key fallback and usage, provider discovery, OpenRouter models/usage, language
+servers and dialogs. Their bundling and execution used the same 4096MB/150s kernel
+Job containment. Composition with the later checked OpenRouter/Muse rows remains
+pending. No installed app, live settings, provider inference, packaging or
+publication was tested.
