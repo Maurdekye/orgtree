@@ -52,3 +52,29 @@ text. A reply to several cards at once quotes each of them. Orgtree delivers
 it as hub mail like any other; it does not track whether a card is settled,
 and a later reply cannot change Hubchat's settled card. To ask again, the
 agent sends a new question.
+
+## Measured verification (2026-10-12)
+
+On `hubchat-opus/question-options`, rebased on rust-engine `cf7668e`, under
+the machine build lock inside the repository's kernel Job runner:
+
+- `cargo test --locked -j2 -p orgtree-engine net::cards::` passes both
+  `net_cards` tests (the tool's option checks; the list in the body becoming
+  `meta`, the last list counting, malformed lists carrying none).
+- `cargo build --locked -j2 -p orgtree-engine` (debug) passes with no warning.
+- Rig proof `tools/rig/proofs/question-options.mjs` passes 17 of 17 with a
+  scratch database, the fake CLI and a hosted hub built from the mail hub's
+  `hubchat-opus/hub-meta` branch (listing `meta`). The real agent tool queues
+  the numbered list; the payload builder adds `meta`; the real sender
+  delivers single-choice, multiple-choice and free-response questions to a
+  person registered over HTTP, whose client receives the body, `kind` and
+  `meta` (none on the free-response one); every refusal is in plain words
+  and queues nothing.
+
+## Limits
+
+No live hub, real chat, installed app, Hubchat build or device was used.
+Hubchat's side (cards, picks, answers, settling) is verified in the Hubchat
+repository: core tests, a round trip through the same hub branch, and a
+browser proof. Orgtree does not track whether a card is settled; an answer
+reaches the agent as plain hub mail.
