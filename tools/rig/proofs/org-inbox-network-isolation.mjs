@@ -57,7 +57,7 @@ export default async function (rig) {
     await call({ action: 'workers' }) // deliberately stale participants; real workers still enforce persisted policy
     await call({ action: 'drain' })
     await new Promise(resolve => setTimeout(resolve, 1200))
-    p.check('cached worker routes and outbox drain produce zero HTTP while disabled', calls.length === 0, calls)
+    p.check('cached worker routes and outbox drain produce zero HTTP while disabled', calls.length === 0, [...calls])
     p.check('new attachment queue admission fails', await attempt(() => call({ action: 'plan', bytes: 1024 })))
     p.check('incoming envelope rejected before durable custody', await attempt(() => call({ action: 'receive',
       message: { id: 'refused-download', from: 'peer.rig', body: 'Must not be accepted' } })))
@@ -81,6 +81,23 @@ export default async function (rig) {
     p.check('previously accepted records can complete after re-enable', rig.one(`SELECT state FROM ot.org_inbox WHERE id=${upload.inbox}`).state === 'sent' &&
       rig.sql("SELECT id FROM ot.org_inbox WHERE dir='in' AND net_id='accepted-download'").length === 1)
     p.check('re-enable never revives rejected inbound', rig.sql("SELECT id FROM ot.org_inbox WHERE net_id='refused-download'").length === 0)
+    const C=(await rig.api('POST','/api/orgs',{name:'Download reader',dirs:[],net_autoconnect:false})).slug
+    await rig.op({op:'hire',name:'reader',tier:'luna',grant:4},{org:C})
+    await rig.op({op:'halt',nodes:['reader']},{org:C})
+    const downloaded=rig.one("SELECT d.path FROM ot.net_downloads d JOIN ot.net_incoming n ON n.id=d.incoming_id WHERE n.net_id='accepted-download'").path
+    const readFile=async org=>{
+      const res=await fetch(`${rig.url}/api/orgs/${org}/nodes/${org===C?'reader':'rhea'}/file?path=${encodeURIComponent(downloaded)}`,
+        {headers:{'X-Orgtree-Desktop-Token':rig.token}})
+      return {status:res.status,bytes:(await res.arrayBuffer()).byteLength}
+    }
+    p.check('actual downloaded file enabled control',(await readFile(C)).bytes===1024)
+    await set(false)
+    p.check('actual downloaded inbox file blocked through unrelated enabled org',(await readFile(C)).status===403)
+    await rig.api('POST',`/api/orgs/${C}/settings`,{org_inbox_enabled:false})
+    p.check('actual downloaded inbox file blocked when both orgs disabled',(await readFile(C)).status===403)
+    await set(true)
+    const restored=await readFile(rig.org)
+    p.check('actual downloaded file restored after enable',restored.status===200 && restored.bytes===1024)
     p.note('Loopback fixture counts real worker HTTP; no real hub registration, external identity, provider or message. Remote acceptance already dispatched cannot be recalled.')
     p.keep(rig, { grep: /isolation|transfer|incoming|ERROR/ })
     return p.summary()

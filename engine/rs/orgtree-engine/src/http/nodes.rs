@@ -106,7 +106,11 @@ pub async fn chat(
     let pending = client
         .query(
             &format!("SELECT to_jsonb(m), count(*) OVER () FROM ot.mail m
-                      WHERE recipient_agent_id = $1 AND state IN {} ORDER BY id LIMIT 200", mail::UNREAD_STATES),
+                      WHERE recipient_agent_id = $1 AND state IN {} AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+                        AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable'
+                        AND m.extra->>'transfer_failure' IS NULL)
+                        OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id
+                            AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) ORDER BY id LIMIT 200", mail::UNREAD_STATES),
             &[&a.id],
         )
         .await?;
@@ -229,7 +233,11 @@ async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value) -> ApiResult<Opt
     match kind {
         "mail" => {
             let r = client
-                .query_opt("SELECT uid, sender, created_at, body FROM ot.mail WHERE org_id = $1 AND uid = $2", &[&org.id, &id])
+                .query_opt("SELECT uid, sender, created_at, body FROM ot.mail m WHERE org_id = $1 AND uid = $2 AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+                        AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable'
+                        AND m.extra->>'transfer_failure' IS NULL)
+                        OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id
+                            AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb))", &[&org.id, &id])
                 .await?;
             let Some(r) = r else { return Err(ApiError::not_found("the message being answered no longer exists")) };
             let body: String = r.get(3);
@@ -739,12 +747,22 @@ pub async fn file(
     };
     let canon = crate::config::strip_verbatim(&canon);
     let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org.id]).await?.get(0);
-    if !crate::domain::orginbox::enabled(&settings) {
-        // The file route must not bypass a closed org-inbox viewer by naming
-        // its retained upload/download path directly.
-        let inbox_root = e.cfg.path("uploads").join(&org.slug).join("@org-inbox");
-        if scope::path_within(&canon.to_string_lossy(), &inbox_root.to_string_lossy()) {
-            return Err(ApiError::forbidden("the organization's inbox is disabled"));
+    // Inbox uploads and downloaded parts share uploads/<owner>/@org-inbox.
+    // Authorize against that owner, not the unrelated org in the URL. Resolve
+    // the root as well as the file so spelling/relative aliases cannot bypass it.
+    if let Ok(root) = std::fs::canonicalize(e.cfg.path("uploads")) {
+        let root = crate::config::strip_verbatim(&root);
+        if scope::path_within(&canon.to_string_lossy(), &root.to_string_lossy()) {
+            let mut relative = canon.components().skip(root.components().count());
+            let owner = relative.next().map(|c| c.as_os_str().to_string_lossy().to_string());
+            let inbox = relative.next().is_some_and(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case("@org-inbox"));
+            if let Some(owner) = owner.filter(|_| inbox) {
+                let row = client.query_opt("SELECT settings FROM ot.orgs WHERE slug=$1", &[&owner]).await?;
+                // An orphaned inbox directory is not an ordinary upload either.
+                if !row.is_some_and(|r| crate::domain::orginbox::enabled(&r.get::<_, Value>(0))) {
+                    return Err(ApiError::forbidden("the organization's inbox is disabled"));
+                }
+            }
         }
     }
     let mut roots: Vec<PathBuf> = vec![e.cfg.scratch_root(&org.slug), e.cfg.path("uploads"), e.cfg.workspace_dir(&org.slug), scratch];
