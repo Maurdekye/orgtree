@@ -563,33 +563,6 @@ for (const s of OTHER_SURFACES.filter((x) => x.pinnable)) {
   })
 }
 
-test('§12 compose, opened from inside the org inbox, closes on its own '
-  + 'without taking the inbox with it', async (t) => {
-  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
-  const stop = quietServer()
-  t.after(() => { stop(); forgetModalPins(); forgetModalOpenCache() })
-  const { CurrentOrg } = await import('../src/popout')
-  let inboxClosed = 0
-  const v = await mountView(<CurrentOrg.Provider value="mine">
-    <OrgInboxModal inbox={{ entries: [], unread: 0, holders: [], visible: true } as never}
-      net={null} map={new Map()} slug="mine" toast={noop}
-      close={() => { inboxClosed += 1 }} jumpTo={null} />
-  </CurrentOrg.Provider>, (h) => h)
-  t.after(() => v.unmount())
-  await flush(6)
-  const composeBtn = [...document.querySelectorAll('button')]
-    .find((b) => (b.textContent ?? '').toLowerCase().includes('compose mail')) as HTMLElement | undefined
-  assert.ok(composeBtn, 'POSITIVE CONTROL: the inbox offers compose')
-  await inAct(() => { composeBtn!.click() }); await flush(4)
-  assert.ok(document.querySelector('.cmp-modal'), 'POSITIVE CONTROL: compose opened')
-
-  await rightClick(onlyBar('.cmp-modal'))
-  assert.equal(labels().at(-1), 'Close', `compose offers Close — have ${JSON.stringify(labels())}`)
-  await pick('Close')
-  assert.equal(document.querySelector('.cmp-modal'), null, 'compose closed')
-  assert.equal(inboxClosed, 0, 'and the inbox it was opened from is still up')
-})
-
 // -------------------------------------------------------- B. a row's Close
 
 test('§8 a mail row: Close closes the OPEN message only', async (t) => {

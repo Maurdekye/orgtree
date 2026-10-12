@@ -74,10 +74,7 @@ window.fetch = ((input: RequestInfo | URL) => {
   return Promise.resolve(json({}))
 }) as typeof fetch
 
-// ---- the org inbox's own log, for the `?compose=1` fixture. The question it
-// answers is what a NESTED centred modal (compose) does to its host once the
-// host is a pinned window, so the host has to be the real OrgInboxModal with
-// the real compose button, not a stand-in.
+// Retained org-inbox viewer fixture; human composition is retired.
 const MAIL: OrgInboxEntry[] = Array.from({ length: 12 }, (_, i) => ({
   id: `mail-${i}`,
   dir: (i % 3 ? 'in' : 'out') as 'in' | 'out',
@@ -120,13 +117,13 @@ const TREE = {
 } as unknown as TreePayload
 
 function Fixture() {
-  // the gallery stands down for `?compose=1`: both panels are a `.settings`,
+  // the gallery stands down for `?inbox=1`: both panels are a `.settings`,
   // and two of them would make every selector below ambiguous. It stands down
   // for the other two title fixtures for the same reason (see `titles`).
   const [open, setOpen] = useState(
-    q.get('compose') !== '1' && !['docket', 'reader'].includes(q.get('titles') ?? ''))
+    q.get('inbox') !== '1' && !['docket', 'reader'].includes(q.get('titles') ?? ''))
   const [second, setSecond] = useState(q.get('two') === '1')
-  const [orgInbox, setOrgInbox] = useState(q.get('compose') === '1')
+  const [orgInbox, setOrgInbox] = useState(q.get('inbox') === '1')
   // ONE SURFACE AT A TIME for the title checks — `?titles=gallery|docket|
   // reader`. Not because the selectors would clash (each panel has its own
   // class) but because CENTRED overlays are all z-index 20 and stack in DOM

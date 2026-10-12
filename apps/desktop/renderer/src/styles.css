@@ -377,29 +377,10 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .oi-stuck { color: var(--bad); font-size: 11px; overflow: hidden;
             text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
 /* F-06: the mailbox network section (its own TAB since the 2026-08-05
-   rework) + the compose MODAL with selectable recipient chips */
+   rework). */
 .oi-net { padding-top: 4px; }
 .oi-origin { color: var(--dim); font-size: 10.5px; text-transform: uppercase;
   letter-spacing: 0.06em; margin: 6px 0 0 15px; }
-.cmp-modal { width: min(560px, 90vw); }
-.cmp-modal textarea { width: 100%; resize: vertical; }
-.cmp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
-.cmp-chip { display: inline-flex; align-items: center; gap: 6px;
-  background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: 11px; padding: 2px 10px; font-size: 12px;
-  color: var(--ink); cursor: pointer; }
-.cmp-chip:hover:not(:disabled) { border-color: var(--dim); }
-.cmp-chip.on { border-color: var(--accent); color: var(--ink-strong);
-  background: var(--accent-soft); }
-.cmp-chip .dim { font-size: 10.5px; }
-/* the quiet-peer fold: a roster row outlives its org until the hub prunes
-   it, so long-silent peers are folded rather than presented as ordinary
-   recipients. A link, not a button-looking control - it reveals, it does
-   not act. */
-.cmp-quiet-toggle { margin: 2px 0 6px; font-size: 11px; }
-.cmp-quiet-toggle .linkish { background: none; border: 0; padding: 0;
-  color: var(--agent-accent-text, var(--accent)); cursor: pointer; font: inherit; }
-.cmp-quiet-toggle .linkish:hover { text-decoration: underline; }
 .oi-hub { margin: 6px 0 2px; }
 .oi-hub-head { display: flex; align-items: center; gap: 8px;
   flex-wrap: wrap; font-size: 12.5px; }
@@ -8349,5 +8330,3 @@ main:has(> .orgbar.native-header) > .error {
 .transfer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .transfer-actions:empty { display: none; }
 .transfer-actions button { font-size: 11px; padding: 3px 7px; }
-
-.saved-local-files > .local-staging { max-height: 180px; overflow-y: auto; margin: 6px 0; }

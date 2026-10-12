@@ -70,8 +70,8 @@ test('§1 EVERY attach control in the app draws the one agreed glyph — checked
       sites.push({ file: f, line: i + 1, glyph: m ? m[1]! : null })
     })
   }
-  assert.equal(sites.length, 4,
-    'positive control: the four known attach controls are all still found — '
+  assert.equal(sites.length, 3,
+    'positive control: the three remaining attach controls are all still found — '
     + 'if this number changed, the new site must be judged, not skipped. '
     + `found: ${JSON.stringify(sites)}`)
   for (const s of sites) {
@@ -283,17 +283,6 @@ test('§2e armed state does NOT leak between composers — it is per box, not a 
       'nor does the desk composer\'s global noticestore reach in here')
     resetNoticeStore()
   } finally { await view.unmount() }
-})
-
-test('§2f a composer whose recipient can never take a notice renders no '
-  + 'toggle at all, rather than a dead control', async () => {
-  const r = await replyBox({ target: 'agent-b', slug: 'org', notice: false,
-    onSend: () => {} })
-  try {
-    assert.equal(r.toggle(), null, 'no toggle')
-    assert.ok(r.attach(), 'positive control: the attach button is still there')
-    assert.equal(r.stack().children.length, 1)
-  } finally { await r.view.unmount() }
 })
 
 test('§2g the toggle is NOT greyed out for an unreachable recipient — the '

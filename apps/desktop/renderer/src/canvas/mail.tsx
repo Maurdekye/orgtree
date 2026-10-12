@@ -1,7 +1,6 @@
 import { beginOpen, useOpenCommit } from '../opentiming'
 import { useRecordMailbox } from '../recordpanelhooks'
-import type { UploadOptions } from '../api'
-import { useStaging, StagingRows, SavedLocalFiles } from './staging'
+import { useStaging, StagingRows } from './staging'
 // canvas/mail.tsx — the mail interfaces: the shared webmail MailList +
 // MailFolders, a node's InboxView tab and its modal form (NodeInboxModal),
 // the org-inbox viewer (OrgInboxModal), and the org record. One mail
@@ -14,12 +13,12 @@ import type { KeyboardEvent, ReactNode } from 'react'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, fileBase, fileUrl, getMailById, getOrgInbox, orgInboxRead,
-  orgInboxSend, orgInboxUpload, uploadFile,
+  uploadFile,
 } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { TransferPanel } from './transfers'
 import {
-  AttachIcon, CloseIcon, DownloadIcon, EditIcon, FileIcon, HearingIcon,
+  AttachIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon,
 } from '../icons'
 import {
@@ -33,7 +32,7 @@ import { refToken } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { useComposerEnter } from '../enterkey'
 import { isMobile } from '../mobile'
-import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
+import { closeIfCentred, PinFrame } from './modalpin'
 import { CollapsibleMailer } from './narrowlist'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -74,15 +73,8 @@ export interface MailListProps {
    *  send; the host forwards it to its own send call. */
   onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean) => void
   /** Which rows may be answered from here. Default: incoming mail from a
-   *  plain agent id (the @-sentinels route elsewhere). The org inbox opens
-   *  its outside senders (@net:/@org:), whose answer goes back out. */
+   *  plain agent id (the @-sentinels route elsewhere). */
   canReply?: (m: MailRow) => boolean
-  /** The reply box without the notice toggle (an outside recipient, whom
-   *  a notice cannot reach). */
-  replyPlain?: boolean
-  /** Stage a reply's file where the host's own send takes it (the org inbox
-   *  stages outside mail's files itself); `path` is what `onReply` gets. */
-  replyUpload?: (m: MailRow, file: File, options?: UploadOptions) => Promise<{ path: string; bytes: number }>
   onRetract?: (m: MailRow) => void
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
@@ -161,7 +153,7 @@ export interface MailListProps {
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
-  outgoing, onRead, onReply, canReply: canReplyTo, replyPlain, replyUpload, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
+  outgoing, onRead, onReply, canReply: canReplyTo, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
@@ -568,8 +560,6 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onReply={replyable
               ? (text, attachments, notice) => onReply!(cur, text, attachments, notice)
               : undefined}
-            replyPlain={replyPlain}
-            replyUpload={replyUpload ? (file, options) => replyUpload(cur, file, options) : undefined}
             toast={toast} />
         )}
         {!cur && (
@@ -734,7 +724,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, replyPlain, replyUpload, toast }: {
+  outgoing, customSender, waitLabel, custom, onReply, toast }: {
   cur: MailRow
   /** a folded run of system notices, newest first; one entry = no run */
   members?: MailRow[]
@@ -753,10 +743,6 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
    *  (asks: the response form IS the body) */
   custom?: ReactNode | null
   onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
-  /** the reply box without the notice toggle */
-  replyPlain?: boolean
-  /** the host stages the reply's files (see MailList `replyUpload`) */
-  replyUpload?: (file: File, options?: UploadOptions) => Promise<{ path: string; bytes: number }>
   toast?: ToastFn
 }) {
   const profile = 'operator'
@@ -858,7 +844,6 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
            2026-09-17). NOT `?? ''` like the head: an absent org must stay
            ABSENT so the composer degrades the way its `slug?:` contract says. */
         <MailReplyBox target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast}
-          notice={!replyPlain} upload={replyUpload}
           onSend={(text, attachments, notice) => onReply(text, attachments, notice)} />
       )}
     </>
@@ -878,7 +863,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false,
-  toast, notice = true, upload }: {
+  toast }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -891,15 +876,6 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   /** Keep the draft editable while its selected recipient is unavailable. */
   sendDisabled?: boolean
   toast?: ToastFn
-  /** Render the notice-send toggle. Default ON: every composer this box
-   *  serves reaches an in-org agent, which is who a notice can be sent to.
-   *  A host whose recipient is an OUTSIDE address passes false — the backend
-   *  refuses a notice to `@…` addressing anyway, and a control that can never
-   *  do anything is worse than no control. */
-  notice?: boolean
-  /** Stage a file the host's way instead of in `target`'s folder (the org
-   *  inbox's outside mail); `path` is what `onSend` receives. */
-  upload?: (file: File, options?: UploadOptions) => Promise<{ path: string; bytes: number }>
 }) {
   const [draft, setDraft] = useState('')
   const enterKey = useComposerEnter()
@@ -916,9 +892,8 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   // singleton, which is global by design because the desk has one composer.
   const [noticeArmed, setNoticeArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
-  const attachable = Boolean((upload || slug) && target) && !sendDisabled
-  const staging = useStaging((file, options) => upload ? upload(file, options)
-    : slug && target ? uploadFile(slug, target, file, options.signal) : Promise.reject(Error('Choose a recipient first')),
+  const attachable = Boolean(slug && target) && !sendDisabled
+  const staging = useStaging((file, options) => slug && target ? uploadFile(slug, target, file, options.signal) : Promise.reject(Error('Choose a recipient first')),
     (file, r) => setAttached(a => [...a, {name:file.name,path:r.path,bytes:r.bytes}]))
   const attach = staging.add
   const send = () => {
@@ -929,7 +904,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     // switching recipient. Same rule as the desk composer (b38d9d9 §3), and
     // disarmed at submission rather than on success, so a refused send does
     // not leave a live notice armed behind a toast the user already read.
-    const armed = noticeArmed && notice
+    const armed = noticeArmed
     if (noticeArmed) setNoticeArmed(false)
     // THE BOX EMPTIES ON THE CLICK (docket v3-sending-a-reply-to-a-mail-
     // takes-about-half-a, 2026-09-30): it used to stay locked on the typed
@@ -960,7 +935,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     <>
       {attached.length > 0 && (
         <div className="attach-row">
-          {attached.map((a, i) => (isImg(a.name) && !upload
+          {attached.map((a, i) => (isImg(a.name)
             ? <AttachThumb key={a.path + i} href={fileUrl(slug!, target!, a.path)}
                 name={a.name} meta={fmtBytes(a.bytes)}
                 onRemove={() => setAttached((x) => x.filter((_, j) => j !== i))} />
@@ -975,9 +950,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         </div>
       )}
       <StagingRows staging={staging} />
-      {upload && slug && <SavedLocalFiles slug={slug} attached={attached.map(a=>a.path)} disabled={sendDisabled}
-        onAttach={f=>setAttached(a=>a.some(x=>x.path===f.id)?a:[...a,{name:f.name,path:f.id,bytes:f.bytes}])} />}
-      <div className={'mail-reply' + (noticeArmed && notice ? ' notice-armed' : '')}>
+      <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '')}>
         {/* the composer's left column, exactly as the desk composer builds it
             (b38d9d9): the notice toggle ABOVE the attach button, both in the
             same `.cc-btnstack`, the stack's bottom on the composer baseline.
@@ -986,13 +959,12 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             the way `aside`/`.event-row-kind` had, since none of them was ever
             a bare-tag rule to begin with. */}
         <div className="cc-btnstack">
-          {notice && (
-            /* NO DISABLED STATE FOR AN UNSUPPORTED RECIPIENT, on purpose
+          {/* NO DISABLED STATE FOR AN UNSUPPORTED RECIPIENT, on purpose
                (b38d9d9 §4): the server decides whether a notice is possible
                and silently sends ordinary mail when it is not, so greying the
                button would be this renderer guessing at a rule it does not
-               own. It follows `sendDisabled` only, like the draft. */
-            <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
+               own. It follows `sendDisabled` only, like the draft. */}
+          <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
               type="button"
               disabled={sendDisabled}
               aria-label={noticeArmed ? 'Notice-send armed: this reply arrives as a passive notice' : 'Notice-send: send this reply as a passive notice'}
@@ -1000,9 +972,8 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               onClick={() => setNoticeArmed((v) => !v)}>
               {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
             </button>
-          )}
           <button type="button" className="cc-attach" disabled={!attachable}
-            title={(upload || slug) && target ? 'attach a file' : 'attachments need a recipient first'}
+            title={slug && target ? 'attach a file' : 'attachments need a recipient first'}
             onClick={() => fileRef.current?.click()}>
             <AttachIcon fontSize="inherit" /></button>
         </div>
@@ -1019,7 +990,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
             // the two can never race, and it returns rather than falling
             // through — Alt+N is not a send.
-            if (notice && e.altKey && (e.key === 'n' || e.key === 'N')) {
+            if (e.altKey && (e.key === 'n' || e.key === 'N')) {
               e.preventDefault()
               if (!sendDisabled) setNoticeArmed((v) => !v)
               return
@@ -1428,9 +1399,8 @@ interface OrgInboxModalProps {
 export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   jumpSeq, refs, onFocusAgent }: OrgInboxModalProps) {
   // reworked (user spec 2026-08-05): no blurb, mailservers on their own TAB,
-  // compose in its own modal, holders as bare chips with a drag-to-grant tip
+  // holders as bare chips with a drag-to-grant tip
   const [tab, setTab] = useState<'mail' | 'servers'>('mail')
-  const [composing, setComposing] = useState(false)
   // a jump to an OUTBOUND mail (an agent's @ext:/@org: send) opens on sent
   const [folder, setFolder] = useState(() =>
     jumpTo && (inbox?.entries ?? []).some((e) => e.id === jumpTo
@@ -1509,15 +1479,6 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     reply_to: e.reply_to?.gist ? { id: e.reply_to.id ?? '', kind: 'mail', box: 'org', org: slug,
       from: e.reply_to.from ?? '', at: e.reply_to.at ?? '', gist: e.reply_to.gist } : undefined,
   }))
-  // the panel's Reply (rulings 2026-10-08): an outside sender is answered as
-  // the organization, and the reply names what it answers (over the mail
-  // hub as a link, between orgs here as its quote)
-  const reply = (m: MailRow, text: string, attachments?: string[]) => {
-    if (!m.id) return
-    return orgInboxSend(slug, m.from, text, attachments ?? [], m.id)
-      .then(() => { toast([`replied to ${m.from}`]); setReload((n) => n + 1) })
-      .catch((e: Error) => { toast([`reply failed: ${e.message}`]); throw e })
-  }
   const inn = rows.filter((r) => r.kind === 'message')
   const out = rows.filter((r) => r.kind === 'reply')
   const markRead = () => {
@@ -1628,9 +1589,6 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     delivered={inn.filter((r) => !r._wait0)}
                     waitLabel="unread" onRead={markRead} jumpTo={jumpTo}
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
-                    onReply={(m, text, attachments) => reply(m, text, attachments)} replyPlain
-                    replyUpload={(m, file, options) => orgInboxUpload(slug, file, [m.from], options).then((r) => ({ path: r.id, bytes: r.bytes }))}
-                    canReply={(m) => /^@(net|org):/.test(m.from)}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
                     /* ⚠ AN INCOMING ORG-INBOX SENDER IS EXTERNAL BY
                        PROVENANCE, AND A NAME MATCH IS NOT EVIDENCE OTHERWISE.
@@ -1684,300 +1642,10 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
           <NetSection net={net} />
         )}
         <div className="row">
-          {tab === 'mail' && (
-            <button className="primary" onClick={() => setComposing(true)}>
-              <EditIcon fontSize="inherit" /> compose mail</button>
-          )}
           <span className="spacer" />
           <button onClick={close}>close</button>
         </div>
-        {composing && (
-          <ComposeModal slug={slug} net={net} entries={entries} toast={toast}
-            close={() => setComposing(false)} />
-        )}
     </PinFrame>
-  )
-}
-
-// ---- F-06: the user composes extern mail from its own MODAL (user spec
-// 2026-08-05: the inline bar was cramped; recipients are selectable CHIPS) ----
-// recipients come from "the extern list": hub roster peers (@net:) plus every
-// past correspondent in the log, deduped — plus a free-typed address (FR-07:
-// addressing must never require a live roster; the spool holds @net: mail
-// until the hub is reachable). The user bypasses the audience gate
-// (they outrank it); attachments stage first. The retired forms (@ext:,
-// and @mcp: since 2026-09-25) are refused by the server with a clear message.
-/** How long a hub roster row may be silent before the compose picker
- *  stops presenting it as an ordinary recipient. Well inside the hub's
- *  own ORG_RETENTION_DAYS (45): the point is not to predict the prune,
- *  it is that a week of silence is enough to stop implying reachability.
- *  Nothing is deleted and nothing is hidden permanently - the fold opens. */
-export const QUIET_PEER_DAYS = 7
-
-/** Days since an ISO timestamp, or null when there is none to measure.
- *  A peer with NO last_seen is never called quiet: absence of a reading
- *  is not evidence of silence, and guessing the other way would fold
- *  away a perfectly good recipient. */
-export function peerQuietDays(lastSeen?: string | null,
-  now: number = Date.now()): number | null {
-  if (!lastSeen) return null
-  const t = Date.parse(lastSeen)
-  if (!Number.isFinite(t)) return null
-  return Math.max(0, Math.floor((now - t) / 86400000))
-}
-
-/** "5d" / "3h" / "now" - short enough to sit on a chip. */
-export function peerAgeLabel(lastSeen?: string | null,
-  now: number = Date.now()): string {
-  if (!lastSeen) return ''
-  const ms = now - Date.parse(lastSeen)
-  if (!Number.isFinite(ms)) return ''
-  if (ms < 3600000) return 'now'
-  if (ms < 86400000) return `${Math.floor(ms / 3600000)}h`
-  return `${Math.floor(ms / 86400000)}d`
-}
-
-function ComposeModal({ slug, net, entries, toast, close }: {
-  slug: string
-  net?: TreePayload['net']
-  entries: OrgInboxEntry[]
-  toast: ToastFn
-  close: () => void
-}) {
-  const enterKey = useComposerEnter()
-  // multiple recipients (user spec 2026-08-05): chips TOGGLE into a set and
-  // the mail goes to every selected address — one send per recipient, the
-  // failures reported per-address
-  const [sel, setSel] = useState<string[]>([])
-  const [other, setOther] = useState(false) // the free-entry "other" chip
-  // FR-07: a free-typed address — offline addressing must never be gated on
-  // a live roster; @net:<slug> needs only the slug string, and the spool
-  // holds the mail until the hub is back
-  const [freeTo, setFreeTo] = useState('')
-  // A ROSTER ROW IS NOT A PROMISE OF REACHABILITY. The hub keeps a
-  // row until ORG_RETENTION_DAYS of silence, so a deleted org sat in
-  // this picker for weeks as a recipient that can never receive
-  // anything - measured on the live hub 2026-09-04: 135 rows, 132
-  // with no local org of that base slug, 3 online. Deleting an org
-  // now takes the polite exit, but that only covers orgs deleted from
-  // THIS install; rows left by an older build, a crashed install or a
-  // machine that never returns still age out on the hub's own clock.
-  //
-  // So the picker STATES the age and FOLDS the long-silent away. It
-  // deletes nothing and hides nothing permanently, deliberately: a
-  // row whose org lives on another install is not dead, it is remote,
-  // and 'I cannot see it' is a fact about this observer. Free-typed
-  // addressing (FR-07) is untouched either way.
-  const [showQuiet, setShowQuiet] = useState(false)
-  const [text, setText] = useState('')
-  const [staged, setStaged] = useState<{ id: string; name: string }[]>([])
-  const [busy, setBusy] = useState(false)
-  const fileRef = useRef<HTMLInputElement | null>(null)
-  // recipients grouped by ORIGIN (user spec 2026-08-05, FR-11 parity): hub
-  // peers under their slug's username segment — the same "domain (account)"
-  // headers the mailservers tab and the hub's own web UI use — and the
-  // log-only correspondents under their transport's namespace
-  const allGroups = (() => {
-    const seen = new Set<string>()
-    const gs = new Map<string, { addr: string; name: string; kind: string
-      online?: boolean; via?: string[]; lastSeen?: string | null }[]>()
-    const put = (g: string, o: { addr: string; name: string; kind: string
-      online?: boolean; via?: string[]; lastSeen?: string | null }) => {
-      if (seen.has(o.addr)) return
-      seen.add(o.addr)
-      gs.set(g, [...(gs.get(g) ?? []), o])
-    }
-    for (const h of net?.hubs ?? []) {
-      if (h.hidden) continue
-      for (const r of h.roster) {
-        put(r.slug.split('.')[1] ?? h.name ?? '?',
-          { addr: `@net:${r.slug}`, name: r.org_name || r.slug.split('.')[0]!,
-            kind: r.kind === 'chat' || r.kind === 'person' ? r.kind : 'org', online: !!r.online,
-            via: r.transports ?? ['net'], lastSeen: r.last_seen })
-      }
-    }
-    for (const e of entries) {
-      // @ext: correspondents are HISTORY only — the bridge is retired
-      // (user ruling 2026-08-05); their rows stay readable but they are
-      // not addressable, so no chip. @mcp: followed on 2026-09-25 (the
-      // external-chat MCP server is retired; the server refuses new sends)
-      if (!e.peer.startsWith('@') || e.peer.startsWith('@ext:')
-        || e.peer.startsWith('@mcp:')) continue
-      const ns = e.peer.slice(1, e.peer.indexOf(':'))
-      const g = e.peer.startsWith('@net:')
-        ? e.peer.slice(5).split('.')[1] ?? '?'
-        : ns === 'org' ? 'this instance' : `${ns} peers`
-      put(g, { addr: e.peer, name: e.peer.replace(/^@\w+:/, ''), kind: ns,
-        via: [ns] })
-    }
-    return [...gs.entries()].sort(([a], [b]) => (a < b ? -1 : 1))
-  })()
-  // ONLINE always wins: a peer answering right now is reachable
-  // whatever its last_seen says. And a peer with NO reading is never
-  // called quiet - absence of a measurement is not evidence of
-  // silence, and folding one away would remove a good recipient on
-  // the strength of a missing field. That is the same failure
-  // direction as treating 'no local org' as 'dead'.
-  const isQuiet = (o: { online?: boolean; lastSeen?: string | null }) => {
-    if (o.online) return false
-    const d = peerQuietDays(o.lastSeen)
-    return d != null && d >= QUIET_PEER_DAYS
-  }
-  const quiet = allGroups.reduce(
-    (n, [, os]) => n + os.filter(isQuiet).length, 0)
-  const groups: [string, typeof allGroups[number][1]][] = showQuiet
-    ? allGroups
-    : allGroups.map(([g, os]) =>
-        [g, os.filter((o) => !isQuiet(o))] as
-          [string, typeof allGroups[number][1]])
-        .filter(([, os]) => os.length > 0)
-  const toggle = (addr: string) => setSel((s) =>
-    s.includes(addr) ? s.filter((a) => a !== addr) : [...s, addr])
-  const dests = [
-    ...sel,
-    ...(other && freeTo.trim() ? [freeTo.trim()] : []),
-  ].filter((d, i, a) => a.indexOf(d) === i)
-  const attachable = dests.length > 0
-    && dests.every((d) => d.startsWith('@net:') || d.startsWith('@org:'))
-  const staging = useStaging((file, options) => orgInboxUpload(slug, file, dests, options),
-    (_file, r) => setStaged(s => [...s, {id:r.id,name:r.name}]))
-  const send = () => {
-    if (!dests.length || !text.trim() || busy || staging.blocked()) return
-    setBusy(true)
-    Promise.all(dests.map((d) =>
-      orgInboxSend(slug, d, text, staged.map((s) => s.id))
-        .then((r) => ({ d, error: null as string | null, warnings: r.warnings }))
-        .catch((e: Error) => ({ d, error: e.message, warnings: [] as string[] }))))
-      .then((rs) => {
-        const fails = rs.filter((r) => r.error != null)
-        const warns = rs.flatMap((r) => r.warnings)
-        if (!fails.length) {
-          toast(warns.length ? warns
-            : [dests.length > 1
-                ? `sent to ${dests.length} recipients — as the org, by you`
-                : 'sent — as the org, by you'])
-          close()
-        } else {
-          // partial failure: stay open so the text is not lost; the sent
-          // ones are already out, the failed addresses are named
-          toast([
-            ...fails.map((f) => `→ ${f.d} failed: ${f.error}`),
-            ...(rs.length > fails.length
-              ? [`${rs.length - fails.length} of ${rs.length} sent`] : []),
-          ])
-          setBusy(false)
-        }
-      })
-  }
-  return (
-    // ⚠ ModalOverPins IS LOAD-BEARING, not tidiness. This dialog is rendered
-    // from inside OrgInboxModal, so without it the whole thing is a DOM child
-    // of that panel — and once the panel is a pinned window, a nested overlay
-    // is trapped in its stacking context: MEASURED in Edge, the compose
-    // backdrop covered the pinned inbox's own title bar and made its drag
-    // handle and close button unreachable. The portal parent is constant in
-    // both modes precisely so pinning never remounts this subtree and never
-    // loses a half-typed draft.
-    <ModalOverPins>
-      <PinFrame kind="compose" title="Compose mail" panel="settings content-height cmp-modal"
-        close={close}>
-        <h3><EditIcon fontSize="inherit" /> Compose mail</h3>
-        {/* who this goes out as is a FACT ABOUT THE SEND, not part of the
-            title, and it used to sit inside the h3 — where a pinned window
-            hides it along with the duplicated heading. Outside, it is visible
-            in both modes (Astra 2026-09-06). */}
-        <div className="dim modalpin-subtitle">goes out as the org, sent by you</div>
-        <div className="field-label">to
-          <span className="dim"> — click to add, click again to remove; the
-            mail goes to every selected recipient</span></div>
-        {quiet > 0 && (
-          <div className="cmp-quiet-toggle">
-            <button type="button" className="linkish"
-              onClick={() => setShowQuiet((v) => !v)}>
-              {showQuiet ? 'hide' : 'show'} {quiet} not seen in over
-              {' '}{QUIET_PEER_DAYS} days</button>
-            <span className="dim"> — still addressable; a hub row
-              outlives its org until the hub prunes it</span>
-          </div>
-        )}
-        {groups.map(([g, os]) => (
-          <div key={g}>
-            <div className="oi-origin">{g} · {os.length}</div>
-            <div className="cmp-chips">
-              {os.map((o) => (
-                <button key={o.addr} type="button" disabled={busy}
-                  className={'cmp-chip' + (sel.includes(o.addr) ? ' on' : '')}
-                  title={o.addr + ' — reachable via: '
-                    + (o.via ?? [o.kind]).join(', ')
-                    + (o.online ? ' — online now'
-                      : o.lastSeen
-                        ? ` — last seen ${fmtShort(o.lastSeen)}`
-                        : '')}
-                  onClick={() => toggle(o.addr)}>
-                  <span className={'oi-dot' + (o.online ? ' ok' : '')} />
-                  {o.name}
-                  {/* the age, said out loud: a dull dot alone did
-                      not distinguish 'idle' from 'gone weeks ago' */}
-                  {!o.online && o.lastSeen && (
-                    <span className="dim">{peerAgeLabel(o.lastSeen)}</span>
-                  )}
-                  {(o.kind === 'chat' || o.kind === 'person') && <span className="dim">{o.kind}</span>}
-                  <span className="dim">{(o.via ?? [o.kind]).join('·')}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        <div className="cmp-chips">
-          <button type="button" disabled={busy}
-            className={'cmp-chip' + (other ? ' on' : '')}
-            onClick={() => setOther((v) => !v)}>other address…</button>
-        </div>
-        {other && (
-          <input autoFocus placeholder="@net:slug / @org:slug"
-            value={freeTo} onChange={(e) => setFreeTo(e.target.value)} />
-        )}
-        <textarea rows={5} placeholder="the message…" value={text}
-          title={enterKey.hint} disabled={busy} onChange={(e) => setText(e.target.value)}
-          onKeyDown={e => {
-            if (enterKey.sends(e) && !busy && dests.length && text.trim()) {
-              e.preventDefault()
-              send()
-            }
-          }} />
-        <StagingRows staging={staging} />
-        <SavedLocalFiles slug={slug} attached={staged.map(s=>s.id)} disabled={busy||!attachable}
-          onAttach={f=>setStaged(s=>s.some(x=>x.id===f.id)?s:[...s,{id:f.id,name:f.name}])} />
-        <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-          <input ref={fileRef} type="file" multiple hidden
-            onChange={(e) => {
-              for (const f of [...(e.target.files ?? [])].slice(0, 10)) {
-                staging.add(f)
-              }
-              e.target.value = ''
-            }} />
-          {staged.map((s) => (
-            <span key={s.id} className="badge free"><FileIcon fontSize="inherit" />{s.name}
-              <button className="chip-x" onClick={() =>
-                setStaged((st) => st.filter((x) => x.id !== s.id))}>
-                <CloseIcon fontSize="inherit" /></button></span>
-          ))}
-          <button title={attachable ? 'attach files'
-            : 'attachments ride @net:/@org: mail only'}
-            disabled={!attachable || busy}
-            onClick={() => fileRef.current?.click()}>
-            <AttachIcon fontSize="inherit" /></button>
-          <span className="spacer" />
-          <button onClick={close} disabled={busy}>cancel</button>
-          <button className="primary"
-            title={enterKey.hint}
-            disabled={busy || !dests.length || !text.trim() || staging.rows.length>0}
-            onClick={send}>
-            {busy ? 'sending…'
-              : dests.length > 1 ? `send to ${dests.length}` : 'send'}</button>
-        </div>
-      </PinFrame>
-    </ModalOverPins>
   )
 }
 

@@ -143,46 +143,6 @@ MUTANTS: dict[str, tuple[str, str, str, str]] = {
         "        onPointerDown={pinned ? () => raiseModal(kind) : undefined}>",
         "        onPointerDown={undefined}>",
         "stack: the window you press does not come to the front"),
-    # ---- the nested-dialog family. This IS the defect that was measured on
-    # 2026-09-06 (compose's backdrop covering the pinned inbox that raised it),
-    # so each of these puts a piece of it back.
-    "nested-dialog-stays-inside-its-host": (
-        "src/canvas/modalpin.tsx",
-        "  if (typeof document === 'undefined') return <>{children}</>\n",
-        "  if (typeof document !== 'undefined') return <>{children}</>\n",
-        "nested: the dialog is trapped in its host's stacking context again"),
-    "nested-dialog-sits-inside-the-pin-band": (
-        "src/styles.css",
-        ".modalpin-over > .overlay { z-index: 31; }",
-        ".modalpin-over > .overlay { z-index: 20; }",
-        "nested: a dialog raised from a pinned window renders behind it"),
-    # the measured defect itself, put straight back: a dialog raised from a
-    # pinned window that goes on dimming and eating clicks even once it is a
-    # window of its own. (Scoped to `.modalpin-over`, so this is a different
-    # mutant from `pinned-window-still-dims-the-page` — that one is killed by
-    # the gallery checks long before these ever run.)
-    "a-pinned-dialog-still-dims-its-host": (
-        "src/styles.css",
-        ".modalpin-over > .overlay { z-index: 31; }",
-        ".modalpin-over > .overlay { z-index: 30;\n"
-        "  background: rgba(0, 0, 0, .45) !important;\n"
-        "  pointer-events: auto !important; }",
-        "nested-pin: pinning the dialog does not give the host window back"),
-    # the OTHER half of ModalOverPins: the parent has to be CONSTANT. A portal
-    # whose container is rebuilt remounts everything under it, which is how a
-    # half-typed draft dies on a pin toggle — the thing Astra named.
-    # the obvious-looking alternative to a constant parent: portal only WHILE
-    # the dialog is pinned. ⚠ READ WHAT THIS ACTUALLY PROVES — it is killed by
-    # the two `nested` checks (centred, the dialog is back inside its host), and
-    # NOT by the draft assertion, which survives it. See the ⚠ on that
-    # assertion: nothing that can be done to this file loses that draft.
-    "the-portal-is-conditional-on-being-pinned": (
-        "src/canvas/modalpin.tsx",
-        "  if (typeof document === 'undefined') return <>{children}</>\n"
-        "  return createPortal(",
-        "  if (useModalPin('compose') === null) return <>{children}</>\n"
-        "  return createPortal(",
-        "nested: a conditional portal leaves the centred dialog inside its host"),
     "two-titles-on-a-pinned-window": (
         "src/styles.css",
         ".modalpin-win > h3:first-of-type { display: none; }",
@@ -272,20 +232,11 @@ BAR = ".gallery-modal .modalpin-bar"
 PIN_BTN = ".gallery-modal .modalpin-bar .modalpin-btn[aria-pressed]"
 # the gallery panel is ALSO a `.settings`, so the second surface has to be
 # named by what it is not — otherwise every selector below matches both
-SECOND = ".settings:not(.gallery-modal):not(.wide):not(.cmp-modal)"
+SECOND = ".settings:not(.gallery-modal):not(.wide)"
 SECOND_PIN_BTN = SECOND + " .modalpin-bar .modalpin-btn[aria-pressed]"
 SECOND_WIN = SECOND + ".modalpin-win"
 
-# the `?compose=1` fixture: a real org inbox, and the real compose dialog it
-# raises from inside itself. `.cmp-modal` is also a `.settings`, so SECOND has
-# to exclude it as well as the inbox's `.wide`.
 INBOX = ".settings.wide"
-COMPOSE = ".settings.cmp-modal"
-# the highest z-index a pinned window can take; a dialog raised from one has to
-# clear it (MODAL_Z_TOP in modalpin.tsx — kept here as a literal on purpose, so
-# a change on one side is a red check rather than two values moving together)
-MODAL_Z_TOP = 29
-DRAFT = "a half-typed draft that must survive being pinned"
 
 # ---- the surfaces whose own title sits INSIDE A HEADER ROW rather than in the
 # plain <h3> the other fourteen open with. That shape is invisible to a child
@@ -714,103 +665,11 @@ def run(html: pathlib.Path, verbose: bool = True) -> tuple[list[str], dict]:
         if not sel.strip():
             bad("select: text inside a pinned window cannot be selected")
 
-        # ------------------------------------------------- nested / title
-        # The rest of this file drives the gallery. These last three drive the
-        # REAL OrgInboxModal and the REAL ComposeModal, because the question
-        # they answer only exists when one modal is opened from INSIDE another
-        # — and it was a real defect: measured on 2026-09-06, compose's
-        # backdrop covered the pinned inbox that raised it and made that
-        # window's own drag handle and close button unreachable.
-        page.open("compose=1&two=1", ready=INBOX)
-        # a pinned host, small and out of the way. Seeded rather than clicked:
-        # a full-size pinned inbox covers the second surface's pin control, and
-        # this fixture would then be measuring its own layout, not the app's.
-        page.pg.evaluate(
-            "() => localStorage.setItem('orgtree-modal-pins', JSON.stringify("
-            "{'org-inbox': {rect: {x: 20, y: 20, w: 520, h: 380}, z: 0}}))")
-        page.open("compose=1&two=1", reset=False, ready=INBOX + ".modalpin-win")
-        page.click(SECOND_PIN_BTN)
-        page.drag(SECOND + ".modalpin-win .modalpin-bar", 0, 300,
-                  at=None)
-        host = page.box(INBOX + ".modalpin-win")
-        if not host:
-            bad("nested: the org inbox did not come up pinned")
-        page.click("text=compose mail")
-        page.pg.wait_for_selector(COMPOSE, timeout=8000)
-
-        nested = page.pg.evaluate("""() => {
-          const p = document.querySelector('.settings.cmp-modal');
-          const o = p && p.closest('.overlay');
-          if (!o) return null;
-          const cs = getComputedStyle(o);
-          return { parent: o.parentElement.className,
-                   atBody: o.parentElement.parentElement === document.body,
-                   z: cs.zIndex, bg: cs.backgroundColor, pe: cs.pointerEvents };
-        }""")
-        obs["nested"] = nested
-        if not nested:
-            bad("nested: compose did not open from the pinned inbox")
-        else:
-            # 1. OUT of the host. A DOM descendant of a pinned panel paints
-            #    inside that panel's z band whatever its own z-index says.
-            if "modalpin-over" not in nested["parent"] or not nested["atBody"]:
-                bad(f"nested: the dialog is still inside its host "
-                    f"(parent {nested['parent']!r})")
-            # 2. ABOVE the whole pinned band, or a dialog raised from a pinned
-            #    window renders BEHIND that window — the same bug, sign flipped
-            if int(nested["z"] or 0) <= MODAL_Z_TOP:
-                bad(f"nested: a centred dialog sits inside the pinned band "
-                    f"(z-index {nested['z']}, band tops out at {MODAL_Z_TOP})")
-            # 3. CONTROL — centred behaviour is UNCHANGED. It is still a modal:
-            #    it still dims, and it still takes clicks. Without this the two
-            #    checks above could be passed by deleting the backdrop.
-            if nested["bg"] in ("rgba(0, 0, 0, 0)", "transparent"):
-                bad("nested: the centred dialog lost its backdrop")
-            if nested["pe"] != "auto":
-                bad(f"nested: the centred dialog stopped taking clicks "
-                    f"({nested['pe']})")
-
-        # ------------------------------------------------------ nested-pin
-        # ...and pinning the dialog is what gives the host back, which is the
-        # whole reason compose is pinnable (Astra 2026-09-06).
-        page.pg.fill(COMPOSE + " textarea", DRAFT)
-        page.click(COMPOSE + " .modalpin-bar .modalpin-btn[aria-pressed]")
-        hbar = page.box(INBOX + ".modalpin-win .modalpin-bar")
-        top = page.pg.evaluate(
-            "(p) => { const e = document.elementFromPoint(p.x, p.y);"
-            "  return e ? (e.className || e.tagName) : null }",
-            {"x": hbar["x"] + 30, "y": hbar["y"] + 13}) if hbar else None
-        draft = page.pg.eval_on_selector(COMPOSE + " textarea", "el => el.value")
-        cmp_over = page.pg.evaluate(
-            "() => { const o = document.querySelector('.settings.cmp-modal')"
-            "  .closest('.overlay'); const cs = getComputedStyle(o);"
-            "  return { cls: o.className, bg: cs.backgroundColor,"
-            "           pe: cs.pointerEvents } }")
-        obs["nested_pin"] = {"host_top": top, "draft": draft, "cmp": cmp_over}
-        if "overlay-pinned" not in cmp_over["cls"]:
-            bad("nested-pin: the dialog did not become a window")
-        if cmp_over["bg"] not in ("rgba(0, 0, 0, 0)", "transparent"):
-            bad("nested-pin: a pinned dialog still dims the page behind it")
-        if top is None or "modalpin" not in str(top):
-            bad(f"nested-pin: the host window's own title bar is still covered "
-                f"(topmost there is {top!r})")
-        # The requirement Astra named: pinning must not lose a half-typed
-        # draft. The text is typed BEFORE the pin, so an empty box would not
-        # pass this for the wrong reason.
-        #
-        # ⚠ BUT SAY WHAT THIS IS: AN ASSERTION WITH NO NEGATIVE CONTROL. I
-        # tried three mutants against it and all three survived — a changing
-        # portal key, a rebuilt portal container, and a portal made conditional
-        # on the pin. None of them lose the draft, and the reason is structural
-        # rather than lucky: the text lives in ComposeModal's own state, and
-        # ComposeModal is the component that RENDERS all of this, so nothing
-        # pinning does can unmount it. Losing the draft would take a change
-        # somewhere else entirely — compose being rendered from a different
-        # place when pinned, say. So this line is a tripwire for that future
-        # refactor, and it is NOT evidence that the requirement was at risk and
-        # was met. Do not quote it as one.
-        if draft != DRAFT:
-            bad(f"nested-pin: the draft was lost on pin ({draft!r})")
+        # Read-only org-inbox title fixture. Retired compose scenarios removed.
+        page.open("inbox=1&two=1", ready=INBOX)
+        page.pg.evaluate("() => localStorage.setItem('orgtree-modal-pins', JSON.stringify("
+                         "{'org-inbox': {rect: {x: 20, y: 20, w: 520, h: 380}, z: 0}}))")
+        page.open("inbox=1&two=1", reset=False, ready=INBOX + ".modalpin-win")
 
         # ---------------------------------------------------------- title
         # one visible title, one accessible heading (Astra 2026-09-06)
