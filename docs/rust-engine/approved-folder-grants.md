@@ -12,14 +12,18 @@ and adequate RO/RW coverage semantics, preserving unrelated org settings.
 Only actual user-authorized positive folder intent enters the org:
 
 - A direct whole-list scope save contributes newly added paths and RO-to-RW
-  upgrades. Unchanged dormant entries, removals and downgrades contribute nothing.
+  upgrades only when a folder list is actually supplied. Canonically equivalent
+  rows aggregate permission in either order: any existing RW row already covers
+  RW intent. Unchanged dormant entries, removals and downgrades contribute nothing.
+  Only inferred positive intent is aggregated; stored historical rows are retained.
 - A request contributes exactly its approved folder items. Explicit reapproval
   of retained clamped intent counts even if its raw folder was already present.
 - Deny/skip, other scope axes, inspection and ordinary agent actions contribute
   no folder authorization. Agent retool still cannot grant above itself.
 
-Org-folder settings/revocation, user scope/approval, and user retool/rehire
-take the org row before agent rows. This is an org-local transaction lock,
+Org-folder settings/revocation, user scope/approval, user retool/rehire and
+user/agent hire/rehire with a nonempty audience list take the org row before
+agent rows. This is an org-local transaction lock,
 not a global runtime lock. A failed transaction publishes no effects. After
 commit, org-folder expansion publishes the org change and refreshes live
 agents across the org, since retained scope on other branches may become
@@ -80,3 +84,35 @@ after user approval. Those expectations are corrected because they encoded
 the omission, contrary to the recorded rule; its other request/routing controls
 are preserved. No real provider, external organization's private data, live
 settings, filesystem permission, installer or pixel acceptance is claimed.
+
+## First-review correction
+
+Independent R1 identified two concrete gaps in that checkpoint: first-match
+folder comparison could reinterpret existing RO/RW aliases as new RW intent,
+including an effort-only save; and staffing could lock a parent before its
+audience grant acquired the org. The correction requires a supplied folder
+list, compares adequate permission across all equivalent rows, and aggregates
+only positive new intent. Explicit request approvals keep their separate exact
+items, so genuine clamped reapproval remains effective.
+
+The finite composite callsite audit found `audiences::grant_tx` called by
+standalone `audiences::grant` and `ops::run_in_tx`. Standalone audience grant's
+agent reads do not use FOR UPDATE. The staffing composite is the shared
+user/agent hire/rehire dispatcher, so its org acquisition now precedes dispatch.
+Ordinary agent checks are unchanged. `ops::run_once` begins its transaction
+before dispatch; tool `treetools::run` releases its caller-read connection first.
+User and agent `staffing.rs` paths call `ops::run` with a fresh transaction.
+The only other `run_in_tx` callers are credit reallocation (no audience
+composition) and templates in a newly inserted, uncommitted org (not visible
+to competing scope requests). No late lock inside `grant_tx` is used as a fix.
+
+`approved-folder-grants-round2.mjs` controls the staffing schedule using an
+advisory barrier trigger after staffing node locks, entirely in disposable
+rig state. The competing real approval/direct-edit route's PostgreSQL wait
+query must be an org acquisition, then both routes must commit with the
+folder and audience intact. User hire/approval, agent hire/direct, user
+rehire/direct and agent rehire/approval are separate schedules, plus an
+uncontended composite. This measures those schedules rather than every
+possible interleaving. The predecessor binary is the exact R1 runtime,
+preserved before rebuilding; partial fixture-development logs are retained
+separately and are not completed red/green receipts.
