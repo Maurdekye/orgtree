@@ -202,8 +202,65 @@ Do not claim multi-key support from this standalone proof.
 The original standalone proof checks response secrecy. Independent review found
 raw provider logging; the correction and focused response/log evidence below
 supersede that earlier verification limit. Real provider timeout/auth behavior
-and UI/app packaging were not exercised. Checked dated-auth query composition
-and multi-key composition remain required before this ticket is complete.
+and UI/app packaging were not exercised. Checked-auth composition is implemented
+and verified below, awaiting coordinator review; multi-key composition remains
+required before this ticket is complete.
+
+## Checked authentication composition (2026-10-12)
+
+Lead checked integration notice mb6bef247b3bd authorizes consumption of
+continuation f8b49ac after independent round3. Approved standalone765a617
+rebased onto that source, then onto ordering41f1c0 per lead's later notice.
+The first rebase required three conflict-block reconciliations in usage.rs:
+retain the auth map alongside probe/manual maps; retain checked Claude result
+processing in place of the older inline fallback; retain single/aggregate auth
+helpers alongside the reviewed unlogged peek. Production and canned Claude
+both still call claude_result; cooldown returns without cache insertion. The
+checked record_auth, claude_result, claude_cooldown and auth helper bodies are
+unchanged. Ordering documentation and schema changes are preserved. Old
+approved source765a617 remains reachable as usage-query-sol-before-auth-20261012.
+
+The tool consumes cached_reauth_required_across over exactly the checked
+physical-login aliases: canonical native key plus same-provider native registry
+keys; an independent imported login uses its own key. Only the resulting boolean
+is consumed, never hidden row metadata or paths. API-key metering, local servers
+and OpenRouter are outside this native-auth overlay. Latest genuine fresh auth
+observation wins; transient/error/cooldown supplies no newer observation.
+
+Known negative authentication changes availability to false and cause to
+signed_out, retaining quota windows, observation time, age and freshness. A
+newer genuine success clears that overlay. If the selected quota cache itself
+is an older failed sign-in reading, newer positive auth clears its outdated
+sign-in cause to failed; it cannot invent a successful quota measurement or bars.
+The refresh result rejects explicit negative flags even with available=true and
+error=null. Final aggregate auth also converts attempted/reused to failed when
+negative; busy and rate-limit states remain intact, and cache reuse/attempt
+cadence is unchanged. Final classification uses the same auth observation as
+the returned row, after all permission/scope awaits.
+
+The focused usage-query-auth.mjs proof exercises both native/explicit directions,
+negative after success, transient after negative, independent imported login,
+contradictory quota availability with negative auth, actual tool log secrecy,
+no inference, failure floor and recent-cache reuse. Measured pre-composition
+baseline2bee261 built in1m02s; the real tool proof failed9 of14 checks.
+Composition f18e96b plus parser/projection tests67930a7 built in54.90s.
+Focused tests passed19/19, zero failed,83 filtered,49.60s at67930a7.
+The composed proof at67930a7 passed14/14, and the existing tool-interval secrecy
+proof passed24/24 again against the composed binary. All six secrecy intervals
+retain zero synthetic marker lines and verbose safe diagnostics. The baseline
+auth proof has14 checks, correcting an earlier status message that counted15.
+Engine SHA256:
+2919AFD79DA20FD1E2DFE3D160EB5AC8713510C0A9F720C68B8300EB2326B922.
+Receipt logs under D:\orgtree-work\evidence\usage-query-sol:
+cargo-build-auth-baseline-20261012.log, cargo-build-auth-composed-20261012.log,
+cargo-test-auth-composed-20261012.log, rig-auth-red-20261012.log,
+rig-auth-green-20261012.log, rig-secrecy-auth-composed-20261012.log.
+Structured red/green auth receipts under the owned rig evidence folder:
+usage-query-auth-20261012T005220/result.json (9 failures of14),
+usage-query-auth-20261012T005725/result.json (14/14), and
+usage-query-secrecy-20261012T005751/result.json (24/24).
+auth-helper-provenance-20261012.json confirms unchanged checked helper bodies.
+No fake-CLI rebuild, live provider call, app build or OR composition occurred.
 
 ## Raw provider logging correction (2026-10-12)
 

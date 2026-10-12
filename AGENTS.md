@@ -68,6 +68,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   old observations or serialize raw cached provider documents. Raw readers,
   parsers, profile/history processing and cache peeks omit raw argument/return
   logging; safe availability/window-count/SQLSTATE diagnostics remain.
+  Query availability and successful refresh classification also consume the
+  latest genuine auth observation across checked physical native aliases;
+  signed-out overlay preserves dated quota bars. Imported logins stay separate.
+  [verified: tools/usage.rs, usage/query.rs; 2026-10-12]
   [verified: usage.rs, account_marks.rs, usage_history.rs; 2026-10-12] Contract and
   proof limits: [usage-query-proposal.md](docs/rust-engine/usage-query-proposal.md).
   [decided: user/lead-astra 2026-10-11 22:35Z; verified: usage.rs, tools/usage.rs]
