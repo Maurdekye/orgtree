@@ -1627,6 +1627,45 @@ mod wham_tests {
 }
 
 #[cfg(test)]
+mod agy_tests {
+    use super::agy_result;
+    use serde_json::json;
+
+    fn result() -> serde_json::Value {
+        json!({"status":"SUCCESS", "conversation_id":"", "num_turns":0,
+            "usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},
+            "command":{"name":"usage","data":{"groups":[{"name":"Gemini","buckets":[
+                {"id":"gemini-session","name":"5h limit remaining","window":"5h","remaining_fraction":0.3}
+            ]}]}}, "extra_credential":"raw-secret-sentinel"})
+    }
+
+    #[test]
+    fn structured_usage_retains_bars_without_raw_json_or_log() {
+        let raw = result();
+        let log = "raw-secret-sentinel\nauthenticated successfully as rig@example.invalid";
+        let direct = agy_result(&raw, log).unwrap();
+        assert_eq!(direct, agy_result(&json!({"result":raw}), log).unwrap());
+        assert_eq!(direct["limits"][0]["percent"], json!(70.0));
+        assert_eq!(direct["email"], json!("rig@example.invalid"));
+        assert!(!direct.to_string().contains("raw-secret-sentinel"));
+    }
+
+    #[test]
+    fn structured_usage_refuses_turns_tokens_and_incomplete_token_evidence() {
+        for (key, value) in [("num_turns", json!(1)), ("conversation_id", json!("turn")), ("status", json!("FAILURE"))] {
+            let mut raw = result();
+            raw[key] = value;
+            assert!(agy_result(&raw, "").is_err());
+        }
+        let mut raw = result();
+        raw["usage"]["total_tokens"] = json!(1);
+        assert!(agy_result(&raw, "").is_err());
+        raw["usage"] = json!({});
+        assert!(agy_result(&raw, "").is_err());
+    }
+}
+
+#[cfg(test)]
 mod query_gate_tests {
     use super::*;
 
