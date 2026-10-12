@@ -57,7 +57,7 @@ fn rebound_queue(queue: &Value, id: &str, primary: &str, model_switch: bool) -> 
 #[logged]
 fn retryable(error: &anyhow::Error) -> bool {
     error.chain().any(|e| e.downcast_ref::<tokio_postgres::Error>().and_then(|e| e.code())
-        .map(|c| matches!(c.code(), "40001" | "40P01")).unwrap_or(false))
+        .map(|c| matches!(c.code(), "40001" | "40P01" | "55P03")).unwrap_or(false))
 }
 
 #[logged]
@@ -82,6 +82,10 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
             Ok(v) => { out = Some(v); break; }
             Err(e) if attempt < 3 && retryable(&e) => {
                 tracing::warn!(account = id, attempt, "account removal conflicted; retrying entire transaction");
+                // remove_once has rolled back and released account/agent locks.
+                // Let an org-first folder/settings writer complete before the
+                // next bounded attempt; never sleep while holding those rows.
+                tokio::time::sleep(std::time::Duration::from_millis(25 << attempt)).await;
             }
             Err(e) => return Err(e),
         }
@@ -197,7 +201,12 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
     }
     let mut after = 0i64;
     loop {
-        let rows = tx.query("SELECT id, slug FROM ot.orgs WHERE id > $2 AND settings->>'default_account' = $1 ORDER BY id LIMIT 128 FOR UPDATE", &[&id, &after]).await?;
+        // Account reference protection deliberately starts at the account row,
+        // then bound agents. Do not wait here for an org-first folder/settings
+        // writer that may own this org and await one of those agents. NOWAIT
+        // aborts this whole attempt (55P03), releasing all provisional changes
+        // and locks before remove() retries it. No new global lock/order pin.
+        let rows = tx.query("SELECT id, slug FROM ot.orgs WHERE id > $2 AND settings->>'default_account' = $1 ORDER BY id LIMIT 128 FOR UPDATE NOWAIT", &[&id, &after]).await?;
         if rows.is_empty() { break; }
         for row in rows {
             let org_id: i64 = row.get(0);
