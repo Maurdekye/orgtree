@@ -73,6 +73,15 @@ last reading); else "OpenRouter key N".
   opt-in fallback applies between keys. Nothing switches automatically beyond that setting.
 - **Launch:** `openrouter_route` reads the seat's own key and refuses an inactive key, a lane the
   org switched off, or a key that is no longer stored, each with its own message.
+- **Fallback eligibility:** an OpenRouter key passes the shared `continuation::resolve` check like any
+  registry account (org allowlist, per-key switch, limits). `continue_on` takes an unbound seat's
+  previous lane as `org_accounts::default_lane`, so a move to the original key is not reported as a
+  new cache namespace.
+- **Usage reads:** `openrouter_key_usage` reserves the key's lane (one read per lane at a time);
+  the usage tool's `refresh_permitted` already holds that permit and calls the inner reader with
+  the key id (`openrouter::id_of_lane`).
+- **Startup:** the 3.x import refreshes the providers' OpenRouter tiers itself, so a carried
+  favorite is hireable before the first provider discovery finishes.
 
 ## Limits (inferred, not measured)
 
