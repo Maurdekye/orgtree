@@ -182,8 +182,8 @@ The new proof pauses BEFORE INSERT on agents/events before the FK check, starts
 a competing real approval/direct route, records its lock wait, and probes actual
 org FK insertion under the held route lock (KEY SHARE NOWAIT makes the old failure
 bounded). Release then requires both routes to settle with folder/operation intact.
-The restored-seat schedule seeds the ask's agent binding solely in disposable
-state before staffing takes locks; retired seats cannot pose a real new request.
+The restored-seat schedule targets the live parent's real pending ask: rehire
+already holds that ancestor through its scope chain at the event barrier.
 Two ordinary rename writers must reach a barrier concurrently, demonstrating
 that separate-node work did not gain an org mutex. Shared-ancestor retool operations
 retain their existing node serialization and are not suitable for that control.

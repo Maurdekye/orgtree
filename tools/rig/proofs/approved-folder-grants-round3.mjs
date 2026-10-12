@@ -57,9 +57,6 @@ export default async function (rig) {
       const ask = await rig.tool('boss', 'orgtree_request_scope', { items: [{ kind: 'dir', path: dir, mode: 'rw' }], reason: 'FK schedule' })
       if (!ask.ok) throw new Error(ask.text)
       row = rig.one(`SELECT rev,body FROM ot.asks WHERE agent_id=${rig.agentRow('boss').id} AND status='open' ORDER BY id DESC LIMIT 1`)
-      // A restored seat is archived before the operation. Bind this synthetic
-      // pending ask before its row is locked; the approval route stays real.
-      if (s.op === 'rehire') rig.exec(`UPDATE ot.asks SET agent_id=${rig.agentRow(name).id} WHERE agent_id=${rig.agentRow('boss').id} AND status='open'`)
     }
     const table = s.op === 'hire' ? 'agents' : 'events'
     const predicate = table === 'agents' ? `NEW.name=${q(name)}`
@@ -77,7 +74,9 @@ export default async function (rig) {
       writer = capture(() => s.actor === 'user' ? rig.op({ op: s.op, ...req }) : rig.tool('boss', `orgtree_${s.op}`, req))
       const paused = await rig.waitFor(() => rig.one(`SELECT pid FROM pg_locks WHERE locktype='advisory' AND objid=${key} AND NOT granted`),
         { timeout: 15000, every: 100, what: `${label} before FK barrier` })
-      const target = s.op === 'hire' ? 'boss' : name
+      // Rehire holds the ancestor through its ordinary scope chain; target
+      // the live parent rather than an archived seat's uncommitted restore.
+      const target = s.op === 'retool' ? name : 'boss'
       edit = capture(() => row ? rig.api('POST', `/api/orgs/${rig.org}/nodes/${target}/batch`,
         { revs: { scope: row.rev }, scope: row.body.items.map(() => 'approve') })
         : rig.api('POST', `/api/orgs/${rig.org}/nodes/${target}/scope`, { add_dirs: [...(s.op === 'hire' ? raw().add_dirs : []), { path: dir, mode: 'rw' }] }))
