@@ -23,7 +23,7 @@ Only actual user-authorized positive folder intent enters the org:
 
 Org-folder settings/revocation, user scope/approval, user retool/rehire and
 user/agent hire/rehire with a nonempty audience list take the org row before
-agent rows. This is an org-local transaction lock,
+agent rows with `FOR NO KEY UPDATE`. This is an org-local transaction lock,
 not a global runtime lock. A failed transaction publishes no effects. After
 commit, org-folder expansion publishes the org change and refreshes live
 agents across the org, since retained scope on other branches may become
@@ -141,3 +141,49 @@ ordinary-agent denial, skipped/denied items, unrelated latent scope,
 revocation, separate-org isolation, fake-CLI refresh and answer-mail rollback.
 The older 8/8 scope-request result remains a prior R1 checkpoint.
 No full suite, real provider turn or UI acceptance is implied.
+
+## Foreign-key compatibility correction
+
+Independent R2 found the original FOR UPDATE admission overlooked implicit
+org KEY SHARE acquired by agent/event INSERT foreign-key checks. No/empty
+audience hire and ordinary tree operations could hold a node, then wait on
+that org FK while a folder route held the org and waited on the node.
+
+Folder scope, batch approval, settings, user retool/rehire and audience grant
+now use FOR NO KEY UPDATE for their org lock. They do not change the referenced
+org id/uuid. The corresponding UPDATE statements change only settings,
+row_version or net. No later upgrade to FOR UPDATE remains in these compositions.
+That mode conflicts with another settings writer, with normal non-key UPDATE,
+and with retained explicit FOR UPDATE isolation guards; it is compatible with
+implicit org KEY SHARE. Thus the settings union/read-modify-write remains
+serialized while an ordinary tree writer can finish its FK check. Ordinary
+ops do not gain an early org lock or a broader permission.
+
+The lock mode and FK behavior are documented by [PostgreSQL18 row locks](https://www.postgresql.org/docs/18/explicit-locking.html#LOCKING-ROWS)
+and the [PostgreSQL18 referential-integrity implementation](https://github.com/postgres/postgres/blob/REL_18_STABLE/src/backend/utils/adt/ri_triggers.c).
+The schema audit covers every org reference in 0001_init and 0019_net_transfers:
+the relevant agent/event/mail/audience/request/docket/watchdog and transfer rows
+reference the stable org id. No migration drops these immediate constraints.
+No source path changes the referenced id/uuid; deleted-org lifecycle is separate.
+
+Explicit org-lock audit: the affected direct/batch/settings/ops/audience paths
+all take the above mode consistently. Org-inbox admission/holder selection,
+net failure notices, external-unroutable notices and profile revision serialization
+retain their original FOR UPDATE locks. These still conflict with the new mode,
+so inbox disable/admission and profile edit serialization are not relaxed.
+Network state and org lifecycle updates retain their existing behavior. Account
+removal's late org FOR UPDATE after agent mutations is unchanged; this correction
+does not certify its pre-existing cross-subsystem lock ordering. An attempted
+universal early KEY SHARE admission was abandoned because it would add a conflict
+with that separate account/agent ordering. Its intermediate commit is superseded;
+the final engine diff adds no lock to ordinary tree operations.
+
+The new proof pauses BEFORE INSERT on agents/events before the FK check, starts
+a competing real approval/direct route, records its lock wait, and probes actual
+org FK insertion under the held route lock (KEY SHARE NOWAIT makes the old failure
+bounded). Release then requires both routes to settle with folder/operation intact.
+The restored-seat schedule seeds the ask's agent binding solely in disposable
+state before staffing takes locks; retired seats cannot pose a real new request.
+Two ordinary rename writers must reach a barrier concurrently, demonstrating
+that separate-node work did not gain an org mutex. Shared-ancestor retool operations
+retain their existing node serialization and are not suitable for that control.

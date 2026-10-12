@@ -37,7 +37,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   equivalent duplicate paths aggregate RO/RW intent without rewriting history.
   Requests carry only explicit approved items. Org-before-agent row locks
   cover settings/revocation, user retool/rehire and either actor's staffing
-  with audiences. Publish refresh only
+  with audiences. These non-key mutations use FOR NO KEY UPDATE so implicit
+  org FK KEY SHARE on ordinary agent/event inserts stays compatible, without
+  adding an org mutex to ordinary tree operations. Publish refresh only
   after commit; never replay old approvals or create directories. See
   [scope intent and proof limits](docs/rust-engine/approved-folder-grants.md).
   [verified: `domain/asks.rs`, `domain/scope.rs`, `domain/ops.rs`, `http/nodes.rs`, 2026-10-12]
