@@ -102,11 +102,11 @@ export default async function (rig) {
   const key = 88429
   const ids = ['child', 'parallel'].map(n => rig.agentRow(n).id)
   rig.exec(`CREATE FUNCTION ot.fk_staff_barrier() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-    IF NEW.org_id=${oid} AND NEW.op='retool' AND NEW.subject_agent_id IN (${ids.join(',')}) THEN PERFORM pg_advisory_xact_lock(${key}); END IF;
+    IF NEW.org_id=${oid} AND NEW.op='rename' AND NEW.subject_agent_id IN (${ids.join(',')}) THEN PERFORM pg_advisory_xact_lock(${key}); END IF;
     RETURN NEW; END $$;
     CREATE TRIGGER fk_staff_barrier BEFORE INSERT ON ot.events FOR EACH ROW EXECUTE FUNCTION ot.fk_staff_barrier()`)
   const release = await barrier(key)
-  const parallel = ['child', 'parallel'].map(node => capture(() => rig.tool('boss', 'orgtree_retool', { node, effort: 'high' })))
+  const parallel = ['child', 'parallel'].map(node => capture(() => rig.tool('boss', 'orgtree_rename', { node, name: `${node}renamed` })))
   try {
     const paused = await rig.waitFor(() => {
       const rows = rig.sql(`SELECT pid FROM pg_locks WHERE locktype='advisory' AND objid=${key} AND NOT granted`)
