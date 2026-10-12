@@ -37,8 +37,12 @@ export default async function(rig) {
   p.check('ordinary non-upload body logging remains',log.includes(safe))
   p.file('request-interval.log',log)
 
-  // Let the unchanged production sweep and failure dispatcher settle legacy
-  // interrupted/expired rows, with one draft notice and completed custody control.
+  // Safe-start rigs do not start the transfer scheduler automatically. Its
+  // existing offline worker adapter starts the actual sweep/dispatcher. There
+  // are no transport jobs and the synthetic loopback address is never used.
+  await rig.api('POST','/api/rig/hub-mail',{org:rig.org,op:'transfer',action:'workers',address:'http://127.0.0.1:1'})
+  // Settle legacy interrupted/expired rows, with one draft notice and a
+  // completed custody control, through those unchanged production functions.
   const org = rig.one(`SELECT id FROM ot.orgs WHERE slug='${rig.org}'`).id
   const quote = value => "'"+String(value).replaceAll("'","''")+"'"
   const complete = retainedInboxUpload(rig,rig.org,'completed.txt','COMPLETED_LEGACY_BYTES')
