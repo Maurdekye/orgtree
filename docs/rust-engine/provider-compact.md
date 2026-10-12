@@ -36,8 +36,12 @@ and the machine-wide build slot. Build outputs belong in the assigned C root;
 renderer profiles, screenshots and evidence stay in the agent's D evidence root.
 
 The baseline at 7f5ad2e measured 2058px wide / 2584px narrow content height in both
-themes. All 31 controls were reachable, and tab scroll width equaled client width.
-Baseline dark wide and light narrow screenshots were inspected. Corrected rendered
-measurements and focused behavioral checks are pending at this commit; source
-typecheck passes with explicit shared-dependency resolution. No installed app,
-live settings, provider inference, packaging or publication was tested.
+themes. The corrected render at 62eb7c7 measured 1274px / 1783px, reductions of
+38.1% / 31.0%. All 31 controls were reachable in each of the four cases, tab scroll
+width equaled client width, and the corrected controls' label/button/link hit areas
+were at least 28px high. Baseline dark wide and light narrow screenshots and
+corrected wide/narrow screenshots in both themes were inspected, including narrow
+server rows. Source typecheck passes with explicit shared-dependency resolution.
+Focused behavioral checks and composition with the later checked OpenRouter/Muse
+rows remain pending. No installed app, live settings, provider inference, packaging
+or publication was tested.
