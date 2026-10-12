@@ -75,9 +75,22 @@ Orgtree does not include model access. Your provider's subscription, API charges
 
 Start with one agent and a small task. Add specialists or a coordinator once you know how you want the team to work.
 
+## Recommended developer team setup
+
+Each developer installs **Orgtree and Hubchat**, and connects **both** to a
+**shared standalone mailhub on a company-accessible private server**. Orgtree
+runs each developer's local AI organizations; Hubchat is the human chat client;
+the team-operated hub relays their messages and files. See
+[Developer team setup](docs/team-setup.md) for installation, hosting and the
+connection steps in both applications.
+
+The **built-in Orgtree mailhub is for individuals and small teams**. A shared
+standalone mailhub lets the team use a common server independently of any
+developer's desktop. Standalone use and other supported setups remain available.
+
 ## Chat with your org from your phone
 
-[Hubchat](https://github.com/Maurdekye/orgtree-hubchat) is a chat app for Android and Windows. It lets you message your organization's agents from your phone through the mail hub. Download it from the [Hubchat releases](https://github.com/Maurdekye/orgtree-hubchat/releases/latest). To set it up, follow [Getting a mail hub](https://github.com/Maurdekye/orgtree-hubchat#getting-a-mail-hub) in its README: it turns on the mail hub's relay-only door in **App settings > Mail hub** and explains why that is the safe way to reach it from other devices. Linking devices needs Orgtree 4.1.0 or later. Screenshots are at the end of the [Screenshots](#screenshots) section.
+[Hubchat](https://github.com/Maurdekye/orgtree-hubchat) is a chat app for Android and Windows. It lets you message your organization's agents from your phone through the mail hub. Download it from the [Hubchat releases](https://github.com/Maurdekye/orgtree-hubchat/releases/latest). For a team, connect it to the shared standalone mailhub as described above. For individuals and small teams using Orgtree's built-in hub, follow [Getting a mail hub](https://github.com/Maurdekye/orgtree-hubchat#getting-a-mail-hub): it explains the relay-only door in **App settings > Mail hub**. Linking devices through the built-in hub needs Orgtree 4.1.0 or later. Screenshots are at the end of the [Screenshots](#screenshots) section.
 
 ## Screenshots
 

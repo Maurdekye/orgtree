@@ -1,5 +1,11 @@
 # Hosting mail hub v2 in Orgtree 4.0.2
 
+For current deployment guidance, see [Developer team setup](../team-setup.md):
+each developer installs Orgtree and Hubchat and connects both to a shared
+standalone mailhub on a company-accessible private server. The built-in Orgtree
+mailhub described here is for individuals and small teams. This document records
+the historical embedding design, rather than the team hosting instructions.
+
 Status: BUILT on branch `mailhub-opus/4.0.2-hub-v2` (mail hub v2.0.0 Phase 2,
 slice 8; docket item `mail-hub-v2-0-rewrite-in-rust-with-postgres-stor`). The
 proposal below was approved as written on 2026-10-08 (coordinator, 16:17Z);

@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Developer team deployment, user 2026-10-12 10:11–10:13Z:** each developer
+installs Orgtree and Hubchat, and both connect to a shared standalone mailhub on
+a company-accessible private server. The built-in Orgtree mailhub is for
+individuals and small teams. This changes the documentation recommendation,
+not runtime defaults; no numerical cutoff or mandatory migration. See
+[`../team-setup.md`](../team-setup.md).
+
 **Agent ordering, user 2026-10-11 23:14–23:15Z** (mb137ddaf7c1d,
 m848012229292, relayed by lead-astra): allow agents to reorder descendants and
 choose hire placement. Hiring by agents requires explicit values; placement

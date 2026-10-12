@@ -1,5 +1,14 @@
 # First-run setup and charter documents
 
+## Developer teams
+
+The recommended developer team setup is for each developer to install both
+Orgtree and Hubchat, with both connected to a shared standalone mailhub on a
+company-accessible private server. The built-in Orgtree mailhub is for
+individuals and small teams. Follow [Developer team setup](team-setup.md) after
+creating the local organizations; joining the team hub is configured per
+organization, separately from the first-run card below.
+
 ## Onboarding
 
 A fresh installation opens a one-card setup on the welcome screen: pick the
