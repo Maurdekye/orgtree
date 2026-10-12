@@ -560,7 +560,12 @@ pub fn run(raw: &[String]) -> i32 {
     srv.log("start", json!({ "args": raw, "cwd": cwd, "codex_home": home, "codex_home_set": std::env::var("CODEX_HOME").is_ok(),
                              // like the real app-server, the cwd's AGENTS.md is read once, at process start
                              "agents_md": std::fs::read_to_string(cwd.join("AGENTS.md")).ok(),
-                             "api_key_set": std::env::var("OPENAI_API_KEY").is_ok(), "org": std::env::var("ORGTREE_ORG").ok() }));
+                             "api_key_set": std::env::var("OPENAI_API_KEY").is_ok(), "org": std::env::var("ORGTREE_ORG").ok(),
+                             // a gateway seat's key: only its last 6 characters (rig keys are fake)
+                             "gateway_key_tail": std::env::var("ORGTREE_OPENROUTER_KEY").ok().map(|t| {
+                                 let c: Vec<char> = t.chars().collect();
+                                 c[c.len().saturating_sub(6)..].iter().collect::<String>()
+                             }) }));
     let (tx, rx) = mpsc::channel();
     {
         let srv = srv.clone();
