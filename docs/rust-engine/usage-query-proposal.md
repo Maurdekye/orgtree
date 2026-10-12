@@ -155,22 +155,52 @@ cache keys, and `usage::openrouter_key_usage(engine,id,force)`. Original registr
 themselves. The original reader retains its signature. Both branches must be
 composed with the shared reservation before a multi-key tool claim is verified.
 
-Measured first check: cargo check --locked -j2 -p orgtree-engine --bin
-orgtree-engine passed in 5m01s at source 8ffda24, using the approved C target.
-Evidence: D:\orgtree-work\evidence\usage-query-sol\cargo-check-20261011.log.
-Focused cargo test --locked -j2 -p orgtree-engine --bin orgtree-engine usage::
-passed 11 tests, zero failed, 83 filtered, in 3m49s at committed7259d30.
-Evidence: D:\orgtree-work\evidence\usage-query-sol\cargo-test-20261011.log.
-Subsequent rebase onto rust-engine4fa41d4 and6da8b55's global provider-switch
-composition need final build verification. Rust parsing/formatting of new helper
-files, Node proof syntax and git diff --check passed. Changed-path rig execution
-has not run; queued behind earlier builders. The proof checks safe tool output;
-it does not yet establish log secrecy. Existing raw reader logging is a separate
-verification concern. No live provider behavior is measured.
+## Measured standalone verification (2026-10-11)
 
-Global provider availability composes the existing settings.provider_enabled
-switch with each account/server enabled flag, matching the canonical org-lanes
-contract. Org allowlists filter visibility separately. Neither org permission
-nor a cached reading activates globally inactive accounts or servers. Synthetic
-proof now includes global provider-off, individual server-off and org server
-exclusion; these cases are prepared but unrun.
+- First cargo check --locked -j2 -p orgtree-engine --bin orgtree-engine passed
+  in 5m01s at source8ffda24, using the approved C target.
+- Focused cargo test --locked -j2 -p orgtree-engine --bin orgtree-engine usage::
+  passed 11 tests, zero failed, 83 filtered, in 3m49s at committed7259d30.
+- Rebased onto rust-engine4fa41d4; engine/source6da8b55 composes existing
+  settings.provider_enabled with each account/server flag, matching the
+  canonical global-active contract. Org allowlists separately filter visibility.
+- Locked -j2 standalone builds atb5ae453 passed: engine1m35s, fake CLI12.47s.
+  No installer or app build. Free RAM started5.6GiB and briefly fell to2.48GiB
+  during engine compilation; it completed before the scoped stop check, no
+  process was killed. Free RAM recovered5.5GiB; owned build artifacts2.708GiB.
+- Engine SHA256 A6515455D69E095CC71111D7D7C021E9B661DB60045F2DE3BA41B5C1D8801F89;
+  fake CLI SHA256 A1696BFD0E8E8D386B831EB57861F97EAF978182CDE7893CFA5939D296357269.
+- Scratch changed-path proof at01c4ae7 passed all29 checks against that binary.
+  It verifies cached reads do not probe/write history; dated stale windows;
+  safe response fields; exact filters/pages; inherited live permission denial;
+  org/origin scope; one concurrent fresh read, manual floor and no inference
+  turn; absent/error local metering versus zero; globally inactive providers,
+  registered accounts and individual servers remain inspectable/refuse refresh;
+  unsupported local-server quota and org server exclusion. The first rig pass
+  found proof defects (read-only SQL helper and unsettled boot polling); these
+  were fixed in proof-only01c4ae7 before the passing run. No engine rebuild was
+  needed. No live provider behavior is measured.
+- Supported rig finally stopped every process. Independent process inspection
+  found no owned rig processes remaining. Source diff/Node syntax checks pass.
+
+Logs under D:\orgtree-work\evidence\usage-query-sol:
+cargo-check-20261011.log, cargo-test-20261011.log,
+cargo-build-engine-20261011.log, cargo-build-fakecli-20261011.log,
+rig-usage-query-20261012-pass2.log. Structured29-check evidence:
+D:\orgtree-work\rig\usage-query-sol\evidence\usage-query-20261011T235847\result.json.
+
+## Remaining dependency and limits
+
+Lead-astra mf99e653ce9f3 directs the multi-OpenRouter owner to remain paused on
+its original provider until its weekly capacity resets; no transfer of unfinished
+implementation/rig/integration work to this seat. The standalone tool source
+uses only the current integrated original lane. After the original owner finishes
+and lead sends checked integration notice, compose its private per-key reader
+with the shared reservation and verify this tool's lane-specific behavior.
+Do not claim multi-key support from this standalone proof.
+
+The proof checks response secrecy, not all existing raw reader logs. No new
+credentials are serialized in the tool response; existing reader logging is an
+explicit verification limit. Real provider timeout/auth behavior and UI/app
+packaging were not exercised. Multi-key composition is the remaining source
+requirement before this ticket is complete.
