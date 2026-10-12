@@ -201,7 +201,7 @@ passes 11/11 against SHA256
 Fresh corrected preservation receipts: audience/intent 18/18 at
 `approved-folder-grants-round2-20261012T214908`, original approval/rollback
 24/24 at `approved-folder-grants-20261012T214932`, and settings/isolation
-34/34 at `org-inbox-isolation-20261012T214952`. All eight sampled isolation
+32/32 at `org-inbox-isolation-20261012T214952`. All eight sampled isolation
 race directions observed disable winning; no accept-first race is established.
 All these are disposable engine-local fixtures, each under1536MB/300s Job.
 Their result JSON/logs remain under the previously named author D evidence root.
