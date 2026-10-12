@@ -1,0 +1,1 @@
+{"org":{"name":"Ordering alias probe"},"agents":[{"name":"origin","tier":"haiku","grant":10},{"name":"x","parent":"origin","tier":"haiku"},{"name":"dest","tier":"haiku","grant":10},{"name":"a","parent":"dest","tier":"haiku"},{"name":"b","parent":"dest","tier":"haiku"}]}

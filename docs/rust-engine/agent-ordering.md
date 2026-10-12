@@ -48,6 +48,15 @@ post-hire reorder. Midpoint ordering normally updates only the placed seat;
 equal or exhausted floating-point gaps normalize that live sibling set in
 the same transaction, preserving its order and publishing every changed row.
 
+Promote and Demote are existing Move aliases. Dispatch and isolation policy
+share one `canonical_op` helper, so both aliases participate in Move's
+serializable transaction without changing request/retry labels or existing
+move authorization and audit meaning. Initial independent review reproduced
+nonserial results for both aliases while Move retried correctly. The controlled
+`ordering-alias-race.mjs` proof pauses each operation after its destination
+order read, executes an agent reorder, then verifies conflict/retry and final
+order. The alias correction awaits a newly compiled verification receipt.
+
 The agent tool definitions and identity instructions change the cached prompt
 prefix once when adopted. This feature does not change account routing or
 the restricted parent-hire backlog work.

@@ -34,6 +34,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   anchor from that count. Inspection exposes live sibling indices and child
   counts. Hire/reorder position decisions are serializable with bounded retry;
   exhausted midpoint gaps normalize only that live sibling set atomically.
+  Promote/Demote aliases share Move's canonical dispatch and isolation policy;
+  raw request/retry labels and existing move audit meaning are retained.
   [decided: user 2026-10-11 23:15Z; verified from source: `domain/ops.rs`,
   `domain/ops/ordering.rs`, `tools/defs.rs`; scope/proof: `docs/rust-engine/agent-ordering.md`]
 

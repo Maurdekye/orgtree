@@ -468,6 +468,15 @@ fn retryable(e: &anyhow::Error) -> bool {
     })
 }
 
+/// Dispatch and transaction policy share aliases; request/audit labels stay intact.
+#[nolog]
+fn canonical_op(op: &str) -> &str {
+    match op {
+        "promote" | "demote" => "move",
+        _ => op,
+    }
+}
+
 #[logged]
 async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op: &str, req: &Value, fx: &mut Effects) -> Result<Value> {
     let mut client = engine.db.get().await?;
@@ -475,7 +484,7 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op
     // protects empty/root sets. Membership/order writers participate too,
     // so a move/restore/archive cannot escape the placement snapshot.
     // run retries 40001; no global topology lock is introduced.
-    let isolation = if matches!(_op, "hire" | "reorder" | "rehire" | "move" | "moves"
+    let isolation = if matches!(canonical_op(_op), "hire" | "reorder" | "rehire" | "move" | "moves"
         | "swap" | "self_subjugate" | "retire" | "dissolve" | "rescind" | "delete") {
         tokio_postgres::IsolationLevel::Serializable
     } else { tokio_postgres::IsolationLevel::ReadCommitted };
@@ -490,14 +499,14 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op
 pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
                             req: &Value, fx: &mut Effects) -> Result<Value> {
     let op = req["op"].as_str().unwrap_or("");
-    let mut out = match op {
+    let mut out = match canonical_op(op) {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
         "rehire" => rehire(engine, org, &tx, actor, req, fx).await?,
         "retire" => retire(org, &tx, actor, req, fx, false).await?,
         "rescind" => retire(org, &tx, actor, req, fx, true).await?,
         "dissolve" => dissolve(org, &tx, actor, req, fx).await?,
         "delete" => delete(org, &tx, actor, req, fx).await?,
-        "move" | "promote" | "demote" => move_node(engine, org, &tx, actor, req, fx).await?,
+        "move" => move_node(engine, org, &tx, actor, req, fx).await?,
         "rename" => rename(org, &tx, actor, req, fx, false).await?,
         "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
         "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
