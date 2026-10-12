@@ -5,6 +5,17 @@ export default async function (rig) {
   const p = new Proof('agent-ordering')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
     { what: 'seed turns settle', timeout: 60000 })
+  await rig.userMail('boss', 'Ordering proof: answer OK only.')
+  await rig.waitTurns('boss', 1)
+  const servedLists = () => rig.fakeLog('boss').filter(l => l.kind === 'recv')
+    .map(l => l.line?.response?.response?.mcp_response?.result?.tools).filter(Array.isArray)
+  const served = servedLists().at(-1) ?? []
+  const schema = name => served.find(t => t.name === name)?.inputSchema
+  p.check('MCP advertises reorder with required nonnegative node/index arguments', schema('orgtree_reorder')?.required?.includes('node')
+    && schema('orgtree_reorder')?.required?.includes('index') && schema('orgtree_reorder')?.properties?.index?.minimum === 0)
+  p.check('MCP advertises required hire index and conditional staff new-hire index', schema('orgtree_hire')?.required?.includes('index')
+    && schema('orgtree_staff')?.allOf?.[0]?.then?.required?.includes('index'))
+  p.file('ordering-schemas.json', Object.fromEntries(['orgtree_hire', 'orgtree_staff', 'orgtree_reorder'].map(n => [n, schema(n)])))
   const orgId = rig.one(`SELECT id FROM ot.orgs WHERE slug='${rig.org}'`).id
   const sibs = parent => rig.sql(`SELECT name FROM ot.agents WHERE org_id=${orgId} AND state='live'
     AND parent_id IS NOT DISTINCT FROM ${parent ? `(SELECT id FROM ot.agents WHERE org_id=${orgId} AND name='${parent}')` : 'NULL'}
@@ -156,6 +167,9 @@ export default async function (rig) {
   await rig.api('POST', `/api/orgs/${rig.org}/nodes/boss/scope`, { tools: { orgtree: { team: false } } })
   r = await reorder('boss', 'alice', 0)
   p.check('reorder obeys team tool-group denial', !r.ok && /tool|scope|grant|available/.test(r.text ?? ''), r.text)
+  await rig.userMail('boss', 'Ordering proof: answer OK only with team tools disabled.')
+  await rig.waitTurns('boss', 2)
+  p.check('MCP removes reorder when team tools are disabled', !servedLists().at(-1)?.some(t => t.name === 'orgtree_reorder'))
   p.keep(rig, { grep: /ordering|reorder|serializ|conflicted/ })
   return p.summary()
 }
