@@ -84,7 +84,15 @@ export default async function (rig) {
       const wait = await rig.waitFor(() => rig.one(`SELECT pid,query,wait_event,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity
         WHERE ${paused.pid}=ANY(pg_blocking_pids(pid)) AND wait_event='transactionid'`),
         { timeout: 15000, every: 100, what: `${label} competing real route` })
-      p.check(`${label}: org admission precedes node waiting`, /FROM ot\.orgs\b/i.test(wait.query), wait)
+      // Exercise an actual schema FK while the real route holds its org lock.
+      // NOWAIT checks its mode first, so the fixture never hangs on old code.
+      let compatible
+      try {
+        rig.exec(`BEGIN; SELECT id FROM ot.orgs WHERE id=${oid} FOR KEY SHARE NOWAIT;
+          INSERT INTO ot.events(org_id,op,actor,detail) VALUES(${oid},'fk_compatibility','@system','{}'); COMMIT`)
+        compatible = { ok: true }
+      } catch (e) { compatible = { ok: false, text: e.message } }
+      p.check(`${label}: held org mutation lock permits implicit FK key-share`, compatible.ok, { wait, compatible })
     } finally {
       await release()
       const results = await Promise.all([writer, edit].filter(Boolean))

@@ -506,13 +506,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
     let staffing_audiences = matches!(canonical_op(op), "hire" | "rehire")
         && req.get("audiences").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
     if user_scope || staffing_audiences {
-        tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org.id]).await?;
-    } else {
-        // Agent/event/mail INSERTs check their org FK with KEY SHARE. Acquire
-        // that compatible lifetime pin before node locks, even for staffing
-        // without audiences and ordinary event-producing tree operations.
-        // Ordinary operations share this row lock; no exclusive org mutex.
-        tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR KEY SHARE", &[&org.id]).await?;
+        tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?;
     }
     let mut out = match canonical_op(op) {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
@@ -2178,7 +2172,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         }
         // A user grant reaching the top level enters the org's defaults too.
         if matches!(actor, Actor::User) {
-            let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org.id]).await?.get(0);
+            let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?.get(0);
             let base = json!({"add_dirs":settings["dirs"],"tools":settings["default_tools"],"org_visibility":settings["default_visibility"],"permission_mode":settings["permission_mode"]});
             let raised = scope::raise(&base,&granted);
             let mut next = stored;

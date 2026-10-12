@@ -269,7 +269,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
         Actor::User => USER.to_string(),
         Actor::Agent { name, .. } => name.clone(),
     };
-    let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org.id]).await?.get(0);
+    let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR NO KEY UPDATE", &[&org.id]).await?.get(0);
     if grantor == EXTERN { super::orginbox::check(&raw)?; }
     let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
     let fresh = client.query_opt("SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL AND NOT paused LIMIT 1",

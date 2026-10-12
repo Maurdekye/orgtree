@@ -290,7 +290,9 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     } else { None };
     let mut conn = e.db.get().await?;
     let client = conn.transaction().await?;
-    let old: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&o.id]).await?.get(0);
+    // No referenced org key is changed. Keep settings writers exclusive to
+    // each other while allowing FK KEY SHARE from ordinary node operations.
+    let old: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR NO KEY UPDATE", &[&o.id]).await?.get(0);
     if let Some(acc) = patch.remove("auto_cheap_compact") {
         // 3.x: a partial write keeps the other current value; occ stays within 5–95%
         let current = effective_settings(&old, &e.settings.defaults())["auto_cheap_compact"].clone();

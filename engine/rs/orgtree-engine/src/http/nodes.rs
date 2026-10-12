@@ -464,7 +464,9 @@ pub(crate) async fn apply_user_scope_in_tx(
 ) -> anyhow::Result<ScopeEffects> {
     // Same order as org-folder settings/revocation: org before agent rows.
     // Approval acquires this before opening its card or changing credits too.
-    let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org.id]).await?.get(0);
+    // Settings are non-key columns. Serialize their writers without blocking
+    // org FK KEY SHARE checks from node/event writers holding agent rows.
+    let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR NO KEY UPDATE", &[&org.id]).await?.get(0);
     let a = {
         let r = tx
             .query_opt(

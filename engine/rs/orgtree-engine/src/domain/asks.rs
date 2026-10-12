@@ -1132,7 +1132,7 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     let tx = client.transaction().await?;
     // Org defaults may absorb approved folders. Lock before card/agent rows,
     // including any credit grant, consistently with direct scope/settings.
-    tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org.id]).await?;
+    tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?;
     let open = open_by(&tx, org.id, None, Some(agent)).await?;
     validate_batch(&open, body)?;
     let mut fx = DecisionEffects::default();
