@@ -30,7 +30,7 @@ test('explicit launch asks native guard to release old generation',async()=>{
   assert.deepEqual(Array.from(f.calls[0].args),['core-control','begin','rig-root'])
   assert.equal(f.calls[0].options.windowsHide,true)
 })
-test('native death evidence stops without sending another registration',async()=>{
+test('explicit stopped journal ends desktop without another registration',async()=>{
   const f=fixture({native:{stopped:true}});await f.core.tick()
   assert.equal(f.stopped(),1);assert.equal(f.calls.length,1)
 })
