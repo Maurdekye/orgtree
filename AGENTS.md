@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- Language servers setup is documented in [README](README.md#language-servers).
+  Presence comes from explicitly saved servers and offered models; harness
+  choices detect installed Claude Code/Codex CLIs. Keep app/server enablement,
+  org access and model offerings distinct, and match the server's real context
+  window. Muse setup documentation waits for checked integration details.
+  [verified from source: `langserver.rs`, `providers/mod.rs`, renderer
+  `canvas/langserver.tsx`, `orgaccounts.tsx`, 2026-10-12;
+  decided: user via coordinator 2026-10-12 22:03Z]
+
 - Recommend each developer installs Orgtree and Hubchat, both connected to a shared standalone mailhub on a company-accessible private server. The built-in Orgtree mailhub is for individuals and small teams. This is deployment guidance, not a size cutoff, migration or runtime default change. Keep person and organization identities separate; human hub mail uses Hubchat. See [team setup](docs/team-setup.md). [decided: user 2026-10-12 10:11–10:13Z]
 
 - Human hub mail is composed in Hubchat. The Orgtree org-inbox window is a viewer: no compose/reply/upload controls or dedicated send/staging HTTP routes. Retired staging file bodies stay omitted before authentication/404; legacy cleanup notices describe the upload failure and point to Hubchat, without asserting message admission. Keep agent mail, retained history/quotes/files, transfer custody and partial-upload cleanup. See [viewer contract](docs/rust-engine/org-inbox-viewer.md). [decided: user 2026-10-12 08:41Z; verified: 2026-10-12 `canvas/mail.tsx`, `http/orginbox.rs`, `http/mod.rs`, `net/failures.rs`]
