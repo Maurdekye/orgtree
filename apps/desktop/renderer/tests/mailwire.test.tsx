@@ -676,8 +676,12 @@ uiTest('disabled org inbox disappears with its audience edges and returns withou
   const edges = el.querySelectorAll('.edge.aud-line').length
   assert.ok(edges > 0, 'fixture includes a visible holder edge')
   const contents = JSON.stringify(saved.org_inbox)
+  await inAct(async () => { (el.querySelector('.sq.orginbox') as HTMLElement).click(); await flush() })
+  const openHeading = () => [...document.querySelectorAll('h3')].find(n => n.textContent?.includes('The org inbox'))
+  assert.ok(openHeading(), 'fixture opens the actual inbox panel')
   await inAct(async () => { enable(false); await flush() })
   assert.equal(el.querySelector('.sq.orginbox'), null)
+  assert.equal(openHeading(), undefined, 'already-open history is removed too')
   assert.equal(el.querySelectorAll('.edge.aud-line').length, 0, 'no dangling holder wire')
   await inAct(async () => { enable(true); await flush() })
   assert.ok(el.querySelector('.sq.orginbox'), 're-enable restores the node')
