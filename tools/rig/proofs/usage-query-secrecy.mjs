@@ -114,4 +114,3 @@ export default async function (rig) {
   if (!result.passed) throw Error(JSON.stringify(result))
   return result
 }
-
