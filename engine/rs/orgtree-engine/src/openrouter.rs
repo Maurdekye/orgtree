@@ -198,6 +198,7 @@ fn clean_label(label: Option<&str>) -> Result<Option<String>> {
 /// The key row already holding this secret, other than `except`. Not
 /// logged: it takes the key.
 async fn holder_of(client: &impl tokio_postgres::GenericClient, key: &str, except: Option<&str>) -> Result<Option<String>> {
+    use tokio_postgres::GenericClient as _;
     Ok(client
         .query_opt(
             "SELECT a.id FROM ot.account_secrets s JOIN ot.accounts a ON a.id = s.account_id
@@ -211,7 +212,8 @@ async fn holder_of(client: &impl tokio_postgres::GenericClient, key: &str, excep
 /// Inside a key write's transaction: lock every OpenRouter key row (in id
 /// order, a handful at most) so concurrent writes of the same secret are
 /// serialized, then refuse a secret another row already holds. The check
-/// sees every write committed before the lock was granted.
+/// sees every write committed before the lock was granted. Not logged: it
+/// takes the key.
 async fn admit_secret(tx: &tokio_postgres::Transaction<'_>, key: &str, except: Option<&str>) -> Result<()> {
     tx.query("SELECT id FROM ot.accounts WHERE provider = 'openrouter' ORDER BY id LIMIT 1000 FOR UPDATE", &[]).await?;
     if let Some(other) = holder_of(tx, key, except).await? {
@@ -222,6 +224,7 @@ async fn admit_secret(tx: &tokio_postgres::Transaction<'_>, key: &str, except: O
 
 /// Replace a key row's stored secret, counting the replacement (a new
 /// secret only) so a warm CLI and a usage read started on the old one know.
+/// Not logged: it takes the key.
 async fn store_secret(tx: &tokio_postgres::Transaction<'_>, id: &str, key: &str) -> Result<()> {
     tx.execute(
         "UPDATE ot.accounts SET extra = jsonb_set(extra, '{credential_gen}', to_jsonb(coalesce((extra->>'credential_gen')::bigint, 0) + 1))
@@ -276,21 +279,22 @@ pub async fn add_key(engine: &Engine, key: &str, label: Option<&str>) -> Result<
         format!("openrouter-{n}")
     };
     let row_label = if original && label.is_empty() { "OpenRouter".to_string() } else { label };
-    tx.execute(
+    let inserted = tx.execute(
         "INSERT INTO ot.accounts (id, provider, kind, label, auth, enabled, ord)
          VALUES ($1, 'openrouter', 'apikey', $2, 'unobserved', true,
                  (SELECT coalesce(max(ord), 0) + 1 FROM ot.accounts WHERE provider = 'openrouter'))",
         &[&id, &row_label],
     )
-    .await?;
-    tx.execute("INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2)", &[&id, &key]).await?;
-    if let Err(e) = tx.commit().await {
+    .await;
+    if let Err(e) = inserted {
         // two first keys at once: there were no rows to lock yet
         if e.code() == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION) {
             crate::refuse!(Conflict, "another OpenRouter key was added at the same moment; add this one again");
         }
         return Err(e.into());
     }
+    tx.execute("INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2)", &[&id, &key]).await?;
+    tx.commit().await?;
     drop(client);
     keys_changed(engine).await?;
     Ok(id)
