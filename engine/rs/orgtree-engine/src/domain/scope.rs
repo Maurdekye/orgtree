@@ -281,9 +281,34 @@ pub fn raise(current: &Value, wanted: &Value) -> Value {
     out
 }
 
+/// Positive intent in a whole-list user edit. Unchanged dormant folders and
+/// removals/downgrades are not new authorization to expand the org ceiling.
+#[logged]
+pub fn folder_additions(before: &Value, after: &Value) -> Vec<Value> {
+    let old = before.as_array().map(Vec::as_slice).unwrap_or_default();
+    after.as_array().into_iter().flatten().filter(|d| {
+        let key = norm_path(d["path"].as_str().unwrap_or(""));
+        match old.iter().find(|o| norm_path(o["path"].as_str().unwrap_or("")) == key) {
+            None => true,
+            Some(o) => o["mode"] == "ro" && d["mode"] == "rw",
+        }
+    }).cloned().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whole_list_folder_intent_excludes_unchanged_latent_and_negative_edits() {
+        let before = json!([{ "path": "E:\\latent", "mode": "rw" }, { "path": "E:\\upgrade", "mode": "ro" },
+            { "path": "E:\\narrow", "mode": "rw" }, { "path": "E:\\remove", "mode": "rw" }]);
+        let after = json!([{ "path": "E:/latent", "mode": "rw" }, { "path": "E:/upgrade", "mode": "rw" },
+            { "path": "E:/narrow", "mode": "ro" }, { "path": "E:\\new-ro", "mode": "ro" }]);
+        assert_eq!(folder_additions(&before, &after), json!([
+            { "path": "E:/upgrade", "mode": "rw" }, { "path": "E:\\new-ro", "mode": "ro" }
+        ]).as_array().unwrap().clone());
+    }
 
     #[test]
     fn group_denials_survive_normalization_and_parent_intersection() {

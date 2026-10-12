@@ -1130,6 +1130,9 @@ fn validate_batch(open: &Open, body: &Value) -> Result<()> {
 pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &str, body: &Value) -> Result<Value> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
+    // Org defaults may absorb approved folders. Lock before card/agent rows,
+    // including any credit grant, consistently with direct scope/settings.
+    tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org.id]).await?;
     let open = open_by(&tx, org.id, None, Some(agent)).await?;
     validate_batch(&open, body)?;
     let mut fx = DecisionEffects::default();
@@ -1188,10 +1191,8 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         let decisions: Vec<String> = body["scope"].as_array().into_iter().flatten()
             .map(|d| d.as_str().unwrap_or("").trim().to_string()).collect();
         let approved: Vec<Value> = items.iter().zip(&decisions).filter(|(_, d)| *d == "approve").map(|(it, _)| it.clone()).collect();
-        // As in 3.x the verdict is measured, not assumed: the organization's
-        // folders cap every grant, so an approved item may land short of the
-        // request (a read-only folder) or not at all. Compare what the agent
-        // holds before and after the grant, inside this transaction.
+        // Measure the verdict after user grants have raised the ancestors and
+        // org folder ceiling, in the same transaction (3.x user 2026-08-08).
         let before = held_scope_in(&*tx, engine, org.id, open.agent_id).await?;
         if !approved.is_empty() {
             fx.scope = Some(apply_scope(engine, org, &tx, &open.agent, &approved).await?);
@@ -1277,5 +1278,7 @@ async fn apply_scope(
     }
     patch["add_dirs"] = json!(dirs);
     patch["tools"] = tools;
-    crate::http::nodes::apply_user_scope_in_tx(engine, org, tx, agent, &patch).await
+    let approved_dirs: Vec<Value> = items.iter().filter(|it| it["kind"] == "dir")
+        .map(|it| json!({ "path": it["path"], "mode": it["mode"] })).collect();
+    crate::http::nodes::apply_user_scope_in_tx(engine, org, tx, agent, &patch, Some(&approved_dirs)).await
 }

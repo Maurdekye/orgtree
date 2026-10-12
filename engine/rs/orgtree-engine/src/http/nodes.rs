@@ -437,7 +437,7 @@ pub async fn set_scope(
 pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, b: &Value) -> anyhow::Result<Value> {
     let mut client = e.db.get().await?;
     let tx = client.transaction().await?;
-    let fx = apply_user_scope_in_tx(e, org, &tx, nid, b).await?;
+    let fx = apply_user_scope_in_tx(e, org, &tx, nid, b, None).await?;
     tx.commit().await?;
     drop(client);
     Ok(apply_scope_effects(e, org, fx).await)
@@ -452,6 +452,7 @@ pub(crate) struct ScopeEffects {
     /// request set or cleared its effort
     effort_change: Option<(String, String)>,
     structural: bool,
+    org_folders_changed: bool,
     out: Value,
 }
 
@@ -459,7 +460,11 @@ pub(crate) struct ScopeEffects {
 #[logged]
 pub(crate) async fn apply_user_scope_in_tx(
     e: &Engine, org: &Arc<OrgHandle>, tx: &tokio_postgres::Transaction<'_>, nid: &str, b: &Value,
+    approved_dirs: Option<&[Value]>,
 ) -> anyhow::Result<ScopeEffects> {
+    // Same order as org-folder settings/revocation: org before agent rows.
+    // Approval acquires this before opening its card or changing credits too.
+    let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org.id]).await?.get(0);
     let a = {
         let r = tx
             .query_opt(
@@ -540,6 +545,19 @@ pub(crate) async fn apply_user_scope_in_tx(
             }
         }
     }
+    // A batch passes exactly the approved folders, including reapproval of a
+    // retained clamped grant. A desktop whole-list save contributes only its
+    // actual additions/upgrades, never unrelated latent configured scope.
+    let granted_dirs = approved_dirs.map(<[Value]>::to_vec)
+        .unwrap_or_else(|| scope::folder_additions(&scope::normalize(&before)["add_dirs"], &sc["add_dirs"]));
+    let settings = crate::feed::groups::effective_settings(&stored, &e.settings.defaults());
+    let raised = scope::raise(&json!({ "add_dirs": settings["dirs"] }), &json!({ "add_dirs": granted_dirs }));
+    let org_folders_changed = !granted_dirs.is_empty() && raised["add_dirs"] != settings["dirs"];
+    if org_folders_changed {
+        let mut next = stored;
+        next["dirs"] = raised["add_dirs"].clone();
+        tx.execute("UPDATE ot.orgs SET settings=$2, row_version=row_version+1 WHERE id=$1", &[&org.id, &next]).await?;
+    }
     // 3.x compared the levels the agent resolves to, not the stored values:
     // a cleared level falls back to the org default
     let effort_change = if effort_saved {
@@ -567,22 +585,26 @@ pub(crate) async fn apply_user_scope_in_tx(
     )
     .await?;
     let notice_ids=crate::domain::lifecycle::record(&tx,org.id,"retool","@user",Some(a.id),&json!({"change":b})).await?;
-    // the subtree's effective scopes may have moved
-    let subtree: Vec<i64> = tx
-        .query(
-            "WITH RECURSIVE down(id, depth) AS (SELECT $1::bigint, 0 UNION ALL
+    // Org expansion can unmask retained scope on other branches. Otherwise
+    // refresh from the highest raised ancestor, not just the edited child.
+    let subtree: Vec<i64> = if org_folders_changed {
+        tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' ORDER BY id", &[&org.id]).await?
+    } else {
+        tx.query(
+            "WITH RECURSIVE down(id, depth) AS (SELECT id, 0 FROM ot.agents WHERE org_id=$1 AND name=$2 UNION ALL
                SELECT c.id, d.depth + 1 FROM ot.agents c JOIN down d ON c.parent_id = d.id WHERE d.depth < 1024 AND c.state = 'live')
              SELECT id FROM down",
-            &[&a.id],
+            &[&org.id, &cascaded.last().map(String::as_str).unwrap_or(nid)],
         )
         .await?
-        .iter()
+    }.iter()
         .map(|r| r.get(0))
         .collect();
     Ok(ScopeEffects {
         agent_id: a.id, subtree, effort_change, notice_ids,
         fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
         structural: b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false),
+        org_folders_changed,
         out: json!({ "ok": true, "cascaded": cascaded }),
     })
 }
@@ -590,12 +612,13 @@ pub(crate) async fn apply_user_scope_in_tx(
 /// Publish only after the transaction owning the scope change commits.
 #[logged]
 pub(crate) async fn apply_scope_effects(e: &Arc<Engine>, org: &Arc<OrgHandle>, fx: ScopeEffects) -> Value {
-    let ScopeEffects { agent_id, subtree, effort_change, structural, mut out, notice_ids, fields } = fx;
+    let ScopeEffects { agent_id, subtree, effort_change, structural, org_folders_changed, mut out, notice_ids, fields } = fx;
     crate::runtime::watchdogs::events::emit(e,crate::runtime::watchdogs::events::event("agent.settings.changed",crate::runtime::watchdogs::events::Scope::Agent(org.id,agent_id),json!({"agent_id":agent_id,"fields":fields})));
     let mut ch: Vec<Change> = subtree.iter().map(|id| Change::Agent(*id)).collect();
     ch.extend(notice_ids.into_iter().map(Change::Mailbox));
     ch.push(Change::Events);
     ch.push(Change::History(agent_id));
+    if org_folders_changed { ch.push(Change::Org); }
     changes::notify(&e, &org, ch);
     if structural {
         for id in &subtree {
