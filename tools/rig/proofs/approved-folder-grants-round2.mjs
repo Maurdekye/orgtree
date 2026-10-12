@@ -29,9 +29,9 @@ export default async function (rig) {
   const ask = async dir => {
     const out = await rig.tool('boss', 'orgtree_request_scope', { items: [{ kind: 'dir', path: dir, mode: 'rw' }], reason: 'R2 synthetic' })
     if (!out.ok) throw new Error(out.text)
-    return rig.one(`SELECT rev FROM ot.asks WHERE agent_id=${rig.agentRow('boss').id} AND status='open' ORDER BY id DESC LIMIT 1`)
+    return rig.one(`SELECT rev,body FROM ot.asks WHERE agent_id=${rig.agentRow('boss').id} AND status='open' ORDER BY id DESC LIMIT 1`)
   }
-  const approve = row => rig.api('POST', `/api/orgs/${rig.org}/nodes/boss/batch`, { revs: { scope: row.rev }, scope: ['approve'] })
+  const approve = row => rig.api('POST', `/api/orgs/${rig.org}/nodes/boss/batch`, { revs: { scope: row.rev }, scope: row.body.items.map(() => 'approve') })
   for (const order of ['ro-rw', 'rw-ro']) {
     const dir = folder(order), slash = dir.replaceAll('\\', '/'), alias = `${slash.toUpperCase()}/child/../.`
     const modes = order.split('-')
