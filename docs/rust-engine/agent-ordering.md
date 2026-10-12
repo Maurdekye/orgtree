@@ -34,6 +34,8 @@ switches/visibility remain explicit. Superior capability inheritance remains
 its established exception. Non-agent/internal hires may still omit placement,
 using the historical append calculation. Existing user before/after reorder
 requests retain their midpoint behavior.
+Nullable legacy `before`/`after` fields still mean omission; an explicit null
+`index` is malformed and refused.
 
 Hire (including staff's hire), reorder and the existing sibling membership/order
 writers (rehire, moves, swaps, self-subjugation, retirement, dissolution and

@@ -54,8 +54,10 @@ pub(super) async fn siblings(tx: &Transaction<'_>, org: i64, parent: Option<i64>
 #[logged]
 pub(super) fn position(req: &Value, list: &[Sibling], required: bool) -> Result<usize> {
     let index = index(req, required)?;
-    let before = req.get("before");
-    let after = req.get("after");
+    // The existing user API permits nullable before/after; null is omission.
+    // index itself remains strict: an explicit null index is malformed.
+    let before = req.get("before").filter(|v| !v.is_null());
+    let after = req.get("after").filter(|v| !v.is_null());
     if usize::from(index.is_some()) + usize::from(before.is_some()) + usize::from(after.is_some()) > 1 {
         refuse!(BadRequest, "choose exactly one placement: index, before or after");
     }
