@@ -76,6 +76,14 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
     }
     // Ambient registry rows spend the same native login, not a second sign-in.
     let native = account.as_ref().is_none_or(|a| a.ambient);
+    // Explicit native-home requests and '~' observe the same physical login.
+    let native_accounts: Vec<AccountInfo> = if native {
+        view.all().into_iter().filter(|a| {
+            a.provider == provider && !a.is_apikey() && (a.ambient || a.config_dir.is_none())
+        }).collect()
+    } else {
+        Vec::new()
+    };
     if native {
         let state = engine.providers.state.load();
         let status = match provider {
@@ -90,23 +98,21 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
                 "{lane} is not signed in or its CLI is unavailable; nothing changed"
             );
         }
-        let key = match provider {
-            catalog::CLAUDE => crate::usage::claude_key(None),
-            catalog::OPENAI => crate::usage::codex_key(None),
+        let auth_key = |folder| match provider {
+            catalog::CLAUDE => crate::usage::claude_key(folder),
+            catalog::OPENAI => crate::usage::codex_key(folder),
             _ => "agy".to_string(),
         };
-        if engine.usage.cached_reauth_required(&key) == Some(true) {
+        if std::iter::once(auth_key(None))
+            .chain(native_accounts.iter().map(|a| auth_key(a.config_dir.as_deref())))
+            .any(|key| engine.usage.cached_reauth_required(&key) == Some(true)) {
             crate::refuse!(Conflict, "{lane} requires sign-in again; nothing changed");
         }
     }
     let now = Utc::now();
     // A primary alias cannot bypass a mark stored on an ambient registry row.
     let until = if native {
-        view.all()
-            .into_iter()
-            .filter(|a| {
-                a.provider == provider && !a.is_apikey() && (a.ambient || a.config_dir.is_none())
-            })
+        native_accounts.iter()
             .filter_map(|a| a.limited_for(tier, now))
             .max()
     } else {
@@ -119,8 +125,15 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
             iso(until)
         );
     }
-    let usage_account = if native { None } else { account.as_ref() };
-    if let Some(why) = crate::usage::at_limit(engine, usage_account, tier) {
+    // Every unexpired full window constrains this login, whichever alias read
+    // it. Missing or quieter readings under another alias do not erase it.
+    let exhausted = if native {
+        std::iter::once(None).chain(native_accounts.iter().map(Some))
+            .find_map(|a| crate::usage::at_limit(engine, a, tier))
+    } else {
+        crate::usage::at_limit(engine, account.as_ref(), tier)
+    };
+    if let Some(why) = exhausted {
         crate::refuse!(
             Conflict,
             "{lane} is at its limit for {tier} right now: {why}; nothing changed"

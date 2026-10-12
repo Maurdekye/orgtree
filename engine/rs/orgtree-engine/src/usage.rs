@@ -41,12 +41,12 @@ mod continuation_auth_tests {
             (json!({"reauth_required":true}), Some(true)),
             (json!({"reauth_required":false,"reauth_evidence":"not_connected"}), Some(true)),
         ] {
-            usage.cache.pin().insert(key.clone(), Cached { at: Instant::now(), data });
+            usage.put(&key, &data);
             assert_eq!(usage.cached_reauth_required(&key), expected);
         }
-        usage.cache.pin().insert(key.clone(), Cached { at: Instant::now() - PEEK_MAX, data: json!({"reauth_required":true}) });
+        usage.auth.pin().insert(key.clone(), AuthEvidence { at: Instant::now() - PEEK_MAX, required: Some(true) });
         assert_eq!(usage.cached_reauth_required(&key), None);
-        usage.cache.pin().insert(key.clone(), Cached { at: Instant::now() - (PEEK_MAX - Duration::from_secs(1)), data: json!({"reauth_required":true}) });
+        usage.auth.pin().insert(key.clone(), AuthEvidence { at: Instant::now() - (PEEK_MAX - Duration::from_secs(1)), required: Some(true) });
         assert_eq!(usage.cached_reauth_required(&key), Some(true));
     }
 
@@ -54,15 +54,30 @@ mod continuation_auth_tests {
     fn claude_failure_keeps_bar_age_and_records_recent_auth() {
         let usage = Usage::default();
         let key = claude_key(None);
+        usage.claude_result(&key, json!({"available":true,"observed_at":"2001-01-01T00:00:00Z",
+            "limits":[{"kind":"session","percent":10}]}));
+        assert_eq!(usage.cached_reauth_required(&key), None);
         let old = Instant::now() - (PEEK_MAX + Duration::from_secs(1));
         usage.cache.pin().insert(key.clone(), Cached { at: old,
-            data: json!({"available":true,"limits":[{"kind":"session","percent":10}]}) });
+            data: usage.fresh(&key, Duration::MAX).unwrap() });
         let result = usage.claude_result(&key, json!({"available":false,
             "reauth_required":true,"reauth_evidence":"measured_403"}));
         assert_eq!(result["reauth_required"], true);
+        assert_eq!(result["observed_at"], "2001-01-01T00:00:00Z");
         assert_eq!(usage.cache.pin().get(&key).unwrap().at, old);
         assert_eq!(usage.peek(&key, "claude")["available"], false);
         assert_eq!(usage.cached_reauth_required(&key), Some(true));
+        let auth_at = usage.auth.pin().get(&key).unwrap().at;
+        // Neither a transient failure nor replaying last-good during cooldown
+        // asserts a fresh successful authentication or refreshes the bars.
+        usage.claude_result(&key, json!({"available":false,"error":"transient"}));
+        usage.claude_cooldown(&key, Instant::now() + Duration::from_secs(30));
+        assert_eq!(usage.auth.pin().get(&key).unwrap().at, auth_at);
+        assert_eq!(usage.cached_reauth_required(&key), Some(true));
+        assert_eq!(usage.cache.pin().get(&key).unwrap().at, old);
+        usage.claude_result(&key, json!({"available":true,"limits":[]}));
+        assert_eq!(usage.cached_reauth_required(&key), None);
+        assert!(usage.cache.pin().get(&key).unwrap().at > old);
     }
 }
 
@@ -195,10 +210,18 @@ struct Cached {
     data: Value,
 }
 
+#[derive(Clone)]
+struct AuthEvidence {
+    at: Instant,
+    required: Option<bool>,
+}
+
 /// The readouts, by key (`claude:<dir>`, `codex:<home>`, `agy`, `openrouter`).
 #[derive(Default)]
 pub struct Usage {
     cache: papaya::HashMap<String, Cached>,
+    /// Authentication observations have their own age, separate from last-good bars.
+    auth: papaya::HashMap<String, AuthEvidence>,
     /// a provider that told us to wait: not before this
     cooldown: papaya::HashMap<String, Instant>,
     /// the last usage-history row of each series
@@ -214,19 +237,35 @@ impl Usage {
 
     #[nolog]
     fn put(&self, key: &str, data: &Value) {
+        self.record_auth(key, data);
         self.cache.pin().insert(key.to_string(), Cached { at: Instant::now(), data: data.clone() });
+    }
+
+    #[nolog]
+    fn record_auth(&self, key: &str, data: &Value) {
+        let required = if data["reauth_required"] == true || data["reauth_evidence"] == "not_connected" {
+            Some(true)
+        } else {
+            data["reauth_required"].as_bool()
+        };
+        // A genuine successful read replaces earlier negative evidence. An
+        // unrelated transient failure supplies no new authentication evidence.
+        if required.is_some() || data["available"] == true {
+            self.auth.pin().insert(key.to_string(), AuthEvidence { at: Instant::now(), required });
+        }
     }
 
     /// Process a completed Claude read, retaining the original age of last-good
     /// bars on failure. Shared by the provider path and its isolated fixtures.
     #[nolog]
     fn claude_result(&self, key: &str, out: Value) -> Value {
+        self.record_auth(key, &out);
         if out["available"].as_bool().unwrap_or(false) {
             self.put(key, &out);
         } else if let Some(prev) = self.fresh(key, Duration::MAX).filter(|p| p["available"].as_bool().unwrap_or(false)) {
             let mut v = prev;
             v["error"] = out["error"].clone();
-            if out.get("reauth_required").is_some() {
+            if out.get("reauth_required").is_some() || out.get("reauth_evidence").is_some() {
                 v["reauth_required"] = out["reauth_required"].clone();
                 v["reauth_evidence"] = out["reauth_evidence"].clone();
             }
@@ -238,6 +277,13 @@ impl Usage {
     }
 
     #[nolog]
+    fn claude_cooldown(&self, key: &str, until: Instant) -> Value {
+        let mut v = self.fresh(key, Duration::MAX).unwrap_or_else(|| json!({ "available": false }));
+        v["error"] = json!(format!("the usage service asked us to wait ({} s more)", until.saturating_duration_since(Instant::now()).as_secs()));
+        v
+    }
+
+    #[nolog]
     fn cooling(&self, key: &str) -> Option<Instant> {
         self.cooldown.pin().get(key).copied().filter(|t| *t > Instant::now())
     }
@@ -245,13 +291,9 @@ impl Usage {
     /// Recent negative authentication evidence only. Missing/stale/absent flags
     /// are unknown, never proof of sign-in. No fetch or credential read.
     pub fn cached_reauth_required(&self, key: &str) -> Option<bool> {
-        let guard = self.cache.pin();
+        let guard = self.auth.pin();
         let c = guard.get(key).filter(|c| c.at.elapsed() < PEEK_MAX)?;
-        if c.data["reauth_required"] == true || c.data["reauth_evidence"] == "not_connected" {
-            Some(true)
-        } else {
-            c.data["reauth_required"].as_bool()
-        }
+        c.required
     }
 
     /// The cached readout behind `key`, for a peek (the glow): never a fetch.
@@ -321,9 +363,9 @@ pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> V
     let (_, email) = crate::providers::claude_identity(config_dir.map(PathBuf::from).as_ref());
     let mut out = match engine.usage.cooling(&key) {
         Some(until) => {
-            let mut v = engine.usage.fresh(&key, Duration::MAX).unwrap_or_else(|| json!({ "available": false }));
-            v["error"] = json!(format!("the usage service asked us to wait ({} s more)", until.saturating_duration_since(Instant::now()).as_secs()));
-            v
+            let mut v = engine.usage.claude_cooldown(&key, until);
+            v["email"] = json!(email);
+            return v;
         }
         None => {
             let observed = Utc::now();

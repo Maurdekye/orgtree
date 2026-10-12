@@ -143,6 +143,20 @@ export default async function (rig, { flags }) {
     }
   }
   rig.exec(`UPDATE ot.agents SET tier='sol',provider='openai',session_id=NULL WHERE id=${id}`)
+  put('claude', reading()); await rig.api('GET', '/api/usage?force=true')
+  put('claude', { available: false, error: 'rig rejected sign-in',
+    reauth_required: true, reauth_evidence: 'measured_403' })
+  const rejected = await rig.api('GET', '/api/usage?force=true')
+  p.check('Claude production result processing returns dated good bars with negative auth',
+    rejected.available === true && rejected.limits?.[0]?.percent === 10
+    && rejected.reauth_required === true && rejected.error != null)
+  for (const [alias, route] of [['primary', tool], ['claude/primary', http]]) {
+    await freeze()
+    rig.exec(`UPDATE ot.agents SET tier='haiku',provider='claude',session_id=NULL WHERE id=${id}`)
+    await refuse(`Claude last-good negative auth blocks ${alias}`, alias, /requires sign-in/, route)
+  }
+  put('claude', reading()); await rig.api('GET', '/api/usage?force=true')
+  rig.exec(`UPDATE ot.agents SET tier='sol',provider='openai',session_id=NULL WHERE id=${id}`)
   await freeze()
   await rig.api('PUT', `/api/accounts/${C}/enabled`, { enabled: false })
   await refuse('disabled registered target retains freeze', C, /inactive/)
