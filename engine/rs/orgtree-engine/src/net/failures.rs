@@ -53,14 +53,18 @@ async fn recipients(e: &Engine, tx: &Transaction<'_>, org: i64, detail: &Value) 
 pub(super) async fn dispatch(e: &Arc<Engine>) -> Result<()> {
     let mut c = e.db.get().await?;
     let tx = c.transaction().await?;
-    let rows = tx.query("SELECT id,org_id,detail FROM ot.net_transfer_failures WHERE NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb) AND notified_at IS NULL ORDER BY created_at,id LIMIT 16 FOR UPDATE SKIP LOCKED", &[]).await?;
+    // Take org admission locks before job locks, and in the same ascending
+    // order as local cross-org publication. The candidate read is bounded.
+    let candidates: Vec<i64> = tx.query("SELECT org_id FROM ot.net_transfer_failures WHERE notified_at IS NULL AND NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb) ORDER BY created_at,id LIMIT 16", &[])
+        .await?.iter().map(|r| r.get(0)).collect();
+    let admitted: Vec<i64> = tx.query("SELECT id,settings FROM ot.orgs WHERE id=ANY($1) ORDER BY id FOR UPDATE", &[&candidates])
+        .await?.iter().filter(|r| crate::domain::orginbox::enabled(&r.get::<_,Value>(1))).map(|r| r.get(0)).collect();
+    let rows = tx.query("SELECT id,org_id,detail FROM ot.net_transfer_failures WHERE org_id=ANY($1) AND notified_at IS NULL ORDER BY created_at,id LIMIT 16 FOR UPDATE SKIP LOCKED", &[&admitted]).await?;
     let mut notices = Vec::new();
     for r in rows {
         let id: String = r.get(0);
         let org: i64 = r.get(1);
         let detail: Value = r.get(2);
-        let settings: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org]).await?.get(0);
-        if !crate::domain::orginbox::enabled(&settings) { continue; }
         let body = if detail["direction"] == "local" {
             format!("Attaching {} to a draft failed: {}. No message was sent. Open Saved local files in the mail composer, select the original file again, or remove it before sending.", detail["name"].as_str().unwrap_or("file"),detail["error"].as_str().unwrap_or("local upload interrupted"))
         } else { format!("Attachment {} for message {} ({}) failed: {}. Messages wait for every file. Inspect the current status of transfer {} and retry after correcting the cause{}.",
