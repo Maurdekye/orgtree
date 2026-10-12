@@ -153,15 +153,17 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
             _ => bad(format!("default_visibility must be one of {}", scope::levels_text(scope::VIS_LEVELS))),
         },
         "default_effort" => match v.as_str() {
-            Some(x) if x.is_empty() || crate::providers::catalog::EFFORTS.contains(&x) => Ok(v.clone()),
+            // an org default spans harnesses: any level one of them names (each
+            // launch sends its own harness's name, `catalog::launch_effort`)
+            Some(x) if x.is_empty() || crate::providers::catalog::effort_rank(x).is_some() => Ok(v.clone()),
             _ => bad(format!(
                 "default_effort must be '' (the CLI's own default) or one of {}",
-                scope::levels_text(crate::providers::catalog::EFFORTS)
+                scope::levels_text(crate::providers::catalog::EFFORT_ORDER)
             )),
         },
         "default_account" => match v.as_str().map(str::trim) {
             None => bad("default_account must be an account id ('' for none)".into()),
-            Some(a) if a.is_empty() || ["primary", "default", "claude/primary", "openai/primary", "google/primary"].contains(&a) => {
+            Some(a) if a.is_empty() || ["primary", "default", "claude/primary", "openai/primary", "google/primary", "muse/primary"].contains(&a) => {
                 Ok(json!(a))
             }
             Some(a) => match e.accounts.view().get(a) {
@@ -681,6 +683,7 @@ async fn provider_switch(e: Arc<Engine>, provider: String, key: &'static str, en
         crate::providers::catalog::GOOGLE,
         crate::providers::catalog::OPENROUTER,
         crate::providers::catalog::LANGSERVER,
+        crate::providers::catalog::MUSE,
     ];
     if !known.contains(&provider.as_str()) {
         return Err(ApiError::not_found(format!("no provider {provider}")));

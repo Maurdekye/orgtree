@@ -45,10 +45,12 @@ async fn bindings(e: &Engine) -> ApiResult<std::collections::HashMap<String, Vec
     Ok(out)
 }
 
-fn host_identity() -> Value {
+fn host_identity(e: &Engine) -> Value {
     let (_, claude) = crate::providers::claude_identity(None);
     let (_, codex, _) = crate::providers::codex_identity(None);
-    json!({ "claude": { "email": claude }, "openai": { "email": codex }, "google": { "email": null } })
+    // Muse's own sign-in as its last metadata read named it (never its auth file)
+    let muse = e.providers.state.load().muse.email.clone();
+    json!({ "claude": { "email": claude }, "openai": { "email": codex }, "google": { "email": null }, "muse": { "email": muse } })
 }
 
 /// `GET /api/accounts`: the registry rows, with what runs on each.
@@ -68,7 +70,7 @@ pub async fn list(State(e): State<Arc<Engine>>, Query(q): Query<OrgQuery>) -> Ap
         .filter(|a| a.id != crate::openrouter::ACCOUNT_ID && a.available_to(org))
         .map(|a| crate::accounts::row(a, bound.get(&a.id).cloned().unwrap_or_default(), now))
         .collect();
-    Ok(Json(json!({ "accounts": rows, "primary": "claude/primary", "host_identity": host_identity() })))
+    Ok(Json(json!({ "accounts": rows, "primary": "claude/primary", "host_identity": host_identity(&e) })))
 }
 
 #[derive(Deserialize)]
@@ -104,8 +106,13 @@ async fn next_id(e: &Engine, provider: &str) -> ApiResult<String> {
 /// or an API key (stored first; only its row id comes back).
 pub async fn add(State(e): State<Arc<Engine>>, Json(b): Json<AddAccount>) -> ApiResult<Json<Value>> {
     tracing::info!(request = ?b, "add account");
-    if !["claude", "openai", "google"].contains(&b.provider.as_str()) {
-        return Err(ApiError::bad_request("the provider is claude, openai or google"));
+    if !["claude", "openai", "google", "muse"].contains(&b.provider.as_str()) {
+        return Err(ApiError::bad_request("the provider is claude, openai, google or muse"));
+    }
+    // a Muse login is a pair of roots Muse lays out itself (config and data):
+    // a new managed profile, or an API key; never a folder taken over
+    if b.provider == "muse" && b.kind == "imported" {
+        return Err(ApiError::bad_request("a Muse sign-in is added as a new profile or an API key, not imported"));
     }
     let id = next_id(&e, &b.provider).await?;
     let mut client = e.db.get().await?;
@@ -139,6 +146,12 @@ pub async fn add(State(e): State<Arc<Engine>>, Json(b): Json<AddAccount>) -> Api
         "managed" => {
             let dir = e.cfg.path("profiles").join(format!("{}-{}", b.provider, crate::util::random_hex(16)));
             std::fs::create_dir_all(&dir).map_err(|err| ApiError::internal(err.to_string()))?;
+            if b.provider == "muse" {
+                // its own XDG roots (`muse_models::login_env`)
+                for sub in ["config", "data"] {
+                    std::fs::create_dir_all(dir.join(sub)).map_err(|err| ApiError::internal(err.to_string()))?;
+                }
+            }
             let path = dir.to_string_lossy().to_string();
             client
                 .execute(
@@ -229,7 +242,16 @@ pub async fn identity(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> A
     if a.is_apikey() {
         return Ok(Json(json!({ "auth": a.auth })));
     }
-    let (signed_in, email) = identity_of(&a.provider, a.config_dir.as_deref());
+    let (signed_in, email) = if a.provider == "muse" {
+        // Muse says who is signed in (`account/read` on a metadata host): its
+        // auth file is never read here
+        match crate::providers::muse_probe_login(&e, a.config_dir.as_deref()).await {
+            Ok(p) => (p.account_state.as_deref().is_some_and(|s| s != "loggedOut"), p.label),
+            Err(err) => return Err(ApiError::internal(format!("Muse could not say who is signed in: {err:#}"))),
+        }
+    } else {
+        identity_of(&a.provider, a.config_dir.as_deref())
+    };
     let auth = if signed_in { "authenticated" } else { "unauthenticated" };
     let client = e.db.get().await?;
     client
@@ -450,6 +472,22 @@ pub async fn usage_agy(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> 
 pub async fn peek_agy(State(e): State<Arc<Engine>>) -> Json<Value> {
     served("peek_agy");
     Json(e.usage.peek("agy", usage::AGY_NAME))
+}
+
+/// Muse's lane: its latest observation as Muse dated it; `force` reads the
+/// user's own login again now (its metadata host: sign-in, catalog, usage).
+#[nolog]
+pub async fn usage_muse(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
+    served("usage_muse");
+    let v = usage::muse(&e, "muse/primary", None, q.force).await;
+    usage::publish(&e, "muse", &v);
+    Json(v)
+}
+
+#[nolog]
+pub async fn peek_muse(State(e): State<Arc<Engine>>) -> Json<Value> {
+    served("peek_muse");
+    Json(e.usage.peek(&usage::muse_key(None), usage::MUSE_NAME))
 }
 
 #[nolog]

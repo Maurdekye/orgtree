@@ -42,6 +42,21 @@ fn lanes(engine: &Engine, org: &str) -> BTreeMap<String, Lane> {
             },
         );
     }
+    // Muse's own sign-in, once Muse is installed (its lane reads as Muse dated it)
+    if engine.providers.state.load().muse.installed {
+        let id = crate::org_accounts::primary("muse");
+        out.insert(
+            id.clone(),
+            Lane {
+                id,
+                provider: "muse".into(),
+                key: crate::usage::muse_key(None),
+                account: None,
+                enabled: crate::accounts::active(engine, "muse", None),
+                local_cap: None,
+            },
+        );
+    }
     // the original key's lane while it is stored (`key_set` is any key's);
     // its registry row below carries its own switch
     if view.get(crate::openrouter::ACCOUNT_ID).is_some() {
@@ -68,6 +83,7 @@ fn lanes(engine: &Engine, org: &str) -> BTreeMap<String, Lane> {
                 "claude" => crate::usage::claude_key(a.config_dir.as_deref()),
                 "openai" => crate::usage::codex_key(a.config_dir.as_deref()),
                 "google" => "agy".into(),
+                "muse" => crate::usage::muse_key(a.config_dir.as_deref()),
                 _ => format!("unsupported:{}", a.id),
             }
         };
@@ -139,7 +155,7 @@ fn selectors(args: &Value, key: &str) -> Result<Option<Vec<String>>> {
 fn auth_required(engine: &Engine, lane: &Lane) -> Option<bool> {
     if lane.local_cap.is_some()
         || lane.account.as_ref().is_some_and(AccountInfo::is_apikey)
-        || !matches!(lane.provider.as_str(), "claude" | "openai" | "google")
+        || !matches!(lane.provider.as_str(), "claude" | "openai" | "google" | "muse")
     {
         return None;
     }
@@ -148,6 +164,7 @@ fn auth_required(engine: &Engine, lane: &Lane) -> Option<bool> {
         let key = |folder| match lane.provider.as_str() {
             "claude" => crate::usage::claude_key(folder),
             "openai" => crate::usage::codex_key(folder),
+            "muse" => crate::usage::muse_key(folder),
             _ => "agy".to_string(),
         };
         keys.push(key(None));
@@ -254,7 +271,7 @@ pub async fn usage(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     };
     if selection.providers.as_ref().is_some_and(|v| {
         v.iter().any(|p| {
-            !["claude", "openai", "google", "openrouter", "langserver"].contains(&p.as_str())
+            !["claude", "openai", "google", "muse", "openrouter", "langserver"].contains(&p.as_str())
         })
     }) {
         crate::refuse!(BadRequest, "unknown usage provider identifier");

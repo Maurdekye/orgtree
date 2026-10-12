@@ -120,7 +120,8 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
                     .as_array()
                     .cloned()
                     .unwrap_or_default();
-                let efforts = super::catalog::EFFORTS
+                // Codex's own level names, in rank order (user 2026-10-12)
+                let efforts = super::catalog::EFFORT_ORDER
                     .iter()
                     .filter(|e| {
                         offered

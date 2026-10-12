@@ -155,7 +155,11 @@ pub fn lanes(engine: &Engine, org_slug: &str) -> Vec<Value> {
                          "enabled": why_off.is_none(), "disabled_reason": why_off }));
     };
     let provider_off = |p: &str| (!engine.settings.provider_enabled(p)).then_some("turned off in App settings › Providers");
-    for provider in [catalog::CLAUDE, catalog::OPENAI, catalog::GOOGLE] {
+    let muse = engine.providers.state.load().muse.installed;
+    for provider in [catalog::CLAUDE, catalog::OPENAI, catalog::GOOGLE, catalog::MUSE] {
+        if provider == catalog::MUSE && !muse && !view.all().into_iter().any(|a| a.provider == provider) {
+            continue;
+        }
         let why = provider_off(provider).or_else(|| (!engine.settings.subscription_inference(provider))
             .then_some("the signed-in subscription is inactive in App settings › Providers"));
         push(primary(provider), provider, format!("{} (default sign-in)", catalog::provider_label(provider)), why);

@@ -17,6 +17,8 @@ pub enum Lane {
     Claude,
     Codex,
     Antigravity,
+    /// Muse Code over MSP (`runtime::muse`)
+    Muse,
 }
 
 #[derive(Debug)]
@@ -130,19 +132,23 @@ pub fn identity(i: &Identity) -> String {
         s.push_str(&format!(". Read-only: {}", ro.join(", ")));
     }
     s.push_str(". ");
-    s.push_str(&format!(
-        "Skills: you load them from two places — this machine's global {}, and a .claude/skills folder inside your \
-         cwd or any folder granted to you (most of yours may come from the latter; check before assuming). Reading \
-         either is fine. ",
-        i.skills_dir
-    ));
-    s.push_str(&scope_request_guidance(if bypass { SKILLS_BYPASS } else { SKILLS_GATED }, tools));
-    s.push_str(&format!(
-        "Sensitive-path gate: the CLI refuses to WRITE any path containing {} as a folder component (and a few \
-         config files like .gitconfig, .bashrc, .npmrc). ",
-        GATED_DIRS.join(", ")
-    ));
-    s.push_str(&scope_request_guidance(if bypass { GATE_BYPASS } else { GATE_GATED }, tools));
+    if i.lane == Lane::Muse {
+        s.push_str(MUSE_SKILLS_AND_PROTECTED);
+    } else {
+        s.push_str(&format!(
+            "Skills: you load them from two places — this machine's global {}, and a .claude/skills folder inside your \
+             cwd or any folder granted to you (most of yours may come from the latter; check before assuming). Reading \
+             either is fine. ",
+            i.skills_dir
+        ));
+        s.push_str(&scope_request_guidance(if bypass { SKILLS_BYPASS } else { SKILLS_GATED }, tools));
+        s.push_str(&format!(
+            "Sensitive-path gate: the CLI refuses to WRITE any path containing {} as a folder component (and a few \
+             config files like .gitconfig, .bashrc, .npmrc). ",
+            GATED_DIRS.join(", ")
+        ));
+        s.push_str(&scope_request_guidance(if bypass { GATE_BYPASS } else { GATE_GATED }, tools));
+    }
 
     // ---- tools ----
     let off: Vec<&str> = [("bash", "the terminal"), ("web", "web access"), ("edit", "file editing"), ("subagents", "subagents")]
@@ -162,8 +168,13 @@ pub fn identity(i: &Identity) -> String {
     }
     let may_write = on("edit") && pm != "plan";
     let agy_no_shell = i.lane == Lane::Antigravity && !may_write;
-    if on("bash") && !agy_no_shell {
+    let muse_no_shell = i.lane == Lane::Muse && !may_write;
+    if on("bash") && i.lane == Lane::Muse && !muse_no_shell {
+        s.push_str("Terminal: Muse Code's shell tool runs your commands (PowerShell on Windows); for a cmd command, run `cmd /c …`. ");
+    } else if on("bash") && !agy_no_shell && !muse_no_shell {
         s.push_str("Terminal: Bash and PowerShell are both available to you; for a cmd command, run `cmd /c …` from either. ");
+    } else if on("bash") && muse_no_shell {
+        s.push_str(MUSE_NO_SHELL);
     } else if on("bash") {
         s.push_str(AGY_NO_SHELL);
     }
@@ -180,6 +191,8 @@ pub fn identity(i: &Identity) -> String {
         s.push_str(if i.lane == Lane::Claude {
             " (their tools are named mcp__<server>__<tool> — under deferred tools, ToolSearch by that full form or a \
              loose keyword; a bare tool name will not match). "
+        } else if i.lane == Lane::Muse {
+            " (their tools are named mcp__<server>__<tool>). "
         } else {
             ". "
         });
@@ -203,6 +216,10 @@ pub fn identity(i: &Identity) -> String {
         Lane::Antigravity => {
             "Act on the org with the orgtree tools: orgtree_status and so on (your CLI may show them under an \
              `orgtree` server prefix). "
+        }
+        Lane::Muse => {
+            "Act on the org with the orgtree tools. Their full names carry the server prefix — \
+             mcp__orgtree__orgtree_status and so on. "
         }
     });
     if crate::domain::tool_groups::GROUPS.iter().all(|g| group(g)) {
@@ -529,6 +546,17 @@ you TYPE, and git writing its own internals is never intercepted, so `git -C <ro
 push all work normally — that is the intended route, not a loophole. If you are stuck on a stale <repo>/.git lock in a \
 SHARED checkout, do not fight it: your own worktree has its own index, so commit and push from there. If you genuinely must \
 write such a path, request the mode with orgtree_request_scope (permission_mode) and say why — do not work around it. ";
+
+const MUSE_SKILLS_AND_PROTECTED: &str = "Skills: Muse Code lists the skills it loaded at the start of your session; \
+load one with read_skill. Protected paths: Muse Code treats some writes as protected and asks before making them; Orgtree \
+answers for you from your folders and permission mode — a write inside your read/write folders is allowed, anything else is \
+refused. A refusal is final for that call: do not work around it; when the work genuinely needs more, raise it. ";
+
+const MUSE_NO_SHELL: &str = "Terminal: CLOSED for this seat, and that is enforced, not advisory — Muse Code's shell is \
+switched off for your process. This is a read-only seat (file editing is off, or you are on a plan-mode seat), and a \
+terminal cannot be held to reading only here, so it is closed rather than left open as a way around the write door. Read \
+with read_file and search; when the work genuinely needs a write or a command, raise it rather than looking for a way \
+around. ";
 
 const AGY_NO_SHELL: &str = "Terminal: CLOSED for this seat, and that is enforced, not advisory — every shell call is denied \
 before it runs. This is a read-only seat (file editing is off, or you are on a plan-mode seat), and on this provider a \

@@ -509,9 +509,8 @@ pub(crate) async fn apply_user_scope_in_tx(
     }
     if let Some(v) = b.get("effort") {
         let level = v.as_str().unwrap_or("").to_string();
-        if !level.is_empty() && !crate::providers::catalog::EFFORTS.contains(&level.as_str()) {
-            crate::refuse!(BadRequest, "unknown effort {level}");
-        }
+        // the agent's own harness and model name its levels (user 2026-10-12)
+        crate::providers::check_effort(e, &row.get::<_, String>(3), &level)?;
         if level.is_empty() {
             obj.remove("effort");
         } else {

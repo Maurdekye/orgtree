@@ -129,6 +129,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/codex/usage/peek", get(accounts::peek_codex))
         .route("/api/antigravity/usage", get(accounts::usage_agy))
         .route("/api/antigravity/usage/peek", get(accounts::peek_agy))
+        .route("/api/muse/usage", get(accounts::usage_muse))
+        .route("/api/muse/usage/peek", get(accounts::peek_muse))
         .route("/api/openrouter/usage", get(accounts::usage_openrouter))
         .route("/api/openrouter/usage/peek", get(accounts::peek_openrouter))
         .route("/api/openrouter", get(accounts::openrouter_doc))

@@ -1,9 +1,10 @@
-//! Providers: the CLIs this machine has (Claude Code, Codex, Antigravity),
-//! the OpenRouter lane, their sign-in state, and the tiers each offers.
-//! Discovery runs in the background and publishes the `providers` value.
+//! Providers: the CLIs this machine has (Claude Code, Codex, Antigravity,
+//! Muse Code), the OpenRouter lane, their sign-in state, and the tiers each
+//! offers. Discovery runs in the background and publishes the `providers` value.
 
 pub mod catalog;
 mod codex_models;
+pub mod muse_models;
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -38,10 +39,21 @@ pub struct State {
     pub agy_models: Vec<String>,
     pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
     pub codex_efforts_error: Option<String>,
+    pub muse: CliStatus,
+    /// what the last Muse metadata host reported (schema, sign-in, catalog)
+    pub muse_probe: Option<MuseDiscovery>,
+    pub muse_error: Option<String>,
     /// the first sign-in check (`discover`) has landed. Until it does, a
     /// provider that reads as signed out has not been checked yet: staffing
     /// surfaces say "checking sign-ins" rather than "not signed in".
     pub probed: bool,
+}
+
+/// The last Muse metadata read and when it was taken.
+#[derive(Clone, Debug)]
+pub struct MuseDiscovery {
+    pub at: chrono::DateTime<chrono::Utc>,
+    pub probe: muse_models::MuseProbe,
 }
 
 #[derive(Default)]
@@ -70,6 +82,15 @@ impl Providers {
     }
     pub fn agy_path(&self) -> Option<PathBuf> {
         self.state.load().agy.path.clone()
+    }
+    pub fn muse_path(&self) -> Option<PathBuf> {
+        self.state.load().muse.path.clone()
+    }
+
+    /// The signed-in Muse account's catalog row for `model`, when its
+    /// authenticated catalog offers it (never a bundled row).
+    pub fn muse_model(&self, model: &str) -> Option<muse_models::MuseModel> {
+        self.state.load().muse_probe.as_ref()?.probe.catalog.as_ref()?.offered(model).cloned()
     }
 
     /// The user's MCP server registry (`mcpServers` in `~/.claude.json`):
@@ -175,6 +196,29 @@ pub fn locate_agy() -> Option<(PathBuf, String)> {
     which("agy").map(|p| (p, "path".into()))
 }
 
+/// The Muse Code binary (never its updater launcher): the folder its
+/// installer uses (`%LOCALAPPDATA%\Programs\muse`), else the folder of a
+/// `muse` launcher on PATH. `ORGTREE_MUSE_BIN` names one explicitly.
+#[logged]
+pub fn locate_muse() -> Option<(PathBuf, String)> {
+    if crate::rig::active() {
+        return crate::rig::cli_bin("ORGTREE_MUSE_BIN");
+    }
+    if let Ok(p) = std::env::var("ORGTREE_MUSE_BIN") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Some((p, "env".into()));
+        }
+    }
+    if let Some(local) = dirs::data_local_dir() {
+        if let Some(p) = muse_models::bin_in(&local.join("Programs").join("muse")) {
+            return Some((p, "path".into()));
+        }
+    }
+    let launcher = which("muse")?;
+    muse_models::bin_in(launcher.parent()?).map(|p| (p, "path".into()))
+}
+
 #[logged]
 async fn version_of(path: &PathBuf) -> Option<String> {
     let mut cmd = tokio::process::Command::new(path);
@@ -274,10 +318,94 @@ pub async fn discover(engine: &Engine) {
             kind: prev.kind,
         };
     }
+    if let Some((status, found, error)) = discover_muse(engine).await {
+        st.muse = status;
+        st.muse_probe = found;
+        st.muse_error = error;
+    }
     st.openrouter = openrouter_favorites(engine);
     let prev_models = engine.providers.state.load().agy_models.clone();
     st.agy_models = prev_models;
     st.probed = true;
+    engine.providers.state.store(Arc::new(st));
+    publish(engine);
+}
+
+/// The Muse part of discovery: the binary, then one metadata read of the
+/// user's own login (catalog, sign-in and cached usage observation). A
+/// failed read keeps the last good one, dated, with the failure beside it.
+/// Not logged: the status carries the account label.
+#[nolog]
+async fn discover_muse(engine: &Engine) -> Option<(CliStatus, Option<MuseDiscovery>, Option<String>)> {
+    let (p, src) = locate_muse()?;
+    let version = muse_models::installed_version(&p).or(version_of(&p).await);
+    match muse_probe_with(engine, &p, None).await {
+        Ok(probe) => {
+            let catalog = probe.catalog.as_ref();
+            tracing::info!(
+                version = ?probe.server_version, fingerprint = ?probe.fingerprint,
+                verified = muse_models::verified(probe.fingerprint.as_deref()), account = ?probe.account_state,
+                catalog = ?catalog.map(|c| &c.source),
+                offered = ?catalog.map(|c| c.models.iter().filter(|m| m.account_row).map(|m| m.id.clone()).collect::<Vec<_>>()),
+                "Muse discovery"
+            );
+            // an unknown sign-in (the read was refused) is not "signed out"
+            let connected = match probe.account_state.as_deref() {
+                Some("loggedOut") => false,
+                Some(_) => true,
+                None => catalog.is_some_and(|c| c.source == "providerCatalog"),
+            };
+            let kind = match probe.account_state.as_deref() {
+                Some("apiKey") => Some("api-key".to_string()),
+                Some("accountLogin") => Some("subscription".to_string()),
+                other => other.map(str::to_string),
+            };
+            crate::usage::muse_probed(engine, None, &probe).await;
+            let status = CliStatus { installed: true, version, path: Some(p), source: src, connected, email: probe.label.clone(), kind };
+            Some((status, Some(MuseDiscovery { at: chrono::Utc::now(), probe }), None))
+        }
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), "Muse discovery failed");
+            let prev = engine.providers.state.load_full();
+            let status = CliStatus { installed: true, version, path: Some(p), source: src, ..prev.muse.clone() };
+            Some((status, prev.muse_probe.clone(), Some(format!("Muse capabilities unavailable: {e:#}"))))
+        }
+    }
+}
+
+/// One metadata read of a Muse login: the user's own (`root` None) or a
+/// managed one whose config and data roots live under `root`.
+#[nolog] // its answer carries the account label
+pub async fn muse_probe_login(engine: &Engine, root: Option<&str>) -> anyhow::Result<muse_models::MuseProbe> {
+    let exe = match engine.providers.muse_path() {
+        Some(p) => p,
+        None => tokio::task::spawn_blocking(locate_muse)
+            .await
+            .ok()
+            .flatten()
+            .map(|(p, _)| p)
+            .ok_or_else(|| anyhow::anyhow!("Muse Code is not installed"))?,
+    };
+    muse_probe_with(engine, &exe, root).await
+}
+
+#[nolog]
+async fn muse_probe_with(engine: &Engine, exe: &std::path::Path, root: Option<&str>) -> anyhow::Result<muse_models::MuseProbe> {
+    let dir = engine.cfg.path("profiles").join("muse-discovery");
+    std::fs::create_dir_all(&dir)?;
+    let env = muse_models::clean_env(&muse_models::login_env(root.map(std::path::Path::new)));
+    muse_models::probe(exe, &env, &dir).await
+}
+
+/// Read the user's own Muse login again now (a manual refresh) and publish
+/// what changed: its catalog, sign-in and usage.
+#[logged]
+pub async fn refresh_muse(engine: &Engine) {
+    let Some((status, found, error)) = discover_muse(engine).await else { return };
+    let mut st = (*engine.providers.state.load_full()).clone();
+    st.muse = status;
+    st.muse_probe = found;
+    st.muse_error = error;
     engine.providers.state.store(Arc::new(st));
     publish(engine);
 }
@@ -400,6 +528,29 @@ pub fn payload(engine: &Engine) -> Value {
         });
         providers.push(entry(catalog::GOOGLE, "Antigravity", "agy", &st.agy, tiers));
     }
+    if st.muse.installed {
+        let found = st.muse_probe.as_ref();
+        let tiers: Vec<Value> = catalog::TIERS
+            .iter()
+            .filter(|t| t.provider == catalog::MUSE && !t.legacy && muse_offers(t.tier, found))
+            .map(|t| {
+                let row = found.and_then(|d| d.probe.catalog.as_ref()).and_then(|c| c.offered(t.model));
+                json!({ "tier": t.tier, "provider": t.provider, "seat": t.seat, "model": t.model, "letter": t.letter,
+                        "efforts": row.map(|r| r.variants.clone()), "default_effort": row.and_then(|r| r.default_effort.clone()),
+                        "context": row.and_then(|r| r.context) })
+            })
+            .collect();
+        let any = !tiers.is_empty();
+        let mut e = entry(catalog::MUSE, "Muse", "muse", &st.muse, tiers);
+        e["muse"] = muse_detail(found, st.muse_error.as_deref());
+        if st.muse.connected && !any && e["reason"].is_null() {
+            e["reason"] = json!(match found.and_then(|d| d.probe.catalog.as_ref()).map(|c| c.source.as_str()) {
+                Some("providerCatalog") => "the signed-in Muse account's catalog offers no model this Orgtree knows",
+                _ => "Muse has not fetched this sign-in's model catalog yet (run Muse Code once); no Muse model is offered until it has",
+            });
+        }
+        providers.push(e);
+    }
     let key_set = settings.pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
     if key_set || !st.openrouter.is_empty() {
         let tiers: Vec<Value> = st
@@ -438,7 +589,7 @@ pub fn payload(engine: &Engine) -> Value {
     }
     let map = |key: &str, default: bool| {
         let mut m = serde_json::Map::new();
-        for p in [catalog::CLAUDE, catalog::OPENAI, catalog::GOOGLE] {
+        for p in [catalog::CLAUDE, catalog::OPENAI, catalog::GOOGLE, catalog::MUSE] {
             let v = settings.get(key).and_then(|x| x.get(p)).and_then(Value::as_bool).unwrap_or(default);
             m.insert(p.to_string(), json!(v));
         }
@@ -451,6 +602,101 @@ pub fn payload(engine: &Engine) -> Value {
         "checking": !st.probed,
         "apikey_fallback": map("apikey_fallback", false),
         "subscription_inference": map("subscription_inference", true),
+    })
+}
+
+/// Whether a Muse tier is offered: its model (or one of its versions) is a
+/// row of the signed-in account's authenticated catalog. A bundled row, a
+/// failed discovery or no discovery yet offers nothing.
+#[nolog]
+fn muse_offers(tier: &str, found: Option<&MuseDiscovery>) -> bool {
+    let (Some(t), Some(c)) = (catalog::tier(tier), found.and_then(|d| d.probe.catalog.as_ref())) else { return false };
+    std::iter::once(t.model).chain(t.versions.iter().map(|(_, m)| *m)).any(|m| c.offered(m).is_some())
+}
+
+/// Whether the account offers a Muse tier now (hire, rehire and switch
+/// refuse one it does not).
+#[logged]
+pub fn muse_offered(engine: &Engine, tier: &str) -> bool {
+    muse_offers(tier, engine.providers.state.load().muse_probe.as_ref())
+}
+
+/// The effort level names `tier`'s harness and model expose, lowest first,
+/// in that harness's own words (user 2026-10-12): Claude Code's `--effort`
+/// levels for a Claude seat (an OpenRouter one included), the Codex model's
+/// `model/list` levels, the Muse catalog row's `variants`, Antigravity's
+/// verified ones. `Some([])`: the model has no effort setting; None: not
+/// known yet (its catalog has not been read).
+#[logged]
+pub fn effort_names(st: &State, tier: &str) -> Option<Vec<String>> {
+    let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+    if catalog::is_langserver(tier) {
+        return Some(Vec::new());
+    }
+    if catalog::is_openrouter(tier) {
+        return Some(names(catalog::EFFORTS));
+    }
+    let t = catalog::tier(tier)?;
+    match t.provider {
+        catalog::CLAUDE => Some(names(catalog::EFFORTS)),
+        catalog::OPENAI => st.codex_efforts.get(t.model).cloned(),
+        catalog::GOOGLE => Some(catalog::EFFORTS.iter().filter(|e| catalog::antigravity_effort(t.tier, e) == **e).map(|e| e.to_string()).collect()),
+        catalog::MUSE => {
+            let row = st.muse_probe.as_ref().and_then(|d| d.probe.catalog.as_ref()).and_then(|c| c.offered(t.model))?;
+            Some(catalog::MUSE_EFFORTS.iter().filter(|e| row.variants.iter().any(|v| v == *e)).map(|e| e.to_string()).collect())
+        }
+        _ => None,
+    }
+}
+
+/// Refuse an agent's own effort level that its tier's harness and model do
+/// not name. While the tier's levels are not known yet, any level some
+/// harness names is taken (the launch maps it, `catalog::launch_effort`).
+#[logged]
+pub fn check_effort(engine: &Engine, tier: &str, level: &str) -> anyhow::Result<()> {
+    if level.is_empty() {
+        return Ok(());
+    }
+    match effort_names(&engine.providers.state.load(), tier) {
+        Some(names) if names.iter().any(|n| n == level) => Ok(()),
+        Some(names) if names.is_empty() => crate::refuse!(BadRequest, "{tier} has no effort setting"),
+        Some(names) => crate::refuse!(BadRequest, "{tier} takes the effort levels {}; {level} is not one of them", names.join(", ")),
+        None if catalog::effort_rank(level).is_some() => Ok(()),
+        None => crate::refuse!(BadRequest, "unknown effort {level}"),
+    }
+}
+
+/// The level name a turn on `tier` is sent for the saved `level`
+/// (`catalog::launch_effort` over the tier's own names), and whether it was
+/// mapped. Unknown names for the tier: the level goes unchanged.
+#[logged]
+pub fn launch_effort(engine: &Engine, tier: &str, level: &str) -> (String, bool) {
+    match effort_names(&engine.providers.state.load(), tier) {
+        Some(names) => catalog::launch_effort(level, &names),
+        None => (level.to_string(), false),
+    }
+}
+
+/// The provider card's Muse facts: the MSP schema and whether this build was
+/// verified, the sign-in state as Muse reports it, and the catalog with its
+/// provenance (bundled rows are listed but never offered).
+#[logged]
+fn muse_detail(found: Option<&MuseDiscovery>, error: Option<&str>) -> Value {
+    let Some(d) = found else { return json!({ "error": error }) };
+    let p = &d.probe;
+    json!({
+        "observed_at": crate::util::iso(d.at),
+        "server_version": p.server_version,
+        "schema": { "version": p.schema_version, "fingerprint": p.fingerprint,
+                    "verified": muse_models::verified(p.fingerprint.as_deref()) },
+        "account_state": p.account_state,
+        "catalog": p.catalog.as_ref().map(|c| json!({
+            "source": c.source,
+            "models": c.models.iter().map(|m| json!({
+                "id": m.id, "account_row": m.account_row, "default": m.is_default, "efforts": m.variants,
+                "default_effort": m.default_effort, "context": m.context, "output": m.output })).collect::<Vec<_>>(),
+        })),
+        "error": error,
     })
 }
 

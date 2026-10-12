@@ -51,13 +51,16 @@ impl AccountInfo {
     pub fn limited(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
         self.marks.values().map(|(u, _)| *u).filter(|u| *u > now).max()
     }
-    /// Google model groups have independent quota. Unknown/default marks remain conservative.
+    /// Google model groups have independent quota; a Muse limit is marked
+    /// per tier, because Muse does not say which models share one (user
+    /// ruling 2026-10-12). Unknown/default marks remain conservative.
     pub fn limited_for(&self, tier: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        if self.provider != crate::providers::catalog::GOOGLE {
-            return self.limited(now);
-        }
-        let pool = format!("agy:{}", crate::providers::catalog::antigravity_pool(tier));
-        self.marks.iter().filter(|(k, _)| !k.starts_with("agy:") || **k == pool)
+        let (prefix, pool) = match self.provider.as_str() {
+            crate::providers::catalog::GOOGLE => ("agy:", format!("agy:{}", crate::providers::catalog::antigravity_pool(tier))),
+            crate::providers::catalog::MUSE => ("muse:", crate::providers::catalog::muse_pool(tier)),
+            _ => return self.limited(now),
+        };
+        self.marks.iter().filter(|(k, _)| !k.starts_with(prefix) || **k == pool)
             .map(|(_, (u, _))| *u).filter(|u| *u > now).max()
     }
     #[nolog]

@@ -33,13 +33,16 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
     let st = engine.providers.state.load();
     let mut out: Vec<Offer> = catalog::TIERS
         .iter()
-        .filter(|t| !t.legacy && !t.conditional && engine.settings.provider_enabled(t.provider))
+        // a Muse tier is conditional on the signed-in account's own catalog
+        .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && crate::providers::muse_offered(engine, t.tier)))
+            && engine.settings.provider_enabled(t.provider))
         .filter(|t| !catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled())
         .filter(|t| crate::usage::antigravity_limit(engine, t.tier).is_none())
         .filter(|t| match t.provider {
             catalog::CLAUDE => st.claude.installed,
             catalog::OPENAI => st.codex.installed,
             catalog::GOOGLE => st.agy.installed,
+            catalog::MUSE => st.muse.installed,
             _ => false,
         })
         .map(|t| Offer { tier: t.tier.to_string(), seat: t.seat, provider: t.provider, efforts: efforts(t, &st) })
@@ -96,22 +99,18 @@ fn host_ready(engine: &Engine, provider: &str) -> bool {
         catalog::CLAUDE => st.claude.connected,
         catalog::OPENAI => st.codex.connected,
         catalog::GOOGLE => st.agy.installed,
+        catalog::MUSE => st.muse.connected,
         _ => false,
     };
     signed_in && engine.settings.subscription_inference(provider)
 }
 
+/// The tier's own harness and model's level names (`providers::effort_names`),
+/// lowest first; none while they are not known.
 #[logged]
 fn efforts(t: &catalog::Tier, state: &crate::providers::State) -> Vec<&'static str> {
-    match t.provider {
-        catalog::OPENAI => catalog::EFFORTS.iter().copied().filter(|e| {
-            state.codex_efforts.get(t.model).is_some_and(|levels| levels.iter().any(|v| v == e))
-        }).collect(),
-        catalog::GOOGLE => catalog::EFFORTS.iter().copied()
-            .filter(|e| catalog::antigravity_effort(t.tier, e) == *e).collect(),
-        catalog::CLAUDE | catalog::OPENROUTER => catalog::EFFORTS.to_vec(),
-        _ => Vec::new(),
-    }
+    let names = crate::providers::effort_names(state, t.tier).unwrap_or_default();
+    catalog::EFFORT_ORDER.iter().copied().filter(|e| names.iter().any(|n| n == e)).collect()
 }
 
 /// The login a hire that names no account runs on: the org's default

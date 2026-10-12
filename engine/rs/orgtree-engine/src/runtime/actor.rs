@@ -22,6 +22,7 @@ use crate::providers::catalog;
 use crate::runtime::claude::{self, ClaudeProc, SpawnSpec};
 use crate::runtime::codex::{self as codexrt, CodexProc, CodexSpec};
 use crate::runtime::agy::{self as agyrt, AgyProc, AgySpec};
+use crate::runtime::muse::{self as musert, MuseProc, MuseSpec};
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
@@ -256,14 +257,20 @@ struct Turn {
     span: tracing::Span,
     /// cards `orgtree_*` tools attached to their chips, by tool_use_id
     cards: HashMap<String, Value>,
-    /// Codex: this turn's id on the thread
+    /// Codex/Muse: this turn's id on the thread (session)
     codex_turn: Option<String>,
     /// Codex: the thread's token total before this turn
     usage_base: Option<Value>,
-    /// Codex: the assistant row tool chips attach to
+    /// Codex/Muse: the assistant row tool chips attach to
     codex_row: Option<String>,
     /// Codex: the last error the server reported (it ends with `turn/completed`)
     codex_error: Option<String>,
+    /// Muse: the turn's typed failure (kind, the host's retry judgment)
+    muse_error: Option<(String, bool)>,
+    /// Muse: a typed quota refusal's reset (`error.quota.resetsAtMs`)
+    muse_quota: Option<DateTime<Utc>>,
+    /// Muse: the kind of each open item, by item id (deltas name only the id)
+    muse_items: HashMap<String, String>,
     /// One persisted runner-startup diagnostic and steer attempt per turn.
     codex_runner_hint: bool,
     /// approvals declined during the turn
@@ -313,6 +320,9 @@ impl Turn {
             usage_base: None,
             codex_row: None,
             codex_error: None,
+            muse_error: None,
+            muse_quota: None,
+            muse_items: HashMap::new(),
             codex_runner_hint: false,
             denials: Vec::new(),
             agy_text: HashMap::new(),
@@ -323,11 +333,13 @@ impl Turn {
     }
 }
 
-/// The agent's CLI process: Claude Code or the Codex app-server.
+/// The agent's CLI process: Claude Code, the Codex app-server, Antigravity
+/// or the Muse Code host.
 enum Proc {
     Claude(ClaudeProc),
     Codex(CodexProc),
     Agy(AgyProc),
+    Muse(MuseProc),
 }
 
 #[logged]
@@ -338,6 +350,7 @@ impl Proc {
             Proc::Claude(p) => p.process,
             Proc::Codex(p) => p.process,
             Proc::Agy(p) => p.process,
+            Proc::Muse(p) => p.process,
         }
     }
 
@@ -346,6 +359,7 @@ impl Proc {
             Proc::Claude(p) => p.exit_status(reason).await,
             Proc::Codex(p) => p.exit_status(reason).await,
             Proc::Agy(p) => p.exit_status(reason).await,
+            Proc::Muse(p) => p.exit_status(reason).await,
         }
     }
 
@@ -355,24 +369,26 @@ impl Proc {
             Proc::Claude(p) => p.alive(),
             Proc::Codex(p) => p.alive(),
             Proc::Agy(p) => p.alive(),
+            Proc::Muse(p) => p.alive(),
         }
     }
 
-    /// Ask the running turn to stop (`codex_turn`: the Codex turn id).
+    /// Ask the running turn to stop (`codex_turn`: the Codex or Muse turn id).
     fn interrupt(&self, codex_turn: Option<&str>) -> bool {
         match (self, codex_turn) {
             (Proc::Claude(p), _) => p.interrupt(),
             (Proc::Codex(p), Some(t)) => p.interrupt(t),
-            (Proc::Codex(_), None) => false,
+            (Proc::Muse(p), Some(t)) => p.interrupt(t),
+            (Proc::Codex(_) | Proc::Muse(_), None) => false,
             (Proc::Agy(p), _) => p.interrupt(),
         }
     }
 
-    /// A live effort change (Claude only; Codex takes it at the next turn).
+    /// A live effort change (Claude only; Codex and Muse take it at the next turn).
     fn set_effort(&self, level: &str) -> bool {
         match self {
             Proc::Claude(p) => p.set_effort(level),
-            Proc::Codex(_) | Proc::Agy(_) => false,
+            Proc::Codex(_) | Proc::Agy(_) | Proc::Muse(_) => false,
         }
     }
 
@@ -381,6 +397,7 @@ impl Proc {
             Proc::Claude(p) => p.close().await,
             Proc::Codex(p) => p.close().await,
             Proc::Agy(p) => p.close().await,
+            Proc::Muse(p) => p.close().await,
         }
     }
 
@@ -389,6 +406,7 @@ impl Proc {
             Proc::Claude(p) => p.kill().await,
             Proc::Codex(p) => p.kill().await,
             Proc::Agy(p) => p.kill().await,
+            Proc::Muse(p) => p.kill().await,
         }
     }
 
@@ -400,6 +418,11 @@ impl Proc {
     #[nolog]
     fn is_agy(&self) -> bool {
         matches!(self, Proc::Agy(_))
+    }
+
+    #[nolog]
+    fn is_muse(&self) -> bool {
+        matches!(self, Proc::Muse(_))
     }
 }
 
@@ -647,6 +670,11 @@ impl Actor {
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
                             tracing::Instrument::instrument(self.on_agy(v), span).await
                         }
+                        AgentMsg::Muse(process, v) => {
+                            if !self.owns_process(process) { continue; }
+                            let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
+                            tracing::Instrument::instrument(self.on_muse(v), span).await
+                        }
                         // every other message is a request of its own, caused by its sender's
                         other => {
                             let span = crate::trace::request_from(&self.client, env.cause.as_deref());
@@ -833,6 +861,9 @@ impl Actor {
             AgentMsg::Agy(process, v) => {
                 if self.owns_process(process) { self.on_agy(v).await?; }
             }
+            AgentMsg::Muse(process, v) => {
+                if self.owns_process(process) { self.on_muse(v).await?; }
+            }
             AgentMsg::Hook { input, reply } => {
                 let out = match self.on_hook(&input).await {
                     Ok(v) => v,
@@ -1011,6 +1042,22 @@ impl Actor {
         if level == previous {
             return json!({ "delivery": "unchanged", "effort": level });
         }
+        // Muse takes the level with each turn it starts: its host keeps
+        // running and the next turn carries the new level (the level the
+        // model's catalog row lists, else its default: never a neighbour)
+        if let Some(model) = self.proc.as_ref().and_then(|p| match p { Proc::Muse(m) => Some(m.model.clone()), _ => None }) {
+            let row = self.engine.providers.muse_model(&model);
+            let (sent, mapped) = catalog::muse_effort(&level, row.as_ref().map(|r| r.variants.as_slice()), row.as_ref().and_then(|r| r.default_effort.as_deref()));
+            if let Some(Proc::Muse(m)) = self.proc.as_mut() {
+                m.effort = Some(sent.clone());
+            }
+            self.proc_effort = Some(level.clone());
+            let mut out = json!({ "delivery": "next_turn", "effort": level, "reason": "Muse takes an effort change at its next turn" });
+            if mapped {
+                out["sent_as"] = json!(sent);
+            }
+            return out;
+        }
         if self.proc.is_some() && self.proc_effort.as_deref() != Some(level.as_str()) {
             self.reconfigured = true;
         }
@@ -1026,7 +1073,7 @@ impl Actor {
                 Some(p @ Proc::Claude(_)) if running => {
                     if !p.alive() {
                         next("the CLI process has exited")
-                    } else if p.set_effort(&level) {
+                    } else if p.set_effort(&crate::providers::launch_effort(&self.engine, &ctx.tier, &level).0) {
                         self.proc_effort = Some(level.clone());
                         json!({ "delivery": "sent", "effort": level })
                     } else {
@@ -1087,8 +1134,8 @@ impl Actor {
 
     async fn on_wake(&mut self) -> Result<()> {
         self.idle_since = Instant::now();
-        if self.turn.is_some() && !self.stopping && self.proc.as_ref().map(|p| p.is_codex()).unwrap_or(false) {
-            // Codex takes mid-turn mail at once (`turn/steer`)
+        if self.turn.is_some() && !self.stopping && self.proc.as_ref().map(|p| p.is_codex() || p.is_muse()).unwrap_or(false) {
+            // Codex and Muse take mid-turn mail at once (`turn/steer` on the exact turn)
             return self.steer_codex().await;
         }
         if self.turn.is_some() && !self.stopping && self.proc.as_ref().map(|p| p.is_agy()).unwrap_or(false) {
@@ -1441,6 +1488,8 @@ impl Actor {
             prompt::Lane::Codex
         } else if ctx.provider == catalog::GOOGLE {
             prompt::Lane::Antigravity
+        } else if ctx.provider == catalog::MUSE {
+            prompt::Lane::Muse
         } else {
             prompt::Lane::Claude
         };
@@ -1578,6 +1627,9 @@ impl Actor {
         if ctx.provider == catalog::GOOGLE {
             return startup::Inputs::None;
         }
+        if ctx.provider == catalog::MUSE {
+            return startup::Inputs::Muse { cwd: ctx.scratch.clone() };
+        }
         let config = if ctx.provider == catalog::OPENROUTER {
             None
         } else if ctx.provider == catalog::LANGSERVER {
@@ -1636,6 +1688,11 @@ impl Actor {
         if ctx.provider == catalog::GOOGLE {
             if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
                 return Err(anyhow!("Antigravity {} quota is marked exhausted until {until}", catalog::antigravity_pool(&ctx.tier)));
+            }
+        }
+        if ctx.provider == catalog::MUSE {
+            if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
+                return Err(anyhow!("Muse refused {} for its quota until {until}", ctx.tier));
             }
         }
         // a legacy org key never serves another org's turn (3.x parity F02)
@@ -1935,7 +1992,9 @@ impl Actor {
         }
         // Launch-time effort applies to every Claude harness tier, including
         // Haiku and OpenRouter; live_effort only controls mid-turn changes.
-        let effort = Some(ctx.effort.clone()).filter(|e| !e.is_empty());
+        // Claude Code's own name for the saved level (`launch_effort`: a level
+        // another harness names maps to the nearest one Claude Code takes)
+        let effort = Some(crate::providers::launch_effort(&self.engine, &ctx.tier, &ctx.effort).0).filter(|e| !e.is_empty());
         let spec = SpawnSpec {
             exe,
             cwd: ctx.scratch.clone(),
@@ -1974,6 +2033,9 @@ impl Actor {
         if ctx.provider == catalog::GOOGLE {
             return self.ensure_agy(ctx).await;
         }
+        if ctx.provider == catalog::MUSE {
+            return self.ensure_muse(ctx).await;
+        }
         if ctx.provider != catalog::CLAUDE && route.is_none() {
             return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
         }
@@ -1983,7 +2045,7 @@ impl Actor {
         let plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => {
-                !p.is_codex() && !p.is_agy() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
+                !p.is_codex() && !p.is_agy() && !p.is_muse() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
             }
             None => false,
         };
@@ -2157,7 +2219,13 @@ impl Actor {
             api_key,
             model: ctx.model.clone(),
             // a gateway model that takes no reasoning gets no effort
-            effort: Some(codexrt::codex_effort(&ctx.effort)).filter(|_| route.map(|r| r.reasoning).unwrap_or(true)),
+            // the Codex model's own name for the saved level (its model/list levels)
+            effort: Some(codexrt::codex_effort(&if route.is_none() {
+                crate::providers::launch_effort(&self.engine, &ctx.tier, &ctx.effort).0
+            } else {
+                ctx.effort.clone()
+            }))
+            .filter(|_| route.map(|r| r.reasoning).unwrap_or(true)),
             sandbox,
             instructions: plan.identity.clone(),
             dynamic_tools: codexrt::dynamic_tools(tools),
@@ -2292,8 +2360,138 @@ impl Actor {
         Ok(())
     }
 
-    /// Mail that arrived during a Codex turn goes straight in (`turn/steer`);
-    /// if the turn does not take it, it waits for the next turn.
+    /// Start (or keep) the agent's Muse host on its session. The model must
+    /// be a row of the signed-in account's own catalog (a bundled row offers
+    /// nothing, user 2026-10-12); the level goes with each turn, mapped to
+    /// the model's catalog default when the model does not list it.
+    async fn ensure_muse(&mut self, ctx: &Ctx) -> Result<()> {
+        if !self.engine.settings.provider_enabled(catalog::MUSE) {
+            return Err(anyhow!("Muse is turned off in App settings"));
+        }
+        let row = self.engine.providers.muse_model(&ctx.model).ok_or_else(|| {
+            anyhow!("the signed-in Muse account's catalog does not offer {} ({}); move this agent to a Muse tier it offers", ctx.tier, ctx.model)
+        })?;
+        let (effort, mapped) = catalog::muse_effort(&ctx.effort, Some(&row.variants), row.default_effort.as_deref());
+        if mapped {
+            tracing::info!(agent = %self.name, model = %ctx.model, saved = %ctx.effort, sent = %effort,
+                "this Muse model does not list the saved effort; its catalog default is sent");
+        }
+        let plan = self.plan(ctx);
+        let reuse = match self.proc.as_mut() {
+            Some(p) => p.is_muse() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive(),
+            None => false,
+        };
+        if reuse {
+            if let Some(Proc::Muse(p)) = self.proc.as_mut() {
+                p.effort = Some(effort);
+            }
+            self.proc_effort = Some(ctx.effort.clone());
+            return Ok(());
+        }
+        self.close_proc().await;
+        self.reconfigured = false;
+        let exe = match self.engine.providers.muse_path() {
+            Some(p) => p,
+            None => tokio::task::spawn_blocking(crate::providers::locate_muse)
+                .await
+                .ok()
+                .flatten()
+                .map(|(p, _)| p)
+                .ok_or_else(|| anyhow!("Muse Code is not installed on this machine"))?,
+        };
+        std::fs::create_dir_all(&ctx.scratch)?;
+        let tools = &ctx.effective["tools"];
+        let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
+        let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
+        let may_write = on("edit") && pm != "plan";
+        let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
+        let granted: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
+        // read/write grants are further workspace roots; a read-only grant
+        // never is (Muse gives every root the same write access)
+        let (mut roots, mut read_only) = (Vec::new(), Vec::new());
+        for d in ctx.effective["add_dirs"].as_array().cloned().unwrap_or_default() {
+            let Some(p) = d["path"].as_str().map(PathBuf::from).filter(|p| p.is_dir()) else { continue };
+            if d["mode"] == "ro" || !may_write {
+                read_only.push(p);
+            } else {
+                roots.push(p);
+            }
+        }
+        let resume = ctx.session_id.clone().filter(|_| ctx.session_provider.as_deref() == Some(catalog::MUSE));
+        let account = ctx.account.as_deref().and_then(|a| self.engine.accounts.view().get(a).cloned()).filter(|a| a.provider == catalog::MUSE);
+        let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_NODE".into(), ctx.name.clone()),
+                           ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
+        env.extend(self.engine.credential_bridge.environment(&self.engine, self.id, self.org_id, ctx.generation));
+        match &account {
+            // a key account bills its own key: Muse reads it from META_API_KEY
+            Some(a) if a.is_apikey() => {
+                let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
+                env.push(("META_API_KEY".into(), key));
+            }
+            Some(a) => env.extend(crate::providers::muse_models::login_env(a.config_dir.as_deref().map(std::path::Path::new))),
+            None => {}
+        }
+        let spec = MuseSpec {
+            exe,
+            cwd: ctx.scratch.clone(),
+            roots,
+            read_only,
+            model: ctx.model.clone(),
+            effort: Some(effort),
+            developer_prompt: plan.identity.clone(),
+            seat: musert::seat(may_write, pm),
+            may_write,
+            may_shell: on("bash") && may_write,
+            may_web: on("web"),
+            may_subagents: on("subagents"),
+            servers: granted,
+            resume: resume.clone(),
+            env,
+        };
+        let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
+        let mut proc = MuseProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        proc.metered = account.as_ref().is_some_and(|a| a.is_apikey());
+        proc.login_root = account.as_ref().filter(|a| !a.is_apikey()).and_then(|a| a.config_dir.clone());
+        let session_id = proc.session_id.clone();
+        if resume.is_some() && resume.as_deref() != Some(session_id.as_str()) {
+            self.flag_handoff("its previous Muse session could not be resumed").await;
+        }
+        if resume.as_deref() != Some(session_id.as_str()) {
+            let recorded: Result<()> = async {
+                let client = self.engine.db.get().await?;
+                client
+                    .execute("UPDATE ot.agents SET session_id = $2, provider = $3 WHERE id = $1", &[&self.id, &session_id, &ctx.provider])
+                    .await?;
+                client
+                    .execute(
+                        "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
+                        &[&self.id, &ctx.generation, &ctx.provider, &session_id],
+                    )
+                    .await?;
+                Ok(())
+            }
+            .await;
+            if let Err(e) = recorded {
+                // ended gracefully, never by dropping it
+                proc.close().await;
+                return Err(e);
+            }
+        }
+        self.engine.credential_bridge.bind(self.id, proc.pid);
+        self.init = json!({ "model": proc.model, "session": proc.session_id, "schema_fingerprint": proc.schema_fingerprint,
+                            "identity_by_file": proc.prompt_by_file });
+        self.proc = Some(Proc::Muse(proc));
+        self.proc_print = Some(plan.print);
+        self.proc_effort = Some(ctx.effort.clone());
+        self.provider = ctx.provider.clone();
+        self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
+        self.publish();
+        Ok(())
+    }
+
+    /// Mail that arrived during a Codex or Muse turn goes straight in
+    /// (`turn/steer`, naming the exact running turn); if the turn does not
+    /// take it, it waits for the next turn.
     async fn steer_codex(&mut self) -> Result<()> {
         let Some((turn_id, Some(codex_turn))) = self.turn.as_ref().map(|t| (t.id, t.codex_turn.clone())) else { return Ok(()) };
         let client = self.engine.db.get().await?;
@@ -2320,7 +2518,8 @@ impl Actor {
         let text = prompt::steer_text(&mails, &self.rels_of(&mails).await);
         let steered = match &self.proc {
             Some(Proc::Codex(p)) => p.steer(&codex_turn, &text).await,
-            _ => Err(anyhow!("no Codex process")),
+            Some(Proc::Muse(p)) => p.steer(&codex_turn, &text).await,
+            _ => Err(anyhow!("no Codex or Muse process")),
         };
         if let Err(e) = steered {
             tracing::info!(agent = %self.name, error = %format!("{e:#}"), "the turn did not take the mail; it waits for the next turn");
@@ -2732,7 +2931,7 @@ impl Actor {
         let text = prompt::turn_text(&mails, &context, &rels, reset_note.or(handoff).as_deref());
         // the lanes whose usage-limit freeze replays the request (3.x freeze_provider_limit)
         let replay = match self.proc.as_ref() {
-            Some(Proc::Codex(_)) | Some(Proc::Agy(_)) => freeze::replay_tail(&prompt::replay_text(&mails, &rels)),
+            Some(Proc::Codex(_)) | Some(Proc::Agy(_)) | Some(Proc::Muse(_)) => freeze::replay_tail(&prompt::replay_text(&mails, &rels)),
             _ => String::new(),
         };
         let mut codex_turn: Option<String> = None;
@@ -2747,6 +2946,21 @@ impl Actor {
                 }
                 Err(e) => {
                     tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "turn/start failed");
+                    refused = Some(format!("{e:#}"));
+                    false
+                }
+            },
+            Some(Proc::Muse(p)) => match p.start_turn(&text, musert::images(&attachment_paths(&mails))).await {
+                Ok((t, disposition)) => {
+                    if disposition != "started" {
+                        // the host was busy with a turn Orgtree did not start: ours waits behind it
+                        tracing::info!(agent = %self.name, turn = %t, disposition = %disposition, "the Muse turn was queued");
+                    }
+                    codex_turn = Some(t);
+                    true
+                }
+                Err(e) => {
+                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "Muse turn/start failed");
                     refused = Some(format!("{e:#}"));
                     false
                 }
@@ -3083,6 +3297,372 @@ impl Actor {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    /// One Muse host notification (its session's stream, MSP v1). Only the
+    /// running turn's items and usage count; a turn Orgtree did not start (a
+    /// scheduled or automatic one) is cancelled, because Orgtree admits turns.
+    #[nolog]
+    async fn on_muse(&mut self, v: Value) -> Result<()> {
+        if let Some(t) = self.turn.as_mut() {
+            t.last_event = Instant::now();
+        }
+        let method = v["method"].as_str().unwrap_or("").to_string();
+        let p = &v["params"];
+        let ours = self.turn.as_ref().and_then(|t| t.codex_turn.clone());
+        let of_ours = |turn: &Value| turn.as_str().is_some_and(|id| Some(id) == ours.as_deref());
+        match method.as_str() {
+            "turn/started" => {
+                if let Some(id) = p["turnId"].as_str().filter(|id| Some(*id) != ours.as_deref()) {
+                    tracing::warn!(agent = %self.name, turn = id, "cancelling a Muse turn Orgtree did not start");
+                    if let Some(Proc::Muse(m)) = &self.proc {
+                        m.cancel_turn(id);
+                    }
+                }
+            }
+            "item/started" | "item/updated" | "item/completed" => {
+                let item = &p["item"];
+                // a compaction may run outside any turn (`/compact`)
+                if item["kind"] == "compaction" && item["status"] != "inProgress" {
+                    self.on_muse_compaction(item).await?;
+                } else if of_ours(&item["turnId"]) {
+                    let done = method == "item/completed" || item["status"].as_str().is_some_and(|s| s != "inProgress");
+                    self.on_muse_item(item, done).await?;
+                }
+            }
+            "item/delta" => {
+                let id = p["itemId"].as_str().unwrap_or("");
+                let kind = self.turn.as_ref().and_then(|t| t.muse_items.get(id).cloned()).unwrap_or_default();
+                let text = p["delta"].as_str().unwrap_or("");
+                let field = p["field"].as_str().unwrap_or("text");
+                match (kind.as_str(), field) {
+                    ("agentMessage", "text") => {
+                        if let Some(t) = self.turn.as_mut() {
+                            t.activity = true;
+                            if t.draft.len() < 64_000 {
+                                t.draft.push_str(text);
+                            }
+                        }
+                        self.stream("delta", json!({ "text": text }));
+                        self.set_activity("writing", None);
+                    }
+                    ("reasoning", f) if f == "text" || f.starts_with("summary.") => {
+                        if let Some(t) = self.turn.as_mut() {
+                            t.activity = true;
+                            if t.thinking.len() < 16_000 {
+                                t.thinking.push_str(text);
+                            }
+                        }
+                        self.stream("thinking", json!({ "text": text }));
+                    }
+                    _ => {}
+                }
+            }
+            "session/tokenUsage" if of_ours(&p["turnId"]) => {
+                // one model completion of this turn: summed per turn. Muse's
+                // `inputTokens` holds the cached part (measured on 1.4.6);
+                // `promptTokens` is the counted-once prompt, the occupancy
+                let u = &p["usage"];
+                let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
+                if let Some(t) = self.turn.as_mut() {
+                    let prompt = p["promptTokens"].as_i64().unwrap_or_else(|| n(u, "inputTokens"));
+                    let cached = u.get("cacheReadTokens").and_then(Value::as_i64).unwrap_or_else(|| n(u, "cachedTokens")).min(prompt);
+                    let acc = &mut t.usage;
+                    if !acc.is_object() {
+                        *acc = json!({ "input": 0, "cache_read": 0, "cache_write": 0, "output": 0, "last_prompt": 0, "requests": 0 });
+                    }
+                    acc["input"] = json!(n(acc, "input") + (prompt - cached).max(0));
+                    acc["cache_read"] = json!(n(acc, "cache_read") + cached);
+                    acc["cache_write"] = json!(n(acc, "cache_write") + n(u, "cacheWriteTokens"));
+                    acc["output"] = json!(n(acc, "output") + n(u, "outputTokens"));
+                    acc["last_prompt"] = json!(prompt);
+                    acc["requests"] = json!(n(acc, "requests") + 1);
+                    if let Some(m) = p["modelId"].as_str() {
+                        t.model = Some(m.to_string());
+                    }
+                }
+            }
+            "session/contextUsage" => {
+                if let Some(t) = self.turn.as_mut().filter(|t| t.usage.is_object()) {
+                    t.usage["context_used"] = p["usedTokens"].clone();
+                    t.usage["context_window"] = p["windowTokens"].clone();
+                }
+            }
+            "usage/changed" => {
+                // the login the host runs on (an API key has no usage windows)
+                let (model, root) = match &self.proc {
+                    Some(Proc::Muse(m)) if !m.metered => (m.model.clone(), m.login_root.clone()),
+                    _ => return Ok(()),
+                };
+                if crate::usage::muse_observed(&self.engine, root.as_deref(), p, Some(&model)).await && root.is_none() {
+                    crate::usage::muse_publish(&self.engine);
+                }
+            }
+            "session/todoListChanged" => {
+                // the same plan chip Codex's plan updates draw
+                let plan: Vec<Value> = p["items"].as_array().cloned().unwrap_or_default().iter().map(|i| {
+                    json!({ "step": i["text"], "status": i["status"] })
+                }).collect();
+                self.on_codex_plan(&json!({ "plan": plan })).await?;
+            }
+            "session/modelChanged" => {
+                let pinned = match &self.proc {
+                    Some(Proc::Muse(m)) => m.model.clone(),
+                    _ => String::new(),
+                };
+                if let Some(m) = p["modelId"].as_str().filter(|m| !pinned.is_empty() && *m != pinned) {
+                    // the seat's model is asserted, not assumed: a session that moved
+                    // off it is not used again
+                    tracing::warn!(agent = %self.name, model = m, pinned = %pinned, "the Muse session changed model; its host is replaced");
+                    self.reconfigured = true;
+                }
+            }
+            "session/modelRouteUnserved" => {
+                tracing::warn!(agent = %self.name, model = ?p["modelId"], "Muse can no longer serve this session's model");
+                self.last_error = Some(format!("Muse can no longer serve {}", p["modelId"].as_str().unwrap_or("this model")));
+                self.reconfigured = true;
+            }
+            "turn/retryScheduled" if of_ours(&p["turnId"]) => {
+                tracing::info!(agent = %self.name, attempt = ?p["attempt"], max = ?p["maxAttempts"], delay_ms = ?p["retryDelayMs"],
+                    kind = ?p["errorKind"], reason = ?p["reason"], "Muse retries a model request");
+            }
+            "turn/foregroundCompleted" if of_ours(&p["turnId"]) => {
+                // reminder agents are switched off for Orgtree hosts; one holding
+                // the turn open anyway is recorded, not waited on silently
+                tracing::warn!(agent = %self.name, blocking = ?p["blockingAgents"], "background reminder checks hold the Muse turn open");
+            }
+            "orgtree/denied" => {
+                if let Some(t) = self.turn.as_mut() {
+                    t.denials.push(p.clone());
+                }
+            }
+            "turn/completed" if of_ours(&p["turnId"]) => {
+                let interrupted = self.turn.as_ref().map(|t| t.interrupted).unwrap_or(false);
+                let e = &p["error"];
+                if let Some(t) = self.turn.as_mut() {
+                    if e.is_object() {
+                        t.muse_error = Some((e["kind"].as_str().unwrap_or("").to_string(), e["retryable"].as_bool().unwrap_or(false)));
+                        t.muse_quota = e.pointer("/quota/resetsAtMs").and_then(Value::as_i64).and_then(DateTime::from_timestamp_millis);
+                    }
+                    // the turn's own aggregate, when the host reports one
+                    if let Some(u) = p.get("usage").filter(|u| u.is_object()) {
+                        let n = |k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
+                        let cached = u.get("cacheReadTokens").and_then(Value::as_i64).unwrap_or_else(|| n("cachedTokens")).min(n("inputTokens"));
+                        let last = t.usage["last_prompt"].clone();
+                        let mut agg = json!({ "input": (n("inputTokens") - cached).max(0), "cache_read": cached,
+                                              "cache_write": n("cacheWriteTokens"), "output": n("outputTokens"), "last_prompt": last });
+                        for k in ["context_used", "context_window", "children"] {
+                            if !t.usage[k].is_null() {
+                                agg[k] = t.usage[k].clone();
+                            }
+                        }
+                        t.usage = agg;
+                    }
+                }
+                let error = match p["terminal"].as_str().unwrap_or("completed") {
+                    "completed" => None,
+                    "cancelled" if interrupted => None,
+                    "cancelled" => Some("the Muse turn was cancelled".to_string()),
+                    "failed" => Some(
+                        e["message"].as_str().or(p["reason"].as_str()).map(|s| gist(s, 600))
+                            .unwrap_or_else(|| "the Muse turn failed".into()),
+                    ),
+                    other => Some(format!("the Muse turn ended {other}")),
+                };
+                self.end_turn(error, json!({ "muse": true, "duration_ms": p["durationMs"] })).await?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// A Muse item of the running turn started, changed or settled: text
+    /// rows, thoughts, tool chips, and the child runs a session starts (a
+    /// subagent the scope does not allow is stopped at once; a reminder
+    /// child is recorded, its usage kept apart from the turn's).
+    async fn on_muse_item(&mut self, item: &Value, done: bool) -> Result<()> {
+        if self.turn.is_none() {
+            return Ok(());
+        }
+        let kind = item["kind"].as_str().unwrap_or("").to_string();
+        let id = item["itemId"].as_str().unwrap_or("").to_string();
+        if let Some(t) = self.turn.as_mut() {
+            t.activity = true;
+            if done {
+                t.muse_items.remove(&id);
+            } else {
+                t.muse_items.insert(id.clone(), kind.clone());
+            }
+        }
+        match kind.as_str() {
+            "userMessage" | "hookRun" | "sideChat" | "compaction" => {}
+            "agentMessage" => {
+                if !done {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.draft.clear();
+                        t.draft_order = None;
+                    }
+                    self.set_activity("writing", None);
+                    return Ok(());
+                }
+                let text = item["text"].as_str().unwrap_or("").to_string();
+                if text.trim().is_empty() {
+                    return Ok(());
+                }
+                let row = json!({ "role": "assistant", "text": text, "tools": [], "ts": now_iso(), "assistant_id": id });
+                let client = self.engine.db.get().await?;
+                let seq = self.convo.append(&client, row.clone()).await?;
+                drop(client);
+                if let Some(t) = self.turn.as_mut() {
+                    t.rows.insert(id.clone(), (seq, row));
+                    t.codex_row = Some(id);
+                    t.draft.clear();
+                    t.draft_order = None;
+                }
+                self.text_landed();
+            }
+            "reasoning" => {
+                if !done {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.thinking.clear();
+                        t.thinking_order = None;
+                    }
+                    self.stream("thinking_start", json!({}));
+                    self.set_activity("thinking", None);
+                    return Ok(());
+                }
+                let parts: Vec<String> = item["summary"].as_array()
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                    .filter(|v: &Vec<String>| !v.is_empty())
+                    .or_else(|| item["text"].as_str().map(|s| vec![s.to_string()]))
+                    .unwrap_or_default();
+                let body = parts.join("\n");
+                if body.trim().is_empty() {
+                    return Ok(());
+                }
+                let row = json!({ "role": "assistant", "text": "", "thinking": convo::clip(&body, 20_000).0, "tools": [],
+                                  "ts": now_iso(), "assistant_id": id });
+                let client = self.engine.db.get().await?;
+                let seq = self.convo.append(&client, row.clone()).await?;
+                drop(client);
+                if let Some(t) = self.turn.as_mut() {
+                    t.rows.insert(id.clone(), (seq, row));
+                    t.codex_row = Some(id);
+                    t.thinking.clear();
+                    t.thinking_order = None;
+                }
+                self.stream("thought", json!({}));
+            }
+            _ => {
+                if kind == "subagent" && !done {
+                    let allowed = self.load_ctx().await.map(|c| c.effective["tools"].get("subagents").and_then(Value::as_bool).unwrap_or(true)).unwrap_or(false);
+                    if !allowed {
+                        if let (Some(Proc::Muse(m)), Some(sub)) = (&self.proc, item["subagentId"].as_str()) {
+                            tracing::warn!(agent = %self.name, subagent = sub, "stopping a Muse subagent this agent's scope does not allow");
+                            m.stop_subagent(sub, "this agent's scope does not allow subagents");
+                        }
+                    }
+                }
+                if kind == "reminderChild" || kind == "workflow" {
+                    tracing::warn!(agent = %self.name, kind = %kind, status = ?item["status"], "Muse started a child run Orgtree switched off");
+                }
+                let (name, input) = muse_tool(item);
+                let client = self.engine.db.get().await?;
+                let known = self.turn.as_ref().map(|t| t.tools.contains_key(&id)).unwrap_or(false);
+                if !known {
+                    crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
+                    let Some(key) = self.codex_row(&client, &id).await? else { return Ok(()) };
+                    let update = {
+                        let Some(t) = self.turn.as_mut() else { return Ok(()) };
+                        let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+                        let chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input,
+                                           "started_at": now_iso(), "refs": convo::tool_refs(&name, &input, None) });
+                        if let Some(tools) = row["tools"].as_array_mut() {
+                            tools.push(chip);
+                        }
+                        t.tools.insert(id.clone(), key.clone());
+                        (*seq, row.clone())
+                    };
+                    self.convo.update(&client, update.0, update.1).await?;
+                    if !done {
+                        drop(client);
+                        self.set_activity("tool", Some(name));
+                        self.stream("tool", json!({ "id": id }));
+                        return Ok(());
+                    }
+                }
+                if !done {
+                    return Ok(());
+                }
+                let (text, failed) = muse_result(item);
+                let update = {
+                    let Some(t) = self.turn.as_mut() else { return Ok(()) };
+                    if let Some(u) = item.get("usage").filter(|u| u.is_object()) {
+                        // a child's own usage: kept beside the turn's, never in it
+                        let n = |k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
+                        if !t.usage.is_object() {
+                            t.usage = json!({});
+                        }
+                        let c = &mut t.usage["children"];
+                        if !c.is_object() {
+                            *c = json!({ "input": 0, "output": 0, "runs": 0 });
+                        }
+                        c["input"] = json!(c["input"].as_i64().unwrap_or(0) + n("inputTokens"));
+                        c["output"] = json!(c["output"].as_i64().unwrap_or(0) + n("outputTokens"));
+                        c["runs"] = json!(c["runs"].as_i64().unwrap_or(0) + 1);
+                    }
+                    let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
+                    let card = t.cards.remove(item["callId"].as_str().unwrap_or(&id)).or_else(|| t.cards.remove(&id));
+                    let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+                    let (clipped, truncated) = convo::clip(&text, 4000);
+                    if let Some(chips) = row["tools"].as_array_mut() {
+                        for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
+                            chip["input"] = input.clone();
+                            chip["result"] = json!(clipped);
+                            chip["result_lines"] = json!(text.lines().count());
+                            chip["ended_at"] = json!(now_iso());
+                            let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(&text));
+                            chip["refs"] = refs;
+                            if truncated || item["truncated"] == true {
+                                chip["truncated"] = json!(true);
+                            }
+                            if failed {
+                                chip["error"] = json!(gist(&text, 500));
+                            }
+                            if let Some(extra) = card.as_ref().and_then(|c| c.as_object()) {
+                                if let Some(c) = chip.as_object_mut() {
+                                    for (k, val) in extra {
+                                        c.insert(k.clone(), val.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    (*seq, row.clone())
+                };
+                self.convo.update(&client, update.0, update.1).await?;
+                drop(client);
+                self.set_activity("thinking", None);
+                self.stream("tool", json!({}));
+            }
+        }
+        Ok(())
+    }
+
+    /// A Muse compaction settled: the transcript and the agent's record say so.
+    async fn on_muse_compaction(&mut self, item: &Value) -> Result<()> {
+        let outcome = item["outcome"].as_str().unwrap_or("");
+        if outcome != "compacted" {
+            tracing::info!(agent = %self.name, outcome, reason = ?item["reason"], "Muse compaction did not compact");
+            return Ok(());
+        }
+        crate::domain::runtime_notices::compacted(&self.engine, self.org_id, self.id, true).await?;
+        let client = self.engine.db.get().await?;
+        let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact" });
+        self.convo.append(&client, row).await?;
+        drop(client);
+        self.text_landed();
         Ok(())
     }
 
@@ -4186,6 +4766,7 @@ impl Actor {
         // A terminal process error may carry no result object. The admitted
         // provider still determines the usage shape and quota pool.
         let agy = turn.serving_provider == catalog::GOOGLE || res["agy"].as_bool().unwrap_or(false);
+        let muse = turn.serving_provider == catalog::MUSE || res["muse"].as_bool().unwrap_or(false);
         if error.is_none() && codex {
             error = turn.codex_error.clone().filter(|_| !turn.interrupted);
         }
@@ -4193,6 +4774,15 @@ impl Actor {
         let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if agy {
             let u = &turn.usage;
             (n(u, "input"), n(u, "cached"), 0, n(u, "output"), 300, n(u, "last_prompt") as i32, u["cost"].as_f64().unwrap_or(0.0))
+        } else if muse {
+            // Muse publishes neither prices nor a cache lifetime: the cost is
+            // unknown (never zero) and so is the TTL. Child runs' usage is
+            // kept apart (`children`), as Muse keeps it out of the session's.
+            let u = &turn.usage;
+            if u["children"].is_object() {
+                tracing::info!(agent = %self.name, turn = turn.id, children = %u["children"], "Muse child runs' own usage (not in the turn's)");
+            }
+            (n(u, "input"), n(u, "cache_read"), n(u, "cache_write"), n(u, "output"), 0, n(u, "last_prompt") as i32, 0.0)
         } else if codex {
             // Codex counts tokens for the whole thread: this turn is the difference
             let total = &turn.usage["total"];
@@ -4281,9 +4871,14 @@ impl Actor {
             Some(_) => self.last_wall().await,
             None => Value::Null,
         };
-        let (limit, wall) = match error.as_deref().and_then(|e| self.limit_of(e, &prior_wall)) {
-            Some((until, wall)) => (Some(until), wall),
-            None => (None, None),
+        // Muse types its quota refusal (kind and reset); its words are never parsed
+        let (limit, wall) = if muse {
+            (turn.muse_quota.filter(|_| error.is_some()), None)
+        } else {
+            match error.as_deref().and_then(|e| self.limit_of(e, &prior_wall)) {
+                Some((until, wall)) => (Some(until), wall),
+                None => (None, None),
+            }
         };
         let mut freeze_rec: Option<Value> = None;
         // an opted-in agent may move to another account; that search reads
@@ -4319,7 +4914,14 @@ impl Actor {
         if let (Some(e), false) = (error.as_deref(), turn.interrupted || turn.killed || freeze_rec.is_some()) {
             let died = turn.exited && turn.activity && res.is_null();
             let account = turn.serving_account.as_deref();
-            match recovery::classify(e, &res, openrouter || langserver, died) {
+            // Muse classifies its own failures: a sign-in it needs, or one it
+            // judges retryable; anything else reads as the other lanes do
+            let class = match turn.muse_error.as_ref().filter(|_| muse) {
+                Some((kind, _)) if kind == "authRequired" => Some(recovery::Class::Auth),
+                Some((kind, true)) => Some(recovery::Class::Net(format!("Muse reported a retryable {kind} failure"))),
+                _ => recovery::classify(e, &res, openrouter || langserver, died),
+            };
+            match class {
                 Some(recovery::Class::Net(kind)) => {
                     classified = true;
                     let run = recovery::bump(&self.engine, self.id, "net_fail_run").await?;
@@ -4410,8 +5012,8 @@ impl Actor {
                         error = $11, model = coalesce($12, model), cost_source = $13
                   WHERE id = $1",
                 &[
-                    &turn.id, &cost, &output, &input, &cache_read, &cache_write, &ttl, &ms, &(denials.len() as i32),
-                    &turn.killed, &error, &turn.model, &(if agy && catalog::antigravity_claude(&turn.serving_tier) { "unknown" }
+                    &turn.id, &cost, &output, &input, &cache_read, &cache_write, &(!muse).then_some(ttl), &ms, &(denials.len() as i32),
+                    &turn.killed, &error, &turn.model, &(if (agy && catalog::antigravity_claude(&turn.serving_tier)) || muse { "unknown" }
                         else if langserver { "local" } else if codex || agy || openrouter { "priced" } else { "cli" }),
                 ],
             )
@@ -4443,7 +5045,7 @@ impl Actor {
                 &[
                     &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &turn.compact,
                     &freeze_rec, &self.cost_seen,
-                    &(agy && catalog::antigravity_claude(&turn.serving_tier) && input + cache_read + output > 0),
+                    &((agy && catalog::antigravity_claude(&turn.serving_tier) || muse) && input + cache_read + output > 0),
                     &langserver,
                 ],
             )
@@ -4463,6 +5065,8 @@ impl Actor {
                 let win = self.rate_limit.as_ref().and_then(|r| r["rateLimitType"].as_str().map(str::to_string));
                 let pool = if agy {
                     format!("agy:{}", catalog::antigravity_pool(&turn.serving_tier))
+                } else if muse {
+                    catalog::muse_pool(&turn.serving_tier)
                 } else { "default".to_string() };
                 let _ = client
                     .execute(
@@ -4717,6 +5321,9 @@ impl Actor {
         }
         let compact = text.trim() == "/compact" || text.trim().starts_with("/compact ");
         let ctx = self.load_ctx().await?;
+        if ctx.provider == catalog::MUSE {
+            return self.muse_command(&ctx, compact).await;
+        }
         let claude_code = ctx.provider == catalog::CLAUDE
             || ((ctx.provider == catalog::OPENROUTER || ctx.provider == catalog::LANGSERVER)
                 && ctx.harness.as_deref() != Some("codex-cli"));
@@ -4766,6 +5373,34 @@ impl Actor {
         self.publish();
         self.stream("text", json!({}));
         Ok(json!({ "started": true }))
+    }
+
+    /// A Muse agent's command: only `/compact`, which Muse runs on the session
+    /// itself (`session/compact`, admission only; the compaction item reports
+    /// its end). Other slash commands are Claude Code's.
+    async fn muse_command(&mut self, ctx: &Ctx, compact: bool) -> Result<Value> {
+        if !compact {
+            return Ok(json!({ "started": false, "reason": "a Muse agent takes /compact only; other slash commands are Claude Code's" }));
+        }
+        if ctx.state != "live" || ctx.halted || ctx.killswitch {
+            return Ok(json!({ "started": false, "reason": "this agent is not running (retired, halted or stopped)" }));
+        }
+        if ctx.session_id.is_none() {
+            return Ok(json!({ "started": false, "reason": "this agent has no conversation to compact yet" }));
+        }
+        self.ensure_proc(ctx).await?;
+        let admitted = match self.proc.as_ref() {
+            Some(Proc::Muse(p)) => p.compact().await,
+            _ => return Ok(json!({ "started": false, "reason": "the process could not be reached" })),
+        };
+        match admitted {
+            Ok(_) => {
+                self.park();
+                self.publish();
+                Ok(json!({ "started": true }))
+            }
+            Err(e) => Ok(json!({ "started": false, "reason": format!("Muse refused the compaction: {e:#}") })),
+        }
     }
 
     // ------------------------------------------------------------ publish
@@ -4914,6 +5549,7 @@ impl Actor {
             p if p == catalog::OPENAI => "codex",
             p if (p == catalog::OPENROUTER || p == catalog::LANGSERVER) && ctx.harness.as_deref() == Some("codex-cli") => "codex",
             p if p == catalog::GOOGLE => "antigravity",
+            p if p == catalog::MUSE => "muse",
             _ => "claude",
         };
         let action = crate::domain::tree::cold_turn_action(
@@ -4953,6 +5589,15 @@ impl Actor {
                            "source": "no_positive_receipt", "lane": lane, "last_receipt_at": null,
                            "ttl_seconds": null, "expires_at": null });
         };
+        // Muse reports cache reads but no cache lifetime: an observed entry
+        // with an unknown expiry, never a countdown made up here
+        if ctx.provider == catalog::MUSE {
+            return json!({ "generation": generation, "state": "uncertain", "readiness": "unknown",
+                           "readiness_cause": "unsupported_capability",
+                           "reason": "Muse reported cache reads but publishes no cache lifetime",
+                           "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at),
+                           "ttl_seconds": null, "expires_at": null });
+        }
         let expires = at + chrono::Duration::seconds(ttl);
         if Utc::now() >= expires {
             return json!({ "generation": generation, "state": "expired_known_entry", "readiness": "not_ready",
@@ -5074,6 +5719,16 @@ fn patch_of(v: &Value) -> Option<Value> {
     Some(d)
 }
 
+/// The image attachments' paths (Muse sends each one's bytes, `musert::images`).
+#[logged]
+fn attachment_paths(mails: &[Mail]) -> Vec<String> {
+    mails
+        .iter()
+        .flat_map(|m| m.attachments.as_array().cloned().unwrap_or_default())
+        .filter_map(|a| a.get("path").and_then(Value::as_str).map(str::to_string))
+        .collect()
+}
+
 /// Image attachments as Codex input items.
 fn codex_images(mails: &[Mail]) -> Vec<Value> {
     let mut out = Vec::new();
@@ -5168,4 +5823,44 @@ fn codex_result(item: &Value) -> (String, bool) {
         }
         _ => (item["status"].as_str().unwrap_or("completed").to_string(), failed),
     }
+}
+
+/// A Muse item drawn as a chip: (chip name, argument object). A tool call's
+/// `args` is the model's JSON verbatim; a kind this engine does not know is
+/// drawn by its name and the host's one-line `fallbackText` (MSP: unknown
+/// kinds render generically).
+#[logged]
+fn muse_tool(item: &Value) -> (String, Value) {
+    let s = |k: &str| item[k].as_str().unwrap_or("").to_string();
+    match item["kind"].as_str().unwrap_or("") {
+        "toolCall" => {
+            let args = item["args"].as_str().and_then(|a| serde_json::from_str::<Value>(a).ok()).unwrap_or_else(|| json!({}));
+            (item["tool"].as_str().unwrap_or("tool").to_string(), args)
+        }
+        "subagent" => ("subagent".into(), json!({ "role": s("role"), "objective": s("objective"), "subagent": s("subagentId") })),
+        "reminderChild" => ("reminder".into(), json!({ "reminder": s("reminderAgentId"), "blocking": item["blocking"] })),
+        "workflow" => ("workflow".into(), json!({ "script": s("scriptId"), "phase": s("declaredPhase") })),
+        "userShell" => ("shell".into(), json!({ "command": s("commandText") })),
+        other => (if other.is_empty() { "item".into() } else { other.to_string() }, json!({ "summary": s("fallbackText") })),
+    }
+}
+
+/// A settled Muse item's visible result, and whether it failed (MSP: any
+/// terminal status but `completed`).
+#[logged]
+fn muse_result(item: &Value) -> (String, bool) {
+    let status = item["status"].as_str().unwrap_or("completed");
+    let failed = status != "completed";
+    let reason = item["failureReason"].as_str().or(item["failureKind"].as_str());
+    let text = match item["kind"].as_str().unwrap_or("") {
+        "toolCall" | "userShell" => item["visibleOutput"].as_str().map(str::to_string),
+        "subagent" => item.pointer("/result/summary").or(item.pointer("/result/text")).and_then(Value::as_str).map(str::to_string),
+        "workflow" => item["finalSummary"].as_str().or(item["message"].as_str()).map(str::to_string),
+        _ => None,
+    }
+    .filter(|t| !t.is_empty())
+    .or_else(|| reason.map(str::to_string))
+    .or_else(|| item["fallbackText"].as_str().map(str::to_string))
+    .unwrap_or_else(|| status.to_string());
+    (text, failed)
 }

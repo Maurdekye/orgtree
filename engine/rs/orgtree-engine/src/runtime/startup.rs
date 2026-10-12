@@ -42,6 +42,8 @@ const RULES_FILES: usize = 512;
 pub enum Inputs {
     Claude { cwd: PathBuf, config: PathBuf, home: PathBuf, add_dirs: Vec<PathBuf> },
     Codex { cwd: PathBuf, home: PathBuf },
+    /// Muse Code: the session workspace's project rules file (trusted)
+    Muse { cwd: PathBuf },
     /// a lane whose CLI reads no such file at start (Antigravity)
     None,
 }
@@ -61,8 +63,26 @@ fn native_files(inputs: &Inputs) -> BTreeMap<String, String> {
     match inputs {
         Inputs::Claude { cwd, config, home, .. } => claude(cwd, config, home),
         Inputs::Codex { cwd, home } => codex(cwd, home),
+        Inputs::Muse { cwd } => muse(cwd),
         Inputs::None => BTreeMap::new(),
     }
+}
+
+/// Muse 1.4.6 reads, in the session's workspace root, the first of these that
+/// exists (its configuration docs; the workspace's AGENTS.md measured loaded
+/// as a trusted project rule, 2026-10-12). A further workspace root's file
+/// is not read (measured), so granted folders' notes stay in the prompt.
+#[nolog] // `digest` logs the call
+fn muse(cwd: &Path) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::new();
+    for name in ["AGENTS.md", "CLAUDE.md", ".agents/AGENTS.md", ".claude/CLAUDE.md"] {
+        let p = cwd.join(name);
+        if let Ok(bytes) = std::fs::read(&p) {
+            files.insert(norm(&p), sha(&bytes));
+            break;
+        }
+    }
+    files
 }
 
 pub type Notes = Vec<(String, String)>;

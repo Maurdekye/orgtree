@@ -175,9 +175,11 @@ pub async fn success(engine: &Engine, account: &str, provider: &str, tier: &str,
         let client = engine.db.get().await?;
         let legacy_pool = match provider {
             "google" => format!("agy:{}", crate::providers::catalog::antigravity_pool(tier)),
+            // a Muse tier's own pool only: another model's limit stays marked
+            "muse" => crate::providers::catalog::muse_pool(tier),
             "openai" => "openai-plan".into(), "claude" => "pooled".into(), _ => "default".into()
         };
-        let default_pool = if provider == "google" { legacy_pool.as_str() } else { "default" };
+        let default_pool = if matches!(provider, "google" | "muse") { legacy_pool.as_str() } else { "default" };
         let n = client.execute(
             "DELETE FROM ot.account_marks WHERE account = $1 AND pool IN ($4, $3) AND at < $2 AND until > now()",
             &[&account, &admitted, &legacy_pool, &default_pool],

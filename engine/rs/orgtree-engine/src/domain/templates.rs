@@ -378,10 +378,10 @@ pub fn quick_chat(v: &Value) -> Result<Value, String> {
                 None => return Err("quick_chat tier is a tier name".into()),
             },
             "effort" => match x.as_str() {
-                Some(e) if e.is_empty() || catalog::EFFORTS.contains(&e) => {
+                Some(e) if e.is_empty() || catalog::effort_rank(e).is_some() => {
                     out.insert(k.clone(), json!(e));
                 }
-                _ => return Err(format!("quick_chat effort must be '' (the org default) or one of {}", catalog::EFFORTS.join(", "))),
+                _ => return Err(format!("quick_chat effort must be '' (the org default) or one of {}", catalog::EFFORT_ORDER.join(", "))),
             },
             other => return Err(format!("quick_chat has no field '{other}'")),
         }

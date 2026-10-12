@@ -2,7 +2,8 @@
 //! subscription bars (the OAuth usage endpoint, read with the CLI's own
 //! unexpired sign-in — never refreshed here, so the CLI's rotating token is
 //! never spent behind its back), Codex rate limits (a short-lived app-server's
-//! `account/rateLimits/read`), Antigravity's zero-token `/usage`, OpenRouter's
+//! `account/rateLimits/read`), Antigravity's zero-token `/usage`, Muse Code's
+//! own usage observations (dated when Muse observed them), OpenRouter's
 //! credit standing, and API-key accounts' metered spend. Every readout is
 //! cached in a lock-free map; the peeks read the cache alone.
 
@@ -27,6 +28,7 @@ const NOT_YET: &str = "usage unavailable; start a turn on this account to see us
 /// (codex_limits.py / antigravity_limits.py), not the provider ids.
 pub const CODEX_NAME: &str = "Codex";
 pub const AGY_NAME: &str = "Antigravity";
+pub const MUSE_NAME: &str = "Muse";
 
 #[cfg(test)]
 mod continuation_auth_tests {
@@ -164,6 +166,7 @@ fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts:
         catalog::CLAUDE => claude_key(folder),
         catalog::OPENAI => codex_key(folder),
         catalog::GOOGLE => "agy".to_string(),
+        catalog::MUSE => muse_key(folder),
         _ => return None,
     };
     let v = engine.usage.peek(&key, provider);
@@ -175,7 +178,10 @@ fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts:
 /// model-scoped weekly window only for the model it names (so fable needs
 /// both weekly windows and the lower tiers ignore Fable's); Codex: the plan
 /// pool (its unnamed windows, 3.x `codex_route.pool_of_window`); Antigravity:
-/// the tier's model group.
+/// the tier's model group; Muse: only windows observed while the tier's own
+/// model ran (Muse reports one window set per login and does not say which
+/// models share it, so another model's reading is no evidence for this one;
+/// user ruling 2026-10-12: never assume Wonder and Wonder Full share a pool).
 #[nolog]
 fn spends(provider: &str, tier: &str, w: &Value) -> bool {
     use crate::providers::catalog;
@@ -192,6 +198,7 @@ fn spends(provider: &str, tier: &str, w: &Value) -> bool {
         }
         // every OpenRouter tier spends its key's one credit row
         catalog::OPENROUTER => w["group"] == "credits",
+        catalog::MUSE => w["observed_model"].as_str().is_some_and(|m| catalog::runs_model(tier, m)),
         _ => false,
     }
 }
@@ -250,6 +257,7 @@ pub fn has_room(engine: &Engine, account: Option<&crate::accounts::AccountInfo>,
     let needed: &[&str] = match (provider, tier) {
         (catalog::CLAUDE, "fable") => &["session", "weekly_all", "weekly_scoped"],
         (catalog::CLAUDE, _) => &["session", "weekly_all"],
+        (catalog::MUSE, _) => &["session", "weekly_all"],
         _ => &[],
     };
     if spent.is_empty() || needed.iter().any(|k| !spent.iter().any(|w| w["kind"].as_str() == Some(*k))) {
@@ -358,6 +366,32 @@ impl Usage {
     fn put(&self, key: &str, data: &Value) {
         self.record_auth(key, data);
         self.cache.pin().insert(key.to_string(), Cached { at: Instant::now(), data: data.clone() });
+    }
+
+    /// Store a reading dated when the provider observed it, not when it
+    /// reached us: a cached observation is never re-dated as fresh, and an
+    /// older one never replaces a newer reading. One older than this
+    /// machine's uptime is dropped (no clock here can date it).
+    #[nolog]
+    fn put_observed(&self, key: &str, data: &Value, observed: DateTime<Utc>) -> bool {
+        let age = (Utc::now() - observed).to_std().unwrap_or_default();
+        let Some(at) = Instant::now().checked_sub(age) else { return false };
+        let pin = self.cache.pin();
+        if pin.get(key).is_some_and(|c| c.at >= at && c.data["available"] == true) {
+            return false;
+        }
+        // only a recent observation says anything about the sign-in now
+        if age < Duration::from_secs(60) {
+            self.record_auth(key, data);
+        }
+        pin.insert(key.to_string(), Cached { at, data: data.clone() });
+        true
+    }
+
+    /// The cached readout behind `key` as stored (any age), never a fetch.
+    #[nolog]
+    pub fn cached(&self, key: &str) -> Option<Value> {
+        self.fresh(key, Duration::MAX)
     }
 
     #[nolog]
@@ -1086,6 +1120,138 @@ fn agy_log_email(log: &str) -> Option<String> {
         .filter(|e| e.contains('@'))
 }
 
+// ------------------------------------------------------------ Muse
+
+/// `muse:<login root>`: the cache key of one Muse login (None: the user's own).
+pub fn muse_key(root: Option<&str>) -> String {
+    format!("muse:{}", root.unwrap_or("~"))
+}
+
+/// A managed Muse login is probed at most this often; its live sessions'
+/// `usage/changed` keep it current in between.
+const MUSE_PROBE_EVERY: Duration = Duration::from_secs(300);
+
+/// Muse's usage document (`usage/read`'s `usage`, `usage/changed`'s params)
+/// as usage bars: the rolling `window` (300 min measured on 1.4.6) and
+/// `weekly`. A window Muse did not report is unknown, never zero; the
+/// opaque `tier` id is not a plan name and is not shown. `observed_model`
+/// is the model a live session ran when Muse reported it (None from a
+/// metadata host): Muse does not say which models a window covers.
+#[nolog]
+pub fn muse_limits(raw: &Value, observed_model: Option<&str>) -> Value {
+    let mut limits = Vec::new();
+    for slot in ["window", "weekly"] {
+        let w = &raw[slot];
+        let Some(pct) = w["usedPercent"].as_f64().filter(|p| p.is_finite()) else { continue };
+        let mins = w["windowDurationMins"].as_i64().filter(|m| *m > 0);
+        let kind = if slot == "weekly" || mins.is_some_and(|m| m >= 6 * 1440) { "weekly_all" } else { "session" };
+        limits.push(json!({
+            "kind": kind, "group": slot, "percent": pct, "severity": severity(pct.clamp(0.0, 100.0)),
+            "resets_at": w["resetsAtMs"].as_i64().and_then(|ms| epoch_iso(ms.div_euclid(1000))),
+            "is_active": pct >= 100.0, "model": null, "observed_model": observed_model,
+            "label": if slot == "weekly" { "weekly".to_string() } else { duration_label(mins) },
+        }));
+    }
+    json!({ "available": !limits.is_empty(), "limits": limits })
+}
+
+/// Record one Muse usage observation of the login at `root` (a live
+/// session's `usage/changed`, or a metadata host's cached `usage/read`),
+/// dated by Muse's own `observedAtMs`. An undated or windowless document is
+/// no reading. True when it became the lane's latest reading.
+#[nolog]
+pub async fn muse_observed(engine: &Engine, root: Option<&str>, raw: &Value, observed_model: Option<&str>) -> bool {
+    let Some(observed) = raw["observedAtMs"].as_i64().and_then(DateTime::from_timestamp_millis) else { return false };
+    let observed = observed.min(Utc::now());
+    let mut out = muse_limits(raw, observed_model);
+    if out["available"] != true {
+        return false;
+    }
+    out["account"] = json!(crate::org_accounts::primary(crate::providers::catalog::MUSE));
+    out["provider"] = json!(MUSE_NAME);
+    if root.is_none() {
+        let email = engine.providers.state.load().muse.email.clone();
+        out["label"] = json!(email.clone().unwrap_or_else(|| "signed-in account".into()));
+        out["email"] = json!(email);
+    }
+    out["observed_at"] = json!(iso(observed));
+    if !engine.usage.put_observed(&muse_key(root), &out, observed) {
+        return false;
+    }
+    crate::account_marks::profile_usage(engine, crate::providers::catalog::MUSE, root, observed, &out).await;
+    true
+}
+
+/// What one metadata host said about the login at `root`: signed out, its
+/// cached usage observation, or that Muse has observed none yet.
+#[nolog]
+pub async fn muse_probed(engine: &Engine, root: Option<&str>, probe: &crate::providers::muse_models::MuseProbe) {
+    let key = muse_key(root);
+    if probe.account_state.as_deref() == Some("loggedOut") {
+        engine.usage.put(&key, &json!({ "available": false, "provider": MUSE_NAME,
+            "error": "Muse Code is not signed in for this account", "reauth_required": true,
+            "reauth_evidence": "not_connected", "observed_at": iso(Utc::now()) }));
+        return;
+    }
+    let observed = match &probe.usage {
+        Some(u) => muse_observed(engine, root, u, None).await,
+        None => false,
+    };
+    if !observed && engine.usage.cached(&key).is_none() {
+        engine.usage.put(&key, &json!({ "available": false, "provider": MUSE_NAME,
+            "error": "Muse has not reported usage for this account yet; it reports usage after a turn" }));
+    }
+}
+
+/// One Muse login's usage (`root` None: the user's own): the latest
+/// observation, as Muse dated it. The user's own login is read by provider
+/// discovery every 5 minutes (and at once when `force`); a managed login by
+/// its own metadata host, at most every 5 minutes.
+#[nolog]
+pub async fn muse(engine: &Engine, account: &str, root: Option<&str>, force: bool) -> Value {
+    let key = muse_key(root);
+    let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
+    muse_read(engine, account, root, force).await
+}
+
+#[nolog]
+async fn muse_read(engine: &Engine, account: &str, root: Option<&str>, force: bool) -> Value {
+    let key = muse_key(root);
+    // a rig run's canned reading stands in for Muse's; without one the rig's
+    // fake host is read like the real one (its usage/read and usage/changed)
+    if let Some(v) = crate::rig::usage("muse", root).filter(crate::rig::canned_reading) {
+        engine.usage.put(&key, &v);
+        crate::account_marks::profile_history(engine, crate::providers::catalog::MUSE, root, Utc::now(), &v).await;
+        return v;
+    }
+    let probe_key = format!("probe:{key}");
+    if force || engine.usage.cooling(&probe_key).is_none() {
+        match root {
+            None if force => crate::providers::refresh_muse(engine).await,
+            None => {}
+            Some(dir) => {
+                engine.usage.cooldown.pin().insert(probe_key, Instant::now() + MUSE_PROBE_EVERY);
+                match crate::providers::muse_probe_login(engine, Some(dir)).await {
+                    Ok(probe) => muse_probed(engine, root, &probe).await,
+                    Err(e) => tracing::info!(account, error = %gist(&format!("{e:#}"), 200), "Muse usage probe failed"),
+                }
+            }
+        }
+    }
+    let mut out = engine.usage.cached(&key)
+        .unwrap_or_else(|| json!({ "available": false, "provider": MUSE_NAME, "error": NOT_YET }));
+    out["account"] = json!(account);
+    out
+}
+
+/// Push the user's own Muse lane as it stands (after a live observation).
+#[logged]
+pub fn muse_publish(engine: &Engine) {
+    if let Some(v) = engine.usage.cached(&muse_key(None)) {
+        publish(engine, crate::providers::catalog::MUSE, &v);
+    }
+}
+
 // ------------------------------------------------------------ OpenRouter
 
 /// Read every stored OpenRouter key again and push them: the original
@@ -1305,6 +1471,7 @@ pub async fn refresh_permitted(engine: &Engine, provider: &str, account: &str, f
             "google" => antigravity_read(engine, false).await,
             // a key row's id, or the original key's lane
             "openrouter" => openrouter_key_read(engine, &crate::openrouter::id_of_lane(account), false).await,
+            "muse" => muse_read(engine, account, folder, true).await,
             _ => return false,
         }
     };
@@ -1343,6 +1510,7 @@ pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force
             "claude" => claude(engine, a.config_dir.as_deref(), force).await,
             "openai" => codex(engine, &a.id, a.config_dir.as_deref(), force).await,
             "google" => antigravity(engine, force).await,
+            "muse" => muse(engine, &a.id, a.config_dir.as_deref(), force).await,
             _ => json!({ "available": false }),
         }
     };
@@ -1364,6 +1532,7 @@ pub fn publish(engine: &Engine, lane: &str, value: &Value) {
         "openai" => ("codex_usage", "codex_usage_peek", codex_key(None), "openai"),
         "google" => ("antigravity_usage", "antigravity_usage_peek", "agy".to_string(), "google"),
         "openrouter" => ("openrouter_usage", "openrouter_usage_peek", "openrouter".to_string(), "openrouter"),
+        "muse" => ("muse_usage", "muse_usage_peek", muse_key(None), "muse"),
         _ => return,
     };
     engine.app.set_value(key, value.clone());
@@ -1476,6 +1645,12 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         }
         last.insert("google", Instant::now());
     }
+    if (rig || st.muse.installed) && lane_due(engine, last, misses, "muse", &muse_key(None), 300) {
+        // the cache as it stands: discovery and live sessions feed it
+        let v = muse(engine, "muse/primary", None, false).await;
+        publish(engine, "muse", &v);
+        last.insert("muse", Instant::now());
+    }
     if rig {
         return;
     }
@@ -1538,6 +1713,7 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         (_, Some(id)) => id.clone(),
         ("openai", None) => "openai/primary".into(),
         ("google", None) => "google/primary".into(),
+        ("muse", None) => "muse/primary".into(),
         ("langserver", _) => crate::langserver::route_of(engine, tier)
             .map(|(s, _)| format!("langserver:{}", s["id"].as_str().unwrap_or("")))
             .unwrap_or_else(|| "langserver".into()),
@@ -1555,6 +1731,12 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         lanes.push((a.id.clone(), codex_key(a.config_dir.as_deref()), a.email.clone()));
     }
     lanes.push(("google/primary".into(), "agy".into(), None));
+    if engine.providers.state.load().muse.installed || pin.get(&muse_key(None)).is_some() {
+        lanes.push(("muse/primary".into(), muse_key(None), None));
+    }
+    for a in registered.iter().filter(|a| a.provider == "muse" && !a.is_apikey() && !crate::accounts::is_ambient(a)) {
+        lanes.push((a.id.clone(), muse_key(a.config_dir.as_deref()), a.email.clone()));
+    }
     // every OpenRouter key this org may see, by its lane (its cache key too)
     for a in registered.iter().filter(|a| a.provider == "openrouter") {
         let lane = crate::openrouter::lane(&a.id);
@@ -1672,6 +1854,8 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
             "
 Your turns run on {selected_lane} (tier {tier}): the user's own model server. It has no usage limit; it runs a set number of agents at once and the others wait."
         ));
+    } else if provider == crate::providers::catalog::MUSE {
+        text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above; Muse reports one window set per account and does not say which models share it."));
     } else if provider == crate::providers::catalog::GOOGLE {
         let pool = crate::providers::catalog::antigravity_pool(tier);
         text.push_str(&format!("\nThis turn spends: {tier} on {selected_lane} → session:{pool}-5h and weekly_scoped:{pool}-weekly. Other model groups' windows do not apply to this tier."));

@@ -15,6 +15,7 @@ pub mod freeze;
 pub mod history;
 pub mod identity;
 pub mod keepalive;
+pub mod muse;
 pub mod prompt;
 pub mod recovery;
 pub mod reminders;
@@ -81,6 +82,8 @@ pub enum AgentMsg {
     Codex(uuid::Uuid, Value),
     /// a stream-json event from the Antigravity CLI
     Agy(uuid::Uuid, Value),
+    /// an MSP notification from the Muse Code host
+    Muse(uuid::Uuid, Value),
     /// the PostToolUse hook: return waiting mail as additional context
     Hook { input: Value, reply: oneshot::Sender<Value> },
     ProcExited { process: uuid::Uuid, reason: String },
@@ -167,7 +170,7 @@ pub trait Post {
 impl Post for AgentTx {
     fn post(&self, msg: AgentMsg) -> bool {
         // the CLI's stream lines run under their turn's request
-        let cause = if matches!(msg, AgentMsg::Claude(_, _) | AgentMsg::Codex(_, _) | AgentMsg::Agy(_, _)) { None } else { crate::trace::current_rq() };
+        let cause = if matches!(msg, AgentMsg::Claude(_, _) | AgentMsg::Codex(_, _) | AgentMsg::Agy(_, _) | AgentMsg::Muse(_, _)) { None } else { crate::trace::current_rq() };
         self.send(Envelope { msg, cause }).is_ok()
     }
 }

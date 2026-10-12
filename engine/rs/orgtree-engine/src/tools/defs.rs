@@ -106,7 +106,10 @@ static OPTIONS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
 });
 const VIS: &[&str] = &["self", "team", "subtree", "full"];
 const PM: &[&str] = &["default", "acceptEdits", "bypassPermissions"];
-const EFFORT: &[&str] = &["low", "medium", "high", "xhigh", "max", ""];
+/// Every level name a harness exposes (`catalog::EFFORT_ORDER`), and "" to
+/// inherit; each tier takes its own harness and model's names (user
+/// 2026-10-12), which the staffing options list and the engine checks.
+const EFFORT: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max", ""];
 
 /// What `add_dirs` does on each tool: a hire (and staff) sets the starting
 /// list, a rehire replaces the list, a retool adds (user ruling 2026-10-10).
@@ -126,7 +129,8 @@ fn scope_props(dirs: &str) -> Value {
             "orgtree": crate::domain::tool_groups::schema() } },
         "org_visibility": { "type": "string", "enum": VIS },
         "permission_mode": { "type": "string", "enum": PM },
-        "effort": { "type": "string", "enum": EFFORT },
+        "effort": { "type": "string", "enum": EFFORT,
+            "description": "a level its tier's own harness and model name (staffing options list them per tier); \"\" inherits" },
         "account": { "type": "string", "description": "provider account id (default: inherited)" },
         "account_fallback": { "type": "boolean", "description": "move to another account of the same provider when this one hits its usage limit" },
         "clear_account_fallback": { "type": "boolean" },
@@ -250,7 +254,7 @@ fn all() -> Vec<Value> {
             "Read provider usage during a turn. Default: saved cache only; no probes. Exact accounts/providers/windows filters, OR within each list and AND across lists. Account IDs match the usage board; windows match kind or group, not display label. Missing/stale/unsupported readings remain explicit, never zero. inspection permission is required. refresh=true attempts one explicit active account, additionally requiring inherited runtime permission; it may reuse a recent reading or report cooldown/in_progress. Manual floors are 60 seconds (Google 300), longer provider cooldowns remain. No inference or account switching. Accounts page by ID (20, at most 100); next_cursor continues. At most 64 matching windows per account, with explicit truncation.",
             json!({
                 "accounts":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
-                "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","openrouter","langserver"]},"minItems":1,"maxItems":32},
+                "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","muse","openrouter","langserver"]},"minItems":1,"maxItems":32},
                 "windows":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
                 "refresh":{"type":"boolean","description":"default false; exactly one explicit active account, runtime permission required"},
                 "limit":{"type":"integer","minimum":1,"maximum":100,"description":"account page size, default 20"},
@@ -644,4 +648,15 @@ fn all() -> Vec<Value> {
             &["target"],
         ),
     ]
+}
+
+#[cfg(test)]
+mod effort_enum_tests {
+    /// The tools offer every level a harness names, and "" (inherit).
+    #[test]
+    fn effort_enum_is_every_harness_name() {
+        let mut want: Vec<&str> = crate::providers::catalog::EFFORT_ORDER.to_vec();
+        want.push("");
+        assert_eq!(super::EFFORT, want.as_slice());
+    }
 }

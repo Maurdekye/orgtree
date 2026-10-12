@@ -391,6 +391,11 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
                 refuse!(Conflict, "{id} has exhausted this Antigravity model group's quota until {until}");
             }
         }
+        if provider == catalog::MUSE {
+            if let Some(until) = a.limited_for(tier, chrono::Utc::now()) {
+                refuse!(Conflict, "Muse refused {tier} on {id} for its quota until {until}");
+            }
+        }
     }
     Ok(())
 }
@@ -400,6 +405,11 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
     if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
         refuse!(Conflict, "Claude models through Antigravity are turned off in App settings > Runtime");
+    }
+    // a Muse tier is placed only while the signed-in account's own catalog
+    // offers its model (user 2026-10-12: never a bundled row or a guess)
+    if catalog::is_muse(tier) && !crate::providers::muse_offered(engine, tier) {
+        refuse!(Conflict, "the signed-in Muse account does not offer {tier} now (App settings › Providers › Muse lists what it offers)");
     }
     if let Some(t) = catalog::tier(tier) {
         return Ok(t.seat);
@@ -833,6 +843,9 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     let provider = catalog::provider_of(&tier);
     if !engine.settings.provider_enabled(provider) {
         refuse!(Conflict, "{} is turned off in App settings", catalog::provider_label(provider));
+    }
+    if let Some(e) = str_arg(req, "effort") {
+        crate::providers::check_effort(engine, &tier, e)?;
     }
     let grant = req["grant"].as_f64().unwrap_or(0.0);
     if grant < 0.0 {
@@ -2120,10 +2133,10 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if let Some(v) = req.get("effort").and_then(Value::as_str) {
         if v.is_empty() {
             o.remove("effort");
-        } else if catalog::EFFORTS.contains(&v) {
-            o.insert("effort".into(), json!(v));
         } else {
-            refuse!(BadRequest, "unknown effort {v}");
+            // the agent's own harness and model name its levels (user 2026-10-12)
+            crate::providers::check_effort(engine, &n.tier, v)?;
+            o.insert("effort".into(), json!(v));
         }
     }
     if req.get("clear_account_fallback").and_then(Value::as_bool).unwrap_or(false) {
