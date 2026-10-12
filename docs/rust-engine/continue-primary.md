@@ -89,3 +89,20 @@ negative authentication. Measured predecessor controls on 2026-10-12 reproduced
 all three ambient quota route failures and the production-result unit failure
 (expected `Some(true)`, got `None`). The corrections and expanded proofs require
 new green receipts before review; the earlier counts do not establish them.
+
+Measured correction verification 2026-10-12 at runtime source `110c2fe`:
+scoped engine build passed in 1m17s without warnings; all 3 focused auth tests
+passed. The expanded supported continuation proof passed 46/46, including the
+three formerly failing ambient quota refusals, both production-result Claude
+auth refusals and explicit ambient auth aliases. Signed-out proof passed 3/3.
+Every refusal checks binding, freeze, pending state and audit/mail counts remain
+unchanged. Both runs stopped and were deleted; no live provider/auth data used.
+Receipts: `continue-primary-20261012T001354/result.json` and
+`continue-primary-signed-out-20261012T001451/result.json` under the author's
+isolated rig evidence folder. The red production-result control at `9205997`
+failed exactly on the missing cached negative auth, before the fix.
+
+The usage-query owner will compose `cached_reauth_required` into its safe query
+projection during checked integration; this branch supplies the independently
+dated helper and continuation guard, and does not change the query tool.
+Combined multi-key OpenRouter regression remains a separate integration gate.
