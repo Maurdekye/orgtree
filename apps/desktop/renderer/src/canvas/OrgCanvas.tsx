@@ -793,6 +793,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   usePersistedModalOpen('agent-docket', slug, agentDocketId !== null, agentDocketId ? { agent: agentDocketId, generation: map.get(agentDocketId)?.generation } : undefined)
   usePersistedModalOpen('team-docket', slug, teamDocketId !== null, teamDocketId ? { agent: teamDocketId, generation: map.get(teamDocketId)?.generation } : undefined)
   usePersistedModalOpen('watchdog', slug, dogView !== null, dogView ? { watchdog: dogView } : undefined)
+  useEffect(() => { if (tree.org_inbox?.enabled === false) setOiOpen(false) }, [tree.org_inbox?.enabled])
   usePersistedModalOpen('org-inbox', slug, oiOpen)
   usePersistedModalOpen('doc', slug, docView !== null, docView ? { document: docView } : undefined)
   usePersistedModalOpen('agent-list', slug, trayOpen)
@@ -4347,7 +4348,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onPick={(nid) => { setRetiredOpen(null); centerOn(nid) }}
           close={() => setRetiredOpen(null)} /></MaybePortal>
       )}
-      {oiOpen && (
+      {oiOpen && tree.org_inbox?.enabled !== false && (
         <MaybePortal><OrgInboxModal inbox={tree.org_inbox} net={tree.net} map={map} slug={slug} toast={toast}
           jumpTo={oiJump?.id ?? null} jumpSeq={oiJump?.seq}
           refs={canvasRefs}
