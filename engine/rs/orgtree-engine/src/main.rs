@@ -22,6 +22,8 @@ mod core_process;
 mod core_state;
 mod core_monitor;
 mod core_startup;
+mod core_diagnostics;
+mod core_recovery;
 mod credential_context;
 mod credential_bridge;
 mod domain;
@@ -79,6 +81,7 @@ fn main() -> ExitCode {
         None | Some("serve") => serve(),
         Some("host") => host::run(),
         Some("core-control") => core_monitor::cli(&args[2..]),
+        Some("core-recovery") => core_recovery::cli(&args[2..]),
         Some("credential-helper") => credential_bridge::cli("git", &args[2..]),
         Some("mcp-bridge") => bridge::run(&args[2..]),
         Some("agy-hook") => bridge::hook(&args[2..]),
@@ -289,7 +292,7 @@ async fn run_with_cluster(
         runtime::reminders::start(&engine);
     }
 
-    if let Some(pid) = cfg.parent_pid {
+    if let Some(pid) = cfg.parent_pid.filter(|_| !engine.core.enabled) {
         let eng = engine.clone();
         winproc::watch_parent(pid, move || {
             tracing::warn!(pid, "parent process exited; shutting down");
@@ -306,6 +309,13 @@ async fn run_with_cluster(
     startup.finish();
     core_monitor::start(&engine, core_inbox);
     progress("engine-ready");
+    #[cfg(windows)]
+    if engine.core.enabled && std::env::var("ORGTREE_CORE_MODE").as_deref() == Ok("managed") {
+        // The descriptor has the same owner-only, atomic publication boundary
+        // as the boot host. A replacement desktop can adopt this SAME engine.
+        host::write_descriptor(&cfg.data_root, port, std::process::id(), &cfg.desktop_token, true)
+            .map_err(|_| anyhow::anyhow!("cannot publish managed engine attachment"))?;
+    }
     launch::ready(port, &cfg.data_root_id);
     runtime::watchdogs::events::machine(&engine,"engine.started",serde_json::json!({"commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}));
     tracing::info!(port, "engine ready");

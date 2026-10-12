@@ -61,15 +61,13 @@ impl Startup {
                     if core_state::stopped(&root, &state) {
                         cancel.cancel(); break;
                     }
-                    if state.transition_until != 0 && !core_state::transition(&state) {
-                        let _ = core_state::stop(&root, &state, "intentional transition expired before readiness");
-                        cancel.cancel(); break;
-                    }
+                    // Missing/dead peers no longer cancel a healthy startup.
+                    // Conversion keeps its own bounded deadlines; recovery of
+                    // the failed component is owned by surviving controllers.
                     if gone && !core_state::transition(&state) {
-                        let since = gone_since.get_or_insert_with(std::time::Instant::now);
-                        if since.elapsed() >= std::time::Duration::from_secs(5) {
-                            let _ = core_state::stop(&root, &state, "known core process exited before readiness");
-                            cancel.cancel(); break;
+                        if gone_since.is_none() {
+                            tracing::warn!("Core peer exited before readiness; preserving engine startup");
+                            gone_since = Some(std::time::Instant::now());
                         }
                     } else { gone_since = None; }
                 }

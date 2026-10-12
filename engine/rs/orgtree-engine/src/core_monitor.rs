@@ -76,15 +76,11 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
     let began = Instant::now(); let mut policy = Policy::new(boot);
     let mut desktop_gone = None; let mut helper_gone = None;
     let mut host_gone = None;
+    let mut last_unavailable = None;
     let mut timer = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = engine.shutdown.cancelled() => {
-                // Quit/fault must suppress task recovery too. Sign-out and an
-                // authenticated replacement are the only background exceptions.
-                if core_state::sessions(root, &mut sessions).is_some_and(|s| !s.is_empty()) && !core_state::transition(&state) {
-                    let _ = core_state::stop(root, &state, "engine shutdown");
-                }
                 break;
             }
             cmd = recv.recv() => {
@@ -93,8 +89,8 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                 let accepted = match &cmd {
                     Command::Member { desktop, who, .. } => {
                         let previous = if *desktop { &state.desktop } else { &state.helper };
-                        let replacement = state.installing && core_state::transition(&state)
-                            && (*desktop || previous.as_ref().is_some_and(|p| core_process::life(p) == Life::Gone));
+                        let replacement = previous.as_ref().is_some_and(|p| core_process::life(p) == Life::Gone)
+                            || (state.installing && core_state::transition(&state) && *desktop);
                         let member = if *desktop { &mut state.desktop } else { &mut state.helper };
                         if !stopped && (replacement || member.as_ref().is_none_or(|old| old == who)) {
                             *member = Some(who.clone()); true
@@ -141,13 +137,19 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                 }
                 let decision = if core_state::stopped(root, &state) { Decision::Stop("core shutdown already requested") }
                     else if state.transition_until != 0 && signed_in == Some(true) {
-                        if core_state::transition(&state) { Decision::Keep } else { Decision::Stop("intentional transition timed out or desktop exited") }
+                        if core_state::transition(&state) { Decision::Keep } else { Decision::Unavailable("intentional transition timed out or desktop exited") }
                     } else if signed_in == Some(true) && boot && presence(state.host.as_ref(), &mut host_gone) == crate::core_policy::Presence::Gone {
-                        Decision::Stop("boot host exited")
+                        Decision::Unavailable("boot host exited")
                     } else {
                         policy.tick(began.elapsed().as_millis() as u64, signed_in,
                             presence(state.desktop.as_ref(), &mut desktop_gone), presence(state.helper.as_ref(), &mut helper_gone))
                     };
+                if let Decision::Unavailable(reason) = decision {
+                    if last_unavailable != Some(reason) {
+                        tracing::warn!(reason, "Core component unavailable; preserving healthy peers");
+                        last_unavailable = Some(reason);
+                    }
+                } else { last_unavailable = None; }
                 if let Decision::Stop(reason) = decision {
                     let _ = core_state::stop(root, &state, reason);
                     tracing::warn!(reason, "Core application process lost; requesting coordinated shutdown");
@@ -211,7 +213,11 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
         let mut session = core_process::Sessions::new();
         let active = core_state::sessions(root, &mut session);
         let stopped = core_state::read(root).is_some_and(|s| active.as_ref().is_some_and(|a| core_state::observe_engine(root, &s, a)));
-        println!("{}", serde_json::json!({"stopped":stopped}));
+        let state = core_state::read(root);
+        println!("{}", serde_json::json!({"stopped":stopped,
+            "generation":state.as_ref().map(|s| &s.generation),
+            "engineGone":state.as_ref().is_some_and(|s| core_process::life(&s.engine) == Life::Gone),
+            "transitioning":state.as_ref().is_some_and(core_state::recovery_deferred)}));
     }
     #[cfg(not(windows))] let _ = args;
     std::process::ExitCode::SUCCESS

@@ -26,6 +26,8 @@ pub enum Decision {
     /// the pre-login/background engine and host running.
     SignedOut,
     Stop(&'static str),
+    /// Recovery may be exhausted; healthy peers still remain alive.
+    Unavailable(&'static str),
 }
 
 /// One owner updates this value. `stopped` is a latch; re-registration or a late
@@ -74,13 +76,13 @@ impl Policy {
         let since = *self.signed_in_since.get_or_insert(now);
         if let Some(until) = self.transition_until {
             if now < until { return Decision::Keep; }
-            return self.stop("intentional transition timed out");
+            return Decision::Unavailable("intentional transition timed out");
         }
-        if desktop == Presence::Gone { return self.stop("desktop process exited"); }
-        if self.boot_topology && helper == Presence::Gone { return self.stop("sign-in helper exited"); }
+        if desktop == Presence::Gone { return Decision::Unavailable("desktop process exited"); }
+        if self.boot_topology && helper == Presence::Gone { return Decision::Unavailable("sign-in helper exited"); }
         if now.saturating_sub(since) >= STARTUP_GRACE_MS {
-            if desktop == Presence::Missing { return self.stop("desktop did not start after sign-in"); }
-            if self.boot_topology && helper == Presence::Missing { return self.stop("sign-in helper did not start after sign-in"); }
+            if desktop == Presence::Missing { return Decision::Unavailable("desktop did not start after sign-in"); }
+            if self.boot_topology && helper == Presence::Missing { return Decision::Unavailable("sign-in helper did not start after sign-in"); }
         }
         Decision::Keep
     }
@@ -91,14 +93,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn never_registered_is_bounded_and_cannot_revive() {
+    fn missing_component_is_reported_without_killing_or_latching_survivors() {
         let mut p = Policy::new(true);
         assert_eq!(p.tick(5, Some(true), Presence::Missing, Presence::Missing), Decision::Keep);
-        assert_eq!(p.tick(STARTUP_GRACE_MS + 4, Some(true), Presence::Missing, Presence::Alive), Decision::Keep);
-        let stopped = p.tick(STARTUP_GRACE_MS + 5, Some(true), Presence::Missing, Presence::Alive);
-        assert_eq!(stopped, Decision::Stop("desktop did not start after sign-in"));
-        assert_eq!(p.tick(STARTUP_GRACE_MS + 6, Some(true), Presence::Alive, Presence::Alive), stopped);
-        assert!(!p.transition(STARTUP_GRACE_MS + 6));
+        assert_eq!(p.tick(STARTUP_GRACE_MS + 5, Some(true), Presence::Missing, Presence::Alive), Decision::Unavailable("desktop did not start after sign-in"));
+        assert_eq!(p.tick(STARTUP_GRACE_MS + 6, Some(true), Presence::Alive, Presence::Alive), Decision::Keep);
+        assert!(p.transition(STARTUP_GRACE_MS + 7));
     }
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(p.tick(2, Some(false), Presence::Gone, Presence::Gone), Decision::SignedOut);
         assert_eq!(p.tick(3, Some(false), Presence::Missing, Presence::Missing), Decision::Keep);
         assert_eq!(p.tick(200_000, Some(true), Presence::Missing, Presence::Missing), Decision::Keep);
-        assert_eq!(p.tick(200_001, Some(true), Presence::Gone, Presence::Alive), Decision::Stop("desktop process exited"));
+        assert_eq!(p.tick(200_001, Some(true), Presence::Gone, Presence::Alive), Decision::Unavailable("desktop process exited"));
     }
 
     #[test]
@@ -127,10 +127,10 @@ mod tests {
         assert!(p.transition(10));
         assert!(!p.transition(100));
         assert_eq!(p.tick(TRANSITION_MAX_MS + 9, Some(true), Presence::Gone, Presence::Gone), Decision::Keep);
-        assert_eq!(p.tick(TRANSITION_MAX_MS + 10, Some(true), Presence::Alive, Presence::Alive), Decision::Stop("intentional transition timed out"));
+        assert_eq!(p.tick(TRANSITION_MAX_MS + 10, Some(true), Presence::Alive, Presence::Alive), Decision::Unavailable("intentional transition timed out"));
         let mut p = Policy::new(true);
         assert!(p.transition(1));
         p.transition_complete();
-        assert_eq!(p.tick(2, Some(true), Presence::Gone, Presence::Alive), Decision::Stop("desktop process exited"));
+        assert_eq!(p.tick(2, Some(true), Presence::Gone, Presence::Alive), Decision::Unavailable("desktop process exited"));
     }
 }

@@ -680,20 +680,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     then 2.1.0 built from the submodule on the same rig database: schema 8 to 9, addresses and
     messages kept, mail both ways; 2.0.3 again refuses the database and leaves it as it was;
     2.1.0 again loses nothing) and `tools/rig/proofs/mailhub-v2.mjs` (pins 2.1.0).
-72. **Signed-in Windows core processes stop together** (user 2026-10-11 15:19Z,
-    startup/sign-out clarifications 15:22Z). Unexpected loss of desktop, engine,
-    sign-in helper or boot host stops the remaining application, using graceful
-    child drain before any existing bounded forced termination. This supersedes
-    treating a desktop-dead/engine-alive signed-in state as acceptable credential
-    helper operation. Window hiding and ordinary agent child exit are not core
-    failure. Missing required startup members get bounded grace; normal Windows
-    sign-out keeps background engine behavior. Manual startup with startup off
-    requires only the desktop and its managed engine. Explicit authenticated
-    restart/install replacements retain a bounded allowance, never an unlimited
-    recovery loop. Registration grace begins once control is available, preserving
-    existing bounded database conversion handling; known deaths are watched before
-    readiness. Implementation values and proof limits:
-    [`core-lifecycle.md`](core-lifecycle.md).
+72. **Recover failed Windows core components; preserve healthy survivors**
+    (user 2026-10-12 09:14Z). Unexpected engine death attempts engine recovery
+    without killing the desktop; unexpected desktop death attempts desktop
+    recovery/reattachment without killing the engine. Exhausted attempts,
+    missing helpers and slow startup must not cascade to healthy processes.
+    Only manual Orgtree Quit stops the whole application, cancelling recovery
+    before graceful Codex drain. Normal sign-out retains background behavior;
+    intentional install/restart retains its bounded allowance. This supersedes
+    the October11 coupled-stop rule and the short-lived October12 09:04
+    teardown/relaunch proposal. Native identity, bounded retries/resource
+    guards and diagnostics are required. Implementation and proof limits:
+    [`core-recovery.md`](core-recovery.md). Earlier coupled-lifecycle evidence
+    is historical and is not proof of the new recovery behavior.
 
 73. **Desk undelivered runs collapse at six or more rows** (user 2026-10-11 22:33Z,
     mee853a883c0d, relayed by lead-astra). Apply independently to the shared desk's

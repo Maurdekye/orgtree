@@ -225,10 +225,11 @@ fn remove_descriptor(root: &Path) {
 /// Publish the descriptor with its token never readable by anyone else at
 /// any instant: the temporary is born with an owner-only DACL and no
 /// sharing, the DACL is read back, and the publish is an atomic rename.
-fn write_descriptor(root: &Path, port: u16, engine_pid: u32, token: &str) -> Result<(), String> {
+#[nolog]
+pub(crate) fn write_descriptor(root: &Path, port: u16, engine_pid: u32, token: &str, managed: bool) -> Result<(), String> {
     let sid = win::user_sid().ok_or("the operator's SID could not be read")?;
     let payload = json!({
-        "type": "attach", "protocol": 1, "port": port, "enginePid": engine_pid, "hostPid": std::process::id(),
+        "type": "attach", "protocol": 1, "port": port, "enginePid": engine_pid, "hostPid": std::process::id(), "managed": managed,
         "dataRootId": root.to_string_lossy(), "token": token,
         "startedAt": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
     });
@@ -444,6 +445,10 @@ fn once() -> u8 {
     }
     let port = state.port.load(Ordering::SeqCst) as u16;
     if port == 0 {
+        if let Some(code) = child.exit_code() {
+            crate::core_diagnostics::record(&root, "host-observed-pre-ready-exit",
+                crate::core_state::read(&root).as_ref().map(|s| s.generation.as_str()), pid, Some(code as u32));
+        }
         let refused = state.refused.load(Ordering::SeqCst);
         let reason = state.failure.get().cloned().unwrap_or_else(|| {
             if child.exit_code().is_some() { "engine exited before readiness".into() } else { "engine did not become ready in time".into() }
@@ -453,7 +458,7 @@ fn once() -> u8 {
         say(Some(&root), &format!("{reason}{}", if released { "" } else { "; engine tree release could not be verified" }));
         return if refused { EXIT_ROOT_OWNED } else if core_stopping && released { 0 } else { 1 };
     }
-    if let Err(e) = write_descriptor(&root, port, pid, &token) {
+    if let Err(e) = write_descriptor(&root, port, pid, &token, false) {
         say(Some(&root), &format!("could not write the attach descriptor: {e}"));
         let core_stopping = core_fault(&root, pid, "engine control descriptor failed");
         end_engine(&child, &root, false, Duration::from_secs(10));
@@ -484,6 +489,8 @@ fn once() -> u8 {
     let mut stopping = false;
     let code = loop {
         if let Some(c) = child.exit_code() {
+            crate::core_diagnostics::record(&root, "host-observed-engine-exit",
+                crate::core_state::read(&root).as_ref().filter(|s| s.engine.pid == pid).map(|s| s.generation.as_str()), pid, Some(c));
             if core_fault(&root, pid, "engine process exited") { stopping = true; }
             break Some(c);
         }
@@ -534,9 +541,11 @@ fn core_fault(root: &Path, pid: u32, reason: &str) -> bool {
         if crate::core_state::transition(&state) { return false; }
         let active = crate::core_state::sessions(root, &mut crate::core_process::Sessions::new());
         if active.as_ref().is_some_and(|a| !a.is_empty()) {
-            let _ = crate::core_state::stop(root, &state, reason);
-            return true;
+            // An engine failure must not take down its healthy desktop/helper.
+            // Only the explicit Quit journal suppresses the application.
+            return crate::core_state::stopped(root, &state);
         }
+        let _ = reason;
     }
     #[cfg(not(windows))] let _ = (root, pid, reason);
     false

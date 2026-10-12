@@ -68,7 +68,33 @@ fn stop_path(root: &Path, generation: &str) -> Option<PathBuf> {
 
 #[nolog]
 pub fn stopped(root: &Path, state: &Snapshot) -> bool {
-    stop_path(root, &state.generation).is_some_and(|p| p.is_file())
+    stop_path(root, &state.generation).is_some_and(|p| p.is_file()) || manual_quit_matches(root, &state.sessions)
+}
+
+#[nolog]
+fn manual_quit_matches(root: &Path, active: &[Session]) -> bool {
+    let mut bytes = Vec::new();
+    let Ok(f) = std::fs::File::open(root.join("core-manual-quit.json")) else { return false; };
+    if f.take(MAX + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > MAX { return true; }
+    let Ok(sessions) = serde_json::from_slice::<Vec<Session>>(&bytes) else { return true; };
+    sessions.iter().any(|s| active.contains(s))
+}
+
+/// Root-wide for this operator logon: closes the old/new-generation race when
+/// manual Quit overlaps a replacement engine publishing its own snapshot.
+#[nolog]
+pub fn manual_quit(root: &Path, state: &Snapshot) -> std::io::Result<()> {
+    manual_quit_sessions(root, &state.sessions)?;
+    stop(root, state, "manual quit")
+}
+
+#[nolog]
+pub fn manual_quit_sessions(root: &Path, sessions: &[Session]) -> std::io::Result<()> {
+    if sessions.is_empty() { return Err(std::io::ErrorKind::InvalidInput.into()); }
+    let tmp = root.join(format!(".core-quit-{}.tmp", uuid::Uuid::new_v4().simple()));
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+    f.write_all(&serde_json::to_vec(sessions)?)?; f.sync_all()?; drop(f);
+    replace(&tmp, &root.join("core-manual-quit.json"))
 }
 
 #[nolog]
@@ -117,6 +143,13 @@ fn replace(from: &Path, to: &Path) -> std::io::Result<()> {
 fn replace(from: &Path, to: &Path) -> std::io::Result<()> { std::fs::rename(from, to) }
 
 #[nolog]
+pub fn recovery_deferred(state: &Snapshot) -> bool {
+    // Intent has an absolute, nonextendable deadline. An expired operation
+    // can be reported unavailable but cannot suppress recovery forever.
+    state.transition_until > now()
+}
+
+#[nolog]
 pub fn transition(state: &Snapshot) -> bool {
     let remaining = state.transition_until.saturating_sub(now());
     remaining > 0 && remaining <= 180_000
@@ -127,20 +160,17 @@ pub fn transition(state: &Snapshot) -> bool {
 /// the stopped epoch back while the same operator logon is still present.
 #[nolog]
 pub fn blocked(root: &Path, sessions: &[Session]) -> bool {
+    if manual_quit_matches(root, sessions) { return true; }
     let Some(state) = read(root) else { return false };
     stopped(root, &state) && state.sessions.iter().any(|s| sessions.contains(s))
 }
 
-/// Confirmed engine death in a signed-in cohort is terminal, except while its
-/// authenticated desktop is completing an explicitly bounded replacement.
+/// Only an explicit application stop is terminal. Unexpected engine loss
+/// leaves the desktop and helper alive for independent recovery (user 2026-10-12).
 #[nolog]
 pub fn observe_engine(root: &Path, state: &Snapshot, sessions: &[Session]) -> bool {
     if !state.sessions.iter().any(|s| sessions.contains(s)) { return false; }
     if stopped(root, state) { return true; }
-    if core_process::life(&state.engine) == Life::Gone && !transition(state) {
-        let _ = stop(root, state, "engine process exited");
-        return true;
-    }
     false
 }
 
@@ -148,7 +178,14 @@ pub fn observe_engine(root: &Path, state: &Snapshot, sessions: &[Session]) -> bo
 /// cannot clear a stop while any member of the previous cohort still runs.
 #[nolog]
 pub fn begin(root: &Path) -> Result<(), &'static str> {
-    let Some(state) = read(root) else { return Ok(()) };
+    let Some(state) = read(root) else {
+        // A Quit before the first engine journal still has a barrier. An
+        // explicit desktop launch can clear it; automatic launches never do.
+        return match std::fs::remove_file(root.join("core-manual-quit.json")) {
+            Ok(()) => Ok(()), Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("Could not release the previous manual Quit."),
+        };
+    };
     if !stopped(root, &state) { return Ok(()); }
     if [&Some(state.engine.clone()), &state.host, &state.desktop, &state.helper]
         .iter().filter_map(|m| m.as_ref()).any(|m| core_process::life(m) != Life::Gone) {
@@ -156,7 +193,11 @@ pub fn begin(root: &Path) -> Result<(), &'static str> {
     }
     // Removing the old snapshot releases automatic-start suppression. Its
     // immutable stop record remains as small durable shutdown evidence.
-    std::fs::remove_file(root.join(FILE)).map_err(|_| "Could not release the previous Orgtree session.")
+    std::fs::remove_file(root.join(FILE)).map_err(|_| "Could not release the previous Orgtree session.")?;
+    match std::fs::remove_file(root.join("core-manual-quit.json")) {
+        Ok(()) => Ok(()), Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("Could not release the previous manual Quit."),
+    }
 }
 
 #[cfg(test)]
@@ -179,4 +220,22 @@ mod tests {
         assert!(!blocked(&dir, &a.sessions));
         std::fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn manual_quit_before_snapshot_blocks_start_and_survives_generation_race() {
+        let dir = std::env::temp_dir().join(format!("orgtree-core-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sessions = vec![Session { id: 1, logon: "test-logon".into() }];
+        manual_quit_sessions(&dir, &sessions).unwrap();
+        assert!(blocked(&dir, &sessions));
+        assert!(!blocked(&dir, &[Session { id: 1, logon: "later-logon".into() }]));
+        let state = Snapshot { generation: "b".repeat(32), engine: Identity { pid: u32::MAX, created: "0".into() },
+            desktop: None, host: None, helper: None, sessions: sessions.clone(), transition_until: 0,
+            transition_desktop: None, installing: false, completion_requested: false };
+        write(&dir, &state).unwrap();
+        assert!(stopped(&dir, &state));
+        begin(&dir).unwrap();
+        assert!(!blocked(&dir, &sessions));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
 }
