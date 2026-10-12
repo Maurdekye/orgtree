@@ -214,8 +214,7 @@ export type NativeLogin = {
 function ActiveBox({ active, disabled, who, onChange }: {
   active: boolean; disabled: boolean; who: string; onChange: (active: boolean) => void
 }) {
-  return <SetToggle label={`${who} active`} checked={active} disabled={disabled}
-    hint="Allow this account to serve new turns."
+  return <SetToggle label={`${who} active`} labelContent="Active" checked={active} disabled={disabled}
     onChange={onChange} title={active
     ? 'Active: serves turns. Clear it and this account serves no new turns.'
     : 'Inactive: serves no new turns. Check it to use this account again.'} />

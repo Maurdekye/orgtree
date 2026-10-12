@@ -7897,6 +7897,49 @@ main:has(> .orgbar.native-header) > .error {
 .gallery-agent .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
 
 /* Provider-local secondary account management. */
+/* Providers has its own compact rhythm; other settings and portaled forms
+   retain their existing rows. Keep full names in ARIA while shortening the
+   visual switch labels beside the identities they qualify. */
+#app-settings-panel-providers { gap: 10px; }
+#app-settings-panel-providers .set-group > * + *:not(.set-row) { margin-top: 4px; }
+#app-settings-panel-providers .acct-providers-bar { justify-content: flex-end; min-height: 28px; margin: 0; }
+#app-settings-panel-providers .acct-providers-msg { margin-right: auto; }
+#app-settings-panel-providers .acct-provider-group { padding-bottom: 0; }
+#app-settings-panel-providers .acct-provider-head { flex-wrap: wrap; align-items: center; margin-top: 0; gap: 4px 8px; }
+#app-settings-panel-providers .set-head-right { flex-wrap: wrap; gap: 6px; }
+#app-settings-panel-providers .set-head-right .set-row { min-height: 28px; padding: 3px 0; gap: 0 6px; font-size: 12px; }
+#app-settings-panel-providers .set-row { min-height: 28px; padding: 4px 0; gap: 0 8px; }
+#app-settings-panel-providers button, #app-settings-panel-providers a.acct-provider-download { min-height: 28px; }
+#app-settings-panel-providers .account-management button { padding: 3px 8px; font-size: 12px; }
+#app-settings-panel-providers .acct-secondary-btn { padding: 3px 8px; }
+#app-settings-panel-providers .acct-provider-status { margin: 3px 0; gap: 3px 8px; }
+#app-settings-panel-providers .acct-provider-tiers { margin: 4px 0; padding-top: 0; border-top: 0; gap: 2px; }
+#app-settings-panel-providers .acct-provider-tier { padding: 2px 4px; gap: 4px; }
+#app-settings-panel-providers .account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; gap: 4px 8px; padding: 6px 0; }
+#app-settings-panel-providers .account-identity { gap: 4px 6px; font-size: 12px; min-width: 0; }
+#app-settings-panel-providers .account-identity > .dim { font-size: 11.5px; }
+#app-settings-panel-providers .account-row > .set-row { grid-column: 2; grid-row: 1; }
+#app-settings-panel-providers .account-row > :not(.account-identity):not(.set-row) { grid-column: 1 / -1; }
+#app-settings-panel-providers .account-row .account-management, #app-settings-panel-providers .account-note,
+#app-settings-panel-providers .account-marks { margin-top: 0; font-size: 12px; }
+#app-settings-panel-providers .ls-server-toggle .set-row { font-size: 12px; }
+#app-settings-panel-providers .ls-server-toggle .set-label { flex: none; }
+#app-settings-panel-providers .acct-provider-empty { margin: 3px 0; font-size: 12px; }
+#app-settings-panel-providers .acct-provider-download { margin: 0; }
+#app-settings-panel-providers .acct-line { gap: 0; }
+#app-settings-panel-providers .acct-gutter, #app-settings-panel-providers .acct-grip.acct-ghost { display: none; }
+#app-settings-panel-providers .acct-row { padding: 4px 6px; }
+#app-settings-panel-providers .acct-provenance { margin-left: 0; overflow-wrap: anywhere; }
+#app-settings-panel-providers .acct-provenance span { white-space: normal; }
+#app-settings-panel-providers .ls-server-head { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  #app-settings-panel-providers .set-head-right { margin-left: 0; }
+  #app-settings-panel-providers .acct-provider-head > .set-head-right { width: 100%; justify-content: space-between; }
+  #app-settings-panel-providers .acct-provider-tier { grid-template-columns: 18px minmax(52px, .8fr) minmax(0, 1fr) auto; }
+  #app-settings-panel-providers .account-row { gap: 4px 6px; }
+  #app-settings-panel-providers .account-identity strong { overflow-wrap: anywhere; }
+}
 .provider-accounts:empty{display:none}
 .account-row{padding:12px 0;border-top:1px solid var(--line)}
 .account-identity,.account-management{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

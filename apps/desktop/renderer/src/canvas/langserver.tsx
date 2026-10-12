@@ -175,15 +175,14 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
     <div className="set-group ls-section">
       <div className={'set-group-head acct-provider-head prov-langserver' + (off ? ' provider-off' : '')}>
         Language Server
-        <span className="dim"> · models on your own servers</span>
         <span className="set-head-right">
           <button type="button" className="acct-secondary-btn" disabled={busy || adding || !doc?.presets.length}
             aria-haspopup="dialog"
             title="add a model server: Ollama, LM Studio, llama.cpp, vLLM or a custom one"
             onClick={() => setAdding(true)}>Add server</button>
+          {headRight}
         </span>
       </div>
-      {headRight}
       {err && <div className="dim acct-prov-note">could not read the language servers: {err}</div>}
       {!doc && !err && <div className="dim acct-prov-note">reading language servers…</div>}
       {doc && doc.servers.length === 0 && !adding && (
@@ -681,8 +680,9 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
         </div>
       </div>
       <div className="ls-server-toggle">
-        <SetToggle label={`Use ${s.label}`} checked={s.enabled} disabled={busy}
-          hint="For all orgs. Off: no new hires; existing agents wait for this server to be enabled again."
+        <SetToggle label={`Use ${s.label}`} labelContent="Enabled" checked={s.enabled} disabled={busy}
+          title="For all orgs. Off: no new hires; existing agents wait for this server to be enabled again."
+          hint={s.enabled ? undefined : 'Off: no new hires; existing agents wait for this server.'}
           onChange={(enabled) => { void run(updateLangServer(s.id, { enabled }),
             `${s.label} ${enabled ? 'enabled' : 'disabled'}`, (v) => v.doc) }} />
       </div>

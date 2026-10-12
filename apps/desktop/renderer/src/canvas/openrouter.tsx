@@ -243,9 +243,9 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
         <span className="set-head-right">
           {!off && anyKey && !provider?.hire_enabled
             && <span className="acct-preview-tag">preview</span>}
+          {headRight}
         </span>
       </div>
-      {headRight}
       {err && <div className="dim acct-prov-note">could not read OpenRouter state: {err}</div>}
       {!doc && !err && <div className="dim acct-prov-note">reading OpenRouter state…</div>}
 

@@ -458,8 +458,8 @@ function ProviderSwitch({ provider, busy, onChange }: {
     return null
   const enabled = provider.user_enabled !== false
   return (
-    <SetToggle label={`${provider.label} enabled for new agents`} checked={enabled} disabled={busy}
-      hint="Make this provider available when hiring agents."
+    <SetToggle label={`${provider.label} enabled for new agents`} labelContent="Enabled" checked={enabled} disabled={busy}
+      title="Make this provider available when hiring agents."
       onChange={next => onChange(provider, next)} />
   )
 }
@@ -739,9 +739,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
       {providers && (
         <div className="acct-providers-bar" role="status">
-          <span className="acct-providers-msg dim">
-            {discovering ? 'Refreshing provider status… Showing the last result.' : 'Installed harnesses and accounts'}
-          </span>
+          {discovering && <span className="acct-providers-msg dim">
+            Refreshing provider status… Showing the last result.
+          </span>}
           <button
             type="button"
             className="acct-secondary-btn acct-refresh-btn"
@@ -759,13 +759,13 @@ export function AccountsPanel({ toast, close, initialTab }: {
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex, Antigravity or Muse Code to run agents.</p>}
       {providers?.filter(p => !gateway(p.id)).map(p => <div key={p.id} className='set-group acct-provider-group'>
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
-          <span>{p.label}<span className='dim'> · {p.cli}</span></span>
+          <span>{p.label}{p.cli !== p.label && <span className='dim'> · {p.cli}</span>}</span>
           <span className='set-head-right'>
-            <button className="acct-secondary-btn" onClick={() => setAddAccount(p.id as AccountProvider)}>Add secondary account</button>
+            <button className="acct-secondary-btn" aria-label="Add secondary account" onClick={() => setAddAccount(p.id as AccountProvider)}>Add account</button>
             {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className='acct-preview-tag'>preview</span>}
+            <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
           </span>
         </div>
-        <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
         <div className='acct-provider-status'>
           <span className={'acct-provider-state ' + (!p.status.installed ? 'missing' : p.status.connected === true ? 'connected' : p.status.connected === false ? 'requires-signin' : 'unknown')}>
             {p.status.installed ? (p.status.connected === true ? 'Installed · connected' : p.status.connected === false ? 'Installed · sign-in required' : 'Installed · connection unknown') : 'Not installed'}
@@ -782,7 +782,6 @@ export function AccountsPanel({ toast, close, initialTab }: {
             not shown here. Surfaces outside settings keep that pointer. */}
         {p.reason && p.user_enabled !== false && <p className='dim acct-provider-note'>{p.reason}</p>}
         {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
-          <div className='acct-provider-tier-title'>Model tiers</div>
           {p.tiers.filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
             <span className={'tier t-' + t.tier} title={tierLabel(t.tier)}>{t.letter}</span>
             <span className='acct-provider-tier-name'>{(t.name ?? tierLabel(t.tier)) + legacyMark(t.tier)}</span>
