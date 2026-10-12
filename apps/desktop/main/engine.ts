@@ -474,13 +474,14 @@ export class Engine extends EventEmitter {
     const attempt = (async () => {
       if (this.child && this.child.exitCode === null && this.child.signalCode === null) return
       this.stopLiveness()
-      this.child = undefined; this.endpoint = ''; this.managed = !bootTopology
+      // attach() requires an empty, locally available slot. Keep the original
+      // topology separately so temporary detachment never selects a local spawn.
+      this.child = undefined; this.endpoint = ''; this.managed = true
       if (await this.attach(options)) return
       if (this.launchesCancelled) return
       if (!allowSpawn) throw new Error('Replacement engine is not yet ready to attach')
       if (!await this.rootReleased(options)) throw new Error('Engine recovery is waiting for the old process tree to release its data root.')
       if (bootTopology) {
-        this.managed = false
         if (this.launchesCancelled) return
         if (!restartBoot) throw new Error('Background engine recovery requires its configured task')
         await restartBoot()
@@ -493,7 +494,10 @@ export class Engine extends EventEmitter {
     this.restarting = attempt
     try { await attempt }
     catch (error) { this.state({state: 'unavailable', message: 'Engine recovery failed. Use Restart engine to try again.'}); throw error }
-    finally { this.restarting = undefined }
+    finally {
+      if (bootTopology && !this.endpoint) this.managed = false
+      this.restarting = undefined
+    }
   }
 
   /** Reattach to the boot engine after a deliberate restart of its task —

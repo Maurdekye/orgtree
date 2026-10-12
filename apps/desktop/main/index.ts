@@ -690,9 +690,8 @@ else {
     if (!options || engineRestartBlocked() || engine.restartInProgress) return
     if (resumeEngineStartup) { resumeEngineStartup(); return }
     const attempt = (async () => {
-      await coreLifecycle?.transition()
-      await engine.restart(options)
-      await coreLifecycle?.complete()
+      if (coreLifecycle) await coreLifecycle.restart(() => engine.restart(options))
+      else await engine.restart(options)
     })()
     refreshTrayEngine()   // in flight from here: the row says so and stops accepting clicks
     try { await attempt }

@@ -56,6 +56,26 @@ export class CoreLifecycle {
       this.shutdown(); throw new Error('Orgtree is stopping because a required process exited.')
     }
   }
+  async restart(restartHealthy: () => Promise<void>): Promise<void> {
+    if (this.cancelled || this.busy) throw new Error('Orgtree recovery is already running or stopping. Try again when it finishes.')
+    this.busy = true
+    try {
+      const state = await this.native('status')
+      if (this.cancelled || state.stopped) throw new Error('Orgtree is stopping; engine restart was cancelled.')
+      // An explicit retry after exhaustion cannot ask a dead HTTP endpoint to
+      // enter a transition. Only stamped native death permits that exception.
+      // Reuse the configured recovery path, including root/task rights checks
+      // and window reattachment, without resetting the automatic retry budget.
+      if (state.generation && state.engineGone === true && !state.transitioning && this.recovery) {
+        await this.recovery(true)
+      } else {
+        await this.transition()
+        if (this.cancelled) throw new Error('Orgtree is stopping; engine restart was cancelled.')
+        await restartHealthy()
+        if (!this.cancelled) await this.complete()
+      }
+    } finally { this.busy = false }
+  }
   async complete(): Promise<void> {
     const e = this.endpoint()
     if (await this.bridge.core(e.origin, e.token) || await this.bridge.core(e.origin, e.token, 'complete')) { this.shutdown(); return }

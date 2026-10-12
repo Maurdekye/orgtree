@@ -249,6 +249,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   This supersedes the October11 coupled-stop policy. [decided: user
   2026-10-12 09:14Z; verified: `core_state.rs`, `core_recovery.rs`,
   `apps/desktop/main/core-lifecycle.ts`; details `docs/rust-engine/core-recovery.md`]
+- Recovery attachment uses an empty local slot while retaining boot topology
+  separately; failure restores task ownership, never a managed fallback. Manual
+  Restart uses configured recovery only after stamped native death; healthy
+  restart still authenticates its transition, and Quit cancels both paths.
+  [verified: 2026-10-12 `engine.ts`, `core-lifecycle.ts`; regression
+  `tests/core-recovery-review.test.mjs`]
 
 - Cold-turn admission and forecasts share the measured-context threshold gate.
   Compatible receipts carry an expiry verdict for the composer's shared clock;

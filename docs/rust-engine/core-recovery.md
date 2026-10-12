@@ -86,3 +86,26 @@ machinery, not a new end-to-end Codex run. No performance improvement claim.
 Isolated processes are stopped after proof, exact disposable profile-state
 paths are checked before removal, and evidence remains outside live state.
 Independent source/evidence review is required before integration.
+
+## First review corrections (2026-10-12)
+
+Actual attachment methods exposed a boot-topology state contradiction hidden
+by earlier injected attachment tests: `attach()` requires an empty local slot,
+but recovery marked that slot attached before both probes. Recovery now retains
+the original boot topology separately while probing, restores task ownership
+on failure, and still launches only the configured task after root release.
+The regression executes the real first probe and real post-task retry method;
+only the task invocation and root-release result are injected.
+
+Initialized manual Restart now serializes with automatic recovery. A stamped
+native engine-death result, without an intentional transition or Quit record,
+uses the configured recovery callback (including window reattachment) instead
+of requiring HTTP from the dead engine. Healthy/unknown cases retain the
+authenticated transition. Explicit retry does not reset the automatic budget;
+Quit during the native probe or transition prevents the later launch.
+
+The matched predecessor runs nine composition cases with four failures; the
+correction passes those nine and three additional cancellation/serialization
+cases. No scheduled task, real desktop process, or live endpoint is used by
+these tests. The prior process matrix remains historical evidence for its
+recorded source: 18 behavior entries plus cleanup, 19 passing entries total.
