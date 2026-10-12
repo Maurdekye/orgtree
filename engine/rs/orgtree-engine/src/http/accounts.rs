@@ -560,8 +560,9 @@ pub async fn openrouter_key_clear(State(e): State<Arc<Engine>>) -> ApiResult<Jso
 
 /// `GET /api/openrouter/keys/usage`: every stored key's last reading by its
 /// lane, as the `openrouter_keys_usage` value pushes it. Cache-only: the
-/// usage loop reads the keys, a window never makes it fetch.
-#[logged]
+/// usage loop reads the keys, a window never makes it fetch. Not logged:
+/// readings can carry the provider's own error text.
+#[nolog]
 pub async fn openrouter_keys_usage(State(e): State<Arc<Engine>>) -> Json<Value> {
     let mut out = serde_json::Map::new();
     for a in crate::openrouter::keys(&e) {

@@ -27,6 +27,9 @@ pub struct AccountInfo {
     pub ord: i64,
     /// the row points at the provider's own sign-in (decided at load)
     pub ambient: bool,
+    /// how many times the row's stored secret was replaced (never the secret
+    /// itself): a warm CLI started on an earlier one is replaced
+    pub credential: i64,
 }
 
 #[logged]
@@ -142,7 +145,8 @@ impl Accounts {
         let client = engine.db.get().await?;
         let rows = client
             .query(
-                "SELECT id, provider, kind, label, identity, tint_ordinal, auth, config_dir, enabled, origin_org, ord
+                "SELECT id, provider, kind, label, identity, tint_ordinal, auth, config_dir, enabled, origin_org, ord,
+                        coalesce((extra->>'credential_gen')::bigint, 0)
                    FROM ot.accounts ORDER BY provider, ord, id",
                 &[],
             )
@@ -168,6 +172,7 @@ impl Accounts {
                     origin_org: r.get(9),
                     marks: HashMap::new(),
                     ord: r.get::<_, i32>(10) as i64,
+                    credential: r.get(11),
                 },
             );
         }

@@ -42,7 +42,9 @@ fn lanes(engine: &Engine, org: &str) -> BTreeMap<String, Lane> {
             },
         );
     }
-    if crate::providers::openrouter_key_set(engine) {
+    // the original key's lane while it is stored (`key_set` is any key's);
+    // its registry row below carries its own switch
+    if view.get(crate::openrouter::ACCOUNT_ID).is_some() {
         out.insert(
             "openrouter".into(),
             Lane {

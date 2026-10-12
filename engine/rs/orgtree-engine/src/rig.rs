@@ -249,6 +249,22 @@ pub fn openrouter_key(lane: &str) -> Option<std::result::Result<serde_json::Map<
     })
 }
 
+/// How long the rig's canned OpenRouter key check for `lane` takes to
+/// answer (`"delay_ms"` in the same file; a proof's slow provider). The
+/// answer itself is read before the wait, as a real request is sent before
+/// its reply. None outside rig mode or without one.
+#[logged]
+pub fn openrouter_key_delay(lane: &str) -> Option<std::time::Duration> {
+    let home = RIG.get().cloned().flatten()?;
+    let dir = home.join("rig-usage");
+    [dir.join(format!("openrouter-key@{lane}.json")), dir.join("openrouter-key.json")]
+        .iter()
+        .find_map(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v["delay_ms"].as_u64())
+        .map(std::time::Duration::from_millis)
+}
+
 /// The OpenRouter catalog in rig mode: what
 /// `<root>\rig-home\rig-usage\openrouter-models.json` holds, the body of
 /// `GET /api/v1/models` (`{"data": [...]}`), and no network when there is no

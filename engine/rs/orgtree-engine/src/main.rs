@@ -265,6 +265,9 @@ async fn run_with_cluster(
     }
     accounts::start(&engine).await;
     openrouter::import_legacy(&engine).await;
+    // the stored OpenRouter favorites are hireable tiers from the first
+    // request, every start: discovery (a CLI probe) fills the rest later
+    providers::refresh_openrouter(&engine);
     providers::start(&engine);
     // the built-in organization templates, as files in the templates folder
     tokio::task::spawn_blocking(|| {

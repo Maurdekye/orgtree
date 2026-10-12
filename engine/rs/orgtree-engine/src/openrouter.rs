@@ -152,6 +152,40 @@ pub async fn key(engine: &Engine) -> Option<String> {
     key_of(engine, ACCOUNT_ID).await
 }
 
+/// A key row's secret with its replacement generation, read together, so a
+/// usage read can tell afterwards whether the key it used is still the one
+/// stored (never logged: it returns the secret).
+pub async fn key_with_generation(engine: &Engine, id: &str) -> Option<(String, i64)> {
+    let client = engine.db.get().await.ok()?;
+    client
+        .query_opt(
+            "SELECT s.secret, coalesce((a.extra->>'credential_gen')::bigint, 0)
+               FROM ot.account_secrets s JOIN ot.accounts a ON a.id = s.account_id
+              WHERE s.account_id = $1 AND a.provider = 'openrouter'",
+            &[&id],
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|r| (r.get(0), r.get(1)))
+}
+
+/// A key row's replacement generation as stored now (None: the row is gone
+/// or the database cannot be read).
+#[logged]
+pub async fn generation(engine: &Engine, id: &str) -> Option<i64> {
+    let client = engine.db.get().await.ok()?;
+    client
+        .query_opt(
+            "SELECT coalesce((extra->>'credential_gen')::bigint, 0) FROM ot.accounts WHERE id = $1 AND provider = 'openrouter'",
+            &[&id],
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.get(0))
+}
+
 #[nolog]
 fn clean_label(label: Option<&str>) -> Result<Option<String>> {
     let Some(l) = label.map(str::trim) else { return Ok(None) };
@@ -163,7 +197,7 @@ fn clean_label(label: Option<&str>) -> Result<Option<String>> {
 
 /// The key row already holding this secret, other than `except`. Not
 /// logged: it takes the key.
-async fn holder_of(client: &tokio_postgres::Client, key: &str, except: Option<&str>) -> Result<Option<String>> {
+async fn holder_of(client: &impl tokio_postgres::GenericClient, key: &str, except: Option<&str>) -> Result<Option<String>> {
     Ok(client
         .query_opt(
             "SELECT a.id FROM ot.account_secrets s JOIN ot.accounts a ON a.id = s.account_id
@@ -172,6 +206,35 @@ async fn holder_of(client: &tokio_postgres::Client, key: &str, except: Option<&s
         )
         .await?
         .map(|r| r.get(0)))
+}
+
+/// Inside a key write's transaction: lock every OpenRouter key row (in id
+/// order, a handful at most) so concurrent writes of the same secret are
+/// serialized, then refuse a secret another row already holds. The check
+/// sees every write committed before the lock was granted.
+async fn admit_secret(tx: &tokio_postgres::Transaction<'_>, key: &str, except: Option<&str>) -> Result<()> {
+    tx.query("SELECT id FROM ot.accounts WHERE provider = 'openrouter' ORDER BY id LIMIT 1000 FOR UPDATE", &[]).await?;
+    if let Some(other) = holder_of(tx, key, except).await? {
+        crate::refuse!(Conflict, "this key is already stored as {}", lane(&other));
+    }
+    Ok(())
+}
+
+/// Replace a key row's stored secret, counting the replacement (a new
+/// secret only) so a warm CLI and a usage read started on the old one know.
+async fn store_secret(tx: &tokio_postgres::Transaction<'_>, id: &str, key: &str) -> Result<()> {
+    tx.execute(
+        "UPDATE ot.accounts SET extra = jsonb_set(extra, '{credential_gen}', to_jsonb(coalesce((extra->>'credential_gen')::bigint, 0) + 1))
+          WHERE id = $1 AND EXISTS (SELECT 1 FROM ot.account_secrets WHERE account_id = $1 AND secret <> $2)",
+        &[&id, &key],
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2) ON CONFLICT (account_id) DO UPDATE SET secret = EXCLUDED.secret",
+        &[&id, &key],
+    )
+    .await?;
+    Ok(())
 }
 
 /// After a key row was added, replaced or removed: the registry snapshot
@@ -195,10 +258,8 @@ pub async fn add_key(engine: &Engine, key: &str, label: Option<&str>) -> Result<
     }
     let label = clean_label(label)?.unwrap_or_default();
     let mut client = engine.db.get().await?;
-    if let Some(other) = holder_of(&client, key, None).await? {
-        crate::refuse!(Conflict, "this key is already stored as {}", lane(&other));
-    }
     let tx = client.transaction().await?;
+    admit_secret(&tx, key, None).await?;
     let original = tx.query_opt("SELECT 1 FROM ot.accounts WHERE id = $1", &[&ACCOUNT_ID]).await?.is_none();
     let id = if original {
         ACCOUNT_ID.to_string()
@@ -223,7 +284,13 @@ pub async fn add_key(engine: &Engine, key: &str, label: Option<&str>) -> Result<
     )
     .await?;
     tx.execute("INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2)", &[&id, &key]).await?;
-    tx.commit().await?;
+    if let Err(e) = tx.commit().await {
+        // two first keys at once: there were no rows to lock yet
+        if e.code() == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION) {
+            crate::refuse!(Conflict, "another OpenRouter key was added at the same moment; add this one again");
+        }
+        return Err(e.into());
+    }
     drop(client);
     keys_changed(engine).await?;
     Ok(id)
@@ -238,36 +305,30 @@ pub async fn update_key(engine: &Engine, id: &str, key: Option<&str>, label: Opt
     if client.query_opt("SELECT 1 FROM ot.accounts WHERE id = $1 AND provider = 'openrouter'", &[&id]).await?.is_none() {
         crate::refuse!(NotFound, "no OpenRouter key {id}");
     }
-    if let Some(k) = key {
-        if let Some(other) = holder_of(&client, k, Some(id)).await? {
-            crate::refuse!(Conflict, "this key is already stored as {}", lane(&other));
-        }
-    }
     let tx = client.transaction().await?;
+    if let Some(k) = key {
+        admit_secret(&tx, k, Some(id)).await?;
+    }
     if let Some(l) = &label {
         let l = if l.is_empty() && id == ACCOUNT_ID { "OpenRouter" } else { l.as_str() };
         tx.execute("UPDATE ot.accounts SET label = $2 WHERE id = $1", &[&id, &l]).await?;
     }
     if let Some(k) = key {
-        tx.execute(
-            "INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2) ON CONFLICT (account_id) DO UPDATE SET secret = EXCLUDED.secret",
-            &[&id, &k],
-        )
-        .await?;
+        store_secret(&tx, id, k).await?;
     }
     tx.commit().await?;
     drop(client);
     keys_changed(engine).await
 }
 
-/// Remove a key row. The original goes as `clear_key` always did; an added
-/// key through the registry's removal, which first moves every agent and
-/// default bound to it onto the original key (ruling 2026-10-11).
+/// Remove a key row through the reassignment-or-freeze path (ruling
+/// 2026-10-11): an added key through the registry's removal, which first
+/// moves every agent and default bound to it onto the original key; the
+/// original through `clear_key`.
 #[logged]
 pub async fn remove_key(engine: &Arc<Engine>, id: &str) -> Result<Value> {
     if id == ACCOUNT_ID || id == LANE {
-        clear_key(engine).await?;
-        return Ok(json!({ "removed": ACCOUNT_ID, "rebound": [] }));
+        return clear_key(engine).await;
     }
     if !keys(engine).iter().any(|k| k.id == id) {
         crate::refuse!(NotFound, "no OpenRouter key {id}");
@@ -285,21 +346,15 @@ pub async fn set_key(engine: &Engine, key: &str) -> Result<()> {
         crate::refuse!(BadRequest, "paste an OpenRouter API key");
     }
     let mut client = engine.db.get().await?;
-    if let Some(other) = holder_of(&client, key, Some(ACCOUNT_ID)).await? {
-        crate::refuse!(Conflict, "this key is already stored as {}", lane(&other));
-    }
     let tx = client.transaction().await?;
+    admit_secret(&tx, key, Some(ACCOUNT_ID)).await?;
     tx.execute(
         "INSERT INTO ot.accounts (id, provider, kind, label, auth, enabled) VALUES ($1, 'openrouter', 'apikey', 'OpenRouter', 'unobserved', true)
          ON CONFLICT (id) DO NOTHING",
         &[&ACCOUNT_ID],
     )
     .await?;
-    tx.execute(
-        "INSERT INTO ot.account_secrets (account_id, secret) VALUES ($1, $2) ON CONFLICT (account_id) DO UPDATE SET secret = EXCLUDED.secret",
-        &[&ACCOUNT_ID, &key],
-    )
-    .await?;
+    store_secret(&tx, ACCOUNT_ID, key).await?;
     tx.commit().await?;
     drop(client);
     keys_changed(engine).await
@@ -370,22 +425,28 @@ pub async fn import_legacy(engine: &Engine) {
     tracing::info!(found = carried["found"].as_bool().unwrap_or(false), key = carried["key"].as_bool().unwrap_or(false),
                    favorites = carried["favorites"].as_i64().unwrap_or(0), "3.x OpenRouter settings checked");
     if carried["key"] == json!(true) || carried["favorites"].as_i64().unwrap_or(0) > 0 {
-        // the carried favorites are hireable now, not only after the first
-        // provider discovery (a CLI probe that can take a while)
-        crate::providers::refresh_openrouter(engine);
         crate::providers::publish(engine);
         publish(engine).await;
     }
 }
 
+/// Remove the original key: every seat it bills moves to another key it
+/// may run on, or freezes saying none is left
+/// (`account_removal::remove_original`).
 #[logged]
-pub async fn clear_key(engine: &Engine) -> Result<()> {
+pub async fn clear_key(engine: &Arc<Engine>) -> Result<Value> {
+    // none stored: nothing to move (clearing stays idempotent, as before)
+    let out = if engine.accounts.view().get(ACCOUNT_ID).is_some() {
+        crate::domain::account_removal::remove_original(engine).await?
+    } else {
+        json!({ "removed": null, "rebound": [], "frozen": [] })
+    };
     let mut client = engine.db.get().await?;
-    client.execute("DELETE FROM ot.accounts WHERE id = $1", &[&ACCOUNT_ID]).await?;
     engine.settings.merge(&mut client, json!({ "openrouter": { "label": null } })).await?;
     drop(client);
     // another key may still be stored: `key_set` says whether any is
-    keys_changed(engine).await
+    keys_changed(engine).await?;
+    Ok(out)
 }
 
 /// The `or-<model>` tier of a catalog model.
@@ -789,8 +850,9 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
 /// Every stored key as the panel lists it (secret-free): its id and lane,
 /// the user's name for it and what it is called, and its standing. The
 /// original key's standing is the check `doc` just made; an added key's is
-/// its last usage reading (the usage loop reads every key).
-#[logged]
+/// its last usage reading (the usage loop reads every key). Not logged:
+/// it carries each reading's error text.
+#[nolog]
 fn keys_doc(engine: &Engine, original_connected: bool, original_reason: &Value) -> Vec<Value> {
     keys(engine)
         .iter()
@@ -839,6 +901,9 @@ pub fn key_refused(engine: &Arc<Engine>) {
 /// key. Not logged: it holds the key.
 pub async fn key_standing(lane: &str, key: &str) -> std::result::Result<Map<String, Value>, (bool, String)> {
     if let Some(canned) = crate::rig::openrouter_key(lane) {
+        if let Some(wait) = crate::rig::openrouter_key_delay(lane) {
+            tokio::time::sleep(wait).await;
+        }
         return canned;
     }
     let client = reqwest::Client::builder()

@@ -206,9 +206,10 @@ pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>,
     let provider = crate::providers::catalog::provider_of(tier);
     let v = reading_of(engine, provider, account)?;
     v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).find_map(|w| {
-        // an OpenRouter key's spent row may carry no percent (a prepaid
-        // balance at zero): its own `is_active` says it is spent
-        if provider == crate::providers::catalog::OPENROUTER && w["percent"].is_null() && w["is_active"] == json!(true) {
+        // an OpenRouter key's credit row says itself when it is spent
+        // (`is_active`): a capped key whose account balance is at zero reads
+        // under 100% of its cap, and a prepaid balance at zero has no percent
+        if provider == crate::providers::catalog::OPENROUTER && w["is_active"] == json!(true) {
             return Some(format!("its latest reading shows {}", w["label"].as_str().unwrap_or("its credit spent")));
         }
         let p = w["percent"].as_f64().filter(|p| p.is_finite() && *p >= 100.0)?;
@@ -1104,8 +1105,10 @@ pub async fn refresh_openrouter(engine: &Engine, force: bool) {
     crate::openrouter::publish(engine).await;
 }
 
-/// The original OpenRouter key's credit standing (`GET /api/v1/key`).
-#[logged]
+/// The original OpenRouter key's credit standing (`GET /api/v1/key`). Not
+/// logged: a reading can carry the provider's own error text
+/// (`openrouter_key_usage` logs a safe summary).
+#[nolog]
 pub async fn openrouter(engine: &Engine, force: bool) -> Value {
     openrouter_key_usage(engine, crate::openrouter::ACCOUNT_ID, force).await
 }
@@ -1120,15 +1123,23 @@ pub fn openrouter_reading(engine: &Engine, lane: &str) -> Option<Value> {
 /// One OpenRouter key's credit standing, cached and recorded under its lane
 /// (the original key's as before several keys: `openrouter`). The public
 /// reader; `openrouter_key_read` is the read itself (a probe reservation
-/// per lane wraps it here, not there).
-#[logged]
+/// per lane wraps it here, not there). Not logged: a reading can carry the
+/// provider's own error text; one safe line says what came back.
+#[nolog]
 pub async fn openrouter_key_usage(engine: &Engine, id: &str, force: bool) -> Value {
     let lane = crate::openrouter::lane(id);
     let Some(_guard) = engine.usage.reserve(&lane) else { return engine.usage.busy_reading(&lane) };
-    openrouter_key_read(engine, id, force).await
+    let v = openrouter_key_read(engine, id, force).await;
+    tracing::info!(lane = %lane, available = v["available"] == json!(true), error = v["error"].is_string(),
+                   detail = v["detail"].is_string(), reauth = v["reauth_required"] == json!(true), "OpenRouter key usage read");
+    v
 }
 
-#[logged]
+/// How often one read tries again when the key it read with was replaced
+/// before the answer came back.
+const OPENROUTER_REPLACED_RETRIES: usize = 2;
+
+#[nolog]
 async fn openrouter_key_read(engine: &Engine, id: &str, force: bool) -> Value {
     let lane = crate::openrouter::lane(id);
     // rig mode: a canned reading stands in for the check, cache included;
@@ -1143,14 +1154,32 @@ async fn openrouter_key_read(engine: &Engine, id: &str, force: bool) -> Value {
             return v;
         }
     }
-    let observed = Utc::now();
-    let mut out = match crate::openrouter::key_of(engine, id).await {
-        None => json!({ "available": false, "error": "no API key — add one in App settings › Providers",
-                        "reauth_evidence": "not_connected" }),
-        Some(key) => match openrouter_fetch(&lane, &key).await {
+    // the key and its replacement generation are read together, and the
+    // generation again once the answer is in: an answer for a key replaced
+    // (or removed) meanwhile describes a credential no longer stored, so it
+    // is never cached or recorded; the read starts over on the new key
+    let mut attempt = 0;
+    let (observed, mut out) = loop {
+        let observed = Utc::now();
+        let Some((key, generation)) = crate::openrouter::key_with_generation(engine, id).await else {
+            break (observed, json!({ "available": false, "error": "no API key — add one in App settings › Providers",
+                                     "reauth_evidence": "not_connected" }));
+        };
+        let out = match openrouter_fetch(&lane, &key).await {
             Ok(v) => v,
             Err(e) => json!({ "available": false, "error": "OpenRouter usage check failed", "detail": gist(&e, 300) }),
-        },
+        };
+        drop(key);
+        if crate::openrouter::generation(engine, id).await == Some(generation) {
+            break (observed, out);
+        }
+        attempt += 1;
+        if attempt > OPENROUTER_REPLACED_RETRIES {
+            tracing::info!(lane = %lane, "OpenRouter key replaced during every read; nothing recorded");
+            return json!({ "available": false, "account": lane, "key_id": id, "provider": "OpenRouter",
+                           "error": "the key was replaced while it was being read; read again" });
+        }
+        tracing::info!(lane = %lane, attempt, "OpenRouter key replaced during the read; reading the stored key again");
     };
     out["account"] = json!(lane);
     out["key_id"] = json!(id);

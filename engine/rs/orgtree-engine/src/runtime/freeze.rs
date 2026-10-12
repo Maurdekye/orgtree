@@ -306,6 +306,14 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
         && continuation::resolve(engine, org_slug, tier, id).is_ok()).cloned()
 }
 
+/// Whether `account` passes the shared continuation checks for `tier` in
+/// `org_slug` now (org list, switches, sign-in, marks, usage), without
+/// moving anything: what a forced move (an account's removal) offers.
+#[logged]
+pub fn eligible(engine: &Engine, org_slug: &str, tier: &str, account: &str) -> bool {
+    continuation::resolve(engine, org_slug, tier, account).is_ok()
+}
+
 /// The longest one login's usage read may take when the fallback asks it.
 const FALLBACK_READ: Duration = Duration::from_secs(5);
 

@@ -1535,11 +1535,27 @@ impl Actor {
                 ("model", ctx.model.clone()),
                 ("permission_mode", ctx.effective["permission_mode"].as_str().unwrap_or("").to_string()),
                 ("folders", hash(&dirs_print)),
-                ("account", ctx.account.clone().unwrap_or_default()),
+                ("account", self.account_print(ctx)),
                 ("startup", startup::digest(&self.startup_inputs(ctx))),
             ],
         };
         Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print }
+    }
+
+    /// The fingerprint's account part: the seat's binding, and once the
+    /// secret of the registry row it bills was replaced, that replacement's
+    /// generation (`#credential-N`, never the secret), so a warm CLI started
+    /// on the old secret is replaced at the next turn boundary. A row never
+    /// replaced prints as before.
+    fn account_print(&self, ctx: &Ctx) -> String {
+        let bound = ctx.account.clone().unwrap_or_default();
+        let billed = if ctx.provider == catalog::OPENROUTER {
+            Some(crate::openrouter::seat_key(&self.engine, ctx.account.as_deref()))
+        } else {
+            ctx.account.clone()
+        };
+        let generation = billed.and_then(|id| self.engine.accounts.view().get(&id).map(|a| a.credential)).unwrap_or(0);
+        if generation > 0 { format!("{bound}#credential-{generation}") } else { bound }
     }
 
     /// Where this launch's CLI finds its startup instruction files: the same
