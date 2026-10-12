@@ -31,6 +31,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- User-approved folder additions/upgrades through HTTP scope and request
+  approval enter org defaults atomically with child/ancestor scope (3.x
+  user 2026-08-08, P56). Whole-list saves exclude unchanged latent folders;
+  requests carry only explicit approved items. Org-before-agent row locks
+  agree with settings/revocation and user retool/rehire. Publish refresh only
+  after commit; never replay old approvals or create directories. See
+  [scope intent and proof limits](docs/rust-engine/approved-folder-grants.md).
+  [verified: `domain/asks.rs`, `domain/scope.rs`, `http/nodes.rs`, 2026-10-12]
+
 - Organization profile pictures use a dedicated bounded `ot.meta` record,
   not the net/tree payload. Human settings edits carry the numeric org owner;
   incoming hub merges preserve logical revisions and removal tombstones.

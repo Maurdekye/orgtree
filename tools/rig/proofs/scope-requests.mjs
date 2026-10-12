@@ -1,12 +1,11 @@
 // Proof: an agent asks the user for more scope (orgtree_request_scope), and
-// what it is told once the user approves. The organization's folders cap
-// every grant, so an approval can land short of the request; 3.x measured
-// the scope after the grant and said what really happened.
+// what it is told once the user approves. The 2026-08-08 user ruling makes
+// user-approved folders enter org defaults as well as the ancestor chain.
 //   sky (holds a user audience, no web tool) asks for the web tool, a folder
 //       inside the org's read-only folder with write access, and a folder
 //       outside the org's folders. The user approves all three: the web tool
-//       is granted; the inner folder lands read-only (partially clamped); the
-//       outer folder is not in effect (clamped). Asking for what she already
+//       is granted; both folders are granted RW, preserving the broader RO
+//       folder. Asking for what she already
 //       holds is dropped.
 //   ned (no audience): his scope request goes to his superior as mail.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/scope-requests.mjs
@@ -52,16 +51,15 @@ export default async function (rig) {
   p.note('the decision mail', { body: m?.body, lines })
   const line = what => lines.split('\n').find(l => l.includes(what)) ?? ''
   p.check('sky: the web tool is granted and live from her next turn', res.ok && /tool: web → GRANTED — live from your next turn/.test(line('tool: web')), line('tool: web'))
-  p.check('sky: the folder inside the org\'s read-only folder is reported as partially clamped, held read-only',
-    /PARTIALLY clamped/.test(line(inner)) && /\(ro\)/.test(line(inner).split('you now hold')[1] ?? ''), line(inner))
-  p.check('sky: the folder outside the org\'s folders is reported as clamped, not in effect', /CLAMPED — NOT in effect/.test(line(outside)), line(outside))
-  p.check('sky: the plain-text summary says the same', /granted/.test(m?.body ?? '') && /partially/i.test(m?.body ?? '')
-    && /not in effect/i.test(m?.body ?? ''), m?.body)
+  p.check('sky: the narrow folder inside the org\'s RO folder is reported granted RW', /GRANTED/.test(line(inner)), line(inner))
+  p.check('sky: the folder outside the org\'s folders is reported granted', /GRANTED/.test(line(outside)), line(outside))
+  p.check('sky: the plain-text summary agrees all requested items are granted', /granted/.test(m?.body ?? '')
+    && !/partial|clamped|not in effect/i.test(m?.body ?? ''), m?.body)
   await rig.waitTurns('sky', 1)
   const same = (a, b) => path.resolve(a ?? '').toLowerCase() === path.resolve(b ?? '').toLowerCase()
   const dirs = rig.fakeLog('sky').filter(l => l.kind === 'start').at(-1)?.add_dirs ?? []
-  p.check('sky: what her CLI actually gets matches: the inner folder, not the outer one', dirs.some(d => same(d, inner))
-    && !dirs.some(d => same(d, outside)), dirs)
+  p.check('sky: her refreshed CLI receives both approved folders', dirs.some(d => same(d, inner))
+    && dirs.some(d => same(d, outside)), dirs)
 
   // ---------------------------------------------------------------- ned: routed to his superior
   const boss = id('boss')
