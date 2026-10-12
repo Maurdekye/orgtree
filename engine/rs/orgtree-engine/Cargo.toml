@@ -55,6 +55,8 @@ dirs = "5"
 rust_decimal = { version = "1", features = ["db-tokio-postgres", "serde-with-float"] }
 toml = "0.8"
 flate2 = "1"
+image = { version = "=0.25.9", default-features = false, features = ["png", "jpeg", "webp"] }
+png = "0.17"
 orgtree-logged = { path = "../orgtree-logged" }
 
 [target.'cfg(windows)'.dependencies]

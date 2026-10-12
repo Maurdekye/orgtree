@@ -36,6 +36,7 @@ mod incoming;
 pub mod control;
 mod failures;
 pub mod isolation;
+mod pictures;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";
@@ -169,6 +170,7 @@ impl Part {
 #[derive(Default)]
 pub struct Net {
     pub isolation: isolation::Gates,
+    pictures: pictures::State,
     /// Fair bounded admission scan; unavailable peers cannot pin the first page.
     drain_cursor: std::sync::atomic::AtomicI64,
     /// (org id, hub id) → connection status
@@ -542,6 +544,7 @@ async fn pass(engine: &Arc<Engine>) -> Result<()> {
     reconcile_pollers(engine, &parts);
     drain(engine, &parts).await?;
     flush_receipts(engine, &parts).await;
+    pictures::dispatch(engine, &parts);
     Ok(())
 }
 
@@ -1303,6 +1306,8 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
         return Ok(Value::Null);
     }
     let org_id = org["id"].as_i64().unwrap_or(0);
+    // Project only the revision; picture bytes stay out of feed and trace data.
+    let picture_revision:Option<String>=client.query_opt("SELECT value->>'revision' FROM ot.meta WHERE key=$1",&[&crate::profile_pictures::key(org_id)]).await?.and_then(|r|r.get(0));
     let own = net.pointer("/identity/slug").and_then(Value::as_str).unwrap_or("").to_string();
     let inbox_enabled = crate::domain::orginbox::enabled(&org["settings"]);
     let (queued, stuck, stuck_err): (i64, i64, Option<String>) = if inbox_enabled {
@@ -1354,7 +1359,7 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
             v
         })
         .collect();
-    Ok(json!({ "slug": if own.is_empty() { Value::Null } else { json!(own) }, "hubs": out }))
+    Ok(json!({ "slug": if own.is_empty() { Value::Null } else { json!(own) }, "hubs": out, "picture_revision": picture_revision }))
 }
 
 /// `GET /api/orgs/{slug}/net`: the identity, secret included (the settings

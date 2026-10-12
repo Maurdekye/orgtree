@@ -48,6 +48,7 @@ mod org_accounts;
 mod orgs;
 mod pg;
 mod phone;
+mod profile_pictures;
 mod providers;
 mod rig;
 mod runtime;
