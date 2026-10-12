@@ -169,7 +169,9 @@ export default async function (rig) {
   p.check('reorder obeys team tool-group denial', !r.ok && /tool|scope|grant|available/.test(r.text ?? ''), r.text)
   await rig.userMail('boss', 'Ordering proof: answer OK only with team tools disabled.')
   await rig.waitTurns('boss', 2)
-  p.check('MCP removes reorder when team tools are disabled', !servedLists().at(-1)?.some(t => t.name === 'orgtree_reorder'))
+  const narrowed = servedLists().at(-1)
+  p.check('MCP removes reorder when team tools are disabled', Array.isArray(narrowed) && narrowed.length > 0
+    && !narrowed.some(t => t.name === 'orgtree_reorder'))
   p.keep(rig, { grep: /ordering|reorder|serializ|conflicted/ })
   return p.summary()
 }
