@@ -25,7 +25,7 @@ Automatic fallback continues to require proven room.
 
 All unexpired observations of the physical native login constrain continuation:
 the canonical native cache key and each ambient registry row's explicit home
-key are inspected for quota and negative authentication evidence. A quieter or
+key are inspected for quota and genuine authentication observations. A quieter or
 missing alias reading cannot erase another alias's positive exhaustion evidence.
 The same rule applies to an explicit ambient account ID and to primary aliases.
 
@@ -34,7 +34,19 @@ usage bars. Production result processing and isolated canned results share the
 same helper. A failed authentication is remembered without refreshing either
 the bars' insertion age or their `observed_at`; cooldown and transient failures
 do not clear or re-date it. A genuine successful read replaces the negative
-evidence. Authentication flags remain tri-state and expire at 900 seconds.
+evidence. Across aliases, the latest genuine still-fresh authentication
+observation wins: a later successful read supersedes an older negative on
+another alias; a newer negative still refuses. Unflagged successful provider
+results count as positive authentication, but transient errors, retained bars,
+cooldown and missing evidence supply no new observation. Authentication remains
+tri-state and expires at 900 seconds; equal timestamps conservatively keep a
+negative assertion. Quota and capacity marks retain their conservative policy.
+
+`Usage::cached_reauth_required_across` accepts borrowed cache keys for one
+physical login and returns only `Option<bool>`, without exposing raw evidence.
+The native key set consists of the provider's canonical key plus keys for every
+published same-provider, non-key ambient/native registry row. The safe query
+owner can use this same contract at integration.
 
 Marks on ambient registry rows also constrain primary aliases. Continuation
 never deletes account marks or writes a usage reading, and performs no provider
@@ -53,6 +65,12 @@ The backend-generated frozen-agent UI list includes an eligible primary lane
 when the agent currently has a separate account binding. Each selected entry
 is revalidated at execution; stale UI choices cannot bypass eligibility.
 The tool retains its existing self/downward authorization gate.
+
+Automatic fallback retains registry candidate order, subscription and API-key
+switches, and proven-room requirements. Candidate selection also checks shared
+synchronous continuation eligibility, skips rejected candidates, and considers
+later eligible accounts. Execution still revalidates. This does not add native
+primary aliases to automatic selection.
 
 ## Focused verification
 
@@ -106,3 +124,12 @@ The usage-query owner will compose `cached_reauth_required` into its safe query
 projection during checked integration; this branch supplies the independently
 dated helper and continuation guard, and does not change the query tool.
 Combined multi-key OpenRouter regression remains a separate integration gate.
+
+Round-2 review found older auth negatives on another alias could block genuine
+recovery, and fallback could stop at a first candidate known to fail execution
+eligibility. `continue-primary-review2.mjs` tests both alias directions, newer
+negative/transient controls, and actual fallback from a fake CLI limit turn.
+Measured predecessor `d6e2b2b` binary: four alias recovery routes fail, fallback
+stays frozen on its original account and never launches the later usable login.
+The original capacity mark remains. Production helper tests additionally cover
+stale positive observations and cooldown/retained-bar preservation.

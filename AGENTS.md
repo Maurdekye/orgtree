@@ -21,7 +21,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Revalidate org/auth/activation/tier usage and ambient marks; no probe or mark
   clearing. Binding, freeze/pending release, audit and replay mail commit together.
   Native and explicit ambient-home cache aliases all constrain eligibility;
-  Claude auth failures have their own age and never refresh last-good bars.
+  Latest genuine auth observation wins across physical native aliases; transient
+  failures/cooldown never refresh auth or last-good bars. Automatic fallback
+  skips candidates failing shared eligibility, retaining order/switches/proven room.
   Explicit registry targets and automatic fallback retain their policies. See
   [primary continuation](docs/rust-engine/continue-primary.md).
   [verified: `runtime/freeze.rs`, `runtime/freeze/continuation.rs`, `usage.rs`, 2026-10-12]
