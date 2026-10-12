@@ -277,3 +277,37 @@ The three independent review rounds are complete. This is original-owner
 correction and regression proof, not a fourth independent review. Coordinator
 returns the concrete hand-in for user disposition before another review or
 integration; no approval-by-cap is implied.
+
+Measured bounded correction2026-10-12: exact reviewed6c3c51ef runtime
+SHA256116148657b9990ade5d354c665c871d5cbf57d0dce69acce28bada27f2a10eaa
+passed16/23 in `folder-grants-account-removal-20261012T220913`;
+seven named failures include both real folder-route PostgreSQL deadlock/500,
+their persistence/answer failures, and the old wait-through-contention behavior.
+Corrected `folder-grants-account-removal-20261012T221227` passes23/23 against
+SHA256b2da1c85f9517c3d1c03582d377221be86e40ac6e674ca893e3831e1e571941b.
+The barrier is before the late org-default scan and the actual competing route's
+agent wait is recorded. In both corrected schedules, the waiting stale binder
+committed after rollback and was then drained/rebound by removal's retry;
+no dangling reference or duplicate committed removal event remained.
+
+The final explicit-rollback source compiled engine-package all-targets single
+job in53.28s within6144MB/600s Job; the two focused intent units pass with110
+filtered. Log `scratch-open-sol-folder-grants-removal-build-rollback.log`.
+An earlier successful build before explicit awaited rollback remains separately
+recorded in `...-removal-build.log` and is not substituted for the final binary.
+Red/green route logs `...-removal-red-final.log` and `...-removal-green.log`
+record1536MB/300s Job; actual result JSON is under the author evidence root.
+The proof's sustained-contention elapsed field includes waiting for its500ms
+fixture holder cleanup, so it is not a measurement of removal-only retry latency.
+
+Partial fixture-development logs remain separate: the original missing user
+audience routed a request to the superior rather than opening a user card, and
+the initial none-fixture primary had no registry row (404). The final paired
+proof requires an open real request and seeds only synthetic primary metadata
+for the actual409 primary guard. Neither partial fixture is acceptance evidence.
+The previous11/18/24/32 receipts remain prior-checkpoint preservation evidence,
+not newly rerun. All engine files except account_removal.rs are byte-identical
+to reviewed6c3c51ef; the final changed-path proof exercises actual folder routes
+with removal, account-reference contention, rollback and bounded-refusal controls.
+No fourth independent review, UI/device/provider or whole-engine schedule
+acceptance is claimed. User disposition before another review/integration remains.
