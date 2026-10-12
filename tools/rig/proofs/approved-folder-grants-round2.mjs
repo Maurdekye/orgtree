@@ -92,7 +92,7 @@ export default async function (rig) {
     const release = await barrier(key)
     let staff, edit, waiting
     try {
-      const req = s.op === 'hire' ? { name, tier: 'haiku', parent: 'boss', index: 0 } : { node: name }
+      const req = s.op === 'hire' ? { name, tier: 'haiku', parent: 'boss', index: 0, grant: 0, charter: 'Synthetic staffing control.' } : { node: name }
       staff = capture(() => s.actor === 'user' ? rig.op({ op: s.op, ...req, audiences: ['user'] })
         : rig.tool('boss', `orgtree_${s.op}`, { ...req, audiences: ['user'] }))
       const paused = await rig.waitFor(() => rig.one(`SELECT pid FROM pg_locks WHERE locktype='advisory' AND objid=${key} AND NOT granted`), { timeout: 15000, every: 100, what: `${label} staffing barrier` })
