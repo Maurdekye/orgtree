@@ -205,18 +205,22 @@ fn spends(provider: &str, tier: &str, w: &Value) -> bool {
 pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
     let v = reading_of(engine, provider, account)?;
-    v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).find_map(|w| {
-        // an OpenRouter key's credit row says itself when it is spent
-        // (`is_active`): a capped key whose account balance is at zero reads
-        // under 100% of its cap, and a prepaid balance at zero has no percent
-        if provider == crate::providers::catalog::OPENROUTER && w["is_active"] == json!(true) {
-            return Some(format!("its latest reading shows {}", w["label"].as_str().unwrap_or("its credit spent")));
-        }
-        let p = w["percent"].as_f64().filter(|p| p.is_finite() && *p >= 100.0)?;
-        let window = w["label"].as_str().or(w["kind"].as_str()).unwrap_or("usage");
-        Some(format!("its latest reading shows the {window} window at {}% (resets {})", p.round() as i64,
-                     w["resets_at"].as_str().unwrap_or("at an unreported time")))
-    })
+    v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).find_map(|w| spent_window(provider, w))
+}
+
+/// Why one usage row `at_limit` read is spent, or None.
+#[nolog]
+fn spent_window(provider: &str, w: &Value) -> Option<String> {
+    // an OpenRouter key's credit row says itself when it is spent
+    // (`is_active`): a capped key whose account balance is at zero reads
+    // under 100% of its cap, and a prepaid balance at zero has no percent
+    if provider == crate::providers::catalog::OPENROUTER && w["is_active"] == json!(true) {
+        return Some(format!("its latest reading shows {}", w["label"].as_str().unwrap_or("its credit spent")));
+    }
+    let p = w["percent"].as_f64().filter(|p| p.is_finite() && *p >= 100.0)?;
+    let window = w["label"].as_str().or(w["kind"].as_str()).unwrap_or("usage");
+    Some(format!("its latest reading shows the {window} window at {}% (resets {})", p.round() as i64,
+                 w["resets_at"].as_str().unwrap_or("at an unreported time")))
 }
 
 /// What account balancing reads from a login's cached reading for `tier`:
@@ -1724,6 +1728,19 @@ mod wham_tests {
         assert_eq!(prepaid[0]["label"], json!("$3.00 credits used · $0.00 account balance"));
         assert_eq!(prepaid[0]["is_active"], json!(true));
         assert!(!super::spends("claude", "opus", &prepaid[0]));
+    }
+
+    #[test]
+    fn a_capped_key_with_no_account_balance_is_spent() {
+        let ks = |v: serde_json::Value| v.as_object().unwrap().clone();
+        let broke = super::openrouter_limits(&ks(json!({ "usage": 3.0, "limit": 10.0, "total_credits": 30.0, "total_usage": 30.0 })));
+        assert_eq!(broke[0]["percent"], json!(30.0));
+        assert_eq!(broke[0]["is_active"], json!(true));
+        assert!(super::spent_window("openrouter", &broke[0]).is_some());
+        let room = super::openrouter_limits(&ks(json!({ "usage": 3.0, "limit": 10.0, "total_credits": 30.0, "total_usage": 11.43 })));
+        assert!(super::spent_window("openrouter", &room[0]).is_none());
+        let prepaid = super::openrouter_limits(&ks(json!({ "usage": 3.0, "total_credits": 3.0, "total_usage": 3.0 })));
+        assert!(super::spent_window("openrouter", &prepaid[0]).is_some());
     }
 
     #[test]
