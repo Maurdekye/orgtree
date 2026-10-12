@@ -1,8 +1,10 @@
 import http from 'node:http'
 import { Proof } from '../proof.mjs'
 
+// The debug transfer adapter uses slug "rig"; match the actual fixture owner
+// so downloaded-path authorization exercises a real org, not an orphan root.
 export async function setup() {
-  return { fixture: { org: { name: 'Inbox network isolation' }, agents: [{ name: 'rhea', tier: 'luna', grant: 4 }],
+  return { fixture: { org: { name: 'rig' }, agents: [{ name: 'rhea', tier: 'luna', grant: 4 }],
     scenario: { default: { turns: [{ steps: [{ text: 'OK.' }] }] } } } }
 }
 
