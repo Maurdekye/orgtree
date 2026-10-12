@@ -96,6 +96,29 @@ export default async function (rig) {
   }
   const plain = await capture(() => rig.tool('boss', 'orgtree_retool', { node: 'child', effort: 'high' }))
   p.check('uncontended ordinary event writer remains supported', plain.ok, plain)
+  // Two distinct node operations must both reach the event barrier while the
+  // other transaction is still open: the early org pin is mutually compatible.
+  await rig.op({ op: 'hire', name: 'parallel', parent: 'boss', tier: 'haiku', index: 0 })
+  const key = 88429
+  const ids = ['child', 'parallel'].map(n => rig.agentRow(n).id)
+  rig.exec(`CREATE FUNCTION ot.fk_staff_barrier() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    IF NEW.org_id=${oid} AND NEW.op='retool' AND NEW.subject_agent_id IN (${ids.join(',')}) THEN PERFORM pg_advisory_xact_lock(${key}); END IF;
+    RETURN NEW; END $$;
+    CREATE TRIGGER fk_staff_barrier BEFORE INSERT ON ot.events FOR EACH ROW EXECUTE FUNCTION ot.fk_staff_barrier()`)
+  const release = await barrier(key)
+  const parallel = ['child', 'parallel'].map(node => capture(() => rig.tool('boss', 'orgtree_retool', { node, effort: 'high' })))
+  try {
+    const paused = await rig.waitFor(() => {
+      const rows = rig.sql(`SELECT pid FROM pg_locks WHERE locktype='advisory' AND objid=${key} AND NOT granted`)
+      return rows.length === 2 ? rows : null
+    }, { timeout: 15000, every: 100, what: 'two ordinary operations concurrently inside transaction' })
+    p.check('ordinary operations on separate nodes share org admission concurrently', paused.length === 2, paused)
+  } finally {
+    await release()
+    const results = await Promise.all(parallel)
+    rig.exec('DROP TRIGGER fk_staff_barrier ON ot.events; DROP FUNCTION ot.fk_staff_barrier()')
+    p.check('both compatible ordinary operations commit', results.every(r => r.ok), results)
+  }
   p.keep(rig, { agents: ['boss'], grep: /deadlock|conflicted|scope|batch|fk_staff_barrier/i })
   return p.summary()
 }
