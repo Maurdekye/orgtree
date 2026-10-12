@@ -462,7 +462,7 @@ fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
         if let Some(seat) = crate::langserver::seat_of_tier(engine, tier) {
             return Ok(seat);
         }
-        refuse!(NotFound, "{tier} is not a model of any language server this app knows (App settings › Providers › Language Server)");
+        refuse!(NotFound, "{tier} is not a model of any language server this app knows (App settings › Providers › Language servers)");
     }
     refuse!(BadRequest, "unknown tier {tier}")
 }

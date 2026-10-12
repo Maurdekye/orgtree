@@ -298,7 +298,7 @@ pub fn auth_freeze(error: &str, account: Option<&str>, provider: &str) -> Value 
     let remedy = match provider {
         crate::providers::catalog::OPENROUTER => "credential rejected — replace the OpenRouter key in App settings → Providers, then resume",
         crate::providers::catalog::LANGSERVER => {
-            "the language server refused its key — check it in App settings → Providers → Language Server, then resume"
+            "the language server refused its key — check it in App settings → Providers → Language servers, then resume"
         }
         crate::providers::catalog::MUSE => "Muse Code needs its sign-in again (App settings → Providers → Muse), then resume",
         _ => "credential rejected — replace it, then resume",

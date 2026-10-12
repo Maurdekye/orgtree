@@ -243,7 +243,7 @@ pub fn provider_label(provider: &str) -> &'static str {
         OPENAI => "Codex",
         GOOGLE => "Antigravity",
         OPENROUTER => "OpenRouter",
-        LANGSERVER => "Language Server",
+        LANGSERVER => "Language servers",
         MUSE => "Muse",
         _ => "Claude",
     }

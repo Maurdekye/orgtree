@@ -897,9 +897,9 @@ pub fn payload(engine: &Engine) -> Value {
             .collect();
         let any = !tiers.is_empty();
         let s = CliStatus { installed: true, connected: any, ..Default::default() };
-        let mut e = entry(catalog::LANGSERVER, "Language Server", "language server", &s, tiers);
+        let mut e = entry(catalog::LANGSERVER, "Language servers", "language server", &s, tiers);
         if !any {
-            e["reason"] = json!("no language server offers a model yet (App settings › Providers › Language Server)");
+            e["reason"] = json!("no language server offers a model yet (App settings › Providers › Language servers)");
         }
         providers.push(e);
     }

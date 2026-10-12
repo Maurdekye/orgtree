@@ -969,10 +969,10 @@ impl std::fmt::Debug for Route {
 #[logged]
 pub async fn route(engine: &Engine, tier: &str) -> Result<Route> {
     if !engine.settings.provider_enabled(crate::providers::catalog::LANGSERVER) {
-        anyhow::bail!("Language Server models are turned off in App settings");
+        anyhow::bail!("Language servers are turned off in App settings");
     }
     let (s, m) = route_of(engine, tier).ok_or_else(|| {
-        anyhow!("{tier} is not a model of any language server this app knows (App settings › Providers › Language Server); switch this agent to another tier")
+        anyhow!("{tier} is not a model of any language server this app knows (App settings › Providers › Language servers); switch this agent to another tier")
     })?;
     let id = s["id"].as_str().unwrap_or("").to_string();
     if s["enabled"].as_bool() == Some(false) {
