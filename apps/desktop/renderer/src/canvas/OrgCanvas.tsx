@@ -4601,7 +4601,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
       letters: TIER_LETTER, hire: openrouterHire,
       seatOf: (t: string) => seats[t] ?? anyTierSeat(t) },
     // the Language Server family: models offered on the user's own servers
-    { key: 'langserver', label: 'Language Server', tiers: langserverTierIds(),
+    { key: 'langserver', label: 'Language servers', tiers: langserverTierIds(),
       letters: TIER_LETTER, hire: langserverHire,
       seatOf: (t: string) => seats[t] ?? anyTierSeat(t) },
   ] as const)

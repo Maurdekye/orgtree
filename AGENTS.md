@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Provider/category/collection labels use **Language servers**, including tier
+  families, navigation and theme names. Wording about one server stays singular;
+  protocol/API/storage IDs remain `langserver`. See the terminology audit in
+  [compact Providers](docs/rust-engine/provider-compact.md).
+  [decided: user 2026-10-12 21:22Z; verified from source: renderer labels and
+  `providers/{catalog,mod}.rs`, 2026-10-12]
+
 - Providers presentation keeps provider enablement in each header and account
   activation beside identity, with short visible labels and full accessible names.
   Scope density CSS to the Providers tab; retain usage/reset/error/inactive states,

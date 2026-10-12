@@ -174,7 +174,7 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
   return (
     <div className="set-group ls-section">
       <div className={'set-group-head acct-provider-head prov-langserver' + (off ? ' provider-off' : '')}>
-        Language Server
+        Language servers
         <span className="set-head-right">
           <button type="button" className="acct-secondary-btn" disabled={busy || adding || !doc?.presets.length}
             aria-haspopup="dialog"

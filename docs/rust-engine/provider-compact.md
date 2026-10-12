@@ -27,6 +27,26 @@ switches and actions; runtime owners retain those behaviors.
 
 ## Verification and limits
 
+### Language servers terminology (2026-10-12 21:22Z)
+
+The provider class and collection are named Language servers. Updated category
+surfaces: Providers heading; tier-family menus/cards; agent settings model-family
+choice; canvas hire model-family list; template picker provider label; shared
+provider display label; Language servers Gold theme. Engine display metadata and
+error navigation pointers match the renamed Providers category. Org Accounts
+already used Language servers.
+
+Singular text remains where it names one server: Add language server/configure/
+remove actions, one server's model-selection dialog, per-server Usage cards,
+session explanations and individual-server errors. External CLI configuration
+names, agent-tool wire labels and protocol/API/storage identifiers are outside
+this UI copy change. No logic, CSS, model IDs or account/auth behavior changed.
+The independently reviewed compact snapshot stays at 5b091bc; terminology follows
+on a separate branch and engine/display copy commits. Existing copy expectations
+are updated without adding implementation-mirroring tests.
+
+### Compact layout
+
 `provider-compact-probe.tsx` mounts the actual AccountsPanel with synthetic
 provider/account/server states and refuses writes. `provider-compact-visual.mjs`
 resolves real dependencies without linking or copying node_modules, bundles the

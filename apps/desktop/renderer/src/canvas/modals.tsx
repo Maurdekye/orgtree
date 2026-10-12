@@ -1290,7 +1290,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
              // (preserving this node's own tier if it was since deselected — w76fba70b)
              ['OpenRouter', openrouterTierIds(node.tier)],
              // the models offered on the user's own servers (same keep rule)
-             ['Language Server', langserverTierIds(node.tier)]] as const)
+             ['Language servers', langserverTierIds(node.tier)]] as const)
             .map(([label, fam]) => [label, shownTiers(fam)] as const)
             .filter(([, fam]) => fam.length > 0)
             .map(([label, fam]) => (

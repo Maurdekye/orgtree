@@ -538,7 +538,7 @@ export const procHaloClass = (node: { state: string; proc_live?: boolean }): str
 export const PROVIDER_LABEL: Record<string, string> = {
   openai: 'Codex', google: 'Antigravity', claude: 'Claude', openrouter: 'OpenRouter',
   muse: 'Muse',
-  langserver: 'Language Server' }
+  langserver: 'Language servers' }
 
 /** Muse's provider color — the value styles.css `--prov-muse` holds too
  *  (keep the two equal; tests/musecolor.test.tsx compares them): the pale

@@ -552,9 +552,9 @@ uiTest('§9 a tier that seats at no cost says (free), never (-0), on every strip
       // a family that cannot hire yet renders disabled chips with the same cost badge
       const out = await strip(<SpawnChips onSpawn={noop} seats={{}}
         langserverHire={{ enabled: false, installed: true, reason: 'no server answers' }} />)
-      assert.equal(out.free, 'free-model:latest · Local — Language Server; no server answers (free)',
+      assert.equal(out.free, 'free-model:latest · Local — Language servers; no server answers (free)',
         `the disabled chip of a tier priced 0 must say "(free)" too — got "${out.free}"`)
-      assert.equal(out.paid, 'paid-model:7b · Local — Language Server; no server answers (-1)',
+      assert.equal(out.paid, 'paid-model:7b · Local — Language servers; no server answers (-1)',
         `the disabled chip of a priced tier keeps "(-1)" — got "${out.paid}"`)
     } finally {
       setLangServerTiers([])

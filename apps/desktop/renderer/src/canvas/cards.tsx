@@ -775,7 +775,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
       openrouterHire, (t) => seats[t] ?? anyTierSeat(t))
   // the Language Server family: the models offered on the user's own servers,
   // from the registry the same payload fills
-  fam('langserver', langserverTierIds(), TIER_LETTER, 'Language Server',
+  fam('langserver', langserverTierIds(), TIER_LETTER, 'Language servers',
       langserverHire, (t) => seats[t] ?? anyTierSeat(t))
   fams.sort((a, b) => b.tiers.length - a.tiers.length)   // inward-first
   const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire]
