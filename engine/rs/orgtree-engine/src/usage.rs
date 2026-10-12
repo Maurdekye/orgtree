@@ -1270,7 +1270,8 @@ pub async fn refresh_permitted(engine: &Engine, provider: &str, account: &str, f
             "claude" => claude_read(engine, folder, false).await,
             "openai" => codex_read(engine, account, folder, false).await,
             "google" => antigravity_read(engine, false).await,
-            "openrouter" => openrouter_read(engine, false).await,
+            // a key row's id, or the original key's lane
+            "openrouter" => openrouter_key_read(engine, &crate::openrouter::id_of_lane(account), false).await,
             _ => return false,
         }
     };
