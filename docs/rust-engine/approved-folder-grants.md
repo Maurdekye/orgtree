@@ -187,3 +187,31 @@ already holds that ancestor through its scope chain at the event barrier.
 Two ordinary rename writers must reach a barrier concurrently, demonstrating
 that separate-node work did not gain an org mutex. Shared-ancestor retool operations
 retain their existing node serialization and are not suitable for that control.
+
+Measured final correction 2026-10-12: exact R2 predecessor SHA256
+`ff9e8717043f8131d5979c8ebaa46d45cc893a17b9110606dfe66f6385cbdd0d`
+passed 5/11 in `approved-folder-grants-round3-20261012T214830`, with six
+named failures: FK compatibility and HTTP settlement in user no-audience hire,
+agent empty-audience hire and ordinary agent retool. The three competing folder
+routes returned PostgreSQL deadlock/HTTP500. Restored-seat and concurrent
+ordinary-node controls pass. Corrected `approved-folder-grants-round3-20261012T214855`
+passes 11/11 against SHA256
+`116148657b9990ade5d354c665c871d5cbf57d0dce69acce28bada27f2a10eaa`.
+
+Fresh corrected preservation receipts: audience/intent 18/18 at
+`approved-folder-grants-round2-20261012T214908`, original approval/rollback
+24/24 at `approved-folder-grants-20261012T214932`, and settings/isolation
+34/34 at `org-inbox-isolation-20261012T214952`. All eight sampled isolation
+race directions observed disable winning; no accept-first race is established.
+All these are disposable engine-local fixtures, each under1536MB/300s Job.
+Their result JSON/logs remain under the previously named author D evidence root.
+
+The engine-package all-targets single-job build completed in44.16s within
+6144MB/600s Job, with two focused intent units passing (110 filtered).
+Distinct D log: `scratch-open-sol-folder-grants-round3-build.log`.
+Partial proof-development logs remain distinct: one two-retool concurrency
+fixture timed out on an existing shared ancestor; an earlier green restored-seat
+fixture returned404 before the archived seat's restore became visible. These
+were fixture failures, not completed green acceptance, and the completed paired
+receipts use the same final proof. Prior scope-request8/8 remains prior evidence.
+No global deadlock-free engine, real-provider or UI acceptance is claimed.
