@@ -231,13 +231,21 @@ The old binary also cannot satisfy the newly added Google structured-parser
 positive control because it predates that rig-only hook. Corrected engine
 bc8af74 built under the shared lock in56.81s, exit0. Binary SHA256:
 2B5B4E6AAE666BA49900BDD02AE0554D296E8631EDB655F5BF57020AD09DC950.
-Focused proof at8d2c5b0 passed24/24, zero marker lines in each interval;
-safe verbose diagnostics were present in every interval. A later proof-only
-change strengthens the WHAM failure control to assert the fake fallback's10%
-bar. That exact proof and two new parser boundary tests still await verification.
+Focused proof at8d2c5b0 passed24/24, zero marker lines in each interval.
+The final proof atbad62ca strengthens the WHAM failure control to assert the
+fake fallback's10% bar and also passed24/24, with zero marker lines and safe
+verbose diagnostics in every interval. Focused cargo tests atbad62ca passed
+13/13, zero failed,83 filtered,36.59s, exit0. They include zero-turn/token and
+missing-token-evidence refusal plus structured Google/log extraction controls.
+The binary remains bc8af74: later Rust changes add only cfg(test) code; all
+production code exercised by the final proof matches that build. Original
+11/29 standalone proofs remain valid for their measured axes; no unrelated
+checks/artifacts were repeated. No owned processes remain; supported rig
+cleanup reports runs=[] and strays=[]. Owned C artifacts total3.999GiB.
 Logs: D:\orgtree-work\evidence\usage-query-sol\cargo-build-secrecy-20261012.log,
-rig-secrecy-red-20261012-pass2.log, rig-secrecy-green-20261012.log.
+rig-secrecy-red-20261012-pass2.log, rig-secrecy-green-20261012.log,
+rig-secrecy-final-20261012.log, cargo-test-secrecy-20261012.log.
 Structured results: D:\orgtree-work\rig\usage-query-sol\evidence\
 usage-query-secrecy-20261012T001837\result.json (red), and
-usage-query-secrecy-20261012T001904\result.json (green).
-
+usage-query-secrecy-20261012T001904\result.json (first green), and
+usage-query-secrecy-20261012T002217\result.json (final green).
