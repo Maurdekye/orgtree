@@ -77,7 +77,7 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
     // Ambient registry rows spend the same native login, not a second sign-in.
     let native = account.as_ref().is_none_or(|a| a.ambient);
     // Explicit native-home requests and '~' observe the same physical login.
-    let native_accounts: Vec<AccountInfo> = if native {
+    let native_accounts: Vec<&AccountInfo> = if native {
         view.all().into_iter().filter(|a| {
             a.provider == provider && !a.is_apikey() && (a.ambient || a.config_dir.is_none())
         }).collect()
@@ -128,7 +128,7 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
     // Every unexpired full window constrains this login, whichever alias read
     // it. Missing or quieter readings under another alias do not erase it.
     let exhausted = if native {
-        std::iter::once(None).chain(native_accounts.iter().map(Some))
+        std::iter::once(None).chain(native_accounts.iter().copied().map(Some))
             .find_map(|a| crate::usage::at_limit(engine, a, tier))
     } else {
         crate::usage::at_limit(engine, account.as_ref(), tier)
