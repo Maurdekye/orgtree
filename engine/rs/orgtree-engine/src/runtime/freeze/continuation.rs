@@ -103,9 +103,10 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
             catalog::OPENAI => crate::usage::codex_key(folder),
             _ => "agy".to_string(),
         };
-        if std::iter::once(auth_key(None))
+        let auth_keys: Vec<String> = std::iter::once(auth_key(None))
             .chain(native_accounts.iter().map(|a| auth_key(a.config_dir.as_deref())))
-            .any(|key| engine.usage.cached_reauth_required(&key) == Some(true)) {
+            .collect();
+        if engine.usage.cached_reauth_required_across(auth_keys.iter().map(String::as_str)) == Some(true) {
             crate::refuse!(Conflict, "{lane} requires sign-in again; nothing changed");
         }
     }

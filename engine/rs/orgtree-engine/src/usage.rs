@@ -36,7 +36,7 @@ mod continuation_auth_tests {
         let key = codex_key(None);
         assert_eq!(usage.cached_reauth_required(&key), None);
         for (data, expected) in [
-            (json!({"available":true}), None),
+            (json!({"available":true}), Some(false)),
             (json!({"reauth_required":false}), Some(false)),
             (json!({"reauth_required":true}), Some(true)),
             (json!({"reauth_required":false,"reauth_evidence":"not_connected"}), Some(true)),
@@ -69,7 +69,7 @@ mod continuation_auth_tests {
         let key = claude_key(None);
         usage.claude_result(&key, json!({"available":true,"observed_at":"2001-01-01T00:00:00Z",
             "limits":[{"kind":"session","percent":10}]}));
-        assert_eq!(usage.cached_reauth_required(&key), None);
+        assert_eq!(usage.cached_reauth_required(&key), Some(false));
         let old = Instant::now() - (PEEK_MAX + Duration::from_secs(1));
         usage.cache.pin().insert(key.clone(), Cached { at: old,
             data: usage.fresh(&key, Duration::MAX).unwrap() });
@@ -89,8 +89,33 @@ mod continuation_auth_tests {
         assert_eq!(usage.cached_reauth_required(&key), Some(true));
         assert_eq!(usage.cache.pin().get(&key).unwrap().at, old);
         usage.claude_result(&key, json!({"available":true,"limits":[]}));
-        assert_eq!(usage.cached_reauth_required(&key), None);
+        assert_eq!(usage.cached_reauth_required(&key), Some(false));
         assert!(usage.cache.pin().get(&key).unwrap().at > old);
+    }
+
+    #[test]
+    fn physical_auth_uses_latest_genuine_fresh_observation() {
+        let usage = Usage::default();
+        let keys = [claude_key(None), claude_key(Some("synthetic-native-home"))];
+        let aggregate = || usage.cached_reauth_required_across(keys.iter().map(String::as_str));
+        assert_eq!(aggregate(), None);
+        for (bad, good) in [(0, 1), (1, 0)] {
+            usage.claude_result(&keys[bad], json!({"available":false,"reauth_required":true}));
+            usage.claude_result(&keys[good], json!({"available":true,"limits":[]}));
+            assert_eq!(aggregate(), Some(false));
+            usage.claude_result(&keys[bad], json!({"available":false,"reauth_required":true}));
+            assert_eq!(aggregate(), Some(true));
+            let auth_at = usage.auth.pin().get(&keys[bad]).unwrap().at;
+            usage.claude_result(&keys[good], json!({"available":false,"error":"transient"}));
+            usage.claude_cooldown(&keys[good], Instant::now() + Duration::from_secs(30));
+            usage.record_auth(&keys[good], &json!({"available":true,"error":"retained bars"}));
+            assert_eq!(aggregate(), Some(true));
+            assert_eq!(usage.auth.pin().get(&keys[bad]).unwrap().at, auth_at);
+            usage.auth.pin().insert(keys[good].clone(), AuthEvidence { at: Instant::now() - PEEK_MAX, required: Some(false) });
+            assert_eq!(aggregate(), Some(true));
+            usage.auth.pin().insert(keys[good].clone(), AuthEvidence { at: Instant::now(), required: None });
+            assert_eq!(aggregate(), Some(true));
+        }
     }
 }
 
@@ -258,12 +283,16 @@ impl Usage {
     fn record_auth(&self, key: &str, data: &Value) {
         let required = if data["reauth_required"] == true || data["reauth_evidence"] == "not_connected" {
             Some(true)
+        } else if data["error"].is_null() {
+            // A successful provider result is a positive authentication
+            // observation even when it carries no explicit reauth flag.
+            data["reauth_required"].as_bool().or_else(|| (data["available"] == true).then_some(false))
         } else {
-            data["reauth_required"].as_bool()
+            None
         };
         // A genuine successful read replaces earlier negative evidence. An
         // unrelated transient failure supplies no new authentication evidence.
-        if required.is_some() || data["available"] == true {
+        if required.is_some() {
             self.auth.pin().insert(key.to_string(), AuthEvidence { at: Instant::now(), required });
         }
     }
@@ -301,12 +330,25 @@ impl Usage {
         self.cooldown.pin().get(key).copied().filter(|t| *t > Instant::now())
     }
 
-    /// Recent negative authentication evidence only. Missing/stale/absent flags
-    /// are unknown, never proof of sign-in. No fetch or credential read.
+    /// Recent genuine authentication evidence only; false includes successful
+    /// unflagged provider results. Missing/stale observations are unknown.
+    #[nolog]
     pub fn cached_reauth_required(&self, key: &str) -> Option<bool> {
         let guard = self.auth.pin();
         let c = guard.get(key).filter(|c| c.at.elapsed() < PEEK_MAX)?;
         c.required
+    }
+
+    /// Reconcile aliases of one physical login by genuine observation time.
+    /// Cooldown, transient failures and absent evidence cannot supersede it.
+    #[nolog]
+    pub fn cached_reauth_required_across<'a>(&self, keys: impl IntoIterator<Item = &'a str>) -> Option<bool> {
+        let guard = self.auth.pin();
+        keys.into_iter().filter_map(|key| guard.get(key))
+            .filter(|c| c.required.is_some() && c.at.elapsed() < PEEK_MAX)
+            // Equal timestamps conservatively keep a negative assertion.
+            .max_by_key(|c| (c.at, c.required == Some(true)))
+            .and_then(|c| c.required)
     }
 
     /// The cached readout behind `key`, for a peek (the glow): never a fetch.

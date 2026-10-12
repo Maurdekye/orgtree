@@ -293,12 +293,14 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
             tracing::info!(account = %a.id, tier, "account fallback: the usage read timed out; no proven room");
             continue;
         }
-        if crate::usage::has_room(engine, Some(&a), tier) {
+        if crate::usage::has_room(engine, Some(&a), tier)
+            && continuation::resolve(engine, org_slug, tier, &a.id).is_ok() {
             return Some(a.id);
         }
-        tracing::info!(account = %a.id, tier, "account fallback: no proven room on this login");
+        tracing::info!(account = %a.id, tier, "account fallback: no eligible proven room on this login");
     }
-    candidates.iter().find(|id| keys && view.get(id).map(|a| a.is_apikey()).unwrap_or(false)).cloned()
+    candidates.iter().find(|id| keys && view.get(id).map(|a| a.is_apikey()).unwrap_or(false)
+        && continuation::resolve(engine, org_slug, tier, id).is_ok()).cloned()
 }
 
 /// The longest one login's usage read may take when the fallback asks it.
