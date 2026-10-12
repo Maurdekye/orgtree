@@ -199,8 +199,45 @@ and lead sends checked integration notice, compose its private per-key reader
 with the shared reservation and verify this tool's lane-specific behavior.
 Do not claim multi-key support from this standalone proof.
 
-The proof checks response secrecy, not all existing raw reader logs. No new
-credentials are serialized in the tool response; existing reader logging is an
-explicit verification limit. Real provider timeout/auth behavior and UI/app
-packaging were not exercised. Multi-key composition is the remaining source
-requirement before this ticket is complete.
+The original standalone proof checks response secrecy. Independent review found
+raw provider logging; the correction and focused response/log evidence below
+supersede that earlier verification limit. Real provider timeout/auth behavior
+and UI/app packaging were not exercised. Checked dated-auth query composition
+and multi-key composition remain required before this ticket is complete.
+
+## Raw provider logging correction (2026-10-12)
+
+Independent review reproduced nine synthetic marker lines in the tool-only
+refresh interval while the response stayed clean. Raw-return readers and parsers,
+cache peek, profile mark/history processing, usage-history helpers and raw fake
+readers now use `#[nolog]`. This includes WHAM JSON and Codex app-server result
+processing. Usage history emits only account/provider, availability, window
+count and SQLSTATE on failure; rejected upstream values and database error
+messages are excluded. Safe refresh diagnostics remain verbose.
+
+The focused `usage-query-secrecy.mjs` proof captures every engine log line from
+immediately before the accepted tool request until after completion/flush;
+setup HTTP reads are outside the interval. It uses synthetic unknown fields,
+error/body details and fake tokens. Six operations cover canned success and
+failure, real WHAM loopback success and HTTP500/fake-app-server fallback,
+and production Google structured JSON/log parsing success and failure.
+Google parsing is extracted unchanged into an unlogged helper; a rig-only
+input hook reaches it without a live CLI/provider call. Zero-turn/token checks
+remain intact. A process restart in the disposable rig resets the Google
+manual floor before its failure case.
+
+Measured before correction: marker-line counts 9,13,1,0,7,7 respectively.
+The old binary also cannot satisfy the newly added Google structured-parser
+positive control because it predates that rig-only hook. Corrected engine
+bc8af74 built under the shared lock in56.81s, exit0. Binary SHA256:
+2B5B4E6AAE666BA49900BDD02AE0554D296E8631EDB655F5BF57020AD09DC950.
+Focused proof at8d2c5b0 passed24/24, zero marker lines in each interval;
+safe verbose diagnostics were present in every interval. A later proof-only
+change strengthens the WHAM failure control to assert the fake fallback's10%
+bar. That exact proof and two new parser boundary tests still await verification.
+Logs: D:\orgtree-work\evidence\usage-query-sol\cargo-build-secrecy-20261012.log,
+rig-secrecy-red-20261012-pass2.log, rig-secrecy-green-20261012.log.
+Structured results: D:\orgtree-work\rig\usage-query-sol\evidence\
+usage-query-secrecy-20261012T001837\result.json (red), and
+usage-query-secrecy-20261012T001904\result.json (green).
+

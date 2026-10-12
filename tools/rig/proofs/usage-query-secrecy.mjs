@@ -1,4 +1,4 @@
-﻿// Tool-operation log capture, synthetic provider data and loopback HTTP only.
+// Tool-operation log capture, synthetic provider data and loopback HTTP only.
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -78,9 +78,11 @@ export default async function (rig) {
     status = 500
     const failureId = await imported('secrecy-wham-failure')
     const failedBefore = requests
-    await interval('wham-http-failure', failureId)
-    p.check('real WHAM failure and fake app-server fallback were exercised', requests > failedBefore,
-      { requests: requests - failedBefore })
+    const fallback = await interval('wham-http-failure', failureId)
+    p.check('real WHAM failure and fake app-server fallback were exercised', requests > failedBefore
+      && fallback.json?.refresh.status === 'attempted'
+      && fallback.json.accounts[0].windows.some(w => w.used_percent === 10),
+    { requests: requests - failedBefore, refresh: fallback.json?.refresh })
   } finally {
     await new Promise(resolve => server.close(resolve))
     fs.unlinkSync(path.join(dir, 'openai-http.json'))

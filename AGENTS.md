@@ -65,7 +65,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   inactive accounts remain inspectable but cannot be refreshed. Manual attempt
   floors are per lane across orgs (60 s, Google 300 s); shared reservations
   prevent overlapping readers without slowing automatic cadence. Never re-date
-  old observations or serialize raw cached provider documents. Contract and
+  old observations or serialize raw cached provider documents. Raw readers,
+  parsers, profile/history processing and cache peeks omit raw argument/return
+  logging; safe availability/window-count/SQLSTATE diagnostics remain.
+  [verified: usage.rs, account_marks.rs, usage_history.rs; 2026-10-12] Contract and
   proof limits: [usage-query-proposal.md](docs/rust-engine/usage-query-proposal.md).
   [decided: user/lead-astra 2026-10-11 22:35Z; verified: usage.rs, tools/usage.rs]
 
