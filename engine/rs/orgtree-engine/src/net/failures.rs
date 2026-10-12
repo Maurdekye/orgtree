@@ -66,7 +66,7 @@ pub(super) async fn dispatch(e: &Arc<Engine>) -> Result<()> {
         let org: i64 = r.get(1);
         let detail: Value = r.get(2);
         let body = if detail["direction"] == "local" {
-            format!("Attaching {} to a draft failed: {}. No message was sent. Open Saved local files in the mail composer, select the original file again, or remove it before sending.", detail["name"].as_str().unwrap_or("file"),detail["error"].as_str().unwrap_or("local upload interrupted"))
+            format!("Legacy local upload of {} failed: {}. Cleanup removes interrupted or expired partial uploads and retains completed uploads. For human hub mail, select the original file again in Hubchat.", detail["name"].as_str().unwrap_or("file"),detail["error"].as_str().unwrap_or("local upload interrupted"))
         } else { format!("Attachment {} for message {} ({}) failed: {}. Messages wait for every file. Inspect the current status of transfer {} and retry after correcting the cause{}.",
             detail["direction"].as_str().unwrap_or("transfer"),detail["message_id"].as_str().unwrap_or(""),
             detail["peer"].as_str().unwrap_or(""),detail["error"].as_str().unwrap_or("unknown failure"),

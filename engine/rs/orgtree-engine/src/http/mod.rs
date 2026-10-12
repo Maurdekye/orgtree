@@ -292,6 +292,9 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         || path.ends_with("/file")
         || path.contains("/toolimg/")
         || path.contains("/toolinput/")
+        // Old clients may still POST files to this retired route. Omit their
+        // bodies before authentication/404; do not buffer or log private bytes.
+        || path.contains("/org_inbox/staging/")
         || headers.contains_key(axum::http::header::UPGRADE)
         || headers
             .get(axum::http::header::CONTENT_TYPE)
