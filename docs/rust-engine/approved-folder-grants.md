@@ -48,7 +48,32 @@ The predecessor uses the already-built `687ab67` engine, SHA256
 `f203efb26de7550d4b9e9890f3314e76e0591da514dfa0c77bdf98d128c50f4f`.
 The audited approval/scope region is unchanged at current base `cf7668e`;
 this is not a fresh base build. Its actual receipt has ten named failures.
-Corrected verification and its measured limits will be appended at hand-in.
+Corrected verification and its measured limits are recorded below.
+
+Measured 2026-10-12: predecessor 14/24 passes and ten named failures at
+`D:\orgtree-work\rig\scratch-open-sol\evidence\approved-folder-grants-20261012T204441`;
+corrected 24/24 at `approved-folder-grants-20261012T211352`; corrected legacy
+scope-request proof 8/8 at `scope-requests-20261012T211434` under that evidence root.
+Both corrected rig commands exit0; supported cleanup reports no runs or strays.
+Corrected engine SHA256:
+`e509dd2fdd63e932d392ad4d140791a0964f88d7c55c3bbf6449f4f65c4157de`.
+The fake CLI SHA256 is
+`343e44792f186b7543af176fa83af69952bb9e728eac534a1cabf4734e537586`.
+
+The initial all-targets `-j2` build failed allocation inside its 6144 MB Job;
+the log remains `D:\orgtree-work\scratch-open-sol-folder-grants-build.log`.
+A single-job retry at the same 6144 MB / 600 s cap built all engine-package
+targets in 2m34s and ran the exact permission-intent unit test: 1 passed,
+110 filtered out. Retry log: `scratch-open-sol-folder-grants-build-retry.log`.
+Both route proofs were bounded by a 1536 MB / 300 s kernel Job. Build outputs
+remain under the author's granted C build root; evidence remains on D.
+
+The concurrent route proof is one observed simultaneous run, not exhaustive
+schedule coverage. Rollback is measured by injecting answer-mail insertion
+failure in the rig. CLI evidence uses the fake harness; it does not establish
+real-provider sandbox enforcement or busy-turn/idle warm-process replacement
+timing. Those unchanged actor boundaries were inspected from source. No live
+or historical external request was read, replayed or changed.
 
 The older `scope-requests.mjs` expected outside-org clamping and partial RO
 after user approval. Those expectations are corrected because they encoded
