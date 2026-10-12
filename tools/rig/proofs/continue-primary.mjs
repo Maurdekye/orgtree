@@ -161,6 +161,17 @@ export default async function (rig, { flags }) {
   // Native mark with unknown usage: no reading can mean zero or clear that mark.
   const A = (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'imported',
     path: path.join(rig.data, 'rig-home', '.codex') })).id
+  // The explicit native-home reading and '~' are one physical login. No mark
+  // is created by this observation; every route must inspect both cache keys.
+  put('openai@.codex', reading(100));
+  await rig.api('GET', `/api/accounts/${A}/usage?force=true`)
+  put('openai', reading()); await nativeRead()
+  for (const [account, route] of [[A, tool], ['primary', tool], ['openai/primary', http]]) {
+    await freeze()
+    await refuse(`explicit native-home exhaustion blocks ${account === A ? 'ambient id' : account}`, account, /100%/, route)
+  }
+  put('openai@.codex', reading());
+  await rig.api('GET', `/api/accounts/${A}/usage?force=true`)
   rig.exec(`INSERT INTO ot.account_marks(account,pool,until,provenance) VALUES (${quote(A)},'default','${later(3)}','observed')`)
   await rig.api('PUT', `/api/accounts/${A}/enabled`, { enabled: true })
   put('openai', { available: false, error: 'rig missing reading' }); await nativeRead()

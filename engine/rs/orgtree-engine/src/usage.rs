@@ -49,6 +49,21 @@ mod continuation_auth_tests {
         usage.cache.pin().insert(key.clone(), Cached { at: Instant::now() - (PEEK_MAX - Duration::from_secs(1)), data: json!({"reauth_required":true}) });
         assert_eq!(usage.cached_reauth_required(&key), Some(true));
     }
+
+    #[test]
+    fn claude_failure_keeps_bar_age_and_records_recent_auth() {
+        let usage = Usage::default();
+        let key = claude_key(None);
+        let old = Instant::now() - (PEEK_MAX + Duration::from_secs(1));
+        usage.cache.pin().insert(key.clone(), Cached { at: old,
+            data: json!({"available":true,"limits":[{"kind":"session","percent":10}]}) });
+        let result = usage.claude_result(&key, json!({"available":false,
+            "reauth_required":true,"reauth_evidence":"measured_403"}));
+        assert_eq!(result["reauth_required"], true);
+        assert_eq!(usage.cache.pin().get(&key).unwrap().at, old);
+        assert_eq!(usage.peek(&key, "claude")["available"], false);
+        assert_eq!(usage.cached_reauth_required(&key), Some(true));
+    }
 }
 
 /// Antigravity has one native sign-in. Only its model family's windows apply.
@@ -202,6 +217,26 @@ impl Usage {
         self.cache.pin().insert(key.to_string(), Cached { at: Instant::now(), data: data.clone() });
     }
 
+    /// Process a completed Claude read, retaining the original age of last-good
+    /// bars on failure. Shared by the provider path and its isolated fixtures.
+    #[nolog]
+    fn claude_result(&self, key: &str, out: Value) -> Value {
+        if out["available"].as_bool().unwrap_or(false) {
+            self.put(key, &out);
+        } else if let Some(prev) = self.fresh(key, Duration::MAX).filter(|p| p["available"].as_bool().unwrap_or(false)) {
+            let mut v = prev;
+            v["error"] = out["error"].clone();
+            if out.get("reauth_required").is_some() {
+                v["reauth_required"] = out["reauth_required"].clone();
+                v["reauth_evidence"] = out["reauth_evidence"].clone();
+            }
+            return v;
+        } else {
+            self.put(key, &out);
+        }
+        out
+    }
+
     #[nolog]
     fn cooling(&self, key: &str) -> Option<Instant> {
         self.cooldown.pin().get(key).copied().filter(|t| *t > Instant::now())
@@ -270,12 +305,11 @@ pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> V
         if let Some(ms) = v["rig_delay_ms"].as_u64() {
             tokio::time::sleep(Duration::from_millis(ms)).await;
         }
-        engine.usage.put(&claude_key(config_dir), &v);
         // a canned reading is still history, so a rig proof sees it recorded
         if crate::rig::canned_reading(&v) {
             crate::account_marks::profile_history(engine, "claude", config_dir, Utc::now(), &v).await;
         }
-        return v;
+        return engine.usage.claude_result(&claude_key(config_dir), v);
     }
     let key = claude_key(config_dir);
     if !force {
@@ -301,21 +335,7 @@ pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> V
         },
     };
     out["email"] = json!(email);
-    if out["available"].as_bool().unwrap_or(false) {
-        engine.usage.put(&key, &out);
-    } else if let Some(prev) = engine.usage.fresh(&key, Duration::MAX).filter(|p| p["available"].as_bool().unwrap_or(false)) {
-        // keep the last good bars (dated), with why they are not fresh
-        let mut v = prev;
-        v["error"] = out["error"].clone();
-        if out.get("reauth_required").is_some() {
-            v["reauth_required"] = out["reauth_required"].clone();
-            v["reauth_evidence"] = out["reauth_evidence"].clone();
-        }
-        return v;
-    } else {
-        engine.usage.put(&key, &out);
-    }
-    out
+    engine.usage.claude_result(&key, out)
 }
 
 /// The sign-in a Claude login holds: (access token, expires at ms, plan). Not logged.
