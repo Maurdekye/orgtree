@@ -259,7 +259,12 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
               'pending_switch', CASE WHEN a.pending_switch IS NOT NULL THEN jsonb_strip_nulls(jsonb_build_object('from', a.pending_switch->'from', 'tier', a.pending_switch->'tier', 'crossing', a.pending_switch->'crossing', 'at', a.pending_switch->'at')) END,
               'mid_turn', a.inflight_at IS NOT NULL, 'halted', a.halt IS NOT NULL,
               'limit_locked', a.limit_locked, 'occupancy', a.occupancy, 'context_window', a.context_window,
-              'mail_waiting', (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id=a.id AND m.state='pending'))
+              'mail_waiting', (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id=a.id AND m.state='pending'
+                AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+                  AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable'
+                  AND m.extra->>'transfer_failure' IS NULL)
+                  OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id
+                    AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb))))
              FROM ot.agents a WHERE a.org_id=$1 AND a.state<>'deleted' AND a.id>$2 ORDER BY a.id LIMIT 256",
             &[&caller.org_id, &after]).await?;
         if page.is_empty() { break; }
