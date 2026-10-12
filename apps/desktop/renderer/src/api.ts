@@ -1263,6 +1263,14 @@ export interface UploadOptions { draft?: string; signal?: AbortSignal; progress?
 // returns the org secret (the settings panel's reveal/export)
 export const getOrgNet = (slug: string): Promise<OrgNetReveal> =>
   req(`/api/orgs/${slug}/net`)
+export interface OrgPicture { revision: string; sha256: string | null; width: number; height: number; bytes: number; data: string | null }
+export interface OrgPictureCrop { x: number; y: number; size: number }
+export const getOrgPicture = (slug: string): Promise<{ owner: number; picture: OrgPicture | null }> =>
+  req(`/api/orgs/${slug}/profile-picture`)
+export const previewOrgPicture = (slug: string, data: string): Promise<{ data: string; width: number; height: number }> =>
+  req(`/api/orgs/${slug}/profile-picture/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) })
+export const setOrgPicture = (slug: string, owner: number, data: string | null, crop?: OrgPictureCrop): Promise<OrgPicture> =>
+  req(`/api/orgs/${slug}/profile-picture`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner, data, crop }) })
 // F-06: is a hub reachable at this address right now? (a HINT — the
 // checkbox never gates on it; a hub that is down still gets configured)
 export const probeHub = (

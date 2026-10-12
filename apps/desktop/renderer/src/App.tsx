@@ -11,6 +11,7 @@ import type { NativeDesktop } from './desktop'
 import { WindowControls } from './window-controls'
 import { UpdateNotice } from './update-notice'
 import { Connections as NetTab } from './canvas/connections'
+import { OrgPictureEditor } from './canvas/orgpicture'
 import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
 import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
@@ -3028,6 +3029,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
         <SettingsTabPanel id="basic" idBase="org-settings"
           active={tab === 'basic'}>
         {/* folder access lives on the eye's ⚙ gear panel (user ruling) */}
+        <OrgPictureEditor slug={tree.slug} revision={tree.net?.picture_revision} />
         <SetGroup title="Credits">
           <SetRow label="top-level grant cap"
             hint="the largest grant any top-level agent may hold">

@@ -259,6 +259,7 @@ export interface NetHub {
 export interface NetBlock {
   slug: string | null          // this org's network address
   hubs: NetHub[]
+  picture_revision?: string | null
 }
 
 // ledger.py tree(): last_status/prev_status are dict[str, Any] | None in
