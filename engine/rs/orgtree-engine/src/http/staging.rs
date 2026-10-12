@@ -16,6 +16,7 @@ pub struct Start { name: String, bytes: u64, #[serde(default)] to: String, #[ser
 #[logged]
 pub async fn start(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<Start>) -> ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
+    crate::domain::orginbox::require_enabled(&e,o.id).await?;
     if b.draft.len()>100 { return Err(ApiError::bad_request("draft id is too long")); }
     let limit=super::orginbox::target_limit(&e,o.id,&b.to).await?;
     if b.bytes>limit.bytes { return Err(ApiError::new(axum::http::StatusCode::PAYLOAD_TOO_LARGE,limit.message())); }
@@ -34,6 +35,7 @@ pub async fn start(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(
 #[logged]
 pub async fn status(State(e): State<Arc<Engine>>, Path((slug,id)): Path<(String,String)>) -> ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
+    crate::domain::orginbox::require_enabled(&e,o.id).await?;
     let value=crate::domain::staging::inspect(&e,o.id,&id).await?
         .ok_or_else(||ApiError::not_found("staging ticket not found"))?;
     Ok(Json(value))
@@ -42,6 +44,7 @@ pub async fn status(State(e): State<Arc<Engine>>, Path((slug,id)): Path<(String,
 #[logged]
 pub async fn cancel(State(e): State<Arc<Engine>>, Path((slug,id)): Path<(String,String)>) -> ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
+    crate::domain::orginbox::require_enabled(&e,o.id).await?;
     let r=e.db.get().await?.query_opt("UPDATE ot.upload_stages SET state='cancelled',error='Cancelled by user',updated_at=now() WHERE org_id=$1 AND id=$2 AND state IN ('queued','uploading','cancelled') RETURNING path",&[&o.id,&id]).await?;
     if let Some(r)=r {
         let token=e.net.transfer_stops.pin().get(&id).cloned();
@@ -54,6 +57,7 @@ pub async fn cancel(State(e): State<Arc<Engine>>, Path((slug,id)): Path<(String,
 #[logged]
 pub async fn upload(State(e): State<Arc<Engine>>, Path((slug,id)): Path<(String,String)>, body: Body) -> ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
+    crate::domain::orginbox::require_enabled(&e,o.id).await?;
     let stop=CancellationToken::new();
     if e.net.transfer_stops.pin().try_insert(id.clone(),stop.clone()).is_err() {
         return Err(ApiError::conflict("staging ticket already has a writer"));
@@ -122,6 +126,7 @@ pub struct ListQuery { #[serde(default)] after: String }
 #[logged]
 pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<ListQuery>) -> ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
+    crate::domain::orginbox::require_enabled(&e,o.id).await?;
     let rows=e.db.get().await?.query("SELECT id FROM ot.upload_stages WHERE org_id=$1 AND NOT hidden AND id>$2 ORDER BY id LIMIT 33", &[&o.id,&q.after]).await?;
     let more=rows.len()>32;
     let mut entries=Vec::new();
@@ -139,6 +144,7 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
 #[logged]
 pub async fn dismiss(State(e): State<Arc<Engine>>, Path((slug,id)): Path<(String,String)>) -> ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
+    crate::domain::orginbox::require_enabled(&e,o.id).await?;
     let changed=e.db.get().await?.execute("UPDATE ot.upload_stages SET hidden=true WHERE org_id=$1 AND id=$2 AND state IN ('complete','failed','cancelled')", &[&o.id,&id]).await?;
     if changed==0 { return Err(ApiError::conflict("local file is still uploading; cancel it first")); }
     Ok(Json(json!({"ok":true})))

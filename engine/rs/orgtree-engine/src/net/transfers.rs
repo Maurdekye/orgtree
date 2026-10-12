@@ -118,7 +118,7 @@ impl Work {
 #[logged]
 async fn run_work(work: &Work, e: &Arc<Engine>) -> Result<String> {
     match work {
-        Work::Upload(j, p) => upload(e, p, j).await,
+        Work::Upload(j, p) => isolation::run(e, &[p.org_id], upload(e, p, j)).await,
         Work::Download(j, p) => incoming::run(e, p, j).await,
     }
 }

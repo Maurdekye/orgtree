@@ -4,6 +4,7 @@ use super::*;
 
 #[logged]
 async fn audience(e: &Engine, org: i64, actor: Option<i64>) -> Result<bool> {
+    crate::domain::orginbox::require_enabled(e,org).await?;
     let Some(actor) = actor else { return Ok(true); };
     let c = e.db.get().await?;
     let Some(r) = c.query_opt("SELECT a.name,o.settings FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 AND a.org_id=$2 AND a.state='live'", &[&actor,&org]).await? else {

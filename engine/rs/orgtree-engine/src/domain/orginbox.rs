@@ -6,11 +6,48 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 
-use crate::domain::mail::{self, From, Outgoing, Sent};
+use crate::domain::mail::{From, Outgoing, Sent};
 use crate::domain::tree::ts;
 use crate::engine::Engine;
 use crate::changes::{self, Change};
 use crate::util::uid;
+
+/// Missing settings retain the historical enabled behavior. This policy is
+/// deliberately org-local, not inherited from app-wide hire defaults.
+#[nolog]
+pub fn enabled(settings: &Value) -> bool {
+    settings["org_inbox_enabled"].as_bool().unwrap_or(true)
+}
+
+#[nolog]
+pub fn check(settings: &Value) -> Result<()> {
+    if !enabled(settings) {
+        crate::refuse!(Forbidden, "the organization's inbox is disabled; outside communication and its history are unavailable");
+    }
+    Ok(())
+}
+
+/// Recheck persisted policy at every entry boundary (including human callers).
+#[logged]
+pub async fn require_enabled(engine: &Engine, org_id: i64) -> Result<()> {
+    let c = engine.db.get().await?;
+    let row = c.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&org_id]).await?;
+    check(&row.get::<_, Value>(0))
+}
+
+/// Admission and publication share the setting writer's row lock. Call only
+/// inside a short transaction, never while performing filesystem/network I/O.
+#[logged]
+pub async fn admit(tx: &tokio_postgres::Transaction<'_>, org_ids: &[i64]) -> Result<()> {
+    let mut ids = org_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    for id in ids {
+        let row = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&id]).await?;
+        check(&row.get::<_, Value>(0))?;
+    }
+    Ok(())
+}
 
 /// An `org_inbox` row → `OrgInboxEntry`.
 pub fn entry(r: &Value) -> Value {
@@ -77,6 +114,7 @@ fn inbox_quote(r: &tokio_postgres::Row) -> Value {
 /// The org-inbox row the user answers from the panel (its id).
 #[logged]
 pub async fn quote_of(engine: &Engine, org_id: i64, uid: &str) -> Result<Value> {
+    require_enabled(engine, org_id).await?;
     let client = engine.db.get().await?;
     let r = client.query_opt(&format!("SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE org_id = $1 AND uid = $2"), &[&org_id, &uid]).await?;
     match r {
@@ -89,6 +127,8 @@ pub async fn quote_of(engine: &Engine, org_id: i64, uid: &str) -> Result<Value> 
 /// orgtree_message reported), for that agent's reply.
 #[logged]
 pub async fn sent_quote(client: &tokio_postgres::Client, org_id: i64, uid: &str, by: &str) -> Result<Option<Value>> {
+    let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&org_id]).await?.get(0);
+    check(&settings)?;
     let r = client
         .query_opt(&format!("SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE org_id = $1 AND uid = $2 AND dir = 'out' AND by_name = $3"), &[&org_id, &uid, &by])
         .await?;
@@ -118,6 +158,7 @@ async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str) -
 /// woken) or `@net:<slug>` (the mail hub).
 #[logged]
 pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> Result<Sent> {
+    require_enabled(engine, org_id).await?;
     let to = out.to.trim().trim_start_matches('@');
     let Some(src) = engine.orgs.by_id(org_id) else {
         crate::refuse!(NotFound, "organization not open");
@@ -146,7 +187,9 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     if dst.id == org_id {
         crate::refuse!(BadRequest, "@org:{slug} is this organization; write to the agent directly");
     }
-    let client = engine.db.get().await?;
+    require_enabled(engine, dst.id).await?;
+    let route = ensure_holders(engine, dst.id, None).await?;
+    let mut client = engine.db.get().await?;
     let attachments = Value::Array(out.attachments.clone());
     let out_uid = uid("x");
     let in_uid = uid("x");
@@ -158,7 +201,9 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         .as_ref()
         .map(|q| Value::Object(["from", "at", "gist"].iter().filter_map(|k| q.get(*k).filter(|v| !v.is_null()).map(|v| (k.to_string(), v.clone()))).collect()))
         .filter(|q| q.get("gist").is_some());
-    client
+    let tx = client.transaction().await?;
+    admit(&tx, &[org_id, dst.id]).await?;
+    tx
         .execute(
             "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to)
                         VALUES ($1, $2, 'out', $3, $4, $5, 'delivered', now(), $6, $10))
@@ -166,21 +211,15 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there],
         )
         .await?;
-    let route = ensure_holders(engine, dst.id, None).await?;
     let holders = &route.to;
+    let delivered = publish_copies(&tx, dst.id, holders, &src_peer, &out.body, &out.kind,
+        &attachments, &reply_there, None, None).await?;
+    tx.commit().await?;
     drop(client);
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
     changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
-    for h in holders {
-        let mut m = Outgoing::new(From::Extern(src_peer.clone()), h, &out.body);
-        m.kind = out.kind.clone();
-        m.attachments = out.attachments.clone();
-        m.reply_to = reply_there.clone();
-        if let Err(e) = mail::send(engine, dst.id, m).await {
-            tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
-        }
-    }
+    wake_copies(engine, dst.id, delivered);
     if holders.is_empty() || route.waiting {
         super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body,holders).await?;
     }
@@ -230,6 +269,7 @@ async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, 
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org_id]).await?.get(0);
+    check(&raw)?;
     let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
     let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
     let mut holders = live_holders(&*tx, org_id, multi).await?;
@@ -305,7 +345,7 @@ pub async fn deliver_inbound(
     let tx = client.transaction().await?;
     // Serialize only this org's publication boundary, including the duplicate
     // check; different hubs may concurrently deliver to the same org.
-    tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org_id]).await?;
+    admit(&tx, &[org_id]).await?;
     let n = tx.execute(
         "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub, reply_to)
          SELECT $1, $2, 'in', $3, $4, $5, $6, $7, $8
@@ -316,6 +356,24 @@ pub async fn deliver_inbound(
     ).await?;
     if n == 0 { return Ok(false); }
     let holders = &route.to;
+    let delivered = publish_copies(&tx, org_id, holders, peer, body, "message",
+        &Value::Array(attachments), &quote, Some(net_id), Some(hub)).await?;
+    tx.commit().await?;
+    drop(client);
+    wake_copies(engine, org_id, delivered);
+    if holders.is_empty() || route.waiting {
+        super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await?;
+    }
+    Ok(true)
+}
+
+/// Both local and hub delivery publish the retained row and holder copies in
+/// the same transaction; a setting change cannot split a fanout.
+#[allow(clippy::too_many_arguments)]
+#[logged]
+async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id: i64, holders: &[String],
+    peer: &str, body: &str, kind: &str, attachments: &Value, quote: &Option<Value>,
+    net_id: Option<&str>, hub: Option<&str>) -> Result<Vec<(i64, String, String, bool)>> {
     let mut delivered = Vec::new();
     for h in holders {
         let target = tx.query_opt(
@@ -333,18 +391,21 @@ pub async fn deliver_inbound(
             }
             q
         });
-        let ev = crate::events::ordinary(peer, "message", false, body);
+        let ev = crate::events::ordinary(peer, kind, false, body);
         tx.execute(
             "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub)
-             VALUES($1,$2,$3,'agent',$4,$5,'message',$6,$7,$8,$9,'pending',$10,$11)",
+             VALUES($1,$2,$3,'agent',$4,$5,$12,$6,$7,$8,$9,'pending',$10,$11)",
             &[&mail_uid,&org_id,&peer,&target_id,h,&crate::util::pg_text(body).as_ref(),
-              &crate::util::pg_json(&Value::Array(attachments.clone())).as_ref(),
-              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub],
+              &crate::util::pg_json(attachments).as_ref(),
+              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind],
         ).await?;
         delivered.push((target_id,h.clone(),mail_uid,state == "live" && !halted));
     }
-    tx.commit().await?;
-    drop(client);
+    Ok(delivered)
+}
+
+#[logged]
+fn wake_copies(engine: &Arc<Engine>, org_id: i64, delivered: Vec<(i64, String, String, bool)>) {
     let mut ch = vec![Change::OrgInbox];
     for (id,name,mail_uid,wake) in delivered {
         ch.push(Change::Mailbox(id));
@@ -355,9 +416,5 @@ pub async fn deliver_inbound(
         if wake { crate::runtime::wake(engine,org_id,id); }
         if let Some(h) = engine.agents.get(id) { h.send(crate::runtime::AgentMsg::Wake); }
     }
-    changes::notify(engine, &org, ch);
-    if holders.is_empty() || route.waiting {
-        super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await?;
-    }
-    Ok(true)
-}
+    changes::notify_id(engine, org_id, ch);
+ }

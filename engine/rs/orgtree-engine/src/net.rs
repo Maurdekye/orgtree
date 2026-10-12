@@ -35,6 +35,7 @@ mod transfers;
 mod incoming;
 pub mod control;
 mod failures;
+pub mod isolation;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";
@@ -99,6 +100,7 @@ async fn attachment_limit_at(address: &str) -> AttachmentLimit {
 
 #[logged]
 pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Result<AttachmentLimit> {
+    crate::domain::orginbox::require_enabled(engine, org_id).await?;
     // Debug rig uses canned health documents, never a real hub or identity
     // (unless it hosts its own loopback hub).
     #[cfg(debug_assertions)]
@@ -113,7 +115,7 @@ pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Resul
     let Some((_, address)) = pick_hub(engine, p, peer.trim().trim_start_matches("@net:")) else {
         crate::refuse!(BadRequest, "no mail hub is enabled for this organization");
     };
-    Ok(attachment_limit_at(&address).await)
+    isolation::run(engine, &[org_id], async { Ok(attachment_limit_at(&address).await) }).await
 }
 
 static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
@@ -166,6 +168,7 @@ impl Part {
 
 #[derive(Default)]
 pub struct Net {
+    pub isolation: isolation::Gates,
     /// Fair bounded admission scan; unavailable peers cannot pin the first page.
     drain_cursor: std::sync::atomic::AtomicI64,
     /// (org id, hub id) → connection status
@@ -315,11 +318,12 @@ pub async fn ensure_identity(engine: &Engine, org_id: i64, org_slug: &str) -> Re
 async fn participants(engine: &Engine) -> Result<Vec<Part>> {
     let rows = {
         let client = engine.db.get().await?;
-        client.query("SELECT id, slug, name, net FROM ot.orgs WHERE state = 'active' ORDER BY id", &[]).await?
+        client.query("SELECT id, slug, name, net, settings FROM ot.orgs WHERE state = 'active' ORDER BY id", &[]).await?
     };
     let hosted = engine.hub.address.load_full().map(|a| a.as_str().to_string());
     let mut out = Vec::new();
     for r in rows {
+        if !crate::domain::orginbox::enabled(&r.get::<_,Value>(4)) { continue; }
         let org_id: i64 = r.get(0);
         let slug: String = r.get(1);
         let name: String = r.get(2);
@@ -548,13 +552,11 @@ async fn register_pending(engine: &Arc<Engine>, parts: &[Part]) {
             if p.registered.contains(hid) || backed_off(engine, addr) {
                 continue;
             }
-            let res = HTTP
+            let res = request(engine, &[p.org_id], HTTP
                 .post(format!("{addr}/api/register"))
                 .timeout(Duration::from_secs(10))
                 .header("X-Org-Auth", p.auth())
-                .json(&json!({ "slug": p.net_slug, "org_name": p.name, "username": username() }))
-                .send()
-                .await;
+                .json(&json!({ "slug": p.net_slug, "org_name": p.name, "username": username() }))).await;
             match res {
                 Ok(r) if r.status().is_success() => {
                     let data: Value = r.json().await.unwrap_or(Value::Null);
@@ -569,11 +571,21 @@ async fn register_pending(engine: &Arc<Engine>, parts: &[Part]) {
                 Ok(r) => set_status(engine, p.org_id, hid, false, Some(format!("register: HTTP {}", r.status().as_u16()))),
                 Err(e) => {
                     failed(engine, addr);
-                    set_status(engine, p.org_id, hid, false, Some(short_error(&e)));
+                    set_status(engine, p.org_id, hid, false, Some(request_error(&e)));
                 }
             }
         }
     }
+}
+
+#[nolog]
+async fn request(engine: &Engine, orgs: &[i64], req: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+    isolation::run(engine, orgs, async { Ok(req.send().await?) }).await
+}
+
+#[nolog]
+fn request_error(e: &anyhow::Error) -> String {
+    e.downcast_ref::<reqwest::Error>().map(short_error).unwrap_or_else(|| crate::util::gist(&e.to_string(), 200))
 }
 
 fn short_error(e: &reqwest::Error) -> String {
@@ -637,11 +649,11 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
             continue;
         }
         let auth = members.iter().map(|(p, _)| p.auth()).collect::<Vec<_>>().join(" ");
-        let req = HTTP
+        let member_ids: Vec<_> = members.iter().map(|(p,_)|p.org_id).collect();
+        let req = request(&engine, &member_ids, HTTP
             .post(format!("{addr}/api/poll?wait={wait}"))
             .timeout(Duration::from_secs(POLL_WAIT_S + 15))
-            .header("X-Org-Auth", auth)
-            .send();
+            .header("X-Org-Auth", auth));
         let res = tokio::select! {
             r = req => r,
             _ = stop.cancelled() => break,
@@ -651,7 +663,7 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
             Err(e) => {
                 failed(&engine, &addr);
                 for (p, hid) in &members {
-                    set_status(&engine, p.org_id, hid, false, Some(short_error(&e)));
+                    set_status(&engine, p.org_id, hid, false, Some(request_error(&e)));
                 }
                 continue;
             }
@@ -714,13 +726,11 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
                 }
             }
             if !ack.is_empty() {
-                let _ = HTTP
+                let _ = request(&engine, &[p.org_id], HTTP
                     .post(format!("{addr}/api/ack"))
                     .timeout(Duration::from_secs(10))
                     .header("X-Org-Auth", p.auth())
-                    .json(&json!({ "ids": ack }))
-                    .send()
-                    .await;
+                    .json(&json!({ "ids": ack }))).await;
             }
         }
         // receipts belong to whichever member sent the message
@@ -737,6 +747,7 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
 /// Returns the id to acknowledge.
 #[logged]
 async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &str, m: &Value) -> Result<Option<String>> {
+    crate::domain::orginbox::require_enabled(engine, p.org_id).await?;
     let Some(mid) = m["id"].as_str().filter(|s| !s.is_empty()) else { return Ok(None) };
     let seen = {
         let client = engine.db.get().await?;
@@ -760,6 +771,7 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
 
 #[logged]
 async fn publish_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &str, m: &Value, mut body: String, attachments: Vec<Value>) -> Result<()> {
+    crate::domain::orginbox::require_enabled(engine, p.org_id).await?;
     let mid = m["id"].as_str().unwrap_or("");
     let from = m["from"].as_str().unwrap_or("unknown");
     if let Some(sent) = m["sent_at"].as_str().and_then(crate::util::parse_ts) {
@@ -892,13 +904,11 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             }
         };
         engine.db.get().await?.execute("UPDATE ot.org_inbox SET net_id=$2 WHERE id=$1 AND net_id IS NULL", &[&row_id,&net_id]).await?;
-        let res = HTTP
+        let res = request(engine, &[org_id], HTTP
             .post(format!("{addr}/api/send"))
             .timeout(Duration::from_secs(30))
             .header("X-Org-Auth", p.auth())
-            .json(&outgoing_payload(&r, &net_id, &p.net_slug, att_ids))
-            .send()
-            .await;
+            .json(&outgoing_payload(&r, &net_id, &p.net_slug, att_ids))).await;
         match res {
             Ok(resp) if resp.status().is_success() => {
                 let client = engine.db.get().await?;
@@ -928,8 +938,8 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             }
             Err(e) => {
                 failed(engine, &addr);
-                set_status(engine, org_id, &hid, false, Some(short_error(&e)));
-                stamp(engine, org_id, row_id, last_err.as_deref(), &short_error(&e), true).await?;
+                set_status(engine, org_id, &hid, false, Some(request_error(&e)));
+                stamp(engine, org_id, row_id, last_err.as_deref(), &request_error(&e), true).await?;
             }
         }
     }
@@ -997,19 +1007,16 @@ async fn flush_receipts(engine: &Engine, parts: &[Part]) {
     }
     for ((org, addr), recs) in by_dest {
         let Some(p) = parts.iter().find(|p| p.org_id == org) else {
-            for (mid, st) in recs {
-                engine.net.owed.pin().remove(&(org, mid, st));
-            }
+            // Disabled orgs retain custody receipts; do not publish or discard
+            // them while their identity is absent from active participants.
             continue;
         };
         let body: Vec<Value> = recs.iter().map(|(mid, st)| json!({ "id": mid, "state": st, "at": now_iso() })).collect();
-        let ok = HTTP
+        let ok = request(engine, &[org], HTTP
             .post(format!("{addr}/api/receipts"))
             .timeout(Duration::from_secs(10))
             .header("X-Org-Auth", p.auth())
-            .json(&json!({ "receipts": body }))
-            .send()
-            .await
+            .json(&json!({ "receipts": body }))).await
             .map(|r| r.status().is_success() || r.status().as_u16() == 401)
             .unwrap_or(false);
         if ok {
@@ -1053,6 +1060,7 @@ pub async fn queue(
     attachments: &[Value],
     reply_to: Option<&Value>,
 ) -> Result<(String, String, Vec<String>)> {
+    crate::domain::orginbox::require_enabled(engine, org_id).await?;
     if offline() {
         crate::refuse!(Unprocessable, "network mail (@net:) is paused for this run (the engine started in safe start)");
     }
@@ -1111,6 +1119,7 @@ async fn queue_row(
     let reply = reply_to.map(|r| crate::util::pg_json(r).into_owned());
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
+    crate::domain::orginbox::admit(&tx, &[org_id]).await?;
     let row = tx
         .query_one(
             "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to, sender_agent_id, sender_generation)
@@ -1178,7 +1187,7 @@ async fn knows_peer(engine: &Engine, org_id: i64, peer: &str) -> bool {
         if !p.registered.contains(hid) {
             continue;
         }
-        let Ok(r) = HTTP.get(format!("{addr}/api/roster")).timeout(Duration::from_secs(5)).header("X-Org-Auth", p.auth()).send().await else {
+        let Ok(r) = request(engine, &[org_id], HTTP.get(format!("{addr}/api/roster")).timeout(Duration::from_secs(5)).header("X-Org-Auth", p.auth())).await else {
             continue;
         };
         let Ok(v) = r.json::<Value>().await else { continue };
@@ -1201,7 +1210,7 @@ pub async fn local_roster(engine: &Engine, org_id: i64) -> Option<(Vec<Value>, O
     let parts = engine.net.parts.load_full();
     let p = parts.iter().find(|p| p.org_id == org_id)?;
     let (_, addr) = p.hubs.iter().find(|(hid, addr)| p.registered.contains(hid) && normalize_address(addr) == normalize_address(&local))?;
-    let r = HTTP.get(format!("{addr}/api/roster")).timeout(Duration::from_secs(5)).header("X-Org-Auth", p.auth()).send().await.ok()?;
+    let r = request(engine, &[org_id], HTTP.get(format!("{addr}/api/roster")).timeout(Duration::from_secs(5)).header("X-Org-Auth", p.auth())).await.ok()?;
     let v = r.json::<Value>().await.ok()?;
     let roster = v["roster"].as_array().cloned().unwrap_or_default();
     set_roster(engine, addr, v["name"].as_str(), v["version"].as_str(), roster.clone());

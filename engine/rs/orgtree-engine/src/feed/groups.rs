@@ -262,6 +262,11 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             })
         }
         "org_inbox" => {
+            if !crate::domain::orginbox::enabled(&org["settings"]) {
+                return Ok(json!({"org_inbox": {"enabled": false, "visible": false,
+                    "entries": [], "total": 0, "unread": 0, "holders": [],
+                    "multi_holder_enabled": settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)}}));
+            }
             let preview = client
                 .query(
                     "SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id = $1 ORDER BY id DESC LIMIT 3",

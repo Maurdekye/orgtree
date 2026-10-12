@@ -77,6 +77,7 @@ pub async fn mail_by_id(
 ) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
+    if boxname == "org" { crate::domain::orginbox::require_enabled(&e, o.id).await?; }
     let found = match boxname.as_str() {
         "org" => client
             .query_opt("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id = $1 AND uid = $2", &[&o.id, &id])

@@ -108,6 +108,7 @@ async fn tell(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, wake: b
 pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str), target: &str, reason: &str) -> Result<Value> {
     let (my_id, my_name) = me;
     let target = party(Some(target));
+    if target == EXTERN { super::orginbox::require_enabled(engine, org.id).await?; }
     let client = engine.db.get().await?;
     let (_, my_parent) = live(&**client, org.id, my_name).await?;
     if target == my_name {
@@ -269,6 +270,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
         Actor::Agent { name, .. } => name.clone(),
     };
     let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org.id]).await?.get(0);
+    if grantor == EXTERN { super::orginbox::check(&raw)?; }
     let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
     let fresh = client.query_opt("SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL AND NOT paused LIMIT 1",
         &[&org.id, &grantee, &grantor]).await?.is_none();

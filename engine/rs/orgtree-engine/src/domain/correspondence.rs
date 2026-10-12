@@ -228,6 +228,8 @@ pub async fn page(client: &impl GenericClient, me: &Me, peer: &Peer, cursor: Opt
             side(client, 0, true, "recipient_agent_id IS NULL AND sender_agent_id = $1 AND recipient_kind = 'user'", &[&me.id], cursor, more).await?,
         ),
         Peer::Outside(address) => {
+            let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&me.org_id]).await?.get(0);
+            super::orginbox::check(&settings)?;
             // sent from the org inbox under the caller's name, since the
             // caller existed (a deleted namesake's mail is not its own)
             let born: DateTime<Utc> = client.query_one("SELECT created_at FROM ot.agents WHERE id = $1", &[&me.id]).await?.get(0);

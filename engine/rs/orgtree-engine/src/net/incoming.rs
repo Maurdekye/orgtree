@@ -31,6 +31,7 @@ pub(super) async fn stage(e: &Engine, p: &Part, hub: &str, address: &str, m: &Va
     anyhow::ensure!(files.len() <= 1024, "incoming attachment manifest is too large");
     let mut c = e.db.get().await?;
     let tx = c.transaction().await?;
+    crate::domain::orginbox::admit(&tx, &[p.org_id]).await?;
     let added = tx
         .execute(
             "INSERT INTO ot.net_incoming(id,org_id,hub,address,net_id,envelope) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(org_id,net_id) DO NOTHING",
@@ -238,7 +239,7 @@ pub(super) async fn run(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> 
             complete: r.get(8),
             expired: r.get(9),
         };
-        let bytes = download(e, p, job, &f).await?;
+        let bytes = isolation::run(e, &[p.org_id], download(e, p, job, &f)).await?;
         if f.body && bytes <= WHOLE_BODY_INLINE {
             body = String::from_utf8_lossy(&tokio::fs::read(&f.path).await?).into_owned();
         } else {

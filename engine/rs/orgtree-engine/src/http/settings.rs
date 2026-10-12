@@ -283,6 +283,11 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
             return Err(ApiError::bad_request("compact_at is a percentage between 50 and 95"));
         }
     }
+    // Cancel org-owned I/O before taking the database row lock. This also
+    // serializes re-enable with pending disable writers without global locks.
+    let inbox_pause = if patch.contains_key("org_inbox_enabled") {
+        Some(e.net.isolation.pause(o.id).await)
+    } else { None };
     let mut conn = e.db.get().await?;
     let client = conn.transaction().await?;
     let old: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&o.id]).await?.get(0);
@@ -361,6 +366,11 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         .await?;
     client.commit().await?;
     drop(conn);
+    drop(inbox_pause);
+    if patch.contains_key("org_inbox_enabled") {
+        crate::net::kick(&e);
+        changes::notify(&e, &o, vec![Change::OrgInbox, Change::Net]);
+    }
     changes::notify(&e, &o, vec![Change::Org, Change::Events]);
     if patch.contains_key("dirs") || patch.contains_key("permission_mode") {
         reconfigure_org(&e, o.id).await?;

@@ -69,6 +69,7 @@ pub async fn page(
     let Some((_, _, needs_node)) = SECTIONS.iter().find(|(id, _, _)| *id == section) else {
         return Err(ApiError::not_found(format!("no history section {section}")));
     };
+    if section == "org-mail" { crate::domain::orginbox::require_enabled(&e, o.id).await?; }
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let cursor: i64 = q.cursor.parse().unwrap_or(i64::MAX);
     let client = e.db.get().await?;

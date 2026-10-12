@@ -26,6 +26,7 @@ pub const ATTACHMENT_MAX: usize = 25 * 1024 * 1024;
 #[logged]
 pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    orginbox::require_enabled(&e, o.id).await?;
     let client = e.db.get().await?;
     let rows = client
         .query("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id = $1 ORDER BY id DESC LIMIT 100", &[&o.id])
@@ -54,6 +55,7 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Api
 #[logged]
 pub async fn read(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    orginbox::require_enabled(&e, o.id).await?;
     let client = e.db.get().await?;
     let changed = client
         .execute("UPDATE ot.org_inbox SET read = true WHERE org_id = $1 AND dir = 'in' AND NOT read", &[&o.id])
@@ -75,6 +77,7 @@ pub struct UploadQuery {
 
 #[logged]
 pub(super) async fn target_limit(e: &Engine, org_id: i64, to: &str) -> anyhow::Result<crate::net::AttachmentLimit> {
+    orginbox::require_enabled(e, org_id).await?;
     if to.starts_with("@net:") { crate::net::attachment_limit(e, org_id, to).await }
     else { Ok(crate::net::AttachmentLimit { bytes: ATTACHMENT_MAX as u64, legacy: false, per_message: false }) }
 }
@@ -82,6 +85,7 @@ pub(super) async fn target_limit(e: &Engine, org_id: i64, to: &str) -> anyhow::R
 #[logged]
 pub async fn upload_limit(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<UploadQuery>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    orginbox::require_enabled(&e, o.id).await?;
     let limit = target_limit(&e, o.id, &q.to).await?;
     Ok(Json(json!({"max_attachment_bytes":limit.bytes,"legacy":limit.legacy,"per_message":limit.per_message,"too_large":limit.message()})))
 }
@@ -90,6 +94,7 @@ pub async fn upload_limit(State(e): State<Arc<Engine>>, Path(slug): Path<String>
 #[logged]
 pub async fn upload(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<UploadQuery>, body: Body) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    orginbox::require_enabled(&e, o.id).await?;
     let limit = target_limit(&e, o.id, &q.to).await?;
     let base = std::path::Path::new(&q.name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let clean: String = base
@@ -148,6 +153,7 @@ pub struct SendBody {
 #[logged]
 pub async fn send(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<SendBody>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    orginbox::require_enabled(&e, o.id).await?;
     let to = b.to.trim();
     if to.starts_with("@ext:") {
         return Err(ApiError::unprocessable("the @ext: address form is retired — reach chats through the mail hub (@net:<slug>)"));
