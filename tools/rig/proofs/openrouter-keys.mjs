@@ -103,9 +103,10 @@ export default async function (rig) {
   // ---------------------------------------------------------------- per-seat key routing
   await rig.op({ op: 'hire', name: 'keytwo', parent: 'boss', tier: TIER, grant: 1, title: 'on key two', account: 'openrouter-2' })
   await rig.op({ op: 'hire', name: 'keyone', parent: 'boss', tier: TIER, grant: 1, title: 'on the original key' })
+  const account = (name) => rig.one(`SELECT account FROM ot.agents WHERE name = '${name}' AND state = 'live'`)?.account
   p.check('bindings: keytwo on openrouter-2, keyone unbound (the original)',
-    rig.agentRow('keytwo')?.account === 'openrouter-2' && rig.agentRow('keyone')?.account == null,
-    { keytwo: rig.agentRow('keytwo')?.account, keyone: rig.agentRow('keyone')?.account })
+    account('keytwo') === 'openrouter-2' && account('keyone') == null,
+    { keytwo: account('keytwo'), keyone: account('keyone') })
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'hire turns to settle', timeout: 60000 })
   for (const a of ['keytwo', 'keyone']) {
     const n = rig.turns(a).filter((t) => t.ended_at).length
@@ -165,8 +166,8 @@ export default async function (rig) {
   // ---------------------------------------------------------------- removal
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'turns to settle', timeout: 60000 })
   const removed = await rig.api('DELETE', '/api/openrouter/keys/openrouter-2')
-  p.check('removing openrouter-2 moves keytwo to the original key', rig.agentRow('keytwo')?.account == null
-    && (removed.removed?.rebound ?? []).some((r) => r.node === 'keytwo'), { account: rig.agentRow('keytwo')?.account, rebound: removed.removed?.rebound })
+  p.check('removing openrouter-2 moves keytwo to the original key', account('keytwo') == null
+    && (removed.removed?.rebound ?? []).some((r) => r.node === 'keytwo'), { account: account('keytwo'), rebound: removed.removed?.rebound })
   p.check('the panel lists the original key only', (removed.keys ?? []).map((k) => k.id).join(',') === 'openrouter-key')
   const again = await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-THREE3' })
   p.check('the next added key is openrouter-3 (a removed id is never reused) and is named "OpenRouter key 2" or its own label',
