@@ -117,4 +117,3 @@ mod tests {
         assert!(normalize(&png(2,2),Crop{size:0.0,..Crop::default()}).is_err());
     }
 }
-

@@ -128,4 +128,3 @@ mod tests {
         let mut bad=b.clone(); bad.data=Some("old bytes".into()); assert!(bad.decoded().is_err());
     }
 }
-
