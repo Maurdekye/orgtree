@@ -216,7 +216,7 @@ fn clear_stale_descriptor(root: &Path) -> Result<(), String> {
 
 /// Remove only OUR descriptor; a newer host's file must survive us.
 #[logged]
-fn remove_descriptor(root: &Path) {
+pub(crate) fn remove_descriptor(root: &Path) {
     if read_descriptor(root).map(|d| d["hostPid"] == json!(std::process::id())).unwrap_or(false) {
         let _ = std::fs::remove_file(root.join(DESCRIPTOR));
     }

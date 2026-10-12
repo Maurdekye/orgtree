@@ -221,7 +221,10 @@ mod win {
                     let child = Command::new(&exe).arg("--core-recovered")
                         .env_remove("ELECTRON_RUN_AS_NODE").env("ORGTREE_V2_DATA", root)
                         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-                        .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB).spawn();
+                        // The observer is already independent of the desktop
+                        // and owns no kill-on-close job. Do not break out of
+                        // an unrelated enclosing job (e.g. test containment).
+                        .creation_flags(CREATE_NEW_PROCESS_GROUP).spawn();
                     record(root, if child.is_ok() { "desktop-recovery-launched" } else { "desktop-recovery-launch-failed" }, &fresh, None);
                     return;
                 }

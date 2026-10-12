@@ -134,6 +134,7 @@ fn serve() -> ExitCode {
         .thread_name("engine")
         .build()
         .expect("tokio runtime");
+    let descriptor_root = cfg.data_root.clone();
     let code = match rt.block_on(tracing::Instrument::instrument(run(cfg), trace::request("engine"))) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -142,6 +143,9 @@ fn serve() -> ExitCode {
         }
     };
     rt.shutdown_timeout(std::time::Duration::from_secs(5));
+    // Managed engines publish their own descriptor. Remove only that owner's
+    // file while the root lock still excludes any replacement publisher.
+    host::remove_descriptor(&descriptor_root);
     drop(lock);
     code
 }
