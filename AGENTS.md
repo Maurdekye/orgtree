@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Providers presentation keeps provider enablement in each header and account
+  activation beside identity, with short visible labels and full accessible names.
+  Scope density CSS to the Providers tab; retain usage/reset/error/inactive states,
+  account/key distinctions and separate add/configure dialogs. See
+  [compact presentation and proof limits](docs/rust-engine/provider-compact.md).
+  [decided: user 2026-10-12 20:22Z; verified from source: `canvas/accounts.tsx`,
+  `canvas/accountsregistry.tsx`, `canvas/langserver.tsx`, 2026-10-12]
+
 - Native popout Close dismisses `PinFrame` through its existing close callback;
   explicit Pop in returns the same mounted content. Persistent desk Close keeps
   content but never activates a missing main-window destination or creates a

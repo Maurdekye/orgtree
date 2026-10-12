@@ -37,7 +37,7 @@ async function setup(t: TestContext, initial = [account('existing-claude'), acco
   await inAct(async () => { await flush() })
   return { view, state, calls, notices }
 }
-const button = (root: ParentNode, label: string) => [...root.querySelectorAll('button')].find(b => b.textContent === label)!
+const button = (root: ParentNode, label: string) => [...root.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent) === label)!
 const lane = (provider: string) => document.querySelector('.prov-' + provider)!.closest('.acct-provider-group')!
 const dialog = () => document.querySelector<HTMLElement>('.add-account-dialog')!
 async function open(provider: string) {

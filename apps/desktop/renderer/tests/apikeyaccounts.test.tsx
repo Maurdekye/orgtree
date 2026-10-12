@@ -53,7 +53,7 @@ async function setup(t: TestContext, rows: unknown[], lanes: Record<string, unkn
 }
 const lane = (provider: string) => document.querySelector('.prov-' + provider)!.closest('.acct-provider-group')!
 const dialog = () => document.querySelector<HTMLElement>('.add-account-dialog')!
-const button = (root: ParentNode, label: string) => [...root.querySelectorAll('button')].find(b => b.textContent === label)
+const button = (root: ParentNode, label: string) => [...root.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent) === label)
 const toggle = (provider: string, label: RegExp) =>
   [...lane(provider).querySelectorAll('input[type=checkbox]')]
     .find(i => label.test(i.getAttribute('aria-label') || '')) as HTMLInputElement | undefined
