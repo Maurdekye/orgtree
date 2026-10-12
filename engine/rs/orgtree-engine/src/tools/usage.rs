@@ -134,7 +134,49 @@ fn selectors(args: &Value, key: &str) -> Result<Option<Vec<String>>> {
 }
 
 #[nolog]
-fn row(engine: &Engine, lane: &Lane, own: &str, selection: &Selection) -> Value {
+fn auth_required(engine: &Engine, lane: &Lane) -> Option<bool> {
+    if lane.local_cap.is_some()
+        || lane.account.as_ref().is_some_and(AccountInfo::is_apikey)
+        || !matches!(lane.provider.as_str(), "claude" | "openai" | "google")
+    {
+        return None;
+    }
+    let mut keys = vec![lane.key.clone()];
+    if lane.account.as_ref().is_none_or(|a| a.ambient) {
+        let key = |folder| match lane.provider.as_str() {
+            "claude" => crate::usage::claude_key(folder),
+            "openai" => crate::usage::codex_key(folder),
+            _ => "agy".to_string(),
+        };
+        keys.push(key(None));
+        // Match the checked continuation physical-login contract. Registry
+        // visibility does not make an alias of this login a separate sign-in;
+        // only the aggregate boolean is consumed, never hidden row metadata.
+        let view = engine.accounts.view();
+        keys.extend(
+            view.all()
+                .into_iter()
+                .filter(|a| {
+                    a.provider == lane.provider
+                        && !a.is_apikey()
+                        && (a.ambient || a.config_dir.is_none())
+                })
+                .map(|a| key(a.config_dir.as_deref())),
+        );
+    }
+    engine
+        .usage
+        .cached_reauth_required_across(keys.iter().map(String::as_str))
+}
+
+#[nolog]
+fn row(
+    engine: &Engine,
+    lane: &Lane,
+    own: &str,
+    selection: &Selection,
+    auth: Option<bool>,
+) -> Value {
     let now = Utc::now();
     let mut v = if let Some(cap) = lane.local_cap {
         json!({"available":false,"reason":"unsupported","freshness":"unknown","observed_at":null,
@@ -142,6 +184,7 @@ fn row(engine: &Engine, lane: &Lane, own: &str, selection: &Selection) -> Value 
     } else {
         engine.usage.snapshot_selected(&lane.key, now, selection)
     };
+    crate::usage::query::overlay_auth(&mut v, auth);
     v["account"] = json!(lane.id);
     v["provider"] = json!(lane.provider);
     v["enabled"] = json!(lane.enabled);
@@ -370,7 +413,18 @@ pub async fn usage(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         let Some(lane) = current.get(&lane.id) else {
             crate::refuse!(Forbidden, "usage account scope changed");
         };
-        rows.push(row(engine, lane, &own, &selection));
+        let auth = auth_required(engine, lane);
+        // Classify with the same final auth observation used by the response,
+        // after permission/scope awaits. Keep busy/floor states intact.
+        if auth == Some(true) {
+            if let Some(result) = refreshed
+                .as_mut()
+                .filter(|v| matches!(v["status"].as_str(), Some("attempted" | "reused")))
+            {
+                result["status"] = json!("failed");
+            }
+        }
+        rows.push(row(engine, lane, &own, &selection, auth));
     }
     Done::json(
         &json!({"as_of":crate::util::iso(Utc::now()),"cache_only":!refresh,

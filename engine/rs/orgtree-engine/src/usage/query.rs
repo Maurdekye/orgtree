@@ -38,6 +38,20 @@ fn selected(values: Option<&[String]>, value: &str) -> bool {
     values.is_none_or(|values| values.iter().any(|v| v == value))
 }
 
+/// Current auth evidence has a separate clock from the quota measurement.
+/// Change availability/cause only; never re-date or manufacture quota bars.
+#[nolog]
+pub fn overlay_auth(reading: &mut Value, required: Option<bool>) {
+    if required == Some(true) {
+        reading["available"] = json!(false);
+        reading["reason"] = json!("signed_out");
+    } else if required == Some(false) && reading["reason"] == "signed_out" {
+        // A newer successful physical alias clears the old sign-in cause,
+        // but cannot make a missing/failed quota measurement available.
+        reading["reason"] = json!("failed");
+    }
+}
+
 #[nolog]
 fn number(v: &Value) -> Value {
     v.as_f64()

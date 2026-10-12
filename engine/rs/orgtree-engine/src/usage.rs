@@ -1226,6 +1226,7 @@ pub async fn refresh_permitted(engine: &Engine, provider: &str, account: &str, f
         crate::usage_history::record(engine, account, provider, Utc::now(), &out).await;
     }
     out["available"] == true && out["error"].is_null()
+        && out["reauth_required"] != true && out["reauth_evidence"] != "not_connected"
 }
 
 // ------------------------------------------------------------ what the windows read
