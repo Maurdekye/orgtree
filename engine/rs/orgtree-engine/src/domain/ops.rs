@@ -499,9 +499,13 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op
 pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
                             req: &Value, fx: &mut Effects) -> Result<Value> {
     let op = req["op"].as_str().unwrap_or("");
-    // User retool/rehire can raise org defaults. Match settings and the HTTP
-    // approval route's org-before-agent order before any node row is locked.
-    if matches!(actor, Actor::User) && matches!(canonical_op(op), "retool" | "rehire") {
+    // User retool/rehire can raise org defaults. Staffing audience composites
+    // also acquire the org in grant_tx, for either actor. Take it before any
+    // node lock, matching settings and HTTP folder approval/direct edits.
+    let user_scope = matches!(actor, Actor::User) && matches!(canonical_op(op), "retool" | "rehire");
+    let staffing_audiences = matches!(canonical_op(op), "hire" | "rehire")
+        && req.get("audiences").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+    if user_scope || staffing_audiences {
         tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org.id]).await?;
     }
     let mut out = match canonical_op(op) {

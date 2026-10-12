@@ -549,7 +549,9 @@ pub(crate) async fn apply_user_scope_in_tx(
     // retained clamped grant. A desktop whole-list save contributes only its
     // actual additions/upgrades, never unrelated latent configured scope.
     let granted_dirs = approved_dirs.map(<[Value]>::to_vec)
-        .unwrap_or_else(|| scope::folder_additions(&scope::normalize(&before)["add_dirs"], &sc["add_dirs"]));
+        .unwrap_or_else(|| if b.get("add_dirs").is_some_and(Value::is_array) {
+            scope::folder_additions(&scope::normalize(&before)["add_dirs"], &sc["add_dirs"])
+        } else { Vec::new() });
     let settings = crate::feed::groups::effective_settings(&stored, &e.settings.defaults());
     let raised = scope::raise(&json!({ "add_dirs": settings["dirs"] }), &json!({ "add_dirs": granted_dirs }));
     let org_folders_changed = !granted_dirs.is_empty() && raised["add_dirs"] != settings["dirs"];

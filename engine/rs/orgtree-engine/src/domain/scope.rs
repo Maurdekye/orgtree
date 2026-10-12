@@ -286,13 +286,22 @@ pub fn raise(current: &Value, wanted: &Value) -> Value {
 #[logged]
 pub fn folder_additions(before: &Value, after: &Value) -> Vec<Value> {
     let old = before.as_array().map(Vec::as_slice).unwrap_or_default();
-    after.as_array().into_iter().flatten().filter(|d| {
+    let mut added: Vec<Value> = Vec::new();
+    for d in after.as_array().into_iter().flatten() {
         let key = norm_path(d["path"].as_str().unwrap_or(""));
-        match old.iter().find(|o| norm_path(o["path"].as_str().unwrap_or("")) == key) {
-            None => true,
-            Some(o) => o["mode"] == "ro" && d["mode"] == "rw",
+        // Normalization retains historical aliases. Any equivalent RW row
+        // already covers an unchanged RW intent, regardless of row order.
+        if old.iter().any(|o| norm_path(o["path"].as_str().unwrap_or("")) == key
+            && (o["mode"] == "rw" || d["mode"] == "ro")) {
+            continue;
         }
-    }).cloned().collect()
+        // Aggregate the newly supplied intent only, without rewriting stored
+        // scope. A new mixed RO/RW list contributes one adequate RW grant.
+        if let Some(existing) = added.iter_mut().find(|o| norm_path(o["path"].as_str().unwrap_or("")) == key) {
+            if d["mode"] == "rw" { *existing = d.clone(); }
+        } else { added.push(d.clone()); }
+    }
+    added
 }
 
 #[cfg(test)]
@@ -308,6 +317,21 @@ mod tests {
         assert_eq!(folder_additions(&before, &after), json!([
             { "path": "E:/upgrade", "mode": "rw" }, { "path": "E:\\new-ro", "mode": "ro" }
         ]).as_array().unwrap().clone());
+    }
+
+    #[test]
+    fn whole_list_folder_intent_aggregates_equivalent_modes_in_either_order() {
+        let aliases = ["E:/latent/child/../.", "E:\\latent"];
+        for modes in [["ro", "rw"], ["rw", "ro"]] {
+            let before = json!([{ "path": aliases[0], "mode": modes[0] }, { "path": aliases[1], "mode": modes[1] }]);
+            assert!(folder_additions(&before, &before).is_empty());
+            let spelling = if cfg!(windows) { "e:/LATENT" } else { "E:/latent" };
+            assert!(folder_additions(&before, &json!([{ "path": spelling, "mode": "rw" }])).is_empty());
+        }
+        let before = json!([{ "path": aliases[0], "mode": "ro" }, { "path": aliases[1], "mode": "ro" }]);
+        let after = json!([{ "path": aliases[0], "mode": "ro" }, { "path": aliases[1], "mode": "rw" }]);
+        assert_eq!(folder_additions(&before, &after), vec![after[1].clone()]);
+        assert_eq!(folder_additions(&json!([]), &after), vec![after[1].clone()]);
     }
 
     #[test]
