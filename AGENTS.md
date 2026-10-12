@@ -37,7 +37,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Promote/Demote aliases share Move's canonical dispatch and isolation policy;
   raw request/retry labels and existing move audit meaning are retained.
   [decided: user 2026-10-11 23:15Z; verified from source: `domain/ops.rs`,
-  `domain/ops/ordering.rs`, `tools/defs.rs`; scope/proof: `docs/rust-engine/agent-ordering.md`]
+  `domain/ops/ordering.rs`, `tools/defs.rs`, 2026-10-12;
+  scope/proof: `docs/rust-engine/agent-ordering.md`]
 
 - Canvas sibling drags and their Undo preview before the reorder endpoint answers.
   Preview Rust's live-sibling midpoint ordering through the shared chart/list tree;

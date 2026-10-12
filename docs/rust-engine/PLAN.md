@@ -414,7 +414,9 @@ Agent ordering addition (user 2026-10-11): `orgtree_reorder` positions live
 strict descendants among current live siblings. New agent hires (`orgtree_hire`
 and staff's hire form) require an explicit zero-based `index`; superior insertion
 excludes its anchor. Existing non-agent defaults and insertion authority/scope/
-credit rules remain. Inspection exposes live indices/counts. See `agent-ordering.md`.
+credit rules remain. Inspection exposes live indices/counts. Move/Promote/Demote
+share canonical dispatch and serializable membership policy (verified 2026-10-12).
+See `agent-ordering.md`.
 
 `orgtree_self_restart`, `orgtree_prime_restart`, `orgtree_restart_wake`, `orgtree_self_relaunch`,
 `orgtree_prime_relaunch` (agents restarting Orgtree itself) · `orgtree_reservation`,
