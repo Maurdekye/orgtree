@@ -116,3 +116,23 @@ uncontended composite. This measures those schedules rather than every
 possible interleaving. The predecessor binary is the exact R1 runtime,
 preserved before rebuilding; partial fixture-development logs are retained
 separately and are not completed red/green receipts.
+
+Measured correction 2026-10-12: the completed exact R1 predecessor receipt
+`approved-folder-grants-round2-20261012T212843` passed 9/18, with three
+duplicate-intent failures and both wait-order/settlement failures in user
+hire, agent hire and agent rehire. All three competing folder HTTP requests
+returned 500 with PostgreSQL deadlock errors. User rehire's existing org-first
+schedule and the other positive controls passed. Corrected receipt
+`approved-folder-grants-round2-20261012T213036` passed 18/18; every observed
+competing wait query acquired the org, then both routes settled correctly.
+These receipts are under the same author evidence root described above.
+Separate command logs are `scratch-open-sol-folder-grants-round2-red-18.log`
+and `scratch-open-sol-folder-grants-round2-green.log` under D:\orgtree-work.
+
+The focused all-targets single-job compile finished in 1m11s, within the same
+6144 MB / 600 s Job. The two intent unit tests passed (110 filtered), under
+the build lock with a 30-second unit process timeout. Build/unit log:
+`scratch-open-sol-folder-grants-round2-build.log`. The corrected engine SHA256
+is `ff9e8717043f8131d5979c8ebaa46d45cc893a17b9110606dfe66f6385cbdd0d`.
+Both completed route receipts used the same 1536 MB / 300 s Job envelope.
+No full suite, real provider turn or UI acceptance is implied.
