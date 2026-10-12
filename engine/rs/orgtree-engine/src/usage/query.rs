@@ -298,6 +298,51 @@ mod tests {
     }
 
     #[test]
+    fn auth_overlay_retains_original_fresh_and_stale_quota_measurements() {
+        for age in [120, 1800] {
+            let raw = json!({"available":true,
+                "observed_at":crate::util::iso(now() - chrono::Duration::seconds(age)),
+                "limits":[{"kind":"session","percent":37,"resets_at":crate::util::iso(now())}]});
+            let original = reading(Some(&raw), Some(now()), now());
+            let mut negative = original.clone();
+            overlay_auth(&mut negative, Some(true));
+            assert_eq!(negative["available"], false);
+            assert_eq!(negative["reason"], "signed_out");
+            for key in [
+                "windows",
+                "observed_at",
+                "age_seconds",
+                "freshness",
+                "window_count",
+                "windows_truncated",
+            ] {
+                assert_eq!(negative[key], original[key], "auth must not alter {key}");
+            }
+            for evidence in [None, Some(false)] {
+                let mut unchanged = original.clone();
+                overlay_auth(&mut unchanged, evidence);
+                assert_eq!(unchanged, original);
+            }
+        }
+    }
+
+    #[test]
+    fn newer_positive_auth_cannot_invent_missing_quota_measurements() {
+        let raw = json!({"available":false,"reauth_required":true,
+            "observed_at":crate::util::iso(now() - chrono::Duration::seconds(1800))});
+        let mut value = reading(Some(&raw), Some(now()), now());
+        assert_eq!(value["reason"], "signed_out");
+        let original = value.clone();
+        overlay_auth(&mut value, Some(false));
+        assert_eq!(value["reason"], "failed");
+        assert_eq!(value["available"], false);
+        assert_eq!(value["windows"], json!([]));
+        assert_eq!(value["observed_at"], original["observed_at"]);
+        assert_eq!(value["age_seconds"], 1800);
+        assert_eq!(value["freshness"], "stale");
+    }
+
+    #[test]
     fn projection_whitelists_typed_fields_and_does_not_invent_reset_or_percent() {
         let w = window(
             &json!({"kind":"usage","group":"credits","percent":null,"amount":8.5,"unit":"USD",
