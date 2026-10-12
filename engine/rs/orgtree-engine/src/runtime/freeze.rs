@@ -346,7 +346,7 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
     let target = continuation::resolve(engine, &org.slug, &tier, account)?;
     let provider = crate::providers::catalog::provider_of(&tier);
     let previous_lane = previous.as_deref().and_then(|a| engine.accounts.view().get(a).map(crate::org_accounts::lane_of))
-        .unwrap_or_else(|| crate::org_accounts::primary(provider));
+        .unwrap_or_else(|| crate::org_accounts::default_lane(provider));
     let namespace_changed = previous_lane != target.lane;
     let account_id = target.binding.as_deref().unwrap_or(&target.lane);
     tx
