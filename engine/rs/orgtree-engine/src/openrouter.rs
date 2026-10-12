@@ -370,6 +370,9 @@ pub async fn import_legacy(engine: &Engine) {
     tracing::info!(found = carried["found"].as_bool().unwrap_or(false), key = carried["key"].as_bool().unwrap_or(false),
                    favorites = carried["favorites"].as_i64().unwrap_or(0), "3.x OpenRouter settings checked");
     if carried["key"] == json!(true) || carried["favorites"].as_i64().unwrap_or(0) > 0 {
+        // the carried favorites are hireable now, not only after the first
+        // provider discovery (a CLI probe that can take a while)
+        crate::providers::refresh_openrouter(engine);
         crate::providers::publish(engine);
         publish(engine).await;
     }
