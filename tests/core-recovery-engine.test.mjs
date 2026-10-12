@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
+import fs from 'node:fs'
 import {createRequire} from 'node:module'
 import {buildSync} from 'esbuild'
 const req=createRequire(import.meta.url)
@@ -51,4 +52,30 @@ test('reattached managed engine preserves topology and can explicitly restart',a
   assert.equal(e.usesBackgroundTask,false)
   await e.restart(options)
   assert.deepEqual(calls,['drain','release','start'])
+})
+
+test('background recovery keeps the configured task and never spawns a managed engine',async()=>{
+  const e=new Engine();e.managed=false;e.attachedManaged=false
+  const calls=[];e.attach=async()=>false;e.rootReleased=async()=>true
+  e.start=async()=>calls.push('managed');e.attachWithRetry=async()=>{calls.push('attach');return true}
+  await e.recoverUnexpected(options,true,async()=>calls.push('task'))
+  assert.deepEqual(calls,['task','attach']);assert.equal(e.managed,false)
+})
+test('Quit during task restart suppresses subsequent attachment',async()=>{
+  const e=new Engine();e.managed=false;e.attachedManaged=false
+  const gate=deferred(), entered=deferred();let attached=0
+  e.attach=async()=>false;e.rootReleased=async()=>true;e.attachWithRetry=async()=>{attached++;return true}
+  const attempt=e.recoverUnexpected(options,true,async()=>{entered.resolve();await gate.promise})
+  await entered.promise;e.cancelLaunches();gate.resolve();await attempt
+  assert.equal(attached,0)
+})
+test('update path keeps bounded transition instead of manual Quit barrier',()=>{
+  const source=fs.readFileSync('apps/desktop/main/index.ts','utf8')
+  const start=source.indexOf('await coreLifecycle?.transition(true)',source.indexOf('const applyDownloadedUpdate ='))
+  const finish=source.indexOf('const outcome = await prepareAndHandOff',start)
+  assert.ok(start>0&&finish>start)
+  const body=source.slice(start,finish)
+  assert.equal(body.includes('cancelRecovery()'),false)
+  assert.doesNotMatch(body,/^\s*app\.quit\(\)/m)
+  assert.equal(body.includes('engine.cancelLaunches()'),true)
 })

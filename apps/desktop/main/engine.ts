@@ -200,6 +200,7 @@ export class Engine extends EventEmitter {
     const show = (phase: string) => { if (phase !== shown) { shown = phase; this.emit('conversion', phase || null) } }
     try {
       for (;;) {
+        if (this.launchesCancelled) return false
         if (await this.attach(options)) return true
         // A folder others can write stays that way until its owner changes
         // it: fail fast, and let the caller say which folder and how.
@@ -328,7 +329,10 @@ export class Engine extends EventEmitter {
       if (fs.existsSync(path.join(bin, exeName('postgres')))) Object.assign(env, { ORGTREE_P03_PG_BIN: bin })
     }
     const child = binary
-      ? spawn(binary, ['serve'], { cwd: path.dirname(binary), env, windowsHide: true, stdio: 'pipe' })
+      // libuv puts non-detached Windows children in its kill-on-parent-close
+      // job. The managed core owns its own child job and must survive this
+      // desktop; retaining pipes/ChildProcess still supports graceful Quit.
+      ? spawn(binary, ['serve'], { cwd: path.dirname(binary), env, windowsHide: true, detached: process.platform === 'win32', stdio: 'pipe' })
       : spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })
     this.child = child
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
@@ -464,16 +468,26 @@ export class Engine extends EventEmitter {
 
   /** Native lifecycle already proved the old stamped engine gone. Root release
    * still gates the next spawn; an independently recovered host is adopted. */
-  async recoverUnexpected(options: EngineOptions, allowSpawn = true): Promise<void> {
+  async recoverUnexpected(options: EngineOptions, allowSpawn = true, restartBoot?: () => Promise<unknown>): Promise<void> {
     if (this.restarting || this.stopping || this.launchesCancelled) return
+    const bootTopology = this.usesBackgroundTask
     const attempt = (async () => {
       if (this.child && this.child.exitCode === null && this.child.signalCode === null) return
       this.stopLiveness()
-      this.child = undefined; this.endpoint = ''; this.managed = true
+      this.child = undefined; this.endpoint = ''; this.managed = !bootTopology
       if (await this.attach(options)) return
       if (this.launchesCancelled) return
       if (!allowSpawn) throw new Error('Replacement engine is not yet ready to attach')
       if (!await this.rootReleased(options)) throw new Error('Engine recovery is waiting for the old process tree to release its data root.')
+      if (bootTopology) {
+        this.managed = false
+        if (this.launchesCancelled) return
+        if (!restartBoot) throw new Error('Background engine recovery requires its configured task')
+        await restartBoot()
+        if (this.launchesCancelled) return
+        if (!await this.attachWithRetry(options, 120000)) throw new Error('Background engine recovery did not become ready')
+        return
+      }
       await this.start(options)
     })()
     this.restarting = attempt

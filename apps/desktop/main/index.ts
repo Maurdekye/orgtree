@@ -1187,20 +1187,6 @@ else {
     await coreLifecycle?.transition(true)
     if (!engine.managed) { await engine.stopAttachedForUpdate(); updateLog.record('engine-stopped', 'attached boot engine confirmed stopped') }
     if (quitting) return
-    // Establish the durable no-recovery barrier before any teardown. If it
-    // cannot be recorded, retain the app and report a retryable Quit failure.
-    if (coreLifecycle && !coreStopRequested && !coreQuitPrepared) {
-      if (quitPrompting) return
-      quitPrompting = true; engine.cancelLaunches()
-      void coreLifecycle.cancelRecovery().then(() => {
-        coreQuitPrepared = true; quitPrompting = false; app.quit()
-      }).catch(async () => {
-        engine.allowLaunches(); quitPrompting = false
-        await dialog.showMessageBox({type: 'error', message: 'Orgtree could not safely cancel recovery before quitting.',
-          detail: 'No shutdown was started. Try Quit Orgtree again.'})
-      })
-      return
-    }
     engine.cancelLaunches()
     quitting = true
     coreLifecycle?.stop()
@@ -2426,7 +2412,7 @@ else {
       coreLifecycle?.configureRecovery(async allowSpawn => {
         if (quitting || installerUpgradeShutdown || backgroundEngineRestart || updateApplying) return
         const before = engine.origin || initialOrigin
-        await engine.recoverUnexpected(engineOptions, allowSpawn)
+        await engine.recoverUnexpected(engineOptions, allowSpawn, startBootTask)
         if (quitting || installerUpgradeShutdown || !engine.origin) return
         await coreLifecycle?.complete()
         if (engine.origin === before) {
