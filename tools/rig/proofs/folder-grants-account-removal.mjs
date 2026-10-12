@@ -18,6 +18,9 @@ export default async function (rig) {
   rig.run = writeRun(rig.dir, { org: created.slug })
   await rig.op({ op: 'hire', name: 'boss', tier: 'haiku', grant: 32, index: 0 })
   for (const name of ['bound', 'binder']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', index: 0 })
+  // Keep the synthetic seat idle throughout account reconfiguration so no
+  // asynchronous fake-session replacement can moot the controlled request.
+  await rig.op({ op: 'halt', nodes: ['bound', 'binder'] })
   const q = s => `'${String(s).replaceAll("'", "''")}'`
   const oid = rig.one(`SELECT id FROM ot.orgs WHERE slug=${q(rig.org)}`).id
   const settings = () => rig.one(`SELECT settings FROM ot.orgs WHERE id=${oid}`).settings
@@ -59,6 +62,7 @@ export default async function (rig) {
       const ask = await rig.tool('bound', 'orgtree_request_scope', { items: [{ kind: 'dir', path: dir, mode: 'rw' }], reason: 'Synthetic removal schedule' })
       if (!ask.ok) throw new Error(ask.text)
       row = rig.one(`SELECT uid,rev,body FROM ot.asks WHERE agent_id=${rig.agentRow('bound').id} AND status='open' ORDER BY id DESC LIMIT 1`)
+      if (!row) throw new Error(`scope request fixture has no open row: ${ask.text}`)
     }
     // This event is inserted after the bound agent's rebind and before the
     // org-default scan. The removal still owns K and P here.
@@ -101,7 +105,7 @@ export default async function (rig) {
         && reference && (reference.code === 0 || /was removed/.test(reference.stderr)), { refs, binder: reference })
       p.check(`${route}: rolled-back retry emits only committed removal event`, rig.one(`SELECT count(*)::int AS n FROM ot.events WHERE op='account_removed' AND detail->>'removed_account'=${q(k)} AND subject_agent_id=${rig.agentRow('bound').id}`).n === 1)
     }
-    if (route === 'approval') p.check('approval answer is durable and request settled', rig.one(`SELECT status FROM ot.asks WHERE uid=${q(row.uid)}`).status === 'resolved'
+    if (route === 'approval') p.check('approval answer is durable and request settled', rig.one(`SELECT status FROM ot.asks WHERE uid=${q(row.uid)}`).status === 'answered'
       && !!rig.one(`SELECT uid FROM ot.mail WHERE recipient_agent_id=${rig.agentRow('bound').id} AND sender='@user' AND kind='decision' ORDER BY id DESC LIMIT 1`))
   }
   // Failure after rebind/default update must roll the entire removal back.
