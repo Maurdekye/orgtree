@@ -171,9 +171,10 @@ all take the above mode consistently. Org-inbox admission/holder selection,
 net failure notices, external-unroutable notices and profile revision serialization
 retain their original FOR UPDATE locks. These still conflict with the new mode,
 so inbox disable/admission and profile edit serialization are not relaxed.
-Network state and org lifecycle updates retain their existing behavior. Account
-removal's late org FOR UPDATE after agent mutations is unchanged; this correction
-does not certify its pre-existing cross-subsystem lock ordering. An attempted
+Network state and org lifecycle updates retain their existing behavior. Final
+R3 subsequently identified the adjacent account-removal late-org cycle below;
+it cannot be excluded merely because removal source was previously unchanged.
+An attempted
 universal early KEY SHARE admission was abandoned because it would add a conflict
 with that separate account/agent ordering. Its intermediate commit is superseded;
 the final engine diff adds no lock to ordinary tree operations.
@@ -215,3 +216,64 @@ fixture returned404 before the archived seat's restore became visible. These
 were fixture failures, not completed green acceptance, and the completed paired
 receipts use the same final proof. Prior scope-request8/8 remains prior evidence.
 No global deadlock-free engine, real-provider or UI acceptance is claimed.
+
+## Final-review account-removal correction
+
+Final independent R3 found a supported adjacent cycle: removable secondary K
+is bound to idle agent P and saved as org O's default. Removal holds K and P,
+then its default-org scan needs O FOR UPDATE; folder approval/direct scope
+holds O NO KEY UPDATE then needs P. The FK-compatible weaker mode still
+conflicts with that explicit late lock. Earlier labeling of this interaction
+as outside the proof limits did not remove the new folder O-to-P edge.
+
+The authorized bounded correction retains removal's exclusive account row
+and existing reference triggers, agent/default/queue rebinding, tombstone and
+postcommit publication. The late matching-default org scan is FOR UPDATE
+NOWAIT. If a row is held, the statement refuses with SQLSTATE55P03, and removal
+explicitly awaits whole-transaction rollback before returning to its existing
+four-attempt loop. Only after all provisional state/locks are released does it
+back off25/50/100ms between attempts. No skipped org rows, partial commit or
+retry of only the default portion is permitted. A successful attempt retains
+the exact original transaction and account reassignment semantics.
+
+[PostgreSQL18 locking-clause documentation](https://www.postgresql.org/docs/18/sql-select.html#SQL-FOR-UPDATE-SHARE)
+documents NOWAIT; [its error-code table](https://www.postgresql.org/docs/18/errcodes-appendix.html)
+identifies55P03 as lock_not_available. The bounded retry classifier retains
+40001/40P01 and adds55P03. Under sustained contention the four-attempt budget
+can still return an atomic error; eventual success is not guaranteed. This
+avoids holding P while waiting for O, without reversing account protection,
+adding a universal org mutex, or changing folder authorization/FK compatibility.
+
+The controlled proof uses synthetic managed Claude account K, an idle halted
+bound seat P, and O.default_account=K. An account_removed event trigger pauses
+after rebind but before the default-org scan; real approval and direct scope
+routes take O then wait on P. A stale concurrent SQL account reference waits
+behind K's exclusive guard, then must be drained/rebound on a retry or rejected
+after deletion. Releasing the barrier requires both real routes to settle with
+the folder, default rebound, one committed event and durable approval answer.
+A late DELETE failure proves full state rollback, including account/default,
+current/pending references, row versions, event rows and tombstone. A separate
+controlled holder exceeds the retry budget to prove atomic refusal, then a
+fresh removal succeeds after contention ends. Primary/deleted identity guards
+remain. All fixture credentials, profiles and rows are disposable; no provider
+turn or real account data is used.
+
+### Pending OpenRouter integration seam
+
+Read-only comparison inspected local unapproved `feature-opus/openrouter-multikey`
+at86979368b99644ddc85ae529fd2329f8a59096ca. It overlaps this exact
+`domain/account_removal.rs`: shared retryable and remove_once still have the
+same existing classic removal loop/late default-org scan. That branch also adds
+remove_original_once with its own late org FOR UPDATE scan and retry loop.
+Coordinator must preserve the55P03/explicit rollback/off-lock backoff policy
+when resolving the shared classic hunks, and apply equivalent non-waiting
+whole-transaction handling to the separate original-key path before claiming
+this acceptance for that composition. Its OR-specific reference predicates,
+reassignment/freeze policy and schema remain its owner's work. No unapproved
+OpenRouter commit, migration, implementation or probe was consumed; frozen
+owner was not woken, and no original-OR removal acceptance is claimed here.
+
+The three independent review rounds are complete. This is original-owner
+correction and regression proof, not a fourth independent review. Coordinator
+returns the concrete hand-in for user disposition before another review or
+integration; no approval-by-cap is implied.

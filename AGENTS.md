@@ -44,6 +44,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [scope intent and proof limits](docs/rust-engine/approved-folder-grants.md).
   [verified: `domain/asks.rs`, `domain/scope.rs`, `domain/ops.rs`, `http/nodes.rs`, 2026-10-12]
 
+- Secondary account removal keeps exclusive account-reference protection and
+  atomic rebound. Its late default-org lock is NOWAIT: on contention, confirm
+  whole-transaction rollback before the existing bounded retry/backoff, so an
+  org-first folder/settings writer cannot become a deadlock victim of that
+  late lock. Never skip locked defaults or publish provisional effects.
+  [verified: `domain/account_removal.rs`, 2026-10-12; proof/limits in
+  `docs/rust-engine/approved-folder-grants.md`]
+
 - Organization profile pictures use a dedicated bounded `ot.meta` record,
   not the net/tree payload. Human settings edits carry the numeric org owner;
   incoming hub merges preserve logical revisions and removal tombstones.
