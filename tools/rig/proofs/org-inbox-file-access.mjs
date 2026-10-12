@@ -1,3 +1,4 @@
+import { retainedInboxUpload } from './fixtures/retained-inbox-upload.mjs'
 import { Proof } from '../proof.mjs'
 export function setup() {
   return { fixture: { org: { name: 'Disabled attachment source' }, agents: [{ name: 'rhea', tier: 'luna', grant: 4 }],
@@ -12,12 +13,8 @@ export default async function(rig) {
   await rig.op({op:'hire',name:'outsider',tier:'luna',grant:4},{org:C})
   await rig.op({op:'halt',nodes:['outsider']},{org:C})
   const marker = 'PRIVATE_RETAINED_INBOX_ATTACHMENT_TEST_ONLY'
-  const upload = await fetch(`${rig.url}/api/orgs/${A}/org_inbox/upload?name=retained.txt&to=${encodeURIComponent('@org:'+B)}`,
-    {method:'POST',headers:{'X-Orgtree-Desktop-Token':rig.token},body:marker})
-  if (!upload.ok) throw new Error('upload: '+upload.status+' '+await upload.text())
-  const staged = await upload.json()
-  await rig.api('POST',`/api/orgs/${A}/org_inbox/send`,{to:'@org:'+B,body:'Retained test mail',attachments:[staged.id]})
-  const path = rig.one(`SELECT path FROM ot.uploads WHERE id='${staged.id}'`).path
+  const staged = retainedInboxUpload(rig,A,'retained.txt',marker)
+  const path = staged.path
   const get = async (org,node,filePath=path) => {
     const res=await fetch(`${rig.url}/api/orgs/${org}/nodes/${node}/file?path=${encodeURIComponent(filePath)}`,
       {headers:{'X-Orgtree-Desktop-Token':rig.token}})
@@ -28,12 +25,8 @@ export default async function(rig) {
     {method:'POST',headers:{'X-Orgtree-Desktop-Token':rig.token},body:'ORDINARY_UPLOAD_CONTROL'})
   if(!ordinaryResponse.ok) throw new Error('ordinary upload: '+ordinaryResponse.status)
   const ordinary=await ordinaryResponse.json()
-  // A second, unsubmitted staging file is protected by the same owner policy.
-  const stagingResponse=await fetch(`${rig.url}/api/orgs/${A}/org_inbox/upload?name=staged.txt&to=${encodeURIComponent('@org:'+B)}`,
-    {method:'POST',headers:{'X-Orgtree-Desktop-Token':rig.token},body:'UNSUBMITTED_STAGE_CONTROL'})
-  if(!stagingResponse.ok) throw new Error('stage: '+stagingResponse.status)
-  const stagedOnly=await stagingResponse.json()
-  const stagingPath=rig.one(`SELECT path FROM ot.uploads WHERE id='${stagedOnly.id}'`).path
+  // A retained, unsubmitted staging file is protected by the same owner policy.
+  const stagingPath=retainedInboxUpload(rig,A,'staged.txt','UNSUBMITTED_STAGE_CONTROL').path
   await rig.api('POST',`/api/orgs/${A}/settings`,{org_inbox_enabled:false})
   p.check('unsubmitted staging file denied through unrelated route',(await get(C,'outsider',stagingPath)).status===403)
   p.check('ordinary upload remains readable while its owner inbox is disabled',(await get(A,'rhea',ordinary.path)).text==='ORDINARY_UPLOAD_CONTROL')

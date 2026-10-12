@@ -111,18 +111,6 @@ fn inbox_quote(r: &tokio_postgres::Row) -> Value {
     q
 }
 
-/// The org-inbox row the user answers from the panel (its id).
-#[logged]
-pub async fn quote_of(engine: &Engine, org_id: i64, uid: &str) -> Result<Value> {
-    require_enabled(engine, org_id).await?;
-    let client = engine.db.get().await?;
-    let r = client.query_opt(&format!("SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE org_id = $1 AND uid = $2"), &[&org_id, &uid]).await?;
-    match r {
-        Some(r) => Ok(inbox_quote(&r)),
-        None => crate::refuse!(NotFound, "the message being answered is no longer in the org inbox"),
-    }
-}
-
 /// An outside message an agent sent from the org inbox (the id
 /// orgtree_message reported), for that agent's reply.
 #[logged]

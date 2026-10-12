@@ -36,9 +36,9 @@ export default async function (rig) {
     p.check(`${label} fails before admission`, !result.ok && /disabled/i.test(result.text ?? ''), result.text)
   }
   const ui = await attempt('POST', `/api/orgs/${A}/org_inbox/send`, { to: `@org:${B}`, body: 'ISOLATION refused UI' })
-  p.check('human outgoing route refuses', !ui.ok && ui.status === 403, ui)
+  p.check('retired human outgoing route is absent', !ui.ok && ui.status === 404, ui)
   p.check('refused attempts created no durable records', JSON.stringify(rows()) === JSON.stringify(retained))
-  for (const route of ['org_inbox', 'history/org-mail', 'org_inbox/staging', 'transfers', 'org_inbox/upload_limit?to=@net:uncontacted-fixture']) {
+  for (const route of ['org_inbox', 'history/org-mail', 'transfers']) {
     const result = await attempt('GET', `/api/orgs/${A}/${route}`)
     p.check(`disabled read denied: ${route}`, !result.ok && result.status === 403, result)
   }

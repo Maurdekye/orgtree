@@ -1,3 +1,4 @@
+import { externalFixtureSender } from './fixtures/retained-inbox-upload.mjs'
 import { Proof } from '../proof.mjs'
 export function setup() {
   return { fixture: { org: { name: 'Retained hidden mail' }, agents: [{ name: 'rhea', tier: 'luna', grant: 4 }],
@@ -9,7 +10,7 @@ export default async function(rig) {
   await rig.op({op:'halt',nodes:['rhea']})
   const B=(await rig.api('POST','/api/orgs',{name:'Incoming sender',dirs:[],net_autoconnect:false})).slug
   const marker='HIDDEN_PENDING_OUTSIDE_MAIL_TEST_ONLY'
-  await rig.api('POST',`/api/orgs/${B}/org_inbox/send`,{to:'@org:'+A,body:marker})
+  await externalFixtureSender(rig,B,'@org:'+A,marker)
   const held=rig.one(`SELECT uid FROM ot.mail WHERE recipient_name='rhea' AND body='${marker}'`)
   await rig.api('POST',`/api/orgs/${A}/settings`,{org_inbox_enabled:false})
   const history=await rig.api('GET',`/api/orgs/${A}/history/node-mail?node=rhea`)

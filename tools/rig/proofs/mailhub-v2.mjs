@@ -14,7 +14,7 @@
 //   people   a person registered over HTTP (as Hubchat does) is listed by
 //            orgtree_list_orgs with kind person; each hub's version is shown
 //            (Connections data, orgtree_list_orgs, the address probe)
-//   replies  an agent's reply over @net, the org inbox panel's Reply, a
+//   replies  an agent's reply over @net, a second agent reply, a
 //            person's reply and a reply to a person all carry reply_to through
 //            the hub and arrive quoted (IN REPLY TO); an internal reply; the
 //            id at the end of each FROM line; refusals
@@ -32,7 +32,6 @@ import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { DatabaseSync } from 'node:sqlite'
 
 import { TOKEN_HEADER } from '../lib.mjs'
@@ -191,11 +190,15 @@ export default async function (rig, { flags }) {
   p.check('the hub recorded custody (acknowledged) and both receipts', hubMsg1?.state === 'fetched' && hubMsg1.delivered_at && hubMsg1.read_at, hubMsg1)
   p.note(`PROOF-NET-1 reached B's org inbox ${ms1} ms after orgtree_message returned`)
 
-  // attachment, from the user through A's org inbox panel
+  // attachment, from boss through the shared agent transport
   const file = crypto.randomBytes(300 * 1024 + 7)
-  const up = await fetch(`${rig.url}/api/orgs/${A}/org_inbox/upload?name=proof-file.bin&to=${encodeURIComponent('@net:' + nB)}`,
-    { method: 'POST', headers: { [TOKEN_HEADER]: rig.token }, body: file }).then(r => r.json())
-  const sA = await rig.api('POST', `/api/orgs/${A}/org_inbox/send`, { to: `@net:${nB}`, body: 'PROOF-ATT-1 a file', attachments: [up.id] })
+  const bossScratch = rig.one(`SELECT scratch_dir FROM ot.agents WHERE org_id=${orgId(A)} AND name='boss'`).scratch_dir
+    || path.join(rig.data,'scratch',A,'boss')
+  fs.mkdirSync(bossScratch,{recursive:true})
+  const source = path.join(bossScratch,'proof-file.bin')
+  fs.writeFileSync(source,file)
+  const sA = await rig.tool('boss','orgtree_message', { to: `@net:${nB}`, body: 'PROOF-ATT-1 a file', attachments: [source] })
+  if(!sA.ok) throw new Error(sA.text)
   const att = await rig.waitFor(() => inRow(B, 'PROOF-ATT-1%'), { what: 'B to receive the file', timeout: 60000 })
   const landed = att.attachments?.[0]
   const same = landed && fs.existsSync(landed.path) && sha(fs.readFileSync(landed.path)) === sha(file)
@@ -218,18 +221,19 @@ export default async function (rig, { flags }) {
     !bossR1.reply_to.from && /↩ IN REPLY TO your message of \S+: “PROOF-NET-1/.test(pr1), pr1.slice(pr1.indexOf('FROM @net'), pr1.indexOf('FROM @net') + 400))
   p.check('each FROM line ends with the mail\'s id (what reply_to names)', pr1.includes(`· id ${bossR1.uid}`), bossR1.uid)
 
-  // (b) the user's Reply from A's org inbox panel
-  const r2 = await rig.api('POST', `/api/orgs/${A}/org_inbox/send`, { to: `@net:${nB}`, body: 'PROOF-REPLY-2 the user answers', reply_to: back1.uid })
-  const back2 = await rig.waitFor(() => inRow(B, 'PROOF-REPLY-2%'), { what: 'B to receive the user\'s reply', timeout: 60000 })
+  // (b) boss's reply from A
+  const r2 = await rig.tool('boss','orgtree_message', { to: `@net:${nB}`, body: 'PROOF-REPLY-2 boss answers', reply_to: bossR1.uid })
+  if(!r2.ok) throw new Error(r2.text)
+  const back2 = await rig.waitFor(() => inRow(B, 'PROOF-REPLY-2%'), { what: 'B to receive boss\'s reply', timeout: 60000 })
   const hubR2 = hubSql(`SELECT reply_to FROM mailhub.messages WHERE body LIKE 'PROOF-REPLY-2%'`)[0]
   const zoeOut = outRow(B, 'PROOF-REPLY-1%')
-  p.check('the org inbox panel\'s Reply: the hub carried reply_to = zoe\'s message', hubR2?.reply_to === zoeOut.net_id && back2.reply_to?.id === zoeOut.uid
+  p.check('boss\'s second reply: the hub carried reply_to = zoe\'s message', hubR2?.reply_to === zoeOut.net_id && back2.reply_to?.id === zoeOut.uid
     && back2.reply_to.gist.startsWith('PROOF-REPLY-1'), { sent: r2, hub: hubR2, quote: back2.reply_to })
   const list = await rig.api('GET', `/api/orgs/${A}/org_inbox`)
   const listed2 = list.entries.find(e => e.body.startsWith('PROOF-REPLY-2'))
   p.check('the org inbox list shows the reply\'s quote on the sent row', listed2?.reply_to?.gist?.startsWith('PROOF-REPLY-1'), listed2?.reply_to)
   const zoeR2 = await rig.waitFor(() => { const m = mailOf(B, 'zoe', 'PROOF-REPLY-2%'); return m?.state === 'delivered' ? m : null },
-    { what: 'zoe to read the user\'s reply', timeout: 60000 })
+    { what: 'zoe to read boss\'s reply', timeout: 60000 })
   const pr2 = unescape(promptWith('zoe', 'PROOF-REPLY-2'))
   p.check('zoe reads "↩ IN REPLY TO your message … PROOF-REPLY-1"', /↩ IN REPLY TO your message of \S+: “PROOF-REPLY-1/.test(pr2),
     zoeR2.reply_to)
@@ -329,7 +333,7 @@ export default async function (rig, { flags }) {
   // ------------------------------------------------------ 1 GiB, whole
   if (flags.big) {
     const GiB = 1024 * 1024 * 1024
-    const big = path.join(rig.dir, 'big-1GiB.bin')
+    const big = path.join(bossScratch, 'big-1GiB.bin')
     const h = crypto.createHash('sha256')
     const fd = fs.openSync(big, 'w')
     const chunk = crypto.randomBytes(8 * 1024 * 1024)
@@ -340,17 +344,12 @@ export default async function (rig, { flags }) {
     }
     fs.closeSync(fd)
     const want = h.digest('hex')
-    const upload = async () => fetch(`${rig.url}/api/orgs/${A}/org_inbox/upload?name=big-1GiB.bin&to=${encodeURIComponent('@net:' + nB)}`,
-      { method: 'POST', headers: { [TOKEN_HEADER]: rig.token }, body: Readable.toWeb(fs.createReadStream(big)), duplex: 'half' })
-      .then(r => r.json())
+    const stagedMs = 0 // file already exists in this isolated rig; no browser staging
+    const over = await rig.tool('boss','orgtree_message',{to:`@net:${nB}`,body:'x',attachments:[big]})
+    p.check('1 GiB with one byte of text is refused at send (the limit is per message: text and files together)', !over.ok && /per message/.test(over.text) && !outRow(A,'x'), over)
     t0 = Date.now()
-    const staged = await upload()
-    const stagedMs = Date.now() - t0
-    const over = await tryApi('POST', `/api/orgs/${A}/org_inbox/send`, { to: `@net:${nB}`, body: 'x', attachments: [staged.id] })
-    p.check('1 GiB with one byte of text is refused at send (the limit is per message: text and files together)', !over.ok
-      && /per message/.test(over.detail) && !outRow(A, 'x'), over)
-    t0 = Date.now()
-    await rig.api('POST', `/api/orgs/${A}/org_inbox/send`, { to: `@net:${nB}`, body: '', attachments: [staged.id] })
+    const bigSend=await rig.tool('boss','orgtree_message',{to:`@net:${nB}`,body:'',attachments:[big]})
+    if(!bigSend.ok) throw new Error(bigSend.text)
     const sent = await rig.waitFor(() => rig.one(`SELECT state FROM ot.org_inbox WHERE org_id = ${orgId(A)} AND dir = 'out'
       AND attachments::text LIKE '%big-1GiB.bin%' AND state <> 'queued'`), { what: 'the 1 GiB upload to the hub', timeout: 900000, every: 1000 })
     const upMs = Date.now() - t0
@@ -363,7 +362,7 @@ export default async function (rig, { flags }) {
     const peak = spawnSync('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${proc}).PeakWorkingSet64`], { encoding: 'utf8', windowsHide: true }).stdout.trim()
     p.check('one whole 1 GiB file from A to B through the hub: sha256 identical', got.bytes === GiB && h2.digest('hex') === want && sent.state !== 'queued',
       { staged_ms: stagedMs, upload_to_hub_ms: upMs, sent_to_downloaded_ms: allMs, hub_peak_working_set_mib: Math.round(Number(peak) / 1048576) })
-    p.note(`1 GiB: staged into the org inbox in ${stagedMs} ms; engine to hub ${upMs} ms; send to B's whole copy ${allMs} ms; hub peak working set ${Math.round(Number(peak) / 1048576)} MiB`)
+    p.note(`1 GiB: scratch fixture ready; engine to hub ${upMs} ms; send to B's whole copy ${allMs} ms; hub peak working set ${Math.round(Number(peak) / 1048576)} MiB`)
     fs.rmSync(big, { force: true })
     fs.rmSync(got.path, { force: true })
   }

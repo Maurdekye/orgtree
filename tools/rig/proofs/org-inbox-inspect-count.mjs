@@ -1,3 +1,4 @@
+import { externalFixtureSender } from './fixtures/retained-inbox-upload.mjs'
 import { Proof } from '../proof.mjs';
 export function setup() { return { fixture: { org: {name:'Inspection isolation'}, agents:[{name:'rhea',tier:'luna',grant:4}], scenario:{default:{turns:[{steps:[{text:'OK.'}]}]}} } }; }
 export default async function(rig) {
@@ -7,7 +8,7 @@ export default async function(rig) {
   const B=(await rig.api('POST','/api/orgs',{name:'Synthetic sender',dirs:[],net_autoconnect:false})).slug;
   const inspect=async()=>{const r=await rig.tool('rhea','orgtree_state_inspect',{node:'rhea'}); if(!r.ok) throw new Error(r.text); return r.json.nodes[0].mail_waiting;};
   p.check('empty initial count',await inspect()===0);
-  await rig.api('POST',`/api/orgs/${B}/org_inbox/send`,{to:'@org:'+A,body:'SYNTHETIC_OUTSIDE_COUNT'});
+  await externalFixtureSender(rig,B,'@org:'+A,'SYNTHETIC_OUTSIDE_COUNT');
   p.check('enabled external count control',await inspect()===1);
   await rig.api('POST',`/api/orgs/${A}/settings`,{org_inbox_enabled:false});
   const chat=await rig.api('GET',`/api/orgs/${A}/nodes/rhea/chat`);

@@ -17,7 +17,6 @@ pub mod nodes;
 pub mod orgops;
 pub mod orgs;
 pub mod settings;
-pub mod staging;
 pub mod templates;
 pub mod tree;
 
@@ -82,12 +81,6 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/transfers/{id}", post(orginbox::transfer_change))
         .route("/api/orgs/{slug}/net", get(orginbox::net))
         .route("/api/orgs/{slug}/org_inbox/read", post(orginbox::read))
-        .route("/api/orgs/{slug}/org_inbox/send", post(orginbox::send))
-        .route("/api/orgs/{slug}/org_inbox/upload", post(orginbox::upload).layer(axum::extract::DefaultBodyLimit::disable()))
-        .route("/api/orgs/{slug}/org_inbox/upload_limit", get(orginbox::upload_limit))
-        .route("/api/orgs/{slug}/org_inbox/staging", post(staging::start).get(staging::list))
-        .route("/api/orgs/{slug}/org_inbox/staging/{id}/dismiss", post(staging::dismiss))
-        .route("/api/orgs/{slug}/org_inbox/staging/{id}", get(staging::status).delete(staging::cancel).post(staging::upload).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/api/orgs/{slug}/audiences", get(dogs::audiences_get).post(dogs::audiences_post))
         .route("/api/orgs/{slug}/documents", get(docs::list))
         .route("/api/orgs/{slug}/documents/viewed", post(docs::viewed))
@@ -296,7 +289,6 @@ async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> R
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
         || path.ends_with("/upload")
-        || path.contains("/org_inbox/staging/")
         || path.ends_with("/file")
         || path.contains("/toolimg/")
         || path.contains("/toolinput/")
