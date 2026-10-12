@@ -206,7 +206,15 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
         // writer that may own this org and await one of those agents. NOWAIT
         // aborts this whole attempt (55P03), releasing all provisional changes
         // and locks before remove() retries it. No new global lock/order pin.
-        let rows = tx.query("SELECT id, slug FROM ot.orgs WHERE id > $2 AND settings->>'default_account' = $1 ORDER BY id LIMIT 128 FOR UPDATE NOWAIT", &[&id, &after]).await?;
+        let rows = match tx.query("SELECT id, slug FROM ot.orgs WHERE id > $2 AND settings->>'default_account' = $1 ORDER BY id LIMIT 128 FOR UPDATE NOWAIT", &[&id, &after]).await {
+            Ok(rows) => rows,
+            Err(error) => {
+                // Confirm lock release before the retry backoff, rather than
+                // relying on Transaction::drop to enqueue a later rollback.
+                tx.rollback().await?;
+                return Err(error.into());
+            }
+        };
         if rows.is_empty() { break; }
         for row in rows {
             let org_id: i64 = row.get(0);
