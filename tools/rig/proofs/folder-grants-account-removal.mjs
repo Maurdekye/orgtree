@@ -21,6 +21,7 @@ export default async function (rig) {
   // Keep the synthetic seat idle throughout account reconfiguration so no
   // asynchronous fake-session replacement can moot the controlled request.
   await rig.op({ op: 'halt', nodes: ['bound', 'binder'] })
+  await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: 'bound', reason: 'Synthetic direct scope request' })
   const q = s => `'${String(s).replaceAll("'", "''")}'`
   const oid = rig.one(`SELECT id FROM ot.orgs WHERE slug=${q(rig.org)}`).id
   const settings = () => rig.one(`SELECT settings FROM ot.orgs WHERE id=${oid}`).settings
