@@ -61,11 +61,41 @@ and empty/root positions, archived siblings, superior insertion, atomic staff
 refusal/commit, tied/exhausted midpoint gaps, concurrent hires/reorders and
 tool-group denial against a disposable database and fake CLI.
 
-Execution and exact evidence will be recorded after the shared build slot is
-available. Source implementation alone is not measured runtime proof.
+Measured 2026-10-12 on engine source `9542958`, based on `rust-engine`
+`4fa41d4`, using the owner's isolated C target and the shared build queue:
 
-Measured pre-proof check on source `559c862`: `cargo check --offline -j 2
--p orgtree-engine` exits 0 in 4m17s using the owner's isolated C target.
-The clean rebase from `0e2b2c5` to `4fa41d4` has two `=` range-diff entries.
-The subsequent explicit-user-destination and topology-writer isolation
-refinements still require compilation and runtime proof.
+- `cargo check --offline -j 2 -p orgtree-engine`: exit 0, 20.42 seconds.
+- `cargo build --offline -j 2 -p orgtree-engine`: exit 0, 38.84 seconds.
+- `agent-ordering.mjs`: **63/63 checks passed**, including the MCP-served
+  hire/reorder required index and conditional staff schema, discovery under
+  tool-group denial, direct/deep authority, all placement boundaries, atomic
+  refusals, legacy nullable inputs, rehire compatibility and midpoint recovery.
+- `hire-scope.mjs`: **12/12 checks passed** on the same final binary.
+- Concurrent hires, reorders, deep moves and root moves each logged an actual
+  first-attempt write conflict and successful retry; their final ranks/counts
+  passed. These are small two-request cases, not a throughput qualification.
+- JavaScript syntax and `git diff --check` pass. No TypeScript changed;
+  desktop typecheck, app builds and real provider launches were not run.
+- Both runners completed teardown. A subsequent scoped process/run inventory
+  found no remaining own rig runs or processes. Own C artifacts total
+  3,131,189,197 bytes, below the 100 GB owned-build cap.
+
+Final debug engine SHA-256:
+`7BE750EEC267F124A3F0BDE62067DABDF28544C0E0E8C7A574B8E7CFD7FEE9B9`.
+The evidence records the freshly built local source and hash, not a release
+commit stamp. Secret-free proof records remain in the owner's rig evidence:
+`agent-ordering-20261012T000907/result.json`, its `ordering-schemas.json` and
+`engine-excerpt.log`, and `hire-scope-20261012T000948/result.json`.
+
+The earlier ordering run had 58/60 passes: only legacy null `before`/`after`
+failed. Fix `9542958` changed those same two checks to pass while null `index`
+still refuses. That red-to-green evidence remains in
+`agent-ordering-20261012T000247/result.json`. The initial clean rebase from
+`0e2b2c5` to `4fa41d4` had two equal range-diff entries.
+
+Limits: no live hierarchy change, real provider schema acceptance or installed
+app verification; no >256-sibling paging or 1,000-agent scale measurement;
+contention on swap/self-subjugation was not separately exercised. Existing
+superior authority/capability/credit logic remains shared and its focused
+insertion/refusal cases passed. Coordinator review/integration is separate
+from this source and isolated verification.
