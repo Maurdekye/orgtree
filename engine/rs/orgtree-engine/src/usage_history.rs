@@ -58,7 +58,7 @@ struct Reading {
     detail: Option<String>,
 }
 
-#[logged]
+#[nolog]
 impl Reading {
     fn key(&self, account: &str) -> String {
         format!("{account}\u{1f}{}\u{1f}{}\u{1f}{}", self.win, self.grp, self.model)
@@ -98,18 +98,18 @@ impl Reading {
     }
 }
 
-#[logged]
+#[nolog]
 fn num(v: &Value) -> Option<f64> {
     v.as_f64().filter(|x| x.is_finite())
 }
 
-#[logged]
+#[nolog]
 fn text(v: &Value) -> String {
     v.as_str().map(str::trim).unwrap_or("").to_string()
 }
 
 /// A readout as series readings: the account itself first, then each window.
-#[logged]
+#[nolog]
 fn readings(value: &Value) -> Vec<Reading> {
     let available = value["available"].as_bool().unwrap_or(false);
     let why = [text(&value["error"]), text(&value["detail"])]
@@ -165,14 +165,20 @@ fn readings(value: &Value) -> Vec<Reading> {
 }
 
 /// Record one readout of `account`, observed (asked) at `observed`.
-#[logged]
+#[nolog]
 pub async fn record(engine: &Engine, account: &str, provider: &str, observed: DateTime<Utc>, value: &Value) {
+    tracing::info!(account, provider, available = value["available"].as_bool().unwrap_or(false),
+        window_count = value["limits"].as_array().map_or(0, Vec::len), "usage history observation");
     if let Err(e) = write(engine, account, provider, observed, value).await {
-        tracing::warn!(account, provider, error = %format!("{e:#}"), "usage history could not be recorded");
+        // Database errors may quote a rejected provider value. Keep the safe
+        // SQLSTATE, never the raw message/context or raw reading.
+        let sqlstate = e.downcast_ref::<tokio_postgres::Error>()
+            .and_then(|e| e.as_db_error()).map(|e| e.code().code()).unwrap_or("unknown");
+        tracing::warn!(account, provider, sqlstate, "usage history could not be recorded");
     }
 }
 
-#[logged]
+#[nolog]
 async fn write(engine: &Engine, account: &str, provider: &str, observed: DateTime<Utc>, value: &Value) -> anyhow::Result<()> {
     let client = engine.db.get().await?;
     for r in readings(value) {
@@ -212,7 +218,7 @@ async fn write(engine: &Engine, account: &str, provider: &str, observed: DateTim
 }
 
 /// The series' last reading from the table (after a restart).
-#[logged]
+#[nolog]
 async fn seed(client: &tokio_postgres::Client, account: &str, r: &Reading) -> anyhow::Result<Option<Last>> {
     let row = client.query_opt(
         "SELECT observed_at, state, used_pct, amount, resets_at, detail FROM ot.usage_history
@@ -277,7 +283,7 @@ pub fn range_secs(range: &str) -> Option<(i64, i64)> {
 /// Also each account's availability changes and every reset in the period,
 /// unsampled (both capped), so a graph can break its line where the account
 /// was unreadable and never draw a reset as consumption.
-#[logged]
+#[nolog]
 pub async fn history(engine: &Engine, range: &str) -> anyhow::Result<Value> {
     let (span, bucket) = range_secs(range).ok_or_else(|| anyhow::anyhow!("unknown range {range}"))?;
     let until = Utc::now();

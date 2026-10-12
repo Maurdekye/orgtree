@@ -185,7 +185,7 @@ pub fn cli_bin(var: &str) -> Option<(PathBuf, String)> {
 /// `<root>\rig-home\rig-usage\<lane>@<folder>.json` for the login whose
 /// folder (Claude config folder, Codex home) is named `<folder>`, else
 /// `<lane>.json`, else "unavailable". None outside rig mode (probe as usual).
-#[logged]
+#[nolog]
 pub fn usage(lane: &str, profile: Option<&str>) -> Option<serde_json::Value> {
     let home = RIG.get().cloned().flatten()?;
     let dir = home.join("rig-usage");
@@ -208,7 +208,7 @@ const NO_PROBE: &str = "rig mode: no usage probe";
 
 /// Whether a rig reading is a canned one (usage history records it) rather
 /// than the stand-in for a lane the rig run gave no reading.
-#[logged]
+#[nolog]
 pub fn canned_reading(v: &serde_json::Value) -> bool {
     v["error"] != NO_PROBE
 }

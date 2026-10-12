@@ -6,7 +6,7 @@ use crate::engine::Engine;
 
 /// Only known subscription pools are interchangeable with the current default pool.
 /// Reserve/unknown imported pools require their own evidence and are left alone.
-#[logged]
+#[nolog]
 fn usage_allows(provider: &str, pool: &str, win: Option<&str>, usage: &Value) -> bool {
     if usage["available"] != true || !usage["error"].is_null() || usage["reauth_required"] == true {
         return false;
@@ -59,7 +59,7 @@ fn usage_allows(provider: &str, pool: &str, win: Option<&str>, usage: &Value) ->
 }
 
 /// True limit signals are sticky for a turn; an earlier turn's signal is not evidence.
-#[logged]
+#[nolog]
 pub fn limit_signal(value: &Value) -> bool {
     value["status"] == "rejected"
         || !value["rateLimitReachedType"].is_null()
@@ -71,7 +71,7 @@ pub fn limit_signal(value: &Value) -> bool {
 }
 
 /// Associate a provider's native/profile probe only with registry rows for that login.
-#[logged]
+#[nolog]
 pub async fn profile_usage(
     engine: &Engine,
     provider: &str,
@@ -88,7 +88,7 @@ pub async fn profile_usage(
 /// Record a probe's readout in the usage history: under each registry row of
 /// that login, and the provider's own login (no registry row of its own, or an
 /// ambient one) once, under the name the usage board gives it (`claude/primary`).
-#[logged]
+#[nolog]
 pub async fn profile_history(
     engine: &Engine,
     provider: &str,
@@ -125,7 +125,7 @@ fn logins(engine: &Engine, provider: &str, profile: Option<&str>) -> Vec<String>
 
 /// Called only after a provider request, never on cache hits or stale fallback.
 /// Use request start, not completion, so a concurrent new refusal always wins.
-#[logged]
+#[nolog]
 pub async fn usage(
     engine: &Engine,
     account: &str,

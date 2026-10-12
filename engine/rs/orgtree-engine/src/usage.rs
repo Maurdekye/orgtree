@@ -146,7 +146,7 @@ pub fn antigravity_limit(engine: &Engine, tier: &str) -> Option<String> {
 
 /// The cached reading of one login (never a fetch): `None` is the
 /// provider's own sign-in, a row its folder's; an API key has none.
-#[logged]
+#[nolog]
 fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts::AccountInfo>) -> Option<Value> {
     use crate::providers::catalog;
     if account.is_some_and(|a| a.is_apikey()) {
@@ -169,7 +169,7 @@ fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts:
 /// both weekly windows and the lower tiers ignore Fable's); Codex: the plan
 /// pool (its unnamed windows, 3.x `codex_route.pool_of_window`); Antigravity:
 /// the tier's model group.
-#[logged]
+#[nolog]
 fn spends(provider: &str, tier: &str, w: &Value) -> bool {
     use crate::providers::catalog;
     match provider {
@@ -406,6 +406,8 @@ impl Usage {
             .and_then(|c| c.required)
     }
 
+    /// Raw provider fields stay internal; invocation logging must not see them.
+    #[nolog]
     /// The cached readout behind `key`, for a peek (the glow): never a fetch.
     pub fn peek(&self, key: &str, provider: &str) -> Value {
         match self.cache.pin().get(key) {
@@ -466,14 +468,14 @@ fn claude_dir(config_dir: Option<&str>) -> PathBuf {
 }
 
 /// The Claude usage bars of one login (`config_dir` None: the machine's own).
-#[logged]
+#[nolog]
 pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
     let key = claude_key(config_dir);
     let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
     claude_read(engine, config_dir, force).await
 }
 
-#[logged]
+#[nolog]
 async fn claude_read(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("claude", config_dir) {
         // the canned reading stands in for the probe, cache included; it may
@@ -612,14 +614,14 @@ pub fn codex_key(home: Option<&str>) -> String {
 }
 
 /// One Codex login's rate limits (`home` None: the machine's own `~/.codex`).
-#[logged]
+#[nolog]
 pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
     let key = codex_key(home);
     let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
     codex_read(engine, account, home, force).await
 }
 
-#[logged]
+#[nolog]
 async fn codex_read(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
     let rig_url = crate::rig::codex_usage_url();
     if let Some(v) = rig_url.is_none().then(|| crate::rig::usage("openai", home)).flatten() {
@@ -695,7 +697,7 @@ async fn codex_read(engine: &Engine, account: &str, home: Option<&str>, force: b
 
 /// The fallback read: a short-lived app-server (`runtime::codex::probe`,
 /// which ends it gracefully).
-#[logged]
+#[nolog]
 async fn appserver_reading(exe: &Path, home: Option<&str>) -> Value {
     match crate::runtime::codex::probe(exe, home).await {
         Ok((account_doc, limits)) => {
@@ -738,7 +740,7 @@ fn codex_sign_in(dir: &Path) -> std::result::Result<Option<(String, Option<Strin
 
 /// One Codex home's usage over HTTPS, as `codex()` reports it. `Err`: no
 /// answer that settles it (the caller may fall back to the app-server).
-#[logged]
+#[nolog]
 async fn fetch_codex(dir: &Path, url: &str) -> std::result::Result<Value, String> {
     let (token, account_id) = match codex_sign_in(dir)? {
         Some(s) => s,
@@ -770,7 +772,7 @@ async fn fetch_codex(dir: &Path, url: &str) -> std::result::Result<Value, String
 /// `/wham/usage` in the app-server's `account/rateLimits/read` shape, so
 /// `codex_limits` reads both: `rate_limit` is the main `codex` limit,
 /// `additional_rate_limits[]` the per-feature ones.
-#[logged]
+#[nolog]
 fn wham_rate_limits(raw: &Value) -> Value {
     let window = |w: &Value| if w.is_object() {
         json!({ "usedPercent": w["used_percent"].as_f64(),
@@ -891,15 +893,23 @@ fn codex_limits(raw: &Value) -> Value {
 // ------------------------------------------------------------ Antigravity
 
 /// Antigravity's own `/usage` (zero tokens, verified per run), for the machine's login.
-#[logged]
+#[nolog]
 pub async fn antigravity(engine: &Engine, force: bool) -> Value {
     let Some(_guard) = engine.usage.reserve("agy") else { return engine.usage.busy_reading("agy") };
     antigravity_read(engine, force).await
 }
 
-#[logged]
+#[nolog]
 async fn antigravity_read(engine: &Engine, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("google", None) {
+        // Isolated fixtures may exercise the same structured-result/log parser
+        // as the zero-token CLI path. This branch is unreachable outside rig.
+        let v = if let Some(raw) = v.get("rig_google_result") {
+            let mut out = agy_result(raw, v["rig_google_log"].as_str().unwrap_or(""))
+                .unwrap_or_else(|why| json!({"available":false,"error":NOT_YET,"detail":why}));
+            out["observed_at"] = v["observed_at"].clone();
+            out
+        } else { v };
         engine.usage.put("agy", &v);
         if crate::rig::canned_reading(&v) {
             crate::account_marks::profile_history(engine, "google", None, Utc::now(), &v).await;
@@ -985,7 +995,15 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
         .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
         .find(|v| v.is_object())
         .ok_or_else(|| format!("no JSON result (exit {:?}): {}", o.status.code(), gist(&String::from_utf8_lossy(&o.stderr), 200)))?;
-    let r = if result["result"].is_object() { &result["result"] } else { &result };
+    let log_text = std::fs::read_to_string(&log).unwrap_or_default();
+    agy_result(&result, &log_text)
+}
+
+/// Structured provider JSON and CLI logs can contain secrets in arbitrary
+/// fields. Parse them without invocation-logging arguments or return values.
+#[nolog]
+fn agy_result(result: &Value, log: &str) -> Result<Value, String> {
+    let r = if result["result"].is_object() { &result["result"] } else { result };
     if r["status"].as_str().map(|s| s.to_uppercase()) != Some("SUCCESS".into()) {
         return Err("Antigravity /usage did not report success".into());
     }
@@ -1021,7 +1039,7 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
         out["tier"] = json!(t);
         out["plan"] = json!(t);
     }
-    if let Some(email) = std::fs::read_to_string(&log).ok().and_then(|t| agy_log_email(&t)) {
+    if let Some(email) = agy_log_email(log) {
         out["email"] = json!(email);
     }
     Ok(out)
@@ -1029,7 +1047,7 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
 
 /// The account an Antigravity CLI run signed in as, from its own log (as 3.x
 /// read it): "authenticated successfully as <email>", or the auth result line.
-#[logged]
+#[nolog]
 fn agy_log_email(log: &str) -> Option<String> {
     static RES: std::sync::LazyLock<[regex::Regex; 2]> = std::sync::LazyLock::new(|| {
         [
@@ -1058,13 +1076,13 @@ pub async fn refresh_openrouter(engine: &Engine, force: bool) {
 }
 
 /// The stored OpenRouter key's credit standing (`GET /api/v1/key`).
-#[logged]
+#[nolog]
 pub async fn openrouter(engine: &Engine, force: bool) -> Value {
     let Some(_guard) = engine.usage.reserve("openrouter") else { return engine.usage.busy_reading("openrouter") };
     openrouter_read(engine, force).await
 }
 
-#[logged]
+#[nolog]
 async fn openrouter_read(engine: &Engine, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("openrouter", None) {
         engine.usage.put("openrouter", &v);
@@ -1114,7 +1132,7 @@ async fn openrouter_fetch(key: &str) -> Result<Value, String> {
 /// has no rolling window, so no reset time is ever invented: with a spend
 /// cap on the key the row is spend ÷ cap; without one it states the credits
 /// used and the remaining balance; with neither, what the key reports.
-#[logged]
+#[nolog]
 fn openrouter_limits(ks: &serde_json::Map<String, Value>) -> Vec<Value> {
     let f = |k: &str| ks.get(k).and_then(Value::as_f64).filter(|x| x.is_finite());
     let Some(usage) = f("usage") else { return Vec::new() };
@@ -1213,7 +1231,7 @@ pub async fn refresh_permitted(engine: &Engine, provider: &str, account: &str, f
 // ------------------------------------------------------------ what the windows read
 
 /// One registry account's readout and standing (`registered_usage[id]`).
-#[logged]
+#[nolog]
 pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force: bool) -> Value {
     // a scratch copy's accounts can name another data folder's sign-ins (the
     // live install's): a safe-start engine never reads or refreshes those
@@ -1248,7 +1266,7 @@ pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force
 }
 
 /// Push a lane's readout and its cache-only peek to every window.
-#[logged]
+#[nolog]
 pub fn publish(engine: &Engine, lane: &str, value: &Value) {
     let (key, peek_key, cache, provider) = match lane {
         "claude" => ("usage", "usage_peek", claude_key(None), "claude"),
@@ -1417,7 +1435,7 @@ fn countdown(secs: i64) -> String {
 /// its turns draw on. Cache-only: it never fetches. Returns the text and a
 /// key of what changed materially (the readings' ages left out), so an
 /// unchanged board can be sent as one line.
-#[logged]
+#[nolog]
 pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: &str, org_slug: &str) -> (String, String) {
     let now = Utc::now();
     let view = engine.accounts.view();

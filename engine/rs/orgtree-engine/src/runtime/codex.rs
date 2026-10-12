@@ -987,7 +987,7 @@ pub const PROBE_GRACE: Duration = Duration::from_secs(5);
 
 /// A short-lived app-server's read of one login: (account, rate limits).
 /// Only the fallback now: `usage::codex` reads the same limits over HTTPS.
-#[logged]
+#[nolog]
 pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, Value)> {
     let mut cmd = Command::new(exe);
     cmd.arg("app-server")
