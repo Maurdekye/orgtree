@@ -133,3 +133,14 @@ Measured predecessor `d6e2b2b` binary: four alias recovery routes fail, fallback
 stays frozen on its original account and never launches the later usable login.
 The original capacity mark remains. Production helper tests additionally cover
 stale positive observations and cooldown/retained-bar preservation.
+
+Measured round-2 correction verification 2026-10-12 at runtime source `0f03788`:
+warning-free scoped engine build passed in 1m03s; focused auth tests passed 4/4.
+New actual recovery/fallback proof passed 14/14, prior continuation proof passed
+46/46, and signed-out proof passed 3/3. Receipts under isolated rig evidence:
+`continue-primary-review2-20261012T003706/result.json`,
+`continue-primary-20261012T003821/result.json`, and
+`continue-primary-signed-out-20261012T003934/result.json`.
+Predecessor receipt `continue-primary-review2-20261012T003427/result.json`
+records the six failures among fourteen checks. All runs stopped and were
+deleted. These are fake-provider proofs; no live sign-in or provider was probed.
