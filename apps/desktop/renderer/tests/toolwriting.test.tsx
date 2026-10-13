@@ -68,3 +68,32 @@ test('parallel writing snapshots retire atomically with durable chips and surviv
   await inAct(() => refreshConvo('org', 'worker', { force: true })); await flush()
   assert.match(view.last(), /written in 3.0s/); assert.match(view.last(), /ran for 200 ms/)
 })
+
+test('same-millisecond stale HTTP cannot remove or resurrect writing snapshots', async t => {
+  useFakeClock()
+  const server = new FakeServer(); server.busy = true
+  const originalChat = server.chat.bind(server)
+  let serverActive: ChatTransient[] = []
+  server.chat = last => ({ ...originalChat(last), transient: serverActive })
+  const transport = installFetch(server)
+  resetConvos()
+  function View() {
+    const c = useConvo('org', 'same-ms')
+    return <>{c.chat?.transient?.map(r => <span key={r.event_id}>{r.text}</span>)}</>
+  }
+  const view = await mountView(<View />, el => el.textContent ?? '')
+  t.after(async () => { await view.unmount(); resetConvos(); realClock() })
+  await inAct(() => refreshConvo('org', 'same-ms'))
+  const active: ChatTransient = { event_id: 'write-one', role: 'assistant', kind: 'tool_writing',
+    text: 'WRITING_ONE', tool_id: 'one', started_at: new Date(Date.now()).toISOString() }
+  transport.holdAll = true
+  let pending = refreshConvo('org', 'same-ms', { force: true })
+  await inAct(() => ingestStream('org', { node: 'same-ms', kind: 'tool_writing', text: '', t: 0, tool_writing: [active] }))
+  await inAct(async () => { transport.release(); await pending })
+  assert.match(view.last(), /WRITING_ONE/, 'an older empty HTTP snapshot cannot remove a newer active writer')
+  serverActive = [active]
+  pending = refreshConvo('org', 'same-ms', { force: true })
+  await inAct(() => ingestStream('org', { node: 'same-ms', kind: 'tool_writing', text: '', t: 0, tool_writing: [] }))
+  await inAct(async () => { transport.release(); await pending })
+  assert.equal(view.last(), '', 'an older HTTP writer cannot resurrect after admission/turn cleanup')
+})

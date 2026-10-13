@@ -226,6 +226,7 @@ interface Entry {
   assistantNative: Set<string>
   committedRows: Map<string, ChatMessage>
   orderedStream?: boolean
+  writingVersion?: number
   pageInFlight?: boolean
   /** identity of the current older-page request; stale callbacks may not
    * clear a newer request's latch after a reset/remount. */
@@ -923,6 +924,7 @@ export function refreshConvo(slug: string, nid: string,
   const requestSerial = ++e.requestSerial
   e.inflightAt = now
   const startedAt = now
+  const writingVersion = e.writingVersion ?? 0
   const ownsRequest = (): boolean =>
     M.get(e.ownerKey) === e && e.ownerVersion === ownerVersion
   // Issuing another fetch cannot invalidate a usable response: a busy stream
@@ -1049,6 +1051,11 @@ export function refreshConvo(slug: string, nid: string,
     // draft/thought. The current accumulators cover the live tail in that case.
     if (e.orderedStream && startedAt < e.streamAt) c = { ...c,
       transient: e.s.chat?.transient?.filter(r => r.kind === 'tool_writing') ?? [] }
+    // Frame order also wins when fetch and stream share one millisecond.
+    if (writingVersion !== (e.writingVersion ?? 0)) c = { ...c, transient: [
+      ...(c.transient ?? []).filter(r => r.kind !== 'tool_writing'),
+      ...(e.s.chat?.transient ?? []).filter(r => r.kind === 'tool_writing'),
+    ] }
     // A pending ghost graduates once the SERVER'S OWN copy is visible — by
     // CONTAINMENT, not equality, since the turn text is a mail envelope by
     // then. Two things count as visible, and both must, because the message
@@ -1570,6 +1577,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
   if (ev.kind !== 'delta' && ev.kind !== 'thinking') flushLive(e)
   if (Array.isArray(ev.convo_rows) || Array.isArray(ev.tool_writing)) {
     const committed = ev.convo_rows ?? []
+    if (Array.isArray(ev.tool_writing)) e.writingVersion = (e.writingVersion ?? 0) + 1
     e.orderedStream = true
     e.streamAt = Date.now()
     // The same wire frame carries the saved replacements AND which partials

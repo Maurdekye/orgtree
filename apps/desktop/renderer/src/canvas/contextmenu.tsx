@@ -418,8 +418,11 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
         if (objectNav?.org !== objectOrg || !objectEl?.isConnected) return null
         const copy = object ? objectCopyEntry(object, feedback) : null
         return { ...s, entries: copy ? [copy, 'sep', ...resolved.filter(r => r === 'sep' || r.label !== copy.label)] : resolved }
-      })).catch(() => setState(s => s && opening.current === id ? { ...s,
-        entries: [{ label: 'Object unavailable', disabled: true, onSelect: () => {} }] } : s))
+      })).catch(() => setState(s => {
+        if (!s || opening.current !== id) return s
+        if (objectNav?.org !== objectOrg || !objectEl?.isConnected) return null
+        return { ...s, entries: [{ label: 'Object unavailable', disabled: true, onSelect: () => {} }] }
+      }))
     }
     return opening.current
   }, [agentNav, objectNav, feedback, surfaceDocument])
