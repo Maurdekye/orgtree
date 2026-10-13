@@ -2,6 +2,8 @@
 
 Agents are now told to keep new standing memories in their scratch `AGENTS.md`. Existing `CLAUDE.md` files remain readable and untouched. No files are renamed or migrated automatically.
 
+Every org also keeps ONE shared `AGENTS.md` that all its agents read and edit; see [the org's shared AGENTS.md](org-shared-notes.md).
+
 The engine includes both names from scratch and granted folders, except files already loaded by the selected CLI. Canonical paths prevent repeated grants and Claude imports from duplicating delivery. Existing engine limits remain: 12,000 characters per scratch file and 6,000 per granted file, with explicit truncation text. Native CLI limits are unchanged.
 
 ## Installed CLI behavior (measured)

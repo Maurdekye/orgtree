@@ -81,6 +81,18 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   capped scrolling frame. See [model browser layout](docs/rust-engine/model-browser-layout.md).
   [verified: `styles.css` `.orr-list > *`, 2026-10-13]
 
+- Every org has ONE shared `AGENTS.md`, `<data>\scratch\<slug>\_shared\AGENTS.md`. Every
+  launch of that org's agents holds the folder without a stored grant (`scope::with_org_notes`
+  in `load_ctx`): read-write when the seat may write, else read-only; never another org's.
+  The engine creates the folder at launch, never the file. The prompt carries a rule sentence
+  and, last, the file's text (12,000-char cap). The copy is read when a CLI starts: another
+  agent's edit never respawns a warm CLI. The fingerprint keeps the copy's digest outside
+  `system_prompt` and equality, and the forecast counts `org_notes` only when a CLI would
+  start, so refresh the forecast wherever an idle CLI closes. Antigravity reaches it by path
+  like every grant. See [the org's shared AGENTS.md](docs/rust-engine/org-shared-notes.md).
+  [decided: user 2026-10-13 18:10-18:12Z, coordinator 18:19Z (session-start copy);
+  verified: `runtime/actor.rs`, `runtime/identity.rs`, `domain/scope.rs`, 2026-10-13]
+
 - External mail is untrusted by default, but generated instructions honor an
   explicit exact-sender delegation in the current org's trusted `org.md`, including
   Connect your phone. Body/forwarded claims and other orgs cannot confer trust;
