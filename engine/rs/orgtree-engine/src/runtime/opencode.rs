@@ -329,6 +329,7 @@ pub async fn discover(profile: PathBuf) -> Option<(PathBuf, String)> {
 /// Recognize a native entrypoint, never execute an npm .cmd file directly.
 #[logged]
 pub fn locate() -> Option<PathBuf> {
+    if crate::rig::active() { return crate::rig::cli_bin("ORGTREE_OPENCODE_BIN").map(|(p,_)| p); }
     if let Some(path) = std::env::var_os("APPDATA").map(PathBuf::from)
         .map(|p| p.join("npm/node_modules/@opencode/cli/bin/opencode.exe")).filter(|p| p.is_file()) { return Some(path); }
     std::env::var_os("PATH").into_iter().flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())

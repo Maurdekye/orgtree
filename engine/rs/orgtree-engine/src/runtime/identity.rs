@@ -359,7 +359,7 @@ mod group_tests {
             let groups: Map<String, Value> = GROUPS.iter().enumerate()
                 .map(|(n, g)| ((*g).to_owned(), json!(bits & (1 << n) != 0))).collect();
             let scope = json!({"tools":{"orgtree":groups}});
-            for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity] {
+            for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::OpenCode] {
                 for top in [false, true] {
                     let text = render(&scope, lane, top, None);
                     assert!(text.contains("orgtree_status"));
@@ -424,7 +424,7 @@ mod group_tests {
         let dir = "D:/proof/_shared";
         let file = std::path::Path::new(dir).join("AGENTS.md").display().to_string();
         let rw = crate::domain::scope::with_org_notes(&json!({ "add_dirs": [{ "path": "E:/repo", "mode": "rw" }] }), dir);
-        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse] {
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             let s = render(&rw, lane, false, None);
             assert!(s.contains("Folders you may work in: E:/repo. "), "{lane:?}");
             assert!(s.contains(&format!("ORG SHARED NOTES: Proof keeps ONE shared AGENTS.md for all its agents, {file} ")));
@@ -434,6 +434,20 @@ mod group_tests {
         assert!(ro.contains("Folders you may work in: only your own scratch folder. ") && !ro.contains("Read-only:"));
         assert!(ro.contains("Your scope lets you read it, not edit it.") && !ro.contains("You may edit it with no grant"));
         assert!(!render(&json!({}), Lane::Claude, false, None).contains("ORG SHARED NOTES"));
+    }
+
+    #[test]
+    fn acp_identity_states_queued_mail_and_permission_boundary() {
+        for mode in ["default", "acceptEdits", "bypassPermissions"] {
+            let scope = json!({"permission_mode":mode,"tools":{"edit":true,"bash":true}});
+            let text = render(&scope, Lane::OpenCode, false, None);
+            assert!(text.contains("orgtree_orgtree_status"));
+            assert!(text.contains("queued for your next turn; it is not injected mid-turn"));
+            assert!(text.contains("not an OS sandbox"));
+            assert!(text.contains("bypassPermissions approves it including nested tools and fetch"));
+            assert!(!text.contains(".claude/skills") && !text.contains(AUTHENTIC_CHANNEL));
+            assert!(text.contains(EXTERNAL_AUTHORITY));
+        }
     }
 
     #[test]

@@ -25,6 +25,7 @@ use serde_json::{json, Map, Value};
 mod agy;
 mod codex;
 mod muse;
+mod acp;
 
 const VERSION: &str = "2.1.999 (Claude Code fake)";
 
@@ -866,7 +867,9 @@ fn main() {
         .and_then(|a0| Path::new(&a0).file_stem().map(|s| s.to_string_lossy().to_lowercase()))
         .unwrap_or_default();
     let version = matches!(raw.first().map(String::as_str), Some("--version") | Some("-v"));
-    let code = if raw.iter().any(|a| a == "app-server") {
+    let code = if raw.first().map(String::as_str) == Some("acp") {
+        acp::run()
+    } else if raw.iter().any(|a| a == "app-server") {
         codex::run(&raw)
     } else if stem.starts_with("muse") && raw.first().map(String::as_str) == Some("serve") {
         // `muse serve`: the engine's Muse host (an MSP session or a metadata probe)

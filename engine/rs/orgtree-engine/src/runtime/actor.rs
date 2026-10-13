@@ -2715,6 +2715,7 @@ impl Actor {
                     else {self.convo.append(&client,row.clone()).await?};
                 drop(client);
                 if let Some(turn)=self.turn.as_mut() {turn.rows.insert(id.clone(),(seq,row));turn.codex_row=Some(id);}
+                self.text_landed();
                 self.set_activity(if thinking {"thinking"} else {"writing"},None);
                 self.stream(if thinking {"thinking"} else {"delta"},json!({"text":text}));
             },
@@ -5504,8 +5505,8 @@ impl Actor {
                         error = $11, model = coalesce($12, model), cost_source = $13
                   WHERE id = $1",
                 &[
-                    &turn.id, &cost, &output, &input, &cache_read, &cache_write, &(!muse).then_some(ttl), &ms, &(denials.len() as i32),
-                    &turn.killed, &error, &turn.model, &(if (agy && catalog::antigravity_claude(&turn.serving_tier)) || muse { "unknown" }
+                    &turn.id, &cost, &output, &input, &cache_read, &cache_write, &(!muse && !turn.acp).then_some(ttl), &ms, &(denials.len() as i32),
+                    &turn.killed, &error, &turn.model, &(if (turn.acp && !langserver) || (agy && catalog::antigravity_claude(&turn.serving_tier)) || muse { "unknown" }
                         else if langserver { "local" } else if codex || agy || openrouter { "priced" } else { "cli" }),
                 ],
             )

@@ -707,6 +707,7 @@ export async function startRun(opts = {}) {
       fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
     }
     fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
+    fs.copyFileSync(fake, path.join(dir, 'bin', 'opencode.exe'))
     fs.copyFileSync(fake, path.join(dir, 'bin', 'muse-bin-9.9.9-R0.exe'))
     // --real-muse <muse-bin-*.exe>: the Muse lane runs the installed Muse Code
     // binary (copied, so a running copy never locks the user's install, and
