@@ -47,6 +47,19 @@ Diagnostics contain only fixed event names, generation/PID, native exit status
 and time; raw stderr, credentials and message content are excluded. Native and
 desktop exit logs each rotate at 256 KiB with one retained previous file.
 
+A refused launch is explained afterwards (laptop incident 2026-10-13: the
+refusal's cause could not be recovered). `core-control begin` prints its
+refusal as one JSON line of fixed words and numbers: `members` (every member
+not proven gone, with role, `alive` or `unknown`, and for unknown the probe
+call `open`, `wait` or `times` and its Windows error, e.g. 5 = access denied),
+`session` or `quit` (that release failed). The desktop records each failed
+`core-control` or `core-recovery` command as `core-control-failed` in
+`diagnostics/desktop-engine-exits.jsonl`: command, action, duration, exit
+code, Node error code, signal, timeout, and the refusal's allowed fields;
+anything else in stderr is dropped. The same failure repeating (the 2-second
+status tick) is recorded at most once a minute. The user's messages and every
+lifecycle decision are unchanged.
+
 ## Verification and remaining limits
 
 Measured on Windows against the committed source, rebased onto a2e6963:
@@ -109,3 +122,23 @@ correction passes those nine and three additional cancellation/serialization
 cases. No scheduled task, real desktop process, or live endpoint is used by
 these tests. The prior process matrix remains historical evidence for its
 recorded source: 18 behavior entries plus cleanup, 19 passing entries total.
+
+## Composition audit and launch-refusal diagnostics (2026-10-13)
+
+rig-opus audited the integrated recovery (438146e) on rust-engine 417083c.
+No later merge touched its code; Muse's new processes use the same child jobs,
+engine-wide kill-on-close job and graceful-first `stop_gracefully` as Codex.
+The one gap found was diagnostic: a refused launch kept no cause (above).
+
+Measured: the actual `core-control begin` of an engine built at 417083c and
+one built with this change, each through its own commit's desktop module (real
+`execFile`), against a crafted stopped generation in a private folder. Its
+members were an idle child of the proof (alive), PID 4 (opening it is refused
+to the non-elevated token: Windows error 5) and an absent PID. Before, the
+refusal said only "still stopping" and the desktop recorded nothing; after, it
+named the alive engine and the unreadable host with stage `open` and error 5,
+and the desktop recorded exactly that, with no path or message text. Both kept
+the stopped generation and showed the same message; with every member gone both
+released it and recorded nothing (11/11 checks). The new desktop tests fail on
+the unchanged module (5 of 18) and pass with it. This does not establish what
+refused the laptop's launch: it makes the next refusal say.

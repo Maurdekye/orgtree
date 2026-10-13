@@ -429,6 +429,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   This supersedes the October11 coupled-stop policy. [decided: user
   2026-10-12 09:14Z; verified: `core_state.rs`, `core_recovery.rs`,
   `apps/desktop/main/core-lifecycle.ts`; details `docs/rust-engine/core-recovery.md`]
+- A refused launch says why: `core-control begin` prints one fixed-shape JSON
+  refusal (each member not proven gone: role, alive/unknown, and for unknown the
+  probe stage and Windows error; or which release failed), and the desktop
+  records failed lifecycle commands as `core-control-failed` in its exit log,
+  never raw stderr, a repeat at most once a minute. Diagnosis never changes a
+  decision: Unknown stays Unknown. [verified: `core_state.rs` begin,
+  `core_process.rs` diagnose, `core-lifecycle.ts`, 2026-10-13]
 - Recovery attachment uses an empty local slot while retaining boot topology
   separately; failure restores task ownership, never a managed fallback. Manual
   Restart uses configured recovery only after stamped native death; healthy
