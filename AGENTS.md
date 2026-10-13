@@ -164,6 +164,16 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [decided: user 2026-10-12 18:32-20:31Z, lead 2026-10-13, DECISIONS 76;
   verified: real Muse 1.4.6 and rig proofs 2026-10-13; `docs/rust-engine/muse-code.md`]
 
+- Built-in organization templates are the files in `engine/docs/templates/`, listed in
+  `BUNDLED` (`domain/templates.rs`) and written once each into `~/.orgtree/templates`
+  (note `.seeded`): adding one reaches existing installs once, an edited file is never
+  touched and a deleted one stays deleted. `devteam (muse)` (`devteam-muse`) has the
+  shape of the Claude and Codex ones: coordinator `wonder` (quick chat starts on it),
+  implementer `wonder-full`, redteam `wonder`, curator `spark`; seats and grants come
+  from the planner's offers, so an unsigned or unentitled Muse tier blocks its slot like
+  any other provider's. The planner's "checking the sign-in" wording covers only Claude
+  and Codex. [decided: user 2026-10-13 18:23Z; verified: `domain/templates.rs` tests]
+
 - Organization profile pictures use a dedicated bounded `ot.meta` record,
   not the net/tree payload. Human settings edits carry the numeric org owner;
   incoming hub merges preserve logical revisions and removal tombstones.
