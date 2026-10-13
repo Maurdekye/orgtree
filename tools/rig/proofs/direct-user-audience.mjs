@@ -60,7 +60,11 @@ export default async function (rig) {
   await post('carol','/compact',{notice:false})
   p.check('typed compact follows the same direct-contact path',grants('carol').length===1)
 
-  const hired=await rig.op({op:'hire',name:'mira',parent:'boss',tier:'wonder',title:'synthetic Muse compact control'})
+  await rig.op({op:'hire',name:'mira',parent:'boss',tier:'wonder',title:'synthetic Muse compact control'})
+  // Hiring alone need not start a turn. Warm the fake Muse session through agent mail,
+  // so setup itself cannot satisfy the user-contact assertion.
+  const warmed=await rig.tool('boss','orgtree_message',{to:'mira',body:'synthetic session initialization'})
+  if (!warmed.ok) throw new Error('synthetic Muse session initialization refused')
   await rig.waitFor(()=>rig.agentRow('mira')?.session_id && rig.sql(`SELECT 1 FROM ot.turns WHERE agent_id=${id('mira')} AND ended_at IS NULL`).length===0,{what:'Muse session idle'})
   p.check('Muse kickoff/system notices grant no user audience',grants('mira').length===0)
   const mc=await rig.api('POST', `/api/orgs/${rig.org}/nodes/mira/compact`)
