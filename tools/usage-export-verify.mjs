@@ -46,18 +46,20 @@ if (process.argv.includes('--bundle')) {
       return p.status ?? 1
     }
     const results = {}
-    results.bundle = run('bundle', process.execPath, [fileURLToPath(import.meta.url), '--bundle'])
-    if (results.bundle) return { results, exit: 1 }
-    const flags = ['--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000']
-    results.base = run('base-tests', process.execPath, [...flags, path.join(output, 'base-usagehistory.mjs')])
-    results.green = run('green-tests', process.execPath, [...flags, path.join(output, 'usagehistory.mjs'), path.join(output, 'usagehistoryexport.mjs')])
+    if (!process.argv.includes('--remaining')) {
+      results.bundle = run('bundle', process.execPath, [fileURLToPath(import.meta.url), '--bundle'])
+      if (results.bundle) return { results, exit: 1 }
+      const flags = ['--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000']
+      results.base = run('base-tests', process.execPath, [...flags, path.join(output, 'base-usagehistory.mjs')])
+      results.green = run('green-tests', process.execPath, [...flags, path.join(output, 'usagehistory.mjs'), path.join(output, 'usagehistoryexport.mjs')])
+    }
     const config = { extends: path.join(root, 'tsconfig.json'), compilerOptions: {
       typeRoots: [dependencies + '/@types'], types: ['node', dependencies + '/vite/client'],
       paths: { react: [dependencies + '/@types/react'], 'react/*': [dependencies + '/@types/react/*'],
         'react-dom': [dependencies + '/@types/react-dom'], 'react-dom/*': [dependencies + '/@types/react-dom/*'], '*': [dependencies + '/*'] },
     } }
     const configFile = path.join(output, 'typecheck.json'); fs.writeFileSync(configFile, JSON.stringify(config, null, 2))
-    results.typecheck = run('typecheck', process.execPath, [req.resolve('typescript/bin/tsc'), '-p', configFile, '--noEmit'])
+    results.typecheck = run('typecheck', process.execPath, [path.join(dependencies, 'typescript/bin/tsc'), '-p', configFile, '--noEmit'])
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
     results.renderer = run('renderer', electron, [path.join(output, 'main.cjs')], env)
     fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ base: '62f39ad', head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(), results }, null, 2))
