@@ -47,11 +47,13 @@ module.exports=async page=>{
       const head=document.querySelector('.prov-openrouter'),right=head.querySelector('.set-head-right')
       const add=right.querySelector('button.acct-secondary-btn'),r=add.getBoundingClientRect()
       const all=[...head.parentElement.querySelectorAll('button')].filter(b=>/^Add (another )?OpenRouter key$/.test(b.textContent))
-      const panel=head.closest('.acct-panel')
+      const panel=document.querySelector('#app-settings-panel-providers')
+      const scroller=head.closest('.acct-panel')
       // Include the neighboring native provider header in the wide screenshot.
-      panel.scrollTop+=head.getBoundingClientRect().top-panel.getBoundingClientRect().top-420
+      scroller.scrollTop+=head.getBoundingClientRect().top-scroller.getBoundingClientRect().top-420
       return {oneAdd:all.length===1,besideSwitch:!!right.querySelector('input[type="checkbox"]'),
         popup:add.getAttribute('aria-haspopup'),class:add.className,height:r.height,
+        providerWidth:panel.clientWidth,providerScrollWidth:panel.scrollWidth,
         overflow:panel.scrollWidth>panel.clientWidth+1,noSeparateName:!document.querySelector('button[title="name this key"]')}
     })
     if(!geometry.oneAdd||!geometry.besideSwitch||geometry.popup!=='dialog'||geometry.height<28||geometry.overflow||!geometry.noSeparateName)
