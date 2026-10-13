@@ -44,7 +44,9 @@ pub fn with_block(question: &str, options: &[String], multiple: bool) -> String 
 }
 
 /// The `meta` of a question whose body ends with such a list (the list is
-/// the plain-text part Hubchat leaves out); None for anything else.
+/// the plain-text part Hubchat leaves out); None for anything else. The
+/// list's options must pass `options` exactly as written: a list Hubchat
+/// would refuse as buttons stays plain text, so it is never left out.
 #[logged]
 pub fn meta(kind: &str, body: &str) -> Option<Value> {
     if kind != "question" {
@@ -57,17 +59,17 @@ pub fn meta(kind: &str, body: &str) -> Option<Value> {
             Some((at, m, &body[at + 2 + h.len() + 1..]))
         })
         .max_by_key(|x| x.0)?;
-    let mut options = Vec::new();
+    let mut labels = Vec::new();
     for (i, line) in rest.split('\n').enumerate() {
         let l = line.strip_prefix(&format!("{}. ", i + 1))?;
-        if l.is_empty() || l.trim() != l || l.chars().count() > MAX_LABEL || l.chars().any(char::is_control) {
+        // `options` drops spaces around a label; here they would be text the
+        // buttons don't show
+        if l.trim() != l {
             return None;
         }
-        options.push(l.to_string());
+        labels.push(l);
     }
-    if !(2..=MAX_OPTIONS).contains(&options.len()) {
-        return None;
-    }
+    let options = options(&json!(labels)).ok()?;
     Some(json!({ "question": { "options": options, "multiple": multiple }, "fallback": [start, body.len()] }))
 }
 
@@ -101,5 +103,26 @@ mod tests {
         for bad in ["Q?\n\nPick one:\n1. Beta", "Q?\n\nPick one:\n1. Beta\n3. Stable", "Q?\n\nPick one:\n1. Beta\n2. Stable\nmore", "Q?\n\nPick one:\n1.  Beta\n2. Stable", "Q?"] {
             assert_eq!(meta("question", bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_list_the_tool_would_refuse_stays_plain_text() {
+        // an agent's own question text ending in a list `options` refuses:
+        // no meta, so Hubchat shows the whole body
+        let eleven: String = (1..=11).map(|i| format!("\n{i}. o{i}")).collect();
+        for body in [
+            "Q?\n\nPick one:\n1. Same\n2. same".to_string(),
+            "Q?\n\nPick one or more:\n1. A\n2. B\n3. a".to_string(),
+            format!("Q?\n\nPick one:\n1. Beta\n2. {}", "x".repeat(MAX_LABEL + 1)),
+            "Q?\n\nPick one:\n1. Beta\n2. Sta\u{7}ble".to_string(),
+            format!("Q?\n\nPick one:{eleven}"),
+            "Q?\n\nPick one:\n1. Beta\n2. Stable ".to_string(),
+        ] {
+            assert_eq!(meta("question", &body), None, "{body:?}");
+        }
+        // positive control: the same shapes within the rules still become meta
+        assert!(meta("question", "Q?\n\nPick one:\n1. Same\n2. Other").is_some());
+        let ten: String = (1..=10).map(|i| format!("\n{i}. o{i}")).collect();
+        assert_eq!(meta("question", &format!("Q?\n\nPick one:{ten}")).unwrap()["question"]["options"].as_array().unwrap().len(), 10);
     }
 }
