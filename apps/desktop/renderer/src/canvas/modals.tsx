@@ -1299,8 +1299,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               host={hostIdentity} onChange={setAcct} /></SetRow>
           </>
         )}
-        <SetRow label="Switch accounts when limited" hint={!['claude', 'openai'].includes(providerOf(model)) ? 'This provider does not support automatic account switching.' : providerOf(model) === 'openai' ? 'Use another account when limited; switching Codex accounts starts a new conversation.' : 'Use another account with room when this one reaches its limit.'}><select aria-label="Automatic account fallback" value={accountFallback}
-          disabled={!['claude', 'openai'].includes(providerOf(model))}
+        <SetRow label="Switch accounts when limited" hint={!['claude', 'openai', 'muse'].includes(providerOf(model)) ? 'This provider does not support automatic account switching.' : providerOf(model) === 'openai' ? 'Use another account when limited; switching Codex accounts starts a new conversation.' : providerOf(model) === 'muse' ? 'Use another Muse account that offers this model and has room when limited; it continues on a new Muse session.' : 'Use another account with room when this one reaches its limit.'}><select aria-label="Automatic account fallback" value={accountFallback}
+          disabled={!['claude', 'openai', 'muse'].includes(providerOf(model))}
           onChange={(e) => setEdit((old) => ({ ...old, accountFallback: e.target.value }))}>
           <option value="">Org default ({tree.account_fallback_default ? 'on' : 'off'})</option>
           <option value="on">On</option>
