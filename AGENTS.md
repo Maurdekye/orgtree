@@ -1049,6 +1049,14 @@ Removal preserves the shared queued intents' order and caller metadata; only
 [verified from source: `domain/account_removal.rs`, account-reference migration;
 measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
 
+
+- Direct user messages/replies to nested agents atomically grant `@user` reply
+  access with the mail and canonical access/chain notices; repeat active grants
+  are idempotent and revoked grants return on new contact. Successful user commands
+  include `/compact` and Muse; automatic/refused commands are excluded. See
+  [typed-message parity](docs/rust-engine/typed-message-parity.md).
+  [verified 2026-10-13: `domain/runtime_notices.rs`, `domain/mail.rs`, `runtime/actor.rs`]
+
 ## Keep this file current
 
 - OpenRouter key add/replace and language-server add/configure forms open in

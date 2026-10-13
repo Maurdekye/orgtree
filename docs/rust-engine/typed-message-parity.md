@@ -116,3 +116,28 @@ Source checked: `mail::send -> ot.mail.ev -> feed::compute::mail_entry -> runtim
 The generated renderer contract intentionally adds `approved` to the assignment status union for PLAN F4. The frozen Python generator still knows the old statuses; do not regenerate over this Rust-era extension. All old variants remain accepted. Old generic history is not reclassified from text; only authoritative new producer metadata mints tags.
 
 No claim is made of live end-to-end fanout, a renderer screen check, or the absent runtime mechanisms listed above. These are explicitly separate from the measured envelope and projection checks.
+
+## Direct user contact restores reply authority (2026-10-13)
+
+A user message or linked reply to a non-top-level agent grants `@user` reply
+access, emits the canonical passive `access.audience_changed` / `user_audience`
+notice, and notifies every live superior with `context.deep_reach`. The incoming
+message, fresh grant, audit event and notices commit together; feed changes and
+wake happen afterward. A short per-org `FOR NO KEY UPDATE` lock serializes the
+active-grant check with other grants. Repeated contact does not duplicate an
+active grant or its access notice. Contact after revocation restores access.
+Root agents keep their implicit access without an extra row. All queries are
+scoped to the recipient's organization. Agent mail and automatic typed notices
+do not acquire user access.
+
+Successful user slash commands share this behavior across supported harnesses,
+including typed `/compact`, the Compact action, and Muse compaction. Refused
+commands and automatic provider compaction do not grant access. CLI admission
+cannot share a PostgreSQL transaction: after admission, the grant and superior
+notices use one short transaction; a storage failure is logged as such. The
+existing command's outcome is not falsely reversed after the CLI accepted it.
+
+This restores 3.x `ledger.py::user_deep_reach` (release/3.x `6d3751d`), including
+its explicit 2026-08-03 command/compact rule. The source change is verified with
+`tools/rig/proofs/direct-user-audience.mjs` and the focused
+`domain::mail::direct_contact_tests`; execution receipts belong to the hand-in.
