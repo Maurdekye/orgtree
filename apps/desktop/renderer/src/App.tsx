@@ -3044,7 +3044,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
         <SettingsTabPanel id="basic" idBase="org-settings"
           active={tab === 'basic'}>
         {/* folder access lives on the eye's ⚙ gear panel (user ruling) */}
-        <OrgPictureEditor slug={tree.slug} revision={tree.net?.picture_revision} />
+        <OrgPictureEditor slug={tree.slug} name={tree.name} revision={tree.net?.picture_revision} />
         <SetGroup title="Credits">
           <SetRow label="top-level grant cap"
             hint="the largest grant any top-level agent may hold">

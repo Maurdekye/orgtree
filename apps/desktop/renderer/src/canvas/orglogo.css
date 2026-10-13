@@ -1,0 +1,15 @@
+/* Match Hubchat's verified Account avatar mechanics; all chrome uses Orgtree
+   theme variables. Only the fallback keeps Hubchat's org orange, independent
+   of selected provider accents. The requested round shape is local here. */
+.org-logo-controls { display: inline-flex; position: relative; align-self: flex-start; margin: 8px 0 6px; }
+.org-logo-button { display: inline-flex; position: relative; flex: none; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; }
+.org-logo-button:hover:not(:disabled) { box-shadow: 0 0 0 3px var(--accent-soft); }
+.org-logo-button:focus-visible, .org-logo-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.org-logo-button:disabled, .org-logo-remove:disabled { cursor: default; opacity: .65; }
+.org-logo-avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 72px; height: 72px; border-radius: 50%; font: 600 26px "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; letter-spacing: .01em; user-select: none; background: rgba(217,119,87,.20); color: #e3896b; }
+:root:is(.contrast-light,.contrast-solarized-light) .org-logo-avatar { background: rgba(217,119,87,.18); color: #b04f2c; }
+.org-logo-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.org-logo-pencil { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; border: 2px solid var(--panel); background: var(--accent); color: var(--accent-ink); pointer-events: none; font-size: 15px; }
+.org-logo-remove { position: absolute; right: -2px; top: -2px; display: grid; place-items: center; width: 23px; height: 23px; padding: 0; border-radius: 50%; border: 2px solid var(--panel); background: var(--ink); color: var(--panel); cursor: pointer; font-size: 15px; }
+.org-logo-pencil svg, .org-logo-remove svg { width: 15px; height: 15px; }
+.mobile .org-logo-avatar { width: 96px; height: 96px; font-size: 34px; }
