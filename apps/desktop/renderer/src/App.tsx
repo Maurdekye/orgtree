@@ -14,6 +14,8 @@ import { Connections as NetTab } from './canvas/connections'
 import { OrgPictureEditor } from './canvas/orgpicture'
 import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
+import { createToast, ToastStack } from './toasts'
+import type { Toast } from './toasts'
 import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
 import type { NativePreferences } from './desktop'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -361,7 +363,6 @@ export function TitleBadge({ appVersion, build }: {
 // emit (supervisor stream plumbing) — the `?? ''` at the construction site
 // is the wire-boundary guard, not a real case
 interface MailEvt { from: string; to: string; t: number }
-interface Toast { id: number; lines: string[]; undo: ToastUndo | null }
 
 /** G1: the tree is pulled on a timer as well as pushed. Slow enough to be
  *  invisible in cost (a ~4 KB payload every 6 s), fast enough that a missed
@@ -718,9 +719,9 @@ export default function App() {
   // made (mis-drag reorders, accidental promotes, one-click retires)
   const toast = useCallback((lines?: string[] | null, undo: ToastUndo | null = null) => {
     if (!lines || !lines.length) return
-    const id = Date.now() + Math.random()
-    setToasts((t) => [...t, { id, lines, undo }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 12000)
+    const item = createToast(lines, undo, id => setToasts(t => t.filter(x => x.id !== id)))
+    setToasts(t => [...t, item])
+    setTimeout(item.dismiss, 12000)
   }, [])
 
   // ONE NOTICE FOR THE WHOLE RESTORATION, once both halves are known.
@@ -1923,37 +1924,9 @@ export default function App() {
           close={() => setDoomedOrg(null)} />
       )}
 
-      <div className="toasts">
-        {toasts.map((t) => (
-          <div key={t.id} className="toast" onClick={() =>
-            setToasts((x) => x.filter((y) => y.id !== t.id))}>
-            {t.lines.map((l, i) => <div key={i}>{l}</div>)}
-            {t.undo && (
-              <button className="toast-undo" onClick={(e) => {
-                e.stopPropagation()
-                setToasts((x) => x.filter((y) => y.id !== t.id))
-                ;(typeof t.undo === 'function' ? t.undo : t.undo!.fn)()
-              }}>{typeof t.undo === 'function' ? 'undo' : t.undo.label}</button>
-            )}
-          </div>
-        ))}
-      </div>
+      <ToastStack toasts={toasts} />
       <WindowMirrors>
-      <div className="toasts">
-        {toasts.map((t) => (
-          <div key={t.id} className="toast" onClick={() =>
-            setToasts((x) => x.filter((y) => y.id !== t.id))}>
-            {t.lines.map((l, i) => <div key={i}>{l}</div>)}
-            {t.undo && (
-              <button className="toast-undo" onClick={(e) => {
-                e.stopPropagation()
-                setToasts((x) => x.filter((y) => y.id !== t.id))
-                ;(typeof t.undo === 'function' ? t.undo : t.undo!.fn)()
-              }}>{typeof t.undo === 'function' ? 'undo' : t.undo.label}</button>
-            )}
-          </div>
-        ))}
-      </div>
+        <ToastStack toasts={toasts} />
       </WindowMirrors>
       {/* the in-app folder picker: LAST so it stacks above every modal */}
       <FolderPickerHost />
