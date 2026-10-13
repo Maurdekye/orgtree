@@ -1,5 +1,6 @@
 // App settings › Harnesses as the user sees it, then an OpenRouter key's
-// edit dialog: its harness selector (installed harnesses only) and the
+// edit dialog: its harness selector (every supported harness, the installed
+// ones first and the rest disabled) and the
 // "Which harnesses are supported?" link, which opens the Harnesses tab.
 // Driven by tools/rig/proofs/openrouter-harness-visual.mjs.
 module.exports = async (page) => {
@@ -23,12 +24,14 @@ module.exports = async (page) => {
   })
   await page.waitFor('#openrouter-key-harness', { timeout: 10000 })
   await page.sleep(600)
-  const options = await page.eval(() => [...document.querySelectorAll('#openrouter-key-harness option')].map((o) => o.textContent.trim()))
+  const options = await page.eval(() => [...document.querySelectorAll('#openrouter-key-harness option')]
+    .map((o) => ({ value: o.value, text: o.textContent.trim(), disabled: o.disabled })))
+  const value = await page.eval(() => document.querySelector('#openrouter-key-harness').value)
   const link = await page.eval(() => !!document.querySelector('.harness-help-link'))
   await page.screenshot('key-dialog-harness')
   await page.eval(() => document.querySelector('.harness-help-link').click())
   await page.sleep(1200)
   const after = await page.eval(() => document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim())
   await page.screenshot('link-opened-harnesses')
-  return { entries, selected, strip, options, link, after }
+  return { entries, selected, strip, options, value, link, after }
 }

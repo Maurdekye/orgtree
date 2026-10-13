@@ -1,8 +1,9 @@
 // Proof (visual): App settings › Harnesses and the OpenRouter key dialog's
 // harness selector, through the real engine and this worktree's renderer
 // (docket openrouter-choose-the-harness-claude-code-codex-p). The rig's fake
-// CLI stands in for every harness; the proof takes Antigravity's away for the
-// screenshots, so the page shows both states.
+// CLI stands in for every harness; the proof takes Antigravity's and Codex's
+// away for the screenshots, so the page shows both states and the key saved on
+// Codex shows a saved choice since uninstalled.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/openrouter-harness-visual.mjs --ui <dir>
 //      (dir from `node tools/rig/build-ui.mjs`)
 
@@ -33,9 +34,10 @@ export default async function (rig) {
   await rig.waitFor(async () => (await rig.api('GET', '/api/providers')).checking === false,
     { what: 'the first provider discovery to land', timeout: 60000 })
   await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-TWO222', label: 'team', harness: 'codex-cli' })
-  // nothing runs Antigravity here, so its fake CLI can simply be moved away
-  const agy = path.join(rig.dir, 'bin', 'agy.exe')
-  fs.renameSync(agy, agy + '.gone')
+  // nothing runs Antigravity or Codex here, so their fake CLIs can simply be
+  // moved away
+  const gone = ['agy.exe', 'codex.exe'].map((f) => path.join(rig.dir, 'bin', f))
+  for (const f of gone) fs.renameSync(f, f + '.gone')
   let reg, regAfter, r
   try {
     reg = (await rig.api('GET', '/api/harnesses')).harnesses ?? []
@@ -43,7 +45,7 @@ export default async function (rig) {
       { out: path.join(p.dir, 'desk'), timeout: 120000 })
     regAfter = (await rig.api('GET', '/api/harnesses')).harnesses ?? []
   } finally {
-    fs.renameSync(agy + '.gone', agy)
+    for (const f of gone) fs.renameSync(f + '.gone', f)
   }
   p.check('the desktop script ran', r.ok, r.ok ? undefined : r)
   const states = (x) => x.map((h) => [h.id, h.installed])
@@ -57,10 +59,22 @@ export default async function (rig) {
     JSON.stringify((v.entries ?? []).map((e) => e.name)) === JSON.stringify(reg.map((h) => h.name)), { page: v.entries?.map((e) => e.name), reg: reg.map((h) => h.name) })
   p.check('each entry says installed exactly when the engine does',
     reg.every((h, i) => v.entries?.[i]?.installed === h.installed), reg.map((h) => [h.id, h.installed]))
-  p.check('control: the page shows both states (Antigravity taken away, the rest installed)',
-    reg.some((h) => h.installed) && reg.find((h) => h.id === 'antigravity')?.installed === false, reg.map((h) => [h.id, h.installed]))
-  const want = reg.filter((h) => h.installed && (h.providers ?? []).some((x) => (x.id ?? x) === 'openrouter')).map((h) => h.name)
-  p.check('the key dialog offers the installed OpenRouter harnesses only', JSON.stringify(v.options) === JSON.stringify(want), { options: v.options, want })
+  p.check('control: the page shows both states (Antigravity and Codex taken away, the rest installed)',
+    reg.some((h) => h.installed) && reg.find((h) => h.id === 'antigravity')?.installed === false
+      && reg.find((h) => h.id === 'codex-cli')?.installed === false, reg.map((h) => [h.id, h.installed]))
+  // every OpenRouter harness is listed (user 2026-10-13 22:20Z): the
+  // installed ones first and choosable, a disabled separator, then the ones
+  // not installed, disabled
+  const forOr = reg.filter((h) => (h.providers ?? []).some((x) => (x.id ?? x) === 'openrouter'))
+  const there = forOr.filter((h) => h.installed), absent = forOr.filter((h) => !h.installed)
+  const want = [...there.map((h) => ({ value: h.id, disabled: false })),
+    ...(there.length && absent.length ? [{ value: '__harness-separator__', disabled: true }] : []),
+    ...absent.map((h) => ({ value: h.id, disabled: true }))]
+  const got = (v.options ?? []).map((o) => ({ value: o.value, disabled: o.disabled }))
+  p.check('the key dialog lists every OpenRouter harness: installed ones first and choosable, the rest disabled',
+    JSON.stringify(got) === JSON.stringify(want), { options: v.options, want })
+  p.check('a key saved on Codex, since uninstalled, still shows Codex (disabled, "not installed")',
+    v.value === 'codex-cli' && (v.options ?? []).some((o) => o.value === 'codex-cli' && o.disabled && /not installed/.test(o.text)), { value: v.value })
   p.check('the key dialog carries the "Which harnesses are supported?" link', v.link === true)
   p.check('the link opens App settings › Harnesses', v.after === 'Harnesses', v.after)
   p.keep(rig, { grep: /harness|panic/i })
