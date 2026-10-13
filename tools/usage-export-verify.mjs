@@ -46,6 +46,13 @@ if (process.argv.includes('--bundle')) {
       return p.status ?? 1
     }
     const results = {}
+    if (process.argv.includes('--renderer-only')) {
+      esbuild.buildSync({ ...common, entryPoints: [path.join(root, 'tests/usage-export.probe.ts')], outfile: path.join(output, 'main.cjs'), platform: 'node', format: 'cjs', external: ['electron'] })
+      const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
+      results.renderer = run('renderer', electron, [path.join(output, 'main.cjs')], env)
+      fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ base: '62f39ad', results }, null, 2))
+      return { results, exit: results.renderer ? 1 : 0 }
+    }
     if (!process.argv.includes('--remaining')) {
       results.bundle = run('bundle', process.execPath, [fileURLToPath(import.meta.url), '--bundle'])
       if (results.bundle) return { results, exit: 1 }

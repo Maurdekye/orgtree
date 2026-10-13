@@ -17,6 +17,7 @@ async function until(fn: () => Promise<boolean>, label: string) {
 async function click(w: BrowserWindow, selector: string, keyboard = false) {
   const hit = await w.webContents.executeJavaScript(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();const x=Math.round(r.left+r.width/2),y=Math.round(r.top+r.height/2);el.focus();return {x,y,hit:document.elementFromPoint(x,y)?.closest('button')===el}})()`)
   check('native control hit ' + selector, hit.hit)
+  w.focus(); await pause(40)
   if (keyboard) { w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' }); w.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' }) }
   else {
     w.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', x: hit.x, y: hit.y, clickCount: 1 })
