@@ -284,6 +284,14 @@ fills. Tier colours: Wonder `#97edd0`, Wonder Full `#80b8ff`, Spark `#ffff7a`
 button retain blue text on a dark backing on light/solarized surfaces. The
 same tier token paints cards, miniature cards and summary letters; provider
 cyan, the other Muse tiers, letters and runtime behavior are unchanged.
+Targeted colour proof (2026-10-13): existing `musecolor`/`argon` checks passed
+14/14. Offscreen Chromium rendered the production `TierChip` with production
+CSS in synthetic provider/desk/reference/configuration/summary/hire contexts
+across charcoal, light, solarized-light and obsidian-black: 24 Wonder Full
+text samples, minimum contrast 6.33:1, eight before/after screenshots inspected,
+no console errors. Desk-card top borders followed the same blue token.
+This is a narrow icon/cascade proof, not assembled-app, native DPI or installed
+acceptance; miniature-card propagation is source-checked, not separately rendered.
 Kept collisions, by decision: `#afe5ff` is
 CIE76 1.9 from `--tier-flash` and 6.5 from the frozen `--ice`; `#0077b0` is
 7.8 from the light `--work`. Each state also has its own rail, letter, icon
