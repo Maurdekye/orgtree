@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Transcript bundles are display-only runs of passive system notices (the
+  inbox's `isSystemNotice` predicate), at two or more. User/agent notices,
+  waking requests, tools and lifecycle rows break runs; unproven legacy
+  authorship stays visible. Preserve mounted cards, reply/turn anchors and
+  pending-run behavior. See [transcript notices](docs/rust-engine/transcript-notice-bundles.md).
+  [decided: user 2026-10-13 23:01?23:02Z; verified from source:
+  `events/systemruns.tsx`, `events/segments.tsx`, `canvas/desk.tsx`]
+
 - Middle-button pan is captured by each visible canvas viewport before node
   handlers and shares the background pan/persisted camera. Suppress middle
   mousedown/auxclick defaults; never set the eye's click-focus flag for it.

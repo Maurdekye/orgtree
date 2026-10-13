@@ -1,3 +1,5 @@
+import { SystemRuns, segmentEntries } from './systemruns'
+import type { SegmentEntry } from './systemruns'
 import { HUMAN_HIDDEN_VARIANTS } from '../generated/events'
 import type { ReactNode } from 'react'
 import type { Event, Segment } from '../generated/events'
@@ -53,7 +55,7 @@ export function SegmentAttachments({ values, slug, nid }: { values?: unknown[]; 
       : <a key={i} className="attach-chip" href={href} download={name}><DownloadIcon fontSize="inherit" /> {name}<span className="dim">{meta}</span></a>
   })}</div>
 }
-interface SegmentProps { segments: AnySegment[]; profile: EventProfile; slug: string; nid: string
+interface SegmentProps { bundle?: boolean; segments: AnySegment[]; profile: EventProfile; slug: string; nid: string
   world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void; actor?: (id: string) => ReactNode
   /** A quoted source has no transcript anchors or further reply annotations. */
   annotation?: boolean
@@ -68,11 +70,12 @@ interface SegmentProps { segments: AnySegment[]; profile: EventProfile; slug: st
   replyAvailable?: (r: ReplyContext) => boolean
   onLocateReply?: (r: ReplyContext) => void }
 export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply, annotation }: SegmentProps) {
+  replyAvailable, onLocateReply, annotation, bundle = true }: SegmentProps) {
   const base = fileBase(slug, nid)
   const card = (row: unknown, preview: boolean, part?: "header" | "body", headerMeta?: ReactNode) => <EventCard row={row} profile={profile} org={slug}
     preview={preview} part={part} headerMeta={headerMeta} world={world} onOpen={onOpen} actor={actor} imgBase={base} />
-  return <div className="turn-mail-batch">{segments.map((segment, i) => {
+  const entries = segmentEntries(segments)
+  const render = ({ segment, key: i }: SegmentEntry) => {
     switch (segment.kind) {
       case 'text': return <RefMdBody key={i} className="msg user msgtext md" html={md(segment.text, base)} world={world} onOpen={onOpen} />
       case 'state': case 'drive': {
@@ -97,7 +100,9 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
     }
     const unhandled: never = segment
     return unhandled
-  })}</div>
+  }
+  return <div className="turn-mail-batch">{bundle
+    ? <SystemRuns entries={entries} render={render} /> : entries.map(render)}</div>
 }
 
 /** Pending and delivered mail share the same card, metadata and attachments.

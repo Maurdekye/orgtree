@@ -8593,3 +8593,15 @@ main:has(> .orgbar.native-header) > .error {
 .harness-installed { color: var(--ok, inherit); }
 /* a picker's not-installed harnesses and its separator: greyed, never chosen */
 option.harness-absent, option.harness-sep { color: var(--dim); }
+
+/* Transcript system notices share the inbox's quiet single-row summary.
+   Children stay mounted, with their original cards, actions and red edges. */
+.transcript-system-run { min-width: 0; align-self: stretch; }
+.transcript-system-run > summary { cursor: pointer; font-size: 10px; color: var(--dim); }
+.transcript-system-run > summary[hidden] { display: none; }
+.transcript-system-run > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.transcript-system-run > summary .system-run-kinds { display: inline-block; max-width: calc(100% - 155px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.transcript-system-run.has-restart > summary { border-left-color: var(--bad); }
+.transcript-system-run[open] > summary:not([hidden]) { margin-bottom: 7px; }
+.system-run-rows { display: flex; flex-direction: column; gap: 7px; min-width: 0; }

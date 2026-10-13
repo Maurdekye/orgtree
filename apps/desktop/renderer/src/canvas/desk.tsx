@@ -1,3 +1,4 @@
+import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/systemruns'
 import { livePartials } from '../livePartials'
 import { PendingRun, revealPendingRun } from './pendingrun'
 import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
@@ -2194,6 +2195,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         : undefined)
     if (element) {
       revealPendingRun(element)
+      revealSystemRuns(element)
       leaveBottom()
     }
     element?.scrollIntoView?.({ block: 'center' })
@@ -2619,7 +2621,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       for (let i = userTurns.length - 1; i >= 0; i--) {
         const u = userTurns[i]
         const t = u && userRowEls.current.get(u.seq)
-        if (u && t && t.getBoundingClientRect().bottom < top) { v = u.seq; break }
+        if (u && t && (t.closest('details.transcript-system-run:not([open])') ?? t).getBoundingClientRect().bottom < top) { v = u.seq; break }
       }
     }
     // ⚠ AND "ONLY ON A REAL FLIP" IS THE HOOK'S JOB, NOT AN UPDATER'S. This
@@ -3583,6 +3585,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 const el = scroller.current
                 const tr = pinSeq == null ? null : userRowEls.current.get(pinSeq)
                 if (!el || !tr) return
+                revealSystemRuns(tr)
                 leaveBottom()
                 const pad = e.currentTarget.offsetHeight + 12
                 const target = () => el.scrollTop + tr.getBoundingClientRect().top
@@ -3723,26 +3726,28 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 <b className="mono" data-copy-agent-name={prior.id}>{prior.id}</b> (read it from the lineage panel)
               </div>) : null
           })()}
-          {viewMessages.map((m, i) => {
+          <SystemRuns entries={transcriptEntries(viewMessages)}
+            onToggle={() => { if (stickRef.current) pin(); calcPin() }}
+            render={({ message: m, sourceIndex: i, first, key }) => {
             // №15: one dim divider per idle gap — never per-message timestamps
             const prev = viewMessages[i - 1]
-            const gapMs = prev?.ts && m.ts
+            const gapMs = first && prev?.ts && m.ts
               ? Date.parse(m.ts) - Date.parse(prev.ts) : 0
             return (
               // seq = the server's pre-slice ordinal: index keys over the
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
               // every open ToolChip) each time one message scrolled off
-              <div data-transcript-row key={m.assistant_id ?? m.native_event_id ?? m.row_id ?? m.event_id ?? m.seq ?? i}
+              <div data-transcript-row key={key}
                 data-assistant-id={m.assistant_id} data-assistant-state={m.assistant_state}
-                data-reply-event={m.event_id} data-reply-quote={m.reply_quote ?? (m.text || m.cmd_out || '')} onContextMenu={e => openReply(e, m)}
+                data-reply-event={first ? m.event_id : undefined} data-reply-quote={m.reply_quote ?? (m.text || m.cmd_out || '')} onContextMenu={e => openReply(e, m)}
                 // the durable anchor a reply falls back to when the exact
                 // snapshot it names was deduplicated away — see locateReply
-                data-native-event={m.native_event_id}
+                data-native-event={first ? m.native_event_id : undefined}
                 // FR-20: scroll-to anchors — every user turn is a potential
                 // chip target now that scrolling past one retargets to the
                 // next up the chain, so each keeps its row in the seq→el map
                 // (deleted on unmount: the window slides rows out mid-list)
-                ref={m.seq != null && userSeqs.has(m.seq)
+                ref={first && m.seq != null && userSeqs.has(m.seq)
                   ? (el) => {
                     const seq = m.seq!
                     if (el) userRowEls.current.set(seq, el)
@@ -3752,13 +3757,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                   <div className="msg sys" data-reply-event="">— {gapMs > 5400e3
                     ? `${Math.round(gapMs / 3600e3)} h`
                     : `${Math.round(gapMs / 60e3)} min`} later —</div>)}
-                {renderReply(m.reply_to)}
-                <Msg m={m} slug={slug} nid={node.id} onMailLink={onMailLink}
+                {first && renderReply(m.reply_to)}
+                <Msg systemPart m={m} slug={slug} nid={node.id} onMailLink={onMailLink}
                   onWorkLink={onWorkLink} refs={deskRefs}
                   replyAvailable={replyAvailable} onLocateReply={locateReply} />
               </div>
             )
-          })}
+          }} />
           {/* ⭐ THE QUESTION, ABOVE ITS OWN ANSWER (user report 2026-09-01:
               "the message appears to still be mid-transit, but the streamed
               response begins appearing before it enters the transcript").
@@ -4513,11 +4518,9 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                             desk runs, on its OWN pass: this is a different
                             conversation (an archived generation's), so it must
                             never share an id set with the desk above it. */}
-                        {eventDedup().list(mergeAssistantRows(readChat.messages.slice(-80)),
-                          (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id))
-                          .map((m, i) => (
-                            <Msg key={m.assistant_id ?? m.native_event_id ?? m.event_id ?? i}
-                              m={m} slug={slug} nid={b.id} />))}
+                        <SystemRuns entries={transcriptEntries(eventDedup().list(mergeAssistantRows(readChat.messages.slice(-80)),
+                          (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id)))}
+                          render={({ message }) => <Msg systemPart m={message} slug={slug} nid={b.id} />} />
                       </AgentDirectoryProvider>
                     )
                     : <div className="dim pad">no transcript found</div>}
@@ -4869,8 +4872,8 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
 
 // №21: memoized — rows are static once fetched; only identity changes matter
 export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, refs,
-  replyAvailable, onLocateReply }: {
-  m: ChatMessage; slug: string; nid: string
+  replyAvailable, onLocateReply, systemPart = false }: {
+  systemPart?: boolean; m: ChatMessage; slug: string; nid: string
   onMailLink?: MailLinkFn; onWorkLink?: WorkLinkFn
   /** canonical references in this row's prose. Omitted = plain text, which is
    *  what a surface with nowhere to send anybody should render. */
@@ -4888,7 +4891,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   }
   const profile = 'operator'
   if (m.role === 'user' && isSegments(m.segments, profile)) return <div className="typed-input">
-    <SegmentList segments={m.segments} profile={profile} slug={slug} nid={nid}
+    <SegmentList bundle={!systemPart} segments={m.segments} profile={profile} slug={slug} nid={nid}
       world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />}
       replyAvailable={replyAvailable} onLocateReply={onLocateReply} />
     {m.truncated && <div className="trunc-note">Shown truncated ? the agent received the full message</div>}
