@@ -67,5 +67,7 @@ test('switchboard credit bar disappears below the exact shared boundary and retu
   assert.ok(v.el.querySelector('.eye'),'switchboard identity survives')
   await inAct(()=>set.current!(Z_MINI))
   assert.ok(v.el.querySelector('.cbar-inf-wrap'),'restored without remounting switchboard')
-  assert.match(v.el.querySelector('.cbar-tip')!.textContent!,/circulation8seats2free6/)
+  assert.deepEqual([...v.el.querySelector('.cbar-tip')!.children]
+    .map(row=>row.textContent?.replace(/\s+/g,' ').trim()),
+    ['circulation 8','seats 2','free 6'],'every restored credit label keeps its exact value')
 })
