@@ -36,6 +36,15 @@
 //!   {"unsolicited": true}   a turn the engine did not start (as a cron fires one)
 //!   {"poll_mail": {"every_ms": 500, "timeout_ms": 30000}}, {"sleep_ms": N},
 //!   {"hang": true}, {"exit": N}
+//!   {"tool": "powershell", "args": {...}, "silent_ms": N}   a tool call that
+//!       produces nothing (as a command whose sandboxed launch never starts):
+//!       it ends when `task/stop` names it (its item settles `cancelled`,
+//!       "cancelled by runtime client", and any steered input arrives right
+//!       after it, as measured on Muse 1.4.6), or after N ms as Muse's own
+//!       tool timeout (`timedOut`, "tool timed out"). With "ignore_stop": true
+//!       a stop does not take; with "background_ms": M Muse moves the call to
+//!       the background after M ms (`item/updated` with `background` and
+//!       `backgroundStatus`) and the turn goes on without it.
 //! The catalog `model/list` answers is the login's own
 //! `<XDG_CONFIG_HOME>/muse-catalog.json` when present (one login's
 //! entitlement, as a fixture), else `<fakecli dir>/muse-catalog.json`, else
@@ -80,6 +89,10 @@ struct Srv {
     roots: Mutex<Vec<String>>,
     cancelled: Mutex<Vec<String>>,
     stopped: Mutex<Vec<String>>,
+    /// tool calls in flight (task id = item id, tool name), for task/list
+    tasks: Mutex<Vec<(String, String)>>,
+    /// task ids `task/stop` named
+    task_stops: Mutex<Vec<String>>,
 }
 
 impl Srv {
@@ -400,6 +413,22 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             srv.log("cancel", json!({ "turn": t }));
             srv.respond(id, json!({ "commandId": p["commandId"], "turnId": t, "status": "accepted" }));
         }
+        "task/stop" => {
+            let task = p["taskId"].as_str().unwrap_or("").to_string();
+            let known = srv.tasks.lock().unwrap().iter().any(|(t, _)| *t == task);
+            srv.log("task_stop", json!({ "task": task, "known": known }));
+            if known {
+                srv.task_stops.lock().unwrap().push(task.clone());
+                srv.respond(id, json!({ "commandId": p["commandId"], "status": "accepted", "taskId": task }));
+            } else {
+                srv.fail(id, -32011, &format!("no task {task}"), "notFound");
+            }
+        }
+        "task/list" => {
+            let tasks: Vec<Value> = srv.tasks.lock().unwrap().iter()
+                .map(|(t, tool)| json!({ "taskId": t, "kind": "tool", "status": "inProgress", "tool": tool })).collect();
+            srv.respond(id, json!({ "tasks": tasks }));
+        }
         "subagent/stop" => {
             let s = p["subagentId"].as_str().unwrap_or("").to_string();
             srv.stopped.lock().unwrap().push(s.clone());
@@ -623,6 +652,10 @@ fn tool(srv: &Srv, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
             return;
         }
     }
+    if let Some(limit) = step["silent_ms"].as_u64() {
+        silent_tool(srv, turn, step, &id, &name, &base, limit);
+        return;
+    }
     let (text, failed) = if orgtree {
         if mcp.is_none() {
             *mcp = Mcp::start(srv, "orgtree");
@@ -648,6 +681,66 @@ fn tool(srv: &Srv, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
         check["ok"] = json!(check["ok"].as_bool().unwrap_or(true) && want == failed);
     }
     srv.log("tool_result", check);
+}
+
+/// A tool call that produces nothing until it is stopped, times out, or Muse
+/// moves it to the background (see the header).
+fn silent_tool(srv: &Srv, turn: &str, step: &Value, id: &str, name: &str, base: &Value, limit_ms: u64) {
+    srv.tasks.lock().unwrap().push((id.to_string(), name.to_string()));
+    let started = Instant::now();
+    let ignore_stop = step["ignore_stop"].as_bool() == Some(true);
+    let background_at = step["background_ms"].as_u64().map(Duration::from_millis);
+    let settle = |status: &str, terminal: &str, reason: &str, output: Value| {
+        srv.tasks.lock().unwrap().retain(|(t, _)| t != id);
+        let mut done = base.clone();
+        done["status"] = json!(status);
+        done["failureReason"] = json!(reason);
+        done["visibleOutput"] = json!(json!({ "chunk_id": "exec-1-1", "terminal_status": terminal, "terminal_reason": reason,
+                                              "output": output, "truncated": false }).to_string());
+        item(srv, turn, true, done);
+    };
+    let mut asked = false;
+    loop {
+        let stopped = srv.task_stops.lock().unwrap().iter().any(|t| t == id);
+        if stopped && !asked {
+            asked = true;
+            srv.log("tool_stop_seen", json!({ "item": id, "tool": name, "ms": started.elapsed().as_millis() as u64, "ignored": ignore_stop }));
+        }
+        if stopped && !ignore_stop {
+            settle("cancelled", "cancelled", "cancelled by runtime client", json!(""));
+            // steered input waits for the call's result, then reaches the model with it
+            let steered = srv.take_steers();
+            for t in &steered {
+                item(srv, turn, true, json!({ "itemId": srv.uid(), "kind": "userMessage", "text": t, "steered": true }));
+            }
+            srv.log("tool_result", json!({ "tool": name, "item": id, "stopped": true, "ms": started.elapsed().as_millis() as u64,
+                                           "steered": steered }));
+            return;
+        }
+        if background_at.is_some_and(|at| started.elapsed() >= at) {
+            let detail = json!({ "chunk_id": "exec-1-1", "execution_state": "background_running", "output": "" }).to_string();
+            let mut moved = base.clone();
+            moved["status"] = json!("inProgress");
+            moved["turnId"] = json!(turn);
+            moved["revision"] = json!(2);
+            moved["background"] = json!(true);
+            moved["backgroundInitiator"] = json!("timeout");
+            moved["backgroundStatus"] = json!({ "state": "backgrounded", "detail": detail });
+            srv.notify("item/updated", json!({ "sessionId": srv.sid(), "item": moved }));
+            srv.log("tool_background", json!({ "tool": name, "item": id, "ms": started.elapsed().as_millis() as u64 }));
+            return;
+        }
+        if started.elapsed() >= Duration::from_millis(limit_ms) {
+            settle("timedOut", "timed_out", "tool timed out", json!("tool timed out"));
+            srv.log("tool_result", json!({ "tool": name, "item": id, "timed_out": true }));
+            return;
+        }
+        if !srv.pause(50) {
+            settle("cancelled", "cancelled", "the turn was interrupted", json!(""));
+            srv.log("tool_result", json!({ "tool": name, "item": id, "interrupted": true }));
+            return;
+        }
+    }
 }
 
 fn request_usage(srv: &Srv, turn: &str, t: &Tokens, totals: &mut Tokens) {
@@ -817,6 +910,8 @@ pub fn run(raw: &[String]) -> i32 {
         roots: Mutex::new(Vec::new()),
         cancelled: Mutex::new(Vec::new()),
         stopped: Mutex::new(Vec::new()),
+        tasks: Mutex::new(Vec::new()),
+        task_stops: Mutex::new(Vec::new()),
     });
     // what a proof checks about the launch: the per-process switches, the
     // developer prompt's arrival (its length and whether it names the agent),
