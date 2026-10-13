@@ -4196,6 +4196,17 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   return (
     <TurnActiveContext.Provider value={turnActive}>
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
+      // ESCAPE CANCELS A PREPARED REPLY, exactly as its × does (user
+      // 2026-10-13). It bubbles, so anything that already took this Escape —
+      // an open menu or popover, the `useEsc` stack's top surface, an IME
+      // composition — goes first, and with no reply Escape keeps its meaning.
+      // The image viewer and picker listen on the document, AFTER this, so
+      // they are checked by name the way `useEsc` checks them.
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || !reply || e.defaultPrevented || e.nativeEvent.isComposing
+          || e.currentTarget.ownerDocument.querySelector('.lb-overlay, .picker-overlay')) return
+        e.preventDefault(); e.stopPropagation(); setReply(null)
+      }}
       onFocusCapture={() => { setActiveChatKey(chatKey); setButtonAgent(slug, node.tier ? node.id : null); if (recordChat) void refreshConvo(slug, node.id) }}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
         setActiveChatKey(chatKey)
@@ -5055,7 +5066,8 @@ function EffortButton({ value, effective, levels, onSet }:
       if (!wrapRef.current?.contains(e.target as Node | null)) setOpen(false)
     }
     const owner = wrapRef.current?.ownerDocument.defaultView ?? window
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    // claims the key, so the desk's Escape-cancels-reply leaves the reply alone
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false) } }
     owner.addEventListener('pointerdown', away, true)
     owner.addEventListener('keydown', esc, true)
     return () => { owner.removeEventListener('pointerdown', away, true); owner.removeEventListener('keydown', esc, true) }

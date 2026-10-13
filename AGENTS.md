@@ -748,6 +748,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   specific as `.msg.user.event-surface.event-notice`. [user 2026-10-13; verified
   from source, `tests/restartedge.test.tsx`]
 
+- Escape cancels a desk's prepared reply exactly as its × (`DeskChat` root
+  fieldset, bubbling). Anything that already took the Escape (`useEsc` stack,
+  menus, the effort pop-out, which now claims it) goes first, as do an open
+  `.lb-overlay`/`.picker-overlay` and IME composition; with no reply Escape is
+  untouched. [user 2026-10-13; verified: `tests/escapereply.test.tsx`]
+
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls, in each harness's own names (user
   2026-10-12 20:01Z): Claude/OpenRouter Claude Code's five `--effort` levels,
