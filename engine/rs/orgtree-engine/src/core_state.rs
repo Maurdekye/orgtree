@@ -174,29 +174,70 @@ pub fn observe_engine(root: &Path, state: &Snapshot, sessions: &[Session]) -> bo
     false
 }
 
+/// Why `begin` refused a new launch. `core-control begin` prints it as one
+/// JSON line of fixed words and numbers (never a path or process text), so
+/// the desktop can record which member held the launch back and why.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// members of the stopped cohort not proven gone: role, life, and for an
+    /// Unknown one the probe call and Windows error behind it
+    Members(Vec<(&'static str, Life, Option<core_process::Failed>)>),
+    /// the stopped generation's snapshot could not be removed
+    Session,
+    /// the manual-Quit barrier could not be removed
+    Quit,
+}
+
+impl Refusal {
+    #[nolog]
+    pub fn message(&self) -> &'static str {
+        match self {
+            Refusal::Members(_) => "The previous Orgtree session is still stopping. Wait for it to finish, then reopen Orgtree.",
+            Refusal::Session => "Could not release the previous Orgtree session.",
+            Refusal::Quit => "Could not release the previous manual Quit.",
+        }
+    }
+
+    #[nolog]
+    pub fn json(&self) -> serde_json::Value {
+        let refused = match self { Refusal::Members(_) => "members", Refusal::Session => "session", Refusal::Quit => "quit" };
+        let mut out = serde_json::json!({"refused": refused, "message": self.message()});
+        if let Refusal::Members(members) = self {
+            out["members"] = members.iter().map(|(role, life, failed)| {
+                let mut m = serde_json::json!({"role": role, "life": if *life == Life::Alive { "alive" } else { "unknown" }});
+                if let Some(f) = failed { m["stage"] = f.stage.into(); m["os"] = f.os.into(); }
+                m
+            }).collect();
+        }
+        out
+    }
+}
+
 /// Only a new desktop launch calls this (never its retry/recovery loop). It
 /// cannot clear a stop while any member of the previous cohort still runs.
 #[nolog]
-pub fn begin(root: &Path) -> Result<(), &'static str> {
+pub fn begin(root: &Path) -> Result<(), Refusal> {
     let Some(state) = read(root) else {
         // A Quit before the first engine journal still has a barrier. An
         // explicit desktop launch can clear it; automatic launches never do.
         return match std::fs::remove_file(root.join("core-manual-quit.json")) {
             Ok(()) => Ok(()), Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err("Could not release the previous manual Quit."),
+            Err(_) => Err(Refusal::Quit),
         };
     };
     if !stopped(root, &state) { return Ok(()); }
-    if [&Some(state.engine.clone()), &state.host, &state.desktop, &state.helper]
-        .iter().filter_map(|m| m.as_ref()).any(|m| core_process::life(m) != Life::Gone) {
-        return Err("The previous Orgtree session is still stopping. Wait for it to finish, then reopen Orgtree.");
-    }
+    // every stamped member is probed, so the refusal names all that held it back
+    let held: Vec<_> = [("engine", Some(&state.engine)), ("host", state.host.as_ref()),
+        ("desktop", state.desktop.as_ref()), ("helper", state.helper.as_ref())]
+        .into_iter().filter_map(|(role, m)| m.map(|m| (role, core_process::diagnose(m))))
+        .filter(|(_, (life, _))| *life != Life::Gone).map(|(role, (life, failed))| (role, life, failed)).collect();
+    if !held.is_empty() { return Err(Refusal::Members(held)); }
     // Removing the old snapshot releases automatic-start suppression. Its
     // immutable stop record remains as small durable shutdown evidence.
-    std::fs::remove_file(root.join(FILE)).map_err(|_| "Could not release the previous Orgtree session.")?;
+    std::fs::remove_file(root.join(FILE)).map_err(|_| Refusal::Session)?;
     match std::fs::remove_file(root.join("core-manual-quit.json")) {
         Ok(()) => Ok(()), Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("Could not release the previous manual Quit."),
+        Err(_) => Err(Refusal::Quit),
     }
 }
 
@@ -238,4 +279,36 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A refused launch names every member not proven gone, in fixed words
+    /// and numbers; the refusal itself is decided exactly as before.
+    #[cfg(windows)]
+    #[test]
+    fn refused_begin_names_the_members_that_hold_it_back() {
+        let dir = std::env::temp_dir().join(format!("orgtree-core-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // this test process is alive under its own stamp; u32::MAX is no process
+        let alive = core_process::identity(std::process::id()).unwrap();
+        let gone = Identity { pid: u32::MAX, created: "0".into() };
+        let state = Snapshot { generation: "c".repeat(32), engine: alive.clone(), host: Some(gone.clone()),
+            desktop: Some(alive), helper: None, sessions: vec![Session { id: 1, logon: "2".into() }],
+            transition_until: 0, transition_desktop: None, installing: false, completion_requested: false };
+        write(&dir, &state).unwrap();
+        stop(&dir, &state, "test").unwrap();
+        let refusal = begin(&dir).unwrap_err();
+        assert_eq!(refusal, Refusal::Members(vec![("engine", Life::Alive, None), ("desktop", Life::Alive, None)]));
+        assert_eq!(refusal.json(), serde_json::json!({"refused": "members", "message": refusal.message(),
+            "members": [{"role": "engine", "life": "alive"}, {"role": "desktop", "life": "alive"}]}));
+        assert!(dir.join(FILE).is_file(), "a refused launch keeps the stopped generation");
+        // an Unknown member carries the call and Windows error behind it
+        let unknown = Refusal::Members(vec![("helper", Life::Unknown, Some(core_process::Failed { stage: "open", os: 5 }))]);
+        assert_eq!(unknown.json()["members"], serde_json::json!([{"role": "helper", "life": "unknown", "stage": "open", "os": 5}]));
+        // once every member is gone the same launch releases the generation
+        let mut ended = state.clone();
+        ended.engine = gone;
+        ended.desktop = None;
+        write(&dir, &ended).unwrap();
+        begin(&dir).unwrap();
+        assert!(!dir.join(FILE).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

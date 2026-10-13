@@ -206,7 +206,7 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
         if args[0] == "begin" {
             return match core_state::begin(root) {
                 Ok(()) => std::process::ExitCode::SUCCESS,
-                Err(message) => { eprintln!("{message}"); std::process::ExitCode::from(1) },
+                Err(refusal) => { eprintln!("{}", refusal.json()); std::process::ExitCode::from(1) },
             };
         }
         if args[0] != "status" { return std::process::ExitCode::from(2); }

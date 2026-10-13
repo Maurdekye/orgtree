@@ -18,8 +18,13 @@ pub struct Session {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Life { Alive, Gone, Unknown }
 
+/// Which call left a member Unknown (`open`, `wait` or `times`) and the
+/// Windows error it returned: diagnostics only, never a verdict of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Failed { pub stage: &'static str, pub os: u32 }
+
 #[cfg(windows)]
-pub use win::{identity, life, Sessions};
+pub use win::{diagnose, identity, life, Sessions};
 
 #[cfg(not(windows))]
 #[nolog]
@@ -27,6 +32,9 @@ pub fn identity(_: u32) -> Option<Identity> { None }
 #[cfg(not(windows))]
 #[nolog]
 pub fn life(_: &Identity) -> Life { Life::Unknown }
+#[cfg(not(windows))]
+#[nolog]
+pub fn diagnose(_: &Identity) -> (Life, Option<Failed>) { (Life::Unknown, None) }
 
 #[cfg(windows)]
 mod win {
@@ -37,12 +45,14 @@ mod win {
     /// Handles are opened for query/wait only. Creation time is checked on that
     /// same handle, so a reused PID cannot masquerade as the registered member.
     #[nolog]
-    fn inspect(pid: u32) -> Result<Option<u64>, ()> {
+    fn inspect(pid: u32) -> Result<Option<u64>, Failed> {
         unsafe {
             let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, pid);
             if h.is_null() {
-                return if GetLastError() == ERROR_INVALID_PARAMETER { Ok(None) } else { Err(()) };
+                let os = GetLastError();
+                return if os == ERROR_INVALID_PARAMETER { Ok(None) } else { Err(Failed { stage: "open", os }) };
             }
+            // each failure's error is read before CloseHandle can replace it
             let answer = match WaitForSingleObject(h, 0) {
                 WAIT_OBJECT_0 => Ok(None),
                 WAIT_TIMEOUT => {
@@ -50,9 +60,9 @@ mod win {
                     let mut e = c; let mut k = c; let mut u = c;
                     if GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) != 0 {
                         Ok(Some(((c.dwHighDateTime as u64) << 32) | c.dwLowDateTime as u64))
-                    } else { Err(()) }
+                    } else { Err(Failed { stage: "times", os: GetLastError() }) }
                 }
-                _ => Err(()),
+                _ => Err(Failed { stage: "wait", os: GetLastError() }),
             };
             CloseHandle(h);
             answer
@@ -66,10 +76,16 @@ mod win {
 
     #[nolog]
     pub fn life(who: &Identity) -> Life {
+        diagnose(who).0
+    }
+
+    /// `life`, with what left an Unknown member unknown.
+    #[nolog]
+    pub fn diagnose(who: &Identity) -> (Life, Option<Failed>) {
         match inspect(who.pid) {
-            Ok(Some(stamp)) if stamp.to_string() == who.created => Life::Alive,
-            Ok(_) => Life::Gone,
-            Err(_) => Life::Unknown,
+            Ok(Some(stamp)) if stamp.to_string() == who.created => (Life::Alive, None),
+            Ok(_) => (Life::Gone, None),
+            Err(failed) => (Life::Unknown, Some(failed)),
         }
     }
 
