@@ -103,3 +103,23 @@ rows, or the label lines shared with Muse (257 tests) pass.
 Limit: at the 303px narrow panel the key rows cut off the key's name and verdict,
 before and after (the tooltip carries them, and a refusal stays visible on the
 spend line); the row's own layout belongs to its owner.
+
+### OpenRouter key actions and provider drafts (2026-10-13)
+
+The OpenRouter provider header now owns one add action beside its enable switch,
+using the same `acct-secondary-btn` as other providers' Add account. With no key
+it opens the first-key form; with any remaining key (including added-only keys)
+it opens the additional-key form. Neither action is repeated beneath the rows.
+The original key's Replace settings uses the shared name/optional-key form:
+name-only saves rename, a supplied key replaces and renames together, and an
+empty custom name restores the existing provider-label meaning. There is no
+separate naming button or dialog. Existing endpoints and activation are retained.
+
+Shared ProviderDialog drafts, including language server add/configure, dismiss
+on idle backdrop clicks or Escape. Unsaved fields are discarded as with Cancel,
+focus returns to the opener, and a busy save blocks dismissal. PinFrame records
+where the pointer started so a text-selection drag ending outside the panel
+cannot dismiss it; pinned and detached behavior retains its existing gates.
+Focused renderer checks and `provider-key-visual.{mjs,cjs}` exercise these paths
+using synthetic documents only; installed/provider behavior requires separate
+evidence. Earlier layout measurements above retain their historical provenance.
