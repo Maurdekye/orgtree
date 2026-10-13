@@ -614,6 +614,99 @@ fn favorites_doc(engine: &Engine) -> Vec<Value> {
     engine.settings.get().pointer("/openrouter/favorites").and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
+/// How a favorite's price stands for ordering: 0 priced, 1 free, 2 unknown.
+/// A catalog row whose price could not be read (`price_unknown`) is unknown,
+/// never counted as $0.
+#[nolog]
+fn price_class(f: &Value) -> u8 {
+    let rate = |k: &str| f[k].as_f64().filter(|p| p.is_finite() && *p >= 0.0);
+    let unknown = f["price_unknown"].as_array().is_some_and(|u| !u.is_empty());
+    match (unknown, rate("prompt"), rate("completion")) {
+        (true, _, _) | (_, None, _) | (_, _, None) => 2,
+        (_, Some(p), Some(c)) if p == 0.0 && c == 0.0 => 1,
+        _ => 0,
+    }
+}
+
+/// The order the chosen models are listed in wherever they are listed
+/// together (user 2026-10-13): the dearest first, by output price per
+/// million tokens, then input price, then name; free models after the priced
+/// ones and models of unknown price last. The catalog browser keeps its own
+/// sort. A stable sort over this makes the order the same everywhere.
+#[nolog]
+pub fn by_price_desc(a: &Value, b: &Value) -> std::cmp::Ordering {
+    let rate = |f: &Value, k: &str| f[k].as_f64().unwrap_or(0.0);
+    let name = |f: &Value| f["name"].as_str().or(f["label"].as_str()).or(f["model"].as_str()).unwrap_or("").to_lowercase();
+    price_class(a).cmp(&price_class(b))
+        .then_with(|| rate(b, "completion").total_cmp(&rate(a, "completion")))
+        .then_with(|| rate(b, "prompt").total_cmp(&rate(a, "prompt")))
+        .then_with(|| name(a).cmp(&name(b)))
+}
+
+/// The favorites, dearest first (`by_price_desc`).
+#[nolog]
+pub fn favorites_listed(engine: &Engine) -> Vec<Value> {
+    let mut favs = favorites_doc(engine);
+    favs.sort_by(by_price_desc);
+    favs
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    fn fav(tier: &str, name: &str, prompt: f64, completion: f64) -> Value {
+        json!({ "tier": tier, "name": name, "label": name, "model": format!("v/{name}"), "prompt": prompt, "completion": completion })
+    }
+
+    fn tiers(mut v: Vec<Value>) -> Vec<String> {
+        v.sort_by(by_price_desc);
+        v.iter().map(|f| f["tier"].as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn chosen_models_list_dearest_output_first_then_input_then_name() {
+        let got = tiers(vec![
+            fav("or-cheap", "Cheap", 0.1, 0.4),
+            fav("or-dear", "Dear", 5.0, 25.0),
+            fav("or-mid-b", "Mid B", 1.0, 5.0),
+            fav("or-mid-a", "Mid A", 1.0, 5.0),
+            fav("or-mid-in", "Mid In", 3.0, 5.0),
+        ]);
+        // output 25, then the three at 5 (input 3, then 1 by name), then 0.4
+        assert_eq!(got, ["or-dear", "or-mid-in", "or-mid-a", "or-mid-b", "or-cheap"]);
+    }
+
+    #[test]
+    fn free_models_follow_priced_ones_and_unknown_prices_come_last() {
+        let mut unknown = fav("or-unknown", "Unknown", 0.0, 0.0);
+        unknown["price_unknown"] = json!(["prompt", "completion"]);
+        let mut half = fav("or-half", "Half", 2.0, 0.0);
+        half["price_unknown"] = json!(["completion"]);
+        let got = tiers(vec![
+            unknown,
+            fav("or-free-b", "Free B", 0.0, 0.0),
+            fav("or-tiny", "Tiny", 0.0, 0.01),
+            half,
+            fav("or-free-a", "Free A", 0.0, 0.0),
+            fav("or-dear", "Dear", 1.0, 2.0),
+        ]);
+        // priced (dear, tiny), then free by name, then the unknown ones - never as $0
+        assert_eq!(got, ["or-dear", "or-tiny", "or-free-a", "or-free-b", "or-half", "or-unknown"]);
+        // a record with no rate at all is unknown, not free
+        assert_eq!(price_class(&json!({ "tier": "or-x" })), 2);
+        assert_eq!(price_class(&fav("or-f", "F", 0.0, 0.0)), 1);
+    }
+
+    #[test]
+    fn equal_models_keep_their_places() {
+        let a = fav("or-first", "Same", 1.0, 2.0);
+        let b = fav("or-second", "Same", 1.0, 2.0);
+        assert_eq!(tiers(vec![a.clone(), b.clone()]), ["or-first", "or-second"]);
+        assert_eq!(tiers(vec![b, a]), ["or-second", "or-first"]);
+    }
+}
+
 /// A page of the picker: search, sort and optional vendor grouping.
 #[logged]
 pub async fn search(engine: &Engine, q: &str, offset: usize, limit: usize, sort: &str, order: &str, group: bool) -> Result<Value> {
@@ -699,12 +792,16 @@ pub async fn set_favorite(engine: &Engine, id: &str, selected: bool) -> Result<(
         };
         let c = card(raw, &[]);
         let prompt = c["prompt"].as_f64().unwrap_or(0.0);
-        let rec = json!({
+        let mut rec = json!({
             "tier": tier_name(id), "seat": seat_for(prompt), "model": id, "label": c["label"], "name": c["name"],
             "vendor": c["vendor"], "color": c["color"], "letter": c["letter"], "prompt": prompt,
             "completion": c["completion"], "cache_read": c["cache_read"], "context": c["context"], "tools": c["tools"],
             "image": c["image"], "reasoning": c["reasoning"],
         });
+        // a price the catalog did not state stays unknown (the order lists it last, never as $0)
+        if let Some(unknown) = c.get("price_unknown") {
+            rec["price_unknown"] = unknown.clone();
+        }
         known.insert(tier_name(id), rec.clone());
         favs.push(rec);
     }
@@ -832,14 +929,18 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
             Err(e) => reason = json!(format!("{e:#}")),
         }
     }
-    let favs = favorites_doc(engine);
+    let favs = favorites_listed(engine);
     let tiers: Vec<Value> = favs
         .iter()
         .map(|f| {
-            json!({ "tier": f["tier"], "provider": "openrouter", "seat": f["seat"], "model": f["model"], "letter": f["letter"],
+            let mut row = json!({ "tier": f["tier"], "provider": "openrouter", "seat": f["seat"], "model": f["model"], "letter": f["letter"],
                     "color": f["color"], "accent": null, "name": f["name"], "label": f["label"], "vendor": f["vendor"],
                     "prompt": f["prompt"], "completion": f["completion"], "context": f["context"], "tools": f["tools"],
-                    "image": f["image"] })
+                    "image": f["image"] });
+            if let Some(unknown) = f.get("price_unknown") {
+                row["price_unknown"] = unknown.clone();
+            }
+            row
         })
         .collect();
     let keys = keys_doc(engine, connected, &reason);

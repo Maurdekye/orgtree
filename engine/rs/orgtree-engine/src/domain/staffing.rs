@@ -31,8 +31,9 @@ struct Offer {
 #[logged]
 fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
     let st = engine.providers.state.load();
-    let mut out: Vec<Offer> = catalog::TIERS
+    let mut out: Vec<Offer> = catalog::listed()
         .iter()
+        .copied()
         // a Muse tier is conditional on a Muse login's own catalog: the user's
         // own, or a registered one (primary entitlement is no prerequisite)
         .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && muse_somewhere(engine, t.tier)))

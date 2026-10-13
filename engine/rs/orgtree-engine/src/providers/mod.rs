@@ -725,7 +725,11 @@ fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, St
         .and_then(|o| o.get("favorites"))
         .and_then(Value::as_array)
         .map(|a| {
-            a.iter()
+            // the dearest first, as every list of them reads (user 2026-10-13)
+            let mut listed: Vec<&Value> = a.iter().collect();
+            listed.sort_by(|x, y| crate::openrouter::by_price_desc(x, y));
+            listed
+                .into_iter()
                 .filter_map(|f| {
                     Some((
                         f.get("tier")?.as_str()?.to_string(),
@@ -763,8 +767,9 @@ pub fn refresh_openrouter(engine: &Engine) {
 
 #[logged]
 fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
-    catalog::TIERS
+    catalog::listed()
         .iter()
+        .copied()
         .filter(|t| t.provider == provider && (legacy_ok || !t.legacy))
         .map(|t| json!({ "tier": t.tier, "provider": t.provider, "seat": t.seat, "model": t.model, "letter": t.letter }))
         .collect()
@@ -826,8 +831,9 @@ pub fn payload(engine: &Engine) -> Value {
         // a tier the own login's catalog lists stays listed while it is signed
         // out (disabled, with the reason, unless another login offers models)
         let own_out = found.and_then(|d| d.probe.account_state.as_deref()) == Some("loggedOut");
-        let tiers: Vec<Value> = catalog::TIERS
+        let tiers: Vec<Value> = catalog::listed()
             .iter()
+            .copied()
             .filter(|t| t.provider == catalog::MUSE && !t.legacy)
             .filter_map(|t| {
                 let listed = muse_offers(t.tier, found);
@@ -975,7 +981,7 @@ fn muse_login_doc(engine: &Engine, account: Option<&crate::accounts::AccountInfo
         _ => None,
     };
     let mut tiers = serde_json::Map::new();
-    for t in catalog::TIERS.iter().filter(|t| t.provider == catalog::MUSE && !t.legacy) {
+    for t in catalog::listed().iter().copied().filter(|t| t.provider == catalog::MUSE && !t.legacy) {
         let latest = row(t.model);
         let versions: serde_json::Map<String, Value> = t.versions.iter().filter_map(|(v, m)| row(m).map(|r| (v.to_string(), r))).collect();
         if latest.is_some() || !versions.is_empty() {

@@ -85,7 +85,7 @@ pub async fn resolve(State(e): State<Arc<Engine>>, Json(b): Json<ResolveBody>) -
     let (t, planned, blocked) = plan_pick(&e, &b.pick, &slug, &org_dirs(&b.dirs))?;
     let mut out = templates::plan_json(&t, &planned, &blocked);
     let av = templates::avail(&e, &slug);
-    out["offered"] = json!(av.tiers.iter()
+    out["offered"] = json!(av.listed().into_iter()
         .map(|(k, o)| json!({ "tier": k, "seat": o.seat, "provider": o.provider })).collect::<Vec<_>>());
     // the first sign-in check has not landed: the picker asks again shortly
     out["loading"] = json!(av.checking);

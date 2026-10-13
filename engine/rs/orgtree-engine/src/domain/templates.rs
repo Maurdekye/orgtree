@@ -106,6 +106,8 @@ pub struct Charter {
 #[derive(Debug, Clone)]
 pub struct Avail {
     pub tiers: HashMap<String, Offer>,
+    /// the tiers in the order the staffing options list them (a map has none)
+    pub order: Vec<String>,
     /// the effective hire-default account, if any
     pub default_account: Option<String>,
     /// when the readings were judged (resets are compared with it)
@@ -117,7 +119,20 @@ pub struct Avail {
 
 impl Default for Avail {
     fn default() -> Self {
-        Avail { tiers: HashMap::new(), default_account: None, now: chrono::Utc::now(), checking: false }
+        Avail { tiers: HashMap::new(), order: Vec::new(), default_account: None, now: chrono::Utc::now(), checking: false }
+    }
+}
+
+impl Avail {
+    /// The offered tiers as a list is shown: the staffing options' order
+    /// when it is known, then any other by the catalog's listing order, then
+    /// by name, so the answer never depends on a map's iteration order.
+    #[nolog]
+    pub fn listed(&self) -> Vec<(&String, &Offer)> {
+        let mut out: Vec<(&String, &Offer)> = self.tiers.iter().collect();
+        let at = |k: &String| self.order.iter().position(|o| o == k).unwrap_or(usize::MAX);
+        out.sort_by(|a, b| at(a.0).cmp(&at(b.0)).then(catalog::listed_rank(a.0).cmp(&catalog::listed_rank(b.0))).then(a.0.cmp(b.0)));
+        out
     }
 }
 
@@ -409,8 +424,10 @@ pub fn quick_chat_for(t: &Template, planned: &[Planned]) -> Option<Value> {
 pub fn avail(engine: &Engine, org_slug: &str) -> Avail {
     let opts = crate::domain::staffing::options(engine, org_slug);
     let mut tiers = HashMap::new();
+    let mut order = Vec::new();
     for t in opts["tiers"].as_array().into_iter().flatten() {
         let Some(tier) = t["tier"].as_str() else { continue };
+        order.push(tier.to_string());
         let accounts: Vec<String> = t["accounts"].as_array().into_iter().flatten().filter_map(|a| a["id"].as_str().map(str::to_string)).collect();
         let default_ok = t["default_ok"].as_bool().unwrap_or(false);
         let view = engine.accounts.view();
@@ -431,7 +448,7 @@ pub fn avail(engine: &Engine, org_slug: &str) -> Avail {
     }
     let defaults = engine.settings.defaults();
     let eff = crate::feed::groups::effective_settings(&json!({}), &defaults);
-    Avail { tiers, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now(),
+    Avail { tiers, order, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now(),
             checking: opts["loading"].as_bool().unwrap_or(false) }
 }
 
@@ -955,6 +972,22 @@ mod tests {
         tiers.insert("wonder-full".into(), offer(10.0, "muse"));
         tiers.insert("spark".into(), offer(2.0, "muse"));
         Avail { tiers, ..Avail::default() }
+    }
+
+    #[test]
+    fn offered_tiers_list_in_the_staffing_order_then_the_catalog_listing() {
+        let mut av = muse_only();
+        for t in ["fable", "or-b-model", "ls-s-m"] {
+            av.tiers.insert(t.into(), offer(1.0, "x"));
+        }
+        fn keys(av: &Avail) -> Vec<&str> {
+            av.listed().into_iter().map(|(k, _)| k.as_str()).collect()
+        }
+        // no order known: the catalog's listing (dearest first within Muse), then the rest by name
+        assert_eq!(keys(&av), ["fable", "wonder-full", "wonder", "spark", "ls-s-m", "or-b-model"]);
+        // the staffing options' own order wins, whatever a map would iterate
+        av.order = vec!["wonder".into(), "or-b-model".into(), "fable".into()];
+        assert_eq!(keys(&av), ["wonder", "or-b-model", "fable", "wonder-full", "spark", "ls-s-m"]);
     }
 
     fn bundled(id: &str) -> Template {

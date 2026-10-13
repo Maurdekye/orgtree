@@ -206,6 +206,30 @@ pub fn tier(name: &str) -> Option<&'static Tier> {
     TIERS.iter().find(|t| t.tier == name)
 }
 
+/// The catalog in the order tiers are LISTED together (user 2026-10-13):
+/// providers in the order the catalog first names them, and within a
+/// provider the dearest seat first. The sort is stable, so equal seats keep
+/// their catalog order. Every picker, menu and list reads this, so a tier
+/// added to `TIERS` orders itself; `TIERS` itself stays the order a default
+/// is taken from (the first offered) and is never shown as is.
+#[nolog]
+pub fn listed() -> &'static [&'static Tier] {
+    static LISTED: std::sync::OnceLock<Vec<&'static Tier>> = std::sync::OnceLock::new();
+    LISTED.get_or_init(|| {
+        let rank = |provider: &str| TIERS.iter().position(|t| t.provider == provider).unwrap_or(usize::MAX);
+        let mut out: Vec<&'static Tier> = TIERS.iter().collect();
+        out.sort_by(|a, b| rank(a.provider).cmp(&rank(b.provider)).then(b.seat.total_cmp(&a.seat)));
+        out
+    })
+}
+
+/// Where a catalog tier stands in `listed()`; tiers outside the catalog
+/// (OpenRouter, language servers) come after it.
+#[nolog]
+pub fn listed_rank(name: &str) -> usize {
+    listed().iter().position(|t| t.tier == name).unwrap_or(usize::MAX)
+}
+
 /// The letter on a runtime tier's chip: the first letter of the first word
 /// of its model's label (`claude-sonnet-5` → C, `qwen3.6-35b-a3b:latest` →
 /// Q), the rule OpenRouter favorites have used since they were added; `?`
@@ -365,5 +389,59 @@ mod effort_tests {
         assert!(runs_model("spark", "muse-spark-1.2") && !runs_model("wonder", "muse-wonder-full-1.0"));
         assert_eq!(muse_pool("wonder-full"), "muse:wonder-full");
         assert_eq!(provider_label(MUSE), "Muse");
+    }
+
+    fn names(provider: &str) -> Vec<&'static str> {
+        listed().iter().filter(|t| t.provider == provider).map(|t| t.tier).collect()
+    }
+
+    /// The user's rule (2026-10-13): every provider lists its tiers dearest
+    /// seat first; equal seats keep catalog order; providers keep their order.
+    #[test]
+    fn tiers_are_listed_dearest_first_within_each_provider() {
+        assert_eq!(listed().len(), TIERS.len());
+        assert_eq!(names(CLAUDE), ["fable", "opus", "sonnet", "haiku"]);
+        assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
+        assert_eq!(names(GOOGLE), ["agy-opus", "pro", "argon", "barium", "carbon", "agy-sonnet", "flash"]);
+        assert_eq!(names(MUSE), ["wonder-full", "wonder", "spark"]);
+        // what a person sees: legacy and not-yet-listed models are hidden
+        let seen = |p: &str, conditional: &[&str]| -> Vec<&'static str> {
+            listed().iter().filter(|t| t.provider == p && !t.legacy && (!t.conditional || conditional.contains(&t.tier)))
+                .map(|t| t.tier).collect()
+        };
+        assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet", "flash"]);
+        assert_eq!(seen(OPENAI, &[]), ["astra", "sol", "luna"]);
+        // the rule itself, so a tier added later orders itself
+        for p in [CLAUDE, OPENAI, GOOGLE, MUSE] {
+            let seats: Vec<f64> = listed().iter().filter(|t| t.provider == p).map(|t| t.seat).collect();
+            assert!(seats.windows(2).all(|w| w[0] >= w[1]), "{p}: {seats:?}");
+            let catalog: Vec<&str> = TIERS.iter().filter(|t| t.provider == p).map(|t| t.tier).collect();
+            for pair in listed().iter().filter(|t| t.provider == p).collect::<Vec<_>>().windows(2) {
+                if pair[0].seat == pair[1].seat {
+                    let at = |t: &Tier| catalog.iter().position(|c| *c == t.tier).unwrap();
+                    assert!(at(pair[0]) < at(pair[1]), "{p}: equal seats must keep catalog order");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn provider_groups_keep_the_catalog_order() {
+        let mut groups: Vec<&str> = Vec::new();
+        for t in listed() {
+            if groups.last() != Some(&t.provider) {
+                assert!(!groups.contains(&t.provider), "{} is split", t.provider);
+                groups.push(t.provider);
+            }
+        }
+        let mut old: Vec<&str> = Vec::new();
+        for t in TIERS {
+            if !old.contains(&t.provider) {
+                old.push(t.provider);
+            }
+        }
+        assert_eq!(groups, old);
+        assert_eq!((listed_rank("fable"), listed_rank("nope")), (0, usize::MAX));
+        assert!(listed_rank("wonder-full") < listed_rank("wonder") && listed_rank("wonder") < listed_rank("spark"));
     }
 }

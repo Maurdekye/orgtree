@@ -113,7 +113,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
         "tiers" => {
             let mut tiers = Map::new();
             let mut models = Map::new();
-            for t in catalog::TIERS {
+            for t in catalog::listed().iter().copied() {
                 tiers.insert(t.tier.into(), json!(t.seat));
                 models.insert(t.tier.into(), json!(t.model));
             }

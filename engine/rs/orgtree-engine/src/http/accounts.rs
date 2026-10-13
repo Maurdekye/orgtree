@@ -350,7 +350,7 @@ fn readout_doc(e: &Engine) -> Value {
         })
         .collect();
     let mut assignments = serde_json::Map::new();
-    for t in crate::providers::catalog::TIERS.iter().filter(|t| t.provider == "claude" && !t.legacy) {
+    for t in crate::providers::catalog::listed().iter().copied().filter(|t| t.provider == "claude" && !t.legacy) {
         assignments.insert(t.tier.to_string(), json!({ "account": "primary", "available": true, "refresh_at": null }));
     }
     json!({ "version": 2, "primary": { "signed_in": signed_in, "email": email }, "keys": keys, "assignments": assignments })
@@ -524,8 +524,9 @@ async fn primary_row(e: &Engine) -> Value {
 #[nolog]
 async fn key_row(e: &Engine, a: &AccountInfo) -> Value {
     let now = chrono::Utc::now();
-    let tiers: Vec<Value> = crate::providers::catalog::TIERS
+    let tiers: Vec<Value> = crate::providers::catalog::listed()
         .iter()
+        .copied()
         .filter(|t| t.provider == "claude" && !t.legacy)
         .map(|t| json!({ "tier": t.tier, "available": a.limited(now).is_none(),
                          "refresh_at": a.limited(now).map(crate::util::iso), "pool": null }))
