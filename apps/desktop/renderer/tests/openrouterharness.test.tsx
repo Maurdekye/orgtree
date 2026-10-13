@@ -3,7 +3,9 @@
 // available to select from"). The Runtime tab's global row is gone; each key's
 // settings dialog carries a Harness select next to its Name.
 //
-//   · only installed harnesses are offered; one not installed is not listed;
+//   · every supported harness is listed (user 2026-10-13 22:20Z): the
+//     installed ones first, a separator, then the ones not installed,
+//     greyed out and disabled (never selectable);
 //   · a key whose saved harness is no longer installed names it "not
 //     installed", warns that its agents refuse to start, and sends nothing
 //     until another is picked (never a silent switch);
@@ -18,7 +20,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { OpenRouterSection } from '../src/canvas/openrouter'
-import { HarnessesLink, HarnessesSection } from '../src/canvas/harnesses'
+import { HARNESS_SEPARATOR, HarnessesLink, HarnessesSection } from '../src/canvas/harnesses'
 import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
 import type { OpenRouterDoc, OpenRouterHarness, OpenRouterKey, ProviderInfo } from '../src/types'
 
@@ -31,6 +33,9 @@ const CODEX_GONE = { ...CODEX, state: 'missing', available: false, installed: fa
 
 const BOTH: OpenRouterHarness = { harnesses: [CLAUDE, CODEX], stored: 'claude-code', default: 'claude-code',
   enabled: true, unavailable: false, selected: 'claude-code', explain: '' }
+const CLAUDE_GONE = { ...CLAUDE, state: 'missing', available: false, installed: false, why: 'Claude Code is not installed on this computer' }
+const ONLY_CODEX: OpenRouterHarness = { harnesses: [CLAUDE_GONE, CODEX], stored: 'codex-cli', default: 'codex-cli',
+  enabled: false, unavailable: false, selected: 'codex-cli', explain: 'Only Codex is installed, so it drives OpenRouter agents.' }
 const ONLY_CLAUDE: OpenRouterHarness = { harnesses: [CLAUDE, CODEX_GONE], stored: 'claude-code', default: 'claude-code',
   enabled: false, unavailable: false, selected: 'claude-code', explain: 'Only Claude Code is installed, so it drives OpenRouter agents.' }
 
@@ -100,6 +105,8 @@ const button = (root: ParentNode, text: string) =>
   [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!
 const harnessSelect = (root: ParentNode) => root.querySelector<HTMLSelectElement>('select[aria-label="OpenRouter key harness"]')
 const optionValues = (sel: HTMLSelectElement) => [...sel.querySelectorAll('option')].map((o) => o.value)
+const SEP = HARNESS_SEPARATOR
+const opt = (sel: HTMLSelectElement, v: string) => [...sel.querySelectorAll('option')].find((o) => o.value === v)!
 
 async function choose(sel: HTMLSelectElement, value: string) {
   const w = (globalThis as unknown as { window: Window }).window as unknown as {
@@ -159,7 +166,7 @@ test('§2 editing a key: a change says when its agents move, counts pinned agent
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('§3 only Claude Code installed: Codex is not offered at all, and the control says why', async () => {
+test('§3 only Claude Code installed: Codex is listed after a separator, greyed out and disabled', async () => {
   const seen: Seen[] = []
   stubFetch(seen, ONLY_CLAUDE, [key('openrouter-key')])
   const view = await mount()
@@ -167,9 +174,43 @@ test('§3 only Claude Code installed: Codex is not offered at all, and the contr
     await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
     const dialog = document.querySelector('[aria-label="Add another OpenRouter key"]')!
     const sel = harnessSelect(dialog)!
-    assert.deepEqual(optionValues(sel), ['claude-code'], 'a harness not installed is not offered')
-    assert.equal(sel.disabled, true, 'nothing to choose between')
+    assert.deepEqual(optionValues(sel), ['claude-code', SEP, 'codex-cli'], 'installed first, a separator, then the rest')
+    assert.equal(opt(sel, 'claude-code').disabled, false)
+    assert.equal(opt(sel, SEP).disabled, true, 'the separator is never a choice')
+    assert.match(opt(sel, SEP).textContent ?? '', /^─+$/)
+    assert.equal(opt(sel, 'codex-cli').disabled, true, 'a harness not installed cannot be selected')
+    assert.equal(opt(sel, 'codex-cli').textContent, 'Codex (not installed)')
+    assert.ok(opt(sel, 'codex-cli').classList.contains('harness-absent'), 'greyed out')
+    assert.equal(sel.value, 'claude-code')
+    assert.equal(sel.disabled, false, 'the list stays open to read')
     assert.match(dialog.textContent ?? '', /Only Claude Code is installed/)
+    await inAct(async () => { button(dialog, 'Save').click(); await flush(10) })
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§3b order follows install state, not the registry: Codex installed comes before Claude Code', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, ONLY_CODEX, [key('openrouter-key', { harness: 'codex-cli' })])
+  const view = await mount()
+  try {
+    await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
+    const dialog = document.querySelector('[aria-label="Add another OpenRouter key"]')!
+    const sel = harnessSelect(dialog)!
+    assert.deepEqual(optionValues(sel), ['codex-cli', SEP, 'claude-code'])
+    assert.equal(opt(sel, 'claude-code').disabled, true)
+    assert.equal(opt(sel, 'claude-code').textContent, 'Claude Code (not installed)')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§3c both installed: no separator and nothing disabled', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, BOTH, [key('openrouter-key')])
+  const view = await mount()
+  try {
+    await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
+    const sel = harnessSelect(document.querySelector('[aria-label="Add another OpenRouter key"]')!)!
+    assert.deepEqual(optionValues(sel), ['claude-code', 'codex-cli'])
+    assert.ok([...sel.querySelectorAll('option')].every((o) => !o.disabled))
   } finally { await view.unmount(); delete g.fetch }
 })
 
@@ -188,6 +229,7 @@ test('§4 a saved harness since uninstalled is named, warned about, and never se
     const codex = [...sel.querySelectorAll('option')].find((o) => o.value === 'codex-cli')!
     assert.equal(codex.disabled, true)
     assert.match(codex.textContent ?? '', /not installed/)
+    assert.deepEqual(optionValues(sel), ['claude-code', SEP, 'codex-cli'], 'the saved one sits in the not-installed group')
     assert.match(dialog.textContent ?? '', /refuse to start until it is installed or another harness is chosen/)
     assert.equal(sel.disabled, false, 'an installed one can be picked instead')
     await inAct(async () => { button(dialog, 'Save').click(); await flush(10) })

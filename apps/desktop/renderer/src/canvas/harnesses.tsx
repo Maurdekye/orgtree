@@ -14,6 +14,41 @@ import { getHarnesses } from '../api'
 import type { HarnessesDoc } from '../types'
 import { SetGroup, openAppSettings } from './settingskit'
 
+/** One entry of a harness picker. `enabled`: it can be chosen here (it is
+ *  installed and, for a language server, can drive that kind of server). */
+export interface HarnessChoice {
+  id: string
+  label: string
+  installed: boolean
+  enabled: boolean
+  /** shown after the label when an installed one cannot be chosen */
+  note?: string
+  title?: string
+}
+
+/** The value of the picker's separator row: never a harness id. */
+export const HARNESS_SEPARATOR = '__harness-separator__'
+
+/** Every harness picker's options (user 2026-10-13 22:20Z: every supported
+ *  harness is shown wherever one is selectable): the installed ones first,
+ *  then a separator, then the ones not installed, greyed out and disabled.
+ *  Registry order within each group. A saved choice since uninstalled is in
+ *  the second group and stays the select's value, so it shows; the engine
+ *  refuses to launch it. */
+export function HarnessOptions({ choices }: { choices: HarnessChoice[] }) {
+  const there = choices.filter((c) => c.installed)
+  const absent = choices.filter((c) => !c.installed)
+  return <>
+    {there.map((c) => <option key={c.id} value={c.id} disabled={!c.enabled} title={c.title}>
+      {c.label}{c.enabled || !c.note ? '' : ` (${c.note})`}
+    </option>)}
+    {there.length > 0 && absent.length > 0
+      && <option key={HARNESS_SEPARATOR} value={HARNESS_SEPARATOR} disabled className="harness-sep">──────────</option>}
+    {absent.map((c) => <option key={c.id} value={c.id} disabled className="harness-absent"
+      title={`${c.label} is not installed on this computer`}>{c.label} (not installed)</option>)}
+  </>
+}
+
 export function HarnessesLink() {
   return <button type="button" className="link-btn harness-help-link"
     onClick={() => openAppSettings('harnesses')}>Which harnesses are supported?</button>

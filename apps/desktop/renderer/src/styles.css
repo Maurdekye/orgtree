@@ -8585,3 +8585,5 @@ main:has(> .orgbar.native-header) > .error {
 .harness-list { display: flex; flex-direction: column; gap: 12px; }
 .harness-entry { display: flex; flex-direction: column; gap: 2px; }
 .harness-installed { color: var(--ok, inherit); }
+/* a picker's not-installed harnesses and its separator: greyed, never chosen */
+option.harness-absent, option.harness-sep { color: var(--dim); }

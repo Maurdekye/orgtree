@@ -25,7 +25,7 @@ import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
 import type { OpenRouterDoc, OpenRouterHarness, OpenRouterHarnessOption, OpenRouterKey } from '../types'
 import { ProviderDialog } from './providerdialog'
 import { SetToggle } from './settingskit'
-import { HarnessesLink } from './harnesses'
+import { HarnessOptions, HarnessesLink } from './harnesses'
 
 type Run = (p: Promise<OpenRouterDoc>, ok: string) => void
 
@@ -108,10 +108,10 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, 
   // a harness not installed is never sent: the key keeps what it has (an
   // add gets the default)
   const submit = () => { if (ready) save(name.trim(), key.trim(), missing ? undefined : picked) }
-  // only installed harnesses are offered (user 2026-10-13); a saved one no
-  // longer installed stays listed, saying so, until another is picked
-  const offered = (harness?.options ?? []).filter((o) => o.available || o.id === harness?.value)
-  const live = offered.filter((o) => o.available).length > 1
+  // every supported harness is listed, the installed ones first and the
+  // others greyed out and disabled (user 2026-10-13 22:20Z); a saved one no
+  // longer installed stays the value, saying so, until another is picked
+  const live = (harness?.options ?? []).filter((o) => o.available).length > 1
   const missing = !!harness && !harness.options.find((o) => o.id === picked)?.available
   const changed = !keyRequired && !!harness && picked !== harness.value
   return <ProviderDialog title={title} busy={busy} close={close}>
@@ -124,13 +124,9 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, 
       {harness && <>
         <label htmlFor="openrouter-key-harness">Harness</label>
         <select id="openrouter-key-harness" aria-label="OpenRouter key harness" value={picked ?? ''}
-          disabled={busy || !(live || (missing && offered.some((o) => o.available)))}
+          disabled={busy || !harness.options.some((o) => o.available)}
           onChange={(e) => setPicked(e.target.value)}>
-          {offered.map((o) => (
-            <option key={o.id} value={o.id} disabled={!o.available}>
-              {o.available ? o.label : `${o.label} (not installed)`}
-            </option>
-          ))}
+          <HarnessOptions choices={harness.options.map((o) => ({ id: o.id, label: o.label, installed: o.installed ?? o.available, enabled: o.available }))} />
         </select>
         {missing && <div className="ask-warn-inline">
           {harnessName(harness.options, picked)} is not installed on this computer: agents on this key

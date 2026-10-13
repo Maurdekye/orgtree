@@ -71,7 +71,7 @@ import {
   fmtTokens, LANE_CARD_COLOR, monogram, probeFacts, startWindow, variantName, wantsVariant, windowMismatch,
 } from './lsmodels'
 import { SetRow, SetToggle } from './settingskit'
-import { HarnessesLink } from './harnesses'
+import { HarnessOptions, HarnessesLink } from './harnesses'
 
 export { fmtTokens, variantName, wantsVariant } from './lsmodels'
 
@@ -369,13 +369,11 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
             hint="Claude Code uses Anthropic Messages; Codex uses OpenAI Responses; OpenCode uses OpenAI Chat Completions.">
             <select aria-label="API style" value={harness} disabled={busy}
               onChange={(e) => setHarness(e.target.value)}>
-              {/* only installed harnesses are offered (user 2026-10-13) */}
-              {preset?.harnesses.filter((h) => h.installed).map((h) => (
-                <option key={h.id} value={h.id} disabled={!h.available}>
-                  {h.id === 'opencode' ? 'OpenAI Chat Completions (OpenCode)' : h.id === 'codex-cli' ? 'OpenAI Responses (Codex)' : 'Anthropic Messages (Claude Code)'}
-                  {h.available ? '' : ` — ${h.why}`}
-                </option>
-              ))}
+              {/* every supported harness, installed first, the others greyed
+                  out and disabled (user 2026-10-13 22:20Z) */}
+              <HarnessOptions choices={(preset?.harnesses ?? []).map((h) => ({ id: h.id, installed: h.installed,
+                enabled: h.available, note: h.why || undefined,
+                label: h.id === 'opencode' ? 'OpenAI Chat Completions (OpenCode)' : h.id === 'codex-cli' ? 'OpenAI Responses (Codex)' : 'Anthropic Messages (Claude Code)' }))} />
             </select>
           </SetRow>
         : <SetRow label="Harness"
@@ -383,12 +381,10 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
               || 'The CLI that drives this server’s agents. It stays with the server.'}>
             <select aria-label="harness" value={harness} disabled={busy}
               onChange={(e) => setHarness(e.target.value)}>
-              {/* only installed harnesses are offered (user 2026-10-13) */}
-              {preset?.harnesses.filter((h) => h.installed).map((h) => (
-                <option key={h.id} value={h.id} disabled={!h.available} title={h.why || undefined}>
-                  {h.label}{h.available ? '' : ' (unavailable)'}
-                </option>
-              ))}
+              {/* every supported harness, installed first, the others greyed
+                  out and disabled (user 2026-10-13 22:20Z) */}
+              <HarnessOptions choices={(preset?.harnesses ?? []).map((h) => ({ id: h.id, label: h.label,
+                installed: h.installed, enabled: h.available, note: 'unavailable', title: h.why || undefined }))} />
             </select>
           </SetRow>}
       <HarnessesLink />

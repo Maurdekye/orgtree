@@ -13,6 +13,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { LanguageServerSection } from '../src/canvas/langserver'
+import { HARNESS_SEPARATOR } from '../src/canvas/harnesses'
 import type { LangServer, LangServerDoc, LangServerProbeModel } from '../src/types'
 
 type Seen = { method: string; path: string; body: Record<string, unknown> | null }
@@ -57,14 +58,16 @@ function server(ids: string[] = [LATEST, V64]): LangServer {
 }
 
 /** a scripted engine: the server lists `list` (302 models by default), or does not answer */
-function stubFetch(seen: Seen[], opts: { list?: LangServerProbeModel[], down?: boolean, offered?: string[], second?: boolean, keySet?: boolean } = {}) {
+function stubFetch(seen: Seen[], opts: { list?: LangServerProbeModel[], down?: boolean, offered?: string[], second?: boolean, keySet?: boolean,
+  harnesses?: unknown[], serverHarness?: string } = {}) {
   const s = server(opts.offered)
+  if (opts.serverHarness) s.harness = opts.serverHarness as LangServer['harness']
   s.key_set = opts.keySet ?? false
   const other = { ...server(), id: 'other', label: 'Other server' }
   const doc = (): LangServerDoc => ({
     servers: opts.second ? [s, other] : [s],
     presets: [{ id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', claude: true, codex: true,
-      harnesses: [{ id: 'claude-code', label: 'Claude Code', available: true, why: '' }],
+      harnesses: opts.harnesses ?? [{ id: 'claude-code', label: 'Claude Code', available: true, why: '' }],
       note: 'Ollama 0.14 or later serves both harnesses.' }] as unknown as LangServerDoc['presets'],
     default_seat: 1, max_seat: 100, min_context: 65536, default_context: 65536, user_enabled: true,
   })
@@ -474,5 +477,41 @@ test('direct server switch changes only that server enabled flag and preserves c
       { path: '/api/langservers/ollama', body: { enabled: true } },
     ])
     assert.equal(seen.filter(r => r.method === 'DELETE' || r.path.endsWith('/key')).length, 0)
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+// every supported harness is listed where one is chosen (user 2026-10-13
+// 22:20Z): installed first, a separator, then the ones not installed, greyed
+// out and disabled; a server's saved harness since uninstalled says so
+test('add dialog harness: installed first, a separator, the not-installed one greyed out and disabled', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { harnesses: [
+    { id: 'claude-code', label: 'Claude Code', available: false, installed: false, why: 'Claude Code is not installed on this computer' },
+    { id: 'codex-cli', label: 'Codex', available: true, installed: true, why: '' },
+  ] })
+  const view = await mountSection([])
+  try {
+    await click(view.el.querySelector('button[title^="add a model server"]'))
+    const dialog = document.querySelector('[role="dialog"][aria-label="Add language server"]')!
+    const sel = dialog.querySelector<HTMLSelectElement>('select[aria-label="harness"]')!
+    const opts = [...sel.querySelectorAll('option')]
+    assert.deepEqual(opts.map((o) => o.value), ['codex-cli', HARNESS_SEPARATOR, 'claude-code'])
+    assert.deepEqual(opts.map((o) => o.disabled), [false, true, true], 'only the installed one can be chosen')
+    assert.equal(opts[2]!.textContent, 'Claude Code (not installed)')
+    assert.ok(opts[2]!.classList.contains('harness-absent'))
+    assert.equal(sel.value, 'codex-cli', 'the form starts on an installed harness')
+    assert.ok(dialog.querySelector('.harness-help-link'), 'the "Which harnesses are supported?" link')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('a server whose harness was uninstalled stays listed, saying so', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { serverHarness: 'codex-cli', harnesses: [
+    { id: 'claude-code', label: 'Claude Code', available: true, installed: true, why: '' },
+    { id: 'codex-cli', label: 'Codex', available: false, installed: false, why: 'Codex is not installed on this computer' },
+  ] })
+  const view = await mountSection([])
+  try {
+    assert.match(view.el.textContent ?? '', /Codex \(not installed\)/)
   } finally { await view.unmount(); delete g.fetch }
 })
