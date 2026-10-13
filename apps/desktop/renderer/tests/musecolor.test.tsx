@@ -19,6 +19,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { MUSE_COLOR, MUSE_TIERS, MUSE_TIER_LETTER, TIER_LETTER } from '../src/canvas/shared'
+import { THEMES } from '../src/themes'
 
 declare const __SRC_DIR__: string
 const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
@@ -107,6 +108,24 @@ test('Muse tier colours read on the chip backgrounds and stay apart from every o
   for (let i = 0; i < hexes.length; i++) {
     for (let j = i + 1; j < hexes.length; j++) assert.ok(deltaE(hexes[i]!, hexes[j]!) >= 15)
   }
+})
+
+test('the Muse Cyan app theme is the provider cyan, apart from every other preset and readable on light surfaces', () => {
+  // the existing provider-theme requirement (docs/v2-visual-themes.md; the
+  // Language Server Gold precedent's floor of 18 between presets)
+  assert.equal(THEMES.muse.label, 'Muse Cyan')
+  assert.equal(THEMES.muse.accent, MUSE_COLOR)
+  for (const [id, theme] of Object.entries(THEMES)) {
+    if (id === 'muse') continue
+    assert.ok(deltaE(MUSE_COLOR, theme.accent) >= 18, `${id}: only ΔE ${deltaE(MUSE_COLOR, theme.accent).toFixed(1)}`)
+  }
+  const rule = /:root\[data-visual-theme="muse"\]:is\(\.contrast-light, \.contrast-solarized-light\) \{([^}]*)\}/.exec(css)
+  assert.ok(rule, 'the light-surface rule for the Muse theme')
+  const accent = /--accent:\s*(#[0-9a-fA-F]{6})\s*!important/.exec(rule![1]!)![1]!.toLowerCase()
+  for (const [name, bg] of Object.entries(LIGHT)) {
+    assert.ok(contrast(accent, bg) >= 4.5, `${accent} on ${name}: ${contrast(accent, bg).toFixed(2)}:1`)
+  }
+  assert.ok(contrast('#ffffff', accent) >= 4.5, 'white ink on the light-surface accent')
 })
 
 test('every Muse tier has its letter and its chip, card, mini-card and hire-strip rules', () => {

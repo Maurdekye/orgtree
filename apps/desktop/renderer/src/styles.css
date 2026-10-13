@@ -8319,6 +8319,20 @@ main:has(> .orgbar.native-header) > .error {
    tinted Muse account would all but vanish, so the light surfaces ring it in
    the deep cyan (the swatch itself keeps the account's own tint) */
 :root:is(.contrast-light, .contrast-solarized-light) .account-swatch.swatch-muse { box-shadow: inset 0 0 0 1px var(--prov-muse); }
+/* The Muse Cyan app theme (visual-theme preset `muse`) on the light surfaces:
+   its pale accent would paint text at 1.36:1 there, so the accent becomes the
+   same partner the provider uses, #0077b0 (4.56:1 or more; white ink on it
+   4.92:1). applyTheme sets the accent inline: these declarations outrank it
+   only for this theme on these two surfaces. */
+:root[data-visual-theme="muse"]:is(.contrast-light, .contrast-solarized-light) {
+  --accent: #0077b0 !important;
+  --accent-hover: #4099c4 !important;
+  --accent-soft: rgba(0, 119, 176, .16) !important;
+  --accent-ink: #ffffff !important;
+  --org-accent: #0077b0 !important;
+  --org-accent-hover: #4099c4 !important;
+  --org-accent-soft: rgba(0, 119, 176, .16) !important;
+}
 /* Muse's tiers: routine colours inside the tier design (lead 2026-10-13),
    MEASURED (tools tier_pick / tier_check): at least 4.5:1 on --panel and on
    the badge fill --input, then as far as the hue allows from every tier,
