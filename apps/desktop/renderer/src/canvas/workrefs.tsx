@@ -18,10 +18,12 @@
 //     input exactly — whitespace included, since these surfaces render with
 //     `white-space: pre-wrap`.
 
-import { useMemo } from 'react'
+import { useContext, useMemo } from 'react'
+import { CurrentOrg } from '../popout'
 import type { ReactNode } from 'react'
 import type { WorkItem } from '../types'
 import { AgentName } from './identity'
+import { objectNavProps } from './objectnav'
 
 /** The names that may be matched, and what each one resolves to. A Map is
  *  both halves at once — the key set is what the matcher scans for, and the
@@ -174,6 +176,7 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
   onPick?: (name: string) => void
   onFocusAgent?: (id: string) => void
 }) {
+  const org = useContext(CurrentOrg)
   const render = (ref: MentionRef, shown: string, key: number): ReactNode => {
     if (ref.kind === 'agent') {
       return onFocusAgent
@@ -191,7 +194,7 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
     }
     return onPick
       ? (
-        <button key={key} type="button" data-copy-ticket-title={ref.title} className="docket-ref"
+        <button key={key} type="button" {...objectNavProps('ticket', ref.slug, org ?? undefined)} data-copy-ticket-title={ref.title} className="docket-ref"
           title={`go to ${shown}`}
           onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
           {shown}

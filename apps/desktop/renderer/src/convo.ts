@@ -1047,7 +1047,8 @@ export function refreshConvo(slug: string, nid: string,
     c = mergeCommitted(e, c, fetchedCommits)
     // A fetch issued before a stream transition may still contain its retired
     // draft/thought. The current accumulators cover the live tail in that case.
-    if (e.orderedStream && startedAt < e.streamAt) c = { ...c, transient: [] }
+    if (e.orderedStream && startedAt < e.streamAt) c = { ...c,
+      transient: e.s.chat?.transient?.filter(r => r.kind === 'tool_writing') ?? [] }
     // A pending ghost graduates once the SERVER'S OWN copy is visible — by
     // CONTAINMENT, not equality, since the turn text is a mail envelope by
     // then. Two things count as visible, and both must, because the message
@@ -1567,17 +1568,18 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
   // keeps the ordering against durable rows exactly what it was before
   // tokens were buffered at all; only the number of notifications changed.
   if (ev.kind !== 'delta' && ev.kind !== 'thinking') flushLive(e)
-  if (Array.isArray(ev.convo_rows)) {
+  if (Array.isArray(ev.convo_rows) || Array.isArray(ev.tool_writing)) {
+    const committed = ev.convo_rows ?? []
     e.orderedStream = true
     e.streamAt = Date.now()
     // The same wire frame carries the saved replacements AND which partials
     // they consumed. Publish them together, never clear first and wait for HTTP.
-    if (ev.convo_rows.length
+    if (committed.length || Array.isArray(ev.tool_writing)
         || (ev.draft_clear && (!!liveField(e, 'draft') || e.s.chat?.transient?.some(r => ['draft', 'delta'].includes(r.kind))))
         || (ev.thinking_clear && (!!liveField(e, 'thinking') || e.s.thinkSecs !== null
           || e.s.chat?.transient?.some(r => ['thinking', 'thinking_start', 'thought'].includes(r.kind))))) {
       flushLive(e)
-      for (const row of ev.convo_rows) {
+      for (const row of committed) {
         if (!row.row_id || !Number.isSafeInteger(row.seq) || !Number.isSafeInteger(row.convo_revision)) continue
         const old = e.committedRows.get(row.row_id)
         if (!old || (old.convo_revision ?? 0) <= row.convo_revision!) e.committedRows.set(row.row_id, row)
@@ -1586,7 +1588,15 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
         last_error: null, occupancy: null, messages: [], mail_pending: 0, pending_mail: [] }
       const chat = mergeCommitted(e, { ...current, transient: (current.transient ?? []).filter(row =>
         !(ev.draft_clear && ['draft', 'delta'].includes(row.kind))
-        && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))) })
+        && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))
+        && !(Array.isArray(ev.tool_writing) && row.kind === 'tool_writing')),
+        ... (Array.isArray(ev.tool_writing) ? { transient: [
+          ...(current.transient ?? []).filter(row => row.kind !== 'tool_writing'
+            && !(ev.draft_clear && ['draft', 'delta'].includes(row.kind))
+            && !(ev.thinking_clear && ['thinking', 'thinking_start', 'thought'].includes(row.kind))),
+          ...ev.tool_writing.filter(row => row.kind === 'tool_writing' && !!row.tool_id && !!row.started_at),
+        ] } : {}),
+      })
       const cleared: Partial<Convo> = {}
       if (ev.draft_clear) {
         cleared.draft = ''; cleared.draftOrder = undefined; cleared.draftEventId = undefined; cleared.draftReplyQuote = undefined

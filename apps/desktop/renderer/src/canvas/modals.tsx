@@ -1,3 +1,5 @@
+import { watchdogActions } from './objectactions'
+import { objectNavProps } from './objectnav'
 import { useSurfaceDocument } from '../popout'
 import { lineageCount } from '../archived'
 // canvas/modals.tsx — the config modals: the in-page ConfirmModal, the
@@ -171,10 +173,11 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
     watchdogAction(slug, dog.id, a)
       .then((r) => { toast([`${dog.name}: ${r.state}`]); if (a === 'remove') close() })
       .catch((e: Error) => toast([`error: ${e.message}`]))
+  const actions = watchdogActions(dog, act).filter((entry): entry is import('./contextmenu').MenuItem => entry !== 'sep')
   return (
     <PinFrame kind="watchdog" restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height"
       close={close}>
-        <h3>{dog.kind === 'event' ? '⚡' : '🐕'} {dog.name}</h3>
+        <h3 {...objectNavProps('watchdog', dog.id, slug)}>{dog.kind === 'event' ? '⚡' : '🐕'} {dog.name}</h3>
         {/* THE DOG'S LIVE STATE IS NOT ITS NAME. It used to sit inside the h3,
             which a pinned window hides along with the duplicated heading —
             and 'departing' is exactly the thing you keep a watchdog window
@@ -241,12 +244,9 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
           ))}
         </div>
         <div className="row">
-          {!dog.spent && (dog.state === 'armed'
-            ? <button onClick={() => act('pause')}>pause</button>
-            : <button className="primary" onClick={() => act('resume')}>
-                {dog.state === 'exited' ? 'resume (re-spawn)' : 'resume'}</button>)}
+          {actions.filter(a => !a.danger).map(a => <button key={a.label} className={dog.state !== 'armed' ? 'primary' : undefined} onClick={a.onSelect}>{a.label.toLowerCase()}</button>)}
           <span style={{ flex: 1 }} />
-          {!dog.spent && <button className="danger" onClick={() => act('remove')}>remove</button>}
+          {actions.filter(a => a.danger).map(a => <button key={a.label} className="danger" onClick={a.onSelect}>{a.label.toLowerCase()}</button>)}
           <button onClick={close}>close</button>
         </div>
     </PinFrame>

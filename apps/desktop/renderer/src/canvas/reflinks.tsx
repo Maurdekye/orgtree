@@ -24,6 +24,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { agentNavProps } from './agentnav'
+import { objectNavProps } from './objectnav'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
 import { TIER_LETTER, tierLabel } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
@@ -415,6 +416,7 @@ export function RefChip({ r, onOpen }: {
   if (r.outcome === 'ready' && onOpen && !r.atDestination) {
     return (
       <button type="button" {...copy}
+        {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org) : {})}
         {...agentNavProps(r.ref.kind === 'agent' ? r.ref.id : undefined)}
         className={cls} title={r.why}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>

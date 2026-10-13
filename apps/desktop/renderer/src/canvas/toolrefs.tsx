@@ -6,6 +6,7 @@ import type { WorkLinkFn } from './shared'
 import { useAgentDirectory } from './identity'
 import { DogChip, useDogRoute } from './deskdogs'
 import type { ToolChip } from '../types'
+import { objectNavProps } from './objectnav'
 
 /** A docket ticket the call names: a chip that opens it in the docket. The slug
  *  is looked up first; one that does not exist (typo, deleted) stays plain
@@ -20,7 +21,7 @@ function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: Work
   }, [org, id])
   if (known === false || !onOpen) return <span className="tool-ticket-plain dim">{id}</span>
   return (
-    <button type="button" className="desk-nav-chip tool-ticket"
+    <button type="button" {...objectNavProps('ticket', id, org)} className="desk-nav-chip tool-ticket"
       title={`open ${id} in the work docket`} aria-label={`ticket ${id}`}
       onClick={() => onOpen({ slug: id } as Parameters<WorkLinkFn>[0])}>
       <DocketIcon fontSize="inherit" />{id}

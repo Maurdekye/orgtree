@@ -83,6 +83,8 @@ import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
+import { ObjectNavProvider, objectNavProps } from './objectnav'
+import { ObjectNavHost } from './objectnavhost'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
@@ -3401,8 +3403,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface, toggleConfig])
   // every desk's watchdog cards open the SAME modal the satellite chip does
   // (canvas/deskdogs.tsx)
-  const deskDogs = useMemo((): DeskDogs => ({ dogs: tree.watchdogs ?? [], open: toggleDog }),
-    [tree.watchdogs, toggleDog])
+  const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], open: toggleDog }),
+    [slug, tree.watchdogs, toggleDog])
 
   // ------------------------------------------------------ wires, one list
   // Every wire the org view draws, in paint order, built from exactly the
@@ -3544,7 +3546,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   })
 
   return (
-    <AgentNavProvider>
+    <AgentNavProvider><ObjectNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <ForegroundViewContext.Provider value={tree.foreground}>
     {/* THE ORG'S ORDINARY THINKING EFFORT, for the non-default effort card on
@@ -3566,6 +3568,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       value={resolveOrgDefault(tree.default_effort, tree.effort_default)}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
     <DeskDogsProvider value={deskDogs}>
+    <ObjectNavHost org={slug} dogs={tree.watchdogs ?? []} openDog={toggleDog}
+      openTicket={onWorkItem} focusAgent={goToAgent} toast={toast} />
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug} popoutDesk={node => ({
       node, map, op, slug, toast, compactAt: tree.compact_at,
       maxTop: tree.max_top_grant ?? 1000, pxc: pxPerCredit,
@@ -3872,7 +3876,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           const p = posOf('dog:' + w.id)
           if (!p || hidden.has(w.owner) || !intersectsViewport({ ...p, w: DOG_W, h: DOG_H }, visibleRect)) return null
           return (
-            <button key={'dog' + w.id}
+            <button key={'dog' + w.id} {...(!w.spent ? objectNavProps('watchdog', w.id, slug) : {})}
               className={'wd-chip ' + w.state
                 + (w.once ? ' oneshot' : '')
                 + (w.spent ? ' spent' : '')}
@@ -4381,7 +4385,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     </OrgDefaultEffort.Provider>
     </ForegroundViewContext.Provider>
     </OrgKillswitchContext.Provider>
-    </AgentNavProvider>
+    </ObjectNavProvider></AgentNavProvider>
   )
 }
 

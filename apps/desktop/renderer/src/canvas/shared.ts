@@ -1189,6 +1189,7 @@ export interface StreamEvent {
   convo_rows?: import('../types').ChatMessage[]
   draft_clear?: boolean
   thinking_clear?: boolean
+  tool_writing?: import('../types').ChatTransient[]
   assistant_row?: unknown
   committed_row?: import('../types').ChatMessage
   reply_quote?: string

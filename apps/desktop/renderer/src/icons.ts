@@ -3,6 +3,7 @@
 export { default as AddIcon } from '@mui/icons-material/Add'
 export { default as ArrowDownIcon } from '@mui/icons-material/ArrowDownward'
 export { default as ArrowUpIcon } from '@mui/icons-material/ArrowUpward'
+export { default as ArrowRightIcon } from '@mui/icons-material/ArrowForward'
 export { default as AutorenewIcon } from '@mui/icons-material/Autorenew'
 export { default as BlockIcon } from '@mui/icons-material/Block'
 export { default as CheckIcon } from '@mui/icons-material/Check'

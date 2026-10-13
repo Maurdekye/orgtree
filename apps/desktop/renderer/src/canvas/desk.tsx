@@ -6,13 +6,14 @@ import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
-import { executionTime, RunningTimer, TurnActiveContext } from './toolclock'
+import { ToolTimes, ToolWritingLine, TurnActiveContext } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps } from './agentnav'
+import { objectNavProps } from './objectnav'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
@@ -3824,7 +3825,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           {viewTransient.map(row => <div key={row.event_id || row.kind} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
             onContextMenu={e => openReply(e, row)} className={['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
-            {['thinking', 'thinking_start', 'thought'].includes(row.kind)
+            {row.kind === 'tool_writing' ? <ToolWritingLine name={row.text} startedAt={row.started_at} /> : ['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? (row.text
                 ? <ThoughtBody text={row.text} live />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
@@ -4738,10 +4739,9 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
   const [open, toggleOpen] = useFold(toolFoldKey(t))
   const shellError = isFailedShellCall(t)
   const expandable = true
-  const execTime = executionTime(t.started_at, t.ended_at)
   if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
     doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
-    <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span>
+    <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span><ToolTimes tool={t} />
   </PresentationCard>
   // orgtree_send_file → a DOWNLOAD CARD in place of the chip (user spec
   // 2026-07-31: files flow back — the card sits where the agent sent it).
@@ -4757,8 +4757,9 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
           <img className="imgcard-img" src={href} alt={file.name}
             loading="lazy" title={`${file.name} — click to view`}
             onClick={() => openLightbox(href, { name: file.name, download: href })} />
-          <ImgCardCaption name={file.name} bytes={file.bytes} href={href}
+            <ImgCardCaption name={file.name} bytes={file.bytes} href={href}
             note={file.note} />
+          <ToolTimes tool={t} />
         </div>
       )
     }
@@ -4770,6 +4771,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
           <span className="fc-name">{file.name}</span>
           <span className="dim"> · {fmtBytes(file.bytes)}</span>
           {file.note && <span className="fc-note">{file.note}</span>}
+          <ToolTimes tool={t} />
         </span>
       </a>
     )
@@ -4798,10 +4800,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
         {(t.error || shellError) && <span className="terrtxt"> ⊘ {shellError ? 'an error occurred' : t.error}</span>}
         {/* how long the call took, or — while it still waits for its result and
             the turn is running — a live count once it passes ten seconds */}
-        {execTime
-          ? <span className="dim tool-exec-time" title="execution time"> · {execTime}</span>
-          : typeof t.started_at === 'string' && t.result === undefined && !t.error
-            ? <RunningTimer startedAt={t.started_at} /> : null}
+        <ToolTimes tool={t} />
         {/* the agents and the watchdog this call concerns, as the same links
             and cards the rest of the app draws for them */}
         {!t.error && !shellError && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid} org={slug} onWorkLink={onWorkLink}
@@ -4822,7 +4821,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             simply do not have one — there is no "which item did they mean"
             guess anywhere in this path. */}
         {t.work && onWorkLink && (
-          <button className="maillink worklink"
+          <button className="maillink worklink" {...objectNavProps('ticket', t.work.slug, slug)}
             title={`open ${t.work.slug} in the work docket`}
             onClick={(e) => { e.stopPropagation(); onWorkLink!(t.work) }}>
             <DocketIcon fontSize="inherit" /> open</button>)}
@@ -4832,7 +4831,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
         fallback={t.result || t.error || ''} clipped={t.truncated}
         renderOutput={output => <CopyablePre><pre className="filepre respre"
           data-reply-event={t.result_event_id ?? ''} data-reply-quote={output}>{output}</pre></CopyablePre>} />}
-      {open && execTime && <div className="dim tool-exec-line">Execution time {execTime}</div>}
+      {open && <div className="dim tool-exec-line"><ToolTimes tool={t} /></div>}
       {open && !shellError && t.diff && (
         <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.diff.lines.map((l, i) => (

@@ -27,6 +27,7 @@
 //     landed. `linkifyRefs` compares first and returns having touched no node.
 
 import { AGENT_NAV_ATTR } from './agentnav'
+import { objectNavProps } from './objectnav'
 import { useEffect, useRef } from 'react'
 import { resolveRef, refToken } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
@@ -93,6 +94,9 @@ function chipEl(doc: Document, r: ResolvedRef,
   // the marker tracks `live`, the same predicate the element type does: an
   // inert chip is not a navigation target and does not gain the agent's menu
   if (live && r.ref.kind === 'agent') el.setAttribute(AGENT_NAV_ATTR, r.ref.id)
+  if (live && r.ref.kind === 'item') for (const [key, value] of Object.entries(objectNavProps('ticket', r.ref.id, r.ref.org))) {
+    if (value !== undefined) el.setAttribute(key, value)
+  }
   if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)
   // an agent's CURRENT model, the same claim its name carries elsewhere. No
   // tier means no icon and a working control — an unknown model is not an
@@ -217,7 +221,7 @@ function mentionSig(ref: MentionRef, live: boolean): string {
 /** build one bare-name chip as DOM. Mirrors `WorkRefText`'s item branch;
  *  `docketdesc.test` §4c and `docketrefs.test` §7 hold the two together. */
 function mentionEl(doc: Document, ref: MentionRef,
-  onPick?: (slug: string) => void): HTMLElement {
+  onPick?: (slug: string) => void, org?: string): HTMLElement {
   const slug = ref.kind === 'item' ? ref.slug : ''
   const live = !!onPick
   const el = doc.createElement(live ? 'button' : 'span')
@@ -227,6 +231,9 @@ function mentionEl(doc: Document, ref: MentionRef,
     el.title = `go to ${slug}`
   }
   el.setAttribute(MEN, slug)
+  if (live) for (const [key, value] of Object.entries(objectNavProps('ticket', slug, org))) {
+    if (value !== undefined) el.setAttribute(key, value)
+  }
   el.setAttribute(SIG, mentionSig(ref, live))
   if (ref.kind === 'item' && ref.title !== undefined) {
     el.setAttribute('data-copy-ticket-title', ref.title)
@@ -323,7 +330,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
       if (!items) { parts.push(doc.createTextNode(text)); return }
       for (const part of splitRefs(text, items)) {
         if (part.ref) {
-          parts.push(mentionEl(doc, part.ref, mentions?.onPick))
+          parts.push(mentionEl(doc, part.ref, mentions?.onPick, world.org))
           made += 1
         } else parts.push(doc.createTextNode(part.text))
       }

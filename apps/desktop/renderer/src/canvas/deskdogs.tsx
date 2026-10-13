@@ -11,8 +11,10 @@
 // for the desk's tab modals), so there is no second way to open a watchdog.
 import { createContext, useContext } from 'react'
 import type { Watchdog } from '../types'
+import { objectNavProps } from './objectnav'
 
 export interface DeskDogs {
+  org?: string
   /** the organization's watchdogs, as the tree carries them */
   dogs: Watchdog[]
   /** exactly what the canvas satellite chip's click does */
@@ -42,8 +44,9 @@ const glyph = (w: Watchdog) => w.state === 'armed' ? w.kind === 'event' ? '⚡' 
 /** One watchdog's card: the canvas chip's glyph and name, in the desk's chip
  *  style, marked as a dog (not an agent) by its glyph and its class. */
 export function DogChip({ dog, onOpen }: { dog: Watchdog; onOpen: (id: string) => void }) {
+  const route = useDogRoute()
   return (
-    <button type="button" className={'desk-nav-chip desk-dog-chip ' + dog.state}
+    <button type="button" {...(!dog.spent ? objectNavProps('watchdog', dog.id, route?.org) : {})} className={'desk-nav-chip desk-dog-chip ' + dog.state}
       title={`${dog.once ? 'one-shot dog' : 'watchdog'} "${dog.name}" (${dog.kind}) — `
         + `${dog.state}; click for detail`}
       aria-label={`watchdog ${dog.name}, ${dog.state}`}

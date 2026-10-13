@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import { EditIcon, ArrowRightIcon } from '../icons'
+import type { ToolChip } from '../types'
 
 /** Whether the desk this transcript belongs to has a turn running. A tool call
  *  with no result only counts up while it does: a call left open by an
@@ -26,6 +28,36 @@ export function executionTime(startedAt?: unknown, endedAt?: unknown): string {
   return Number.isNaN(a) || Number.isNaN(b) ? '' : formatDuration(b - a)
 }
 
+/** Generation starts immediately at the observed block start, never after a threshold. */
+export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?: string }) {
+  const start = Date.parse(startedAt ?? '')
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  return <span className="tool-writing" aria-label={`Writing ${name || 'tool call'}`}>
+    <EditIcon fontSize="inherit" /> Writing {name || 'tool call'}
+    {Number.isFinite(start) && <span title="writing time so far"> · {formatDuration(Math.max(0, now - start))}</span>}
+  </span>
+}
+
+export function ToolTimes({ tool }: { tool: ToolChip }) {
+  const writing = typeof tool.writing_secs === 'number' ? formatDuration(tool.writing_secs * 1000) : ''
+  const ran = executionTime(tool.started_at, tool.ended_at)
+  return <>
+    <span className="dim tool-writing-time" title={writing ? 'writing time' : 'Writing time was not observed for this call'} aria-label={writing ? `written in ${writing}` : 'writing time unavailable'}>
+      {' · '}<EditIcon fontSize="inherit" /> {writing ? `written in ${writing}` : 'writing time unavailable'}</span>
+    {ran ? <span className="dim tool-exec-time" title="execution time" aria-label={`ran for ${ran}`}>
+      {' · '}<ArrowRightIcon fontSize="inherit" /> ran for {ran}</span>
+      : typeof tool.started_at === 'string' && tool.result === undefined && !tool.error
+        ? <RunningTimer startedAt={tool.started_at} />
+        : tool.result !== undefined || tool.error || tool.ended_at
+          ? <span className="dim tool-exec-time" title="Execution time was not observed for this call" aria-label="execution time unavailable">{' · '}<ArrowRightIcon fontSize="inherit" /> execution time unavailable</span> : null}
+  </>
+}
+
 /** A call still waiting for its result: a live count of how long it has run,
  *  shown once it passes ten seconds, only while the turn is active. */
 export function RunningTimer({ startedAt }: { startedAt: string }) {
@@ -39,5 +71,5 @@ export function RunningTimer({ startedAt }: { startedAt: string }) {
     return () => clearInterval(id)
   }, [turnActive, start])
   if (!turnActive || Number.isNaN(start) || now - start <= 10000) return null
-  return <span className="dim tool-running" title="running time so far"> · {formatDuration(now - start)}</span>
+  return <span className="dim tool-running" title="execution time so far"> · <ArrowRightIcon fontSize="inherit" /> running for {formatDuration(now - start)}</span>
 }

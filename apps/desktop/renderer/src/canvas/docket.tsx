@@ -57,6 +57,7 @@ import type { MentionIndex } from './workrefs'
 import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
+import { ticketActions } from './objectactions'
 import { quickStaffEntry, quickStaffPath } from './quickstaff'
 import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffingoptions'
 import type { QuickStaffPreview } from './quickstaff'
@@ -2179,37 +2180,18 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
   const rowMenu = (e: React.MouseEvent<HTMLDivElement>): MenuEntry[] => {
     const row = e.currentTarget
     const { clientX, clientY } = e
-    const entries: MenuEntry[] = [
-      { label: selected ? 'Close details' : 'Open details', onSelect: pickTimed },
-    ]
-    // ⚠ AND IT IS SUPPRESSED WHILE A SEARCH IS ACTIVE, for the same reason the
-    // arrow is disabled — but it has to be said TWICE, because the menu is a
-    // SECOND route to `onFold` that does not go through the arrow at all
-    // (coordinator review of 7f265fc). During a query the subtree is drawn
-    // regardless, so this entry could not change a single rendered row; what
-    // it WOULD do is quietly rewrite the fold the reader gets back when they
-    // clear the box — the exact restore guarantee this ticket turns on.
-    if (kids > 0 && onFold && !foldLocked) {
-      entries.push({ label: folded ? `Show ${kids} sub-item${kids === 1 ? '' : 's'}`
-        : `Hide ${kids} sub-item${kids === 1 ? '' : 's'}`, onSelect: () => onFold(item.slug) })
-    }
-    const owner = item.owner?.node
-    if (owner && onFocusAgent) {
-      // the actor line's own rule: the jump is offered whenever a handler
-      // exists (a retired node still has a desk to show); the fit's reason
-      // rides the tooltip exactly as it does on the name
-      const why = FIT_WHY[actorFit(item.owner, facts).fit]
-      entries.push({ label: `Open owner (${owner})`, title: why ?? undefined,
-        onSelect: () => { close?.(); onFocusAgent(owner) } })
-    }
-    entries.push('sep', { label: 'Copy slug', onSelect: () => copySlugAt(row, clientX, clientY) })
-    if (org) {
-      const ref = refToken({ kind: 'item', org, id: item.slug })
-      entries.push({ label: 'Copy reference', title: ref,
-        onSelect: () => { void copyToClipboard(row, ref).then((ok) =>
-          toast?.([ok ? `copied the reference ${ref}` : 'could not copy — clipboard unavailable'])) } })
-    }
-    return entries
+    return ticketActions({ item, selected, open: pickTimed,
+      fold: kids > 0 && onFold && !foldLocked ? { kids, folded, toggle: () => onFold(item.slug) } : undefined,
+      owner: item.owner?.node && onFocusAgent ? {
+        why: FIT_WHY[actorFit(item.owner, facts).fit] ?? undefined,
+        open: () => { close?.(); onFocusAgent(item.owner!.node) },
+      } : undefined,
+      copySlug: () => copySlugAt(row, clientX, clientY),
+      copyReference: org ? () => {
+        const ref = refToken({ kind: 'item', org, id: item.slug })
+        void copyToClipboard(row, ref).then(ok => toast?.([ok ? `copied the reference ${ref}` : 'could not copy — clipboard unavailable']))
+      } : undefined,
+    })
   }
   return (
     // THE NAME IN THE LIST IS THE SLUG (user 2026-09-05). The full descriptive

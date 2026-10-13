@@ -97,6 +97,7 @@ import { OrgRecordContext } from './recordsession'
 import { TreeReadPacer } from './treepace'
 import type { TreeRequest } from './treepace'
 import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
+import { ObjectNavProvider } from './canvas/objectnav'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
 import {
@@ -1369,7 +1370,7 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><OrgRecordContext.Provider value={recordMode ? { slug, session: recordSession?.slug === slug ? recordSession.session : null, status: treeStatus } : null}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
+    <CurrentOrg.Provider value={slug}><OrgRecordContext.Provider value={recordMode ? { slug, session: recordSession?.slug === slug ? recordSession.session : null, status: treeStatus } : null}><AgentNavProvider><ObjectNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
       <RestartNotice />
       {/* Developer › engine debug view: off by default; while off nothing polls */}
       {engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}
@@ -1930,7 +1931,7 @@ export default function App() {
       </WindowMirrors>
       {/* the in-app folder picker: LAST so it stacks above every modal */}
       <FolderPickerHost />
-    </ObjectMenuBoundary></AgentNavProvider></OrgRecordContext.Provider></CurrentOrg.Provider>
+    </ObjectMenuBoundary></ObjectNavProvider></AgentNavProvider></OrgRecordContext.Provider></CurrentOrg.Provider>
   )
 }
 

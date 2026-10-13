@@ -98,6 +98,7 @@ import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent
 import { createPortal } from 'react-dom'
 import { useSurfaceDocument } from '../popout'
 import { AGENT_NAV_ATTR, agentNavElementAt, useAgentNavRegistry } from './agentnav'
+import { OBJECT_NAV_ATTR, OBJECT_ID_ATTR, OBJECT_ORG_ATTR, objectNavElementAt, useObjectNavRegistry } from './objectnav'
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
 
@@ -184,7 +185,7 @@ export function ObjectMenuBoundary({ children, toast, onContextMenu, ...props }:
       // at all (the docket question head) opened no menu whatsoever. Both
       // found by measurement in review, textmenu 2026-09-19.
       const object = copyObjectAt(e.target)
-      const nav = agentNavElementAt(e.target)
+      const nav = objectNavElementAt(e.target) ?? agentNavElementAt(e.target)
       const anchor = nav && (!object || nav.contains(object)) ? nav : object
       if (anchor) menu.open(e, [], anchor)
       onContextMenu?.(e)
@@ -311,6 +312,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   // agentnav.tsx. `useAgentNavMenu` returns null in a window that registered
   // nothing, and then a marked target keeps exactly the menu it has today.
   const agentNav = useAgentNavRegistry()
+  const objectNav = useObjectNavRegistry()
   const anchorRef = useRef<Element | null>(null)
   const opening = useRef(0)
   const close = useCallback(() => setState(null), [])
@@ -329,6 +331,16 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
     const entriesList = (typeof entries === 'function' ? entries() : entries)
     const object = copyObjectAt(e.target, el)
+    const objectEl = objectNavElementAt(e.target, el)
+    const objectKind = objectEl?.getAttribute(OBJECT_NAV_ATTR)
+    const objectOrg = objectEl?.getAttribute(OBJECT_ORG_ATTR) ?? objectNav?.org ?? null
+    const objectId = objectEl?.getAttribute(OBJECT_ID_ATTR)
+    const objectBuild = objectNav?.current
+    const objectEntries = objectEl && objectId && (objectKind === 'ticket' || objectKind === 'watchdog') && objectBuild
+      && objectOrg === objectNav?.org
+      ? objectBuild(objectKind, objectId, objectOrg, objectEl) : []
+    const objectPending = objectEntries instanceof Promise ? objectEntries : null
+    const objectList: MenuEntry[] = objectPending ? [{ label: 'Loading current object…', disabled: true, onSelect: () => {} }] : objectEntries as MenuEntry[]
     // THE CANONICAL AGENT MENU, for any navigation target under the press
     // (user scope expansion 2026-09-19). Built here rather than by each
     // surface so that every target reaches the SAME implementation —
@@ -347,7 +359,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // the two are never combined and there is no submenu.
     const navEl = agentNavElementAt(e.target, el)
     const navId = navEl?.getAttribute(AGENT_NAV_ATTR) || null
-    const navEntries = navId ? (agentNav?.current?.(navId) ?? []) : []
+    const navEntries = objectList.length ? objectList : navId ? (agentNav?.current?.(navId) ?? []) : []
     // `agentNavElementAt` is `closest`, so a non-null answer already MEANS
     // "the press started at or inside the marked target" — that is the whole
     // of the more-specific-target test, and no separate containment check is
@@ -378,7 +390,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       : (navEl && navId
           ? [agentCopyEntry(navEl, navId, feedback),
              ...navEntries, ...surfaceEntries]
-          : entriesList)
+          : objectList.length ? objectList : entriesList)
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return
     e.preventDefault()
@@ -399,8 +411,18 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       keyboard: !inside,
       doc,
     })
+    if (objectPending) {
+      const id = opening.current
+      void objectPending.then(resolved => setState(s => {
+        if (!s || opening.current !== id) return s
+        if (objectNav?.org !== objectOrg || !objectEl?.isConnected) return null
+        const copy = object ? objectCopyEntry(object, feedback) : null
+        return { ...s, entries: copy ? [copy, 'sep', ...resolved.filter(r => r === 'sep' || r.label !== copy.label)] : resolved }
+      })).catch(() => setState(s => s && opening.current === id ? { ...s,
+        entries: [{ label: 'Object unavailable', disabled: true, onSelect: () => {} }] } : s))
+    }
     return opening.current
-  }, [agentNav, feedback, surfaceDocument])
+  }, [agentNav, objectNav, feedback, surfaceDocument])
 
   // THE ORIGIN CLOSING WHILE THE MENU IS UP. `pagehide` is what MovableSurface
   // itself listens for to redock a surface whose window went away, so it is
