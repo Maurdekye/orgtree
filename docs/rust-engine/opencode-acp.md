@@ -4,8 +4,8 @@ OpenCode is an optional installed harness for OpenRouter and language-server
 seats. It uses ACP version 1 over stdio. OpenCode 2.x is the first adapter for the
 reusable transport; OpenCode-hosted accounts are outside this integration.
 
-This branch is being implemented. Actor, provider, registry and selector wiring
-are drafted but have not compiled or passed the isolated engine proof yet.
+This branch is being implemented. The initial native compilation and 15 focused
+ACP tests passed; isolated engine composition is still awaiting verification.
 
 ## Permissions
 
@@ -78,12 +78,12 @@ That is a measured workaround, not a model-catalog acknowledgement. Timeout
 does not fail a turn: the agent receives a one-line tools-may-appear-late note.
 The generic ACP transport has no OpenCode readiness special case.
 
-Draft fake-agent cases cover session routing, replay suppression, cancel/close,
+The 15 passing native cases cover session routing, replay suppression, cancel/close,
 abandoned load, malformed/oversized/EOF frames, usage unknowns, direct path scope,
 shell switch, exact/reserved MCP names, bypass and no persistent approvals. They
-have not yet run at this draft checkpoint. Readiness observed/timeout controls,
-Chat Completions path routing and strict-template reminder preservation are also
-drafted. Engine integration, credential changes, Quit races and the isolated
+include readiness observed/timeout controls, Chat Completions path routing and
+strict-template reminder preservation. Engine integration, credential changes,
+Quit races and the isolated
 engine rig still require verification. No effort option is configured yet for
 custom providers: a saved effort is not evidence that the provider applied it.
 Prompt content currently uses text blocks, including the existing attachment
