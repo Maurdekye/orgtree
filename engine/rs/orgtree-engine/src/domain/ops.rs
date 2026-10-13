@@ -653,7 +653,10 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         let parent = node_by_name(tx, org.id, &name).await?;
         // Promotion normally takes the caller's configured scope. A new hire
         // gets only the effective capability captured at admission instead.
-        tx.execute("UPDATE ot.agents SET scope=$2 WHERE id=$1", &[&parent.id, &inherited_scope]).await?;
+        // self_subjugate restores the old position. A parent hire instead keeps
+        // the explicit placement chosen in the final sibling set at admission.
+        let order = out["sibling_order"].as_f64().expect("hire returns sibling order");
+        tx.execute("UPDATE ot.agents SET scope=$2, sibling_order=$3 WHERE id=$1", &[&parent.id, &inherited_scope, &order]).await?;
         out["above_self"] = json!(true);
     }
     if crate::runtime::watchdogs::events::interested(engine,"agents.live") {
@@ -955,9 +958,17 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     } else if matches!(actor, Actor::Agent { .. }) {
         refuse!(Forbidden, "only the user hires at the top level");
     }
-    if let Some(a) = &anchor { insertion_authority(tx, actor, a).await?; }
+    if let Some(a) = &anchor { if !self_parent { insertion_authority(tx, actor, a).await?; } }
     let parent_id = parent.as_ref().map(|p| p.id);
-    let mut siblings = ordering::siblings(tx, org.id, parent_id, anchor.as_ref().map(|a| a.id)).await?;
+    // Funding/composites use the temporary report; placement uses the final
+    // parent's siblings, excluding the caller whose old position it takes.
+    let placement_parent = if self_parent {
+        match anchor.as_ref().unwrap().parent {
+            Some(id) => Some(node_by_id(tx, id).await?),
+            None => None,
+        }
+    } else { parent.clone() };
+    let mut siblings = ordering::siblings(tx, org.id, placement_parent.as_ref().map(|p| p.id), anchor.as_ref().map(|a| a.id)).await?;
     let index = ordering::position(req, &siblings, agent)?;
     // a superior inserted above `anchor` also carries the anchor's stake
     let anchor_stake = anchor.as_ref().filter(|_| !self_parent).map(|a| a.seat + a.grant).unwrap_or(0.0);
@@ -1112,7 +1123,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     fx.events = true;
     fx.warm.push(id);
     fx.scratch.push(scratch);
-    let mut out = json!({ "node": name, "cascaded": raised, "parent": parent.as_ref().map(|p| &p.name),
+    let mut out = json!({ "node": name, "cascaded": raised, "parent": placement_parent.as_ref().map(|p| &p.name),
         "index": index, "sibling_order": order, "live_sibling_count": siblings.len() + 1 });
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings);
