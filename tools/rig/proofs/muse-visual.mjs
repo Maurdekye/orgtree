@@ -74,6 +74,25 @@ export default async function (rig) {
     p.check(`${theme}: the Usage window has a Muse Code card`, usage.some((c) => c.label === 'Muse Code'), usage)
   }
 
+  // the Muse Cyan app theme (visual-theme preset `muse`) under every contrast theme: the
+  // sampled cyan on the dark surfaces, the provider's light partner on the light ones
+  const contrasts = ['charcoal', 'obsidian-black', 'light', 'solarized-light']
+  const t = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'muse-theme.cjs'),
+    { args: { org: rig.org, agent: 'wanda', contrasts }, out: path.join(p.dir, 'theme'), timeout: 90000 })
+  p.file('theme.json', t)
+  p.check(`theme: the Muse Cyan stage ran (screenshots in ${path.join(p.dir, 'theme')})`, t.ok, t.error)
+  if (t.ok) {
+    const c = t.value.contrasts
+    p.check('theme: in every contrast theme the preset is applied with the sampled cyan inline',
+      contrasts.every((k) => c[k]?.visualTheme === 'muse' && c[k].classes.includes(`contrast-${k}`) && c[k].inlineAccent === '#afe5ff'), c)
+    p.check('theme: on the dark surfaces the accent paints #afe5ff, with the dark ink on an accent fill',
+      ['charcoal', 'obsidian-black'].every((k) => c[k].painted === rgbOf('#afe5ff') && c[k].fill === rgbOf('#afe5ff')
+        && c[k].ink === rgbOf('#17191d')), c)
+    p.check('theme: on the light surfaces the cascade paints #0077b0 over the inline cyan, with white ink, organization copy too',
+      ['light', 'solarized-light'].every((k) => c[k].painted === rgbOf('#0077b0') && c[k].fill === rgbOf('#0077b0')
+        && c[k].ink === rgbOf('#ffffff') && c[k].orgAccent === '#0077b0'), c)
+  }
+
   // the desk's effort control offers each tier's own level names
   const effort = {}
   for (const agent of ['wanda', 'alice']) {
