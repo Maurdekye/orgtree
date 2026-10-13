@@ -203,9 +203,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Hubchat "typing" after the send's own read-only checks
   (`orginbox::may_send_extern`, never `ensure_holders`). It stops on call
   return, orphan (30 s), turn or process end, or the cap (120 s). Never send
-  content, never set the fine-grained streaming switch. Antigravity seats
-  keep the flat cards (`defs::MailShape::Flat` through `bridge::serve`;
-  byte-identical to before, so their prefix is unchanged) until a no-spend
+  content, never set the fine-grained streaming switch. The probe shares
+  `on_stream_event`'s `content_block_start`/`content_block_stop` arms with
+  the tool-writing clock: one arm per event type (a second is unreachable,
+  and its code silently never runs). Antigravity seats
+  keep the flat cards (`defs::MailShape::Flat` through `bridge::serve` /
+  `serve_observed`; byte-identical to before, so their prefix is unchanged) until a no-spend
   check passes on that CLI; every other agent's tool prefix changed: one cold
   turn after the update. Measured 116/116 metadata first (bound <2.6%, not
   zero); Claude Code, Codex, Muse and opencode pass the nested shape. See

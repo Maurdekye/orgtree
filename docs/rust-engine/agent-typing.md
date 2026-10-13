@@ -31,8 +31,9 @@ are known and stops when the call ends.
 - **Antigravity seats keep the flat cards** (coordinator 2026-10-13 21:36Z):
   the nested shape could not be checked on that CLI without the live Google
   sign-in (see the table below). `tools::defs::MailShape` picks the shape:
-  `bridge::serve` takes it, Antigravity's launch passes `Flat` and Muse's
-  `Split`; Claude Code and Codex get the split cards. The flat cards are byte
+  `bridge::serve` and `bridge::serve_observed` take it. Antigravity's launch
+  passes `Flat`; Muse's and opencode's (ACP, `serve_observed`) pass `Split`;
+  Claude Code and Codex get the split cards. The flat cards are byte
   for byte those of before the split (a unit test pins them). Switch
   Antigravity to `Split` once a no-spend check passes there, and update the
   table.
@@ -113,7 +114,7 @@ received, and whether the result went back.
 | Claude Code 2.1.292 | byte-identical, key order kept | identical |
 | Codex 0.160.0 (`dynamicTools`) | Codex re-encodes every dynamic tool: properties sorted alphabetically (so `body` before `metadata`), `maxItems` dropped, `strict: false`; the nested object, `required`, `anyOf`, `enum`, `minItems` and descriptions kept. The flat shape gets the same treatment today. | identical |
 | Muse Code 1.4.6 (session MCP) | byte-identical, inside a Responses `namespace` tool `mcp__orgtree` | identical |
-| opencode 2.0.28 (pre-check: its lane had not landed) | Code Mode: MCP tools are called from JavaScript via `execute`, listed in a TypeScript catalog that renders `metadata` as a nested object type with every field, union and optional mark | identical |
+| opencode 2.0.28 (the CLI on its own, before its ACP lane landed; that lane serves the split cards) | Code Mode: MCP tools are called from JavaScript via `execute`, listed in a TypeScript catalog that renders `metadata` as a nested object type with every field, union and optional mark | identical |
 | Antigravity `agy` 1.3.3 | inconclusive. Its LLM gateway needs a Google sign-in and an eligibility check before any model call, so with a scratch home it never reaches one. One authorized run on the user's sign-in (2026-10-13 21:48Z, inference only to the local fake) reached the fake in Gemini format, but the gateway model was sent **no tools at all** and no MCP server was started. Antigravity offers MCP tools through its own `call_mcp_tool`, not as functions. **So its seats get the flat cards** (coordinator 2026-10-13 21:36Z: flat when the check fails or is inconclusive) | — |
 
 Antigravity has no measured evidence for the nested shape. Today's tool cards
