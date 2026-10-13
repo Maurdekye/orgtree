@@ -4,15 +4,13 @@
 
 **Put a team of AI agents to work. Keep control of the job.**
 
+![Agents on the Orgtree canvas](docs/images/orgtree-4-canvas.png)
+
 Orgtree is a desktop power tool for running persistent teams of AI agents. Give them a project, divide the work, and follow it through to delivery. Assign roles, set limits, inspect the work and keep the decisions in one place.
 
 It is a substantial tool, with a learning curve to match. You will need to learn its controls and give clear direction. Start with one agent and a small job. As you gain experience, build a team that can investigate, implement and review different parts of a project in parallel. In practiced hands, one person can keep several lines of work moving at once.
 
 **[Download the latest Windows installer](https://github.com/Maurdekye/orgtree/releases/latest)** | [Release notes](https://github.com/Maurdekye/orgtree/releases) | [Report an issue](https://github.com/Maurdekye/orgtree/issues)
-
-![Workspace in the default rows view, with provider usage across the top and agents arranged beneath their coordinator](docs/images/orgtree-3-rows-workspace.png)
-
-**A workspace in the default rows view.** Agents sit in rows beneath their coordinator, with provider usage across the top.
 
 ## What sets it apart
 
@@ -209,6 +207,10 @@ Select any image to see it full size.
     <td width="50%" valign="top">
       <a href="docs/images/orgtree-3-homepage.png"><img src="docs/images/orgtree-3-homepage.png" alt="Home page listing organizations, their capacity counts and a button to create a new organization" width="100%"></a>
       <p><strong>Your organizations.</strong> Open a team or create a new one from the home page.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-rows-workspace.png"><img src="docs/images/orgtree-3-rows-workspace.png" alt="Workspace in the default rows view, with provider usage across the top and agents arranged beneath their coordinator" width="100%"></a>
+      <p><strong>Rows view.</strong> Agents sit in rows beneath their coordinator, with provider usage across the top.</p>
     </td>
   </tr>
 </table>
