@@ -11,8 +11,9 @@ Hubchat is Hubchat's `docs/question-cards.md`. This page is Orgtree's part.
 
 `orgtree_message` with `kind: "question"` takes two optional parameters:
 
-- `options`: 2-10 preset answers. Each is one line of 1-100 characters
-  (surrounding spaces are dropped); they must all be different, ignoring case.
+- `options`: 2-10 preset answers (user 2026-10-12 21:12Z). Each is one line
+  of 1-100 characters (surrounding spaces are dropped); they must all be
+  different, ignoring case.
 - `multiple`: with `options`, true lets the person pick one or more (a
   multiple-choice card). Absent or false: pick one.
 
@@ -40,7 +41,10 @@ such a list: `{"question": {"options": [...], "multiple": bool},
 "fallback": [start, end]}`, where the byte range is the list (a suffix of the
 body) that Hubchat leaves out when it draws buttons. It is computed from the
 stored body (`net_cards::meta`) on every send attempt, so a retry carries the
-same value, and a question without a well-formed final list carries no `meta`.
+same value. The list's options must pass the same check as the tool's
+`options`, exactly as written (no spaces around a label). A question without
+such a final list carries no `meta`, so an agent's own text ending in, say,
+`1. Same` / `2. same` stays whole in Hubchat instead of losing the list.
 Orgtree sends `meta` to every hub; a hub without the `meta` feature drops
 unknown keys, and the plain list still reaches the person.
 

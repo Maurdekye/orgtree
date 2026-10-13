@@ -53,16 +53,18 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `docs/rust-engine/approved-folder-grants.md`]
 
 - `orgtree_message` with kind `question` to `@net:` addresses may carry
-  `options` (2-10 one-line answers of at most 100 characters, all different)
-  and `multiple`: Hubchat question cards. The body gets a numbered
-  `Pick one:` / `Pick one or more:` list every client reads, and the hub
-  payload turns a question body ending in that list into `meta` (`question`
-  plus a suffix `fallback` range); a hub without the `meta` feature drops it.
+  `options` (2-10 one-line answers of at most 100 characters, all different;
+  user 2026-10-12 21:12Z) and `multiple`: Hubchat question cards. The body
+  gets a numbered `Pick one:` / `Pick one or more:` list every client reads,
+  and the hub payload turns a question body ending in that list into `meta`
+  (`question` plus a suffix `fallback` range) only when the list passes
+  `net_cards::options` as written; a hub without the `meta` feature drops it.
   Answers return as ordinary mail with `> ` and `Answer: ` / `Skipped` lines;
   Orgtree does not track whether a card is settled, and nothing relays
   `orgtree_ask`. See [Hubchat question cards](docs/rust-engine/hubchat-question-cards.md).
-  [decided: user 2026-10-11 22:42-22:44Z; verified: `net_cards.rs`,
-  `net.rs` outgoing_payload, `tools/mailtools.rs`, `tools/defs.rs`, 2026-10-12]
+  [decided: user 2026-10-11 22:42-22:44Z, 2026-10-12 21:12Z; verified:
+  `net_cards.rs`, `net.rs` outgoing_payload, `tools/mailtools.rs`,
+  `tools/defs.rs`, 2026-10-13]
 
 - Organization profile pictures use a dedicated bounded `ot.meta` record,
   not the net/tree payload. Human settings edits carry the numeric org owner;
