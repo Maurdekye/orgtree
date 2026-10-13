@@ -6618,8 +6618,22 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    lit; the others keep their places, dimmed and dashed. More than eight chosen
    and the chips are their cards alone (`.icons`). "+" opens the browser.
    `--chip-lane` is the lane's colour: OpenRouter's, the gold on a server. */
-.orr-toggles { --chip-lane: var(--prov-openrouter); cursor: default; }
+.orr-toggles { --chip-lane: var(--prov-openrouter); position: relative; margin-left: 0; cursor: default; }
 .orr-toggles:hover, .orr-toggles:focus-visible { border-color: var(--line); background: transparent; }
+/* The full panel opens the browser; sibling chips keep their own actions.
+   A native button below the chips gives empty space and keyboard users the
+   same action, without nesting interactive controls inside a button. */
+.orr-toggles.browse { cursor: pointer; }
+.orr-toggles.browse:hover, .orr-toggles.browse:has(.orr-panel-open:focus-visible) {
+  border-color: var(--chip-lane);
+  background: color-mix(in srgb, var(--chip-lane) 10%, transparent); }
+.orr-toggles .orr-panel-open { position: absolute; inset: 0; width: 100%; height: 100%;
+  min-height: 0; margin: 0; padding: 0; border: 0; border-radius: inherit;
+  background: transparent; color: inherit; cursor: pointer; }
+.orr-toggles .orr-panel-open:hover, .orr-toggles .orr-panel-open:focus-visible {
+  background: transparent; outline: none; }
+.orr-toggles .orr-tog, .orr-toggles .orr-more { position: relative; }
+.orr-toggles .orr-hint { position: relative; pointer-events: none; }
 /* the row's class in front of every chip rule: App settings' `.settings button`
    (14px text, 7px 15px padding) outranks a single class, and blew the chips up
    to 40px (rig screenshot 2026-10-10) */

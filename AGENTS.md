@@ -136,6 +136,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Provider model-chip panels align with their key/server cards at both edges.
+  A sibling full-panel native button opens the same browser as +; chips remain
+  independent controls above it. Keep empty-space and Enter/Space browsing, chip
+  toggling, and keyboard focus distinct. [decided: user 2026-10-13 19:13UTC;
+  verified: `canvas/modelbrowser.tsx`, `styles.css` `.orr-toggles`]
+
 - Generated prompt text never names a tool the agent's Orgtree tool groups switch
   off (since `aa2d7db`). Text inside one group's branch of `identity.rs` that names
   another group's tool also needs that group on: `2f8ebae`'s team sentence named the

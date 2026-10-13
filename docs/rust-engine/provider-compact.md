@@ -151,3 +151,13 @@ cannot dismiss it; pinned and detached behavior retains its existing gates.
 Focused renderer checks and `provider-key-visual.{mjs,cjs}` exercise these paths
 using synthetic documents only; installed/provider behavior requires separate
 evidence. Earlier layout measurements above retain their historical provenance.
+
+### Model panels (user 2026-10-13 19:13UTC)
+
+The shared OpenRouter and language-server model-chip panel has no account rail
+indent: its edges align with the key/server card. Empty space opens the same
+browser as +. A native sibling button fills the panel below its chip controls,
+so Enter/Space opens the browser and clicking a chip only toggles that chip.
+Pointer/hover and keyboard focus styling use the provider's lane color. Model
+offerings, allowlist operations and browser contents retain their existing paths.
+Synthetic before/after and behavioral proof remain pending the build queue.

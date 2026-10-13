@@ -71,8 +71,11 @@ export function ToggleChips({ chips, busy, label, more, hint, className }: {
 }) {
   const iconsOnly = chips.filter((c) => c.on).length > CHIP_NAMES_MAX
   return (
-    <div className={'orr-favs orr-toggles' + (iconsOnly ? ' icons' : '') + (className ? ` ${className}` : '')}
+    <div className={'orr-favs orr-toggles' + (more ? ' browse' : '') + (iconsOnly ? ' icons' : '') + (className ? ` ${className}` : '')}
       role="group" aria-label={label}>
+      {more && <button type="button" className="orr-panel-open"
+        aria-label={`Browse ${label}`} title={more.title}
+        aria-haspopup="dialog" aria-expanded={!!more.open} onClick={more.onClick} />}
       {chips.map((c) => (
         <button key={c.key} type="button" className={'orr-sel orr-tog' + (c.on ? ' on' : '')}
           aria-pressed={c.on} aria-label={iconsOnly ? c.label : undefined} title={c.title}
