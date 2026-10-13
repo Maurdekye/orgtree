@@ -41,10 +41,12 @@ export default async function (rig) {
   p.check('unauthenticated full output lookup refused', [401, 403].includes((await fetch(rig.url + route('long'))).status))
   const afterRead = rig.engineLog().split(/\r?\n/).slice(beforeRead).join('\n')
   p.check('on-demand route does not serialize full output in new HTTP logs', !afterRead.includes('LONG_END_MARKER'))
-  const row = rig.one("SELECT body, tool_inputs FROM ot.convo WHERE body @? '$.tools[*].id ? (@ == \"long\")'")
-  p.check('durable row keeps output off body and exact in retained call', !JSON.stringify(row.body).includes('LONG_END_MARKER')
-    && row.tool_inputs.long.failed_shell_output.output === long)
-  p.file('receipt.json', { call: get('long'), cappedBytes: Buffer.byteLength(capped.output), capped: capped.truncated })
+  // The same row also retains the capped 1 MiB call. Keep psql's JSON result
+  // bounded instead of exceeding the rig's default spawnSync output buffer.
+  const row = rig.one("SELECT body::text LIKE '%LONG_END_MARKER%' AS body_has_marker, octet_length(tool_inputs -> 'long' -> 'failed_shell_output' ->> 'output') AS retained_bytes, md5(tool_inputs -> 'long' -> 'failed_shell_output' ->> 'output') AS retained_md5 FROM ot.convo WHERE body @? '$.tools[*].id ? (@ == \"long\")' LIMIT 1")
+  p.check('durable row keeps output off body and exact in retained call', row?.body_has_marker === false
+    && row.retained_bytes === Buffer.byteLength(long) && row.retained_md5 === createHash('md5').update(long).digest('hex'))
+  p.file('receipt.json', { call: get('long'), cappedBytes: Buffer.byteLength(capped.output), capped: capped.truncated, durableProjection: row })
   p.keep(rig, { agents: ['boss'] })
   p.note('Synthetic provider outputs only; no actual shell command/provider/live data. Existing old clipped history cannot regain bytes never retained.')
   return p.summary()
