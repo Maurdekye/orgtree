@@ -550,6 +550,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [verified from source / recorded decision: 2026-10-07;
   `docs/rust-engine/docket-read-performance.md`]
 
+- The Work docket and every agent/team docket tab share one `DocketControlBar`
+  (`canvas/docket.tsx`): one wrapping row of 24px ghost controls (heading, search,
+  Arrange, Sort, Show archived, Show backlogged); only the org docket folds the
+  options behind its sliders button below a 760px container. The sort caption
+  (`.docket-sort-why`) is the Sort select's tooltip and accessible description,
+  visually hidden. Tests and probes pin the class names, ids (`#docket-group`,
+  `#docket-sort`, `#docket-view-options`) and labels; keep them. [user 2026-10-13:
+  "keep it minimal and small but streamlined and clean"; verified from source]
+
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls, in each harness's own names (user
   2026-10-12 20:01Z): Claude/OpenRouter Claude Code's five `--effort` levels,

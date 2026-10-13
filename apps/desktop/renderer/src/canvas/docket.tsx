@@ -769,6 +769,114 @@ function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, onClear
   )
 }
 
+/** THE ONE DOCKET CONTROL BAR, shared by the org docket and an agent's or
+ *  team's docket tab so the two cannot drift (user 2026-10-13: "keep it
+ *  minimal and small but streamlined and clean"). One wrapping row: heading,
+ *  search, then the view options — the two filters and the two orders.
+ *
+ *  ⚠ `disclosure` IS THE ORG DOCKET'S ALONE. There the options fold behind the
+ *  sliders button when the panel is narrow (the container query in styles.css
+ *  decides, never this component), and the SAME mounted controls show inline
+ *  when it is wide. A desk tab has no disclosure: its controls stay visible.
+ *
+ *  ⚠ THE SORT CAPTION IS NOT GONE, it is quiet. It is the sort select's tooltip
+ *  and its accessible description, so it still reads the mode (and says
+ *  "inside each group" when grouped) without a sentence on the bar. */
+function DocketControlBar({ idBase, heading, search, disclosure,
+  showArchived, onShowArchived, archivedCount,
+  showBacklog, onShowBacklog, backlogCount,
+  groupMode, onGroup, sortMode, onSort }: {
+  /** prefix for the controls' ids: `<idBase>-group`, `-sort`, `-view-options` */
+  idBase: string
+  heading?: ReactNode
+  search: ComponentProps<typeof DocketSearchBox>
+  disclosure?: { open: boolean; setOpen: (f: (open: boolean) => boolean) => void
+                 toggleRef: RefObject<HTMLButtonElement | null> }
+  showArchived: boolean
+  onShowArchived: (show: boolean) => void
+  archivedCount?: number
+  showBacklog: boolean
+  onShowBacklog: (show: boolean) => void
+  backlogCount?: number
+  groupMode: DocketGroupMode
+  onGroup: (m: DocketGroupMode) => void
+  sortMode: DocketSortMode
+  onSort: (m: DocketSortMode) => void
+}) {
+  const why = (SORT_MODES.find((s) => s.value === sortMode)?.why ?? SORT_MODES[0]!.why)
+    + (groupMode !== 'none' ? ', inside each group' : '')
+  const optionsId = `${idBase}-view-options`
+  return (
+    <>
+      {heading}
+      <DocketSearchBox {...search} />
+      {/* user 2026-09-11: the words became the sliders glyph, and the ×
+          that sat beside them is gone. That × was this modal's alone and it
+          duplicated what the frame already provides: the backdrop closes an
+          unpinned docket, Escape closes it, and a pinned one gets PinFrame's
+          own × in the window bar.
+          ⚠ THE LABEL IS NOT DECORATION. With the words gone, `aria-label`
+          is the only accessible name this control has. The caret stays
+          because it is what says visually that something opens, which
+          `aria-expanded` says only to a screen reader. */}
+      {disclosure && (
+        <button ref={disclosure.toggleRef} type="button" className="docket-options-toggle"
+          title="View options" aria-label="View options"
+          aria-expanded={disclosure.open} aria-controls={optionsId}
+          onClick={() => disclosure.setOpen(open => !open)}>
+          <TuneIcon fontSize="inherit" />{disclosure.open ? '▴' : '▾'}</button>
+      )}
+      <div id={optionsId} className="docket-options" data-open={disclosure?.open ?? true}
+        role="group" aria-label="Docket view options">
+        <div className="docket-sortbar">
+          {/* each label wraps WITH its select, never apart from it */}
+          <span className="docket-ctl">
+            <label className="docket-ctl-label" htmlFor={`${idBase}-group`}>Arrange</label>
+            <select id={`${idBase}-group`} className="docket-group-select" value={groupMode}
+              title="How the list is grouped"
+              onChange={(e) => onGroup(e.target.value as DocketGroupMode)}>
+              {GROUP_MODES.map((g) =>
+                <option key={g.value} value={g.value}>{g.label}</option>)}
+            </select>
+          </span>
+          <span className="docket-ctl">
+            <label className="docket-ctl-label" htmlFor={`${idBase}-sort`}>Sort</label>
+            <select id={`${idBase}-sort`} className="docket-sort-select" value={sortMode}
+              title={'Order: ' + why} aria-describedby={`${idBase}-sort-why`}
+              onChange={(e) => onSort(e.target.value as DocketSortMode)}>
+              {SORT_MODES.map((s) =>
+                <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </span>
+          {/* ⚠ THE CAPTION READS THE MODE. It used to be the literal sentence
+              "most recently updated first", which was true of the only order
+              there was; leaving it while adding two more would have made the
+              panel state an order it was not in. */}
+          <span id={`${idBase}-sort-why`} className="docket-sort-why">{why}</span>
+        </div>
+        <div className="docket-filterbar">
+          <label className="docket-check docket-showarchived"
+            title="include archived work items — done items an hour after their last docket update, dropped items at once">
+            <input type="checkbox" checked={showArchived}
+              onChange={(e) => onShowArchived(e.target.checked)} />
+            Show archived
+            {archivedCount != null && archivedCount > 0
+              && <span className="docket-check-n"> · {archivedCount}</span>}
+          </label>
+          <label className="docket-check docket-showbacklog"
+            title="include work that has not been approached or approved yet">
+            <input type="checkbox" checked={showBacklog}
+              onChange={(e) => onShowBacklog(e.target.checked)} />
+            Show backlogged
+            {backlogCount != null && backlogCount > 0
+              && <span className="docket-check-n"> · {backlogCount}</span>}
+          </label>
+        </div>
+      </div>
+    </>
+  )
+}
+
 const NO_FOLD: ReadonlySet<string> = new Set<string>()
 
 /** ⚠ ONLY A MANUAL FLAG MAKES A TICKET AN ATTENTION ROW (user 2026-09-30: a
@@ -1330,77 +1438,23 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
             e.preventDefault(); e.stopPropagation(); setOptionsOpen(false); optionsToggle.current.focus()
           }
         }}>
-          <h3><DocketIcon fontSize="inherit" /> Work docket</h3>
-          {/* THE SEARCH, and it sits OUTSIDE `.docket-options` deliberately.
-              Narrowing a long list is the reason this panel is hard to read in
-              the first place, so it must not be one more thing behind the
-              sliders disclosure — the arrangement and sort controls are a
-              posture you set once, a query is something you type now.
+          {/* THE SEARCH sits OUTSIDE `.docket-options` deliberately. Narrowing
+              a long list is the reason this panel is hard to read in the first
+              place, so it must not be one more thing behind the sliders
+              disclosure — arrangement and sort are a posture you set once, a
+              query is something you type now.
               ⚠ `role="search"` NAMES THE LANDMARK and the input carries its own
-              `aria-label`, because the box has no visible <label>: without one
-              it announces as an unlabelled text field, and the placeholder is
-              not a label (it disappears the moment anything is typed). */}
-          <DocketSearchBox searchId={searchId} query={query} setQuery={setQuery}
-            boxRef={searchBox} onKeyDown={onSearchKey} onClear={clearSearch}
-            count={searching ? `${work.paging.total} match` : ''} />
-          {/* user 2026-09-11: the words became the sliders glyph, and the ×
-              that sat beside them is gone. That × was this modal's alone — no
-              other centred surface here carries one — and it duplicated what
-              the frame already provides: the backdrop closes an unpinned
-              docket, Escape closes it, and a pinned one gets PinFrame's own
-              × in the window bar.
-              ⚠ THE LABEL IS NOT DECORATION. With the words gone, `aria-label`
-              is the only accessible name this control has; without it the
-              button announces as nothing and the disclosure becomes
-              unreachable by name. The caret stays because it is what says
-              visually that something opens, which `aria-expanded` says only
-              to a screen reader. */}
-          <button ref={optionsToggle} type="button" className="docket-options-toggle"
-            title="View options" aria-label="View options"
-            aria-expanded={optionsOpen} aria-controls="docket-view-options"
-            onClick={() => setOptionsOpen(open => !open)}>
-            <TuneIcon fontSize="inherit" />{optionsOpen ? '\u25b4' : '\u25be'}</button>
-          <div id="docket-view-options" className="docket-options" data-open={optionsOpen}
-            role="group" aria-label="Docket view options">
-          <div className="docket-filterbar">
-          <label className="checkline docket-showarchived"
-            title="include archived work items — done items an hour after their last docket update, dropped items at once">
-            <input type="checkbox" checked={showArchived}
-              onChange={(e) => { if (e.target.checked) beginOpen('archive',slug); setShowArchived(e.target.checked) }} />
-            Show archived
-            {archivedCount > 0 && <span className="dim"> · {archivedCount}</span>}
-          </label>
-          <label className="checkline docket-showbacklog"
-            title="include work that has not been approached or approved yet">
-            <input type="checkbox" checked={showBacklog}
-              onChange={(e) => setShowBacklog(e.target.checked)} />
-            Show backlogged
-            {backlogCount > 0 && <span className="dim"> · {backlogCount}</span>}
-          </label>
-          </div>
-        <div className="docket-sortbar">
-          <label className="dim" htmlFor="docket-group">Arrange</label>
-          <select id="docket-group" className="docket-group-select" value={groupMode}
-            onChange={(e) => pickGroup(e.target.value as DocketGroupMode)}>
-            {GROUP_MODES.map((g) =>
-              <option key={g.value} value={g.value}>{g.label}</option>)}
-          </select>
-          <label className="dim" htmlFor="docket-sort">Sort</label>
-          <select id="docket-sort" className="docket-group-select" value={sortMode}
-            onChange={(e) => pickSort(e.target.value as DocketSortMode)}>
-            {SORT_MODES.map((s) =>
-              <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-          {/* ⚠ THE CAPTION READS THE MODE. It used to be the literal sentence
-              "most recently updated first", which was true of the only order
-              there was; leaving it there while adding two more would have made
-              the panel state an order it was not in. */}
-          <span className="dim docket-sort-why">
-            {SORT_MODES.find((s) => s.value === sortMode)?.why ?? SORT_MODES[0]!.why}
-            {groupMode !== 'none' && ', inside each group'}
-          </span>
-        </div>
-          </div>
+              `aria-label`, because the box has no visible <label>: the
+              placeholder is not a label (it disappears once anything is typed). */}
+          <DocketControlBar idBase="docket"
+            heading={<h3><DocketIcon fontSize="inherit" /> Work docket</h3>}
+            search={{ searchId, query, setQuery, boxRef: searchBox, onKeyDown: onSearchKey,
+              onClear: clearSearch, count: searching ? `${work.paging.total} match` : '' }}
+            disclosure={{ open: optionsOpen, setOpen: setOptionsOpen, toggleRef: optionsToggle }}
+            showArchived={showArchived} archivedCount={archivedCount}
+            onShowArchived={(show) => { if (show) beginOpen('archive', slug); setShowArchived(show) }}
+            showBacklog={showBacklog} backlogCount={backlogCount} onShowBacklog={setShowBacklog}
+            groupMode={groupMode} onGroup={pickGroup} sortMode={sortMode} onSort={pickSort} />
         </div>
         {work.status.loading && data && <div role="status" className="dim">Loading docket…</div>}
         {data && <div className="hint" role="status">{work.paging.loaded} of {work.paging.total} tickets loaded
@@ -1849,37 +1903,18 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   const ageTick = Math.floor(Date.now() / 60_000)
   return (
     <div className="msgs docket-modal docket-agent">
+      <div className="docket-head">
+        <DocketControlBar idBase={controlsId}
+          search={{ searchId, query, setQuery, boxRef: searchBox, onKeyDown: onSearchKey, onClear: clearSearch,
+            count: searching ? (paging ? `${paging.total} match` : `${rowCount} of ${searchableCount} match`) : '' }}
+          showArchived={showArchived} onShowArchived={onShowArchived}
+          showBacklog={showBacklog} onShowBacklog={setShowBacklog}
+          groupMode={groupMode} onGroup={mode => { setGroupMode(mode); writeGroupMode(mode) }}
+          sortMode={sortMode} onSort={mode => { setSortMode(mode); writeSortMode(mode) }} />
+      </div>
       {paging && <div className="hint" role="status">{paging.loaded} of {paging.total} tickets loaded
         {paging.more && <button type="button" disabled={paging.loadingMore} onClick={paging.loadMore}>
           {paging.loadingMore ? 'Loading…' : 'Load more'}</button>}</div>}
-      <DocketSearchBox searchId={searchId} query={query} setQuery={setQuery}
-        boxRef={searchBox} onKeyDown={onSearchKey} onClear={clearSearch}
-        count={searching ? (paging ? `${paging.total} match` : `${rowCount} of ${searchableCount} match`) : ''} />
-      <div className="docket-filterbar">
-      <label className="checkline docket-showarchived">
-        <input type="checkbox" checked={showArchived}
-          onChange={(e) => onShowArchived(e.target.checked)} />
-        Show archived
-      </label>
-      <label className="checkline docket-showbacklog">
-        <input type="checkbox" checked={showBacklog} onChange={e => setShowBacklog(e.target.checked)} />
-        Show backlogged
-      </label>
-      </div>
-      <div className="docket-sortbar">
-        <label className="dim" htmlFor={controlsId + '-group'}>Arrange</label>
-        <select id={controlsId + '-group'} className="docket-group-select" value={groupMode}
-          onChange={e => { const mode=e.target.value as DocketGroupMode; setGroupMode(mode); writeGroupMode(mode) }}>
-          {GROUP_MODES.map(mode => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
-        </select>
-        <label className="dim" htmlFor={controlsId + '-sort'}>Sort</label>
-        <select id={controlsId + '-sort'} className="docket-sort-select" value={sortMode}
-          onChange={e => { const mode=e.target.value as DocketSortMode; setSortMode(mode); writeSortMode(mode) }}>
-          {SORT_MODES.map(mode => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
-        </select>
-        <span className="dim docket-sort-why">{SORT_MODES.find(mode => mode.value === sortMode)?.why}
-          {groupMode !== 'none' && ', inside each group'}</span>
-      </div>
       {mine === null && !cur
         ? <div className="dim pad">loading…</div>
         : sections.length === 0 && !cur

@@ -4081,30 +4081,43 @@ main.solo { width: 100%; }
    (active/past), so attention gets its own colour AND its own — orange,
    not neutral — selection background (spec: "Neutral selection for
    ordinary/archived entries; orange selection for attention"). */
-.docket-modal .gallery-head { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; }
+/* THE CONTROL BAR (user 2026-10-13: "keep it minimal and small but
+   streamlined and clean"). The org docket and every agent/team docket tab
+   render the same `DocketControlBar`: ONE wrapping row of 24px controls —
+   heading, search, Arrange, Sort, the two filters — with no boxes around
+   groups and no chrome on a control until it is hovered or focused. When the
+   row runs out of room it wraps whole groups, never clipping one. */
+.docket-modal .gallery-head { margin: 0 0 6px; }
 .docket-modal .gallery-head h3 { margin: 0; }
-/* three columns since search arrived — the title, the query box, and the two
-   filters at the right end (two of them until 2026-09-11, when the local ×
-   went). */
-.docket-modal .docket-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 12px; }
-.docket-head > h3 { grid-column: 1; grid-row: 1; }
+.docket-head {
+  --docket-ctl-h: 24px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+  min-width: 0; margin: 0 0 6px; font-size: 12px;
+}
+.docket-head > h3 { flex: none; margin: 0 2px 0 0; font-size: 15px; white-space: nowrap; }
 .docket-options-toggle { display: none; }
 .docket-options { display: contents; }
-.docket-filterbar { grid-column: 3; grid-row: 1; display: flex; justify-content: flex-end; gap: 12px; }
-.docket-options > .docket-sortbar { grid-column: 1 / -1; grid-row: 2; }
-/* SEARCH. The box lives in the header strip ITSELF, not inside the sliders
+.docket-sortbar, .docket-filterbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0;
+}
+.docket-ctl { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
+/* the options sit at the row's right end while the search has room beside
+   them, and simply start the next line when it does not */
+.docket-options > .docket-sortbar { margin-left: auto; }
+/* SEARCH. The box lives in the bar ITSELF, never inside the sliders
    disclosure: the arrangement and the sort are a posture set once, whereas a
    query is typed now and is the reason a long docket is hard to read at all. */
 .docket-search {
-  grid-column: 2; grid-row: 1;
-  display: flex; align-items: center; gap: 6px; min-width: 0;
+  flex: 1 1 200px; max-width: 360px; min-width: 150px;
+  display: flex; align-items: center; gap: 4px;
 }
-.docket-search-input {
-  flex: 0 1 260px; min-width: 0;
-  font-size: 12.5px; font-family: var(--sans); padding: 3px 8px;
+.docket-head .docket-search-input {
+  flex: 1 1 auto; min-width: 0; height: var(--docket-ctl-h); box-sizing: border-box;
+  font-size: 12px; font-family: var(--sans); padding: 0 8px;
   background: var(--input); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 4px;
+  border: 1px solid var(--line-soft); border-radius: 4px;
 }
+.docket-head .docket-search-input:hover { border-color: var(--line); }
 /* the engine's OWN in-field ✕ is not in the tab order, carries no accessible
    name, and does not exist outside WebKit-derived engines. `.docket-search-
    clear` is the one clear action this control has, so this must not double it
@@ -4113,52 +4126,69 @@ main.solo { width: 100%; }
 .docket-search-input::-webkit-search-decoration {
   -webkit-appearance: none; appearance: none;
 }
-.docket-search-clear {
+.docket-head .docket-search-clear {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
-  padding: 2px; font-size: 14px; line-height: 1; cursor: pointer;
+  width: 20px; height: 20px; padding: 0; font-size: 14px; line-height: 1; cursor: pointer;
   background: none; color: var(--dim);
   border: 1px solid transparent; border-radius: 4px;
 }
-.docket-search-clear:hover { color: var(--ink); border-color: var(--line); }
-.docket-search-count { font-size: 11.5px; white-space: nowrap; }
+.docket-head .docket-search-clear:hover { color: var(--ink); border-color: var(--line); }
+.docket-search-count { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.docket-search-count:empty { display: none; }
+/* quiet labels: they name the control, the value inside it is what reads */
+.docket-ctl-label { font-size: 11px; color: var(--dim); white-space: nowrap; }
+/* GHOST SELECTS: no fill and no border at rest, the frame appears on hover
+   and the app's focus ring on focus, so the bar reads as text, not as boxes.
+   ⚠ SCOPED UNDER `.docket-head` because the org docket's panel is also a
+   `.settings` panel, whose `.settings select/input/button` sizes (14.5px,
+   8px padding) would otherwise win and clip the value out of a 24px box. */
+.docket-head :is(.docket-group-select, .docket-sort-select) {
+  height: var(--docket-ctl-h); box-sizing: border-box; min-width: 0; max-width: 100%;
+  font-size: 12px; font-family: var(--sans); padding: 0 2px 0 4px;
+  background: transparent; color: var(--ink);
+  border: 1px solid transparent; border-radius: 4px; cursor: pointer;
+}
+.docket-head :is(.docket-group-select, .docket-sort-select):hover { border-color: var(--line); background: var(--input); }
+/* a native popup paints its options on its own surface; keep them readable
+   in every theme rather than inheriting the transparent ghost */
+.docket-head :is(.docket-group-select, .docket-sort-select) option { background: var(--panel); color: var(--ink); }
+/* ⚠ THE SORT CAPTION STAYS IN THE PAGE: it is the sort select's accessible
+   description (and its tooltip carries the same words), so it is hidden
+   visually, not removed. */
+.docket-sort-why {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+/* the two filters, styled as one pair: small box, dim words, ink when on */
+.docket-check {
+  display: inline-flex; align-items: center; gap: 5px; height: var(--docket-ctl-h);
+  font-size: 12px; color: var(--dim); cursor: pointer; white-space: nowrap;
+}
+.docket-check:hover, .docket-check:has(input:checked) { color: var(--ink); }
+.docket-head .docket-check input {
+  width: 13px; height: 13px; margin: 0; padding: 0; cursor: pointer; accent-color: var(--accent);
+}
+.docket-check-n { color: var(--dim); font-variant-numeric: tabular-nums; }
 @container docket (max-width: 760px) {
-  .docket-modal .docket-head { gap: 6px; grid-template-columns: auto minmax(0, 1fr); }
-  .docket-head > h3 { min-width: 0; font-size: 16px; }
-  .docket-modal .docket-options-toggle { display: inline-flex; align-items: center; gap: 4px;
-    grid-column: 2; grid-row: 1; justify-self: end; padding: 3px 6px; font-size: 12px; white-space: nowrap; }
-  /* narrow: the query gets the whole width on its own row, and the disclosure
-     drops below it — search stays visible at every width because hiding it is
-     what made the panel hard to read in the first place */
-  .docket-search { grid-column: 1 / -1; grid-row: 2; }
-  .docket-search-input { flex: 1 1 auto; }
-  .docket-options { display: none; grid-column: 1 / -1; grid-row: 3; min-width: 0;
-    padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
-    max-height: 180px; overflow: auto; }
-  .docket-options[data-open="true"] { display: flex; flex-direction: column; gap: 10px; }
-  .docket-filterbar { justify-content: flex-start; flex-wrap: wrap; gap: 8px 12px; }
-  .docket-options .docket-sortbar { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; margin: 0; }
-  .docket-options .docket-group-select { min-width: 0; max-width: 100%; }
-  .docket-sort-why { grid-column: 1 / -1; overflow-wrap: anywhere; }
+  .docket-head > h3 { min-width: 0; font-size: 14px; }
+  .docket-search { max-width: none; }
+  /* narrow: the org docket's options fold behind the sliders button, which
+     sits at the end of the search line; a desk tab has no button, so its
+     controls simply wrap */
+  .docket-modal .docket-options-toggle {
+    display: inline-flex; align-items: center; gap: 2px; flex: none;
+    height: var(--docket-ctl-h); padding: 0 6px; font-size: 12px; white-space: nowrap;
+    background: transparent; color: var(--dim); border-color: transparent;
+  }
+  .docket-modal .docket-options-toggle:hover,
+  .docket-modal .docket-options-toggle[aria-expanded="true"] { color: var(--ink); background: var(--input); }
+  .docket-options-toggle ~ .docket-options { display: none; }
+  .docket-options-toggle ~ .docket-options[data-open="true"] {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+    flex-basis: 100%; min-width: 0; max-height: 180px; overflow: auto;
+  }
+  .docket-options > .docket-sortbar { margin-left: 0; }
 }
-/* the arrangement control gets its own strip: three choices plus two filter
-   checkboxes on one line would crowd the header the gallery keeps clean */
-.docket-sortbar {
-  display: flex; align-items: center; gap: 8px; margin: 0 0 6px;
-  font-size: 12px;
-}
-.docket-group-select {
-  font-size: 12px; padding: 2px 6px; font-family: var(--sans);
-  background: var(--input); color: var(--ink); border: 1px solid var(--line);
-  border-radius: 4px; cursor: pointer;
-}
-.docket-sort-why { font-size: 11.5px; }
-/* the two filters, styled as one pair — same line as the heading, the way the
-   gallery's show-retired checkbox is */
-.docket-showarchived, .docket-showbacklog {
-  font-size: 12.5px; color: var(--dim); cursor: pointer;
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
-}
-.docket-showarchived input, .docket-showbacklog input { cursor: pointer; margin: 0; }
 /* GROUP HEADINGS. Every grouped mode names its buckets, and the two appended
    groups name themselves in EVERY mode — which is what makes "the backlog and
    the archive are always at the bottom" visible rather than merely true. */
@@ -4774,10 +4804,10 @@ span.ref-chip.ref-chip {
 .panel-corner-btn[aria-pressed="true"] { color: var(--agent-accent-text, var(--accent)); }
 /* ⚠ ROOM RESERVED IN EACH TAB'S OWN TOP ROW. The cluster floats, so without
    this it would sit on top of whatever that row ends in — and two of the three
-   end flush right: the docket's filter checkboxes are `justify-content:
-   flex-end`, and the gallery caption wraps to the panel's right edge. */
+   end flush right: the docket's control bar pushes its options to the right
+   end, and the gallery caption wraps to the panel's right edge. */
 .desk-tabpanel > .gallery-agent .desk-presented-head,
-.desk-tabpanel > .docket-agent > .docket-filterbar,
+.desk-tabpanel > .docket-agent > .docket-head,
 .desk-tabpanel > .mailwrap > .mail-folders { padding-right: 72px; }
 
 /* vibrant orange badge WITHOUT the mail bell's pulse animation — the
