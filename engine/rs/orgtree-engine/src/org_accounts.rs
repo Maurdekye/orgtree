@@ -245,19 +245,32 @@ pub async fn leave(engine: &Arc<Engine>, org_id: i64, org_slug: &str, agent_id: 
     // server's seat has nowhere else to go
     if !catalog::is_langserver(tier) {
         let version = crate::runtime::freeze::muse_pin(engine, tier, agent_id).await;
-        if let Some(to) = crate::runtime::freeze::pick_fallback(engine, tier, version.as_deref(), account, org_slug).await {
-            if crate::runtime::freeze::continue_on(engine, org_id, agent_id, &to, why).await.is_ok() {
-                return;
-            }
-        }
-        let candidates = engine.accounts.view().continue_candidates(tier, account, org_slug);
-        for to in candidates {
+        if let Some(to) = crate::runtime::freeze::pick_fallback(engine, tier, version.as_deref(), account, org_slug, false).await {
             if crate::runtime::freeze::continue_on(engine, org_id, agent_id, &to, why).await.is_ok() {
                 return;
             }
         }
         let provider = catalog::provider_of(tier);
-        if account.is_some() && allowed(Some(org_slug), &default_lane(provider)) {
+        // a Muse seat goes only where its exact model (pin included) is
+        // offered, by that login's own catalog; the gates below stay as they are
+        let muse = provider == catalog::MUSE;
+        let candidates = engine.accounts.view().continue_candidates(tier, account, org_slug);
+        for to in candidates {
+            if muse {
+                let Some(a) = engine.accounts.view().get(&to).cloned() else { continue };
+                if !crate::runtime::freeze::muse_login_offers(engine, &a, tier, version.as_deref(), org_slug).await {
+                    tracing::info!(agent = agent_id, account = %to, "this Muse login does not offer the seat's model; not a target");
+                    continue;
+                }
+            }
+            if crate::runtime::freeze::continue_on(engine, org_id, agent_id, &to, why).await.is_ok() {
+                return;
+            }
+        }
+        // Muse's own login only if it offers the model and passes every
+        // continuation gate: this unbinding never bypasses a refused target
+        if account.is_some() && allowed(Some(org_slug), &default_lane(provider))
+            && (!muse || crate::runtime::freeze::muse_primary_takes(engine, tier, version.as_deref(), org_slug, false).await) {
             match to_primary(engine, org_id, agent_id, why).await {
                 Ok(()) => return,
                 Err(e) => tracing::warn!(agent = agent_id, error = %format!("{e:#}"), "could not move the agent to the default sign-in"),

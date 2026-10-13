@@ -276,8 +276,11 @@ pub async fn recover(engine: &Arc<Engine>) {
 /// Another account of `provider` this agent could continue on, honoring the
 /// API-key fallback and subscription switches: subscriptions first, then
 /// metered keys. `version` is the seat's pinned model version (`muse_pin`).
+/// `own_login`: a limit move, which may also take Muse's own login (see
+/// `muse_primary_takes`); the org account-list move keeps its own order.
 #[logged]
-pub async fn pick_fallback(engine: &Engine, tier: &str, version: Option<&str>, current: Option<&str>, org_slug: &str) -> Option<String> {
+pub async fn pick_fallback(engine: &Engine, tier: &str, version: Option<&str>, current: Option<&str>, org_slug: &str,
+    own_login: bool) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
     let view = engine.accounts.view();
     let subs = engine.settings.subscription_inference(provider);
@@ -305,6 +308,17 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, version: Option<&str>, c
         }
         tracing::info!(account = %a.id, tier, "account fallback: no eligible proven room on this login");
     }
+    // Muse's own login: Claude's or Codex's own login is a candidate above as
+    // an ambient registry row (its default home registered), but a Muse login
+    // is two roots Muse lays out itself and is never a row. So for an agent on
+    // a registered Muse login (never one already on its own login), it is
+    // asked here: after the registered subscriptions, before any key, under
+    // the same subscription switch, with proven room (lead 2026-10-13 06:50Z)
+    if own_login && provider == crate::providers::catalog::MUSE && current.is_some() && subs
+        && muse_primary_takes(engine, tier, version, org_slug, true).await
+    {
+        return Some(crate::org_accounts::primary(provider));
+    }
     if !keys {
         return None;
     }
@@ -329,7 +343,8 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, version: Option<&str>, c
 /// is never borrowed from another login nor assumed for a key (user
 /// 2026-10-12 19:57Z). Not logged: it handles the key.
 #[nolog]
-async fn muse_login_offers(engine: &Engine, a: &crate::accounts::AccountInfo, tier: &str, version: Option<&str>, org_slug: &str) -> bool {
+pub(crate) async fn muse_login_offers(engine: &Engine, a: &crate::accounts::AccountInfo, tier: &str, version: Option<&str>,
+    org_slug: &str) -> bool {
     let key = if a.is_apikey() {
         let Some(key) = crate::providers::muse_stored_key(engine, &a.id, org_slug).await else { return false };
         Some(key)
@@ -349,6 +364,36 @@ async fn muse_login_offers(engine: &Engine, a: &crate::accounts::AccountInfo, ti
 #[logged]
 pub fn eligible(engine: &Engine, org_slug: &str, tier: &str, account: &str) -> bool {
     continuation::resolve(engine, org_slug, tier, account).is_ok()
+}
+
+/// Whether the user's own Muse login may take a seat moved off another
+/// login: its own catalog offers the seat's exact model (pin included) and
+/// every continuation gate passes for `muse/primary` (the org's account
+/// list, provider and login activation, sign-in, re-authentication, marks,
+/// a full window). With `room`, a move nobody asked for, its own reading
+/// must also prove room: an unknown reading is never room. The reading is
+/// taken first, so the gates judge the same reading the room proof does.
+#[logged]
+pub(crate) async fn muse_primary_takes(engine: &Engine, tier: &str, version: Option<&str>, org_slug: &str, room: bool) -> bool {
+    let primary = crate::org_accounts::primary(crate::providers::catalog::MUSE);
+    if room && tokio::time::timeout(FALLBACK_READ, crate::usage::muse(engine, &primary, None, false)).await.is_err() {
+        tracing::info!(tier, "account fallback: Muse's own login's usage read timed out; no proven room");
+        return false;
+    }
+    let model = crate::providers::catalog::model_for(tier, version);
+    if engine.providers.muse_model(&model).is_none() {
+        tracing::info!(tier, model = %model, "Muse's own login does not offer the seat's model");
+        return false;
+    }
+    if let Err(e) = continuation::resolve(engine, org_slug, tier, &primary) {
+        tracing::info!(tier, why = %format!("{e:#}"), "Muse's own login cannot take the seat");
+        return false;
+    }
+    if room && !crate::usage::has_room(engine, None, tier) {
+        tracing::info!(tier, "account fallback: no proven room on Muse's own login");
+        return false;
+    }
+    true
 }
 
 /// The model version a Muse seat is pinned to (its scope's `model_version`),
@@ -374,7 +419,7 @@ const FALLBACK_READ: Duration = Duration::from_secs(5);
 #[logged]
 pub async fn fall_back(engine: &Arc<Engine>, org_id: i64, agent_id: i64, tier: &str, current: Option<&str>, org_slug: &str) {
     let version = muse_pin(engine, tier, agent_id).await;
-    let Some(acc) = pick_fallback(engine, tier, version.as_deref(), current, org_slug).await else {
+    let Some(acc) = pick_fallback(engine, tier, version.as_deref(), current, org_slug, true).await else {
         tracing::info!(agent = agent_id, tier, "account fallback: no other account can take it; it stays frozen");
         return;
     };
