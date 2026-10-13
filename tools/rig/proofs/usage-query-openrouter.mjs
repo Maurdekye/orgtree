@@ -25,6 +25,7 @@ export default async function (rig) {
   put('openrouter', canned(21))
   put('openrouter-2', canned(73))
   await rig.api('GET', '/api/openrouter/usage?force=true')
+  await rig.api('GET', '/api/accounts/openrouter-2/usage?force=true')
   const calls = lane => fs.readFileSync(path.join(dir, 'calls.log'), 'utf8').split('\n').filter(l => l.endsWith(` ${lane}`)).length
   const query = args => rig.tool('boss', 'orgtree_usage', args)
   const read = (lane, refresh = false) => query({ accounts: [lane], refresh })
@@ -64,6 +65,11 @@ export default async function (rig) {
   fs.unlinkSync(file('openrouter-2'))
   fs.writeFileSync(path.join(dir, 'openrouter-key@openrouter-2.json'), JSON.stringify({ status: 200, delay_ms: 2000,
     data: { label: 'query second', limit: 10, usage: 7.3, total_credits: 30, total_usage: 11.43, opaque_note: marker } }))
+  // The public readers retain a 60 s insertion-age cache independently of
+  // the provider's observation timestamp. Let that ordinary cache expire;
+  // this is a deadline wait, not a provider poll or a new cache bypass.
+  p.note('waiting 61 seconds for the second-key reader cache to expire')
+  await new Promise(resolve => setTimeout(resolve, 61000))
   const turns = rig.one('SELECT count(*) AS n FROM ot.turns').n
   const before = { one: calls('openrouter'), two: calls('openrouter-2') }
   const logStart = rig.engineLog().length
@@ -74,7 +80,7 @@ export default async function (rig) {
   p.check('same-lane manual refresh returns in_progress while retaining the dated row', busy.ok
     && busy.json.refresh.status === 'in_progress' && busy.json.accounts[0].age_seconds >= 1800
     && calls('openrouter-2') === before.two + 1, busy)
-  await rig.api('GET', '/api/openrouter/usage?force=true')
+  await rig.api('GET', '/api/accounts/openrouter-2/usage?force=true')
   p.check('public HTTP reader shares the held second-lane reservation and starts no duplicate read',
     calls('openrouter-2') === before.two + 1)
   const first = await read('openrouter', true)
