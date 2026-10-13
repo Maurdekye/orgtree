@@ -241,7 +241,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
             claim the moment there were two — the head is exactly where a
             person looks to learn what this lane is. */}
         <span className="dim"> · REST API{harness && keyHarnesses.length === 1
-          ? `, runs on ${labelOf(harness, keyHarnesses[0])}`
+          ? `, runs on ${labelOf(harness, keyHarnesses[0] ?? null)}`
           : keyHarnesses.length > 1 ? ', each key on its own harness' : ''}</span>
         <span className="set-head-right">
           {doc && <button type="button" className="acct-secondary-btn"
