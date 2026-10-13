@@ -45,7 +45,8 @@ const orKeys = [orKey('openrouter-key', { label: 'Original key', name: 'Original
 const servers = [true, false].map((enabled, i) => ({ id: `fixture-${i}`, preset: 'custom', label: i ? 'Disabled backup server' : 'Local models',
   address: 'http://models.example.test', base_path: '/v1', base_url: 'http://models.example.test/v1', harness: 'codex-cli', api: 'openai',
   max_agents: 2, seat: 1, enabled, key_set: true, created_at: '', models: {} }))
-const serverDoc = () => ({ servers, presets: [], default_seat: 1, max_seat: 100, min_context: 65536, default_context: 65536, user_enabled: true })
+const serverDoc = () => ({ servers, presets: [{id:'custom',label:'Custom server',address:'http://models.example.test',
+  harnesses:[{id:'codex-cli',label:'Codex',available:true}]}], default_seat: 1, max_seat: 100, min_context: 65536, default_context: 65536, user_enabled: true })
 window.fetch = async (url, init) => {
   const pathname = new URL(String(url), location.href).pathname
   let body: unknown = {}
