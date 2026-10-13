@@ -56,7 +56,7 @@ test('side markdown and HTML presentation cards disappear only at mini',async(t)
 test('switchboard credit bar disappears below the exact shared boundary and returns',async(t)=>{
   const set:{current:((z:number)=>void)|null}={current:null}
   function Host(){const [zoom,change]=useState(Z_MINI);set.current=change;return <UserNode
-    pos={{x:0,y:0}} isDrop={false} stats={{circ:8,seats:2,free:6}} seats={seats}
+    pos={{x:0,y:0}} isDrop={false} stats={{circ:8,seats:2,free:6}} pip={null} seats={seats}
     codexHire={hire} antigravityHire={hire} claudeHire={hire}
     pxc={1} zoom={zoom} focused={false} eyeW={124} posX={()=>0} map={new Map()}
     op={op} slug="far-proof" toast={noop} onSpawn={noop} onMailLink={noop} onWorkLink={noop}/>}
