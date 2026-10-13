@@ -115,6 +115,11 @@ export default async function (rig) {
     const row = (catalog.models ?? []).find((m) => m.id === 'muse-spark-1.2')
     plans.push({ name: 'm-spark-12', tier: 'spark', version: '1.2', model: 'muse-spark-1.2', efforts: row?.efforts })
   }
+  // ORGTREE_RIG_MUSE_ONLY=<model ids, comma separated>: only those (a re-run that
+  // needs one session, e.g. the resume path, spends no more subscription than that)
+  const only = (process.env.ORGTREE_RIG_MUSE_ONLY ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  if (only.length) plans.splice(0, plans.length, ...plans.filter((x) => only.includes(x.model)))
+  p.file('plans.json', { only, plans })
   const results = []
   // hire them all, then send every one its synthetic turn at once: the turns run side by side
   for (const plan of plans) {
