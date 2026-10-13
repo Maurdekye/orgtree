@@ -262,6 +262,9 @@ pub async fn remove_original(engine: &Arc<Engine>) -> Result<Value> {
             Ok(v) => { out = Some(v); break; }
             Err(e) if attempt < 3 && retryable(&e) => {
                 tracing::warn!(attempt, "original OpenRouter key removal conflicted; retrying entire transaction");
+                // the attempt has rolled back and released its key/seat locks
+                // (as `remove`): let an org-first writer finish first
+                tokio::time::sleep(std::time::Duration::from_millis(25 << attempt)).await;
             }
             Err(e) => return Err(e),
         }
@@ -395,8 +398,18 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
     }
     let mut after = 0i64;
     loop {
-        let rows = tx.query("SELECT id, slug FROM ot.orgs WHERE id > $1 AND settings->>'default_account' IN ($2, $3) ORDER BY id LIMIT 128 FOR UPDATE",
-            &[&after, &ACCOUNT_ID, &LANE]).await?;
+        // As `remove_once`: the key row, then its seats, are locked already, so
+        // never wait here for an org-first writer that may await one of those
+        // seats. NOWAIT aborts the whole attempt (55P03); roll back now, so
+        // every lock is released before `remove_original` backs off and retries.
+        let rows = match tx.query("SELECT id, slug FROM ot.orgs WHERE id > $1 AND settings->>'default_account' IN ($2, $3) ORDER BY id LIMIT 128 FOR UPDATE NOWAIT",
+            &[&after, &ACCOUNT_ID, &LANE]).await {
+            Ok(rows) => rows,
+            Err(error) => {
+                tx.rollback().await?;
+                return Err(error.into());
+            }
+        };
         if rows.is_empty() { break; }
         for row in rows {
             let org_id: i64 = row.get(0);
