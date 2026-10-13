@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Failed shell errors show a compact indicator; expansion reads retained output
+  via authenticated org/node/seq/tool `tooloutput`, with a UTF-8-safe 1 MiB cap
+  and explicit truncation note. Keep raw output out of chat/feed and wire logs;
+  successful calls/other tools keep existing clipping. See
+  [retention and proof limits](docs/rust-engine/shell-error-fold.md).
+  [decided: user/coordinator 2026-10-13; verified: runtime `convo.rs`, HTTP `nodes.rs`, renderer `desk.tsx`]
+
 - Muse in Windows Session 0 (the installed app's boot-task engine): Muse's
   OS sandbox cannot start a command there, so a write seat's host starts with
   `--disable-sandbox`; read-only seats have no shell; bypass seats, and every
