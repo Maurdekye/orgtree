@@ -46,7 +46,8 @@ test('the popup is a capability-free window and selection is a cancelled navigat
   assert.doesNotMatch(main, /broadcastAll\(\{ type: 'open-org'/,
     'an organization is never announced to every window')
   // it dismisses itself when it loses focus and dies with the app's quit
-  assert.match(main, /popup\.on\('blur', \(\) => \{ if \(trayPopup === popup\) closeTrayPopup\(\) \}\)/)
+  assert.match(main, /popup\.on\('blur', \(\) => \{\s*if \(trayPopup !== popup\) return/)
+  // Dismissal and blur/click ordering execute in tray-toggle.test.mjs.
   assert.match(main, /quitting = true\r?\n\s*if \(poll\) clearInterval\(poll\)\r?\n\s*trayPopupSeq\+\+; closeTrayPopup\(\)/)
 })
 

@@ -508,7 +508,12 @@ else {
   // pure functions in traylist.ts; this block owns only the window.
   let trayPopup: BrowserWindow | undefined
   let trayPopupSeq = 0
+  let trayPopupPending = false
+  let trayPopupBlurredAt = -Infinity
   const closeTrayPopup = () => {
+    ++trayPopupSeq
+    trayPopupPending = false
+    trayPopupBlurredAt = -Infinity
     const popup = trayPopup
     trayPopup = undefined
     if (popup && !popup.isDestroyed()) popup.destroy()
@@ -523,12 +528,21 @@ else {
     })
   }
   const showTrayList = async (anchor: Electron.Rectangle) => {
+    // Windows can deliver the tray-induced blur before its click. Consume
+    // that close once, only while recent; unrelated dismissals never eat a
+    // later click. A pending fetch is open intent too, so a second click
+    // cancels it without letting its eventual answer create a window.
+    if (trayPopup || trayPopupPending || performance.now() - trayPopupBlurredAt < 250) {
+      closeTrayPopup()
+      return
+    }
     const seq = ++trayPopupSeq
+    trayPopupPending = true
     // fetched per click, not cached from the poll: the list must say what is
     // active NOW, and a click is rare enough to afford the fresh read
     const rows = await engine.orgActivity()
     if (seq !== trayPopupSeq || quitting) return   // a newer click or quit superseded this fetch
-    closeTrayPopup()
+    trayPopupPending = false
     // Windows hands the icon rect on click; an empty rect falls back to the
     // cursor so the popup still lands on the right display
     const point = anchor.width > 0 ? { x: anchor.x + Math.round(anchor.width / 2), y: anchor.y } : screen.getCursorScreenPoint()
@@ -547,7 +561,23 @@ else {
     popup.webContents.setWindowOpenHandler(({ url }) => { followSelection(url); return { action: 'deny' } })
     popup.webContents.on('will-navigate', (event, url) => { event.preventDefault(); followSelection(url) })
     // identity-guarded: a superseded popup's late blur must not close its successor
-    popup.on('blur', () => { if (trayPopup === popup) closeTrayPopup() })
+    popup.on('blur', () => {
+      if (trayPopup !== popup) return
+      const icon = tray?.getBounds()
+      const cursor = screen.getCursorScreenPoint()
+      const overIcon = process.platform === 'win32' && icon && icon.width > 0 && icon.height > 0 &&
+        cursor.x >= icon.x && cursor.x < icon.x + icon.width &&
+        cursor.y >= icon.y && cursor.y < icon.y + icon.height
+      closeTrayPopup()
+      if (overIcon) trayPopupBlurredAt = performance.now()
+    })
+    popup.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.key === 'Escape' && trayPopup === popup) {
+        event.preventDefault()
+        closeTrayPopup()
+      }
+    })
+    popup.on('closed', () => { if (trayPopup === popup) closeTrayPopup() })
     trayPopup = popup
     const currentTheme = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined
     const explicitTheme = currentTheme?.visualTheme &&
