@@ -783,16 +783,20 @@ pub fn payload(engine: &Engine) -> Value {
         let registered: Vec<&crate::accounts::AccountInfo> = view.all().into_iter()
             .filter(|a| a.provider == catalog::MUSE && crate::accounts::active(engine, catalog::MUSE, Some(a)))
             .collect();
+        // a tier the own login's catalog lists stays listed while it is signed
+        // out (disabled, with the reason, unless another login offers models)
+        let own_out = found.and_then(|d| d.probe.account_state.as_deref()) == Some("loggedOut");
         let tiers: Vec<Value> = catalog::TIERS
             .iter()
             .filter(|t| t.provider == catalog::MUSE && !t.legacy)
             .filter_map(|t| {
-                let own = muse_offers(t.tier, found);
+                let listed = muse_offers(t.tier, found);
+                let own = listed && !own_out;
                 let on: Vec<&&crate::accounts::AccountInfo> = registered.iter().filter(|a| muse_tier_on(engine, Some(a), t)).collect();
-                if !own && on.is_empty() {
+                if !listed && on.is_empty() {
                     return None;
                 }
-                let row = if own {
+                let row = if listed {
                     found.and_then(|d| d.probe.catalog.as_ref()).and_then(|c| c.offered(t.model)).cloned()
                 } else {
                     on.iter().find_map(|a| match muse_offer(engine, Some(a), t.model) { MuseOffer::Offered(m) => Some(m), _ => None })
