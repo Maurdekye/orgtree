@@ -2131,6 +2131,24 @@ function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; 
   </div>
 }
 
+/** Added OpenRouter keys keep ordinary reads cache-only, like their existing
+ * bulk feed. Only this card's explicit Refresh asks its own registered lane
+ * to force a provider read; pending/error/age state belongs to that key. */
+function OpenRouterKeyUsageSection({ lane, name }: { lane: string; name?: string }) {
+  const state = useUsageReadout('openrouter_keys_usage', async (force) => {
+    if (force) return getRegisteredAccountUsage(lane, true)
+    const readings = await getOpenRouterKeysUsage()
+    return readings[lane] ?? { account: lane, provider: 'OpenRouter', available: false,
+      limits: [], error: 'usage unavailable until the next reading' }
+  }, lane)
+  return <div className="usage-acct" data-account={lane}>
+    <UsageAcctHead label="OpenRouter" parts={[`${name ?? lane} (${lane})`]}
+      provider={lane} state={state} />
+    {state.value ? <UsageBars u={{ ...state.value, provider: 'OpenRouter' }} />
+      : <div className="dim">usage unavailable until refresh succeeds</div>}
+  </div>
+}
+
 export function UsageModal({ close, toast, org }: { close: () => void; toast: ToastFn; org?: string | null }) {
   // opened from an org window: that org's accounts, the rest behind a toggle
   // (user 2026-10-10); from Home, every account
@@ -2288,13 +2306,8 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
     </div> })
   }
   for (const [lane, u] of shown.openrouter ? addedKeys : []) {
-    cards.push({ provider: 'openrouter', lane, node: <div className="usage-acct" key={'openrouter-key:' + lane}>
-      <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">OpenRouter</span>
-        <span className="dim"> · {u.name ?? lane} ({lane})</span></span></div>
-      {u.available
-        ? <UsageBars u={u} />
-        : <div className="dim">{u.error ?? 'usage unavailable until the next reading'}</div>}
-    </div> })
+    cards.push({ provider: 'openrouter', lane, node: <OpenRouterKeyUsageSection
+      key={'openrouter-key:' + lane} lane={lane} name={u.name} /> })
   }
   for (const srv of (langServerDoc(langservers)?.servers ?? []).filter((x) => x.enabled)) {
     const offered = Object.values(srv.models).filter((m) => m.offered).map((m) => m.label)

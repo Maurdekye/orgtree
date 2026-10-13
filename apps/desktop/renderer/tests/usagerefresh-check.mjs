@@ -1,5 +1,5 @@
 // Run under the verification owner's shared lock/Job. Output must be its C scope.
-// Exact base overlays only the two changed production files into current fixtures.
+// Exact base overlays only the changed production files into current fixtures.
 import fs from 'node:fs'
 import path from 'node:path'
 import {createRequire} from 'node:module'
@@ -30,8 +30,9 @@ if(mode==='typecheck'){
       bundle:true,format:'esm',platform:'node',target:'node22',jsx:'automatic',nodePaths:[deps],external:['node:*'],
       define:{'process.env.NODE_ENV':'"development"',__SRC_DIR__:JSON.stringify(root+'/apps/desktop/renderer/src')},
       plugins:[...(baseline?[{name:'exact-refresh-base',setup(b){
-        b.onLoad({filter:/[\\/]src[\\/]api\.ts$|[\\/]src[\\/]canvas[\\/]accounts\.tsx$/},args=>{
-          const file=args.path.endsWith('api.ts')?'apps/desktop/renderer/src/api.ts':'apps/desktop/renderer/src/canvas/accounts.tsx'
+        b.onLoad({filter:/[\\/]src[\\/]api\.ts$|[\\/]src[\\/]App\.tsx$|[\\/]src[\\/]canvas[\\/]accounts\.tsx$/},args=>{
+          const file=args.path.endsWith('api.ts')?'apps/desktop/renderer/src/api.ts':args.path.endsWith('App.tsx')?
+            'apps/desktop/renderer/src/App.tsx':'apps/desktop/renderer/src/canvas/accounts.tsx'
           const p=spawnSync('git',['show',baseline+':'+file],{cwd:root,encoding:'utf8',windowsHide:true})
           if(p.status!==0)throw new Error(p.stderr)
           console.log('EXACT_BASE_SOURCE '+baseline+' '+file)

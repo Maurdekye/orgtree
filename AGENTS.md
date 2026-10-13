@@ -8,6 +8,12 @@
   [decided: coordinator 2026-10-13 18:57/21:21UTC; verified: renderer `api.ts`,
   `canvas/accounts.tsx`, Rust `http/accounts.rs` `Force`/`usage_registered`]
 
+- Every secondary OpenRouter usage card uses the shared Refresh header with
+  independent pending/error/age state. Only its manual force calls that key's
+  registered endpoint; normal key-map reads stay cache-only. Original key Refresh
+  remains unchanged. [decided: user 2026-10-13 21:49UTC; verified: `App.tsx`
+  `OpenRouterKeyUsageSection`, Rust `usage.rs` `registered` OpenRouter branch]
+
 - Failed shell errors show a compact indicator; expansion reads retained output
   via authenticated org/node/seq/tool `tooloutput`, with a UTF-8-safe 1 MiB cap
   and explicit truncation note. Keep raw output out of chat/feed and wire logs;

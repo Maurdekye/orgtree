@@ -15,6 +15,14 @@ Focused synthetic controls cover boolean query/defaults/encoded account identity
 retained bar warning and recovery, unavailable/unsupported preservation, and actual
 native plus registered Usage modal Refresh returning HTTP200 with last-good bars.
 The test records force queries and unchanged observation titles. Exact0ce01fb
-api.ts/accounts.tsx overlays are the red control; corrected source is the green.
+api.ts/accounts.tsx/App.tsx overlays are the red control; corrected source is the green.
 Executable verification belongs to rig-opus's second combined batch and remains
 unmeasured until its receipts arrive. No live provider or universal failure claim.
+
+User addition 2026-10-13 21:49UTC: every added OpenRouter key has the same account
+header/Refresh control, own pending/error/age state, and uses its existing
+registered-account endpoint for force=true. Ordinary reads use only the cached
+OpenRouter key map, preserving the prior no-provider-read display path. Original
+key Refresh remains unchanged. The fifth case checks two secondary keys and the
+original control, one-key force admission/pending deduplication, retained-bar
+provider failure, successful recovery and HTTP failure without changing a sibling.
