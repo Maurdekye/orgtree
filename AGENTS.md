@@ -413,7 +413,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   come only from the caller's existing free credits. The new parent inherits
   the caller's **effective** scope, never broader configured defaults. Validate
   composite actions before promotion and commit both atomically; publish no
-  intermediate topology or effects. See [parent-hire accounting and authority](docs/rust-engine/parent-hire.md).
+  intermediate topology or effects. Its explicit index is chosen in the final
+  sibling set excluding the caller, and survives temporary-report promotion;
+  returned placement describes that final set. [verified from source:
+  `domain/ops.rs`, 2026-10-13; rebased rig verification pending]
+  See [parent-hire accounting and authority](docs/rust-engine/parent-hire.md).
   [verified: `engine/rs/orgtree-engine/src/domain/ops.rs`; isolated parent-hire
   rig 26/26, 2026-10-11]
 
