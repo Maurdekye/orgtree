@@ -56,7 +56,19 @@
 //!       tool timeout (`timedOut`, "tool timed out"). With "ignore_stop": true
 //!       a stop does not take; with "background_ms": M Muse moves the call to
 //!       the background after M ms (`item/updated` with `background` and
-//!       `backgroundStatus`) and the turn goes on without it.
+//!       `backgroundStatus`) and the turn goes on without it. With also
+//!       "finish_ms": F the backgrounded command finishes F ms after it
+//!       started ("finish_status" completed | failed | cancelled, "output",
+//!       "failure" its failureReason), as measured on Muse 1.4.6
+//!       (2026-10-13): its item settles under the turn it started in, even
+//!       when that turn has ended; a turn running then gets the result; with
+//!       none running Muse holds it for the session and starts a turn of its
+//!       own to deliver it, and again at once each time one is cancelled,
+//!       until a turn of the client's starts (which takes every held result,
+//!       however briefly it runs) or one cancelled turn takes it
+//!       ("drain_after" such turns here, default 400). A wake turn not
+//!       cancelled within 40 ms runs a model step and answers. A host that
+//!       ends meanwhile says nothing of the command.
 //! The catalog `model/list` answers is the login's own
 //! `<XDG_CONFIG_HOME>/muse-catalog.json` when present (one login's
 //! entitlement, as a fixture), else `<fakecli dir>/muse-catalog.json`, else
@@ -105,6 +117,9 @@ struct Srv {
     tasks: Mutex<Vec<(String, String)>>,
     /// task ids `task/stop` named
     task_stops: Mutex<Vec<String>>,
+    /// background results held for the session until a turn takes them:
+    /// item id → the delivery turns started for it so far
+    held: Mutex<HashMap<String, u64>>,
     /// started with `--disable-sandbox`
     no_sandbox: bool,
 }
@@ -391,6 +406,8 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             let turn = p["commandId"].as_str().map(str::to_string).unwrap_or_else(|| srv.uid());
             let busy = srv.turn.lock().unwrap().is_some();
             *srv.turn.lock().unwrap() = Some(turn.clone());
+            // background results held for the session go into this turn
+            let taken: Vec<(String, u64)> = srv.held.lock().unwrap().drain().collect();
             srv.steers.lock().unwrap().clear();
             // a sticky replacement of the root set; absent, the set is unchanged
             let sent = strings(&p["workspaceRoots"]);
@@ -400,6 +417,9 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             let roots = srv.roots.lock().unwrap().clone();
             srv.log("turn_start", json!({ "turn": turn, "if_busy": p["ifBusy"], "effort": p["reasoningEffort"], "images": images,
                                           "roots_sent": sent.is_some(), "roots": roots }));
+            for (item, wakes) in taken {
+                srv.log("bg_delivered", json!({ "item": item, "into": turn, "how": "into the client's next turn", "wakes": wakes }));
+            }
             srv.respond(id, json!({ "commandId": p["commandId"], "turnId": turn, "status": "accepted",
                                     "disposition": if busy { "queued" } else { "started" }, "startedNewTurn": !busy }));
             let _ = tx.send(Job { turn, prompt, script, steps, effort: p["reasoningEffort"].as_str().map(str::to_string) });
@@ -618,7 +638,7 @@ fn streamed(srv: &Srv, turn: &str, kind: &str, field: &str, text: &str, delay: u
     true
 }
 
-fn tool(srv: &Srv, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
+fn tool(srv: &Arc<Srv>, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
     let raw = step["tool"].as_str().unwrap_or("");
     let orgtree = raw.starts_with("orgtree_") || raw.starts_with("mcp__orgtree__");
     let short = raw.trim_start_matches("mcp__orgtree__").to_string();
@@ -775,7 +795,7 @@ fn await_decision(srv: &Srv, rx: &mpsc::Receiver<String>, id: &str, name: &str) 
 
 /// A tool call that produces nothing until it is stopped, times out, or Muse
 /// moves it to the background (see the header).
-fn silent_tool(srv: &Srv, turn: &str, step: &Value, id: &str, name: &str, base: &Value, limit_ms: u64) {
+fn silent_tool(srv: &Arc<Srv>, turn: &str, step: &Value, id: &str, name: &str, base: &Value, limit_ms: u64) {
     srv.tasks.lock().unwrap().push((id.to_string(), name.to_string()));
     let started = Instant::now();
     let ignore_stop = step["ignore_stop"].as_bool() == Some(true);
@@ -818,6 +838,11 @@ fn silent_tool(srv: &Srv, turn: &str, step: &Value, id: &str, name: &str, base: 
             moved["backgroundStatus"] = json!({ "state": "backgrounded", "detail": detail });
             srv.notify("item/updated", json!({ "sessionId": srv.sid(), "item": moved }));
             srv.log("tool_background", json!({ "tool": name, "item": id, "ms": started.elapsed().as_millis() as u64 }));
+            if let Some(finish) = step["finish_ms"].as_u64() {
+                let (srv, turn, id, base, step) = (srv.clone(), turn.to_string(), id.to_string(), base.clone(), step.clone());
+                let at = started + Duration::from_millis(finish);
+                std::thread::spawn(move || finish_background(&srv, &turn, &id, &base, &step, at));
+            }
             return;
         }
         if started.elapsed() >= Duration::from_millis(limit_ms) {
@@ -830,6 +855,80 @@ fn silent_tool(srv: &Srv, turn: &str, step: &Value, id: &str, name: &str, base: 
             srv.log("tool_result", json!({ "tool": name, "item": id, "interrupted": true }));
             return;
         }
+    }
+}
+
+/// A command Muse moved to the background finishes `at` (see the header): its
+/// item settles under the turn it started in, then Muse hands the result to
+/// the session: into a turn running then; else it is held, and turns of
+/// Muse's own try to deliver it until a turn of the client's starts and takes
+/// it (`turn/start`) or one cancelled turn takes it.
+fn finish_background(srv: &Arc<Srv>, turn: &str, id: &str, base: &Value, step: &Value, at: Instant) {
+    while Instant::now() < at {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    srv.tasks.lock().unwrap().retain(|(t, _)| t != id);
+    let status = step["finish_status"].as_str().unwrap_or("completed");
+    let output = step["output"].as_str().unwrap_or("done");
+    let mut done = base.clone();
+    done["turnId"] = json!(turn);
+    done["revision"] = json!(3);
+    done["status"] = json!(status);
+    done["visibleOutput"] = json!(output);
+    if status != "completed" {
+        done["failureReason"] = json!(step["failure"].as_str().unwrap_or("the command failed"));
+    }
+    srv.notify("item/completed", json!({ "sessionId": srv.sid(), "item": done }));
+    let running = {
+        // checked and held under one lock: a turn of the client's starting
+        // now is either seen running here or takes the held result
+        let mut held = srv.held.lock().unwrap();
+        let running = srv.turn.lock().unwrap().clone();
+        if running.is_none() {
+            held.insert(id.to_string(), 0);
+        }
+        running
+    };
+    srv.log("tool_finished", json!({ "item": id, "turn": turn, "status": status, "running": running }));
+    if let Some(running) = running {
+        srv.log("bg_delivered", json!({ "item": id, "into": running, "how": "into the running turn", "wakes": 0 }));
+        return;
+    }
+    let drain_after = step["drain_after"].as_u64().unwrap_or(400);
+    loop {
+        let wakes = {
+            let mut held = srv.held.lock().unwrap();
+            // gone: a turn of the client's took it (`turn/start` said so)
+            let Some(wakes) = held.get_mut(id) else { return };
+            if *wakes >= drain_after {
+                let n = *wakes;
+                held.remove(id);
+                drop(held);
+                srv.log("bg_delivered", json!({ "item": id, "into": null, "how": "into a cancelled wake turn", "wakes": n }));
+                return;
+            }
+            *wakes += 1;
+            *wakes
+        };
+        let own = srv.uid();
+        srv.notify("turn/started", json!({ "sessionId": srv.sid(), "turnId": own, "commandId": own }));
+        let until = Instant::now() + Duration::from_millis(40);
+        let cancelled = || srv.cancelled.lock().unwrap().contains(&own);
+        while Instant::now() < until && !cancelled() {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        if cancelled() {
+            srv.notify("turn/completed", json!({ "sessionId": srv.sid(), "turnId": own, "terminal": "cancelled",
+                                                  "reason": "cancelled before model step", "durationMs": 30 }));
+            std::thread::sleep(Duration::from_millis(15));
+            continue;
+        }
+        // not cancelled: Muse's own turn makes a model step on the result
+        let took = srv.held.lock().unwrap().remove(id).is_some();
+        item(srv, &own, true, json!({ "itemId": srv.uid(), "kind": "agentMessage", "text": format!("The background command printed {output}") }));
+        srv.notify("turn/completed", json!({ "sessionId": srv.sid(), "turnId": own, "terminal": "completed", "durationMs": 3400 }));
+        srv.log("bg_delivered", json!({ "item": id, "into": own, "how": "Muse's own turn ran", "wakes": wakes, "took": took }));
+        return;
     }
 }
 
@@ -846,7 +945,7 @@ fn request_usage(srv: &Srv, turn: &str, t: &Tokens, totals: &mut Tokens) {
                         "cacheReadTokens": totals.cached } }));
 }
 
-fn run_turn(srv: &Srv, job: &Job, mcp: &mut Option<Mcp>, totals: &mut Tokens) {
+fn run_turn(srv: &Arc<Srv>, job: &Job, mcp: &mut Option<Mcp>, totals: &mut Tokens) {
     srv.interrupted.store(false, Ordering::SeqCst);
     let turn = job.turn.as_str();
     srv.log("turn", json!({ "script": job.script, "prompt": job.prompt, "steps": job.steps.len(), "turn": turn,
@@ -1002,6 +1101,7 @@ pub fn run(raw: &[String]) -> i32 {
         stopped: Mutex::new(Vec::new()),
         tasks: Mutex::new(Vec::new()),
         task_stops: Mutex::new(Vec::new()),
+        held: Mutex::new(HashMap::new()),
         no_sandbox: raw.iter().any(|a| a == "--disable-sandbox"),
     });
     // what a proof checks about the launch: the per-process switches, the
