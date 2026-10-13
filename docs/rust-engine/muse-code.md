@@ -143,7 +143,8 @@ not built (it needs a measurement from that session first).
 **Turns.** `turn/start` with the text, image parts (base64, capped as for
 Claude) and the effort; mail that arrives mid-turn goes into the exact running
 turn (`turn/steer` with `expectedTurnId`); an interrupt is `turn/interrupt`; a
-turn Orgtree did not start is cancelled; a subagent the scope does not allow
+turn Orgtree did not start is cancelled (Muse's delivery of a background
+result included, see below); a subagent the scope does not allow
 is stopped (`subagent/stop`); `/compact` is `session/compact`. Items become
 the conversation: agent messages, reasoning, tool calls (orgtree tools on
 their chips), the todo list as the checklist chip.
@@ -171,9 +172,8 @@ ends a turn. Each call is stopped once: one still in flight a whole limit after
 its stop ends the turn as before, so a stop that does not take cannot loop.
 Muse moves a shell command still running after about 10 s to the background
 by itself (measured), and the turn no longer waits on it, so such work is
-never stopped here. Waking the agent when such a command finishes, and
-recording its late result, is a separate item
-(`muse-results-of-shell-commands-moved-to-the-back`). In the reported hangs
+never stopped here. What happens when such a command finishes is under
+**Commands Muse moves to the background** below. In the reported hangs
 each call settled `timeout` ("tool timed out") 601 s after it started.
 Orgtree's 600 s stop of the whole turn came first; Muse settled the call while
 draining its shutdown (1.04 s, its session log's `drain_ms`). Whether Muse has
@@ -193,6 +193,67 @@ long is up to their CLIs:
   as it ends. Its MCP calls wait as long as `MCP_TOOL_TIMEOUT` allows (not
   verified here).
 - Codex's and Antigravity's own timeouts are not verified here.
+
+**Commands Muse moves to the background** (`actor.rs`
+`follow_muse_background`, `on_muse_late`, `muse_lost`). Muse's shell tool
+waits about 10 s in the foreground (the model may pass `yield_time_ms`, up to
+300 s), then moves the command to the background, and the turn goes on.
+Measured on Muse 1.4.6 (2026-10-13, synthetic Spark turns in a scratch
+folder, `bg-probe2.mjs`):
+- A command that finishes while its own turn runs settles in that turn, which
+  gets the result.
+- One that finishes while a later turn runs settles under the turn it
+  started in, and Muse gives the running turn the result.
+- One that finishes while no turn runs: Muse keeps the result (the command,
+  its exit code and output) to hand to the session, and starts a turn of its
+  own to deliver it. Cancelled before its model step, it starts another at
+  once, about every 55 ms (332 times in 19 s in one run). That goes on until a
+  turn of the client's arrives, which Muse gives the result to, or one of the
+  cancelled turns takes it. Then the result stays in the session's history,
+  and the next turn knows it. Left to run, Muse's own turn is a model step on
+  the result (23,251 prompt tokens in one run).
+- A failed command settles `failed` with Muse's reason ("process exited with
+  status 3") and its output.
+- A host that ends while a command runs in the background says nothing of
+  the command, and the resumed session doesn't either: asked, the model did
+  not know it had run.
+- No Muse setting or MSP method turns the automatic delivery turn off.
+
+What Orgtree does:
+- Every turn Muse starts by itself is still cancelled (Orgtree admits turns).
+  The cancels are warned about at most once a minute, with their count, not
+  one line each.
+- A call Muse moves to the background is followed past its turn. When its
+  item settles after the turn ended, its chip in that turn's row gets the
+  result: the output, the line count and the end time, and for a failure
+  Muse's reason, with the full failed output kept for reading on demand, as
+  for any failed shell call.
+- If the agent is idle then (no turn running, none waiting for admission or
+  holding a slot), it is woken through its mailbox with a system message that
+  names the command and how it ended: "Your background command has finished
+  (it completed): powershell `npm test`. Muse has put its output and exit
+  status into your context; this message only wakes you so you can act on
+  them." The message carries no output; Muse delivers that itself, once.
+  Admission decides when the agent runs. While the agent waits for it (for
+  a turn slot, say) and its host lives, Muse's own turns keep being
+  cancelled, and the message waits in the mailbox. A turn already running or
+  about to start gets the result from Muse, and no message is sent.
+- When the host ends with commands still in the background, the commands end
+  with it, and their chips say so: "ended with its Muse host (the host was
+  closed) before it finished" ("the host was stopped" when Orgtree kills it,
+  "the host exited: …" when it died). The agent gets one waking message
+  listing them, saying no result will arrive (none for a seat retired or
+  deleted). Orgtree closes a host whether or not it runs background
+  commands: at a usage limit (the turn that hits one ends the process: the
+  account changes or the agent sleeps, so a frozen agent's commands end at
+  the wall), at every turn's end when warming is off, when warming is
+  switched off or the cap on idle processes evicts it, when the agent's
+  settings change, and on the process's stop control. It kills one at a
+  halt, when a turn is killed at its time limit, and at engine shutdown.
+  This is the same rule as for Claude Code's background tasks (P33):
+  background work does not keep a process open, and its loss is reported
+  (gap 11).
+- The desk's background count (`bg_tasks`) includes them while they run.
 
 **What the log keeps.** No raw MSP request or answer reaches the engine log:
 `session/start` and `session/resume` carry the session's configuration, a
@@ -451,6 +512,9 @@ status and the exact HEAD it ran on.
 | Renderer test `musesession0` (the Muse card's Session 0 note: its plain words, shown only on the Muse card and only while `muse.session0` is true) | 5 passed |
 | Rig `muse-session0.mjs` (Session 0 forced, then a restart outside it): the three seats' host switches and profiles, the posture on each launch line, the write seat's command and outside write unasked (the fake modelling the measured `--disable-sandbox`), `muse.session0` true; after the restart the sandbox kept, the outside write asked about and refused (`abort`), `muse.session0` false | 10 checks passed |
 | Rig `muse-session0-real.mjs` on the REAL Muse Code 1.4.6, from a Session 0 engine (one synthetic Spark turn at its lowest effort): the host without the sandbox, its powershell call returning, its write outside its folders going through unasked, the turn ending well | 6 checks passed |
+| Engine unit tests `runtime::actor::muse_silence_tests::muse_background_results_land_on_the_chip_and_the_wake_names_the_outcome` and `muse_background_commands_lost_with_their_host_are_listed_once` (the chip's result and Muse's failure reason; the wake names the command and how it ended, never the output; the host-loss message lists each command once, at most 20) | 2 passed |
+| Rig `muse-bg-result.mjs`, on a fake that delivers results as Muse 1.4.6 was measured to. A finish while idle: the chip gets the result after its turn, one waking message names the command and how it ended (never the output), every turn Muse starts is cancelled and the admitted turn gets the result, the desk counts the command while it runs. A finish during a later turn: the earlier chip gets it, no message. Within its own turn: as before. A failure: Muse's reason on the chip and in the message, the failed output kept. A halt: the chip says the command ended with its host, one message, read once unhalted. A quota wall: the host closed at the limit, the chip and one message say so, the message waits while frozen. Waiting for a turn slot with the host alive: the chip gets the result, the message waits, Muse's turns meanwhile all cancelled and warned about once, the result in the turn admitted when the slot frees | 24 checks passed; `muse-tool-silence.mjs` (13), `muse-refusal.mjs` (9), `muse-session0.mjs` (10), `muse-lane.mjs` (48) and `turn-failures.mjs` (15) pass on the same engine |
+| Rig `muse-bg-result-real.mjs` on the REAL Muse Code (two synthetic Spark turns) | not run: the batched verification has no authorization for turns on the user's Muse login; what real Muse does is measured by the probes above |
 
 **Red controls** (the same proof, run against an engine without the change):
 without the Muse fallback five checks fail (the move to the profile, its
@@ -495,6 +559,12 @@ counterpart is the measured sandboxed failure above. The approval refusal, again
 its base (the tool-call stop): `muse-refusal.mjs` fails 6 of its 9 checks (no
 decision is sent, each refused call waits until the silence limit stops it, no
 denial is booked), its setup, offered-choices and approval controls passing.
+The background results, against the engine of their base (`muse-bg-result.mjs`
+on the same fake): it fails 18 of its 24 checks (no chip gets a late result,
+no wake, no word of a command lost with its host, no background count, and a
+warning for every cancelled Muse turn), its hires, the two fake-side checks
+of a finish during a later turn, the within-its-turn control, the
+no-turn-while-halted check and the frozen state passing.
 
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
@@ -532,6 +602,7 @@ be paid).
 | Queued input while busy | `ifBusy: queue` | same | same | measured (fake) |
 | Interrupt | `turn/interrupt`, ends cancelled | same | same | measured (fake) |
 | A tool call silent for the silence limit | that call alone is stopped (`task/stop`, a note naming the limit first) and the turn goes on | the whole turn ends (unchanged) | the whole turn ends (unchanged) | measured (fake proof; the MSP stop, note and continuation measured on real Muse 1.4.6); other lanes source-derived |
+| A shell command that finishes in the background after its turn | its chip gets the result; an idle agent is woken through its mailbox; Muse delivers the output itself, once; one lost with its host is reported | the CLI's own background tasks: a failed or stopped one wakes the agent with a card, ones lost with the CLI are reported (P33); a completed one is the CLI's to deliver | not verified here | Muse measured (real 1.4.6; fake proof with red control); Claude source (`tasks.rs`, `recovery.rs`) |
 | Resume across restarts | `session/resume` | same | same | measured (real) |
 | Compaction | `/compact` → `session/compact`; cheap compact as everywhere | same | same | measured (fake); real untested |
 | Orgtree tools, caller attribution | session MCP server | same | same | measured (fake) |
@@ -618,6 +689,26 @@ be paid).
    is unconfined on every session. Class: upstream limitation plus a user
    ruling (2026-10-13 20:16Z, keep the shell). Closes by hosting Muse in the
    user's session with its sandbox on.
+10. **Muse's own delivery turns keep coming while the agent cannot run.**
+    A background command that finishes while its host lives but the agent
+    cannot be admitted yet (waiting for a turn slot, for one) sets Muse
+    starting its own turn about every 55 ms, each cancelled here before any
+    model step, until Muse hands the result to one of them (19 s in one
+    measured run) or the agent's turn arrives. Impact: protocol traffic and
+    Muse's own work, no tokens and no lost result; the log warns once a
+    minute. Class: upstream (no switch to turn the delivery turn off). Closes
+    with such a switch in Muse, or a way to defer a session's delivery.
+11. **A command in the background ends with its host.** Orgtree closes or
+    stops a Muse host for the reasons under **Commands Muse moves to the
+    background**: a usage limit, every turn's end when warming is off, the
+    cap on idle processes, a settings change, a stop or halt. A command still
+    running then ends with it; the agent is told that no result will arrive
+    and can run it again. Impact: with warming off, every command Muse moves
+    to the background is lost when its turn ends. Class: Orgtree policy,
+    shared with Claude Code's background tasks (P33): background work does
+    not keep a process open. Closes by keeping a host open while it runs
+    background commands, a decision on process lifetime and memory that is
+    not made here.
 
 ## Files
 
@@ -647,3 +738,5 @@ The tool-call stop: `runtime/{actor,muse}.rs`; the fake host's `task/stop`,
 Session 0: `runtime/{muse,actor}.rs`, `providers/mod.rs` (`muse.session0`),
 the renderer's `canvas/accounts.tsx` and `types.ts` with test `musesession0`,
 the fake's `--disable-sandbox`, `proofs/muse-session0{,-real}.mjs`.
+Background commands: `runtime/{actor,muse}.rs`; the fake's `finish_ms`
+background steps and Muse's delivery turns, `proofs/muse-bg-result{,-real}.mjs`.

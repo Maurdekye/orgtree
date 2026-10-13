@@ -1,5 +1,21 @@
 # AGENTS.md — working on Orgtree
 
+- A shell command Muse moves to the background (after ~10 s) can finish after
+  its turn. Muse hands its result to the session itself, once, and starts
+  turns of its own to deliver it; Orgtree still cancels those (admission) and
+  warns about the cancels once a minute, not per cancel (Muse restarts one
+  every ~55 ms). The actor follows such calls past their turn (`muse_bg`): a
+  late settle writes the result onto the chip in its original row; an idle
+  agent gets one waking system message naming the command and how it ended,
+  never the output; a host that ends with such commands running marks their
+  chips and tells the agent once (Muse says nothing of them). Background work
+  does not keep a host open, as for Claude's background tasks (P33): a usage
+  limit closes the host (a frozen agent's commands end at the wall), and so
+  do each turn's end with warming off and the idle-process cap. See [Muse:
+  commands moved to the background](docs/rust-engine/muse-code.md). [decided:
+  coordinator 2026-10-13 18:53Z; verified: `actor.rs` `on_muse_late`,
+  `muse_lost`, `end_turn`'s `close_proc`, real Muse 1.4.6 probes 2026-10-13]
+
 - Transcript bundles are display-only runs of passive system notices (the
   inbox's `isSystemNotice` predicate), at two or more. User/agent notices,
   waking requests, tools and lifecycle rows break runs; unproven legacy
