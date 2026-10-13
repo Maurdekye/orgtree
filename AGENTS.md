@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Muse approvals: Orgtree refuses with MSP's `denied` choice when offered, else
+  Muse's once-only `abort` ("Reject"): real Muse 1.4.6 offers no `denied`, and
+  `abort` rejects that one call while the turn goes on. Never take a choice that
+  persists (`allow_local_prefix`, session scope). Before this a refusal found no
+  choice and the call waited until the silence limit. See [Muse
+  sessions](docs/rust-engine/muse-code.md). [decided: coordinator 2026-10-13
+  20:15Z; verified: `muse.rs` `choice`, real Muse 1.4.6 probe 2026-10-13]
+
 - Reparent drag ghosts use the same display projection and final targets as
   the move animation, including piles and inbox clearance. Keep sibling drags
   as separators and inbox drops as audience actions. See [landing ghost](docs/rust-engine/reparent-ghost.md).

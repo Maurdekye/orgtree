@@ -78,9 +78,16 @@ further roots; read-only grants are never roots (Muse gives every root the
 same write access), reads there are approved on request. Posture: write seats
 run `:ask-me` with approval `onRequest` (the engine answers each request from
 the scope, once, never for the session), read-only seats `:read-only` with
-`denyUnmatched`, bypass seats `:unrestricted` / `allowAll`. Orgtree's tools are
-a session MCP server (`config.mcpServers.orgtree`, the engine's `mcp-bridge`),
-so every call is the calling agent's. A restart resumes the same session
+`denyUnmatched`, bypass seats `:unrestricted` / `allowAll`. A refusal is
+MSP's `denied` choice when a host offers one, else `abort`: real Muse 1.4.6
+offers only `allow_once`, the persistent `allow_local_prefix` (never taken)
+and `abort` ("Reject", once), and an `abort` rejects that one call ("approval
+aborted") while the turn goes on (measured 2026-10-13, a shell approval; the
+choices of other approval kinds were not measured). Before that fix the
+engine looked only for `denied`, found nothing to answer with, and the call
+waited (no host timeout was seen in 240 s) until the silence limit.
+Orgtree's tools are a session MCP server (`config.mcpServers.orgtree`, the
+engine's `mcp-bridge`), so every call is the calling agent's. A restart resumes the same session
 (`session/resume`) and re-applies the seat's posture. Every turn carries the
 session's current roots (`turn/start.workspaceRoots`, MSP's sticky
 replacement): a resume admits none, so without them a resumed session would
@@ -393,6 +400,8 @@ status and the exact HEAD it ran on.
 | Rig `muse-real.mjs` on the REAL Muse Code 1.4.6, the user's own login | see below |
 | Engine unit tests `runtime::actor::muse_silence_tests` (which calls a silent turn waits on: the foreground ones, each stopped once; backgrounded work never; the note names the call and the limit) | 3 passed |
 | Rig `muse-tool-silence.mjs` (4 s limit), the tool-call stop. One silent call: the note first, then the call alone; the turn ends well, the host untouched, the chip says why. A silent model: the turn stops as before. Two silent calls: each stopped in its turn. A stop that does not take: asked once, the turn stops a limit later. Backgrounded work: not stopped. A 10 s total ceiling: still ends the turn | 13 checks passed; `turn-failures.mjs` (15) and `muse-lane.mjs` (48) pass on the same engine |
+| Engine unit test `runtime::muse::tests::a_refusal_is_real_muses_once_only_abort` (real Muse 1.4.6's measured choice set: refuse with `abort`, approve with `allow_once`, never the persistent prefix rule; `denied` preferred when offered) | 1 passed |
+| Rig `muse-refusal.mjs` (6 s limit), on a fake offering real Muse's choice set and, like it, waiting with no timeout. A read outside the folders: refused with `abort` at once, the call rejected, a denial booked, the turn goes on. A shell command on a seat without the shell: refused, never the prefix rule. An allowed command: `allow_once`. No approval left without an answer | 9 checks passed; `muse-lane.mjs` (48) on the same engine |
 
 **Red controls** (the same proof, run against an engine without the change):
 without the Muse fallback five checks fail (the move to the profile, its
@@ -427,7 +436,10 @@ retry happens there too), its setup and no-request control passing. The
 tool-call stop, against an engine compiled from a clean checkout of its base:
 `muse-tool-silence.mjs` fails 10 of its 13 checks (every silent call ends its
 whole turn at the limit, nothing is stopped alone), its setup, silent-model and
-backgrounded-work controls passing.
+backgrounded-work controls passing. The approval refusal, against an engine compiled from
+its base (the tool-call stop): `muse-refusal.mjs` fails 6 of its 9 checks (no
+decision is sent, each refused call waits until the silence limit stops it, no
+denial is booked), its setup, offered-choices and approval controls passing.
 
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
@@ -468,7 +480,8 @@ be paid).
 | Resume across restarts | `session/resume` | same | same | measured (real) |
 | Compaction | `/compact` → `session/compact`; cheap compact as everywhere | same | same | measured (fake); real untested |
 | Orgtree tools, caller attribution | session MCP server | same | same | measured (fake) |
-| Folder scopes, read-only folders | write roots; read-only by approval | same outcome | same outcome | measured (fake: a write outside the folders denied); read-only reads inferred |
+| Folder scopes, read-only folders | write roots; read-only by approval | same outcome | same outcome | measured (fake: a write outside the folders refused with Muse's measured `abort`); read-only reads inferred |
+| Refusing an approval | once-only `abort` ("Reject"; `denied` when offered), the turn goes on | Claude Code's own rules (`--disallowed-tools`) | Orgtree answers `decline` | Muse measured (real 1.4.6 choice set and `abort` effect; fake proof); others source |
 | Shell / write closed on read-only seats | `--disable-shell` / `--disable-write` + `:read-only` | same | same | measured (fake) |
 | Images | MSP image parts | same | same | untested |
 | Subagents | stopped unless the scope allows | Claude Task allowed by scope | n/a | measured (fake stop); allowed path untested |
