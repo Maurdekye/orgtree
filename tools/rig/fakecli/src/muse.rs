@@ -24,7 +24,11 @@
 //!       checks the engine records one that appears anyway)
 //!   {"tool": "write_file", "args": {"path": "..."}, "native_write": true}   a
 //!       write Muse's own root rules decide: inside one of the session's
-//!       workspace roots it runs unasked, outside it asks (`approval/request`)
+//!       workspace roots it runs unasked, outside it asks (`approval/request`).
+//!       On a host started with `--disable-sandbox` it runs unasked outside
+//!       the roots too (measured on Muse 1.4.6, 2026-10-13). (Real Muse with
+//!       its sandbox refuses an outside write itself, "absolute path is
+//!       outside the workspace"; here it asks, so the engine's refusal shows.)
 //!   {"tool": ..., "approval": true, "subject": {...}}   a call that asks first.
 //!       It offers real Muse 1.4.6's choices (measured 2026-10-13: `allow_once`,
 //!       for a shell command the persistent `allow_local_prefix`, and `abort`,
@@ -101,6 +105,8 @@ struct Srv {
     tasks: Mutex<Vec<(String, String)>>,
     /// task ids `task/stop` named
     task_stops: Mutex<Vec<String>>,
+    /// started with `--disable-sandbox`
+    no_sandbox: bool,
 }
 
 impl Srv {
@@ -631,13 +637,15 @@ fn tool(srv: &Srv, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
         }
         item(srv, turn, true, done);
     };
-    // Muse's own root rules: a write inside a workspace root runs unasked
+    // Muse's own root rules: a write inside a workspace root runs unasked;
+    // without the sandbox one outside does too (measured on Muse 1.4.6)
     let native = step["native_write"].as_bool() == Some(true);
     let in_root = native && args["path"].as_str().is_some_and(|p| in_roots(srv, p));
     if native {
-        srv.log("native_write", json!({ "path": args["path"], "in_root": in_root, "roots": srv.roots.lock().unwrap().clone() }));
+        srv.log("native_write", json!({ "path": args["path"], "in_root": in_root, "sandbox": !srv.no_sandbox,
+                                        "roots": srv.roots.lock().unwrap().clone() }));
     }
-    if step["approval"].as_bool() == Some(true) || (native && !in_root) {
+    if step["approval"].as_bool() == Some(true) || (native && !in_root && !srv.no_sandbox) {
         let aid = srv.uid();
         let (dtx, drx) = mpsc::channel();
         srv.decisions.lock().unwrap().insert(aid.clone(), dtx);
@@ -994,6 +1002,7 @@ pub fn run(raw: &[String]) -> i32 {
         stopped: Mutex::new(Vec::new()),
         tasks: Mutex::new(Vec::new()),
         task_stops: Mutex::new(Vec::new()),
+        no_sandbox: raw.iter().any(|a| a == "--disable-sandbox"),
     });
     // what a proof checks about the launch: the per-process switches, the
     // developer prompt's arrival (its length and whether it names the agent),
