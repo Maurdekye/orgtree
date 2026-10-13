@@ -62,15 +62,25 @@ lookups cannot replace a newer menu or survive a current-org change. Native menu
 deferral for editing, selection and ordinary links stays in the shared mechanism;
 menu position/portal/focus use the clicked element's document.
 
-## Verification status at source checkpoint
+## Verification status at verification checkpoint
 
-Typecheck and diffcheck passed. Prepared `runtime::toolwriting` native cases and
+Typecheck and diffcheck passed. `runtime::toolwriting` native cases and
 renderer `toolwriting.test.tsx` / `objectnav.test.tsx` synthetic cases cover the
 observed clock and independent ID bookkeeping, immediate name/icon rendering,
 both completed/reloaded durations, interleaved transient retirement, canonical
 link menus, owner scope, invalid/foreign/missing targets and stale completions.
-These tests have **not executed yet**: coordinator external-heavy HOLD applies.
-Native build/check, focused renderer runs, any required changed-path rig receipt
-and independent review remain. No real-provider, live-data, installed-app or
-publication acceptance is claimed. Update this section with measured receipts
-before final hand-in.
+Native tracker tests passed 2/2; native test compile took 62.10 seconds under a
+4096MB/600s Job. Cargo check passed without warnings in 38.56 seconds. Five
+focused renderer cases passed under a 1536MB/120s Job, after retained runner
+bootstrap/import failures. Those passes refer to source checkpoint c25d9fa.
+
+Further source review added a per-request writing version so even fetch/stream
+transitions in the same millisecond cannot remove/resurrect writing state, and
+applied the same org/anchor guard to rejected menu lookups. These renderer
+corrections and a sixth same-millisecond regression are **not verified yet**.
+Prepared `tools/rig/proofs/tool-writing.mjs` covers real scratch-engine stream,
+admission/persistence/chat reload, parallel identity, repeated full admission,
+unobserved calls and cancellation; it has **not executed yet**. Verification
+is queued again after higher-priority phases. Independent review remains. No
+real-provider, live-data, installed-app or publication acceptance is claimed.
+Update this section with final exact-source measured receipts before hand-in.
