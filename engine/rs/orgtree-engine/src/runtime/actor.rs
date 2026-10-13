@@ -2362,19 +2362,40 @@ impl Actor {
 
     /// Start (or keep) the agent's Muse host on its session. The model must
     /// be a row of the signed-in account's own catalog (a bundled row offers
-    /// nothing, user 2026-10-12); the level goes with each turn, mapped to
-    /// the model's catalog default when the model does not list it.
+    /// nothing, user 2026-10-12); the level goes with each turn, the nearest
+    /// one the model lists at or below the saved level when it does not list
+    /// the saved one (catalog::launch_effort).
     async fn ensure_muse(&mut self, ctx: &Ctx) -> Result<()> {
         if !self.engine.settings.provider_enabled(catalog::MUSE) {
             return Err(anyhow!("Muse is turned off in App settings"));
         }
+        // The catalog is read by discovery at startup. A turn that arrives
+        // before that read has landed waits for it (measured on the real
+        // Muse 1.4.6, 2026-10-13: a turn 250 ms ahead of discovery was
+        // refused as "not offered" and never retried), and when discovery
+        // has no catalog Muse is read once more here.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !self.engine.providers.state.load().probed && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if self.engine.providers.state.load().muse_probe.as_ref().is_none_or(|d| d.probe.catalog.is_none()) {
+            crate::providers::refresh_muse(&self.engine).await;
+        }
         let row = self.engine.providers.muse_model(&ctx.model).ok_or_else(|| {
-            anyhow!("the signed-in Muse account's catalog does not offer {} ({}); move this agent to a Muse tier it offers", ctx.tier, ctx.model)
+            let st = self.engine.providers.state.load();
+            match (st.muse_probe.as_ref().and_then(|d| d.probe.catalog.as_ref()), st.muse_error.as_deref()) {
+                (Some(_), _) => anyhow!(
+                    "the signed-in Muse account's catalog does not offer {} ({}); move this agent to a Muse tier it offers",
+                    ctx.tier, ctx.model
+                ),
+                (None, Some(e)) => anyhow!("Muse's model catalog could not be read ({e}); the mail waits in the mailbox for the next turn"),
+                (None, None) => anyhow!("Muse's model catalog has not been read yet; the mail waits in the mailbox for the next turn"),
+            }
         })?;
         let (effort, mapped) = catalog::muse_effort(&ctx.effort, Some(&row.variants), row.default_effort.as_deref());
         if mapped {
             tracing::info!(agent = %self.name, model = %ctx.model, saved = %ctx.effort, sent = %effort,
-                "this Muse model does not list the saved effort; its catalog default is sent");
+                "this Muse model does not list the saved effort; the nearest level it lists is sent");
         }
         let plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
