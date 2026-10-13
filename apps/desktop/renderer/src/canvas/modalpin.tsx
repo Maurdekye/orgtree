@@ -595,6 +595,10 @@ function PinFrameInner({ kind, title, panel, close, children,
   const [live, setLive] = useState<PinRect | null>(null)
   const [freePlacement, setFreePlacement] = useState(false)
   const gesture = useRef<Gesture | null>(null)
+  // A click synthesized after selecting text can land on the backdrop even
+  // though the pointer started in the panel. Only a backdrop-started gesture
+  // dismisses; null also permits keyboard/programmatic activation.
+  const backdropStart = useRef<boolean | null>(null)
   // a window resize can strand a pinned window with no gesture to follow it,
   // so clamping happens at render time against the CURRENT window — and this
   // tick is what makes a resize (or a display change) a render
@@ -775,7 +779,12 @@ function PinFrameInner({ kind, title, panel, close, children,
       style={pinned && bounds ? { zIndex: layout.z, inset:'auto', left:bounds.x, top:bounds.y,
         width:bounds.w, height:bounds.h, overflow:'clip' } : undefined}
       onClick={inPlace || pinned || detached || !backdropClose ? undefined
-        : (e) => { e.stopPropagation(); closeSurface() }}
+        : (e) => {
+          e.stopPropagation()
+          if (e.target === e.currentTarget && backdropStart.current !== false) closeSurface()
+          backdropStart.current = null
+        }}
+      onPointerDownCapture={(e) => { backdropStart.current = e.target === e.currentTarget }}
       onPointerDown={(e) => e.stopPropagation()}>
       {/* ⚠ SAME ELEMENT, SAME CHILDREN, IN BOTH MODES — see the header. Only
           the class list and the inline rect change, so React keeps the whole

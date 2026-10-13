@@ -1,6 +1,6 @@
 import { PinFrame } from './modalpin'
 import { ProviderDialog } from './providerdialog'
-import { OpenRouterAddedKeys, OriginalKeyActive, OriginalKeyNameButton, originalKeyName } from './openrouterkeys'
+import { OpenRouterAddedKeys, OpenRouterKeyDialog, OriginalKeyActive, originalKeyName } from './openrouterkeys'
 import { useAppValue } from '../appfeed'
 // canvas/openrouter.tsx — the OpenRouter lane's settings surface (user spec
 // 2026-09-02, verbatim intent):
@@ -47,8 +47,8 @@ import { useAppValue } from '../appfeed'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  clearOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
-  setOpenRouterHarness, setOpenRouterKey,
+  addOpenRouterKey, clearOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
+  setOpenRouterHarness, setOpenRouterKey, updateOpenRouterKey,
 } from '../api'
 import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
 import type {
@@ -183,6 +183,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   const [busy, setBusy] = useState(false)
   const [keyDraft, setKeyDraft] = useState('')
   const [editingKey, setEditingKey] = useState(false)
+  const [addingKey, setAddingKey] = useState(false)
 
   const adopt = (d: OpenRouterDoc) => {
     setDoc(d); setErr(null)
@@ -241,6 +242,11 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
           ? `, runs on ${labelOf(harness, harness.selected)}`
           : ''}</span>
         <span className="set-head-right">
+          {doc && <button type="button" className="acct-secondary-btn"
+            disabled={busy} aria-haspopup="dialog"
+            onClick={() => anyKey ? setAddingKey(true) : setEditingKey(true)}>
+            {anyKey ? 'Add another OpenRouter key' : 'Add OpenRouter key'}
+          </button>}
           {!off && anyKey && !provider?.hire_enabled
             && <span className="acct-preview-tag">preview</span>}
           {headRight}
@@ -249,10 +255,19 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
       {err && <div className="dim acct-prov-note">could not read OpenRouter state: {err}</div>}
       {!doc && !err && <div className="dim acct-prov-note">reading OpenRouter state…</div>}
 
-      {doc && !keySet && <button type="button" className="acct-secondary-btn"
-        disabled={busy} aria-haspopup="dialog" onClick={() => setEditingKey(true)}>Add OpenRouter key</button>}
-      {doc && editingKey && (
-        <ProviderDialog title={keySet ? 'Replace OpenRouter key' : 'Add OpenRouter key'}
+      {doc && addingKey && <OpenRouterKeyDialog title="Add another OpenRouter key" keyRequired
+        initialName="" busy={busy} close={() => setAddingKey(false)}
+        save={(name, key) => { run(addOpenRouterKey(key, name), 'OpenRouter key added'); setAddingKey(false) }} />}
+      {doc && editingKey && keySet && <OpenRouterKeyDialog title="Replace OpenRouter key"
+        keyRequired={false} initialName={doc.keys?.find(k => k.original)?.label ?? ''}
+        busy={busy} close={() => setEditingKey(false)}
+        save={(name, key) => {
+          run(updateOpenRouterKey('openrouter-key', key ? { label: name, key } : { label: name }),
+            key ? 'OpenRouter key saved' : 'OpenRouter key renamed')
+          setEditingKey(false)
+        }} />}
+      {doc && editingKey && !keySet && (
+        <ProviderDialog title="Add OpenRouter key"
           busy={busy} close={() => { setEditingKey(false); setKeyDraft('') }}>
           <div className="provider-key-form">
             <label htmlFor="openrouter-key-draft">API key</label>
@@ -299,7 +314,6 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
                 title="re-check the key and its credit standing at openrouter.ai"
                 disabled={busy} onClick={() => run(getOpenRouter(true), '')}>
                 <AutorenewIcon fontSize="inherit" /></button>
-              <OriginalKeyNameButton doc={doc} busy={busy} run={run} />
               <button className="acct-btn" title="replace the key — the favorites stay"
                 disabled={busy} aria-haspopup="dialog" onClick={() => setEditingKey(true)}>
                 <EditIcon fontSize="inherit" /></button>
@@ -320,8 +334,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
           </div>
         </div>
       )}
-      {/* several keys at once (ruling 2026-10-11): each added key's row and
-          "Add another OpenRouter key" — canvas/openrouterkeys.tsx */}
+      {/* several keys at once: each added key's row and settings */}
       {doc && <OpenRouterAddedKeys doc={doc} busy={busy} run={run} />}
 
       {/* the favorites ROW: a chip per favorite that a click deselects (or,

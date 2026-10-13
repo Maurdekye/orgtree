@@ -26,6 +26,15 @@
   callback once before invoking it. See [toast shortcut](docs/rust-engine/toast-undo-shortcut.md).
   [decided: user 2026-10-13 18:14UTC; verified: renderer `toasts.tsx`, `App.tsx`]
 
+- OpenRouter has one header Add action beside its provider switch for first
+  and subsequent keys. The original key's settings combines its custom name
+  and optional replacement secret, using the added keys' shared form; there is
+  no separate naming action. Provider drafts close on backdrop clicks and
+  Escape when idle, discard unsaved entries, and ignore inside-started drag-out
+  clicks. Busy saves keep the existing dismissal guard. [decided: user
+  2026-10-13 18:16–18:17UTC; verified: `canvas/openrouter.tsx`,
+  `openrouterkeys.tsx`, `providerdialog.tsx`, `modalpin.tsx`]
+
 - Muse Wonder Full uses shared tier blue `#80b8ff`, replacing dusty rose;
   light/solarized icons and hire buttons keep blue on a dark backing. Preserve
   the Muse provider cyan and other tiers. See [Muse colours](docs/rust-engine/muse-code.md).

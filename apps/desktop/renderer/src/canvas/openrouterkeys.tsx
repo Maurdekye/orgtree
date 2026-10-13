@@ -5,8 +5,8 @@
 //  - a row per ADDED key (`openrouter-N`): its name, verdict and spend line,
 //    and the same three icon buttons as the original row (re-check · edit ·
 //    remove);
-//  - "Add another OpenRouter key", once one key is stored;
-//  - the name dialog every key shares (the original's name button too).
+//  - the shared name and optional replacement form every key uses in settings.
+// The section header owns its single add action for first and subsequent keys.
 //
 // Each key is its own account: agents are placed on it, Org settings ›
 // Accounts ticks it per org, and the usage window shows its own card. The
@@ -18,9 +18,9 @@
 
 import { useState } from 'react'
 import {
-  addOpenRouterKey, getOpenRouter, removeOpenRouterKey, setOpenRouterKeyEnabled, updateOpenRouterKey,
+  getOpenRouter, removeOpenRouterKey, setOpenRouterKeyEnabled, updateOpenRouterKey,
 } from '../api'
-import { AutorenewIcon, DeleteIcon, EditIcon, LabelIcon } from '../icons'
+import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
 import type { OpenRouterDoc, OpenRouterKey } from '../types'
 import { ProviderDialog } from './providerdialog'
 import { SetToggle } from './settingskit'
@@ -69,7 +69,7 @@ function standingOf(k: OpenRouterKey): string {
 }
 
 /** the name (and, for an edit, an optional replacement key) of one key */
-function KeyDialog({ title, keyRequired, initialName, busy, close, save }: {
+export function OpenRouterKeyDialog({ title, keyRequired, initialName, busy, close, save }: {
   title: string
   keyRequired: boolean
   initialName: string
@@ -106,26 +106,10 @@ function KeyDialog({ title, keyRequired, initialName, busy, close, save }: {
   </ProviderDialog>
 }
 
-/** the original key's name button, for its row in openrouter.tsx */
-export function OriginalKeyNameButton({ doc, busy, run }: { doc: OpenRouterDoc; busy: boolean; run: Run }) {
-  const [open, setOpen] = useState(false)
-  const original = doc.keys?.find((k) => k.original)
-  if (!original) return null
-  return <>
-    <button className="acct-btn" title="name this key" disabled={busy} aria-haspopup="dialog"
-      onClick={() => setOpen(true)}><LabelIcon fontSize="inherit" /></button>
-    {open && <KeyDialog title="Name the OpenRouter key" keyRequired={false} initialName={original.label ?? ''}
-      busy={busy} close={() => setOpen(false)}
-      save={(name) => { run(updateOpenRouterKey(original.id, { label: name }), 'OpenRouter key renamed'); setOpen(false) }} />}
-  </>
-}
-
-/** the added keys' rows and "Add another OpenRouter key" */
+/** the added keys' rows and settings; the section header owns adding */
 export function OpenRouterAddedKeys({ doc, busy, run }: { doc: OpenRouterDoc; busy: boolean; run: Run }) {
-  const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<OpenRouterKey | null>(null)
   const added = (doc.keys ?? []).filter((k) => !k.original)
-  const anyKey = doc.any_key ?? doc.key_set
   return <>
     {added.map((k) => <div className="acct-line" key={k.id}>
       <span className="acct-gutter" />
@@ -155,12 +139,7 @@ export function OpenRouterAddedKeys({ doc, busy, run }: { doc: OpenRouterDoc; bu
         <KeyActive k={k} busy={busy} run={run} />
       </div>
     </div>)}
-    {anyKey && <button type="button" className="acct-secondary-btn" disabled={busy} aria-haspopup="dialog"
-      onClick={() => setAdding(true)}>Add another OpenRouter key</button>}
-    {adding && <KeyDialog title="Add another OpenRouter key" keyRequired initialName="" busy={busy}
-      close={() => setAdding(false)}
-      save={(name, key) => { run(addOpenRouterKey(key, name), 'OpenRouter key added'); setAdding(false) }} />}
-    {editing && <KeyDialog title={`Edit ${editing.name}`} keyRequired={false} initialName={editing.label ?? ''}
+    {editing && <OpenRouterKeyDialog title={`Edit ${editing.name}`} keyRequired={false} initialName={editing.label ?? ''}
       busy={busy} close={() => setEditing(null)}
       save={(name, key) => {
         run(updateOpenRouterKey(editing.id, key ? { label: name, key } : { label: name }),

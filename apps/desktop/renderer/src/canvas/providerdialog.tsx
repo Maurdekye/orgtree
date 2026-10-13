@@ -19,7 +19,7 @@ export function ProviderDialog({ title, busy, close, children }: {
   }, [opener])
   return <ModalOverPins>
     <PinFrame kind="provider-configuration" title={title} dialogLabel={title}
-      panel="settings content-height provider-dialog" pinnable={false} backdropClose={false}
+      panel="settings content-height provider-dialog" pinnable={false}
       close={() => { if (!busy) close() }}>
       <h3>{title}</h3>
       <div ref={content}>{children}</div>

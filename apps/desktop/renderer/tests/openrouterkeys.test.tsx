@@ -122,6 +122,8 @@ test('§2 Add another key POSTs the key and its name, and never renders the key'
     const open = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
       .find((b) => b.textContent === 'Add another OpenRouter key')!
     assert.ok(open, 'the add button is offered once a key is stored')
+    assert.ok(open.closest('.set-head-right'), 'add is beside the provider switch in the header')
+    assert.equal(view.el.querySelectorAll('.set-head-right .acct-secondary-btn').length, 1, 'one header add action')
     await inAct(async () => { open.click(); await flush(4) })
     const dialog = document.querySelector('[aria-label="Add another OpenRouter key"]')!
     assert.ok(dialog, 'the add form opens in the provider dialog')
@@ -140,6 +142,39 @@ test('§2 Add another key POSTs the key and its name, and never renders the key'
   } finally {
     await view.unmount(); delete g.fetch
   }
+})
+
+test('original settings rename and optionally replace in one dialog, with no separate name action', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen)
+  const view = await mount()
+  try {
+    assert.equal(view.el.querySelector('button[title="name this key"]'), null)
+    const open = view.el.querySelector<HTMLButtonElement>('button[title^="replace the key"]')!
+    await inAct(async () => { open.click(); await flush(4) })
+    let dialog = document.querySelector('[aria-label="Replace OpenRouter key"]')!
+    let name = dialog.querySelector<HTMLInputElement>('input[aria-label="OpenRouter key name"]')!
+    assert.equal(name.value, '', 'provider key label is not a custom name')
+    await inAct(async () => { type(name, 'personal budget'); await flush(2) })
+    let save = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save')!
+    await inAct(async () => { save.click(); await flush(10) })
+    assert.deepEqual(seen.find(r => r.method === 'PUT' && r.path === '/api/openrouter/keys/openrouter-key')?.body,
+      { label: 'personal budget' }, 'name-only saves without replacing the secret')
+    await inAct(async () => { open.click(); await flush(4) })
+    dialog = document.querySelector('[aria-label="Replace OpenRouter key"]')!
+    name = dialog.querySelector<HTMLInputElement>('input[aria-label="OpenRouter key name"]')!
+    assert.equal(name.value, 'personal budget', 'current custom label is prefilled')
+    await inAct(async () => {
+      type(name, '')
+      type(dialog.querySelector<HTMLInputElement>('input[aria-label="OpenRouter API key"]')!, 'synthetic-replacement')
+      await flush(2)
+    })
+    save = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save')!
+    await inAct(async () => { save.click(); await flush(10) })
+    assert.deepEqual(seen.filter(r => r.method === 'PUT' && r.path === '/api/openrouter/keys/openrouter-key').at(-1)?.body,
+      { label: '', key: 'synthetic-replacement' }, 'empty custom name and replacement sent together')
+    assert.equal(document.body.textContent?.includes('synthetic-replacement'), false)
+  } finally { await view.unmount(); delete g.fetch }
 })
 
 test('§3 a key is switched off on its own, and removing an added key DELETEs only it', async () => {

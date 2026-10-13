@@ -537,7 +537,7 @@ test('key dialog Cancel and Escape discard unsaved secrets without changing the 
     const dialog = document.querySelector('[role="dialog"][aria-label="Replace OpenRouter key"]')!
     assert.ok(dialog)
     assert.equal(view.el.contains(dialog), false)
-    const input = dialog.querySelector<HTMLInputElement>('input')!
+    const input = dialog.querySelector<HTMLInputElement>('input[aria-label="OpenRouter API key"]')!
     await inAct(async () => {
       Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, 'synthetic-unsaved-key')
       input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -550,6 +550,6 @@ test('key dialog Cancel and Escape discard unsaved secrets without changing the 
     assert.equal(document.querySelector('.provider-dialog'), null)
     assert.equal(seen.filter(r => r.method !== 'GET').length, 0)
     await inAct(async () => { edit.click(); await flush(3) })
-    assert.equal(document.querySelector<HTMLInputElement>('.provider-dialog input')!.value, '', 'secret draft cleared on dismiss')
+    assert.equal(document.querySelector<HTMLInputElement>('.provider-dialog input[aria-label="OpenRouter API key"]')!.value, '', 'secret draft cleared on dismiss')
   } finally { await view.unmount(); delete g.fetch }
 })
