@@ -24,6 +24,13 @@
 //! - A tool call that outlives the turn's silence limit is ended by itself
 //!   (`task/stop`, after a `turn/steer` note naming the limit); the turn
 //!   goes on (user 2026-10-13).
+//! - A shell command Muse moves to the background (still running after
+//!   about 10 s) can finish after its turn. Muse hands the result to the
+//!   session itself, once, and starts a turn of its own to deliver it, which
+//!   is cancelled here like any turn Orgtree did not start. The actor writes
+//!   the result onto the call's chip, wakes an idle agent through its
+//!   mailbox, and reports commands that ended with their host (measured on
+//!   1.4.6, 2026-10-13).
 //! - While the engine runs in Windows Session 0 (the boot task) Muse's OS
 //!   sandbox cannot start a command, so a write seat's host runs without it
 //!   (`--disable-sandbox`: then Muse asks about no command and its file tools

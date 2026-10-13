@@ -268,6 +268,23 @@ struct MuseTool {
     stop_asked: Option<(Instant, u64)>,
 }
 
+/// Muse: a tool call Muse moved to the background. It can outlive its turn,
+/// so it is followed by the actor until its item settles or its host ends.
+#[derive(Debug, Clone)]
+struct MuseBg {
+    /// the transcript row its chip is drawn in
+    seq: i64,
+    name: String,
+    /// the chip's argument (the command)
+    arg: String,
+}
+
+/// How often at most the cancels of turns a Muse host started by itself are
+/// warned about: a host holding a background result for an idle agent starts
+/// one again at once after each cancel (measured on Muse 1.4.6: every ~55 ms,
+/// 332 times in 19 s).
+const MUSE_CANCEL_WARN_EVERY: Duration = Duration::from_secs(60);
+
 struct Turn {
     id: i64,
     started: Instant,
@@ -641,6 +658,12 @@ struct Actor {
     codex_total: Option<Value>,
     /// the CLI's subagents and background tasks (P33/P39)
     tasks: crate::runtime::tasks::Tasks,
+    /// Muse: the calls Muse moved to the background, by item id, until their
+    /// item settles or their host ends
+    muse_bg: HashMap<String, MuseBg>,
+    /// Muse: turns the host started by itself that Orgtree cancelled since the
+    /// last warning about them, and when that warning was
+    muse_cancels: (u32, Option<Instant>),
     /// waking mail arrived while a turn ran: when (the unread-mail check, P36)
     steer_since: Option<Instant>,
     /// mail whose sender was already told it waits unread (this turn)
@@ -738,6 +761,8 @@ impl Actor {
             provider: catalog::provider_of(&tier).to_string(),
             codex_total: None,
             tasks: Default::default(),
+            muse_bg: HashMap::new(),
+            muse_cancels: (0, None),
             steer_since: None,
             late_told: Default::default(),
             keepalive: None,
@@ -3160,6 +3185,7 @@ impl Actor {
         self.proc_print = None;
         self.proc_notes = None;
         self.orphans("the CLI was closed");
+        self.muse_lost("the host was closed").await;
     }
 
     async fn kill_proc(&mut self) {
@@ -3171,6 +3197,7 @@ impl Actor {
         self.proc_print = None;
         self.proc_notes = None;
         self.orphans("the CLI was stopped");
+        self.muse_lost("the host was stopped").await;
     }
 
     /// The CLI is gone: background tasks it still held died with it. Tell
@@ -3765,8 +3792,10 @@ impl Actor {
     }
 
     /// One Muse host notification (its session's stream, MSP v1). Only the
-    /// running turn's items and usage count; a turn Orgtree did not start (a
-    /// scheduled or automatic one) is cancelled, because Orgtree admits turns.
+    /// running turn's items and usage count, and the settling of a call Muse
+    /// moved to the background in an earlier turn; a turn Orgtree did not
+    /// start (a scheduled or automatic one, or the one Muse starts to hand
+    /// over a background result) is cancelled, because Orgtree admits turns.
     #[nolog]
     async fn on_muse(&mut self, v: Value) -> Result<()> {
         if let Some(t) = self.turn.as_mut() {
@@ -3779,7 +3808,17 @@ impl Actor {
         match method.as_str() {
             "turn/started" => {
                 if let Some(id) = p["turnId"].as_str().filter(|id| Some(*id) != ours.as_deref()) {
-                    tracing::warn!(agent = %self.name, turn = id, "cancelling a Muse turn Orgtree did not start");
+                    // a host holding a background result for an idle agent starts
+                    // one again at once after each cancel: counted, warned about
+                    // at most once a minute
+                    let (n, last) = &mut self.muse_cancels;
+                    *n += 1;
+                    if last.is_none_or(|at| at.elapsed() >= MUSE_CANCEL_WARN_EVERY) {
+                        tracing::warn!(agent = %self.name, turn = id, cancelled = *n,
+                            "cancelling turns the Muse host started by itself (Orgtree admits turns); count since the last such line");
+                        *n = 0;
+                        *last = Some(Instant::now());
+                    }
                     if let Some(Proc::Muse(m)) = &self.proc {
                         m.cancel_turn(id);
                     }
@@ -3787,12 +3826,14 @@ impl Actor {
             }
             "item/started" | "item/updated" | "item/completed" => {
                 let item = &p["item"];
+                let done = method == "item/completed" || item["status"].as_str().is_some_and(|s| s != "inProgress");
                 // a compaction may run outside any turn (`/compact`)
                 if item["kind"] == "compaction" && item["status"] != "inProgress" {
                     self.on_muse_compaction(item).await?;
                 } else if of_ours(&item["turnId"]) {
-                    let done = method == "item/completed" || item["status"].as_str().is_some_and(|s| s != "inProgress");
                     self.on_muse_item(item, done).await?;
+                } else if done && item["itemId"].as_str().is_some_and(|i| self.muse_bg.contains_key(i)) {
+                    self.on_muse_late(item).await?;
                 }
             }
             "item/delta" => {
@@ -4060,13 +4101,21 @@ impl Actor {
                     self.convo.update(&client, update.0, update.1).await?;
                     if !done {
                         drop(client);
+                        self.follow_muse_background(&id, &name, &input);
                         self.set_activity("tool", Some(name));
                         self.stream("tool", json!({ "id": id }));
                         return Ok(());
                     }
                 }
                 if !done {
+                    self.follow_muse_background(&id, &name, &input);
                     return Ok(());
+                }
+                if self.muse_bg.remove(&id).is_some() {
+                    // it finished inside its own turn, which Muse gives the result to
+                    tracing::info!(agent = %self.name, item = %id, tool = %name, status = ?item["status"],
+                        "a Muse call moved to the background settled within its turn");
+                    self.publish();
                 }
                 let (text, failed) = muse_result(item);
                 let update = {
@@ -4088,21 +4137,9 @@ impl Actor {
                     let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
                     let card = t.cards.remove(item["callId"].as_str().unwrap_or(&id)).or_else(|| t.cards.remove(&id));
                     let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
-                    let (clipped, truncated) = convo::clip(&text, 4000);
                     if let Some(chips) = row["tools"].as_array_mut() {
                         for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
-                            chip["input"] = input.clone();
-                            chip["result"] = json!(clipped);
-                            chip["result_lines"] = json!(text.lines().count());
-                            chip["ended_at"] = json!(now_iso());
-                            let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(&text));
-                            chip["refs"] = refs;
-                            if truncated || item["truncated"] == true {
-                                chip["truncated"] = json!(true);
-                            }
-                            if failed {
-                                chip["error"] = json!(gist(&text, 500));
-                            }
+                            muse_settle_chip(chip, item, &input, &text, failed);
                             if let Some(limit) = stopped_after {
                                 chip["error"] = json!(format!("stopped by Orgtree: no output for {} (the silence limit)", span_text(limit)));
                             }
@@ -4141,6 +4178,126 @@ impl Actor {
         drop(client);
         self.text_landed();
         Ok(())
+    }
+
+    /// A tool call of the running turn that Muse has moved to the background
+    /// (it does that by itself to a shell command still running after about
+    /// 10 s) is followed from now on beyond its turn: where its chip is, until
+    /// its item settles or its host ends.
+    #[nolog] // every unsettled tool item event
+    fn follow_muse_background(&mut self, id: &str, name: &str, input: &Value) {
+        if self.muse_bg.contains_key(id) {
+            return;
+        }
+        let Some(t) = self.turn.as_ref() else { return };
+        if !t.muse_tools.get(id).is_some_and(|c| c.background) {
+            return;
+        }
+        let Some(seq) = t.tools.get(id).and_then(|key| t.rows.get(key)).map(|(seq, _)| *seq) else { return };
+        tracing::info!(agent = %self.name, item = id, tool = name, "Muse moved a tool call to the background; it is followed past its turn");
+        self.muse_bg.insert(id.to_string(), MuseBg { seq, name: name.to_string(), arg: convo::tool_arg(name, input) });
+        self.publish();
+    }
+
+    /// A call Muse moved to the background settled after its turn ended.
+    /// Muse gives the result to the session itself, once (measured on 1.4.6):
+    /// into a turn running now, else into the next turn Orgtree admits (or
+    /// into the history just before it, when one of the turns Muse starts
+    /// to deliver it, each cancelled here, takes it first). Its chip gets
+    /// the result in the row it was drawn in, and an idle agent is woken
+    /// through its mailbox, so admission decides when it runs. The message
+    /// names the command and how it ended, never the output (no second copy).
+    async fn on_muse_late(&mut self, item: &Value) -> Result<()> {
+        let id = item["itemId"].as_str().unwrap_or("").to_string();
+        let Some(bg) = self.muse_bg.remove(&id) else { return Ok(()) };
+        let (text, failed) = muse_result(item);
+        let (_, input) = muse_tool(item);
+        let reason = item["failureReason"].as_str().filter(|r| !r.is_empty()).map(str::to_string);
+        let idle = !self.stopping && self.turn.is_none() && self.waiting_since.is_none() && self.slot.is_none();
+        tracing::info!(agent = %self.name, item = %id, tool = %bg.name, status = ?item["status"], idle,
+            "a Muse call moved to the background settled after its turn");
+        if let Err(e) = self
+            .amend_chip(bg.seq, &id, |chip| {
+                muse_settle_chip(chip, item, &input, &text, failed);
+                if let (true, Some(r)) = (failed, &reason) {
+                    chip["error"] = json!(gist(r, 500));
+                }
+                convo::retain_failed_shell_output(chip, &text, failed, item["truncated"] == true);
+            })
+            .await
+        {
+            tracing::warn!(agent = %self.name, item = %id, error = %format!("{e:#}"), "the late result could not be written to its chip");
+        }
+        if idle {
+            let note = muse_finished_note(&bg, item);
+            if let Err(e) = crate::domain::mail::system_wake(&self.engine, self.org_id, self.id, &note).await {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "could not wake the agent for its finished background command");
+            }
+        }
+        self.publish();
+        Ok(())
+    }
+
+    /// Change one tool chip of a transcript row and save the row: the running
+    /// turn's own copy when the row is that turn's, else the stored row (an
+    /// earlier turn's). Open desks get the row at once.
+    async fn amend_chip(&mut self, seq: i64, id: &str, change: impl FnOnce(&mut Value)) -> Result<()> {
+        let client = self.engine.db.get().await?;
+        let held = self.turn.as_ref().and_then(|t| t.rows.values().find(|(s, _)| *s == seq)).map(|(_, row)| row.clone());
+        let mut row = match &held {
+            Some(row) => row.clone(),
+            None => match client.query_opt("SELECT body FROM ot.convo WHERE agent_id = $1 AND seq = $2", &[&self.id, &seq]).await? {
+                Some(r) => r.get(0),
+                None => return Ok(()),
+            },
+        };
+        let Some(chip) = row["tools"].as_array_mut().and_then(|chips| chips.iter_mut().find(|c| c["id"].as_str() == Some(id))) else {
+            return Ok(());
+        };
+        change(chip);
+        if held.is_some() {
+            if let Some((_, r)) = self.turn.as_mut().and_then(|t| t.rows.values_mut().find(|(s, _)| *s == seq)) {
+                *r = row.clone();
+            }
+        }
+        self.convo.update(&client, seq, row).await?;
+        drop(client);
+        self.stream("tool", json!({}));
+        Ok(())
+    }
+
+    /// The Muse host ended while calls it had moved to the background still
+    /// ran. They ended with it: Muse ends a host's commands with the host,
+    /// and a resumed session says nothing of them (measured on 1.4.6), so
+    /// each chip says so and the agent is told once, with a waking message,
+    /// unless the seat itself is going away (retired or deleted).
+    async fn muse_lost(&mut self, reason: &str) {
+        if self.muse_bg.is_empty() {
+            return;
+        }
+        let mut lost: Vec<(String, MuseBg)> = self.muse_bg.drain().collect();
+        lost.sort_by(|a, b| a.1.seq.cmp(&b.1.seq).then_with(|| a.0.cmp(&b.0)));
+        tracing::warn!(agent = %self.name, calls = lost.len(), reason, "Muse calls moved to the background ended with their host");
+        let why = format!("ended with its Muse host ({reason}) before it finished");
+        for (id, bg) in &lost {
+            let why = why.clone();
+            if let Err(e) = self
+                .amend_chip(bg.seq, id, move |chip| {
+                    chip["error"] = json!(why);
+                    chip["ended_at"] = json!(now_iso());
+                })
+                .await
+            {
+                tracing::warn!(agent = %self.name, item = %id, error = %format!("{e:#}"), "the lost background call's chip could not be written");
+            }
+        }
+        if !(self.stopping && !self.engine.is_stopping()) {
+            let note = muse_lost_note(&lost, reason);
+            if let Err(e) = crate::domain::mail::system_wake(&self.engine, self.org_id, self.id, &note).await {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "could not tell the agent its background commands ended with the host");
+            }
+        }
+        self.publish();
     }
 
     /// One Antigravity stream-json event.
@@ -5218,6 +5375,7 @@ impl Actor {
         self.proc_notes = None;
         self.unpark();
         self.orphans(&format!("the CLI exited: {reason}"));
+        self.muse_lost(&format!("the host exited: {reason}")).await;
         if let Some(t) = self.turn.as_mut() {
             t.exited = true;
         }
@@ -6050,7 +6208,7 @@ impl Actor {
             "mcp_readiness_state": self.mcp.state,
             "mcp_readiness_reason": self.mcp.reason,
             "tasks": self.tasks.counts().0,
-            "bg_tasks": self.tasks.counts().1,
+            "bg_tasks": self.tasks.counts().1 + self.muse_bg.len(),
             "last_error": self.last_error,
             "activity": activity,
             "cache_forecast": self.forecast,
@@ -6445,6 +6603,65 @@ fn muse_result(item: &Value) -> (String, bool) {
     (text, failed)
 }
 
+/// A settled Muse call's result on its chip: the input it ran with, the
+/// output (clipped) and its line count, when it ended, and the error when it
+/// failed.
+#[nolog] // the call's output (muse_result logs the item)
+fn muse_settle_chip(chip: &mut Value, item: &Value, input: &Value, text: &str, failed: bool) {
+    let (clipped, truncated) = convo::clip(text, 4000);
+    chip["input"] = input.clone();
+    chip["result"] = json!(clipped);
+    chip["result_lines"] = json!(text.lines().count());
+    chip["ended_at"] = json!(now_iso());
+    let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), input, Some(text));
+    chip["refs"] = refs;
+    if truncated || item["truncated"] == true {
+        chip["truncated"] = json!(true);
+    }
+    if failed {
+        chip["error"] = json!(gist(text, 500));
+    }
+}
+
+/// What an idle agent is woken with when a command Muse moved to the
+/// background has finished: the command and how it ended. Never its output:
+/// Muse puts that into the session itself, once.
+#[logged]
+fn muse_finished_note(bg: &MuseBg, item: &Value) -> String {
+    let reason = item["failureReason"].as_str().filter(|r| !r.is_empty());
+    let how = match (item["status"].as_str().unwrap_or("completed"), reason) {
+        ("completed", _) => "it completed".to_string(),
+        ("failed", Some(r)) => format!("it failed: {r}"),
+        ("cancelled", Some(r)) => format!("it was cancelled: {r}"),
+        ("cancelled", None) => "it was cancelled".to_string(),
+        (other, Some(r)) => format!("it ended {other}: {r}"),
+        (other, None) => format!("it ended {other}"),
+    };
+    format!(
+        "Your background command has finished ({how}): {} `{}`. Muse has put its output and exit status into your context; \
+         this message only wakes you so you can act on them.",
+        bg.name,
+        gist(&bg.arg, 300)
+    )
+}
+
+/// What the agent is told when its Muse host ends while commands it moved to
+/// the background still run: they ended with the host and no result will
+/// arrive.
+#[logged]
+fn muse_lost_note(lost: &[(String, MuseBg)], reason: &str) -> String {
+    let list = lost.iter().take(20).map(|(_, b)| format!("- {} `{}`", b.name, gist(&b.arg, 200))).collect::<Vec<_>>().join("\n");
+    let more = if lost.len() > 20 { format!("\n… and {} more", lost.len() - 20) } else { String::new() };
+    let (what, them) = if lost.len() == 1 { ("A command you ran in the background".to_string(), "it") } else {
+        (format!("{} commands you ran in the background", lost.len()), "them")
+    };
+    format!(
+        "{what} did not finish: the Muse host running {them} stopped ({reason}), and a command Muse runs ends with its host. \
+         No result will arrive for:\n{list}{more}\nCheck the real state (files, processes) before relying on {them}, and run \
+         {them} again if you still need {them}."
+    )
+}
+
 #[cfg(test)]
 mod print_tests {
     use super::*;
@@ -6564,6 +6781,51 @@ mod muse_silence_tests {
         muse_track_tool(&mut tools, "y", &json!({ "itemId": "y", "kind": "toolCall", "status": "inProgress", "background": true }), false);
         assert!(tools["y"].background && tools["y"].name == "read_file", "a later update keeps the name and the flag");
         assert_eq!(muse_silent_calls(&tools), None);
+    }
+
+    /// A command Muse moved to the background and that finished after its
+    /// turn: the chip gets its result, and the agent's wake message names the
+    /// command and how it ended but never repeats the output, which Muse
+    /// delivers itself (measured item shapes, 1.4.6).
+    #[test]
+    fn muse_background_results_land_on_the_chip_and_the_wake_names_the_outcome() {
+        let bg = MuseBg { seq: 7, name: "powershell".into(), arg: "Start-Sleep -Seconds 15; Write-Output MARK".into() };
+        let done = json!({ "itemId": "x", "kind": "toolCall", "tool": "powershell", "status": "completed", "visibleOutput": "MARK\r\n" });
+        let failed = json!({ "itemId": "x", "kind": "toolCall", "tool": "powershell", "status": "failed",
+                             "failureReason": "process exited with status 3", "visibleOutput": "MARK\r\n" });
+        let note = muse_finished_note(&bg, &done);
+        assert!(note.contains("has finished (it completed): powershell `Start-Sleep -Seconds 15; Write-Output MARK`"), "{note}");
+        assert!(note.contains("Muse has put its output and exit status into your context"), "{note}");
+        let note = muse_finished_note(&bg, &failed);
+        assert!(note.contains("(it failed: process exited with status 3)"), "{note}");
+        let cancelled = json!({ "status": "cancelled", "failureReason": "cancelled by runtime client" });
+        assert!(muse_finished_note(&bg, &cancelled).contains("(it was cancelled: cancelled by runtime client)"));
+        // the arg names the marker (it is the command); the output's line never travels on its own
+        assert!(!muse_finished_note(&bg, &failed).contains("MARK\r\n"));
+
+        let input = json!({ "command": "Start-Sleep -Seconds 15; Write-Output MARK" });
+        let mut chip = json!({ "id": "x", "name": "powershell", "arg": bg.arg, "started_at": "2026-10-13T21:29:00Z" });
+        let (text, bad) = muse_result(&done);
+        muse_settle_chip(&mut chip, &done, &input, &text, bad);
+        assert_eq!((chip["result"].as_str(), chip["result_lines"].as_u64(), chip.get("error")), (Some("MARK\r\n"), Some(1), None));
+        assert!(chip["ended_at"].is_string() && chip["input"] == input);
+        let (text, bad) = muse_result(&failed);
+        muse_settle_chip(&mut chip, &failed, &input, &text, bad);
+        assert!(bad && chip["error"].is_string());
+    }
+
+    #[test]
+    fn muse_background_commands_lost_with_their_host_are_listed_once() {
+        let b = |seq: i64, arg: &str| (format!("i{seq}"), MuseBg { seq, name: "powershell".into(), arg: arg.into() });
+        let one = muse_lost_note(&[b(1, "npm test")], "the host was stopped");
+        assert!(one.starts_with("A command you ran in the background did not finish: the Muse host running it stopped (the host was stopped)"), "{one}");
+        assert!(one.contains("No result will arrive for:\n- powershell `npm test`\n") && one.contains("run it again"), "{one}");
+        let two = muse_lost_note(&[b(1, "npm test"), b(2, "cargo build")], "the host exited: crashed");
+        assert!(two.starts_with("2 commands you ran in the background did not finish") && two.contains("- powershell `cargo build`"), "{two}");
+        let many: Vec<(String, MuseBg)> = (0..23).map(|i| b(i, "x")).collect();
+        let note = muse_lost_note(&many, "r");
+        assert_eq!(note.matches("\n- powershell").count(), 20);
+        assert!(note.contains("… and 3 more"), "{note}");
     }
 
     #[test]
