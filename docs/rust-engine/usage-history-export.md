@@ -90,3 +90,14 @@ Receipt `C:\orgtree-build\hubchat-dm-sol\usage-export\result.json`, SHA256
 `01F9A0DC6E1D68F193BA117A18035FC97E6D1EEA081A65905BF1262106D1BDCB`.
 Previous partial receipts remain available; no installed-app/interactive
 Save-dialog claim.
+
+Combined batch 430 at `93b3259` passed base 8/8, tip 15/15 and composition
+typecheck (exit 0). Its adapter's 180-second cumulative subprocess cap stopped
+the renderer phase before its child log/result could be collected. The base
+test process alone took 66.6 seconds; that is process duration, not test-body
+time. No new combined native result is claimed. The corrected adapter reruns
+only `--renderer-only`, rebuilding the current fixture and retaining the passed
+test/typecheck receipts. Synthetic native instrumentation now writes stage
+timestamps to `renderer-stages.jsonl` so a repeat timeout records whether it
+waited for Electron readiness, page load, chart data or a download. Product
+sources are unchanged; this targeted rerun is pending rig-opus batch 2.

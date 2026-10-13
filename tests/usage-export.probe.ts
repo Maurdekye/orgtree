@@ -5,6 +5,8 @@ import path from 'node:path'
 import { configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
 
 const build = process.env.USAGE_EXPORT_BUILD!, state = process.env.USAGE_EXPORT_STATE!
+const trace = (stage: string) => fs.appendFileSync(path.join(build, 'renderer-stages.jsonl'), JSON.stringify({ stage, at: new Date().toISOString() }) + '\n')
+trace('Electron fixture module loaded')
 app.setPath('userData', path.join(state, 'profile'))
 app.commandLine.appendSwitch('disable-background-networking')
 const checks: { name: string; ok: boolean; detail?: unknown }[] = [], downloads: any[] = [], consoleErrors: string[] = []
@@ -35,6 +37,7 @@ async function click(w: BrowserWindow, selector: string, keyboard = false) {
 }
 let server: http.Server | undefined, main: BrowserWindow | undefined
 app.whenReady().then(async () => {
+  trace('Electron ready')
   const native = session.fromPartition('usage-export-proof')
   native.on('will-download', (_e, item, contents) => {
     const index = downloads.length, filename = item.getFilename(), file = path.join(build, 'downloads', index + '-' + filename)
@@ -51,17 +54,22 @@ app.whenReady().then(async () => {
     else { res.writeHead(404); res.end('synthetic fixture only') }
   })
   await new Promise<void>(r => server!.listen(0, '127.0.0.1', r))
+  trace('synthetic HTTP ready')
   const origin = `http://127.0.0.1:${(server.address() as any).port}`
   const register = configureEngineSession(native, () => origin, () => 'synthetic')
   main = new BrowserWindow({ width: 1180, height: 870, show: false, paintWhenInitiallyHidden: true,
     webPreferences: { offscreen: true, session: native, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
   configureWindow(main, () => origin, true, register)
   main.webContents.on('console-message', (_e, level, message) => { if (level >= 3) consoleErrors.push(message) })
+  trace('main loadURL started')
   await main.loadURL(origin)
+  trace('main loadURL finished')
   await until(async () => await main!.webContents.executeJavaScript(`document.querySelectorAll('.uh-card').length===2 && !!document.querySelector('.uh-reset')`), 'two chart cards')
+  trace('two chart cards ready')
   await main.webContents.executeJavaScript(`(()=>{const s=document.querySelectorAll('.uh-filter select')[1];s.value='openai/primary';s.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
   await until(async () => await main!.webContents.executeJavaScript(`document.querySelectorAll('.uh-card').length===1`), 'account filter')
   for (const place of ['main', 'popout']) {
+    trace(place + ' proof started')
     let w = main
     if (place === 'popout') {
       await click(main, 'button.popout-button')
@@ -78,11 +86,13 @@ app.whenReady().then(async () => {
     check(place + ' hover crosshair retained', await w!.webContents.executeJavaScript(`!!document.querySelector('.uh-cross')`))
     const image = await w!.webContents.capturePage(); fs.writeFileSync(path.join(build, place + '.png'), image.toPNG())
     for (const format of ['csv', 'jsonl']) {
+      trace(place + ' ' + format + ' download started')
       const index = downloads.length
       // Pointer drives the required saved-byte/download path in both windows;
       // keyboard activation has a separate native control after downloads.
       await click(w!, `.uh-export-btn[aria-label$="${format.toUpperCase()}"]`)
       await until(async () => !!downloads[index]?.done, place + ' ' + format + ' native download')
+      trace(place + ' ' + format + ' download finished')
       const d = downloads[index], expected = place === 'main' ? [65, 90, 2, 17.3456789] : [2, 17.3456789]
       check(place + ' ' + format + ' completed in originating window', d.state === 'completed' && d.window === w!.webContents.id, d)
       check(place + ' ' + format + ' filename uses selected period', d.filename.startsWith('usage-openai-openai-primary-session-5h-all-') && d.filename.endsWith((place === 'main' ? '2026-10-06' : '2026-10-12') + '_2026-10-13.' + format), d.filename)
@@ -103,9 +113,11 @@ app.whenReady().then(async () => {
   check('no renderer errors', errors.length === 0 && consoleErrors.length === 0, { errors, consoleErrors })
   check('only synthetic usage-history requests', await main.webContents.executeJavaScript(`proof.requests.every(u=>u.startsWith('/api/usage/history?range='))`))
 }).catch(e => check('probe finished', false, String(e))).finally(async () => {
+  trace('probe cleanup started')
   try { if (main && !main.isDestroyed()) await main.webContents.executeJavaScript('proof?.dispose()') } catch {}
   for (const w of BrowserWindow.getAllWindows()) w.destroy()
   await new Promise<void>(r => server ? server.close(() => r()) : r())
   fs.writeFileSync(path.join(build, 'result.json'), JSON.stringify({ checks, downloads, passed: checks.filter(c => c.ok).length, total: checks.length }, null, 2))
+  trace('result saved')
   app.exit(checks.every(c => c.ok) ? 0 : 1)
 })
