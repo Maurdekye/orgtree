@@ -352,12 +352,12 @@ distinct dated21%/73% rows; cache-only no-read/no-history; original-ID uniquenes
 original active-switch and org exclusion enforcement; same-key manual/public
 contention returning dated data; other-key admission while that permit is held;
 private-reader completion; independent manual floors; no inference/account
-switch; and response/log secrecy. A61-second deadline wait expires the ordinary
+switch; and response/log secrecy. A 61-second deadline wait expires the ordinary
 reader insertion cache; no force flag or cache bypass is added to the agent tool.
 The first key deliberately retains a stale provider observation even after an
 attempt, demonstrating that attempted is not a claim of fresh data.
 
-The focused red run at `7d559cd` passes13/14 and exposes one private marker line
+The focused red run at `7d559cd` passes 13/14 and exposes one private marker line
 from the rig-only `rig::openrouter_key` raw return. Commit `bbffbc4` makes that
 canned-document hook `#[nolog]`; it returns None outside rig mode and changes
 neither production reader behavior nor authentication controls. Earlier fixture
@@ -365,7 +365,7 @@ failures (using the original endpoint to seed the added cache, and requiring a
 public-wrapper diagnostic in a private-reader interval) are retained and are not
 production-defect evidence.
 
-Final proof at clean `3535af8` passes14/14, exit0 in70.111s, with zero marker lines
+Final proof at clean `3535af8` passes 14/14, exit0 in 70.111s, with zero marker lines
 and safe `refresh_permitted` diagnostics. Evidence:
 `D:\orgtree-work\rig\usage-query-sol\evidence\usage-query-openrouter-20261013T134554\result.json`,
 SHA256 `4d23061db99fa853a81dd232e246fe1ecf78d7c3d34c395fc11f16335b3a1a30`;
@@ -374,8 +374,8 @@ the sibling `tool-interval.log` has SHA256
 
 Builds used the granted C target/tmp, separate machine lock acquisitions,
 cargo-j2 and kernel Job containment. Current integrated engine built at
-`1ed7e32` in93.743s; the corrected engine at `bbffbc4` built in28.328s, both exit0.
-Fake CLI at `ca1c79f` built in5.682s, exit0. Corrected engine SHA256
+`1ed7e32` in 93.743s; the corrected engine at `bbffbc4` built in 28.328s, both exit0.
+Fake CLI at `ca1c79f` built in 5.682s, exit0. Corrected engine SHA256
 `9a7f6b67966fe3c0beb710b947f6b711f305e87a122260578a1aa1f14d3dcea3`;
 fake CLI SHA256
 `94c9163b5bc97b8b9fc4eb9340d367532111b3542e3006ba2f4b91fd224bf150`.
