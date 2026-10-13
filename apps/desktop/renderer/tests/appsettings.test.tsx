@@ -278,7 +278,10 @@ test('§3 provider rows present status and model-tier detail', async () => {
     assert.doesNotMatch(panel.textContent ?? '', /gpt-5\.6-terra/)
     assert.doesNotMatch(panel.textContent ?? '', /antigravity-pro/)
     assert.match(panel.textContent ?? '', /Installed · connected/)
-    assert.match(panel.textContent ?? '', /Model tiers/)
+    // the compact layout dropped the visible "Model tiers" caption (user
+    // 2026-10-12 20:22Z); each provider's tier list keeps its accessible name
+    assert.deepEqual([...panel.querySelectorAll('.acct-provider-tiers')].map((e) => e.getAttribute('aria-label')),
+      ['Claude model tiers', 'Codex model tiers', 'Antigravity model tiers'])
     assert.match(panel.textContent ?? '', /Haiku/)
     assert.match(panel.textContent ?? '', /Luna/)
     assert.match(panel.textContent ?? '', /Flash/)
