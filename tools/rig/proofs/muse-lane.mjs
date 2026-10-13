@@ -326,16 +326,22 @@ export default async function (rig) {
     p.check('key: with the switch on, a key that offers the model takes the agent, in its own roots with its key',
       takes.account === K && kemiStart?.meta_api_key_set === true && /muse-key-/i.test(kemiStart?.xdg_config ?? ''),
       { account: takes.account, frozen: rig.agentRow('kemi')?.frozen, start: { xdg_config: kemiStart?.xdg_config, key: kemiStart?.meta_api_key_set } })
-    // a pinned version: the user's own login offers Spark 1.3 and 1.2, the profile M only 1.3 (with room)
+    // a pinned version: the user's own login offers Spark 1.3 and 1.2; a fresh profile P, whose only
+    // reading is its own account-wide metadata read (room for any tier it offers), offers only 1.3
     fs.writeFileSync(path.join(rig.fakeDir, 'muse-catalog.json'), JSON.stringify({ source: 'providerCatalog', models: [
       { modelId: 'muse-wonder-1.0', isDefault: true, ...ROW }, { modelId: 'muse-spark-1.3', isDefault: false, ...ROW },
       { modelId: 'muse-spark-1.2', isDefault: false, ...ROW }] }))
     await rig.api('GET', '/api/muse/usage?force=true')
+    const P = (await rig.api('POST', '/api/accounts', { provider: 'muse', kind: 'managed' })).id
+    const pDir = rig.one(`SELECT config_dir FROM ot.accounts WHERE id = '${P}'`)?.config_dir ?? ''
+    fs.mkdirSync(path.join(pDir, 'config'), { recursive: true })
+    fs.writeFileSync(path.join(pDir, 'config', 'muse-catalog.json'), only('muse-spark-1.3'))
+    await rig.api('GET', `/api/accounts/${P}/identity`)
     const pinned = await wall('pia', { tier: 'spark', version: '1.2' })
     const piaModel = log('pia', 'session').find((e) => e.action === 'start')?.model
     p.check('pin: a seat pinned to Spark 1.2 is not moved to a login that offers only Spark 1.3; it stays frozen on its own',
       piaModel === 'muse-spark-1.2' && pinned.row?.frozen && pinned.account == null,
-      { model: piaModel, account: pinned.account, frozen: pinned.row?.frozen, last_error: pinned.row?.last_error })
+      { model: piaModel, profile: P, account: pinned.account, frozen: pinned.row?.frozen, last_error: pinned.row?.last_error })
   } else {
     p.check('key: the API-key fallback fixtures could run (both logins started)', false, { ninaStart, karaStart })
   }
