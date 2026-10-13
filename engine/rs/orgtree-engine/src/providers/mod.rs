@@ -586,33 +586,66 @@ pub async fn muse_logins_refresh(engine: &Engine, org_slug: &str) {
 /// provider request: placement checks run inside transactions.
 #[logged]
 pub fn muse_offer(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, model: &str) -> MuseOffer {
-    let Some(a) = account else {
-        let st = engine.providers.state.load();
-        if st.muse_probe.as_ref().and_then(|d| d.probe.account_state.as_deref()) == Some("loggedOut") {
-            return MuseOffer::NotOffered("the signed-in Muse login is signed out".into());
-        }
-        return match st.muse_probe.as_ref().and_then(|d| d.probe.catalog.as_ref()) {
-            Some(c) => match c.offered(model) {
-                Some(m) => MuseOffer::Offered(m.clone()),
-                None => MuseOffer::NotOffered(format!("the signed-in Muse account does not offer {model}")),
-            },
-            None => MuseOffer::Unknown(st.muse_error.clone().unwrap_or_else(|| "the signed-in Muse account has not been read yet".into())),
+    muse_catalogs(engine).offer(account, model)
+}
+
+/// Every Muse login's catalog as last read, taken at once (the user's own
+/// login's discovery and each registered login's own read): what a builder
+/// with no engine at hand asks (`MuseCatalogs::offer`, as `muse_offer`).
+pub struct MuseCatalogs {
+    state: Arc<State>,
+    logins: Arc<std::collections::HashMap<String, MuseLoginRead>>,
+}
+
+#[logged]
+pub fn muse_catalogs(engine: &Engine) -> MuseCatalogs {
+    MuseCatalogs { state: engine.providers.state.load_full(), logins: engine.providers.muse_logins.load_full() }
+}
+
+#[logged]
+impl MuseCatalogs {
+    /// What `account` (None: the user's own login) offers for `model`, by
+    /// that login's own catalog: never another login's, never inferred.
+    pub fn offer(&self, account: Option<&crate::accounts::AccountInfo>, model: &str) -> MuseOffer {
+        let Some(a) = account else {
+            let st = &self.state;
+            if st.muse_probe.as_ref().and_then(|d| d.probe.account_state.as_deref()) == Some("loggedOut") {
+                return MuseOffer::NotOffered("the signed-in Muse login is signed out".into());
+            }
+            return match st.muse_probe.as_ref().and_then(|d| d.probe.catalog.as_ref()) {
+                Some(c) => match c.offered(model) {
+                    Some(m) => MuseOffer::Offered(m.clone()),
+                    None => MuseOffer::NotOffered(format!("the signed-in Muse account does not offer {model}")),
+                },
+                None => MuseOffer::Unknown(st.muse_error.clone().unwrap_or_else(|| "the signed-in Muse account has not been read yet".into())),
+            };
         };
-    };
-    let logins = engine.providers.muse_logins.load();
-    let Some(r) = logins.get(&a.id) else {
-        return MuseOffer::Unknown(format!("what the Muse account {} offers has not been read yet", a.id));
-    };
-    if r.signed_in == Some(false) {
-        return MuseOffer::NotOffered(format!("the Muse account {} is not signed in", a.id));
+        let Some(r) = self.logins.get(&a.id) else {
+            return MuseOffer::Unknown(format!("what the Muse account {} offers has not been read yet", a.id));
+        };
+        if r.signed_in == Some(false) {
+            return MuseOffer::NotOffered(format!("the Muse account {} is not signed in", a.id));
+        }
+        match (&r.catalog, &r.error) {
+            (Some(c), None) => match c.offered(model) {
+                Some(m) => MuseOffer::Offered(m.clone()),
+                None => MuseOffer::NotOffered(format!("the Muse account {} does not offer {model}", a.id)),
+            },
+            (_, Some(e)) => MuseOffer::Unknown(format!("what the Muse account {} offers could not be read ({e})", a.id)),
+            (None, None) => MuseOffer::Unknown(format!("the Muse account {} returned no catalog", a.id)),
+        }
     }
-    match (&r.catalog, &r.error) {
-        (Some(c), None) => match c.offered(model) {
-            Some(m) => MuseOffer::Offered(m.clone()),
-            None => MuseOffer::NotOffered(format!("the Muse account {} does not offer {model}", a.id)),
-        },
-        (_, Some(e)) => MuseOffer::Unknown(format!("what the Muse account {} offers could not be read ({e})", a.id)),
-        (None, None) => MuseOffer::Unknown(format!("the Muse account {} returned no catalog", a.id)),
+}
+
+/// Before a transaction that will judge a Muse placement on the user's own
+/// login: read it once (bounded) when discovery holds no catalog for it, as
+/// a turn's launch does. A failed or slow read is the check's to report.
+#[logged]
+pub async fn muse_own_refresh(engine: &Engine) {
+    if engine.providers.state.load().muse_probe.as_ref().is_none_or(|d| d.probe.catalog.is_none())
+        && tokio::time::timeout(Duration::from_secs(10), refresh_muse(engine)).await.is_err()
+    {
+        tracing::info!("Muse's own login: its metadata read took longer than 10 s");
     }
 }
 
@@ -1086,5 +1119,55 @@ mod conditional_tests {
         assert!(agy_offers("flash", &[]));
         let row = super::catalog::tier("carbon").unwrap();
         assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 2.0, true));
+    }
+}
+
+#[cfg(test)]
+mod muse_offer_tests {
+    use super::*;
+
+    fn login(id: &str) -> crate::accounts::AccountInfo {
+        crate::accounts::AccountInfo {
+            id: id.into(), provider: catalog::MUSE.into(), kind: "managed".into(), label: String::new(), email: None,
+            tint_ordinal: 0, auth: "authenticated".into(), config_dir: None, enabled: true, origin_org: None,
+            marks: Default::default(), ord: 0, ambient: false, credential: 0,
+        }
+    }
+
+    fn catalog_of(models: &[&str]) -> muse_models::MuseCatalog {
+        muse_models::parse_catalog(&serde_json::json!({ "source": "providerCatalog", "models": models.iter()
+            .map(|m| serde_json::json!({ "modelId": m, "profileId": "tbh", "variants": ["low", "high"] })).collect::<Vec<_>>() }))
+    }
+
+    fn read(models: &[&str], signed_in: Option<bool>, error: Option<&str>) -> MuseLoginRead {
+        MuseLoginRead { at: chrono::Utc::now(), catalog: Some(catalog_of(models)), signed_in, error: error.map(String::from) }
+    }
+
+    /// Each login is judged by its own read (the own login by discovery, a
+    /// registered one by its own catalog), never by another login's; a login
+    /// never read, or whose last read failed, is unknown (its older catalog is
+    /// not trusted); a signed-out one offers nothing.
+    #[test]
+    fn muse_offer_is_each_logins_own_catalog() {
+        let own = MuseDiscovery { at: chrono::Utc::now(), probe: muse_models::MuseProbe {
+            account_state: Some("accountLogin".into()), catalog: Some(catalog_of(&["muse-wonder-1.0"])), ..Default::default() } };
+        let logins = std::collections::HashMap::from([
+            ("muse-2".to_string(), read(&["muse-wonder-full-1.0"], Some(true), None)),
+            ("muse-3".to_string(), read(&["muse-wonder-full-1.0"], Some(true), Some("its metadata read took longer than 10 s"))),
+            ("muse-4".to_string(), read(&["muse-wonder-full-1.0"], Some(false), None)),
+        ]);
+        let c = MuseCatalogs { state: Arc::new(State { muse_probe: Some(own), ..Default::default() }), logins: Arc::new(logins) };
+        let (full, wonder) = ("muse-wonder-full-1.0", "muse-wonder-1.0");
+        assert!(matches!(c.offer(None, full), MuseOffer::NotOffered(_)), "the own login lacks Full");
+        assert!(matches!(c.offer(None, wonder), MuseOffer::Offered(_)));
+        assert!(matches!(c.offer(Some(&login("muse-2")), full), MuseOffer::Offered(_)), "its own catalog offers Full");
+        assert!(matches!(c.offer(Some(&login("muse-2")), wonder), MuseOffer::NotOffered(_)), "the own login's Wonder is not borrowed");
+        assert!(matches!(c.offer(Some(&login("muse-3")), full), MuseOffer::Unknown(_)), "a failed read is unknown");
+        assert!(matches!(c.offer(Some(&login("muse-4")), full), MuseOffer::NotOffered(_)), "a signed-out login offers nothing");
+        assert!(matches!(c.offer(Some(&login("muse-9")), full), MuseOffer::Unknown(_)), "a login never read is unknown");
+        let out = MuseCatalogs { state: Arc::new(State { muse_probe: Some(MuseDiscovery { at: chrono::Utc::now(),
+            probe: muse_models::MuseProbe { account_state: Some("loggedOut".into()), catalog: Some(catalog_of(&[wonder])), ..Default::default() } }),
+            ..Default::default() }), logins: Arc::new(Default::default()) };
+        assert!(matches!(out.offer(None, wonder), MuseOffer::NotOffered(_)), "the own login signed out offers nothing");
     }
 }

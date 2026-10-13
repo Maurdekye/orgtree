@@ -153,6 +153,33 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
     })
 }
 
+/// A Muse seat continues only on a login whose own catalog offers its exact
+/// model (`tier` at its pinned `version`): the target's own read, never
+/// another login's entitlement, and never inferred for a login whose catalog
+/// is unknown (independent review R3 2026-10-13). Consults the reads only
+/// (they are taken before any transaction); other providers pass.
+#[logged]
+pub(super) fn muse_offered(engine: &Engine, tier: &str, version: Option<&str>, target: &Target) -> Result<()> {
+    if !catalog::is_muse(tier) {
+        return Ok(());
+    }
+    let view = engine.accounts.view();
+    let login = target.binding.as_deref().and_then(|id| view.get(id));
+    let model = catalog::model_for(tier, version);
+    match crate::providers::muse_offer(engine, login, &model) {
+        crate::providers::MuseOffer::Offered(_) => Ok(()),
+        crate::providers::MuseOffer::NotOffered(why) => crate::refuse!(
+            Conflict,
+            "{why}, so the agent cannot continue on {}; nothing changed",
+            target.lane
+        ),
+        crate::providers::MuseOffer::Unknown(why) => crate::refuse!(
+            Conflict,
+            "{why}: {model} is not continued on a login whose catalog is unknown; nothing changed"
+        ),
+    }
+}
+
 /// The UI may offer primary explicitly; automatic fallback remains registry-only.
 #[logged]
 pub fn primary_tiers(engine: &Engine, org: &str) -> std::collections::HashSet<String> {

@@ -441,7 +441,8 @@ impl Actor {
         let now = chrono::Utc::now();
         let slug = self.org_row["slug"].as_str().unwrap_or("");
         let continue_primaries = crate::runtime::freeze::primary_tiers(&self.engine, slug);
-        let ctx = TreeCtx { org_settings: &settings, now, accounts: &accounts, continue_primaries: &continue_primaries, audiences_held: &self.audiences_held, org_slug: slug };
+        let muse = crate::providers::muse_catalogs(&self.engine);
+        let ctx = TreeCtx { org_settings: &settings, now, accounts: &accounts, continue_primaries: &continue_primaries, muse: &muse, audiences_held: &self.audiences_held, org_slug: slug };
         let mut changed = Vec::new();
         for (_, id) in ordered {
             let raw = &self.live_raw[&id];
@@ -535,6 +536,7 @@ impl Actor {
                 now: chrono::Utc::now(),
                 accounts: &accounts,
                 continue_primaries: &HashSet::new(),
+                muse: &crate::providers::muse_catalogs(&self.engine),
                 audiences_held: &self.audiences_held,
                 org_slug: self.org_row["slug"].as_str().unwrap_or(""),
             };
@@ -1090,11 +1092,13 @@ async fn read_sub(
     let ceiling = scope::org_ceiling(&settings["dirs"]);
     let accounts = engine.accounts.view();
     let continue_primaries = crate::runtime::freeze::primary_tiers(engine, org_row["slug"].as_str().unwrap_or(""));
+    let muse = crate::providers::muse_catalogs(engine);
     let ctx = TreeCtx {
         org_settings: &settings,
         now: chrono::Utc::now(),
         accounts: &accounts,
         continue_primaries: &continue_primaries,
+        muse: &muse,
         audiences_held: audiences,
         org_slug: org_row["slug"].as_str().unwrap_or(""),
     };

@@ -18,6 +18,8 @@ pub struct TreeCtx<'a> {
     pub accounts: &'a crate::accounts::AccountsView,
     /// Native continuations eligible in the published settings/auth/usage snapshots.
     pub continue_primaries: &'a std::collections::HashSet<String>,
+    /// every Muse login's catalog as last read: a frozen Muse seat's choices
+    pub muse: &'a crate::providers::MuseCatalogs,
     pub audiences_held: &'a HashMap<String, Vec<String>>,
     /// the org these bodies are for: legacy org keys stay inside their org
     pub org_slug: &'a str,
@@ -216,6 +218,19 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
         let already_native = account.is_none() || account.and_then(|a| ctx.accounts.get(a)).is_some_and(|a| a.ambient);
         if !already_native && ctx.continue_primaries.contains(tier) {
             choices.push(crate::org_accounts::primary(catalog::provider_of(tier)));
+        }
+        // a Muse seat is offered no login whose own catalog lacks its exact
+        // model, pinned version included (never another login's entitlement;
+        // one not read yet stays a choice: continue-on reads it, then decides)
+        if catalog::is_muse(tier) {
+            let model = catalog::model_for(tier, model_version);
+            choices.retain(|id| {
+                let login = match crate::accounts::choice(Some(id)) {
+                    crate::accounts::Choice::Account(a) => ctx.accounts.get(&a),
+                    _ => None,
+                };
+                !matches!(ctx.muse.offer(login, &model), crate::providers::MuseOffer::NotOffered(_))
+            });
         }
         choices
     } else {

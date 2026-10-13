@@ -363,7 +363,43 @@ pub(crate) async fn muse_login_offers(engine: &Engine, a: &crate::accounts::Acco
 /// moving anything: what a forced move (an account's removal) offers.
 #[logged]
 pub fn eligible(engine: &Engine, org_slug: &str, tier: &str, account: &str) -> bool {
-    continuation::resolve(engine, org_slug, tier, account).is_ok()
+    admits(engine, org_slug, tier, None, account).is_ok()
+}
+
+/// Every check a continuation makes before it moves a seat on `tier` (its
+/// pinned `version`) to `account`, or why it would refuse: the shared gates
+/// and, for Muse, that login's own catalog offering the exact model.
+/// Published snapshots and catalog reads only: callable inside a transaction.
+#[logged]
+pub fn admits(engine: &Engine, org_slug: &str, tier: &str, version: Option<&str>, account: &str) -> Result<()> {
+    let target = continuation::resolve(engine, org_slug, tier, account)?;
+    continuation::muse_offered(engine, tier, version, &target)
+}
+
+/// Before a continuation's transaction: the login a Muse seat would land on
+/// is read (bounded, unless its last read is recent), so the check inside
+/// judges a current catalog. Nothing for other providers or other targets;
+/// a failed read is the check's to report.
+#[logged]
+async fn muse_read_target(engine: &Engine, org_slug: &str, org_id: i64, agent_id: i64, account: &str) {
+    let tier: Option<String> = async {
+        let client = engine.db.get().await.ok()?;
+        let row = client.query_opt("SELECT tier FROM ot.agents WHERE id = $1 AND org_id = $2", &[&agent_id, &org_id]).await.ok()??;
+        Some(row.get(0))
+    }.await;
+    if !tier.as_deref().is_some_and(crate::providers::catalog::is_muse) {
+        return;
+    }
+    match crate::accounts::choice(Some(account)) {
+        crate::accounts::Choice::Account(id) => {
+            let login = engine.accounts.view().get(&id).filter(|a| a.provider == crate::providers::catalog::MUSE).cloned();
+            if let Some(a) = login {
+                crate::providers::muse_login_refresh(engine, &a, org_slug).await;
+            }
+        }
+        crate::accounts::Choice::Primary => crate::providers::muse_own_refresh(engine).await,
+        crate::accounts::Choice::Unset => {}
+    }
 }
 
 /// Whether the user's own Muse login may take a seat moved off another
@@ -435,10 +471,11 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
     let Some(org) = engine.orgs.by_id(org_id) else {
         crate::refuse!(NotFound, "no such org");
     };
+    muse_read_target(engine, &org.slug, org_id, agent_id, account).await;
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let was = tx
-        .query_opt("SELECT frozen, tier, account, name FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' FOR UPDATE", &[&agent_id, &org_id])
+        .query_opt("SELECT frozen, tier, account, name, scope FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' FOR UPDATE", &[&agent_id, &org_id])
         .await?;
     let Some(was) = was else {
         crate::refuse!(NotFound, "that agent is not live");
@@ -447,8 +484,13 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
     let tier: String = was.get(1);
     let previous: Option<String> = was.get(2);
     let name: String = was.get(3);
+    let version = crate::domain::scope::normalize(&was.get::<_, Value>(4)).get("model_version").and_then(Value::as_str)
+        .filter(|v| !v.is_empty()).map(str::to_string);
     let was_frozen = old.is_some();
+    // every gate, and a Muse login's own catalog for the seat's exact model,
+    // before the binding, the freeze, a queued account or any mail changes
     let target = continuation::resolve(engine, &org.slug, &tier, account)?;
+    continuation::muse_offered(engine, &tier, version.as_deref(), &target)?;
     let provider = crate::providers::catalog::provider_of(&tier);
     let previous_lane = previous.as_deref().and_then(|a| engine.accounts.view().get(a).map(crate::org_accounts::lane_of))
         .unwrap_or_else(|| crate::org_accounts::default_lane(provider));
