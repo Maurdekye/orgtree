@@ -237,14 +237,15 @@ export default async function (rig) {
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { default_account: 'openrouter-key' }).catch(() => null)
   p.check('control: the org default names the original before its removal',
     rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d === 'openrouter-key')
-  // An org-first writer holding this org (as a folder/settings write does)
+  // An org-first writer holding this org FOR NO KEY UPDATE (as folder and
+  // settings writes do; it still admits the event rows' key-share checks)
   // while the removal reaches its late default scan: the scan never waits
   // (NOWAIT), the attempt rolls back whole, and the bounded retry either
   // outlasts a short hold or refuses with nothing changed.
   const holdOrg = (secs) => {
     const h = spawn(path.join(rig.run.pgBin, 'psql.exe'), ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', String(port),
       '-U', 'orgtree_admin', '-d', 'orgtree_engine', '-c',
-      `BEGIN; SELECT id FROM ot.orgs WHERE slug = '${rig.org}' FOR UPDATE; SELECT pg_sleep(${secs}); COMMIT;`],
+      `BEGIN; SELECT id FROM ot.orgs WHERE slug = '${rig.org}' FOR NO KEY UPDATE; SELECT pg_sleep(${secs}); COMMIT;`],
     { env: { ...process.env, PGPASSWORD: password, PGAPPNAME: 'or-proof-org', PGCONNECT_TIMEOUT: '5' }, windowsHide: true, stdio: 'ignore' })
     const done = new Promise((resolve, reject) => { h.once('error', reject); h.once('exit', resolve) })
     return { h, done, held: () => rig.waitFor(() => rig.one("SELECT wait_event FROM pg_stat_activity WHERE application_name = 'or-proof-org'")?.wait_event === 'PgSleep',
