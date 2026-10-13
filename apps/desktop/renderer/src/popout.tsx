@@ -1,5 +1,5 @@
 import type { ModalDimensions, WindowRestore } from './windowlayout'
-import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, savedWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
+import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, savedWindows, useRestoreWindows, windowExitStarted, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent, revealFileFromEvent } from './canvas/shared'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
@@ -230,10 +230,13 @@ function DetachedNotice({ home, children }: { home: Document; children: ReactNod
 /** Stable portal target, physically adopted between documents. React never
  * receives a different target and never owns/removes the hand-built shell. */
 export function MovableSurface({ kind, title, org = null, editable = true, children,
-  anchor, onDetached, flush, restore, sourceBox, minDimensions, exactSourceBox = false }: {
+  anchor, onDetached, onDismiss, flush, restore, sourceBox, minDimensions, exactSourceBox = false }: {
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
   children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
-  onDetached?: (detached: boolean) => void; flush?: () => void
+  onDetached?: (detached: boolean, reason?: 'close' | 'return') => void; flush?: () => void
+  /** Native window Close dismisses a closeable surface through its owner.
+   * Persistent desks without a dismissal retain their established return. */
+  onDismiss?: () => void
   minDimensions?: ModalDimensions | null
   /** A temporary desk becomes a window at its current frame, even if borrowed
    *  from an older saved window. Explicit lifecycle restores still use that save. */
@@ -267,8 +270,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const pendingRestore = useRef<(() => void) | null>(null)
   const cleanups = useRef<(() => void)[]>([])
   const epoch = useRef(0)
-  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions, exactSourceBox })
-  latest.current = { anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions, exactSourceBox }
+  const latest = useRef({ anchor, parent, onDetached, onDismiss, flush, org, title, restore, sourceBox, minDimensions, exactSourceBox })
+  latest.current = { anchor, parent, onDetached, onDismiss, flush, org, title, restore, sourceBox, minDimensions, exactSourceBox }
   const fallback = useRef<HTMLElement | null>(null)
   const initialOwner = useRef(owner)
   const popoutName = useRef('')
@@ -316,7 +319,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
    *  `transient` is a TEMPORARY BORROW rather than a dismissal — see `borrow`
    *  below. Everything else about the path is identical, so a borrow cannot
    *  drift away from the ordinary return. */
-  const returnHome = (transient: boolean) => {
+  const returnHome = (transient: boolean, reason: 'close' | 'return' = 'return') => {
     const restore = pendingRestore.current ?? preservePosition(parts.container)
     pendingRestore.current = null
     epoch.current++
@@ -331,11 +334,17 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     // `open` makes the re-detach compute a fresh position instead.
     if (!transient) closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
-    place(claimDestination())
+    const a = latest.current.anchor === undefined ? placeholder.current : latest.current.anchor
+    if (reason === 'close' && !a?.isConnected && !latest.current.parent?.overlays.isConnected) {
+      // A persistent desk with no registered slot stays mounted offscreen.
+      // Close must not create a recovery box or activate a main-window view.
+      document.adoptNode(parts.container); document.adoptNode(parts.overlays)
+      discardFallback()
+    } else place(claimDestination())
     initialOwner.current = document
     parts.container.classList.remove('detached')
     setOwner(parts.container.ownerDocument); setDetached(false)
-    latest.current.onDetached?.(false)
+    latest.current.onDetached?.(false, reason)
     restore()
     try { if (w && !w.closed) w.close() } catch { /* user navigated */ }
   }
@@ -343,13 +352,34 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
    *  no arguments and therefore cannot be told to borrow by one. */
   const redock = () => returnHome(false)
 
+  // Closing a native modal is the owner's existing dismissal, not Pop in.
+  // Invalidate the transaction and remove listeners BEFORE closing the child:
+  // pagehide and the closed-window poll must never dismiss twice or redock.
+  // Keep the adopted nodes alive offscreen until React's normal close/unmount
+  // runs; never attach the modal to its main-window destination on this path.
+  const dismissWindow = () => {
+    const dismiss = latest.current.onDismiss
+    if (windowExitStarted()) { redock(); return }
+    if (!dismiss) { returnHome(false, 'close'); return }
+    latest.current.flush?.()
+    const w = child.current
+    if (w && !w.closed) captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
+    child.current = null; pendingRestore.current = null; epoch.current++
+    closeSavedWindow(layoutKey)
+    for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* disposed */ } }
+    document.adoptNode(parts.container); document.adoptNode(parts.overlays)
+    discardFallback()
+    try { if (w && !w.closed) w.close() } catch { /* already gone */ }
+    dismiss()
+  }
+
   /** FAILURE RECOVERY: the pop-out broke, the user did not close it. Four
    *  routes come here — (1) a later style sync thrown from the MutationObserver,
    *  (2) the same from the 500 ms CSSOM poll, (3) `restoreWhenStyled` giving up
    *  on a stylesheet, (4) the `open()` catch: blocked window, a throw while
    *  adopting the document, or the surface failing to enter it. The two
-   *  DELIBERATE-close routes (the child's `pagehide`, the owner document going
-   *  away) call `redock` directly and are not failures.
+   *  Native modal Close calls `dismissWindow`; a hosted owner document going
+   *  away retains `redock`. Neither is a pop-out failure.
    *
    *  ⚠ ALL FOUR CLEAR THE SAVED ROW — the ordinary `redock`, NEVER
    *  `returnHome(true)` — and that is a decision, not an oversight (docket item
@@ -514,7 +544,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       d.open()
       d.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')
       d.close()
-      const onGone = () => { if (epoch.current === transaction) redock() }
+      const onGone = () => { if (epoch.current === transaction) dismissWindow() }
       w.addEventListener('pagehide', onGone)
       cleanups.current.push(() => w?.removeEventListener('pagehide', onGone))
       const poll = window.setInterval(() => { if (w?.closed) onGone(); else if (w) captureWindow(layoutKey, kind, org, w, true, latest.current.restore) }, 250)

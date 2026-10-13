@@ -576,11 +576,11 @@ function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<
       const rect = frame?.getBoundingClientRect()
       return rect ? {x: rect.x, y: rect.y, w: rect.width, h: rect.height} : null
     })} exactSourceBox
-    onDetached={(v) => {
+    onDetached={(v, reason) => {
       entry.detached = v
       if (v) desks.popoutMounts.delete(deskIdentity(props.slug, props.node))
       if (v) props.temporaryPlacement?.onPopout()
-      if (!v && !entry.slots.size) props.onJump?.(props.node.id)
+      if (!v && reason !== 'close' && !entry.slots.size) props.onJump?.(props.node.id)
       desks.change()
     }}>
     <DeskOwnerControls desks={desks} entry={entry} stale={changedGeneration} dismiss={() => {
