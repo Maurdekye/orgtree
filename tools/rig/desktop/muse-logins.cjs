@@ -56,8 +56,9 @@ module.exports = async (page, { args }) => {
     await page.sleep(400)
     out.desk = await page.eval(() => [...document.querySelectorAll('.eff-pop .effort-bar-dot')].map((d) => d.getAttribute('data-level')))
     await page.screenshot(`${args.agent}-desk-effort`)
-    await page.press('Escape')
-    await page.sleep(300)
+    // the same button closes it (Escape would close the desk too)
+    await page.click('.cc-eff')
+    await page.sleep(400)
   } catch (e) { out.desk = String(e.message).slice(0, 120) }
   await page.click(`button[aria-label="settings for ${args.agent}"]`)
   await page.waitFor('[role="tab"]', { timeout: 20000 })
