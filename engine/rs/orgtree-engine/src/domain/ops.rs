@@ -2205,11 +2205,18 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             // for Muse, the exact model's row on the login it runs on once this
             // call lands, so an account named alongside is the one asked (it
             // moves below, now or at the turn boundary; independent review
-            // 2026-10-13). Nothing is written before this check.
+            // 2026-10-13). With none named, the login its next turn runs on:
+            // an account change already queued behind a running turn, as the
+            // settings route judges it (independent review R3 2026-10-13).
+            // Nothing is written before this check.
             let view = engine.accounts.view();
             let version = req.get("model_version").and_then(Value::as_str).filter(|s| !s.is_empty()).or(pinned(&n.scope));
             let login = match str_arg(req, "account") {
-                None => n.account.as_deref().and_then(|id| view.get(id)),
+                None => {
+                    let queued: Option<String> = tx.query_one("SELECT pending_account->>'account' FROM ot.agents WHERE id = $1", &[&n.id])
+                        .await?.get(0);
+                    crate::accounts::next_turn_login(n.account.as_deref(), queued.as_deref()).and_then(|id| view.get(&id))
+                }
                 Some(raw) => match crate::accounts::choice(Some(raw)) {
                     crate::accounts::Choice::Account(a) => match view.get(&a) {
                         Some(i) => Some(i),

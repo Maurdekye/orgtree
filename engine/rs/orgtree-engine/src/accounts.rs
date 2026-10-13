@@ -273,6 +273,22 @@ pub fn choice(raw: Option<&str>) -> Choice {
     }
 }
 
+/// The login a seat's next turn runs on, by id (None: the provider's own
+/// login): an account change queued behind a running turn (the
+/// `pending_account` intent's `account`, `primary` and its aliases being the
+/// own login), else the account it is bound to. What a level or a pinned
+/// version saved now is judged on, by the settings route and retool alike.
+#[logged]
+pub fn next_turn_login(bound: Option<&str>, queued: Option<&str>) -> Option<String> {
+    match queued {
+        Some(q) => match choice(Some(q)) {
+            Choice::Account(id) => Some(id),
+            _ => None,
+        },
+        None => bound.map(str::to_string),
+    }
+}
+
 /// The provider's own home (`~/.claude`, `~/.codex`): a row pointing there
 /// is the host login itself.
 #[logged]
@@ -429,4 +445,23 @@ pub fn publish(engine: &Engine) {
     engine.app.set_value("accounts", json!({ "accounts": rows }));
     // the providers payload lists what each registered Muse login offers
     crate::providers::publish(engine);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_turn_login;
+
+    /// A level saved now is judged on the login the next turn runs on: an
+    /// account change queued behind a running turn (its `primary` aliases the
+    /// own login), else the bound account (none: the own login).
+    #[test]
+    fn effort_is_judged_on_the_next_turn_login() {
+        assert_eq!(next_turn_login(Some("muse-1"), Some("muse-2")).as_deref(), Some("muse-2"));
+        for alias in ["primary", "default", "muse/primary"] {
+            assert_eq!(next_turn_login(Some("muse-1"), Some(alias)), None, "{alias} queued is the own login");
+        }
+        assert_eq!(next_turn_login(None, Some("muse-2")).as_deref(), Some("muse-2"));
+        assert_eq!(next_turn_login(Some("muse-1"), None).as_deref(), Some("muse-1"), "nothing queued: the bound account");
+        assert_eq!(next_turn_login(None, None), None);
+    }
 }

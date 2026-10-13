@@ -521,15 +521,10 @@ pub(crate) async fn apply_user_scope_in_tx(
     }
     // a Muse seat's own login and exact model (its version as this save leaves it);
     // an account change queued behind a running turn is the login the next
-    // turn runs on, so that one is asked (as retool asks the account it names)
+    // turn runs on, so that one is asked (as retool asks the account it names,
+    // and with none named the same one: `accounts::next_turn_login`)
     let tier: String = row.get(3);
-    let login: Option<String> = match row.get::<_, Option<String>>(5) {
-        Some(queued) => match crate::accounts::choice(Some(&queued)) {
-            crate::accounts::Choice::Account(id) => Some(id),
-            _ => None,
-        },
-        None => row.get(4),
-    };
+    let login = crate::accounts::next_turn_login(row.get::<_, Option<String>>(4).as_deref(), row.get::<_, Option<String>>(5).as_deref());
     let version: Option<String> = match b.get("model_version") {
         Some(v) => v.as_str().filter(|s| !s.is_empty()).map(str::to_string),
         None => before.get("model_version").and_then(Value::as_str).map(str::to_string),
