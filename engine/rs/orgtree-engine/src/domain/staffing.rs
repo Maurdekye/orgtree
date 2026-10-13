@@ -178,10 +178,16 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
                     crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_)))
         })
         .map(|a| {
-            let mut v = json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email });
+            let mut v = json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email,
+                                "kind": if a.is_apikey() { "apikey" } else { "subscription" } });
             // an OpenRouter key has no email: the pickers show its name
             if a.provider == catalog::OPENROUTER {
                 v["label"] = json!(crate::openrouter::display(engine, a));
+            }
+            // a Muse login's own levels for the tier's model, from its catalog
+            // row (the tier's `efforts` are the levels a hire naming no account gets)
+            if a.provider == catalog::MUSE {
+                v["efforts"] = json!(crate::providers::effort_names_on(engine, tier, None, Some(a)).unwrap_or_default());
             }
             v
         })

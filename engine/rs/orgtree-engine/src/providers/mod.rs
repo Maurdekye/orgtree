@@ -775,19 +775,46 @@ pub fn payload(engine: &Engine) -> Value {
     }
     if st.muse.installed {
         let found = st.muse_probe.as_ref();
+        // every registered Muse login switched on, by its own catalog as last
+        // read: a tier one of them offers is offered too, and says where
+        // (independent review 2026-10-13: the user's own login's entitlement
+        // is no prerequisite for another login's)
+        let view = engine.accounts.view();
+        let registered: Vec<&crate::accounts::AccountInfo> = view.all().into_iter()
+            .filter(|a| a.provider == catalog::MUSE && crate::accounts::active(engine, catalog::MUSE, Some(a)))
+            .collect();
         let tiers: Vec<Value> = catalog::TIERS
             .iter()
-            .filter(|t| t.provider == catalog::MUSE && !t.legacy && muse_offers(t.tier, found))
-            .map(|t| {
-                let row = found.and_then(|d| d.probe.catalog.as_ref()).and_then(|c| c.offered(t.model));
-                json!({ "tier": t.tier, "provider": t.provider, "seat": t.seat, "model": t.model, "letter": t.letter,
-                        "efforts": row.map(|r| r.variants.clone()), "default_effort": row.and_then(|r| r.default_effort.clone()),
-                        "context": row.and_then(|r| r.context) })
+            .filter(|t| t.provider == catalog::MUSE && !t.legacy)
+            .filter_map(|t| {
+                let own = muse_offers(t.tier, found);
+                let on: Vec<&&crate::accounts::AccountInfo> = registered.iter().filter(|a| muse_tier_on(engine, Some(a), t)).collect();
+                if !own && on.is_empty() {
+                    return None;
+                }
+                let row = if own {
+                    found.and_then(|d| d.probe.catalog.as_ref()).and_then(|c| c.offered(t.model)).cloned()
+                } else {
+                    on.iter().find_map(|a| match muse_offer(engine, Some(a), t.model) { MuseOffer::Offered(m) => Some(m), _ => None })
+                };
+                Some(json!({ "tier": t.tier, "provider": t.provider, "seat": t.seat, "model": t.model, "letter": t.letter,
+                        "efforts": row.as_ref().map(|r| r.variants.clone()), "default_effort": row.as_ref().and_then(|r| r.default_effort.clone()),
+                        "context": row.as_ref().and_then(|r| r.context),
+                        "own": own, "logins": on.iter().map(|a| a.id.clone()).collect::<Vec<_>>() }))
             })
             .collect();
         let any = !tiers.is_empty();
+        let elsewhere = tiers.iter().any(|t| t["logins"].as_array().is_some_and(|l| !l.is_empty()));
         let mut e = entry(catalog::MUSE, "Muse", "muse", &st.muse, tiers);
         e["muse"] = muse_detail(found, st.muse_error.as_deref());
+        e["muse"]["logins"] = json!(std::iter::once(muse_login_doc(engine, None))
+            .chain(registered.iter().map(|a| muse_login_doc(engine, Some(a)))).collect::<Vec<_>>());
+        // a registered login that offers a model makes Muse hirable with the
+        // user's own login signed out (a hire is placed on a login that offers it)
+        if !st.muse.connected && elsewhere && engine.settings.provider_enabled(catalog::MUSE) {
+            e["hire_enabled"] = json!(true);
+            e["reason"] = Value::Null;
+        }
         if st.muse.connected && !any && e["reason"].is_null() {
             e["reason"] = json!(match found.and_then(|d| d.probe.catalog.as_ref()).map(|c| c.source.as_str()) {
                 Some("providerCatalog") => "the signed-in Muse account's catalog offers no model this Orgtree knows",
@@ -857,6 +884,62 @@ pub fn payload(engine: &Engine) -> Value {
 fn muse_offers(tier: &str, found: Option<&MuseDiscovery>) -> bool {
     let (Some(t), Some(c)) = (catalog::tier(tier), found.and_then(|d| d.probe.catalog.as_ref())) else { return false };
     std::iter::once(t.model).chain(t.versions.iter().map(|(_, m)| *m)).any(|m| c.offered(m).is_some())
+}
+
+/// Whether one Muse login offers `t` (its latest model or one of its
+/// versions) by its own catalog as last read (`muse_offer`).
+#[nolog]
+fn muse_tier_on(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, t: &catalog::Tier) -> bool {
+    std::iter::once(t.model).chain(t.versions.iter().map(|(_, m)| *m))
+        .any(|m| matches!(muse_offer(engine, account, m), MuseOffer::Offered(_)))
+}
+
+/// One Muse login as the hire and agent settings surfaces read it
+/// (`/api/providers` › `muse.logins`; `account` None: the user's own login):
+/// whether its catalog is known, and per Muse tier it offers the exact
+/// model's levels and default, for the tier's latest model and for each
+/// version it offers, as `effort_names_on` names them. In memory only.
+#[logged]
+fn muse_login_doc(engine: &Engine, account: Option<&crate::accounts::AccountInfo>) -> Value {
+    let (state, reason) = match account {
+        None => {
+            let st = engine.providers.state.load();
+            match st.muse_probe.as_ref() {
+                Some(d) if d.probe.account_state.as_deref() == Some("loggedOut") => ("signed_out", None),
+                Some(d) if d.probe.catalog.is_some() => ("ready", None),
+                _ => ("unknown", Some(st.muse_error.clone().unwrap_or_else(|| "the signed-in Muse account has not been read yet".into()))),
+            }
+        }
+        Some(a) => match engine.providers.muse_logins.load().get(&a.id) {
+            None => ("unknown", Some("not read yet".to_string())),
+            Some(r) if r.signed_in == Some(false) => ("signed_out", None),
+            Some(r) => match (&r.catalog, &r.error) {
+                (Some(_), None) => ("ready", None),
+                (_, Some(e)) => ("unknown", Some(e.clone())),
+                (None, None) => ("unknown", Some("no catalog was returned".to_string())),
+            },
+        },
+    };
+    let row = |model: &str| match muse_offer(engine, account, model) {
+        MuseOffer::Offered(m) => Some(json!({
+            "model": model,
+            "efforts": catalog::MUSE_EFFORTS.iter().filter(|e| m.variants.iter().any(|v| v == *e)).collect::<Vec<_>>(),
+            "default_effort": m.default_effort })),
+        _ => None,
+    };
+    let mut tiers = serde_json::Map::new();
+    for t in catalog::TIERS.iter().filter(|t| t.provider == catalog::MUSE && !t.legacy) {
+        let latest = row(t.model);
+        let versions: serde_json::Map<String, Value> = t.versions.iter().filter_map(|(v, m)| row(m).map(|r| (v.to_string(), r))).collect();
+        if latest.is_some() || !versions.is_empty() {
+            tiers.insert(t.tier.to_string(), json!({ "latest": latest, "versions": versions }));
+        }
+    }
+    json!({
+        "account": account.map(|a| a.id.clone()),
+        "kind": account.map(|a| if a.is_apikey() { "apikey" } else { "subscription" }).unwrap_or("subscription"),
+        "state": state, "reason": reason, "tiers": tiers,
+    })
 }
 
 /// Whether the account offers a Muse tier now (hire, rehire and switch

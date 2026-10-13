@@ -385,7 +385,10 @@ pub fn best_allowed(engine: &Engine, org_slug: &str, tier: &str) -> Option<Strin
             && crate::accounts::active(engine, provider, Some(a))
             && a.auth != "signed_out" && a.auth != "unauthenticated"
             && a.limited_for(tier, now).is_none()
-            && crate::usage::at_limit(engine, Some(a), tier).is_none())
+            && crate::usage::at_limit(engine, Some(a), tier).is_none()
+            // a Muse login only where its own catalog offers the model
+            && (provider != catalog::MUSE || matches!(
+                crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_))))
         .collect();
     let order: Vec<String> = usable.iter().map(|a| a.id.clone()).collect();
     let readings: HashMap<String, crate::domain::templates::Reading> = usable.iter()
