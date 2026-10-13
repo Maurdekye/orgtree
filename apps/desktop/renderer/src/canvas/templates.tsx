@@ -39,7 +39,7 @@ export function TemplateDocumentsSetting() {
   return <SetGroup title="Organization templates"
     note="starting layouts for a new organization, in ~/.orgtree/templates">
     <SetRow label="restore default templates"
-      hint="Writes back the built-in templates (devteam (claude), devteam (codex)) missing from your templates folder, including ones you deleted. Files you already have are never changed.">
+      hint="Writes back the built-in templates (devteam (claude), devteam (codex), devteam (muse)) missing from your templates folder, including ones you deleted. Files you already have are never changed.">
       <button onClick={run} disabled={busy}>
         {busy ? 'restoring…' : 'restore'}
       </button>

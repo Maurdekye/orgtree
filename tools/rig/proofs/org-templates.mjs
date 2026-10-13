@@ -42,7 +42,7 @@ export default async function (rig) {
   // 1. the list
   const list = await rig.api('GET', '/api/templates')
   const ids = list.templates.map((t) => t.id)
-  p.check('the two bundled templates are listed and usable', ['devteam-claude', 'devteam-codex'].every((id) => ids.includes(id))
+  p.check('the three bundled templates are listed and usable', ['devteam-claude', 'devteam-codex', 'devteam-muse'].every((id) => ids.includes(id))
     && list.templates.every((t) => t.problems.length === 0), list.templates.map((t) => ({ id: t.id, source: t.source, problems: t.problems })))
 
   // 2. devteam (claude): preview, then create
@@ -148,6 +148,6 @@ export default async function (rig) {
     shotApp.ok && ['devteam-claude.json', 'devteam-codex.json'].every((f) => fs.existsSync(path.join(tpDir, f)))
       && /restored 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
   const pop = await rig.api('POST', '/api/templates/populate')
-  p.check('restoring again changes nothing (both files already present)', pop.created.length === 0 && pop.existing.length === 2, pop)
+  p.check('restoring again changes nothing (all three files already present)', pop.created.length === 0 && pop.existing.length === 3, pop)
   return p.summary()
 }
