@@ -78,21 +78,54 @@ export default async function (rig) {
     !JSON.stringify(rig.sql("SELECT extra::text AS e FROM ot.agents WHERE name = 'keytwo'")).includes('not-a-real-key'))
 
   // ------------------------------------------------ 1b. replacement, Codex harness
+  // The harness is stamped at hire (an existing seat keeps its own), so a seat
+  // hired after choosing Codex runs on `codex app-server`: the fake logs every
+  // line of that process with mode "codex" and its pid.
   const h = await rig.api('GET', '/api/openrouter')
-  const codexOffered = JSON.stringify(h.harness ?? h).includes('codex-cli')
-  if (codexOffered) {
-    await rig.api('PUT', '/api/openrouter/harness', { harness: 'codex-cli' })
-    await settle('keytwo', 'PROOF-FIX: on codex.')
-    const c0 = starts('keytwo').length
-    p.check('control: on the Codex harness keytwo runs on NEW333', tail('keytwo') === 'NEW333', starts('keytwo').at(-1))
-    await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-COD444' })
-    await settle('keytwo', 'PROOF-FIX: codex after replacement.')
-    p.check('the next turn after a replacement starts a new CLI with the new key (Codex)',
-      starts('keytwo').length === c0 + 1 && tail('keytwo') === 'COD444', { starts: starts('keytwo').length, c0, tail: tail('keytwo') })
-    await rig.api('PUT', '/api/openrouter/harness', { harness: 'claude-code' })
-  } else {
-    p.note('the Codex harness is not offered in this rig run: the Codex replacement case did not run')
+  const codexOpt = (h.harness?.harnesses ?? []).find((o) => o.id === 'codex-cli')
+  p.check('control: the Codex harness is available in this rig', codexOpt?.available === true, codexOpt)
+  await rig.api('PUT', '/api/openrouter/harness', { harness: 'codex-cli' })
+  p.check('control: Codex is the selected OpenRouter harness', (await rig.api('GET', '/api/openrouter')).harness?.selected === 'codex-cli')
+  await rig.op({ op: 'hire', name: 'codextwo', parent: 'boss', tier: TIER, grant: 1, title: 'on key two, Codex', account: 'openrouter-2' })
+  await idle()
+  p.check('control: codextwo is stamped with the Codex harness', rig.agentRow('codextwo')?.extra?.harness === 'codex-cli', rig.agentRow('codextwo')?.extra)
+  const cLog = () => rig.fakeLog('codextwo')
+  const cStarts = () => cLog().filter((l) => l.kind === 'start')
+  const lastTurn = (marker) => {
+    const log = cLog()
+    const t = log.findLast((l) => l.kind === 'turn' && String(l.prompt ?? '').includes(marker))
+    const end = t && log.slice(log.indexOf(t)).find((l) => l.kind === 'turn_end' && l.pid === t.pid)
+    const row = rig.turns('codextwo').at(-1)
+    return { pid: t?.pid, mode: t?.mode, status: end?.status, row: row && { ended: !!row.ended_at, error: row.error, killed: row.killed },
+             account: rig.one("SELECT t.account FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.name = 'codextwo' ORDER BY t.id DESC LIMIT 1")?.account }
   }
+  const ok = (t) => t.mode === 'codex' && t.status === 'completed' && t.row?.ended && !t.row.error && !t.row.killed && t.account === 'openrouter-2'
+  const cur = secretTail('openrouter-2')
+  await settle('codextwo', 'PROOF-CODEX: first.')
+  const c0 = cStarts().length
+  const first = cStarts().at(-1) ?? {}
+  const t1 = lastTurn('PROOF-CODEX: first.')
+  p.check('the codextwo seat runs a Codex CLI: an app-server on the stored key, and its turn completes on key two',
+    first.mode === 'codex' && JSON.stringify(first.args ?? '').includes('app-server') && first.gateway_key_tail === cur && t1.pid === first.pid && ok(t1),
+    { args: first.args, mode: first.mode, gateway_key_tail: first.gateway_key_tail, cur, turn: t1 })
+  await settle('codextwo', 'PROOF-CODEX: nothing changed.')
+  const t2 = lastTurn('PROOF-CODEX: nothing changed.')
+  p.check('on Codex, a turn with nothing changed reuses the warm app-server', cStarts().length === c0 && t2.pid === first.pid && ok(t2),
+    { starts: cStarts().length, c0, turn: t2 })
+  await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-COD444' })
+  p.check('control: the stored secret was replaced (Codex case)', secretTail('openrouter-2') === 'COD444')
+  await settle('codextwo', 'PROOF-CODEX: after replacement.')
+  const second = cStarts().at(-1) ?? {}
+  const t3 = lastTurn('PROOF-CODEX: after replacement.')
+  p.check('the next turn after a replacement starts a new Codex app-server with the new key, and completes',
+    cStarts().length === c0 + 1 && second.mode === 'codex' && JSON.stringify(second.args ?? '').includes('app-server')
+    && second.gateway_key_tail === 'COD444' && second.pid !== first.pid && t3.pid === second.pid && ok(t3),
+    { starts: cStarts().length, c0, gateway_key_tail: second.gateway_key_tail, pids: [first.pid, second.pid], turn: t3 })
+  await settle('codextwo', 'PROOF-CODEX: steady again.')
+  const t4 = lastTurn('PROOF-CODEX: steady again.')
+  p.check('after it, a Codex turn with nothing changed reuses the new app-server', cStarts().length === c0 + 1 && t4.pid === second.pid && ok(t4),
+    { starts: cStarts().length, turn: t4 })
+  await rig.api('PUT', '/api/openrouter/harness', { harness: 'claude-code' })
 
   // ------------------------------------------------ 1c. a late answer for the old key
   // the canned answer is read before its 1.5 s wait, as a request is sent
@@ -132,17 +165,26 @@ export default async function (rig) {
   const from = rig.engineLog().length
   await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-PRIV66' })
   await rig.tool('boss', 'orgtree_usage', { accounts: ['openrouter-2'], refresh: true })
-  await rig.api('GET', '/api/openrouter/keys/usage')
+  // the text arrives where it is meant to: the keys' usage (cache), the
+  // panel's document (API) and the app feed's state (what windows are sent)
+  const viaCache = (await rig.api('GET', '/api/openrouter/keys/usage'))['openrouter-2']
+  const viaDoc = ((await rig.api('GET', '/api/openrouter')).keys ?? []).find((k) => k.id === 'openrouter-2')
+  await rig.api('GET', '/api/openrouter/usage')
+  const viaFeed = (await rig.api('GET', '/api/app/records'))?.runtime?.values?.openrouter_keys_usage?.value?.['openrouter-2']
+  p.check('control: the private text arrives in the keys\' usage (cache)', viaCache?.error === MARKER, viaCache?.error)
+  p.check('control: the private text arrives in the panel document (API)', String(viaDoc?.reason ?? '').includes(MARKER), viaDoc?.reason)
+  p.check('control: the private text arrives in the app feed\'s state (feed)', viaFeed?.error === MARKER, viaFeed?.error)
+  await sleep(500)
   const after = rig.engineLog().slice(from)
-  // the app feed logs every value it pushes, for every provider's usage, as
-  // it did before this work: that shared path is reported, not judged here
-  const feed = (l) => /\bappfeed\.(AppFeed\.set_value|Actor\.broadcast)\b/.test(l)
   const leaks = after.split(/\r?\n/).filter((l) => l.includes(MARKER))
-  p.check('control: the private text did reach the engine (the app feed carries it)', leaks.some(feed), leaks.length)
-  p.check('a reading\'s private provider text is not in the engine log through the readers', leaks.every(feed),
-    leaks.filter((l) => !feed(l)).map((l) => l.slice(0, 300)))
-  p.note(`the app feed logged the private text in ${leaks.filter(feed).length} line(s): AppFeed.set_value and Actor.broadcast log every usage value they push (all providers, unchanged by this work)`)
+  p.check('control: the interval holds the replacement, the reads and the feed pushes',
+    /PUT \/api\/openrouter\/keys\/openrouter-2/.test(after) && /GET \/api\/app\/records/.test(after)
+    && /app value pushed key=openrouter_keys_usage/.test(after) && /app frame broadcast/.test(after), after.length)
+  p.check('a reading\'s private provider text is in no engine log line of the interval (readers, feed, routes)', leaks.length === 0,
+    leaks.map((l) => l.slice(0, 300)))
   p.check('control: the readers\' safe summary line is logged', /OpenRouter key usage read lane=openrouter-2 available=false error=true detail=true/.test(after))
+  p.check('control: the routes\' safe summary line is logged', /usage reading served \(body not logged\) route="?openrouter_doc/.test(after)
+    || /route="?openrouter_doc"?.*usage reading served/.test(after))
   fs.unlinkSync(path.join(usageDir, 'openrouter-2.json'))
 
   // ------------------------------------------------ 6. same secret twice at once
@@ -225,6 +267,8 @@ export default async function (rig) {
   const alive = await rig.api('GET', '/api/app/records').then(() => true, () => false)
   p.check('the engine still answers', alive)
   p.check('no secret reached the engine log', !rig.engineLog().includes('sk-or-rig-not-a-real-key'))
-  p.keep(rig, { agents: ['keytwo', 'mover', 'unbound', 'pinned', 'lonely', 'restarted'], grep: /openrouter|account_removed|panic/i })
+  p.check('the private provider text is in no engine log line of the whole run (every session log)', !rig.engineLog().includes(MARKER),
+    rig.engineLogFiles().length)
+  p.keep(rig, { agents: ['keytwo', 'codextwo', 'mover', 'unbound', 'pinned', 'lonely', 'restarted'], grep: /openrouter|account_removed|panic/i })
   return p.summary()
 }
