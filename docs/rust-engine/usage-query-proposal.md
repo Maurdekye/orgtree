@@ -1,14 +1,15 @@
 # On-demand usage query: audit and proposed contract
 
-Contract approved through lead-astra, 2026-10-11 22:35Z. Source implementation
-and verification are in progress; approval is not evidence of a passing build.
+Contract approved through lead-astra, 2026-10-11 22:35Z. The standalone source
+and checked-auth composition are integrated; dated verification below separates
+those receipts from the later OpenRouter composition.
 Ticket: `agents-can-query-usage-statistics-on-demand`.
 Source audit base: local `rust-engine` at `89268b7`.
 
 Agents receive a usage snapshot only at a turn boundary. Add `orgtree_usage`
 to read the current cache during a turn, filter exact accounts/windows, and
 optionally request one bounded refresh. Keep uncertainty and account boundaries
-explicit. The first implementation should include both modes if approved.
+explicit. Both modes are implemented under the approved access and refresh contract.
 
 ## Findings verified from source, not provider measurements
 
@@ -58,7 +59,8 @@ cursor? }` returns JSON. Filters are exact strings, arrays of at most 32 values;
 values within a dimension are OR, dimensions are AND. Empty explicit arrays and
 unknown properties/types refuse rather than unexpectedly select everything.
 Providers use canonical IDs `claude`, `openai`, `google`, `openrouter`,
-`langserver`. Accounts use canonical lane/registry IDs, never email, folder,
+`langserver`; the separately integrated Muse lane also accepts `muse`.
+Accounts use canonical lane/registry IDs, never email, folder,
 token, key label or a provider nickname. Window selectors match canonical
 `kind` or exact provider `group`; display labels are returned, not selectors.
 
@@ -189,7 +191,7 @@ cargo-build-engine-20261011.log, cargo-build-fakecli-20261011.log,
 rig-usage-query-20261012-pass2.log. Structured29-check evidence:
 D:\orgtree-work\rig\usage-query-sol\evidence\usage-query-20261011T235847\result.json.
 
-## Remaining dependency and limits
+## Historical standalone dependency and limits
 
 Lead-astra mf99e653ce9f3 directs the multi-OpenRouter owner to remain paused on
 its original provider until its weekly capacity resets; no transfer of unfinished
@@ -197,14 +199,17 @@ implementation/rig/integration work to this seat. The standalone tool source
 uses only the current integrated original lane. After the original owner finishes
 and lead sends checked integration notice, compose its private per-key reader
 with the shared reservation and verify this tool's lane-specific behavior.
-Do not claim multi-key support from this standalone proof.
+Do not claim multi-key support from this standalone proof. The hold above was
+released by the coordinator's checked integration notice on 2026-10-13; see the
+OpenRouter composition section below. It is not a current unfinished dependency.
 
 The original standalone proof checks response secrecy. Independent review found
 raw provider logging; the correction and focused response/log evidence below
 supersede that earlier verification limit. Real provider timeout/auth behavior
 and UI/app packaging were not exercised. Checked-auth composition is implemented
-and verified below, awaiting coordinator review; multi-key composition remains
-required before this ticket is complete.
+and verified below, then approved and integrated at `9a2fdd9`. Later multi-key
+composition has its own source and proof evidence; the earlier standalone run
+does not establish it.
 
 ## Checked authentication composition (2026-10-12)
 

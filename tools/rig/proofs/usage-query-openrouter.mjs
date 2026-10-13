@@ -98,10 +98,14 @@ export default async function (rig) {
   p.check('tool operations launch no inference turns and do not switch the caller account',
     rig.one('SELECT count(*) AS n FROM ot.turns').n === turns
     && rig.one("SELECT account FROM ot.agents WHERE name='boss' AND state='live'")?.account == null)
-  p.check('tool responses and actual tool interval logs contain no private marker; safe diagnostics remain',
-    !JSON.stringify({ busy, first, second, floors }).includes(marker)
-    && !rig.engineLog().slice(logStart).includes(marker)
-    && rig.engineLog().slice(logStart).includes('OpenRouter key usage read'))
+  const interval = rig.engineLog().slice(logStart)
+  const responseClean = !JSON.stringify({ busy, first, second, floors }).includes(marker)
+  const markerLines = interval.split(/\r?\n/).filter(l => l.includes(marker)).length
+  p.check('tool responses exclude private marker fields', responseClean, { responseClean })
+  p.check('actual tool interval logs contain no private marker and retain safe refresh diagnostics',
+    markerLines === 0 && interval.includes('usage.refresh_permitted'),
+    { markerLines, safeRefreshDiagnostics: interval.includes('usage.refresh_permitted') })
+  p.file('tool-interval.log', interval)
   p.keep(rig, { grep: /OpenRouter key usage read|refresh_gate|refresh_permitted/ })
   return p.summary()
 }
