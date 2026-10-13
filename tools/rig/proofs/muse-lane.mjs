@@ -40,6 +40,11 @@ export default async function (rig) {
         { name: 'wall', match: 'PROOF-FALLBACK', once: true, steps: [{ text: 'Trying.' }, { quota: { resetsAtMs: resetMs } }] },
       ] },
       kara: { turns: [{ name: 'key', match: 'PROOF-KEY', steps: [{ text: 'On the key account.' }] }] },
+      // kian, kofi, kemi: opted in; their wall tries the API-key branch of the fallback
+      ...Object.fromEntries(['kian', 'kofi', 'kemi'].map((n) => [n, { turns: [
+        { name: 'moved', match: 'You now run on the account', steps: [{ text: 'Continuing on the key account.' }] },
+        { name: 'wall', match: 'PROOF-KEYWALL', once: true, steps: [{ text: 'Trying.' }, { quota: { resetsAtMs: resetMs } }] },
+      ] }])),
       dana: { turns: [
         { name: 'again', match: 'PROOF-AGAIN', steps: [{ text: 'Back after the restart.' }] },
         { name: 'hello', match: 'PROOF-HELLO', steps: [
@@ -279,9 +284,48 @@ export default async function (rig) {
   p.check('key: an API-key seat runs with its key in its own roots, never the user\'s own Muse roots',
     karaStart?.meta_api_key_set === true && /muse-key-/i.test(karaStart?.xdg_config ?? '') && /muse-key-/i.test(karaStart?.xdg_data ?? ''),
     { xdg_config: karaStart?.xdg_config, xdg_data: karaStart?.xdg_data, key: karaStart?.meta_api_key_set })
-  p.check('key: the API-key login is never an automatic fallback while its switch is off', rig.one(`SELECT account FROM ot.agents WHERE id = ${nina?.id}`)?.account !== K)
   const back = await rig.tool('boss', 'orgtree_continue_on', { node: 'nina', account: 'muse/primary' })
   p.check('continue on: Muse\'s own login is a native primary to continue on (muse/primary)',
     back.ok && rig.one(`SELECT account FROM ot.agents WHERE id = ${nina?.id}`)?.account == null, back.text?.slice(0, 200))
+
+  // the API-key branch: each login answers its own catalog file (the fake reads
+  // <XDG_CONFIG_HOME>/muse-catalog.json first), so the profile M stops offering
+  // Wonder and the key K offers it or not; three opted-in agents hit the wall
+  const ROW = { profileId: 'tbh', variants: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'], defaultReasoningEffort: 'high',
+    contextLimit: 1007997, outputLimit: 128000 }
+  const only = (modelId) => JSON.stringify({ source: 'providerCatalog', models: [{ modelId, isDefault: true, ...ROW }] })
+  const own = (start, catalog) => fs.writeFileSync(path.join(start.xdg_config, 'muse-catalog.json'), catalog)
+  /** hire `name` opted into fallback, give it the wall; resolves once the fallback has moved it or left it frozen */
+  const wall = async (name) => {
+    await rig.op({ op: 'hire', name, parent: 'boss', tier: 'wonder', title: 'key fallback agent', account_fallback: true })
+    await rig.userMail(name, 'PROOF-KEYWALL: please do the thing.')
+    const id = await rig.waitFor(() => rig.agentRow(name)?.id, { what: `${name} hired`, timeout: 20000 })
+    const stays = new RegExp(`it stays frozen[^\\n]*agent=${id}\\b|agent=${id}\\b[^\\n]*it stays frozen`)
+    await rig.waitFor(() => rig.one(`SELECT account FROM ot.agents WHERE id = ${id}`)?.account || stays.test(rig.engineLog()),
+      { what: `${name}'s fallback decision`, timeout: 45000 }).catch(() => null)
+    return { id, row: rig.agentRow(name), account: rig.one(`SELECT account FROM ot.agents WHERE id = ${id}`)?.account ?? null }
+  }
+  if (ninaStart?.xdg_config && karaStart?.xdg_config) {
+    own(ninaStart, only('muse-spark-1.3'))
+    own(karaStart, only('muse-wonder-1.0'))
+    const off = await wall('kian')
+    p.check('key: while the Muse API-key switch is off, a key that offers the model is still never a fallback',
+      off.row?.frozen && off.account == null, off)
+    await rig.api('PUT', '/api/providers/muse/apikey-fallback', { enabled: true })
+    own(karaStart, only('muse-spark-1.3'))
+    const lacks = await wall('kofi')
+    p.check('key: with the switch on, a key whose own catalog lacks the model is not a fallback (its entitlement is asked, never assumed)',
+      lacks.row?.frozen && lacks.account == null
+        && rig.engineLog().split(/\r?\n/).some((l) => l.includes('this Muse API key does not offer') && l.includes(K)), lacks)
+    own(karaStart, only('muse-wonder-1.0'))
+    const takes = await wall('kemi')
+    await rig.waitTurns('kemi', 2, { timeout: 45000 }).catch(() => null)
+    const kemiStart = log('kemi', 'start').at(-1)
+    p.check('key: with the switch on, a key that offers the model takes the agent, in its own roots with its key',
+      takes.account === K && kemiStart?.meta_api_key_set === true && /muse-key-/i.test(kemiStart?.xdg_config ?? ''),
+      { account: takes.account, frozen: rig.agentRow('kemi')?.frozen, start: { xdg_config: kemiStart?.xdg_config, key: kemiStart?.meta_api_key_set } })
+  } else {
+    p.check('key: the API-key fallback fixtures could run (both logins started)', false, { ninaStart, karaStart })
+  }
   return p.summary()
 }

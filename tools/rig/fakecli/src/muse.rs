@@ -25,11 +25,13 @@
 //!   {"unsolicited": true}   a turn the engine did not start (as a cron fires one)
 //!   {"poll_mail": {"every_ms": 500, "timeout_ms": 30000}}, {"sleep_ms": N},
 //!   {"hang": true}, {"exit": N}
-//! The catalog `model/list` answers is `<fakecli dir>/muse-catalog.json` when
-//! present, else three account rows (Wonder, Spark 1.3, Spark 1.2) and a
-//! bundled Wonder Full row (no profile: never an entitlement). The file's
-//! optional `delayMs` holds the answer back that long (a turn that arrives
-//! while discovery is still reading the catalog) and is not part of it.
+//! The catalog `model/list` answers is the login's own
+//! `<XDG_CONFIG_HOME>/muse-catalog.json` when present (one login's
+//! entitlement, as a fixture), else `<fakecli dir>/muse-catalog.json`, else
+//! three account rows (Wonder, Spark 1.3, Spark 1.2) and a bundled Wonder
+//! Full row (no profile: never an entitlement). The file's optional `delayMs`
+//! holds the answer back that long (a turn that arrives while discovery is
+//! still reading the catalog) and is not part of it.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
@@ -158,7 +160,8 @@ fn text_of(input: &Value) -> String {
 }
 
 fn catalog(dir: Option<&Path>) -> Value {
-    if let Some(c) = dir.and_then(|d| load_json(&d.join("muse-catalog.json"))) {
+    let own = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+    if let Some(c) = own.as_deref().into_iter().chain(dir).find_map(|d| load_json(&d.join("muse-catalog.json"))) {
         return c;
     }
     let row = |id: &str, profile: Value, variants: &[&str], default: &str, is_default: bool| json!({
