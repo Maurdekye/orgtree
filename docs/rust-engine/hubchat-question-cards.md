@@ -57,23 +57,27 @@ it as hub mail like any other; it does not track whether a card is settled,
 and a later reply cannot change Hubchat's settled card. To ask again, the
 agent sends a new question.
 
-## Measured verification (2026-10-12)
+## Measured verification (2026-10-13, after review R1)
 
-On `hubchat-opus/question-options`, rebased on rust-engine `cf7668e`, under
+On `hubchat-opus/question-options`, rebased on rust-engine `9fc30fb`, under
 the machine build lock inside the repository's kernel Job runner:
 
-- `cargo test --locked -j2 -p orgtree-engine net::cards::` passes both
+- `cargo test --locked -j2 -p orgtree-engine net::cards::` passes all three
   `net_cards` tests (the tool's option checks; the list in the body becoming
-  `meta`, the last list counting, malformed lists carrying none).
+  `meta`, the last list counting, malformed lists carrying none; a list the
+  tool would refuse, such as `Same` / `same`, carrying none). Red control:
+  with `meta` as reviewed, the refused-list test fails.
 - `cargo build --locked -j2 -p orgtree-engine` (debug) passes with no warning.
-- Rig proof `tools/rig/proofs/question-options.mjs` passes 17 of 17 with a
+- Rig proof `tools/rig/proofs/question-options.mjs` passes 18 of 18 with a
   scratch database, the fake CLI and a hosted hub built from the mail hub's
   `hubchat-opus/hub-meta` branch (listing `meta`). The real agent tool queues
   the numbered list; the payload builder adds `meta`; the real sender
   delivers single-choice, multiple-choice and free-response questions to a
   person registered over HTTP, whose client receives the body, `kind` and
-  `meta` (none on the free-response one); every refusal is in plain words
-  and queues nothing.
+  `meta` (none on the free-response one, none on a question ending in a
+  refused list, which arrives whole); every refusal is in plain words and
+  queues nothing. Red control: the reviewed engine fails only the refused
+  list (17 of 18), sending it with `meta`.
 
 ## Limits
 
