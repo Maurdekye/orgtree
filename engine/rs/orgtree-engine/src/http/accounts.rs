@@ -402,56 +402,72 @@ pub async fn order(State(e): State<Arc<Engine>>, Json(b): Json<KeyOrder>) -> Api
 
 // ------------------------------------------------------------ usage
 
-#[logged]
+/// The handlers serving a usage reading (or the OpenRouter document, which
+/// embeds them) are not logged: a reading can carry the provider's own text.
+/// This one line says which was served; the wire log omits their bodies.
+#[nolog]
+fn served(route: &'static str) {
+    tracing::info!(route, "usage reading served (body not logged)");
+}
+
+#[nolog]
 pub async fn usage_claude(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
+    served("usage_claude");
     let v = usage::claude(&e, None, q.force).await;
     usage::publish(&e, "claude", &v);
     Json(v)
 }
 
-#[logged]
+#[nolog]
 pub async fn peek_claude(State(e): State<Arc<Engine>>) -> Json<Value> {
+    served("peek_claude");
     Json(e.usage.peek(&usage::claude_key(None), "claude"))
 }
 
-#[logged]
+#[nolog]
 pub async fn usage_codex(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
+    served("usage_codex");
     let v = usage::codex(&e, "openai/primary", None, q.force).await;
     usage::publish(&e, "openai", &v);
     Json(v)
 }
 
-#[logged]
+#[nolog]
 pub async fn peek_codex(State(e): State<Arc<Engine>>) -> Json<Value> {
+    served("peek_codex");
     Json(e.usage.peek(&usage::codex_key(None), usage::CODEX_NAME))
 }
 
-#[logged]
+#[nolog]
 pub async fn usage_agy(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
+    served("usage_agy");
     let v = usage::antigravity(&e, q.force).await;
     usage::publish(&e, "google", &v);
     Json(v)
 }
 
-#[logged]
+#[nolog]
 pub async fn peek_agy(State(e): State<Arc<Engine>>) -> Json<Value> {
+    served("peek_agy");
     Json(e.usage.peek("agy", usage::AGY_NAME))
 }
 
-#[logged]
+#[nolog]
 pub async fn usage_openrouter(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
+    served("usage_openrouter");
     let v = usage::openrouter(&e, q.force).await;
     usage::publish(&e, "openrouter", &v);
     Json(v)
 }
 
-#[logged]
+#[nolog]
 pub async fn peek_openrouter(State(e): State<Arc<Engine>>) -> Json<Value> {
+    served("peek_openrouter");
     Json(e.usage.peek("openrouter", "openrouter"))
 }
 
 /// The primary Claude login as an `AccountUsage` row.
-#[logged]
+#[nolog]
 async fn primary_row(e: &Engine) -> Value {
     let mut u = usage::claude(e, None, false).await;
     u["account"] = json!("primary");
@@ -460,7 +476,7 @@ async fn primary_row(e: &Engine) -> Value {
 }
 
 /// One key row's answer: a key can never report subscription bars.
-#[logged]
+#[nolog]
 async fn key_row(e: &Engine, a: &AccountInfo) -> Value {
     let now = chrono::Utc::now();
     let tiers: Vec<Value> = crate::providers::catalog::TIERS
@@ -479,8 +495,9 @@ async fn key_row(e: &Engine, a: &AccountInfo) -> Value {
 }
 
 /// `GET /api/accounts/usage`: the primary, then the key rows in order.
-#[logged]
+#[nolog]
 pub async fn usage_all(State(e): State<Arc<Engine>>) -> Json<Value> {
+    served("usage_all");
     let mut rows = vec![primary_row(&e).await];
     for a in claude_keys(&e) {
         rows.push(key_row(&e, &a).await);
@@ -489,8 +506,9 @@ pub async fn usage_all(State(e): State<Arc<Engine>>) -> Json<Value> {
 }
 
 /// `GET /api/accounts/usage/{account}`: "primary" or a key row.
-#[logged]
+#[nolog]
 pub async fn usage_one(State(e): State<Arc<Engine>>, Path(account): Path<String>) -> ApiResult<Json<Value>> {
+    served("usage_one");
     if account == "primary" || account.ends_with("/primary") {
         return Ok(Json(primary_row(&e).await));
     }
@@ -500,8 +518,9 @@ pub async fn usage_one(State(e): State<Arc<Engine>>, Path(account): Path<String>
 }
 
 /// `GET /api/accounts/{id}/usage`: a registry account's own readout and standing.
-#[logged]
+#[nolog]
 pub async fn usage_registered(State(e): State<Arc<Engine>>, Path(id): Path<String>, Query(q): Query<Force>) -> ApiResult<Json<Value>> {
+    served("usage_registered");
     let view = e.accounts.view();
     let a = view.get(&id).cloned().ok_or_else(|| ApiError::not_found(format!("no account {id}")))?;
     drop(view);
@@ -515,8 +534,9 @@ pub struct HistoryQuery {
 
 /// `GET /api/usage/history?range=24h|7d|30d|90d`: the recorded usage of every
 /// account over the period, downsampled per series (the analytics panel).
-#[logged]
+#[nolog]
 pub async fn usage_history(State(e): State<Arc<Engine>>, Query(q): Query<HistoryQuery>) -> ApiResult<Json<Value>> {
+    served("usage_history");
     let range = q.range.unwrap_or_else(|| "7d".into());
     if crate::usage_history::range_secs(&range).is_none() {
         return Err(ApiError::bad_request(format!("range must be 24h, 7d, 30d or 90d, not {range}")));
@@ -526,8 +546,9 @@ pub async fn usage_history(State(e): State<Arc<Engine>>, Query(q): Query<History
 
 // ------------------------------------------------------------ OpenRouter
 
-#[logged]
+#[nolog]
 pub async fn openrouter_doc(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
+    served("openrouter_doc");
     Json(crate::openrouter::doc(&e, q.force).await)
 }
 
@@ -550,8 +571,9 @@ pub async fn openrouter_key(State(e): State<Arc<Engine>>, Json(b): Json<KeyBody>
     Ok(Json(crate::openrouter::doc(&e, true).await))
 }
 
-#[logged]
+#[nolog]
 pub async fn openrouter_key_clear(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    served("openrouter_key_clear");
     crate::openrouter::clear_key(&e).await?;
     crate::providers::publish(&e);
     crate::openrouter::publish(&e).await;
@@ -640,8 +662,9 @@ pub async fn openrouter_key_update(State(e): State<Arc<Engine>>, Path(id): Path<
 
 /// `DELETE /api/openrouter/keys/{id}`: remove a key. An added key's agents
 /// and defaults move to the original key first (the registry's removal).
-#[logged]
+#[nolog]
 pub async fn openrouter_key_remove(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    served("openrouter_key_remove");
     let id = crate::openrouter::id_of_lane(&id);
     let out = crate::openrouter::remove_key(&e, &id).await?;
     openrouter_keys_mutated(&e, None).await;
@@ -655,8 +678,9 @@ pub struct HarnessBody {
     harness: String,
 }
 
-#[logged]
+#[nolog]
 pub async fn openrouter_harness(State(e): State<Arc<Engine>>, Json(b): Json<HarnessBody>) -> ApiResult<Json<Value>> {
+    served("openrouter_harness");
     crate::openrouter::set_harness(&e, &b.harness).await?;
     crate::openrouter::publish(&e).await;
     Ok(Json(crate::openrouter::doc(&e, false).await))
@@ -690,8 +714,9 @@ pub struct FavoriteBody {
     selected: bool,
 }
 
-#[logged]
+#[nolog]
 pub async fn openrouter_favorite(State(e): State<Arc<Engine>>, Json(b): Json<FavoriteBody>) -> ApiResult<Json<Value>> {
+    served("openrouter_favorite");
     crate::openrouter::set_favorite(&e, &b.id, b.selected).await?;
     crate::providers::refresh_openrouter(&e);
     crate::providers::publish(&e);

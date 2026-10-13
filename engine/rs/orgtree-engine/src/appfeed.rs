@@ -56,16 +56,24 @@ impl AppFeed {
     pub fn org_changed(&self, org_id: i64) {
         let _ = self.tx.send((Msg::Org(org_id), crate::trace::current_rq()));
     }
+    /// Not logged: a value can be a provider's raw reading (usage, error
+    /// text); the key alone is logged.
+    #[nolog]
     pub fn set_value(&self, key: &str, value: Value) {
+        tracing::info!(key, "app value pushed");
         let _ = self.tx.send((Msg::Value(key.to_string(), value), crate::trace::current_rq()));
     }
     pub fn working(&self, org_id: i64, n: i64) {
         let _ = self.tx.send((Msg::Working(org_id, n), crate::trace::current_rq()));
     }
+    /// Not logged: the snapshot carries every pushed value (see `set_value`).
+    #[nolog]
     pub async fn snapshot(&self) -> Option<Value> {
         let (tx, rx) = oneshot::channel();
         self.tx.send((Msg::Snapshot(tx), crate::trace::current_rq())).ok()?;
-        rx.await.ok()
+        let got = rx.await.ok();
+        tracing::info!(answered = got.is_some(), "app snapshot read");
+        got
     }
 }
 
@@ -142,9 +150,14 @@ impl Actor {
         self.seq
     }
 
+    /// Not logged: a frame carries pushed values (see `AppFeed::set_value`);
+    /// its type, sequence and the window count are logged.
+    #[nolog]
     fn broadcast(&mut self, frame: &Value) {
         let text: Arc<str> = Arc::from(frame.to_string());
         self.sockets.retain(|_, out| !out.is_closed());
+        tracing::info!(kind = frame["type"].as_str().unwrap_or(""), seq = frame["seq"].as_u64(), windows = self.sockets.len(),
+                       "app frame broadcast");
         for out in self.sockets.values() {
             let _ = out.try_send(text.clone());
         }
@@ -160,7 +173,10 @@ impl Actor {
         })
     }
 
+    /// Not logged: it carries every pushed value; counts are logged.
+    #[nolog]
     fn snapshot(&mut self) -> Value {
+        tracing::info!(values = self.values.len(), orgs = self.summaries.len(), "app snapshot built");
         let seq = self.next();
         let summaries: Map<String, Value> =
             self.summaries.iter().map(|(id, e)| (id.to_string(), e.frame.clone())).collect();

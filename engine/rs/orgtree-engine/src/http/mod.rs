@@ -307,6 +307,12 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         // The OpenRouter document and key routes answer with each key's
         // usage reading, whose error text is the provider's own; the
         // handlers log a safe summary instead. The catalog search stays.
+        // The app feed's snapshot carries every pushed value, provider
+        // readings included (see `appfeed::AppFeed::set_value`).
+        || path == "/api/app/records"
+        // A usage route answers with provider readings (`/api/<provider>/usage`,
+        // `/api/accounts/usage`, `/api/accounts/{id}/usage`, `/api/usage/history`).
+        || path.split('/').any(|segment| segment == "usage")
         || ((path == "/api/openrouter" || path.starts_with("/api/openrouter/")) && !path.starts_with("/api/openrouter/models"))
         || headers.contains_key(axum::http::header::UPGRADE)
         || headers
