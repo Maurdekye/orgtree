@@ -40,6 +40,12 @@ export interface StaffingAccount {
   email?: string | null
   /** an OpenRouter key's name (it has no email) */
   label?: string | null
+  /** `apikey` for a metered key, `subscription` otherwise (absent on an old
+   *  backend) */
+  kind?: 'subscription' | 'apikey'
+  /** a Muse login only: the levels the tier's model takes on THIS login, by
+   *  its own catalog row (the tier's `efforts` are a no-account hire's) */
+  efforts?: string[]
 }
 export interface StaffingTier {
   tier: string

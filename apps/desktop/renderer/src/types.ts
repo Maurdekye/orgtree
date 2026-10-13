@@ -1357,6 +1357,10 @@ export interface ProviderTier {
    *  REQUEST PARAMETER — list membership, not a claim about how the model
    *  thinks, which is why the note says "Reasoning parameter". */
   reasoning?: boolean | null
+  /** a Muse tier only: whether the user's own login offers it, and which
+   *  registered logins do (each by its own catalog) */
+  own?: boolean
+  logins?: string[]
 }
 /** GET /api/openrouter — the API-backed lane's credit standing. Every field
  *  is what `GET /api/v1/key` said, or null when it said nothing. */
@@ -1636,6 +1640,29 @@ export interface ProviderInfo {
    *  since 2026-09-24; the pin still limits what a turn can run). OMITTED on an old
    *  backend and on every other provider. */
   cli_version?: CodexCliVersion
+  /** "muse" only: the provider card's Muse facts and every Muse login as the
+   *  hire and settings surfaces read it (`logins`, the user's own first).
+   *  OMITTED on an old backend and on every other provider. */
+  muse?: { logins?: MuseLoginDoc[] } | null
+}
+/** One Muse model's levels on one login: its catalog row's `variants` in
+ *  Muse's own names, lowest first, and its default. */
+export interface MuseModelLevels {
+  model: string
+  efforts: string[]
+  default_effort?: string | null
+}
+/** One Muse login as `/api/providers` › `muse.logins` describes it: `account`
+ *  null is the user's own login. Per tier it offers by ITS OWN catalog as last
+ *  read: the latest model's levels and each offered version's. A tier absent
+ *  here is not offered on this login; `state` other than `ready` means its
+ *  catalog is not known (`unknown`, with why) or it is signed out. */
+export interface MuseLoginDoc {
+  account: string | null
+  kind: 'subscription' | 'apikey'
+  state: 'ready' | 'signed_out' | 'unknown'
+  reason?: string | null
+  tiers: Record<string, { latest?: MuseModelLevels | null; versions?: Record<string, MuseModelLevels> }>
 }
 /** The reserve pool (item 12), as `/api/providers` describes it. Three-valued
  *  on purpose: `granted`/`exhausted` are `null` when the board could not say —

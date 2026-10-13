@@ -58,6 +58,7 @@ import type { DeskDogs } from './deskdogs'
 import type { AgentSurfaceRoutes } from './panelcorner'
 import { TeamDocketModal } from './teamdocket'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
+import { museHireAccount } from './musehire'
 import { DraftNode, NodeSquare, UserNode } from './cards'
 import { addPin, clampRect, PinLayer, prunePins, removePin, renamePin, showPin, usePins } from './pins'
 import type { PinRect } from './pins'
@@ -3424,7 +3425,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
   const confirmDraft = (name: string, grant: number, charter: string,
     scope: DraftScope | null) => {
+    // a Muse tier the login a no-account hire lands on does not offer goes to
+    // an eligible subscription login that does (`museHireAccount`)
+    const museAccount = scope?.account === undefined
+      ? museHireAccount(slug, draft!.tier, tree.default_account) : undefined
     op({ op: 'hire', parent: draft!.parent, tier: draft!.tier, grant, name,
+         ...(museAccount ? { account: museAccount } : {}),
          charter: charter?.trim() || undefined,
          // FR-25: the anchor rides the hire op — the SERVER splices the new
          // node in as its superior atomically (one save, one broadcast), so
@@ -4441,7 +4447,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               const parent = placement === 'below' ? a.id : parentOf
               // judged on the ring as it is NOW, before the hire changes it
               const pin = placement === 'left' || placement === 'right' ? ringSide(a, placement) : null
-              op({ op: 'hire', parent, tier, grant, name })
+              const museAccount = museHireAccount(slug, tier, tree.default_account)
+              op({ op: 'hire', parent, tier, grant, name, ...(museAccount ? { account: museAccount } : {}) })
                 .then((r) => {
                   const born = r?.node
                   if (typeof born === 'string' && born)

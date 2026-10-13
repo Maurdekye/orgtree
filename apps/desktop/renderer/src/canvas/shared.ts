@@ -24,7 +24,7 @@ import { fmtFull, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
 import type {
   ActivityInfo, AskInfo, CacheForecast, CodexRouteInfo, DirGrant, MailEntry, NodeState,
-  NodeStatus, OpRequest, OpResult, PendingSwitch, ProviderInfo, ProviderTier, ReserveInfo,
+  MuseLoginDoc, MuseModelLevels, NodeStatus, OpRequest, OpResult, PendingSwitch, ProviderInfo, ProviderTier, ReserveInfo,
   ServingAccount, ToolGrant, TreeNode, TreePayload,
 } from '../types'
 
@@ -740,22 +740,85 @@ export const conditionalTierHidden = (tier: string): boolean =>
    switch lists and every surface without a HireState of its own read its offer
    from here, so a tier appears the moment the account's catalog lists it. */
 let museHireState: HireState | null = null
+/** every Muse login as the payload last described it (`muse.logins`) */
+let museLoginDocs: MuseLoginDoc[] = []
 const museSubs = new Set<() => void>()
 export const setMuseProvider = (p: ProviderInfo | null | undefined): void => {
   const next = hireOf(p)
-  if (JSON.stringify(next) === JSON.stringify(museHireState)) return
+  const logins = p?.muse?.logins ?? []
+  if (JSON.stringify([next, logins]) === JSON.stringify([museHireState, museLoginDocs])) return
   museHireState = next
+  museLoginDocs = logins
   for (const fn of [...museSubs]) fn()
 }
 const subscribeMuse = (fn: () => void): (() => void) => {
   museSubs.add(fn)
   return () => { museSubs.delete(fn) }
 }
-const museKey = (): string => JSON.stringify(museHireState)
+const museKey = (): string => JSON.stringify([museHireState, museLoginDocs])
 /** the Muse family's hire state, re-rendering when the payload changes it */
 export const useMuseHire = (): HireState | null => {
   useSyncExternalStore(subscribeMuse, museKey)
   return museHireState
+}
+
+/* ---------------- one Muse login's own offer (independent review 2026-10-13)
+   A Muse seat is placed and tuned by the login it runs on: its model must be
+   in THAT login's catalog and its levels are that model's row there, the
+   pinned version's when it has one. The user's own login is neither a
+   prerequisite nor a stand-in for another's. These read the payload's
+   `muse.logins` (the canvas adopts it with `setMuseProvider`), so no surface
+   starts a load of its own; the engine checks the same thing again at the
+   door. */
+
+/** the login a seat lands on, as `muse.logins` keys it: an account id, or
+ *  null for the user's own (`''`, `primary`, `default`, `muse/primary`) */
+export const museLoginKey = (account: string | null | undefined): string | null =>
+  !account || account === 'primary' || account === 'default' || account.endsWith('/primary') ? null : account
+
+/** One login's document, or undefined when the payload has none for it. */
+export const museLogin = (account: string | null | undefined,
+  logins: MuseLoginDoc[] = museLoginDocs): MuseLoginDoc | undefined =>
+  logins.find((l) => l.account === museLoginKey(account))
+
+/** the row of `tier`'s exact model on one login: the pinned `version`'s, else
+ *  the latest model's (the one an unpinned seat runs) */
+const museRow = (login: MuseLoginDoc | undefined, tier: string, version?: string | null): MuseModelLevels | undefined => {
+  const t = login?.tiers?.[tier]
+  return (version ? t?.versions?.[version] : t?.latest) ?? undefined
+}
+
+/** Whether the login `account` offers `tier` (pinned `version`, else the
+ *  latest model): true or false, or undefined while its catalog is not known.
+ *  A signed-out login offers nothing. */
+export const museOffersOn = (tier: string, version: string | null | undefined, account: string | null | undefined,
+  logins: MuseLoginDoc[] = museLoginDocs): boolean | undefined => {
+  const login = museLogin(account, logins)
+  if (!login) return undefined
+  if (login.state === 'signed_out') return false
+  if (login.state !== 'ready') return undefined
+  return museRow(login, tier, version) !== undefined
+}
+
+/** The levels `tier`'s exact model takes on the login `account` (its own
+ *  catalog row, the pinned version's included), lowest first; undefined while
+ *  that is not known or the login does not offer it (the bar then shows every
+ *  level and the engine refuses one the model does not take). */
+export const museEffortLevels = (tier: string, version: string | null | undefined, account: string | null | undefined,
+  logins: MuseLoginDoc[] = museLoginDocs): string[] | undefined =>
+  museRow(museLogin(account, logins), tier, version)?.efforts
+
+/** Why the login `account` cannot run `tier` (version), in words, or null
+ *  when it can or that is not known (the engine decides at the door). */
+export const museUnofferedWhy = (tier: string, version: string | null | undefined, account: string | null | undefined,
+  logins: MuseLoginDoc[] = museLoginDocs): string | null => {
+  const login = museLogin(account, logins)
+  const who = museLoginKey(account) ? `the Muse account ${museLoginKey(account)}` : 'the signed-in Muse login'
+  if (!login) return null
+  if (login.state === 'signed_out') return `${who} is signed out`
+  if (login.state !== 'ready') return null
+  return museRow(login, tier, version) ? null
+    : `${who} does not offer ${tierLabel(tier)}${version ? ' ' + version : ''}`
 }
 
 /** D-202: is this provider part of the product on this machine AT ALL?

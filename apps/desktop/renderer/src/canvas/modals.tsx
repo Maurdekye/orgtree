@@ -25,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museTierOffer, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
@@ -33,7 +33,8 @@ import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel }
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
-import { accountProvider, accountValue, primaryAccount } from '../accountidentity'
+import { museHireAccount } from './musehire'
+import { accountProvider, accountValue, primaryAccount, providerAccounts } from '../accountidentity'
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
 import { EFFORT_CHANGE_HELP } from './effort'
@@ -614,10 +615,13 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     orgAccount && (orgAccount === primaryValue ||
       acctRows.some((r) => r.id === orgAccount && r.provider === targetProvider))
   )
+  // a Muse tier the login a no-account hire lands on does not offer starts on
+  // an eligible subscription login that does (`museHireAccount`)
+  const museAuto = museHireAccount(tree.slug, draft.tier, tree.default_account)
   const [acct, setAcct] = useState<string>(
     base.account !== undefined
       ? base.account
-      : (defaultAccountMatches ? (orgAccount ?? '') : '')
+      : (museAuto ?? (defaultAccountMatches ? (orgAccount ?? '') : ''))
   )
   const [acctTouched, setAcctTouched] = useState(base.account !== undefined)
   const selectedProvider = accountProvider(acct, acctRows)
@@ -633,9 +637,12 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
 
   useEffect(() => {
     if (!acctTouched && base.account === undefined) {
-      setAcct(defaultAccountMatches ? (orgAccount ?? '') : '')
+      setAcct(museAuto ?? (defaultAccountMatches ? (orgAccount ?? '') : ''))
     }
-  }, [acctTouched, base.account, defaultAccountMatches, orgAccount])
+  }, [acctTouched, base.account, defaultAccountMatches, orgAccount, museAuto])
+  // a Muse seat's levels and model are the login it lands on (its own catalog)
+  const museTier = MUSE_TIERS.includes(draft.tier)
+  const museWhy = museTier ? museUnofferedWhy(draft.tier, null, selectedAccount || null) : null
 
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -688,7 +695,8 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         </select>
         <div className="field-label">Thinking effort</div>
         <p className="set-hint">Choose how much effort the model spends reasoning.</p>
-        <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'} levels={tierEffortLevels(tree.slug, draft.tier)}
+        <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
+          levels={museTier ? museEffortLevels(draft.tier, null, selectedAccount || null) : tierEffortLevels(tree.slug, draft.tier)}
           inheritLabel="inherit — org default" title={EFFORT_CHANGE_HELP} onSet={setEffort} />
         <div className="field-label">Account</div>
         <p className="set-hint">Choose the signed-in account this agent uses.</p>
@@ -708,6 +716,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         {selectedAccount && <button type="button" onClick={() => {
           setAcct(''); setAcctTouched(true)
         }}>Use machine default</button>}
+        {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
         <div className="field-label">Native Tools</div>
         <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
         {TOOL_LABELS.map(([k, label, hint]) => (
@@ -999,6 +1008,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const modelVersion = val('modelVersion', scope.model_version ?? '')
   const setModelVersion = set<string>('modelVersion', modelVersion)
   const versions = MODEL_VERSIONS[model] ?? []
+  // a Muse seat's levels and model are the login it runs on, the pinned
+  // version's row there (the engine checks the same at the door)
+  const museModel = MUSE_TIERS.includes(model)
+  const museVersion = museModel && versions.includes(modelVersion) ? modelVersion : null
   const accountFallback = val<string>('accountFallback',
     scope.account_fallback === undefined ? '' : scope.account_fallback ? 'on' : 'off')
   const fallbackPayload = !('accountFallback' in edit) ? {} : accountFallback === ''
@@ -1013,6 +1026,13 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const setAcct = set<string>('account', acct)
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>([])
   const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
+  // the Muse logins that offer the chosen model (unknown ones stay choices:
+  // the engine decides), and why the chosen login does not, if it does not
+  const museEligible = museModel
+    ? providerAccounts(acctRows, 'muse', hostIdentity).map((c) => c.value)
+      .filter((v) => museOffersOn(model, museVersion, v) !== false)
+    : undefined
+  const museWhy = museModel ? museUnofferedWhy(model, museVersion, acct) : null
   const [initInfo, setInitInfo] = useState<ChatInit | null>(null)   // №14: the CLI's own resolution
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -1289,14 +1309,18 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         )}
 
 
-        <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'} levels={tierEffortLevels(tree.slug, model)}
+        <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
+          levels={museModel ? museEffortLevels(model, museVersion, acct) : tierEffortLevels(tree.slug, model)}
           inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
 
         {/* Primary is selectable even if no registry row exists. */}
         {['claude', 'openai', 'google', 'muse'].includes(providerOf(model)) && (
           <>
         <SetRow label="Account" hint={node.account?.startsWith('missing:') ? `The saved account is missing: ${node.account}.` : 'Choose the signed-in account this agent uses.'}><AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
-              host={hostIdentity} onChange={setAcct} /></SetRow>
+              host={hostIdentity} onChange={setAcct}
+              eligible={museModel ? museEligible : undefined}
+              ineligibleNote={museModel ? `does not offer ${tierLabel(model)}${museVersion ? ' ' + museVersion : ''}` : undefined} /></SetRow>
+        {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
           </>
         )}
         <SetRow label="Switch accounts when limited" hint={!['claude', 'openai', 'muse'].includes(providerOf(model)) ? 'This provider does not support automatic account switching.' : providerOf(model) === 'openai' ? 'Use another account when limited; switching Codex accounts starts a new conversation.' : providerOf(model) === 'muse' ? 'Use another Muse account that offers this model and has room when limited; it continues on a new Muse session.' : 'Use another account with room when this one reaches its limit.'}><select aria-label="Automatic account fallback" value={accountFallback}

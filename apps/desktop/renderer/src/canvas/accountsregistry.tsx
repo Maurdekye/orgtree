@@ -257,13 +257,18 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
   const remove = async (row: AccountRow) => {
     setBusy(row.id)
     try {
-      const out = await req<{ removed: string; rebound?: { org: string; node: string }[] }>(
+      const out = await req<{ removed: string; rebound?: { org: string; node: string; frozen?: boolean }[] }>(
         `/api/accounts/${row.id}`, { method: 'DELETE' })
       await registry.reload()
-      const moved = out?.rebound?.length ?? 0
-      toast([moved > 0
-        ? `${accountIdentity(accountDisplayId(row), row.identity?.email)} removed — ${moved} agent(s) moved to ${LABELS[provider]} default`
-        : `${accountIdentity(accountDisplayId(row), row.identity?.email)} removed`])
+      // a Muse seat whose model the signed-in login does not offer is not
+      // moved onto it: it waits frozen until it is continued on one that does
+      const frozen = out?.rebound?.filter((r) => r.frozen).length ?? 0
+      const moved = (out?.rebound?.length ?? 0) - frozen
+      const who = accountIdentity(accountDisplayId(row), row.identity?.email)
+      toast([[`${who} removed`,
+        moved > 0 ? `${moved} agent(s) moved to ${LABELS[provider]} default` : '',
+        frozen > 0 ? `${frozen} agent(s) wait frozen: the signed-in ${LABELS[provider]} login does not offer their model` : '',
+      ].filter(Boolean).join(' — ')])
     }
     catch (e) { toast([e instanceof Error ? e.message : 'Could not remove account']) }
     finally { setBusy(null) }
