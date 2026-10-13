@@ -59,6 +59,17 @@ dependency's direct executable path and allows `--remaining` to resume those
 unperformed checks without repeating passed tests. Initial test logs are
 retained under the owned C `usage-export` output. Shared lock handed on normally.
 
-Typecheck and native rendering/download verification await the next shared
-build slot. Native Save-dialog interaction with a person and the installed
+Second phase at `6fe462e`: source typecheck passed (exit 0). The actual modal
+rendered the export footer, reset/future/end/next-reset marks and crosshair with
+no table or current-time rule. Main CSV native download completed and matched
+all four exact filtered readings and identity fields. Overall **8/9**, exit 1:
+the unfocused hidden window did not activate JSONL through keyboard input, so
+that stage timed out before popout checks. No JSONL/popout pass is claimed.
+Partial receipt is preserved at
+`D:\orgtree-work\rig\hubchat-dm-sol\usage-export\partial-1906\result.json`.
+
+Test-only correction `a212efa` focuses the native window before sending input,
+matching the earlier HTTPS proof's native input setup. Only remaining renderer
+verification is queued; production code and passed serializer/typecheck inputs
+are unchanged. Native Save-dialog interaction with a person and the installed
 artifact are outside this synthetic proof.
