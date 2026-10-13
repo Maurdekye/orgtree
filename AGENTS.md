@@ -256,6 +256,22 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   any other provider's. The planner's "checking the sign-in" wording covers only Claude
   and Codex. [decided: user 2026-10-13 18:23Z; verified: `domain/templates.rs` tests]
 
+- Models are LISTED dearest seat first within each provider, every provider (Claude fable,
+  opus, sonnet, haiku; Muse wonder-full, wonder, spark; Antigravity agy-opus, agy-sonnet,
+  flash, with pro/argon/barium/carbon tying agy-sonnet at 2). Provider groups keep their
+  order and equal seats keep catalog/array order. One rule in two places: the engine's
+  `catalog::listed()` (staffing options, `/api/providers` rows, usage rows, `Avail::listed`
+  for the template picker) and the renderer's `bySeatDesc` / `*_TIERS_LISTED` (hire sheet and
+  chips, switch-model menu, context menus, rehire list, header counts). A new tier orders
+  itself. The declaration order of `catalog::TIERS` and of `TIERS`, `CODEX_TIERS`, … is NOT a
+  display order: it is the DEFAULT order (the first offered model: the hire sheet's
+  pre-selection, Quick chat's fallback) and must not be reordered for display. The user's
+  chosen OpenRouter models list by output price descending, then input price, then name,
+  free ones after the priced and unknown prices last, never as $0 (`openrouter::by_price_desc`,
+  `byOpenrouterPriceDesc`); the OpenRouter model browser and language-server lists keep their own
+  order. [decided: user 2026-10-13 19:14-19:15Z; verified: `catalog.rs`, `openrouter.rs`,
+  `shared.ts` and their tests]
+
 - Organization profile pictures use a dedicated bounded `ot.meta` record,
   not the net/tree payload. Human settings edits carry the numeric org owner;
   incoming hub merges preserve logical revisions and removal tombstones.
