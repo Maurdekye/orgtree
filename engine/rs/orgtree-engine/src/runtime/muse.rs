@@ -355,13 +355,19 @@ fn allowed(policy: &Policy, subject: &Value, tool: &str) -> std::result::Result<
     }
 }
 
-/// The choice that answers an approval: approve or deny ONCE. A choice that
+/// The choice that answers an approval: approve or refuse ONCE. A choice that
 /// would persist (a session or local rule, a policy amendment) is never made.
+/// A refusal is MSP's `denied` when offered, else `abort`: real Muse 1.4.6
+/// offers only `allow_once`, `allow_local_prefix` and `abort` ("Reject",
+/// scope once), and an `abort` rejects that one call while the turn goes on
+/// (measured 2026-10-13).
 #[logged]
 fn choice(choices: &Value, approve: bool) -> Option<String> {
-    let want = if approve { "approved" } else { "denied" };
-    choices.as_array()?.iter().find(|c| c["decision"].as_str() == Some(want) && c["scope"].as_str() == Some("once"))
-        .and_then(|c| c["choiceId"].as_str().map(str::to_string))
+    let once = |want: &str| {
+        choices.as_array()?.iter().find(|c| c["decision"].as_str() == Some(want) && c["scope"].as_str() == Some("once"))
+            .and_then(|c| c["choiceId"].as_str().map(str::to_string))
+    };
+    if approve { once("approved") } else { once("denied").or_else(|| once("abort")) }
 }
 
 #[logged]
@@ -830,8 +836,14 @@ fn answer(method: &str, p: &Value, policy: &Policy, writer: &mpsc::UnboundedSend
             let tool = p["toolName"].as_str().unwrap_or("");
             let verdict = allowed(policy, &p["subject"], tool);
             let Some(choice_id) = choice(&p["availableChoices"], verdict.is_ok()) else {
-                // nothing to answer with: the host's own timeout settles it
-                tracing::warn!(approval = %p["approvalId"], "no once-only choice for this approval; left to time out");
+                // nothing to answer with: Muse keeps the call waiting (no host
+                // timeout was seen) until the silence limit stops it. The
+                // choices' shapes only: a label can quote the command.
+                let offered: Vec<String> = p["availableChoices"].as_array().map(|a| a.iter()
+                    .map(|c| format!("{}:{}:{}", c["choiceId"].as_str().unwrap_or("?"), c["decision"].as_str().unwrap_or("?"), c["scope"].as_str().unwrap_or("?")))
+                    .collect()).unwrap_or_default();
+                tracing::warn!(approval = %p["approvalId"], approve = verdict.is_ok(), offered = ?offered,
+                    "no once-only choice for this approval; the call waits until the silence limit stops it");
                 return;
             };
             if let Err(why) = &verdict {
@@ -950,6 +962,23 @@ mod tests {
         assert_eq!(choice(&choices, true).as_deref(), Some("b"));
         assert_eq!(choice(&choices, false).as_deref(), Some("d"));
         assert_eq!(choice(&json!([{ "choiceId": "x", "decision": "approved", "scope": "session" }]), true), None);
+    }
+
+    #[test]
+    fn a_refusal_is_real_muses_once_only_abort() {
+        // what Muse 1.4.6 offers for a shell approval (measured 2026-10-13)
+        let real = json!([
+            { "choiceId": "allow_once", "label": "Allow once", "decision": "approved", "scope": "once" },
+            { "choiceId": "allow_local_prefix", "label": "Always allow in this workspace: Set-Content ...",
+              "decision": "approvedPolicyAmendment", "scope": "localPersistent", "rulePreview": "Always allow in this workspace: Set-Content ..." },
+            { "choiceId": "abort", "label": "Reject", "decision": "abort", "scope": "once", "acceptsFeedback": true } ]);
+        assert_eq!(choice(&real, true).as_deref(), Some("allow_once"), "never the persistent prefix rule");
+        assert_eq!(choice(&real, false).as_deref(), Some("abort"));
+        // MSP's own denial wins when both are offered; an abort that would persist is never taken
+        let both = json!([{ "choiceId": "abort", "decision": "abort", "scope": "once" }, { "choiceId": "no", "decision": "denied", "scope": "once" }]);
+        assert_eq!(choice(&both, false).as_deref(), Some("no"));
+        assert_eq!(choice(&json!([{ "choiceId": "abort", "decision": "abort", "scope": "session" }]), false), None);
+        assert_eq!(choice(&json!([{ "choiceId": "abort", "decision": "abort", "scope": "once" }]), true), None, "an abort never approves");
     }
 
     #[test]
