@@ -275,9 +275,9 @@ pub async fn recover(engine: &Arc<Engine>) {
 
 /// Another account of `provider` this agent could continue on, honoring the
 /// API-key fallback and subscription switches: subscriptions first, then
-/// metered keys.
+/// metered keys. `version` is the seat's pinned model version (`muse_pin`).
 #[logged]
-pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, org_slug: &str) -> Option<String> {
+pub async fn pick_fallback(engine: &Engine, tier: &str, version: Option<&str>, current: Option<&str>, org_slug: &str) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
     let view = engine.accounts.view();
     let subs = engine.settings.subscription_inference(provider);
@@ -298,7 +298,7 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
         }
         // a Muse login must itself offer the tier's model (its own catalog,
         // never the user's own login's: user 2026-10-12 19:57Z)
-        let offers = provider != crate::providers::catalog::MUSE || muse_login_offers(engine, &a, tier, org_slug).await;
+        let offers = provider != crate::providers::catalog::MUSE || muse_login_offers(engine, &a, tier, version, org_slug).await;
         if offers && crate::usage::has_room(engine, Some(&a), tier)
             && continuation::resolve(engine, org_slug, tier, &a.id).is_ok() {
             return Some(a.id);
@@ -314,7 +314,7 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
             continue;
         }
         // nor is a Muse key's entitlement ever assumed: the key is asked itself
-        if provider == crate::providers::catalog::MUSE && !muse_login_offers(engine, &a, tier, org_slug).await {
+        if provider == crate::providers::catalog::MUSE && !muse_login_offers(engine, &a, tier, version, org_slug).await {
             tracing::info!(account = %a.id, tier, "account fallback: this Muse API key does not offer the tier's model, or could not be read");
             continue;
         }
@@ -323,19 +323,20 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
     None
 }
 
-/// Whether a Muse login's own catalog offers `tier`'s model, read within the
-/// fallback's limit: a profile in its own roots, an API key with its own
-/// stored key. Entitlement is never borrowed from another login nor assumed
-/// for a key (user 2026-10-12 19:57Z). Not logged: it handles the key.
+/// Whether a Muse login's own catalog offers the model the seat runs
+/// (`tier` at its pinned `version`), read within the fallback's limit: a
+/// profile in its own roots, an API key with its own stored key. Entitlement
+/// is never borrowed from another login nor assumed for a key (user
+/// 2026-10-12 19:57Z). Not logged: it handles the key.
 #[nolog]
-async fn muse_login_offers(engine: &Engine, a: &crate::accounts::AccountInfo, tier: &str, org_slug: &str) -> bool {
+async fn muse_login_offers(engine: &Engine, a: &crate::accounts::AccountInfo, tier: &str, version: Option<&str>, org_slug: &str) -> bool {
     let key = if a.is_apikey() {
         let Some(key) = crate::providers::muse_stored_key(engine, &a.id, org_slug).await else { return false };
         Some(key)
     } else {
         None
     };
-    let model = crate::providers::catalog::model_for(tier, None);
+    let model = crate::providers::catalog::model_for(tier, version);
     matches!(
         tokio::time::timeout(FALLBACK_READ, crate::providers::muse_model_for(engine, Some(a), key.as_deref(), &model)).await,
         Ok(Ok(Some(_)))
@@ -350,6 +351,20 @@ pub fn eligible(engine: &Engine, org_slug: &str, tier: &str, account: &str) -> b
     continuation::resolve(engine, org_slug, tier, account).is_ok()
 }
 
+/// The model version a Muse seat is pinned to (its scope's `model_version`),
+/// so a fallback asks a login for the exact model the seat runs (Spark 1.2
+/// is not Spark 1.3). None for other providers: their fallback does not ask
+/// a login's catalog.
+#[logged]
+pub async fn muse_pin(engine: &Engine, tier: &str, agent_id: i64) -> Option<String> {
+    if crate::providers::catalog::provider_of(tier) != crate::providers::catalog::MUSE {
+        return None;
+    }
+    let client = engine.db.get().await.ok()?;
+    let row = client.query_opt("SELECT scope FROM ot.agents WHERE id = $1", &[&agent_id]).await.ok()??;
+    crate::domain::scope::normalize(&row.get::<_, Value>(0)).get("model_version").and_then(Value::as_str).map(str::to_string)
+}
+
 /// The longest one login's usage read may take when the fallback asks it.
 const FALLBACK_READ: Duration = Duration::from_secs(5);
 
@@ -358,7 +373,8 @@ const FALLBACK_READ: Duration = Duration::from_secs(5);
 /// Runs off the agent's actor, after its turn is settled.
 #[logged]
 pub async fn fall_back(engine: &Arc<Engine>, org_id: i64, agent_id: i64, tier: &str, current: Option<&str>, org_slug: &str) {
-    let Some(acc) = pick_fallback(engine, tier, current, org_slug).await else {
+    let version = muse_pin(engine, tier, agent_id).await;
+    let Some(acc) = pick_fallback(engine, tier, version.as_deref(), current, org_slug).await else {
         tracing::info!(agent = agent_id, tier, "account fallback: no other account can take it; it stays frozen");
         return;
     };

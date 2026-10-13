@@ -244,7 +244,8 @@ pub async fn leave(engine: &Arc<Engine>, org_id: i64, org_slug: &str, agent_id: 
     // an OpenRouter seat moves between keys like any login; a language
     // server's seat has nowhere else to go
     if !catalog::is_langserver(tier) {
-        if let Some(to) = crate::runtime::freeze::pick_fallback(engine, tier, account, org_slug).await {
+        let version = crate::runtime::freeze::muse_pin(engine, tier, agent_id).await;
+        if let Some(to) = crate::runtime::freeze::pick_fallback(engine, tier, version.as_deref(), account, org_slug).await {
             if crate::runtime::freeze::continue_on(engine, org_id, agent_id, &to, why).await.is_ok() {
                 return;
             }
