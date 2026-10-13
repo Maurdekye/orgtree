@@ -65,6 +65,13 @@
   2026-10-13 18:16–18:17UTC; verified: `canvas/openrouter.tsx`,
   `openrouterkeys.tsx`, `providerdialog.tsx`, `modalpin.tsx`]
 
+- Usage history cards export the former table's measured points as CSV/JSONL,
+  with raw UTC/value and series identity; never export projected points or
+  invent missing observations. Downloads use the clicked document so adopted
+  popouts retain native download custody. Remove only the current-time rule;
+  reset/crosshair/end/future markers remain. See [export contract and proof](docs/rust-engine/usage-history-export.md).
+  [decided: user 2026-10-13; verified: `usagehistory.tsx`, `usagehistoryexport.ts`, 2026-10-13]
+
 - Muse Wonder Full uses shared tier blue `#80b8ff`, replacing dusty rose;
   light/solarized icons and hire buttons keep blue on a dark backing. Preserve
   the Muse provider cyan and other tiers. See [Muse colours](docs/rust-engine/muse-code.md).

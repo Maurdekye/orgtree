@@ -73,3 +73,20 @@ matching the earlier HTTPS proof's native input setup. Only remaining renderer
 verification is queued; production code and passed serializer/typecheck inputs
 are unchanged. Native Save-dialog interaction with a person and the installed
 artifact are outside this synthetic proof.
+
+Final native phase at `2bd6e8b`: **32/32**, exit 0. All four required pointer
+downloads (CSV/JSONL in main and adopted popout) completed in the originating
+window, with exact measured values and identity, chronological UTC timestamps,
+and the correct selected-period filenames. A main account filter removes the
+other series; changing to 24 hours in the popout changes four exported readings
+to two. Additional Enter activations download JSONL in both windows; native
+traces contain `keydown:Enter` and `click`. The corrected fixture focuses the
+web contents and supplies the character event as well as key down/up. All chart
+preservation controls and zero-renderer-errors checks pass. Main/popout PNGs
+were visually inspected. One GPU-process exit diagnostic occurs during shutdown,
+with exit 0 and no renderer errors; it is retained in the log.
+
+Receipt `C:\orgtree-build\hubchat-dm-sol\usage-export\result.json`, SHA256
+`01F9A0DC6E1D68F193BA117A18035FC97E6D1EEA081A65905BF1262106D1BDCB`.
+Previous partial receipts remain available; no installed-app/interactive
+Save-dialog claim.
