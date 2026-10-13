@@ -130,8 +130,14 @@ struct Ctx {
     scratch: PathBuf,
     effort: String,
     fallback: bool,
-    /// an OpenRouter seat's harness: claude-code or codex-cli
+    /// an OpenRouter seat's harness: claude-code or codex-cli (the one its
+    /// session runs on: its stamp, else the one it should run on)
     harness: Option<String>,
+    /// an OpenRouter seat: its stamp (`extra.harness`) and the harness it
+    /// should run on (`openrouter::seat_harness`: its pin, else its key's);
+    /// `start_turn` moves it across when they differ
+    harness_stamp: Option<String>,
+    harness_want: Option<String>,
     /// the org's compaction threshold, a fraction of the context window:
     /// the CLI compacts the session when its context passes it
     compact_at: f64,
@@ -181,6 +187,7 @@ impl std::fmt::Debug for Ctx {
             .field("effort", &self.effort)
             .field("fallback", &self.fallback)
             .field("harness", &self.harness)
+            .field("harness_want", &self.harness_want)
             .field("scratch", &self.scratch)
             .field("effective", &self.effective)
             .finish()
@@ -1449,7 +1456,8 @@ impl Actor {
                         a.team_charter, p.name,
                         EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
                                    AND au.grantor = '@extern' AND au.revoked_at IS NULL),
-                        a.occupancy, a.context_window, a.occupancy_est, a.compacted_unrun, a.limit_locked
+                        a.occupancy, a.context_window, a.occupancy_est, a.compacted_unrun, a.limit_locked,
+                        coalesce((a.extra->>'harness_pin')::boolean, false)
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                    LEFT JOIN ot.agents p ON p.id = a.parent_id
                   WHERE a.id = $1",
@@ -1489,8 +1497,12 @@ impl Actor {
             Some((_, m)) => m["id"].as_str().map(str::to_string).unwrap_or(model),
             None => model,
         };
+        let harness_stamp: Option<String> = if openrouter { r.get(20) } else { None };
+        let harness_want = openrouter.then(|| {
+            crate::openrouter::seat_harness(&self.engine, r.get::<_, Option<String>>(3).as_deref(), harness_stamp.as_deref(), r.get(30))
+        });
         let harness = if openrouter {
-            Some(r.get::<_, Option<String>>(20).unwrap_or_else(|| crate::openrouter::selected_harness(&self.engine)))
+            harness_stamp.clone().or_else(|| harness_want.clone())
         } else if let Some((s, _)) = &local {
             s["harness"].as_str().map(str::to_string)
         } else {
@@ -1549,6 +1561,8 @@ impl Actor {
             effort,
             fallback,
             harness,
+            harness_stamp,
+            harness_want,
             compact_at,
             cold_reset,
             occupancy: r.get(25),
@@ -1893,6 +1907,56 @@ impl Actor {
             .await?;
         tracing::info!(agent = %self.name, why = %why, "handoff note for a fresh session");
         Ok(Some(note))
+    }
+
+    /// Move an OpenRouter seat onto the harness it should run on (`want`),
+    /// inside `start_turn`'s admission transaction (its row locked), before
+    /// any mail is claimed. A seat never stamped is only stamped. A seat with
+    /// a session ends it: the next turn starts a fresh session with a summary
+    /// (the whole conversation saved in its folder), a new provider cache
+    /// namespace, as a model switch across harnesses does.
+    async fn cross_harness(&mut self, tx: deadpool_postgres::Transaction<'_>, ctx: &Ctx, want: &str) -> Result<()> {
+        let Some(was) = ctx.harness_stamp.clone() else {
+            tx.execute("UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) || jsonb_build_object('harness', $2::text) WHERE id = $1",
+                &[&self.id, &want]).await?;
+            tx.commit().await?;
+            return Ok(());
+        };
+        let why = format!("its OpenRouter key now runs on {} (it ran on {})",
+            crate::openrouter::harness_label(want), crate::openrouter::harness_label(&was));
+        let session = ctx.session_id.clone();
+        tx.execute(
+            "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true,
+                    extra = CASE WHEN $3 THEN jsonb_set(coalesce(extra, '{}'::jsonb) - 'cache_receipt', '{handoff_due}', to_jsonb($4::text))
+                                 ELSE coalesce(extra, '{}'::jsonb) END || jsonb_build_object('harness', $2::text),
+                    row_version = row_version + 1
+              WHERE id = $1",
+            &[&self.id, &want, &session.is_some(), &why],
+        )
+        .await?;
+        if session.is_some() {
+            tx.execute(
+                "UPDATE ot.agent_sessions SET ended_at = now(), end_reason = 'harness switch' WHERE agent_id = $1 AND ended_at IS NULL",
+                &[&self.id],
+            )
+            .await?;
+            crate::domain::asks::moot_for_fresh_session(&tx, self.id,
+                "the asking session was replaced by a harness switch; the fresh session never posed it").await?;
+        }
+        tx.commit().await?;
+        tracing::info!(agent = %self.name, from = %was, to = %want, fresh_session = session.is_some(), "OpenRouter harness switch at the turn boundary");
+        if session.is_some() {
+            let client = self.engine.db.get().await?;
+            let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(),
+                              "text": format!("Harness switch: {why}, so the agent continues on a fresh session with a summary") });
+            self.convo.append(&client, row).await?;
+        }
+        self.receipt = None;
+        self.sent_print = None;
+        self.close_proc().await;
+        self.reconfigured = true;
+        self.changed(vec![Change::Agent(self.id), Change::Asks, Change::Docket]);
+        Ok(())
     }
 
     /// "Reset a session before a known-cold turn" (cheap compact; Org
@@ -3043,6 +3107,16 @@ impl Actor {
                     tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the queued configuration could not be applied; admission retries");
                 }
             }
+            self.retry_admission();
+            return Ok(false);
+        }
+        // an OpenRouter seat whose harness should change (its key's harness
+        // changed, or it moved to a key on another harness) moves across here,
+        // at the boundary, never mid-turn: neither CLI resumes the other's
+        // session, so it goes on in a fresh one that starts with a summary
+        if let Some(want) = ctx.harness_want.clone().filter(|w| ctx.harness_stamp.as_deref() != Some(w.as_str())) {
+            self.cross_harness(tx, &ctx, &want).await?;
+            drop(client);
             self.retry_admission();
             return Ok(false);
         }

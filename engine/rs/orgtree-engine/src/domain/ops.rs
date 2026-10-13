@@ -308,14 +308,21 @@ async fn name_free(tx: &Transaction<'_>, org_id: i64, name: &str) -> Result<()> 
     Ok(())
 }
 
-/// An OpenRouter seat keeps the harness it starts on: stamped at hire (and
-/// on a move into the lane), kept on a rehire. A language-server seat runs
-/// on its server's harness, stamped the same way for every reader of
+/// `extra.harness` is the harness a seat's session runs on. An OpenRouter
+/// seat is stamped at hire (and on a move into the lane) with its key's
+/// harness, which unpins it (`extra.harness_pin`); a rehire keeps the stamp
+/// and the pin. An unpinned seat follows its key's later changes at its next
+/// turn boundary (the actor's `start_turn`). A language-server seat runs on
+/// its server's harness, stamped the same way for every reader of
 /// `extra.harness` (the server's own setting stays the authority at launch).
 #[logged]
 async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str, replace: bool) -> Result<()> {
     let h = if catalog::is_openrouter(tier) {
-        crate::openrouter::selected_harness(engine)
+        let account: Option<String> = tx.query_one("SELECT account FROM ot.agents WHERE id = $1", &[&agent]).await?.get(0);
+        if replace {
+            tx.execute("UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) - 'harness_pin' WHERE id = $1", &[&agent]).await?;
+        }
+        crate::openrouter::seat_harness(engine, account.as_deref(), None, false)
     } else if catalog::is_langserver(tier) {
         match crate::langserver::route_of(engine, tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string)) {
             Some(h) => h,
@@ -1080,10 +1087,13 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     stamp_harness(engine, tx, id, &tier, true).await?;
     if let Some(h) = str_arg(req, "harness") {
         if catalog::is_openrouter(&tier) {
-            if !["claude-code", "codex-cli"].contains(&h) {
-                refuse!(BadRequest, "harness is claude-code or codex-cli for an OpenRouter hire");
+            if !crate::openrouter::HARNESSES.contains(&h) {
+                refuse!(BadRequest, "harness is one of {} for an OpenRouter hire", crate::openrouter::HARNESSES.join(", "));
             }
-            tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text) WHERE id = $1", &[&id, &h]).await?;
+            // an explicit harness pins the seat: it wins over its key's
+            // harness, now and after the key changes (user ruling 2026-10-13)
+            tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text, 'harness_pin', true) WHERE id = $1",
+                &[&id, &h]).await?;
         } else {
             // any other tier always runs on its own CLI: naming that one is a no-op
             let native = match catalog::provider_of(&tier) {

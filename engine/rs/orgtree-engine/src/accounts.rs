@@ -30,6 +30,9 @@ pub struct AccountInfo {
     /// how many times the row's stored secret was replaced (never the secret
     /// itself): a warm CLI started on an earlier one is replaced
     pub credential: i64,
+    /// an OpenRouter key's harness (`extra.harness`, a harness id); None on
+    /// every other row, and on a key stored before keys had their own
+    pub harness: Option<String>,
 }
 
 #[logged]
@@ -149,7 +152,7 @@ impl Accounts {
         let rows = client
             .query(
                 "SELECT id, provider, kind, label, identity, tint_ordinal, auth, config_dir, enabled, origin_org, ord,
-                        coalesce((extra->>'credential_gen')::bigint, 0)
+                        coalesce((extra->>'credential_gen')::bigint, 0), extra->>'harness'
                    FROM ot.accounts ORDER BY provider, ord, id",
                 &[],
             )
@@ -176,6 +179,7 @@ impl Accounts {
                     marks: HashMap::new(),
                     ord: r.get::<_, i32>(10) as i64,
                     credential: r.get(11),
+                    harness: r.get(12),
                 },
             );
         }

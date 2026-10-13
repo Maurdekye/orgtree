@@ -1,6 +1,6 @@
 //! Accounts, usage and the OpenRouter lane: the registry (add, remove,
 //! identity, marks), the legacy key readout, every usage readout and its
-//! cache-only peek, and OpenRouter's key, catalog, favorites and harness.
+//! cache-only peek, and OpenRouter's keys (each with its harness), catalog and favorites.
 //! No response ever carries a secret: a key crosses the wire once, inward.
 
 use std::path::PathBuf;
@@ -663,19 +663,20 @@ async fn openrouter_keys_mutated(e: &Arc<Engine>, read: Option<&str>) {
 pub struct AddKeyBody {
     key: String,
     label: Option<String>,
+    harness: Option<String>,
 }
 
 impl std::fmt::Debug for AddKeyBody {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AddKeyBody {{ key: *****, label: {:?} }}", self.label)
+        write!(f, "AddKeyBody {{ key: *****, label: {:?}, harness: {:?} }}", self.label, self.harness)
     }
 }
 
 /// `POST /api/openrouter/keys`: add a key beside the others (the body is a
 /// secret: not logged). Answers the panel's document and the new key's id.
 pub async fn openrouter_key_add(State(e): State<Arc<Engine>>, Json(b): Json<AddKeyBody>) -> ApiResult<Json<Value>> {
-    tracing::info!(label = ?b.label, "add OpenRouter key");
-    let id = crate::openrouter::add_key(&e, &b.key, b.label.as_deref()).await?;
+    tracing::info!(label = ?b.label, harness = ?b.harness, "add OpenRouter key");
+    let id = crate::openrouter::add_key(&e, &b.key, b.label.as_deref(), b.harness.as_deref()).await?;
     openrouter_keys_mutated(&e, Some(&id)).await;
     let mut doc = crate::openrouter::doc(&e, id == crate::openrouter::ACCOUNT_ID).await;
     doc["added"] = json!(id);
@@ -687,20 +688,22 @@ pub async fn openrouter_key_add(State(e): State<Arc<Engine>>, Json(b): Json<AddK
 pub struct UpdateKeyBody {
     key: Option<String>,
     label: Option<String>,
+    harness: Option<String>,
 }
 
 impl std::fmt::Debug for UpdateKeyBody {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UpdateKeyBody {{ key: {}, label: {:?} }}", if self.key.is_some() { "*****" } else { "None" }, self.label)
+        write!(f, "UpdateKeyBody {{ key: {}, label: {:?}, harness: {:?} }}", if self.key.is_some() { "*****" } else { "None" }, self.label, self.harness)
     }
 }
 
-/// `PUT /api/openrouter/keys/{id}`: rename a key (`label`, empty clears it)
-/// and/or replace its secret (`key`; the body is a secret: not logged).
+/// `PUT /api/openrouter/keys/{id}`: rename a key (`label`, empty clears it),
+/// set its harness (`harness`) and/or replace its secret (`key`; the body
+/// is a secret: not logged).
 pub async fn openrouter_key_update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<UpdateKeyBody>) -> ApiResult<Json<Value>> {
     let id = crate::openrouter::id_of_lane(&id);
-    tracing::info!(key = %id, replace = b.key.is_some(), label = ?b.label, "update OpenRouter key");
-    crate::openrouter::update_key(&e, &id, b.key.as_deref(), b.label.as_deref()).await?;
+    tracing::info!(key = %id, replace = b.key.is_some(), label = ?b.label, harness = ?b.harness, "update OpenRouter key");
+    crate::openrouter::update_key(&e, &id, b.key.as_deref(), b.label.as_deref(), b.harness.as_deref()).await?;
     let replaced = b.key.as_deref().is_some_and(|k| !k.trim().is_empty());
     openrouter_keys_mutated(&e, replaced.then_some(id.as_str())).await;
     Ok(Json(crate::openrouter::doc(&e, replaced && id == crate::openrouter::ACCOUNT_ID).await))
@@ -717,19 +720,6 @@ pub async fn openrouter_key_remove(State(e): State<Arc<Engine>>, Path(id): Path<
     let mut doc = crate::openrouter::doc(&e, false).await;
     doc["removed"] = out;
     Ok(Json(doc))
-}
-
-#[derive(Deserialize, Debug)]
-pub struct HarnessBody {
-    harness: String,
-}
-
-#[nolog]
-pub async fn openrouter_harness(State(e): State<Arc<Engine>>, Json(b): Json<HarnessBody>) -> ApiResult<Json<Value>> {
-    served("openrouter_harness");
-    crate::openrouter::set_harness(&e, &b.harness).await?;
-    crate::openrouter::publish(&e).await;
-    Ok(Json(crate::openrouter::doc(&e, false).await))
 }
 
 #[derive(Deserialize, Debug, Default)]

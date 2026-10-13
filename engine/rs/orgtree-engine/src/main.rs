@@ -265,6 +265,8 @@ async fn run_with_cluster(
     }
     accounts::start(&engine).await;
     openrouter::import_legacy(&engine).await;
+    // every key carries its own harness, seeded from the old global setting
+    openrouter::migrate_harnesses(&engine).await;
     // the stored OpenRouter favorites are hireable tiers from the first
     // request, every start: discovery (a CLI probe) fills the rest later
     providers::refresh_openrouter(&engine);

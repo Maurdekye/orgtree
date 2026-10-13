@@ -1139,7 +1139,7 @@ mod muse_offer_tests {
         crate::accounts::AccountInfo {
             id: id.into(), provider: catalog::MUSE.into(), kind: "managed".into(), label: String::new(), email: None,
             tint_ordinal: 0, auth: "authenticated".into(), config_dir: None, enabled: true, origin_org: None,
-            marks: Default::default(), ord: 0, ambient: false, credential: 0,
+            marks: Default::default(), ord: 0, ambient: false, credential: 0, harness: None,
         }
     }
 
