@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Middle-button pan is captured by each visible canvas viewport before node
+  handlers and shares the background pan/persisted camera. Suppress middle
+  mousedown/auxclick defaults; never set the eye's click-focus flag for it.
+  See [middle pan](docs/rust-engine/middle-pan.md).
+  [decided: user 2026-10-13 22:29UTC; verified: `canvas/OrgCanvas.tsx`]
+
 - Tray Harness setup reads the engine registry, with a five-harness shell fallback;
   detected first, one separator before missing, all setup actions clickable.
   Keep legacy desktop IPC IDs and primary-click toggle behavior. See

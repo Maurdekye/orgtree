@@ -234,6 +234,78 @@ async function settledAt(t: TestContext, payload: TreePayload, id: string) {
   return p
 }
 
+for (const mode of ['row', 'circular'] as const) {
+  for (const surface of ['node', 'switchboard', 'background', 'card-link'] as const) {
+    test(`${mode}: middle drag on ${surface} pans only and persists the same viewport`, async t => {
+      useFakeClock(); t.after(realClock)
+      setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+      const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+      const viewport = m.el.querySelector<HTMLElement>('.viewport')!
+      const space = m.el.querySelector<HTMLElement>('.space')!
+      const from = at(m.el, 'x')
+      const viewBefore = nums(space.style.transform)
+      let target: HTMLElement = surface === 'background' ? viewport
+        : surface === 'switchboard' ? m.el.querySelector<HTMLElement>('.sq.user')! : card(m.el, 'x')!
+      if (surface === 'card-link') {
+        const link = m.el.ownerDocument.createElement('a')
+        link.href = 'https://example.invalid/fixture'; target.appendChild(link); target = link
+        // A descendant that stops bubbling cannot steal a captured pan.
+        link.addEventListener('pointerdown', event => event.stopPropagation())
+        link.addEventListener('pointermove', event => event.stopPropagation())
+        link.addEventListener('pointerup', event => event.stopPropagation())
+      }
+      const fire = (type: string, x: number, y: number) => inAct(() => {
+        target.dispatchEvent(new W.PointerEvent(type, { bubbles: true, cancelable: true,
+          button: 1, buttons: type === 'pointerup' ? 0 : 4, pointerId: 77, clientX: x, clientY: y }))
+      })
+      await fire('pointerdown', 800, 400)
+      const down = new W.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 1 })
+      await inAct(() => target.dispatchEvent(down)); assert.equal(down.defaultPrevented, true)
+      await fire('pointermove', 870, 445)
+      await fire('pointerup', 870, 445)
+      const aux = new W.MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+      await inAct(() => target.dispatchEvent(aux)); assert.equal(aux.defaultPrevented, true)
+      const after = nums(space.style.transform)
+      assert.deepEqual(after, [viewBefore[0]! + 70, viewBefore[1]! + 45, viewBefore[2]!])
+      assertAt(at(m.el, 'x'), from, 'node position did not change')
+      assert.deepEqual(m.ops, [], 'no move, reorder or action')
+      assert.equal(m.el.querySelector('[data-move-ghost]'), null)
+      await advance(400, 50)
+      const saved = JSON.parse(localStorage.getItem('orgtree-view-mine')!)
+      assert.deepEqual([saved.x, saved.y, saved.z], after)
+      // A later move after release cannot continue the middle pan.
+      await fire('pointermove', 940, 490)
+      assert.deepEqual(nums(space.style.transform), after)
+    })
+  }
+  test(`${mode}: stationary middle click and right press do not open a node or switchboard`, async t => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+    const space = m.el.querySelector<HTMLElement>('.space')!
+    const initial = space.style.transform
+    for (const target of [card(m.el, 'x')!, m.el.querySelector<HTMLElement>('.sq.user')!])
+      for (const button of [1, 2]) for (const type of ['pointerdown', 'pointerup'])
+        await inAct(() => target.dispatchEvent(new W.PointerEvent(type, {
+          bubbles: true, cancelable: true, button, pointerId: 78, clientX: 800, clientY: 400,
+        })))
+    await advance(3000, 50)
+    assert.equal(space.style.transform, initial)
+    assert.deepEqual(m.ops, [])
+  })
+  test(`${mode}: left background pan keeps its original movement`, async t => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+    const viewport = m.el.querySelector<HTMLElement>('.viewport')!, space = m.el.querySelector<HTMLElement>('.space')!
+    const beforeView = nums(space.style.transform)
+    for (const [type, x, y] of [['pointerdown', 800, 400], ['pointermove', 850, 425], ['pointerup', 850, 425]] as const)
+      await inAct(() => viewport.dispatchEvent(new W.PointerEvent(type, { bubbles: true, button: 0, pointerId: 79, clientX: x, clientY: y })))
+    assert.deepEqual(nums(space.style.transform), [beforeView[0]! + 50, beforeView[1]! + 25, beforeView[2]!])
+    assert.deepEqual(m.ops, [])
+  })
+}
+
 for (const mode of ['row', 'circular'] as const) for (const onto of ['b', USER]) {
   test(`${mode}: reparent hover ghost matches final landing on ${onto}`, async t => {
     useFakeClock(); t.after(realClock)

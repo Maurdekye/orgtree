@@ -1019,6 +1019,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const panRef = useRef<{
     sx: number; sy: number; lx: number; ly: number
     ox: number; oy: number; moved: boolean } | null>(null)
+  const middlePanPointer = useRef<number | null>(null)
   const springs = useRef(new Map<string, Spring>())
   // id → {x,y,at}: a node that should MATERIALIZE at a specific spot (a hire
   // replacing its draft card) instead of gliding over from its parent. Lives
@@ -2366,7 +2367,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 
   // background pan (+ mobile pinch/tap — desktop keeps the exact old path)
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 && e.button !== 1) return
     camIntent.current = null
     cancelAnimationFrame(animRef.current!)
     animBusyRef.current = false
@@ -2387,7 +2388,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       tapRef.current = { x: e.clientX, y: e.clientY, t: performance.now(),
         target: e.target as Element }
     }
-    eyePressRef.current = !isMobile && !!(e.target as Element).closest('.sq.user')
+    eyePressRef.current = e.button === 0 && !isMobile && !!(e.target as Element).closest('.sq.user')
     panRef.current = { sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
       ox: viewRef.current.x, oy: viewRef.current.y, moved: false }
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -2499,6 +2500,30 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // fixes it". eyepressleak.test.tsx.
     eyePressRef.current = false
     panRef.current = null
+  }
+
+  // Capture before card/pile/desk handlers can claim the middle gesture.
+  // Reuse the background pan so speed, camera rebasing and persistence agree.
+  const onMiddleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 1) return
+    e.preventDefault(); e.stopPropagation()
+    middlePanPointer.current = e.pointerId
+    onPointerDown(e)
+  }
+  const onMiddleMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (middlePanPointer.current !== e.pointerId) return
+    e.stopPropagation()
+    onPointerMove(e)
+  }
+  const onMiddleUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (middlePanPointer.current !== e.pointerId) return
+    e.preventDefault(); e.stopPropagation()
+    onPointerUp(e)
+    middlePanPointer.current = null
+  }
+  const blockMiddleDefault = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 1) return
+    e.preventDefault(); e.stopPropagation() // native autoscroll and link auxclick
   }
 
   // ----------------------------------------------------------- node dragging
@@ -3589,6 +3614,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
          back. */
       onPointerDown={worldHidden ? undefined : onPointerDown}
       onPointerMove={worldHidden ? undefined : onPointerMove}
+      onPointerDownCapture={worldHidden ? undefined : onMiddleDown}
+      onPointerMoveCapture={worldHidden ? undefined : onMiddleMove}
+      onPointerUpCapture={onMiddleUp} onPointerCancelCapture={onMiddleUp}
+      onLostPointerCapture={(e) => {
+        if (middlePanPointer.current !== e.pointerId) return
+        middlePanPointer.current = null
+        eyePressRef.current = false
+        panRef.current = null
+      }}
+      onMouseDownCapture={worldHidden ? undefined : blockMiddleDefault}
+      onAuxClickCapture={worldHidden ? undefined : blockMiddleDefault}
       /* onPointerCancel routes to onPointerUp, which nulls panRef — correct,
          but it means ANY pointercancel kills the gesture outright. The one
          that used to fire here came from the browser starting a native drag
