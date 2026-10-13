@@ -1,5 +1,10 @@
 # AGENTS.md — working on Orgtree
 
+- Ctrl/Cmd+Z runs the newest visible toast Undo in its own window; keep text
+  editor undo and the 12-second deadline. Clicks and mirrors consume the same
+  callback once before invoking it. See [toast shortcut](docs/rust-engine/toast-undo-shortcut.md).
+  [decided: user 2026-10-13 18:14UTC; verified: renderer `toasts.tsx`, `App.tsx`]
+
 - Muse Wonder Full uses shared tier blue `#80b8ff`, replacing dusty rose;
   light/solarized icons and hire buttons keep blue on a dark backing. Preserve
   the Muse provider cyan and other tiers. See [Muse colours](docs/rust-engine/muse-code.md).
