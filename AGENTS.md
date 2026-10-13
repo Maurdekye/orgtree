@@ -1,5 +1,15 @@
 # AGENTS.md — working on Orgtree
 
+- Native popout Close dismisses `PinFrame` through its existing close callback;
+  explicit Pop in returns the same mounted content. Persistent desk Close keeps
+  content but never activates a missing main-window destination or creates a
+  recovery box for it. Main exit, hosted-parent recovery, temporary borrowing
+  and failure recovery keep their restoration paths. See
+  [Close versus Pop in](docs/rust-engine/popout-close.md).
+  [decided: user 2026-10-13 08:22Z, coordinator caller ruling 08:26Z;
+  verified from source: renderer `popout.tsx`, `canvas/modalpin.tsx`,
+  `canvas/deskhosts.tsx`, 2026-10-13]
+
 - Language servers setup is documented in [README](README.md#language-servers).
   Presence comes from explicitly saved servers and offered models; harness
   choices detect installed Claude Code/Codex CLIs. Keep app/server enablement,

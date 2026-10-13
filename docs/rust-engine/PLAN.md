@@ -302,6 +302,12 @@ toast saying this engine does not support it.
 
 ### B. Organizations and canvas
 
+Popout Close addition (user 2026-10-13): native modal-window Close dismisses
+its surface instead of reopening it in main. Explicit Pop in returns it.
+Persistent desk content is retained without native Close activating a missing
+main destination. Borrowing, failure recovery and parent lifecycle retain
+their established restoration rules. See [`popout-close.md`](popout-close.md).
+
 | # | Today | After the rewrite |
 |---|---|---|
 | B1 | Lineage stack: knowledge bearers (`agent@3`) as separate archived nodes after cheap compact or a cross-provider switch; "Show lineage"; rehire or consult an old generation | Removed. Cheap compact and cross-provider switches continue on the **same** agent on a fresh session that starts with a handoff note (last status, recent conversation); the whole desk history is saved as a file in the agent's folder (decision 43). No "gen N" button, lineage panel or "Show lineage" |

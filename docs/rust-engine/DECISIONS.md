@@ -1,5 +1,13 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Popout Close versus Pop in, user 2026-10-13 08:22Z:** closing a popped-out
+modal dismisses it; explicit Pop in returns it to the main window. Preserve
+drafts/content, saved-row closure, cleanup and separately defined borrowing,
+failure recovery and parent lifecycle. Coordinator caller ruling 08:26Z:
+persistent desks keep their registry/content, but native Close cannot activate
+a missing main destination; explicit Pop in retains that activation. Contract
+and bounded proof limits: [`popout-close.md`](popout-close.md).
+
 **Developer team deployment, user 2026-10-12 10:11–10:13Z:** each developer
 installs Orgtree and Hubchat, and both connect to a shared standalone mailhub on
 a company-accessible private server. The built-in Orgtree mailhub is for
