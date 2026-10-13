@@ -16,6 +16,7 @@ actual-canvas tests cover middle drags over agent, switchboard, background and
 a nested link that stops propagation in both layouts; still middle/right
 presses; viewport persistence; release cleanup; and unchanged left background
 pan. Existing pending move/reorder/Undo and eye-focus tests are the left-drag
-and focus regression controls. Tests are prepared for rig-opus batch 2;
-typecheck and runtime results will be recorded after execution. Native
+and focus regression controls. Typecheck exits0 on the implementation source;
+the 12 new cases and existing suites are prepared for rig-opus batch 2 and have
+not yet run. Native
 autoscroll/link behavior and popout input remain acceptance gaps until measured.
