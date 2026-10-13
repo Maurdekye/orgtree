@@ -262,11 +262,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   documents in `rig.rs` are also unlogged, while safe refresh diagnostics remain.
   [verified: `usage.rs`, `tools/usage.rs`, `rig.rs`, 2026-10-13]
 
-- The bundled mail hub is pinned to released **2.1.1** (`2c22e3d`), fixing
-  resumable-upload recovery without changing schema 9 or adding API routes.
-  Packaging must record and verify this exact submodule revision; advancing the
-  remote alone never updates an installer. See [hub 2.1.1 adoption](docs/rust-engine/mailhub-211-pin.md).
-  [verified: upstream v2.1.1 tag, transfers delta and package pin guard, 2026-10-11]
+- The local 4.3 alpha bundles hub **2.2.0-alpha.0** at `1dcd3c7`, retaining
+  released 2.1.1 recovery plus approved pictures and question metadata. This
+  supersedes the prior `2c22e3d` pin; it is not a published hub release.
+  Packaging must verify the exact pin and rebuilt payload. Existing schema 10
+  blocks downgrade to 2.1.x without a pre-migration backup; no automatic backup
+  is added. See [local hub adoption](docs/rust-engine/mailhub-220-alpha-pin.md).
+  [verified: canonical merge, unchanged runtime blobs and package pin guard,
+  2026-10-13; decided: coordinator, existing local-alpha scope]
 
 - Agent settings calls the built-in harness permissions **Native Tools**, explains
   their Claude Code/Codex/Antigravity origin, and gives every native toggle a
