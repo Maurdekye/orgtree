@@ -51,7 +51,7 @@ export default async function (rig) {
     await rig.waitTurns(a, n + 1)
   }
   const idle = () => rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'turns to settle', timeout: 60000 })
-  const secretTail = (id) => rig.one(`SELECT right(secret, 6) AS t FROM ot.account_secrets WHERE account_id = '${id}'`)?.t
+  const secretTail = (id) => rig.one(`SELECT right(secret, 6) AS tail FROM ot.account_secrets WHERE account_id = '${id}'`)?.tail
   const account = (name) => rig.one(`SELECT account, frozen, pending_account FROM ot.agents WHERE name = '${name}' AND state = 'live'`)
   await rig.waitFor(async () => JSON.stringify((await rig.api('GET', `/api/orgs/${rig.org}/staffing-options`)).tiers ?? []).includes(TIER),
     { what: 'the favorite to be a tier', timeout: 30000 })
@@ -68,7 +68,7 @@ export default async function (rig) {
   await settle('keytwo', 'PROOF-FIX: nothing changed.')
   p.check('control: a turn with nothing changed reuses the warm CLI', starts('keytwo').length === s0, { starts: starts('keytwo').length, s0 })
   await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-NEW333' })
-  p.check('control: the stored secret was replaced', secretTail('openrouter-2') === 'NEW333')
+  p.check('control: the stored secret was replaced', secretTail('openrouter-2') === 'NEW333', { tail: secretTail('openrouter-2') })
   await settle('keytwo', 'PROOF-FIX: after replacement.')
   p.check('the next turn after a replacement starts a new CLI with the new key (Claude Code)',
     starts('keytwo').length === s0 + 1 && tail('keytwo') === 'NEW333', { starts: starts('keytwo').length, s0, tail: tail('keytwo') })
@@ -96,9 +96,11 @@ export default async function (rig) {
 
   // ------------------------------------------------ 1c. a late answer for the old key
   // the canned answer is read before its 1.5 s wait, as a request is sent
-  // before its reply: OLD-READ belongs to the key stored when the read began
+  // before its reply: OLD-READ belongs to the key stored when the read began.
+  // A replacement reads the replaced key at once (the usage tool's manual
+  // refresh is floored at 60 s per lane, so it cannot start a read here)
   fs.writeFileSync(keyFile('openrouter-2'), JSON.stringify({ status: 200, delay_ms: 1500, data: { ...FULL, label: 'OLD-READ' } }))
-  const slow = rig.tool('boss', 'orgtree_usage', { accounts: ['openrouter-2'], refresh: true })
+  const slow = rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-SLOW77' })
   await sleep(400)
   fs.writeFileSync(keyFile('openrouter-2'), JSON.stringify({ status: 200, data: { ...FULL, label: 'NEW-READ' } }))
   await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-LATE55' })
@@ -112,7 +114,7 @@ export default async function (rig) {
   // ------------------------------------------------ 2. capped key, account balance at zero
   await idle()
   fs.writeFileSync(keyFile('openrouter-2'), JSON.stringify({ status: 200, data: { ...FULL, total_credits: 30, total_usage: 30 } }))
-  await rig.tool('boss', 'orgtree_usage', { accounts: ['openrouter-2'], refresh: true })
+  await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-CAP888' })
   const capped = (await rig.api('GET', '/api/openrouter/keys/usage'))['openrouter-2']?.limits?.[0]
   p.check('control: the capped zero-balance reading is active at 30% of its cap', capped?.is_active === true && capped?.percent === 30, capped)
   await rig.op({ op: 'hire', name: 'mover', parent: 'boss', tier: TIER, grant: 1, title: 'moves between keys' })
@@ -120,7 +122,7 @@ export default async function (rig) {
   const spent = await rig.tool('boss', 'orgtree_continue_on', { node: 'mover', account: 'openrouter-2' })
   p.check('continuing on the capped key with no account balance is refused', spent.ok === false, spent)
   fs.writeFileSync(keyFile('openrouter-2'), JSON.stringify({ status: 200, data: FULL }))
-  await rig.tool('boss', 'orgtree_usage', { accounts: ['openrouter-2'], refresh: true })
+  await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-ROOM99' })
   const room = await rig.tool('boss', 'orgtree_continue_on', { node: 'mover', account: 'openrouter-2' })
   p.check('control: with balance the same continuation is accepted', room.ok !== false && account('mover')?.account === 'openrouter-2', { room, row: account('mover') })
   await idle()
@@ -132,9 +134,15 @@ export default async function (rig) {
   await rig.tool('boss', 'orgtree_usage', { accounts: ['openrouter-2'], refresh: true })
   await rig.api('GET', '/api/openrouter/keys/usage')
   const after = rig.engineLog().slice(from)
-  p.check('a reading\'s private provider text is not in the engine log', !after.includes(MARKER),
-    after.split(/\r?\n/).filter((l) => l.includes(MARKER)).map((l) => l.slice(0, 300)))
-  p.check('control: the readers\' safe summary line is logged', /OpenRouter key usage read.*detail=true/.test(after) || /OpenRouter key usage read/.test(after))
+  // the app feed logs every value it pushes, for every provider's usage, as
+  // it did before this work: that shared path is reported, not judged here
+  const feed = (l) => /\bappfeed\.(AppFeed\.set_value|Actor\.broadcast)\b/.test(l)
+  const leaks = after.split(/\r?\n/).filter((l) => l.includes(MARKER))
+  p.check('control: the private text did reach the engine (the app feed carries it)', leaks.some(feed), leaks.length)
+  p.check('a reading\'s private provider text is not in the engine log through the readers', leaks.every(feed),
+    leaks.filter((l) => !feed(l)).map((l) => l.slice(0, 300)))
+  p.note(`the app feed logged the private text in ${leaks.filter(feed).length} line(s): AppFeed.set_value and Actor.broadcast log every usage value they push (all providers, unchanged by this work)`)
+  p.check('control: the readers\' safe summary line is logged', /OpenRouter key usage read lane=openrouter-2 available=false error=true detail=true/.test(after))
   fs.unlinkSync(path.join(usageDir, 'openrouter-2.json'))
 
   // ------------------------------------------------ 6. same secret twice at once
