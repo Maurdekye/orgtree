@@ -25,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { ago, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
@@ -1291,7 +1291,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
              ['OpenRouter', openrouterTierIds(node.tier)],
              // the models offered on the user's own servers (same keep rule)
              ['Language servers', langserverTierIds(node.tier)]] as const)
-            .map(([label, fam]) => [label, shownTiers(fam)] as const)
+            // the dearest seat first within a provider; the OpenRouter and
+            // language-server registries keep the order they arrive in
+            .map(([label, fam]) => [label, shownTiers(
+              label === 'OpenRouter' || label === 'Language servers' ? fam : bySeatDesc(fam, tierSeat))] as const)
             .filter(([, fam]) => fam.length > 0)
             .map(([label, fam]) => (
               <optgroup key={label} label={label}>

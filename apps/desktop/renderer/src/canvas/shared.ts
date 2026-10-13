@@ -142,9 +142,28 @@ export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'barium', 'carbon', 'agy-
 export const MUSE_TIERS = ['wonder', 'wonder-full', 'spark']
 export const MUSE_TIER_LETTER: Record<string, string> = { wonder: 'W', 'wonder-full': 'F', spark: 'S' }
 export const MUSE_TIER_SEAT: Record<string, number> = { wonder: 4, 'wonder-full': 10, spark: 2 }
+/** THE ONE LISTING RULE (user 2026-10-13): wherever the tiers of a provider
+ *  are listed together — hire sheet and chips, switch-model menu, context
+ *  menus, the rehire list, the header inventory — the dearest seat comes
+ *  first, and equal seats keep the order they were given. Mirrors the
+ *  engine's `catalog::listed`, so a tier added to a family orders itself.
+ *
+ *  ⚠ THE DECLARATION ORDER OF `TIERS`, `CODEX_TIERS`, … IS NOT A DISPLAY
+ *  ORDER. It is the order a DEFAULT is taken from (the hire sheet and Quick
+ *  chat open on the first tier offered), and changing it would change what
+ *  they open on. Lists read the `*_LISTED` arrays below; defaults keep
+ *  reading the family arrays. */
+export const bySeatDesc = (tiers: readonly string[], seatOf: (tier: string) => number): string[] =>
+  tiers.map((tier, at) => ({ tier, at, seat: Number.isFinite(seatOf(tier)) ? seatOf(tier) : 0 }))
+    .sort((a, b) => b.seat - a.seat || a.at - b.at)
+    .map((e) => e.tier)
+export const TIERS_LISTED = bySeatDesc(TIERS, (t) => TIER_SEAT[t] ?? 0)
+export const CODEX_TIERS_LISTED = bySeatDesc(CODEX_TIERS, (t) => CODEX_TIER_SEAT[t] ?? 0)
+export const ANTIGRAVITY_TIERS_LISTED = bySeatDesc(ANTIGRAVITY_TIERS, (t) => ANTIGRAVITY_TIER_SEAT[t] ?? 0)
+export const MUSE_TIERS_LISTED = bySeatDesc(MUSE_TIERS, (t) => MUSE_TIER_SEAT[t] ?? 0)
 /** Provider-neutral surfaces (for example the live-agent summary) use this;
- * provider-specific controls keep using their family list. */
-export const ALL_TIERS = [...TIERS, ...CODEX_TIERS, ...ANTIGRAVITY_TIERS, ...MUSE_TIERS]
+ * provider-specific controls keep using their family list. In listing order. */
+export const ALL_TIERS = [...TIERS_LISTED, ...CODEX_TIERS_LISTED, ...ANTIGRAVITY_TIERS_LISTED, ...MUSE_TIERS_LISTED]
 
 /** Match the backend's Python len(str) character count for user-facing
  * notices. JavaScript String.length counts UTF-16 code units, so it reports
@@ -290,6 +309,25 @@ export const openrouterTierIds = (keep?: string | null): string[] => {
 }
 export const openrouterTier = (tier: string): ProviderTier | undefined =>
   orTiers.find((t) => t.tier === tier)
+/** How a chosen OpenRouter model's price stands for ordering: 0 priced,
+ *  1 free, 2 unknown (a price the catalog did not state is never $0). */
+export const openrouterPriceClass = (t: ProviderTier): 0 | 1 | 2 => {
+  const rate = (v: number | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null)
+  const prompt = rate(t.prompt), completion = rate(t.completion)
+  if (t.price_unknown?.length || prompt === null || completion === null) return 2
+  return prompt === 0 && completion === 0 ? 1 : 0
+}
+/** The order the chosen OpenRouter models are listed in (user 2026-10-13): the
+ *  dearest first by output price, then input price, then name; free models
+ *  after the priced ones, unknown prices last. Mirrors the engine's
+ *  `openrouter::by_price_desc`; the catalog browser keeps its own sort. */
+export const byOpenrouterPriceDesc = (a: ProviderTier, b: ProviderTier): number => {
+  const name = (t: ProviderTier) => (t.name ?? t.label ?? t.model ?? '').toLowerCase()
+  return openrouterPriceClass(a) - openrouterPriceClass(b)
+    || (b.completion ?? 0) - (a.completion ?? 0)
+    || (b.prompt ?? 0) - (a.prompt ?? 0)
+    || (name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : 0)
+}
 
 /* ── THE LANGUAGE SERVER FAMILY (2026-10-10) — ALSO MINTED AT RUNTIME ──────
  *
@@ -692,14 +730,16 @@ export interface HireProviders {
   museHire?: HireState | null
 }
 
-/** The same family order and tier registry as the hire sheet. */
-export const hireTierChoices = (h: HireProviders) => [
-  { provider: 'claude', tiers: TIERS, hire: h.claudeHire },
-  { provider: 'codex', tiers: CODEX_TIERS, hire: h.codexHire },
-  { provider: 'antigravity', tiers: ANTIGRAVITY_TIERS, hire: h.antigravityHire },
+/** The same family order and tier registry as the hire sheet. `listed` (the
+ *  default) is the order menus show, the dearest first; `default` is the
+ *  order a default is taken from (Quick chat's first offered model). */
+export const hireTierChoices = (h: HireProviders, order: 'listed' | 'default' = 'listed') => [
+  { provider: 'claude', tiers: order === 'listed' ? TIERS_LISTED : TIERS, hire: h.claudeHire },
+  { provider: 'codex', tiers: order === 'listed' ? CODEX_TIERS_LISTED : CODEX_TIERS, hire: h.codexHire },
+  { provider: 'antigravity', tiers: order === 'listed' ? ANTIGRAVITY_TIERS_LISTED : ANTIGRAVITY_TIERS, hire: h.antigravityHire },
   // the Muse family's state is the module's own (`setMuseProvider`) when a
   // caller has none of its own to pass
-  { provider: 'muse', tiers: MUSE_TIERS, hire: h.museHire ?? museHireState },
+  { provider: 'muse', tiers: order === 'listed' ? MUSE_TIERS_LISTED : MUSE_TIERS, hire: h.museHire ?? museHireState },
   { provider: 'openrouter', tiers: openrouterTierIds(), hire: h.openrouterHire },
   { provider: 'langserver', tiers: langserverTierIds(), hire: h.langserverHire },
 ].flatMap(({ provider, tiers, hire }) => tiers.map(tier => ({

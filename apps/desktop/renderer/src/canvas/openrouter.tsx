@@ -55,7 +55,7 @@ import type {
   OpenRouterDoc, OpenRouterHarness, OpenRouterModel, OpenRouterModelsPage,
   OpenRouterSort, ProviderInfo, ProviderTier,
 } from '../types'
-import { capabilityNote, capabilityNotes, fmtCredits, modelLabel, setOpenRouterTiers } from './shared'
+import { byOpenrouterPriceDesc, capabilityNote, capabilityNotes, fmtCredits, modelLabel, setOpenRouterTiers } from './shared'
 import { BrowserPager, BrowserSelected, ModelCard, ToggleChips } from './modelbrowser'
 import { SetRow, SetToggle } from './settingskit'
 import { fmtHm, fmtMonth } from '../timefmt'
@@ -222,7 +222,9 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   // Merged while rendering too, so the first paint already has every chip.
   const [seen, setSeen] = useState<ProviderTier[]>([])
   useEffect(() => { if (doc) setSeen((prev) => keepPlaces(prev, doc.tiers ?? [])) }, [doc])
-  const shown = keepPlaces(seen, favorites)
+  // the dearest first (the one listing rule for the chosen models), a model just
+  // deselected keeping the place its price gives it
+  const shown = keepPlaces(seen, favorites).sort(byOpenrouterPriceDesc)
   const standing = doc ? standingOf(doc) : []
   // line 1's verdict word, and the tone it reads in
   const verdict = doc?.connected ? 'connected'

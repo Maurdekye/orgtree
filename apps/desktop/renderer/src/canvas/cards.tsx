@@ -25,7 +25,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
+  ago, antigravityTierOffer, anyTierSeat, bySeatDesc, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
@@ -748,7 +748,10 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // ⚠ FILTERED BEFORE `tiers` IS STORED, because the inward-first sort below
     // orders families by "number of available model tiers" — a hidden chip
     // that still counted would push Codex inward for a row it does not render.
-    const vis = tiers.filter((t) => offerOf(t) !== 'hide')
+    // the dearest seat first (the one listing rule); the OpenRouter and
+    // language-server registries arrive in their own order
+    const vis = (key === 'openrouter' || key === 'langserver' ? tiers : bySeatDesc(tiers, seatOf))
+      .filter((t) => offerOf(t) !== 'hide')
     // every tier hid: the same nothing-to-offer case as an empty family above
     if (!vis.length) return
     fams.push({

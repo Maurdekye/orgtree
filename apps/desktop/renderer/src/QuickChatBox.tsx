@@ -79,7 +79,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       openrouterHire: of('openrouter'), langserverHire: of('langserver'), museHire: of('muse') }
   }, [providers])
   const offered = useMemo(() => providers
-    ? hireTierChoices(hires).filter(c => c.offer === 'offer').map(c => c.tier) : [],
+    // the default order: the fallback model is the first offered one, not the dearest
+    ? hireTierChoices(hires, 'default').filter(c => c.offer === 'offer').map(c => c.tier) : [],
   [providers, hires])
   const nodes = useMemo(() => treeNodes(tree), [tree])
   const live = useMemo(() => [...nodes.values()]
