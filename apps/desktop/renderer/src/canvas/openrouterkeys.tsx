@@ -30,11 +30,11 @@ type Run = (p: Promise<OpenRouterDoc>, ok: string) => void
 /** one key's app-wide switch (user 2026-10-11 22:50: every key is
  *  individually disableable from Providers; Org settings › Accounts narrows
  *  it per org but cannot turn on a key switched off here). Reversible:
- *  nothing is deleted. */
+ *  nothing is deleted. Compact like an account's (user 2026-10-12 20:22Z):
+ *  "Active" beside the key, its full name kept as the switch's name. */
 export function KeyActive({ k, busy, run }: { k: OpenRouterKey; busy: boolean; run: Run }) {
   return <>
-    <SetToggle label={`${k.name} active`} checked={k.enabled} disabled={busy}
-      hint="Allow this key to serve new turns."
+    <SetToggle label={`${k.name} active`} labelContent="Active" checked={k.enabled} disabled={busy}
       title={k.enabled
         ? 'Active: serves turns. Clear it and this key serves no new turns.'
         : 'Inactive: serves no new turns. Check it to use this key again.'}

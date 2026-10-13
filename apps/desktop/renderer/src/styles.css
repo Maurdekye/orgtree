@@ -7932,6 +7932,12 @@ main:has(> .orgbar.native-header) > .error {
 #app-settings-panel-providers .acct-row { padding: 4px 6px; }
 #app-settings-panel-providers .acct-provenance { margin-left: 0; overflow-wrap: anywhere; }
 #app-settings-panel-providers .acct-provenance span { white-space: normal; }
+/* An OpenRouter key's Active switch sits on its identity line, as an
+   account's does; its spend line and inactive note run below. */
+#app-settings-panel-providers .orr-keyrow { display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; column-gap: 8px; }
+#app-settings-panel-providers .orr-keyrow > .set-row { grid-column: 2; grid-row: 1; }
+#app-settings-panel-providers .orr-keyrow > :not(.acct-main):not(.set-row) { grid-column: 1 / -1; }
 #app-settings-panel-providers .ls-server-head { white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 520px) {
   #app-settings-panel-providers .set-head-right { margin-left: 0; }
@@ -7939,6 +7945,9 @@ main:has(> .orgbar.native-header) > .error {
   #app-settings-panel-providers .acct-provider-tier { grid-template-columns: 18px minmax(52px, .8fr) minmax(0, 1fr) auto; }
   #app-settings-panel-providers .account-row { gap: 4px 6px; }
   #app-settings-panel-providers .account-identity strong { overflow-wrap: anywhere; }
+  /* the key's name and verdict need the line beside its icon buttons */
+  #app-settings-panel-providers .orr-keyrow { grid-template-columns: minmax(0, 1fr); }
+  #app-settings-panel-providers .orr-keyrow > .set-row { grid-column: 1; grid-row: auto; }
 }
 .provider-accounts:empty{display:none}
 .account-row{padding:12px 0;border-top:1px solid var(--line)}

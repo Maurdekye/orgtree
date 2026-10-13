@@ -105,6 +105,10 @@ test('§1 every key is its own row: the original by its name, an added one by na
     const switches = [...view.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
     assert.equal(switches.length, 2, 'one active switch per key')
     assert.ok(switches.every((s) => s.checked), 'both keys active')
+    assert.deepEqual(switches.map((s) => s.closest('.set-row')?.querySelector('.set-label')?.textContent),
+      ['Active', 'Active'], 'each switch shows "Active" beside its key')
+    assert.deepEqual(switches.map((s) => s.getAttribute('aria-label')), ['personal active', 'team active'],
+      'and is named for its key')
   } finally {
     await view.unmount(); delete g.fetch
   }
