@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Tray Harness setup reads the engine registry, with a five-harness shell fallback;
+  detected first, one separator before missing, all setup actions clickable.
+  Keep legacy desktop IPC IDs and primary-click toggle behavior. See
+  [tray harness setup](docs/rust-engine/tray-harness-setup.md).
+  [decided: user 2026-10-13 22:22UTC; verified: desktop `harnesses.ts`, `index.ts`]
+
 - Registered usage Refresh forwards `force=true` to the existing boolean query;
   normal reads remain cached. Available last-good bars carrying a provider error
   display that refresh failure without changing the dated observation; later clean
