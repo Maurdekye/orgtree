@@ -36,5 +36,21 @@ modes, plus image/crop/keyboard/removal/limits/errors. Synthetic fetch and choos
 seams prevent real settings or account writes. Output stays in the owned C build
 scope under a shared-lock/kernel-Job renderer phase; no engine/app build.
 
-Verification is pending. Native image decoding, real hub publication, installed
+Batch 430 on combined Orgtree `93b3259` passed all 49 browser checks and the
+composition typecheck. Base/green child test steps failed without stdout/stderr
+under their 45-second process limit; the independent batch renderer run passed
+the product tests. Their cause was not recorded because the proof omitted spawn
+errors. The updated runner preserves status/signal/error/timing and requires
+5/5 base and 8/8 tip TAP counts, allowing 120 seconds for process startup while
+retaining the ten-second per-test limit.
+
+Screenshot inspection found a settings-style conflict missed by those checks:
+`.settings button` outranked the avatar and X's single-class padding/radius/
+colors. The scoped two-class selectors preserve the round avatar and 23px X;
+two computed browser checks now require the actual badge size, round shape,
+zero padding and distinct theme ink/panel colors. Corrected total is 53 checks.
+This follow-up is pending batched verification; earlier screenshots are retained
+as the failing visual evidence.
+
+Native image decoding, real hub publication, installed
 artifact and interactive native chooser acceptance are outside this proof.

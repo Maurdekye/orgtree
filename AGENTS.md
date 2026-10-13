@@ -76,7 +76,9 @@
   opens the existing chooser; pencil is always bottom-right and a separate X
   removes an existing logo. Preserve numeric-owner/intent guards, crop and API
   semantics. Empty fallback copies Hubchat org orange/initials independent of
-  provider accents; the requested round shape is editor-local. See [Logo editor](docs/rust-engine/org-logo-editor.md).
+  provider accents; the requested round shape is editor-local. Scope avatar/X
+  chrome with two classes to outrank `.settings button` padding/radius/colors.
+  See [Logo editor](docs/rust-engine/org-logo-editor.md).
   [decided: user 2026-10-13; verified: `canvas/orgpicture.tsx`, `orglogo.css`, `App.tsx`]
 
 - Ctrl/Cmd+Z runs the newest visible toast Undo in its own window; keep text
