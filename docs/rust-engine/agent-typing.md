@@ -28,9 +28,18 @@ are known and stops when the call ends.
   it, and an unknown field inside it.
 - Transcript references (`runtime::convo::tool_refs`) read `to` from either
   shape.
+- **Antigravity seats keep the flat cards** (coordinator 2026-10-13 21:36Z):
+  the nested shape could not be checked on that CLI without the live Google
+  sign-in (see the table below). `tools::defs::MailShape` picks the shape:
+  `bridge::serve` takes it, Antigravity's launch passes `Flat` and Muse's
+  `Split`; Claude Code and Codex get the split cards. The flat cards are byte
+  for byte those of before the split (a unit test pins them). Switch
+  Antigravity to `Split` once a no-spend check passes there, and update the
+  table.
 
-**Cache cost.** The change alters every agent's tool prefix, so each agent's
-first turn after the update is a cold one. No other tool definition changed.
+**Cache cost.** The change alters the tool prefix of every agent except
+Antigravity seats, so each such agent's first turn after the update is a cold
+one. No other tool definition changed.
 
 ## Why the order works (measured 2026-10-13)
 
@@ -105,14 +114,17 @@ received, and whether the result went back.
 | Codex 0.160.0 (`dynamicTools`) | Codex re-encodes every dynamic tool: properties sorted alphabetically (so `body` before `metadata`), `maxItems` dropped, `strict: false`; the nested object, `required`, `anyOf`, `enum`, `minItems` and descriptions kept. The flat shape gets the same treatment today. | identical |
 | Muse Code 1.4.6 (session MCP) | byte-identical, inside a Responses `namespace` tool `mcp__orgtree` | identical |
 | opencode 2.0.28 (pre-check: its lane had not landed) | Code Mode: MCP tools are called from JavaScript via `execute`, listed in a TypeScript catalog that renders `metadata` as a nested object type with every field, union and optional mark | identical |
-| Antigravity `agy` 1.3.3 | not run: even with its LLM gateway the CLI needs a Google sign-in and an eligibility check before any model call | — |
+| Antigravity `agy` 1.3.3 | not run: even with its LLM gateway the CLI needs a Google sign-in and an eligibility check before any model call. **So its seats get the flat cards** (coordinator 2026-10-13 21:36Z) | — |
 
-Antigravity is covered only by inference. It gets the same MCP `tools/list`
-as Claude Code and Muse. The structure the new shape uses, an object-typed
-property with nested properties, `anyOf` and `enum`, is already in tool cards
-agents load today: `scope_props` gives `orgtree_hire`, `orgtree_staff`,
-`orgtree_rehire` and `orgtree_retool` an object-typed `tools` property, and
-`orgtree_ask` and `orgtree_request_scope` take arrays of objects.
+Antigravity has no measured evidence for the nested shape. Today's tool cards
+already contain the structure: `scope_props` gives `orgtree_hire`,
+`orgtree_staff`, `orgtree_rehire` and `orgtree_retool` an object-typed `tools`
+property, and `orgtree_ask` and `orgtree_request_scope` take arrays of objects.
+But the one Antigravity seat with real turns had the `team` and `user` groups
+off, so no real Antigravity turn is known to have carried an object property
+with nested properties. Only `anyOf`, `enum`, arrays and plain
+`{"type": "object"}` items are known to have passed. A check needs a way past
+the sign-in that does not use the live login.
 Evidence: `D:\orgtree-work\rig\hubchat-opus\typing\harness\results.md`.
 
 ## The other two parts
