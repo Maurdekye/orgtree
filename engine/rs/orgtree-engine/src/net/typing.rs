@@ -6,16 +6,20 @@
 //! the actor's stream (`runtime::actor` `on_stream_event`) holds a call's
 //! `metadata` while the model still writes the body. When it passes the
 //! send's own checks (`tools::typing_peers`, `orginbox::may_send_extern`, a
-//! peer a cached roster lists, the hub the send would use), the org tells
-//! that hub it is writing to those peers: keyed by the call's tool-use id,
-//! refreshed every `REFRESH` while the call lives (`CAP` at most), and
-//! stopped when the call returns (`tools::call`), `ORPHAN` after a block that
-//! never became a call, or when the agent's turn or process ends. The hub
-//! ends a signal nobody refreshes (its TTL).
+//! peer a cached roster lists, the hub the send would use), the org sends
+//! that hub a heartbeat for those peers every `BEAT` while the model writes
+//! the call (user 2026-10-13 22:34Z): until the call's block ends, its tool
+//! call returns, the agent's turn or process ends, or `CAP`. There is no
+//! start and no stop on the wire: the heartbeats simply stop, and the
+//! recipient's Hubchat drops the indicator a second after the last one, so
+//! nothing here can leave it standing. Stopping when the block ends also
+//! means no heartbeat follows the message itself.
 //!
-//! Only addresses and the call id leave the engine, never content; no push
-//! and no notification. Nothing here changes the org. A hub without the
-//! feature answers 404 and is not asked again for `NO_FEATURE_RETRY`.
+//! Only addresses leave the engine, never content; no push and no
+//! notification. Nothing here changes the org. A hub without the feature
+//! answers 404 and is not asked again for `NO_FEATURE_RETRY`. Hubchat users'
+//! own heartbeats reach the org's address too; the engine's polls never ask
+//! for them, so it ignores them (user 2026-10-13 22:33Z).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -27,11 +31,12 @@ use tokio_util::sync::CancellationToken;
 use super::{offline, pick_hub, request, HTTP};
 use crate::engine::Engine;
 
-/// how long the hub keeps a signal nobody refreshes
-const TTL_SECS: u64 = 20;
-const REFRESH: Duration = Duration::from_secs(8);
+/// how often a heartbeat goes while an agent writes a message call
+const BEAT: Duration = Duration::from_millis(500);
+/// the longest one call heartbeats, whatever happens (a safety)
 const CAP: Duration = Duration::from_secs(120);
-const ORPHAN: Duration = Duration::from_secs(30);
+/// recipients per heartbeat (the hub's limit)
+const MAX_RECIPIENTS: usize = 10;
 const NO_FEATURE_RETRY: Duration = Duration::from_secs(600);
 /// how long a stopped call is remembered, so a start that loses the race
 /// against its own call's end never begins
@@ -44,7 +49,7 @@ enum Entry {
     Stopped(Instant),
 }
 
-/// The engine's typing signals, by tool-use id.
+/// The engine's typing heartbeats, by tool-use id.
 #[derive(Default)]
 pub(crate) struct State {
     calls: Mutex<HashMap<String, Entry>>,
@@ -158,8 +163,9 @@ fn value_end(b: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-/// A message tool call's `metadata` is whole: show the org as typing to its
-/// `@net:` peers, once the send's own checks pass. Runs off the stream.
+/// A message tool call's `metadata` is whole: the org heartbeats to its
+/// `@net:` peers while the call is written, once the send's own checks
+/// pass. Runs off the stream.
 #[logged]
 pub(crate) fn begin(engine: &Arc<Engine>, org_id: i64, agent_id: i64, agent: &str, call: &str, metadata: &Value) {
     let Some(peers) = crate::tools::typing_peers(metadata) else { return };
@@ -174,7 +180,8 @@ pub(crate) fn begin(engine: &Arc<Engine>, org_id: i64, agent_id: i64, agent: &st
     });
 }
 
-/// One call's signal: checked, told to each hub, refreshed, stopped.
+/// One call's heartbeats: checked, then one to each hub every `BEAT` until
+/// the call stops or `CAP`.
 #[logged]
 async fn run(engine: &Arc<Engine>, org_id: i64, agent_id: i64, agent: &str, call: &str, peers: Vec<String>) -> anyhow::Result<()> {
     if !crate::domain::orginbox::may_send_extern(engine, org_id, agent_id, agent).await? {
@@ -189,23 +196,25 @@ async fn run(engine: &Arc<Engine>, org_id: i64, agent_id: i64, agent: &str, call
         return Ok(()); // the call already ended
     }
     let until = Instant::now() + CAP;
+    let mut tick = tokio::time::interval(BEAT);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut beats = 0u32;
     loop {
-        for (addr, peers) in &by_hub {
-            send(engine, org_id, addr, Some(peers), call).await;
-        }
         tokio::select! {
             _ = stop.cancelled() => break,
             _ = engine.shutdown.cancelled() => break,
-            _ = tokio::time::sleep(REFRESH) => {}
+            _ = tick.tick() => {}
         }
         if Instant::now() >= until {
             break;
         }
+        for (addr, peers) in &by_hub {
+            beat(engine, org_id, addr, peers).await;
+        }
+        beats += 1;
     }
     engine.net.typing.stop_call(call);
-    for addr in by_hub.keys() {
-        send(engine, org_id, addr, None, call).await;
-    }
+    tracing::debug!(agent = %agent, beats, "typing heartbeats ended");
     Ok(())
 }
 
@@ -234,47 +243,37 @@ fn hubs_for(engine: &Engine, org_id: i64, peers: &[String]) -> BTreeMap<String, 
     out
 }
 
-/// One typing call to one hub: `peers` written to (Some), or the call
-/// stopped (None). Best effort: a failure leaves it to the hub's TTL.
-#[logged]
-async fn send(engine: &Arc<Engine>, org_id: i64, addr: &str, peers: Option<&Vec<String>>, call: &str) {
+/// One heartbeat to one hub: `{"to": peers}` and nothing else. Best effort:
+/// one that fails is simply missing. Hot (every `BEAT`), so not logged.
+#[nolog]
+async fn beat(engine: &Arc<Engine>, org_id: i64, addr: &str, peers: &[String]) {
     let parts = engine.net.parts.load_full();
     let Some(p) = parts.iter().find(|p| p.org_id == org_id) else { return };
-    let body = match peers {
-        Some(peers) => json!({ "to": peers, "id": call, "state": "typing", "ttl": TTL_SECS }),
-        None => json!({ "id": call, "state": "stop" }),
-    };
-    let req = HTTP
-        .post(format!("{addr}/api/typing"))
-        .timeout(Duration::from_secs(5))
-        .header("X-Org-Auth", p.auth())
-        .json(&body);
-    if let Ok(r) = request(engine, &[org_id], req).await {
-        if r.status() == reqwest::StatusCode::NOT_FOUND {
-            engine.net.typing.no_feature.pin().insert(addr.to_string(), Instant::now() + NO_FEATURE_RETRY);
+    for to in peers.chunks(MAX_RECIPIENTS) {
+        let req = HTTP.post(format!("{addr}/api/typing")).timeout(Duration::from_secs(2)).header("X-Org-Auth", p.auth()).json(&body(to));
+        if let Ok(r) = request(engine, &[org_id], req).await {
+            if r.status() == reqwest::StatusCode::NOT_FOUND {
+                engine.net.typing.no_feature.pin().insert(addr.to_string(), Instant::now() + NO_FEATURE_RETRY);
+                return;
+            }
         }
     }
 }
 
-/// The call `call` ended (its tool returned, sent or refused): stop its
-/// signal, or keep it from starting.
+/// A heartbeat's body: the addresses, never a word of the message.
+#[nolog]
+fn body(to: &[String]) -> Value {
+    json!({ "to": to })
+}
+
+/// The call `call` is no longer being written: its block ended, or its tool
+/// returned (sent or refused). Its heartbeats stop, or never start.
 #[logged]
 pub(crate) fn stop(engine: &Engine, call: &str) {
     engine.net.typing.stop_call(call);
 }
 
-/// A probed call's block ended: unless a tool call ends it first, stop its
-/// signal after `ORPHAN` (a refused permission, a cancelled turn).
-#[logged]
-pub(crate) fn orphan(engine: &Arc<Engine>, call: &str) {
-    let (engine, call) = (engine.clone(), call.to_string());
-    tokio::spawn(async move {
-        tokio::time::sleep(ORPHAN).await;
-        engine.net.typing.stop_call(&call);
-    });
-}
-
-/// An agent's turn or process ended: stop the signals of all its calls.
+/// An agent's turn or process ended: stop the heartbeats of all its calls.
 #[logged]
 pub(crate) fn stop_agent(engine: &Engine, agent_id: i64) {
     engine.net.typing.stop_agent(agent_id);
@@ -323,7 +322,7 @@ impl State {
         self.no_feature.pin().get(addr).is_some_and(|u| Instant::now() < *u)
     }
 
-    /// Whether `call` is being shown now (tests).
+    /// Whether `call` is heartbeating now (tests).
     #[nolog]
     #[cfg(test)]
     fn live(&self, call: &str) -> bool {
@@ -396,5 +395,11 @@ mod tests {
         s.stop_agent(1);
         assert!(a.is_cancelled() && !b.is_cancelled());
         assert!(!s.live("x") && s.live("y"));
+    }
+
+    #[test]
+    fn a_heartbeat_carries_the_addresses_and_nothing_else() {
+        let to = vec!["alice.k3x9".to_string(), "bob.p2q7".to_string()];
+        assert_eq!(body(&to), json!({ "to": ["alice.k3x9", "bob.p2q7"] }));
     }
 }

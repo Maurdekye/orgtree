@@ -99,7 +99,8 @@ async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
     let tool_use = params.pointer("/_meta/claudecode~1toolUseId").and_then(Value::as_str).map(str::to_string);
     let started = std::time::Instant::now();
     let out = dispatch(engine, caller, name, &args).await;
-    // the call ended, sent or refused: Hubchat stops showing it as typing
+    // the call ended, sent or refused: its typing heartbeats are over (its
+    // block ending has usually stopped them already)
     if matches!(name, "orgtree_message" | "orgtree_send_notice") {
         if let Some(t) = &tool_use {
             crate::net::typing::stop(engine, t);

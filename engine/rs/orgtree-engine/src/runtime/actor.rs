@@ -666,7 +666,7 @@ struct TypingProbe {
     buf: String,
     /// done reading: `metadata` seen (or not first, or too long)
     done: bool,
-    /// typing was asked for: its block's end may orphan it
+    /// typing was asked for: its block's end stops it
     started: bool,
 }
 
@@ -4724,12 +4724,12 @@ impl Actor {
                     t.tool_writing.stop(index);
                 }
                 self.stream("tool_writing", json!({}));
-                // a watched message call's block ended: unless its tool call
-                // ends the signal first, it stops by itself (net::typing::orphan)
+                // a watched message call's block ended: the call is written,
+                // so its typing heartbeats stop (or never start)
                 let index = ev["index"].as_i64().unwrap_or(-1);
                 if self.typing_probe.as_ref().is_some_and(|p| p.index == index) {
                     if let Some(p) = self.typing_probe.take().filter(|p| p.started) {
-                        crate::net::typing::orphan(&self.engine, &p.call);
+                        crate::net::typing::stop(&self.engine, &p.call);
                     }
                 }
             }

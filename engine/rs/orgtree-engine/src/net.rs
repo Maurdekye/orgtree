@@ -193,7 +193,7 @@ pub struct Net {
     pollers: papaya::HashMap<String, (String, CancellationToken)>,
     /// the participants of the last pass
     parts: ArcSwap<Vec<Part>>,
-    /// Typing signals for Hubchat (`typing`): memory only.
+    /// Typing heartbeats for Hubchat (`typing`): memory only.
     pub(crate) typing: typing::State,
     /// Live requests only; durable intent remains in PostgreSQL.
     pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
