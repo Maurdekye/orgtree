@@ -255,6 +255,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   proof limits: [usage-query-proposal.md](docs/rust-engine/usage-query-proposal.md).
   [decided: user/lead-astra 2026-10-11 22:35Z; verified: usage.rs, tools/usage.rs]
 
+  OpenRouter query IDs are its canonical lanes (`openrouter` for the original,
+  added key IDs for the others). Public readers reserve each lane; a permitted
+  manual refresh calls the private reader under its existing permit, avoiding
+  self-contention. Floors and caches remain per lane. Raw canned key-check
+  documents in `rig.rs` are also unlogged, while safe refresh diagnostics remain.
+  [verified: `usage.rs`, `tools/usage.rs`, `rig.rs`, 2026-10-13]
+
 - The bundled mail hub is pinned to released **2.1.1** (`2c22e3d`), fixing
   resumable-upload recovery without changing schema 9 or adding API routes.
   Packaging must record and verify this exact submodule revision; advancing the
