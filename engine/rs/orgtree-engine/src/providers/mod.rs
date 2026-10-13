@@ -853,6 +853,9 @@ pub fn payload(engine: &Engine) -> Value {
         e["muse"] = muse_detail(found, st.muse_error.as_deref());
         e["muse"]["logins"] = json!(std::iter::once(muse_login_doc(engine, None))
             .chain(registered.iter().map(|a| muse_login_doc(engine, Some(a)))).collect::<Vec<_>>());
+        // the harness card says plainly what a write seat runs with here
+        // (`muse::os_sandbox`; user 2026-10-13 20:16Z)
+        e["muse"]["session0"] = json!(crate::runtime::codex::session0());
         // a registered login that offers a model makes Muse hirable with the
         // user's own login signed out (a hire is placed on a login that offers it)
         if !st.muse.connected && elsewhere && engine.settings.provider_enabled(catalog::MUSE) {

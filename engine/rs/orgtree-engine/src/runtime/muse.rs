@@ -24,6 +24,11 @@
 //! - A tool call that outlives the turn's silence limit is ended by itself
 //!   (`task/stop`, after a `turn/steer` note naming the limit); the turn
 //!   goes on (user 2026-10-13).
+//! - While the engine runs in Windows Session 0 (the boot task) Muse's OS
+//!   sandbox cannot start a command, so a write seat's host runs without it
+//!   (`--disable-sandbox`: then Muse asks about no command and its file tools
+//!   can write outside the folders, measured) and a read-only seat has no
+//!   shell (user 2026-10-13 18:53Z; kept knowing that, 20:16Z).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -60,6 +65,26 @@ pub struct Seat {
     pub approval: &'static str,
 }
 
+/// Whether a seat's host keeps Muse's OS sandbox for shell commands. In
+/// Windows Session 0 (the engine's boot task, `codex::session0`) the
+/// `windows_elevated` sandbox cannot start a command: measured on Muse 1.4.6,
+/// a sandboxed call fails at once ("failed to send runner spawn_request ...
+/// The pipe has been ended. (os error 109)") or, in the installed app, never
+/// starts and produces nothing until the turn's silence limit, while the
+/// same call without the sandbox returns in about half a second. There a
+/// write seat runs without the sandbox, and that is more than the shell
+/// (measured 2026-10-13): Muse then asks Orgtree about no command, and its
+/// file tools also write outside the workspace roots without asking (with
+/// the sandbox, Muse refuses that write itself). The user chose this over no
+/// shell, knowing it (2026-10-13 20:16Z). A read-only seat has no shell
+/// anyway (`may_shell` needs a write seat); a bypassPermissions seat is
+/// unchanged (its `:unrestricted` profile runs without the sandbox already).
+/// Outside Session 0 the sandbox stays on.
+#[logged]
+pub fn os_sandbox(session0: bool, may_write: bool, permission_mode: &str) -> bool {
+    !(session0 && may_write && permission_mode != "bypassPermissions")
+}
+
 /// The session posture for a scope.
 #[logged]
 pub fn seat(may_write: bool, permission_mode: &str) -> Seat {
@@ -91,6 +116,8 @@ pub struct MuseSpec {
     pub seat: Seat,
     pub may_write: bool,
     pub may_shell: bool,
+    /// Muse's OS sandbox for shell commands (off only in Session 0, `os_sandbox`)
+    pub sandbox: bool,
     pub may_web: bool,
     pub may_subagents: bool,
     /// granted external MCP servers (registry entries), besides orgtree's own
@@ -113,6 +140,7 @@ impl std::fmt::Debug for MuseSpec {
             .field("seat", &self.seat)
             .field("may_write", &self.may_write)
             .field("may_shell", &self.may_shell)
+            .field("sandbox", &self.sandbox)
             .field("may_web", &self.may_web)
             .field("may_subagents", &self.may_subagents)
             .field("servers", &self.servers.keys().collect::<Vec<_>>())
@@ -205,6 +233,9 @@ pub fn host_args(spec: &MuseSpec, prompt_file: Option<&Path>) -> Vec<String> {
     }
     if !spec.may_write {
         a.push("--disable-write".into());
+    }
+    if !spec.sandbox {
+        a.push("--disable-sandbox".into());
     }
     // the agent's own folder: its AGENTS.md (standing notes) and skills load as Muse's project rules
     a.push("--trust-workspace".into());
@@ -405,7 +436,8 @@ impl MuseProc {
         let job = winproc::child_job(&child);
         let pid = child.id().unwrap_or(0);
         let process = uuid::Uuid::new_v4();
-        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Muse", prompt_by_file, "CLI started");
+        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Muse", prompt_by_file, profile = spec.seat.profile,
+            shell = spec.may_shell, write = spec.may_write, sandbox = spec.sandbox, "CLI started");
         let (Some(mut stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
             pipe.cancel();
             let who = format!("agent {} (#{})", caller.name, caller.agent_id);
@@ -904,6 +936,7 @@ mod tests {
             seat: seat(true, "acceptEdits"),
             may_write: true,
             may_shell: true,
+            sandbox: true,
             may_web: false,
             may_subagents: false,
             servers: Map::new(),
@@ -928,6 +961,22 @@ mod tests {
         let a = host_args(&s, None);
         assert!(a.contains(&"--disable-shell".to_string()) && a.contains(&"--disable-write".to_string()));
         assert!(!a.iter().any(|x| x.starts_with("tools.web_search")));
+    }
+
+    #[test]
+    fn session0_turns_the_sandbox_off_for_write_seats_only() {
+        // outside Session 0: the sandbox stays on for every seat
+        for pm in ["acceptEdits", "default", "bypassPermissions"] {
+            assert!(os_sandbox(false, true, pm) && os_sandbox(false, false, pm));
+        }
+        // in Session 0: off for write seats; read-only and bypass seats unchanged
+        assert!(!os_sandbox(true, true, "acceptEdits") && !os_sandbox(true, true, "default"));
+        assert!(os_sandbox(true, false, "acceptEdits"));
+        assert!(os_sandbox(true, true, "bypassPermissions"));
+        let mut s = spec();
+        assert!(!host_args(&s, None).contains(&"--disable-sandbox".to_string()));
+        s.sandbox = false;
+        assert!(host_args(&s, None).contains(&"--disable-sandbox".to_string()));
     }
 
     #[test]

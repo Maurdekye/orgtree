@@ -2615,6 +2615,7 @@ impl Actor {
             seat: musert::seat(may_write, pm),
             may_write,
             may_shell: on("bash") && may_write,
+            sandbox: musert::os_sandbox(codexrt::session0(), may_write, pm),
             may_web: on("web"),
             may_subagents: on("subagents"),
             servers: granted,
