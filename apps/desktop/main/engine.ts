@@ -61,6 +61,7 @@ export const INSTALLER_UPGRADE_STOP_BUDGET_MS = 45000
 import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
+import { readHarnessRegistry } from './harnesses'
 
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
   /** Orgtree 4: the Rust engine executable. When set it is started instead of
@@ -761,6 +762,12 @@ export class Engine extends EventEmitter {
       if (!r.ok) return null
       return orgActivityRows(await r.json())
     } catch { return null }
+  }
+
+  async harnesses() {
+    const endpoint = this.endpoint, credential = this.credential
+    const rows = await readHarnessRegistry(endpoint, credential)
+    return endpoint === this.endpoint && credential === this.credential ? rows : null
   }
 
   async acknowledgeMaintenance(id: string, outcome: 'execute' | 'up-to-date'): Promise<boolean> {

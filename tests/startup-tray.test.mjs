@@ -41,7 +41,7 @@ function fixture(initial) {
     refreshTrayUpdates() {}, refreshTrayEngine() {}, refreshTrayHub() {},
     label: () => 'Ready', updatesSupported: false,
     hubMenuItem: () => ({ id: 'mailhub-status', label: 'Mail hub' }),
-    NOTIFICATION_OPTIONS: [], detectHarnesses: () => [],
+    NOTIFICATION_OPTIONS: [], detectHarnesses: () => [], harnessSetupMenu: () => [], trayHarnesses: null,
     Menu: { buildFromTemplate(items) { buildCount++; return new MenuDouble(items) } },
     dialog: { showMessageBox(options) { warnings.push(options.message); return Promise.resolve({}) } },
     app: { isPackaged: true, quit() { throw new Error('not part of this test') }, setLoginItemSettings() {} },

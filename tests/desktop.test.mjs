@@ -112,7 +112,7 @@ test('harness detection has positive fixture and never executes it', () => {
   const rows = detectHarnesses(temp, {})
   assert.equal(rows.find(r => r.id === 'codex').detected, true)
   assert.equal(rows.find(r => r.id === 'claude').detected, false)
-  assert.equal(rows.length, 3)
+  assert.equal(rows.length, 5)
   assert.equal(rows.find(r => r.id === 'antigravity').detected, false)
   fs.writeFileSync(path.join(temp, process.platform === 'win32' ? 'agy.exe' : 'agy'), 'presence only')
   assert.equal(detectHarnesses(temp, {}).find(r => r.id === 'antigravity').detected, true, 'actual AGY executable name')

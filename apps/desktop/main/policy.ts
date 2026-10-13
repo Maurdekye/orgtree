@@ -14,7 +14,9 @@ export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
   codex: 'https://developers.openai.com/codex/cli',
+  opencode: 'https://opencode.ai/docs/',
   antigravity: 'https://antigravity.google/download',
+  muse: 'https://dev.meta.ai/docs/muse-code#install',
 })
 
 export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {

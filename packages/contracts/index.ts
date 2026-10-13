@@ -137,7 +137,7 @@ export interface DesktopBridge {
   minimizeWindow(): Promise<void>
   toggleMaximizeWindow(): Promise<void>
   closeWindow(): Promise<void>
-  getHarnesses(): Promise<{ id: 'claude' | 'codex' | 'antigravity'; detected: boolean; url: string }[]>
+  getHarnesses(): Promise<{ id: 'claude' | 'codex' | 'opencode' | 'antigravity' | 'muse'; detected: boolean; url: string }[]>
   notify(notification: DesktopNotification): Promise<boolean>
   /** Close native alerts whose attention item no longer exists. */
   syncNotifications?(active: NotificationIdentity[]): Promise<void>
@@ -145,7 +145,7 @@ export interface DesktopBridge {
    *  identities. The taskbar pulses for a new arrival and stops when the list
    *  empties; an unchanged list is not an event. */
   setPendingAttention?(ids: string[], items?: { org: string; id: string }[]): Promise<void>
-  openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
+  openHarnessLink(harness: 'claude' | 'codex' | 'opencode' | 'antigravity' | 'muse'): Promise<void>
   openCharterFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
   openTemplatesFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
   /** Open the current engine's log directory in the OS file manager. */

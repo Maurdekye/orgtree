@@ -27,7 +27,7 @@ import { windowOutbox, type WindowOutbox } from './window-outbox'
 import { performClose } from './window-close'
 import { OrgPlacement, orgOfKey, placementKey } from './org-placement'
 import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
-import { detectHarnesses } from './harnesses'
+import { detectHarnesses, harnessSetupMenu, type HarnessSetup } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
@@ -733,6 +733,7 @@ else {
     }
     finally { rebuildTray() }
   }
+  let trayHarnesses: HarnessSetup[] | null = null
   const rebuildTray = () => {
     const image = runtimeIcon()
     // a dot on the tray icon while any organization has something waiting on the user
@@ -794,7 +795,7 @@ else {
         ...NOTIFICATION_OPTIONS.map(({ key, label }) => ({ label, type: 'checkbox' as const,
           checked: prefs[key], enabled: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })),
       ] },
-      { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
+      { label: 'Harness setup', submenu: harnessSetupMenu(trayHarnesses, detectHarnesses(), url => shell.openExternal(url)) },
       // Crash reports are collected locally and never uploaded; this is the
       // only way to get at one, and it is the user's own deliberate act.
       { id: 'crash-reports', label: 'Crash reports...', click: () => { void showCrashReports().catch(() => {}) } },
@@ -2046,7 +2047,7 @@ else {
       }
     })
     app.once('will-quit', stopLoginEvents)
-    engine.on('status', status => { broadcastAll({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
+    engine.on('status', status => { broadcastAll({ type: 'engine-status', data: status }); stats = null; trayHarnesses = null; rebuildTray() })
     // ⚠ BROADCASTING IS NOT ENOUGH WHEN THE WINDOW HAS NO DOCUMENT. The renderer
     // is what would normally react to the status above, and after a failed load
     // there is no renderer listening — which is precisely the state this exists
@@ -2585,7 +2586,7 @@ else {
           if (owner) sendTo(owner.id, { type: 'notification-poll', data: null })
         }
         void credentialBridge.tick(engine.origin, engine.token)
-        stats = await engine.stats(); rebuildTray()
+        ;[stats, trayHarnesses] = await Promise.all([engine.stats(), engine.harnesses()]); rebuildTray()
         void updater.tick().catch(() => {})
         if (stats === null && !engine.managed && !backgroundEngineRestart && !coreLifecycle) {
           await engine.verifyAttached()
