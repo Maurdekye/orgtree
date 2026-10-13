@@ -25,7 +25,7 @@ Helpers:
 - `org_accounts::lane_of(&AccountInfo)`: the canonical lane of any registry row.
 - `org_accounts::seat_lane(engine, tier, account)` and `org_accounts::default_lane(provider)`.
 
-Global for every key: favorites and the Claude Code/Codex harness choice.
+Global for every key: favorites. Each key has its own harness (below).
 
 ## API
 
@@ -33,10 +33,12 @@ All key endpoints are secret-free on the way out; a key crosses the wire once, i
 
 | Method and path | What it does |
 |---|---|
-| `GET /api/openrouter` | The panel document. The top-level fields describe the original key, as before. `keys[]` lists every key (`id`, `lane`, `original`, `label`, `name`, `key_label`, `enabled`, `connected`, `reason`, `limits`, `observed_at`) and `any_key` says whether any is stored. |
+| `GET /api/openrouter` | The panel document. The top-level fields describe the original key, as before. `keys[]` lists every key (`id`, `lane`, `original`, `label`, `name`, `key_label`, `enabled`, `connected`, `reason`, `limits`, `observed_at`, `harness`, `harness_installed`, `pinned_seats`) and `any_key` says whether any is stored. `harness` is the machine's options (the registry's) and `stored`, the harness a new key gets. |
 | `PUT` / `DELETE /api/openrouter/key` | Unchanged: sets or forgets the original key. |
-| `POST /api/openrouter/keys {key, label?}` | Adds a key and answers the document plus `added` and `added_lane`. With no original stored, the new key becomes the original. A secret already stored on another row is refused. |
-| `PUT /api/openrouter/keys/{id or lane} {key?, label?}` | Renames a key (an empty label clears the name) and/or replaces its secret. |
+| `POST /api/openrouter/keys {key, label?, harness?}` | Adds a key and answers the document plus `added` and `added_lane`. With no original stored, the new key becomes the original. A secret already stored on another row is refused. |
+| `PUT /api/openrouter/keys/{id or lane} {key?, label?, harness?}` | Renames a key (an empty label clears the name), sets its harness and/or replaces its secret. A harness must be installed (400 otherwise). |
+| `GET /api/harnesses` | The harness registry: every harness, what it is, whether it is installed here, its providers and how to install it. |
+| ~~`PUT /api/openrouter/harness`~~ | Gone (2026-10-13): the harness is each key's own. |
 | `DELETE /api/openrouter/keys/{id or lane}` | Removes a key. An added key goes through `account_removal`, so its agents, queued intents and defaults move to the original key first. Removing the original (`clear_key` → `account_removal::remove_original`) moves every seat it bills (unbound, bound to it, queued intents naming it) to the first other key a continuation would accept, in key order; a live seat with none freezes (cause `account`) saying so; org and app defaults naming it are cleared. Its id is not retired: a key added with none original stored is the original again. |
 | `PUT /api/accounts/{id}/enabled` | Now also accepts `openrouter-key`. Re-enabling the original wakes the unbound OpenRouter agents. |
 | `GET /api/openrouter/keys/usage` | Every key's last reading by lane, cache-only. |
@@ -108,7 +110,56 @@ last reading); else "OpenRouter key N".
 - **Startup:** the stored favorites become provider tiers before the first request on every start
   (`providers::refresh_openrouter` in `main.rs`), not only after the 3.x import.
 
+## Harness per key
+
+Rulings (docket `openrouter-choose-the-harness-claude-code-codex-p`): user 2026-10-13
+19:04Z (per key), 19:08Z ("Agent's choice wins": a hire's harness pins the seat),
+19:15Z (only installed harnesses, at every selector; App settings › Harnesses, placed
+there by the coordinator).
+
+- **Storage:** `ot.accounts.extra.harness` on each key row, a harness id (another
+  harness is a registry entry, not a schema change). Every start, a key without one
+  takes the old global `openrouter.harness` (`migrate_harnesses`); that setting now
+  only seeds. A new key gets the harness named, else the original key's, else the
+  seed (the first installed one when the seed is not installed).
+- **Seats:** `ot.agents.extra.harness` is the harness the seat's session runs on;
+  `extra.harness_pin` marks an explicit hire choice. `openrouter::seat_harness` is the
+  single precedence point: pinned → the stamp, else the billed key's harness.
+- **Turn boundary:** `start_turn`, under the agent row lock and before any mail is
+  claimed, compares the stamp with `seat_harness`. A difference ends the session
+  (`agent_sessions.end_reason = 'harness switch'`), sets `handoff_due` ("its OpenRouter
+  key now runs on …"), moots its open asks, restamps, closes the CLI and retries
+  admission; the next turn starts a fresh session with a summary. This is a new cache
+  namespace. A running turn is never touched. Key moves (removal, fallback, an org
+  switching a lane off) are covered by the same check.
+- **Migration:** once (`ot.meta` `openrouter_harness_per_key_v1`), seats whose stamp
+  differs from their key's harness are pinned, so the upgrade moves no seat.
+- **Installed only:** `src/harnesses.rs` decides installed (the discovered file still
+  exists, else the launch's lookup; nothing spawned). Key writes, the hire pin and
+  language-server adds refuse a harness that is not installed. A saved choice since
+  uninstalled is shown "not installed" and refuses its launch with that reason; the
+  boundary does not cross to it, and nothing substitutes another harness.
+- **Selectors (every place a harness is chosen):** the OpenRouter key dialog (add and
+  edit, original and added keys); the language-server add form (Harness, and Custom's
+  API style); the hire/staff `harness` argument (orgtree_hire, orgtree_staff, the hire
+  op). The Runtime tab's global row is removed. Each UI selector links to App
+  settings › Harnesses.
+- **Model pickers (templates, Quick chat, hire menus, defaults):** they choose a model,
+  not a harness; the harness follows the provider, key or server. Their one source,
+  the staffing offers (`domain/staffing.rs`), offers an OpenRouter key only while its
+  harness is installed, a hire naming no key only while the original key's is, and a
+  language-server model only while its server's harness is (registry check).
+
 ## Limits (inferred, not measured)
+
+- The hire tools' `harness` enum stays static (claude-code, codex-cli) so the tool
+  definitions do not change with what is installed; a pin naming one not installed is
+  refused at the op with the reason. The new enum `description` changes the tool
+  definitions once (a one-time prompt-prefix change for every agent).
+- The first-key form (no key stored yet, `PUT /api/openrouter/key`) has no harness
+  select: that key takes the seed, and its harness is changed in its settings dialog.
+- A language server whose harness was uninstalled refuses its launch by source; the
+  rig proof covers OpenRouter seats only.
 
 - The private-text proof injects OpenRouter readings only; the Claude, Codex, Antigravity and
   Muse routes share the same `#[nolog]`/wire rule by source (inferred, not measured per provider).

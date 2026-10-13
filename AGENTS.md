@@ -376,11 +376,28 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   - **Toggles:** every key, the original included, has its own active switch
     (`PUT /api/accounts/{id}/enabled`). Org lanes carry `enabled` and `disabled_reason`;
     an org tick cannot turn on a key switched off app-wide.
-  - **Global:** favorites and the harness are global.
+  - **Harness per key** (replaces the global harness, 2026-10-13): each key row stores
+    `extra.harness` (seeded at every start from the old `openrouter.harness`, which
+    now only seeds; a new key takes the original key's). A seat's `extra.harness` is
+    what its session runs on; `openrouter::seat_harness` is the one precedence point:
+    a hire's explicit `harness` pins the seat (`extra.harness_pin`, wins over the key),
+    else the billed key's. `start_turn` moves a seat whose stamp differs, at the
+    boundary only, to a fresh session with a summary (`agent_sessions` end reason
+    "harness switch"; a new cache namespace). The once-only migration pins seats whose
+    stamp differed from their key's, so the upgrade moved no seat. Favorites stay global.
+  - **Installed harnesses only:** `src/harnesses.rs` is the one registry (Claude Code,
+    Codex, Antigravity, Muse Code; opencode joins here) behind every harness choice
+    and `GET /api/harnesses` (App settings › Harnesses). Choosing a harness that is
+    not installed is refused (key, hire pin, language server); a saved one since
+    uninstalled refuses its launch saying so and is never substituted. "Installed" is
+    the discovered file still present, else a launch's lookup: nothing is spawned.
+    The staffing offers (templates, Quick chat, hire menus) leave out OpenRouter keys
+    and language-server models whose harness is not installed.
 
-  [decided: user 2026-10-11 22:35Z and 22:50Z, coordinator on ids/lanes; verified:
-  `src/openrouter.rs`, `src/org_accounts.rs`, `src/usage.rs`; detail:
-  `docs/rust-engine/openrouter-keys.md`]
+  [decided: user 2026-10-11 22:35Z and 22:50Z, coordinator on ids/lanes; user
+  2026-10-13 19:04Z (per key), 19:08Z (pin wins), 19:15Z (installed only, every
+  selector); verified: `src/openrouter.rs`, `src/harnesses.rs`, `src/runtime/actor.rs`,
+  `src/org_accounts.rs`, `src/usage.rs`; detail: `docs/rust-engine/openrouter-keys.md`]
 
 - Desk pending mail folds at six rendered rows per run, after event deduplication.
   Keep current-turn input above its response and later mail below; optimistic and
