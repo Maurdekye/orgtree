@@ -651,6 +651,23 @@ struct Actor {
     /// next try is due (decision 62)
     admit_refusals: u32,
     admit_retry: Option<Instant>,
+    /// the message tool call being written, watched for its `metadata`
+    /// (typing in Hubchat, `net::typing`)
+    typing_probe: Option<TypingProbe>,
+}
+
+/// A message tool call's arguments as they stream in, until its `metadata`
+/// is whole (typing in Hubchat, 2026-10-13).
+struct TypingProbe {
+    /// the content block's index in its message
+    index: i64,
+    /// the call's tool-use id
+    call: String,
+    buf: String,
+    /// done reading: `metadata` seen (or not first, or too long)
+    done: bool,
+    /// typing was asked for: its block's end may orphan it
+    started: bool,
 }
 
 // Opaque to the logging macro: connection internals are never log arguments.
@@ -726,6 +743,7 @@ impl Actor {
             keepalive: None,
             admit_refusals: 0,
             admit_retry: None,
+            typing_probe: None,
         })
     }
 
@@ -4677,6 +4695,17 @@ impl Actor {
                             t.partial_serial += 1;
                             t.tool_writing.start(index, id, &name, t.partial_serial);
                         }
+                        // a message tool call: watch its arguments for `metadata`
+                        // (typing in Hubchat, `net::typing`)
+                        self.typing_probe = matches!(name.as_str(), "mcp__orgtree__orgtree_message" | "mcp__orgtree__orgtree_send_notice")
+                            .then(|| TypingProbe {
+                                index: ev["index"].as_i64().unwrap_or(-1),
+                                call: block["id"].as_str().unwrap_or("").to_string(),
+                                buf: String::new(),
+                                done: false,
+                                started: false,
+                            })
+                            .filter(|p| !p.call.is_empty());
                         self.stream("tool_writing", json!({}));
                         self.set_activity("tool_writing", Some(name));
                     }
@@ -4695,6 +4724,14 @@ impl Actor {
                     t.tool_writing.stop(index);
                 }
                 self.stream("tool_writing", json!({}));
+                // a watched message call's block ended: unless its tool call
+                // ends the signal first, it stops by itself (net::typing::orphan)
+                let index = ev["index"].as_i64().unwrap_or(-1);
+                if self.typing_probe.as_ref().is_some_and(|p| p.index == index) {
+                    if let Some(p) = self.typing_probe.take().filter(|p| p.started) {
+                        crate::net::typing::orphan(&self.engine, &p.call);
+                    }
+                }
             }
             Some("content_block_delta") => {
                 let d = &ev["delta"];
@@ -4716,6 +4753,28 @@ impl Actor {
                             }
                         }
                         self.stream("thinking", json!({ "text": text }));
+                    }
+                    Some("input_json_delta") => {
+                        // a watched message call: its `metadata`, once whole as
+                        // the first argument, starts typing; anything else
+                        // first (or too much) ends the watch, the send unaffected
+                        let index = ev["index"].as_i64().unwrap_or(-1);
+                        if let Some(p) = self.typing_probe.as_mut().filter(|p| p.index == index && !p.done) {
+                            p.buf.push_str(d["partial_json"].as_str().unwrap_or(""));
+                            match crate::net::typing::leading_metadata(&p.buf) {
+                                crate::net::typing::Scan::Pending if p.buf.len() <= crate::net::typing::PROBE_MAX => {}
+                                crate::net::typing::Scan::Ready(meta) => {
+                                    p.done = true;
+                                    p.started = true;
+                                    p.buf = String::new();
+                                    crate::net::typing::begin(&self.engine, self.org_id, self.id, &self.name, &p.call, &meta);
+                                }
+                                _ => {
+                                    p.done = true;
+                                    p.buf = String::new();
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -5149,6 +5208,9 @@ impl Actor {
             tracing::info!(agent = self.id, %process, reason, "ignored exit from replaced CLI");
             return Ok(());
         }
+        // its message calls are not being written any more (typing in Hubchat)
+        self.typing_probe = None;
+        crate::net::typing::stop_agent(&self.engine, self.id);
         self.engine.credential_bridge.revoke(self.id);
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
         self.proc = None;
@@ -5250,6 +5312,9 @@ impl Actor {
         if let Err(e) = self.settle_agy_steer().await {
             tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mid-turn mail could not be settled");
         }
+        // the turn's message calls are over (typing in Hubchat)
+        self.typing_probe = None;
+        crate::net::typing::stop_agent(&self.engine, self.id);
         let Some(turn) = self.take_turn() else { return Ok(()) };
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
         let codex = res["codex"].as_bool().unwrap_or(false);

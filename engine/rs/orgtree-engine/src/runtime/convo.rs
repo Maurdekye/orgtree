@@ -651,7 +651,14 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
         }
     };
     match base {
-        "orgtree_message" | "orgtree_send_notice" => args(&["to"], &mut agent),
+        "orgtree_message" | "orgtree_send_notice" => {
+            args(&["to"], &mut agent);
+            // the split shape (2026-10-13): `to` inside `metadata`
+            match &input["metadata"]["to"] {
+                Value::Array(a) => a.iter().for_each(|v| agent(v)),
+                v => agent(v),
+            }
+        }
         "orgtree_retool" | "orgtree_retire" | "orgtree_dissolve" | "orgtree_interrupt" | "orgtree_unstick" | "orgtree_continue_on"
         | "orgtree_cheap_compact" | "orgtree_switch_model" | "orgtree_read_transcript" | "orgtree_read_scratch" | "orgtree_rename"
         | "orgtree_reallocate" | "orgtree_rehire" | "orgtree_halt" | "orgtree_unhalt" => args(&["node", "nodes"], &mut agent),
@@ -891,6 +898,14 @@ mod tool_refs_tests {
         assert_eq!(r, json!([{ "kind": "agent", "id": "alice" }]));
         assert_eq!(tool_refs("orgtree_message", &json!({ "to": "user" }), None), json!([]));
         assert_eq!(tool_refs("orgtree_message", &json!({ "to": "@org:other" }), None), json!([]));
+    }
+
+    #[test]
+    fn the_split_message_shape_names_its_agents_too() {
+        let input = json!({ "metadata": { "to": ["bob", "user", "@net:x.y"], "kind": "message" }, "body": "x" });
+        assert_eq!(tool_refs("mcp__orgtree__orgtree_message", &input, None), json!([{ "kind": "agent", "id": "bob" }]));
+        let notice = json!({ "metadata": { "to": "carol" }, "body": "x" });
+        assert_eq!(tool_refs("orgtree_send_notice", &notice, None), json!([{ "kind": "agent", "id": "carol" }]));
     }
 
     #[test]

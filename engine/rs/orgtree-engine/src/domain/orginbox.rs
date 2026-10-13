@@ -253,6 +253,29 @@ struct Route {
     waiting: bool,
 }
 
+/// Whether `ensure_holders` would let this agent send outside mail now,
+/// changing nothing: the org inbox is enabled, and the agent holds its
+/// audience or is a live top-level agent (whom a send auto-grants). Typing
+/// in Hubchat (2026-10-13) checks the send's own gate, and must never grant.
+#[logged]
+pub(crate) async fn may_send_extern(engine: &Arc<Engine>, org_id: i64, agent_id: i64, name: &str) -> Result<bool> {
+    let c = engine.db.get().await?;
+    let client: &tokio_postgres::Client = &c;
+    let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
+    if check(&raw).is_err() {
+        return Ok(false);
+    }
+    let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
+    let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
+    if live_holders(client, org_id, multi).await?.iter().any(|h| h == name) {
+        return Ok(true);
+    }
+    Ok(client
+        .query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND parent_id IS NULL", &[&agent_id, &org_id])
+        .await?
+        .is_some())
+}
+
 /// Serialize only this org's short audience update; never hold the transaction over sending or IO.
 #[logged]
 async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, &str)>) -> Result<Route> {

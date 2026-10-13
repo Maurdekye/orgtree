@@ -37,6 +37,7 @@ pub mod control;
 mod failures;
 pub mod isolation;
 mod pictures;
+pub(crate) mod typing;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";
@@ -192,6 +193,8 @@ pub struct Net {
     pollers: papaya::HashMap<String, (String, CancellationToken)>,
     /// the participants of the last pass
     parts: ArcSwap<Vec<Part>>,
+    /// Typing signals for Hubchat (`typing`): memory only.
+    pub(crate) typing: typing::State,
     /// Live requests only; durable intent remains in PostgreSQL.
     pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]

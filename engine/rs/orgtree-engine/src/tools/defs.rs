@@ -88,6 +88,17 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
 
 const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
 
+/// The message tools take `metadata` (who the message is for and how it is
+/// sent), written FIRST, then `body` (user and coordinator 2026-10-13, docket
+/// show-agent-typing-in-hubchat-using-ordered-messa: 116/116 real calls kept
+/// this order, so the bound is below 2.6%, not zero). The API sends each
+/// top-level argument whole once it is complete, so the engine sees
+/// `metadata` while the body is still being written and can show Hubchat
+/// that the agent is typing (`net::typing`). The handler takes any order
+/// and still the flat shape (`tools::mailtools::flat_args`).
+const META_FIRST: &str = "Write this FIRST, before body: who the message is for and how it is sent";
+const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
+
 /// `to` on orgtree_message / orgtree_send_notice: one recipient or a list.
 static TO: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
     json!({ "anyOf": [
@@ -166,10 +177,12 @@ fn all() -> Vec<Value> {
              later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
              recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
              and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
-             result lists every recipient's outcome (refused ones are named with the reason; the rest still get it).",
+             result lists every recipient's outcome (refused ones are named with the reason; the rest still get it). \
+             Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
+             body last.",
             json!({
+                "metadata": { "type": "object", "description": META_FIRST, "additionalProperties": false, "required": ["to"], "properties": {
                 "to": TO.clone(),
-                "body": { "type": "string" },
                 "kind": { "type": "string", "enum": KINDS },
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
                 "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
@@ -180,14 +193,21 @@ fn all() -> Vec<Value> {
                 "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
                              "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
                 "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
+                } },
+                "body": { "type": "string", "description": BODY_LAST },
             }),
-            &["to", "body"],
+            &["metadata", "body"],
         ),
         tool(
             "orgtree_send_notice",
-            "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody.",
-            json!({ "to": TO.clone(), "body": { "type": "string" } }),
-            &["to", "body"],
+            "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody. \
+             Always write metadata (`to`) before body: metadata first, body last.",
+            json!({
+                "metadata": { "type": "object", "description": META_FIRST, "additionalProperties": false, "required": ["to"],
+                              "properties": { "to": TO.clone() } },
+                "body": { "type": "string", "description": BODY_LAST },
+            }),
+            &["metadata", "body"],
         ),
         tool(
             "orgtree_status",

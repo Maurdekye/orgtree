@@ -5,6 +5,7 @@
 pub(crate) mod control;
 pub mod defs;
 mod mailtools;
+pub(crate) use mailtools::{flat_args, typing_peers};
 mod orgview;
 mod treetools;
 mod usage;
@@ -91,6 +92,12 @@ async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
     let tool_use = params.pointer("/_meta/claudecode~1toolUseId").and_then(Value::as_str).map(str::to_string);
     let started = std::time::Instant::now();
     let out = dispatch(engine, caller, name, &args).await;
+    // the call ended, sent or refused: Hubchat stops showing it as typing
+    if matches!(name, "orgtree_message" | "orgtree_send_notice") {
+        if let Some(t) = &tool_use {
+            crate::net::typing::stop(engine, t);
+        }
+    }
     let ms = started.elapsed().as_millis();
     if ms > 2000 {
         tracing::info!(agent = %caller.name, tool = name, ms, "slow tool call");

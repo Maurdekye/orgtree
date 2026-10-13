@@ -51,6 +51,8 @@ struct Delivered {
 /// one delivery per recipient, every reach rule checked per recipient.
 #[logged]
 pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_notice: bool) -> Result<Done> {
+    // the split shape {metadata, body} reads as the flat one from here on
+    let args = &flat_args(args)?;
     let list = match args.get("to") {
         Some(Value::Array(a)) => Some(recipients(a)?),
         _ => None,
@@ -163,6 +165,87 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
             images.join(", "), others.join(", ")));
     }
     notes
+}
+
+/// What a message tool's `metadata` may hold: every argument but `body`.
+const META_KEYS: &[&str] = &["to", "kind", "notice", "attachments", "urgent", "urgent_reason", "reply_to", "options", "multiple"];
+
+/// The message tools' arguments as the handler reads them (user and
+/// coordinator 2026-10-13, docket show-agent-typing-in-hubchat-using-ordered-messa).
+/// The split shape `{metadata: {to, kind, ...}, body}` is flattened, in any
+/// key order; a flat call (older transcripts, a harness that keeps it) is
+/// taken as it is. Refused: `metadata` that is not an object, a metadata
+/// field beside it instead of inside, `body` inside it, an unknown field
+/// inside it.
+#[logged]
+pub(crate) fn flat_args(args: &Value) -> Result<Value> {
+    let Some(meta) = args.get("metadata") else { return Ok(args.clone()) };
+    let Some(meta) = meta.as_object() else {
+        crate::refuse!(BadRequest, "metadata must be an object: who the message is for and how it is sent");
+    };
+    let mut out = serde_json::Map::new();
+    for (k, v) in args.as_object().into_iter().flatten() {
+        if k == "body" {
+            out.insert(k.clone(), v.clone());
+        } else if META_KEYS.contains(&k.as_str()) {
+            crate::refuse!(BadRequest, "put {k} inside metadata, not beside it");
+        }
+    }
+    for (k, v) in meta {
+        if k == "body" {
+            crate::refuse!(BadRequest, "body goes after metadata, not inside it");
+        }
+        if !META_KEYS.contains(&k.as_str()) {
+            crate::refuse!(BadRequest, "metadata takes {}; not {k}", META_KEYS.join(", "));
+        }
+        out.insert(k.clone(), v.clone());
+    }
+    Ok(Value::Object(out))
+}
+
+/// The `@net:` peers a message tool call's `metadata` names, when the
+/// handler's own checks on it would pass (typing in Hubchat starts only for a
+/// send that would go; reach is checked separately, as the send checks it).
+/// None when they would not, or when it names no `@net:` peer.
+#[logged]
+pub(crate) fn typing_peers(meta: &Value) -> Option<Vec<String>> {
+    let obj = meta.as_object()?;
+    if obj.keys().any(|k| !META_KEYS.contains(&k.as_str())) {
+        return None;
+    }
+    let list = match obj.get("to")? {
+        Value::Array(a) => recipients(a).ok()?,
+        Value::String(s) if !s.trim().is_empty() => vec![s.trim().to_string()],
+        _ => return None,
+    };
+    let kind = match obj.get("kind") {
+        None | Some(Value::Null) => "message",
+        Some(k) => k.as_str()?,
+    };
+    if !KINDS.contains(&kind) {
+        return None;
+    }
+    let net = |t: &str| t.trim().trim_start_matches('@').strip_prefix("net:").map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+    match obj.get("options").filter(|v| !v.is_null()) {
+        Some(o) => {
+            if kind != "question" || !list.iter().all(|t| net(t).is_some()) {
+                return None;
+            }
+            crate::net::cards::options(o).ok()?;
+        }
+        None if obj.get("multiple").and_then(Value::as_bool) == Some(true) => return None,
+        None => {}
+    }
+    if obj.get("urgent").and_then(Value::as_bool) == Some(true)
+        && ((list.len() == 1 && !is_user(&list[0])) || obj.get("urgent_reason").and_then(Value::as_str).is_none())
+    {
+        return None;
+    }
+    if obj.get("attachments").and_then(Value::as_array).is_some_and(|a| a.len() > 10) {
+        return None;
+    }
+    let peers: Vec<String> = list.iter().filter_map(|t| net(t)).collect();
+    (!peers.is_empty()).then_some(peers)
 }
 
 /// The recipients of a list `to`: strings, duplicates collapsed, bounded.
@@ -517,6 +600,63 @@ mod tests {
         let many: Vec<Value> = (0..11).map(|i| json!(format!("n{i}"))).collect();
         assert!(recipients(&many).is_err());
         assert_eq!(recipients(&many[..10]).unwrap().len(), 10);
+    }
+
+    #[test]
+    fn the_split_shape_reads_as_the_flat_one_in_any_order() {
+        let flat = json!({ "to": ["@net:a.1", "bob"], "kind": "question", "options": ["Yes", "No"], "body": "Ship it?" });
+        let split = json!({ "metadata": { "to": ["@net:a.1", "bob"], "kind": "question", "options": ["Yes", "No"] }, "body": "Ship it?" });
+        let inverted = json!({ "body": "Ship it?", "metadata": { "options": ["Yes", "No"], "kind": "question", "to": ["@net:a.1", "bob"] } });
+        let mut want = flat.as_object().unwrap().clone();
+        want.sort_keys();
+        for v in [&flat, &split, &inverted] {
+            let mut got = flat_args(v).unwrap().as_object().unwrap().clone();
+            got.sort_keys();
+            assert_eq!(got, want, "{v}");
+        }
+        // a notice's metadata holds just `to`
+        assert_eq!(flat_args(&json!({ "metadata": { "to": "bob" }, "body": "fyi" })).unwrap(), json!({ "body": "fyi", "to": "bob" }));
+    }
+
+    #[test]
+    fn a_mixed_or_misplaced_split_call_is_refused_with_what_is_wrong() {
+        for (args, says) in [
+            (json!({ "metadata": "bob", "body": "x" }), "metadata must be an object"),
+            (json!({ "metadata": { "to": "bob" }, "to": "carol", "body": "x" }), "put to inside metadata"),
+            (json!({ "metadata": { "to": "bob" }, "kind": "status", "body": "x" }), "put kind inside metadata"),
+            (json!({ "metadata": { "to": "bob", "body": "x" } }), "body goes after metadata"),
+            (json!({ "metadata": { "to": "bob", "subject": "hi" }, "body": "x" }), "metadata takes to, kind"),
+        ] {
+            let e = flat_args(&args).unwrap_err().to_string();
+            assert!(e.contains(says), "{args}: {e}");
+        }
+    }
+
+    #[test]
+    fn typing_starts_only_for_net_peers_of_a_send_that_would_go() {
+        let peers = |m: Value| typing_peers(&m);
+        assert_eq!(peers(json!({ "to": "@net:a.1" })), Some(vec!["a.1".to_string()]));
+        assert_eq!(peers(json!({ "to": ["@net:a.1", "bob", "user", "net:b.2", "@net:a.1"] })), Some(vec!["a.1".to_string(), "b.2".to_string()]));
+        assert_eq!(peers(json!({ "to": "@net:a.1", "kind": "question", "options": ["Tue", "Thu"], "multiple": true })), Some(vec!["a.1".to_string()]));
+        assert_eq!(peers(json!({ "to": "@net:a.1", "notice": true, "reply_to": "m1", "attachments": ["f.txt"] })), Some(vec!["a.1".to_string()]));
+        // no @net: peer, or a send the handler would refuse: no typing
+        for m in [
+            json!({ "to": "bob" }),
+            json!({ "to": ["user", "@org:x"] }),
+            json!({ "to": "" }),
+            json!({ "to": [] }),
+            json!({ "kind": "message" }),
+            json!({ "to": "@net:a.1", "kind": "memo" }),
+            json!({ "to": "@net:a.1", "options": ["Tue", "Thu"] }),
+            json!({ "to": ["@net:a.1", "bob"], "kind": "question", "options": ["Tue", "Thu"] }),
+            json!({ "to": "@net:a.1", "kind": "question", "options": ["only one"] }),
+            json!({ "to": "@net:a.1", "multiple": true }),
+            json!({ "to": "@net:a.1", "urgent": true, "urgent_reason": "now" }),
+            json!({ "to": "@net:a.1", "subject": "hi" }),
+            json!("@net:a.1"),
+        ] {
+            assert_eq!(peers(m.clone()), None, "{m}");
+        }
     }
 
     #[test]
