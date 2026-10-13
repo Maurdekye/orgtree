@@ -10,6 +10,7 @@ import { RefMdBody } from '../src/canvas/refmd'
 import { WorkRefText } from '../src/canvas/workrefs'
 import { DogChip, DeskDogsProvider } from '../src/canvas/deskdogs'
 import { ticketActions, watchdogActions } from '../src/canvas/objectactions'
+import { AgentNavProvider, agentNavProps, useProvideAgentNav } from '../src/canvas/agentnav'
 import type { Watchdog, WorkItem } from '../src/types'
 
 const item = { slug: 'task', title: 'A task title', status: 'open', archived: false, owner: { node: 'worker' } } as WorkItem
@@ -105,4 +106,45 @@ test('late ticket lookup cannot replace a newer menu or a menu from a changed or
   await view.render(fixture('other'))
   await inAct(() => { release(new Response(JSON.stringify({ item }), { status: 200 })) }); await flush()
   assert.equal(document.querySelector('[role="menu"]'), null)
+})
+
+test('rejected ticket lookup cannot replace a newer menu or survive an org change', async t => {
+  let reject: (reason: Error) => void = () => {}
+  const prior = globalThis.fetch
+  globalThis.fetch = (() => new Promise<Response>((_, fail) => { reject = fail })) as typeof fetch
+  t.after(() => { globalThis.fetch = prior })
+  const fixture = (org: string) => <ObjectNavProvider><ObjectNavHost org={org} dogs={[dog]} openDog={() => {}} openTicket={() => {}} toast={() => {}} />
+    <ObjectMenuBoundary><button {...objectNavProps('ticket', 'task', 'org')}>ticket</button><DogChip dog={dog} onOpen={() => {}} /></ObjectMenuBoundary></ObjectNavProvider>
+  const view = await mountView(fixture('org'), el => el.textContent)
+  t.after(view.unmount)
+  await right(view.el.querySelector('[data-object-nav="ticket"]')!)
+  await right(view.el.querySelector('[data-object-nav="watchdog"]')!)
+  await inAct(() => { reject(new Error('missing')) }); await flush()
+  assert.ok(labels().includes('Pause')); assert.ok(!labels().includes('Object unavailable'))
+  await right(view.el.querySelector('[data-object-nav="ticket"]')!)
+  await view.render(fixture('other'))
+  await inAct(() => { reject(new Error('missing')) }); await flush()
+  assert.equal(document.querySelector('[role="menu"]'), null)
+})
+
+test('agent links keep their existing menu and editing, ordinary links and selected text keep native deferral', async t => {
+  function Register() {
+    useProvideAgentNav(() => [{ label: 'Agent action', onSelect: () => {} }])
+    return null
+  }
+  const view = await mountView(<AgentNavProvider><ObjectNavProvider><Register />
+    <ObjectNavHost org="org" dogs={[dog]} openDog={() => {}} openTicket={() => {}} toast={() => {}} />
+    <ObjectMenuBoundary><button {...agentNavProps('worker')}>worker</button>
+      <span {...objectNavProps('watchdog', dog.id, 'org')}>selectable watchdog
+        <input defaultValue="editable" /><a href="https://example.invalid/">ordinary link</a>
+      </span>
+    </ObjectMenuBoundary></ObjectNavProvider></AgentNavProvider>, el => el.textContent)
+  t.after(async () => { window.getSelection()?.removeAllRanges(); await view.unmount() })
+  await right(view.el.querySelector('[data-agent-nav]')!)
+  assert.deepEqual(labels(), ['Copy agent name', 'Agent action'])
+  for (const selector of ['input', 'a']) assert.equal(await right(view.el.querySelector(selector)!), false)
+  const target = view.el.querySelector('[data-object-nav]')!
+  const range = document.createRange(); range.selectNodeContents(target)
+  window.getSelection()?.addRange(range)
+  assert.equal(await right(target), false)
 })
