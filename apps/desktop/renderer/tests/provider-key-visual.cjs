@@ -10,7 +10,6 @@ module.exports=async page=>{
   },target)
   const dismiss=async(target,name)=>{
     await reveal(target)
-    await reveal(target)
     await page.click(target)
     await page.waitFor('.provider-dialog')
     await page.click('.provider-dialog input')
@@ -30,6 +29,7 @@ module.exports=async page=>{
     await page.mouse('mousePressed',3,3)
     await page.mouse('mouseReleased',3,3)
     if(await dialog())throw new Error(name+' outside click did not dismiss')
+    await reveal(target)
     await page.click(target)
     const discarded=await page.eval(()=>![...document.querySelectorAll('.provider-dialog input')]
       .some(i=>i.value.includes('synthetic-unsaved-draft')))
