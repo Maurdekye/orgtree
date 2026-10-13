@@ -43,6 +43,9 @@ directly), **untested**.
   staffing policy; that is not a product reason to leave it out. Muse has the
   existing same-provider fallback, off by default per agent, with no silent
   move onto paid inference and no mixing of credentials.
+- 2026-10-13 18:32Z: a tool call that runs past the silence limit ends by
+  itself and the agent's turn goes on ("it shouldnt stop the turn, just end
+  the tool call and allow the agent to continue").
 
 ## How the lane runs
 
@@ -92,6 +95,52 @@ turn Orgtree did not start is cancelled; a subagent the scope does not allow
 is stopped (`subagent/stop`); `/compact` is `session/compact`. Items become
 the conversation: agent messages, reasoning, tool calls (orgtree tools on
 their chips), the todo list as the checklist chip.
+
+**Tool calls past the silence limit** (`actor.rs` `stop_silent_muse_tools`,
+`muse.rs` `stop_task`). The silence limit (Runtime `turn_idle_s`, 10 minutes
+by default) counts from the last thing the host sent. When it runs out on a
+Muse turn that is waiting on tool calls, the silence is theirs. Orgtree first
+steers a note into the turn ("Orgtree stopped your powershell call: it
+produced no output for 10 minutes, the silence limit for a turn. Treat that
+call as failed and carry on with your turn."), then stops each such call by
+itself with `task/stop` (a tool call's task id is its item id), and restarts
+the silence clock. The call's chip reads "stopped by Orgtree: no output for 10
+minutes (the silence limit)". Measured on Muse 1.4.6 (synthetic turns in a
+scratch folder): `task/stop` ends a call still in the foreground too; the
+item settles `cancelled` ("cancelled by runtime client"); the steered note
+reaches the model right after that result, in the same step; the model goes
+on in the same turn. Orgtree kills nothing: the host keeps running and Muse
+ends the call's own process.
+
+Unchanged: a turn whose model itself is silent (nothing in flight, or only
+work Muse moved to the background) stops as before ("the turn produced nothing
+for too long and was stopped"), and the total ceiling (`turn_timeout_s`) still
+ends a turn. Each call is stopped once: one still in flight a whole limit after
+its stop ends the turn as before, so a stop that does not take cannot loop.
+Muse moves a shell command still running after about 10 s to the background
+by itself (measured), and the turn no longer waits on it, so such work is
+never stopped here. Waking the agent when such a command finishes, and
+recording its late result, is a separate item
+(`muse-results-of-shell-commands-moved-to-the-back`). In the reported hangs
+each call settled `timeout` ("tool timed out") 601 s after it started.
+Orgtree's 600 s stop of the whole turn came first; Muse settled the call while
+draining its shutdown (1.04 s, its session log's `drain_ms`). Whether Muse has
+a foreground tool timeout of its own is not determined.
+
+The other lanes are unchanged (no ruling to change them). Source-derived from
+`on_timer`: the limit is the same for every lane and any event from the CLI
+resets it. Claude Code (stream-json with partial messages), Codex (app-server
+notifications, command output streamed as it arrives) and Antigravity
+(stream-json) send nothing while a call is silent. So a call silent for the
+whole limit still ends the whole turn there, as it did on Muse. Orgtree sets
+none of their own tool timeouts; Antigravity gets only `--print-timeout`,
+equal to the turn ceiling. Whether one of their calls can stay silent that
+long is up to their CLIs:
+- Claude Code's Bash tool times out after 2 minutes by default and at most 10
+  (its tool definition), so a call given the maximum meets a 10-minute limit
+  as it ends. Its MCP calls wait as long as `MCP_TOOL_TIMEOUT` allows (not
+  verified here).
+- Codex's and Antigravity's own timeouts are not verified here.
 
 **What the log keeps.** No raw MSP request or answer reaches the engine log:
 `session/start` and `session/resume` carry the session's configuration, a
@@ -342,6 +391,8 @@ status and the exact HEAD it ran on.
 | `question-options.mjs` (question cards) | not run here: it hosts a mail hub; the question-card unit tests ran (above) |
 | `org-accounts.mjs` | 23 of 24: "the agent tool refuses it too" fails the same way on the exact base `67fc92e` (an agent hire now needs an explicit index); not caused here |
 | Rig `muse-real.mjs` on the REAL Muse Code 1.4.6, the user's own login | see below |
+| Engine unit tests `runtime::actor::muse_silence_tests` (which calls a silent turn waits on: the foreground ones, each stopped once; backgrounded work never; the note names the call and the limit) | 3 passed |
+| Rig `muse-tool-silence.mjs` (4 s limit), the tool-call stop. One silent call: the note first, then the call alone; the turn ends well, the host untouched, the chip says why. A silent model: the turn stops as before. Two silent calls: each stopped in its turn. A stop that does not take: asked once, the turn stops a limit later. Backgrounded work: not stopped. A 10 s total ceiling: still ends the turn | 13 checks passed; `turn-failures.mjs` (15) and `muse-lane.mjs` (48) pass on the same engine |
 
 **Red controls** (the same proof, run against an engine without the change):
 without the Muse fallback five checks fail (the move to the profile, its
@@ -372,7 +423,11 @@ files added (`441d037`) fails exactly the four corrected-behaviour tests, their
 three controls passing. Round 4, against an engine compiled from a clean
 checkout of `d982c87` (sha256 `210a78fe…`): `muse-held-replay.mjs` fails its
 three give-back checks (the seats are moved and released with no mail; the
-retry happens there too), its setup and no-request control passing.
+retry happens there too), its setup and no-request control passing. The
+tool-call stop, against an engine compiled from a clean checkout of its base:
+`muse-tool-silence.mjs` fails 10 of its 13 checks (every silent call ends its
+whole turn at the limit, nothing is stopped alone), its setup, silent-model and
+backgrounded-work controls passing.
 
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
@@ -409,6 +464,7 @@ be paid).
 | Mid-turn mail into the running turn | `turn/steer` exact turn | tool-boundary hook | same as Codex | measured (fake) |
 | Queued input while busy | `ifBusy: queue` | same | same | measured (fake) |
 | Interrupt | `turn/interrupt`, ends cancelled | same | same | measured (fake) |
+| A tool call silent for the silence limit | that call alone is stopped (`task/stop`, a note naming the limit first) and the turn goes on | the whole turn ends (unchanged) | the whole turn ends (unchanged) | measured (fake proof; the MSP stop, note and continuation measured on real Muse 1.4.6); other lanes source-derived |
 | Resume across restarts | `session/resume` | same | same | measured (real) |
 | Compaction | `/compact` → `session/compact`; cheap compact as everywhere | same | same | measured (fake); real untested |
 | Orgtree tools, caller attribution | session MCP server | same | same | measured (fake) |
@@ -503,5 +559,7 @@ renderer's `canvas/{shared,OrgCanvas,cards,modals,desk,accounts,accountsregistry
 `http/{nodes,mailbox}.rs`, `feed/mod.rs`; the renderer's
 `canvas/{modals,accountsregistry}.tsx` and tests `musequeued`, `museremoval`. Rig:
 `tools/rig/fakecli/src/muse.rs`,
-`proofs/muse-{lane,visual,real,r1,routes,placement,r2,ui-logins,r4-removal,r4-routes,held-replay}.mjs`,
+`proofs/muse-{lane,visual,real,r1,routes,placement,r2,ui-logins,r4-removal,r4-routes,held-replay,tool-silence}.mjs`,
 `desktop/muse-{visual,effort,theme,logins}.cjs`, `up --real-muse`, `up --quiet-log`.
+The tool-call stop: `runtime/{actor,muse}.rs`; the fake host's `task/stop`,
+`task/list` and silent tool steps.

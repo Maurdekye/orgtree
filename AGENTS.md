@@ -21,6 +21,17 @@
   The popped-out org surface shares DocketModal; agent/team lists are unchanged.
   [decided: user 2026-10-13 18:46UTC; verified: `canvas/docket.tsx`]
 
+- A Muse tool call that produces nothing for the turn's silence limit
+  (`turn_idle_s`) is stopped by itself and the turn goes on: a `turn/steer`
+  note naming the limit, then MSP `task/stop` on the call's item id; the clock
+  restarts. A silent model (nothing in flight, or only work Muse moved to the
+  background), a stopped call still running one limit later, and the total
+  ceiling still end the turn. Other lanes still end the whole turn on any
+  silence (unchanged, no ruling). See [Muse: tool calls past the silence
+  limit](docs/rust-engine/muse-code.md). [decided: user 2026-10-13 18:32Z;
+  verified: `actor.rs` `stop_silent_muse_tools`, `muse.rs` `stop_task`, real
+  Muse 1.4.6 probes 2026-10-13]
+
 - Ctrl/Cmd+Z runs the newest visible toast Undo in its own window; keep text
   editor undo and the 12-second deadline. Clicks and mirrors consume the same
   callback once before invoking it. See [toast shortcut](docs/rust-engine/toast-undo-shortcut.md).
