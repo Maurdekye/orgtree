@@ -11,7 +11,8 @@
 //      the readers, while their safe summary line does;
 //   4. removing the ORIGINAL key reassigns its seats (unbound and bound) to
 //      another key, or freezes a live seat when none is left, clears defaults,
-//      and the usage tool no longer offers the removed lane;
+//      and the usage tool no longer offers the removed lane; an org-first
+//      writer holding the org makes it retry whole (NOWAIT), or refuse unchanged;
 //   5. on a LATER start (no import), a stored favorite is hireable before the
 //      provider discovery finishes;
 //   6. two replacements with the same secret at once: one succeeds, one is
@@ -236,7 +237,51 @@ export default async function (rig) {
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { default_account: 'openrouter-key' }).catch(() => null)
   p.check('control: the org default names the original before its removal',
     rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d === 'openrouter-key')
-  const r1 = await rig.api('DELETE', '/api/openrouter/keys/openrouter-key')
+  // An org-first writer holding this org (as a folder/settings write does)
+  // while the removal reaches its late default scan: the scan never waits
+  // (NOWAIT), the attempt rolls back whole, and the bounded retry either
+  // outlasts a short hold or refuses with nothing changed.
+  const holdOrg = (secs) => {
+    const h = spawn(path.join(rig.run.pgBin, 'psql.exe'), ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', String(port),
+      '-U', 'orgtree_admin', '-d', 'orgtree_engine', '-c',
+      `BEGIN; SELECT id FROM ot.orgs WHERE slug = '${rig.org}' FOR UPDATE; SELECT pg_sleep(${secs}); COMMIT;`],
+    { env: { ...process.env, PGPASSWORD: password, PGAPPNAME: 'or-proof-org', PGCONNECT_TIMEOUT: '5' }, windowsHide: true, stdio: 'ignore' })
+    const done = new Promise((resolve, reject) => { h.once('error', reject); h.once('exit', resolve) })
+    return { h, done, held: () => rig.waitFor(() => rig.one("SELECT wait_event FROM pg_stat_activity WHERE application_name = 'or-proof-org'")?.wait_event === 'PgSleep',
+      { what: 'the org holder to hold the org row', timeout: 5000, every: 20 }) }
+  }
+  const retries = () => (rig.engineLog().match(/original OpenRouter key removal conflicted; retrying entire transaction/g) ?? []).length
+  const removedEvents = () => rig.sql("SELECT 1 AS e FROM ot.events WHERE op = 'account_removed' AND detail->>'removed_account' = 'openrouter-key'").length
+  const long = holdOrg(2)
+  try {
+    await long.held()
+    const before = retries()
+    const t0 = Date.now()
+    const code = await refused(rig.api('DELETE', '/api/openrouter/keys/openrouter-key'))
+    const ms = Date.now() - t0
+    p.check('while an org-first writer holds the org past the retry budget, removing the original is refused without waiting for it',
+      code != null && ms < 1500, { code, ms })
+    p.check('control: the refusal came after the bounded retries (3 logged)', retries() - before === 3, retries() - before)
+    p.check('the refused removal changed nothing: key, secret, seats, default and events are as before',
+      rig.one("SELECT 1 AS k FROM ot.accounts a JOIN ot.account_secrets s ON s.account_id = a.id WHERE a.id = 'openrouter-key'") != null
+      && account('unbound')?.account == null && account('pinned')?.account === 'openrouter-key' && removedEvents() === 0
+      && rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d === 'openrouter-key',
+      { unbound: account('unbound'), pinned: account('pinned'), events: removedEvents() })
+    p.check('control: the long holder exits cleanly', (await long.done) === 0)
+  } finally {
+    if (long.h.exitCode == null) long.h.kill()
+  }
+  const brief = holdOrg(0.08)
+  let r1
+  try {
+    await brief.held()
+    const before = retries()
+    r1 = await rig.api('DELETE', '/api/openrouter/keys/openrouter-key')
+    p.check('control: a brief org hold made the removal retry at least once', retries() - before >= 1, retries() - before)
+    await brief.done
+  } finally {
+    if (brief.h.exitCode == null) brief.h.kill()
+  }
   p.check('removing the original reassigns its unbound and bound seats to another key',
     account('unbound')?.account === 'openrouter-2' && account('pinned')?.account === 'openrouter-2' && account('unbound')?.frozen == null,
     { r1, unbound: account('unbound'), pinned: account('pinned') })
