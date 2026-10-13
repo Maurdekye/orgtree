@@ -1,7 +1,16 @@
 module.exports=async page=>{
   const results=[]
   const dialog=()=>page.eval(()=>!!document.querySelector('.provider-dialog'))
+  const reveal=target=>page.eval(t=>{
+    const selector=typeof t==='string'?t:t.selector
+    const e=[...document.querySelectorAll(selector)]
+      .find(e=>typeof t==='string'||e.textContent===t.text)
+    if(!e)throw new Error('missing visual target '+JSON.stringify(t))
+    e.scrollIntoView({block:'center'})
+  },target)
   const dismiss=async(target,name)=>{
+    await reveal(target)
+    await reveal(target)
     await page.click(target)
     await page.waitFor('.provider-dialog')
     await page.click('.provider-dialog input')
