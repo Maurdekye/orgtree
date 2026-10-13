@@ -198,7 +198,6 @@ fn clean_label(label: Option<&str>) -> Result<Option<String>> {
 /// The key row already holding this secret, other than `except`. Not
 /// logged: it takes the key.
 async fn holder_of(client: &impl tokio_postgres::GenericClient, key: &str, except: Option<&str>) -> Result<Option<String>> {
-    use tokio_postgres::GenericClient as _;
     Ok(client
         .query_opt(
             "SELECT a.id FROM ot.account_secrets s JOIN ot.accounts a ON a.id = s.account_id
