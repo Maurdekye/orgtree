@@ -492,7 +492,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     };
     let row = tx
-        .query_one("SELECT scope, charter, team_charter, tier, account FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
+        .query_one("SELECT scope, charter, team_charter, tier, account, pending_account->>'account' FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
     crate::domain::tool_groups::validate(&b["tools"])?;
     let before: Value = row.get(0);
@@ -519,9 +519,17 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
         obj.insert("permission_mode".into(), json!(v));
     }
-    // a Muse seat's own login and exact model (its version as this save leaves it)
+    // a Muse seat's own login and exact model (its version as this save leaves it);
+    // an account change queued behind a running turn is the login the next
+    // turn runs on, so that one is asked (as retool asks the account it names)
     let tier: String = row.get(3);
-    let login: Option<String> = row.get(4);
+    let login: Option<String> = match row.get::<_, Option<String>>(5) {
+        Some(queued) => match crate::accounts::choice(Some(&queued)) {
+            crate::accounts::Choice::Account(id) => Some(id),
+            _ => None,
+        },
+        None => row.get(4),
+    };
     let version: Option<String> = match b.get("model_version") {
         Some(v) => v.as_str().filter(|s| !s.is_empty()).map(str::to_string),
         None => before.get("model_version").and_then(Value::as_str).map(str::to_string),

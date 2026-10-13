@@ -2202,10 +2202,24 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             o.remove("effort");
         } else {
             // the agent's own harness and model name its levels (user 2026-10-12):
-            // for Muse, the exact model's row on the login it runs on
+            // for Muse, the exact model's row on the login it runs on once this
+            // call lands, so an account named alongside is the one asked (it
+            // moves below, now or at the turn boundary; independent review
+            // 2026-10-13). Nothing is written before this check.
             let view = engine.accounts.view();
             let version = req.get("model_version").and_then(Value::as_str).filter(|s| !s.is_empty()).or(pinned(&n.scope));
-            crate::providers::check_effort_on(engine, &n.tier, version, n.account.as_deref().and_then(|id| view.get(id)), v)?;
+            let login = match str_arg(req, "account") {
+                None => n.account.as_deref().and_then(|id| view.get(id)),
+                Some(raw) => match crate::accounts::choice(Some(raw)) {
+                    crate::accounts::Choice::Account(a) => match view.get(&a) {
+                        Some(i) => Some(i),
+                        None => refuse!(NotFound, "no account {a}"),
+                    },
+                    // `primary`, `default`, `<provider>/primary`: the provider's own login
+                    _ => None,
+                },
+            };
+            crate::providers::check_effort_on(engine, &n.tier, version, login, v)?;
             o.insert("effort".into(), json!(v));
         }
     }
