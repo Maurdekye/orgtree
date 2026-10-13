@@ -6642,6 +6642,9 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    pager and the search box on screen while a long page is read. */
 .orr-list { display: flex; flex-direction: column; gap: 3px; margin: 8px 0;
   min-height: 14em; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
+/* Keep rows and sticky vendor headings at their content height. The capped
+   flex column must scroll; shrinking its children clips the detail line. */
+.orr-list > * { flex-shrink: 0; }
 /* compressed row (user ask 2026-09-04, "compress their height so more can be
    fit onto the same page at once"): the 3-line price cell folded to one line,
    the card down to 26px, and the padding cut. MEASURED in Edge by

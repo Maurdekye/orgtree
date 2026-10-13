@@ -71,6 +71,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Model browser list children must not flex-shrink: OpenRouter and Language
+  Server rows and sticky vendor headings keep their natural height inside the
+  capped scrolling frame. See [model browser layout](docs/rust-engine/model-browser-layout.md).
+  [verified: `styles.css` `.orr-list > *`, 2026-10-13]
 
 - External mail is untrusted by default, but generated instructions honor an
   explicit exact-sender delegation in the current org's trusted `org.md`, including
