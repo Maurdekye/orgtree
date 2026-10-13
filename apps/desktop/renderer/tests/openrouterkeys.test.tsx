@@ -28,14 +28,14 @@ function key(id: string, over: Partial<OpenRouterKey> = {}): OpenRouterKey {
   }
 }
 
-function stubFetch(seen: Seen[]) {
-  let keys: OpenRouterKey[] = [key('openrouter-key'), key('openrouter-2', { label: 'team', name: 'team' })]
+function stubFetch(seen: Seen[], initial?: OpenRouterKey[]) {
+  let keys: OpenRouterKey[] = initial ?? [key('openrouter-key'), key('openrouter-2', { label: 'team', name: 'team' })]
   const doc = (): OpenRouterDoc => ({
-    installed: true, connected: true, key_set: true, kind: 'api-key', label: 'personal',
+    installed: true, connected: true, key_set: keys.some(k => k.original), kind: 'api-key', label: 'personal',
     credits: { limit: 25, limit_remaining: 16.51, usage: 8.49, usage_daily: null, usage_weekly: null,
       usage_monthly: null, is_free_tier: false, checked_at: '2026-10-11T22:00:00Z' },
     reason: null, favorites: 0, favorites_max: 0, tiers: [], user_enabled: true,
-    keys, any_key: true,
+    keys, any_key: keys.length > 0,
   })
   g.fetch = (url: string, init?: RequestInit) => {
     const u = new URL(String(url), 'http://localhost')
@@ -80,6 +80,29 @@ async function mount() {
   await inAct(async () => { await flush(10) })
   return view
 }
+
+for (const [state, keys, label] of [
+  ['empty', [], 'Add OpenRouter key'],
+  ['added-only', [key('openrouter-2')], 'Add another OpenRouter key'],
+] as const) test(`one header add action opens the correct form with ${state} keys`, async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, [...keys])
+  const view = await mount()
+  try {
+    const adds = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+      .filter(b => /^Add (another )?OpenRouter key$/.test(b.textContent ?? ''))
+    assert.equal(adds.length, 1)
+    assert.equal(adds[0]!.textContent, label)
+    assert.ok(adds[0]!.closest('.set-head-right'))
+    assert.equal(adds[0]!.getAttribute('aria-haspopup'), 'dialog')
+    await inAct(async () => { adds[0]!.click(); await flush(4) })
+    assert.ok(document.querySelector(`[role="dialog"][aria-label="${label}"]`))
+    const overlay = document.querySelector('.provider-dialog')!.parentElement!
+    await inAct(async () => { overlay.click(); await flush(4) })
+    assert.equal(document.querySelector('.provider-dialog'), null)
+    assert.equal(seen.filter(r => r.method !== 'GET').length, 0)
+  } finally { await view.unmount(); delete g.fetch }
+})
 
 function type(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!
