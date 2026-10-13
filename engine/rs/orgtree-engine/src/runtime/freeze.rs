@@ -298,18 +298,48 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
         }
         // a Muse login must itself offer the tier's model (its own catalog,
         // never the user's own login's: user 2026-10-12 19:57Z)
-        let offers = provider != crate::providers::catalog::MUSE || matches!(
-            tokio::time::timeout(FALLBACK_READ, crate::providers::muse_model_for(
-                engine, Some(&a), None, &crate::providers::catalog::model_for(tier, None))).await,
-            Ok(Ok(Some(_))));
+        let offers = provider != crate::providers::catalog::MUSE || muse_login_offers(engine, &a, tier, org_slug).await;
         if offers && crate::usage::has_room(engine, Some(&a), tier)
             && continuation::resolve(engine, org_slug, tier, &a.id).is_ok() {
             return Some(a.id);
         }
         tracing::info!(account = %a.id, tier, "account fallback: no eligible proven room on this login");
     }
-    candidates.iter().find(|id| keys && view.get(id).map(|a| a.is_apikey()).unwrap_or(false)
-        && continuation::resolve(engine, org_slug, tier, id).is_ok()).cloned()
+    if !keys {
+        return None;
+    }
+    for id in &candidates {
+        let Some(a) = view.get(id).filter(|a| a.is_apikey()).cloned() else { continue };
+        if continuation::resolve(engine, org_slug, tier, id).is_err() {
+            continue;
+        }
+        // nor is a Muse key's entitlement ever assumed: the key is asked itself
+        if provider == crate::providers::catalog::MUSE && !muse_login_offers(engine, &a, tier, org_slug).await {
+            tracing::info!(account = %a.id, tier, "account fallback: this Muse API key does not offer the tier's model, or could not be read");
+            continue;
+        }
+        return Some(id.clone());
+    }
+    None
+}
+
+/// Whether a Muse login's own catalog offers `tier`'s model, read within the
+/// fallback's limit: a profile in its own roots, an API key with its own
+/// stored key. Entitlement is never borrowed from another login nor assumed
+/// for a key (user 2026-10-12 19:57Z). Not logged: it handles the key.
+#[nolog]
+async fn muse_login_offers(engine: &Engine, a: &crate::accounts::AccountInfo, tier: &str, org_slug: &str) -> bool {
+    let key = if a.is_apikey() {
+        let Some(key) = crate::providers::muse_stored_key(engine, &a.id, org_slug).await else { return false };
+        Some(key)
+    } else {
+        None
+    };
+    let model = crate::providers::catalog::model_for(tier, None);
+    matches!(
+        tokio::time::timeout(FALLBACK_READ, crate::providers::muse_model_for(engine, Some(a), key.as_deref(), &model)).await,
+        Ok(Ok(Some(_)))
+    )
 }
 
 /// Whether `account` passes the shared continuation checks for `tier` in

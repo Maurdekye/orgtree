@@ -424,6 +424,23 @@ pub fn muse_account_env(engine: &Engine, a: &crate::accounts::AccountInfo, key: 
     }
 }
 
+/// A Muse API-key login's stored key, by the rule a seat's own launch reads
+/// it with (the account's key, unrestricted or this org's). Not logged: it is
+/// the key.
+#[nolog]
+pub async fn muse_stored_key(engine: &Engine, account: &str, org_slug: &str) -> Option<String> {
+    let client = engine.db.get().await.ok()?;
+    let row = client
+        .query_opt(
+            "SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts ac ON ac.id = s.account_id
+              WHERE ac.id = $1 AND ac.provider = 'muse' AND ac.kind = 'apikey' AND coalesce(ac.origin_org, '') IN ('', $2)",
+            &[&account, &org_slug],
+        )
+        .await
+        .ok()??;
+    row.get(0)
+}
+
 /// The catalog row a Muse seat on `account` may run (None: the user's own
 /// login, as discovery read it). A registered login is asked with its own
 /// metadata read, a profile in its roots and a key with itself: entitlement
