@@ -114,7 +114,7 @@ received, and whether the result went back.
 | Codex 0.160.0 (`dynamicTools`) | Codex re-encodes every dynamic tool: properties sorted alphabetically (so `body` before `metadata`), `maxItems` dropped, `strict: false`; the nested object, `required`, `anyOf`, `enum`, `minItems` and descriptions kept. The flat shape gets the same treatment today. | identical |
 | Muse Code 1.4.6 (session MCP) | byte-identical, inside a Responses `namespace` tool `mcp__orgtree` | identical |
 | opencode 2.0.28 (pre-check: its lane had not landed) | Code Mode: MCP tools are called from JavaScript via `execute`, listed in a TypeScript catalog that renders `metadata` as a nested object type with every field, union and optional mark | identical |
-| Antigravity `agy` 1.3.3 | not run: even with its LLM gateway the CLI needs a Google sign-in and an eligibility check before any model call. **So its seats get the flat cards** (coordinator 2026-10-13 21:36Z) | — |
+| Antigravity `agy` 1.3.3 | inconclusive. Its LLM gateway needs a Google sign-in and an eligibility check before any model call, so with a scratch home it never reaches one. One authorized run on the user's sign-in (2026-10-13 21:48Z, inference only to the local fake) reached the fake in Gemini format, but the gateway model was sent **no tools at all** and no MCP server was started. Antigravity offers MCP tools through its own `call_mcp_tool`, not as functions. **So its seats get the flat cards** (coordinator 2026-10-13 21:36Z: flat when the check fails or is inconclusive) | — |
 
 Antigravity has no measured evidence for the nested shape. Today's tool cards
 already contain the structure: `scope_props` gives `orgtree_hire`,
@@ -123,8 +123,9 @@ property, and `orgtree_ask` and `orgtree_request_scope` take arrays of objects.
 But the one Antigravity seat with real turns had the `team` and `user` groups
 off, so no real Antigravity turn is known to have carried an object property
 with nested properties. Only `anyOf`, `enum`, arrays and plain
-`{"type": "object"}` items are known to have passed. A check needs a way past
-the sign-in that does not use the live login.
+`{"type": "object"}` items are known to have passed. A conclusive check needs
+a gateway model that Antigravity treats as able to call tools; how to declare
+one was not found.
 Evidence: `D:\orgtree-work\rig\hubchat-opus\typing\harness\results.md`.
 
 ## The other two parts
