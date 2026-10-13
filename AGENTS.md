@@ -91,6 +91,16 @@
   the Muse provider cyan and other tiers. See [Muse colours](docs/rust-engine/muse-code.md).
   [decided: user 2026-10-13 17:52UTC; verified: renderer `styles.css`, 2026-10-13]
 
+- Tool writing is an observed per-call stream phase, separate from execution.
+  Claude-compatible tool block start/stop clocks persist as `writing_secs` in
+  the admitted chip; unobserved/history clocks remain unavailable. Active
+  snapshots use tool IDs and retire with committed rows. Pencil/arrow labels
+  distinguish writing/execution. Ticket/watchdog link menus share direct-object
+  action builders and the current-org per-window registry. See
+  [timing, menu contract and verification status](docs/rust-engine/tool-writing-and-link-menus.md).
+  [decided: user 2026-10-13 17:47–17:50UTC; verified from source:
+  `runtime/toolwriting.rs`, renderer `toolclock.tsx`, `objectactions.ts`, `objectnav.tsx`]
+
 - Provider/category/collection labels use **Language servers**, including tier
   families, navigation and theme names. Wording about one server stays singular;
   protocol/API/storage IDs remain `langserver`. The engine's
