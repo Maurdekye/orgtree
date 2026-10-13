@@ -8393,19 +8393,18 @@ main:has(> .orgbar.native-header) > .error {
    a model, not a measurement of anyone's vision).
    - wonder #97edd0, mint teal: 11.19:1 / 9.50:1; nearest --tip-seat 21.0,
      --tier-haiku 21.1 (13.2 simulated).
-   - wonder-full #da8181, dusty rose: 5.42:1 / 4.61:1; nearest --prov-claude
-     19.8, --danger-ink 21.3 (12.2 simulated, from --tier-haiku); 126 from
-     Argon in the RGB distance argon.test holds above 120. Magentas sat 4.9
-     from --review in simulated protanopia, rose corals within that 120 of
-     Argon, salmons 11-13 from --danger-ink.
+   - wonder-full #80b8ff, deeper blue (user 2026-10-13): 7.45:1 / 6.33:1;
+     nearest other tier --tier-luna 19.1 CIE76, Muse provider cyan 29.4.
+     Replaces dusty rose #da8181; the F glyph is unchanged. Light-theme
+     icons and hire buttons keep this blue on a dark backing below.
    - spark #ffff7a, electric yellow: 14.47:1 / 12.29:1; nearest --tier-fable
      35.8, --warn 36.3 (21.3 simulated).
-   The three are 59.6-78.0 apart (25.5+ simulated). The W, F and S letters
+   The W, F and S letters
    stay the redundant glyph (F and S are shared with Fable/Flash and
    Sonnet/Sol, told apart by family row and colour, as A is for Astra and
-   Argon); on the light surfaces every tier chip is drawn grey on a dark
-   backing (the rule near the top of this file). */
-:root { --tier-wonder: #97edd0; --tier-wonder-full: #da8181; --tier-spark: #ffff7a; }
+   Argon); on light surfaces the other tier chips retain their existing grey
+   text on a dark backing (the rule near the top of this file). */
+:root { --tier-wonder: #97edd0; --tier-wonder-full: #80b8ff; --tier-spark: #ffff7a; }
 .chip.agents b.t-wonder { color: var(--tier-wonder); }
 .chip.agents b.t-wonder-full { color: var(--tier-wonder-full); }
 .chip.agents b.t-spark { color: var(--tier-spark); }
@@ -8424,6 +8423,11 @@ main:has(> .orgbar.native-header) > .error {
 .hsof button.t-wonder { color: var(--tier-wonder); border-color: color-mix(in srgb, var(--tier-wonder) 45%, var(--line)); }
 .hsof button.t-wonder-full { color: var(--tier-wonder-full); border-color: color-mix(in srgb, var(--tier-wonder-full) 45%, var(--line)); }
 .hsof button.t-spark { color: var(--tier-spark); border-color: color-mix(in srgb, var(--tier-spark) 45%, var(--line)); }
+/* Preserve Wonder Full's blue identity on light surfaces without painting
+   pale blue text on their white inputs. Same dark backing as tier chips. */
+:root:is(.contrast-light, .contrast-solarized-light) :is(.tier.t-wonder-full, .hsof button.t-wonder-full) {
+  color: var(--tier-wonder-full); background: #313131;
+}
 /* the settings section (user 2026-10-10: "it should look similar to
    openrouter"): a server is the OpenRouter key row — name · preset · harness ·
    address with ⟳ ✎ ✕, its digest under it — and its offered models are chips
