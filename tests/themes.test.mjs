@@ -37,9 +37,9 @@ test('Display persists only appearance, honors broadcasts over stale load, and r
   fail=true
   await act(async()=>{select.value='claude';select.dispatchEvent(new window.Event('change',{bubbles:true}))})
   assert.match(document.querySelector('[role=alert]').textContent,/Disk unavailable/)
-  assert.equal(select.value,'langserver')
-  assert.equal(document.documentElement.style.getPropertyValue('--accent'),THEMES.langserver.accent)
-  assert.equal(document.documentElement.style.getPropertyValue('--langserver-gold'),THEMES.langserver.accent)
+  assert.equal(select.value,'muse')
+  assert.equal(document.documentElement.style.getPropertyValue('--accent'),THEMES.muse.accent)
+  assert.equal(document.documentElement.style.getPropertyValue('--langserver-gold'),THEMES.langserver.accent,'the Language Server identity holds under another theme')
   assert.equal(document.documentElement.style.length,8,'accent tokens, their organization copies and shared Language Server identity changed')
   await act(async()=>root.unmount());stop();assert.equal(listeners.size,0);dom.window.close()
 })

@@ -56,7 +56,7 @@ test('Windows ICO contains all required crisp PNG sizes', () => {
 })
 
 test('runtime eye variants contain the same crisp Windows frames', () => {
-  const names = ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']
+  const names = ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'muse']
   const icons = names.map(name => fs.readFileSync(path.join(root, `apps/desktop/assets/orgtree-eye-tray-${name}.ico`)))
   for (const ico of icons) {
     assert.equal(ico.readUInt16LE(0), 0)
@@ -143,7 +143,7 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
   assert.match(main, /tray\?\.setImage\(attentionTotal > 0 && !image\.isEmpty\(\)[\s\S]*?addAttentionDot\([\s\S]*?: image\)/)
   assert.match(main, /window\.setIcon\(image\)/)
-  for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']) assert.match(main, new RegExp(`'orgtree-eye-tray-${name}' \\+ iconExt`))
+  for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'muse']) assert.match(main, new RegExp(`'orgtree-eye-tray-${name}' \\+ iconExt`))
   assert.equal((main.match(/icon: iconPath/g) ?? []).length, 2, 'main and viewer windows')
   assert.ok((main.match(/\.setIcon\(runtimeIcon\(\)\)/g) ?? []).length >= 2, 'main and viewer windows start with runtime icon')
   assert.deepEqual(pkg.build.extraResources.at(-1), { from: 'apps/desktop/assets', to: 'runtime-icons', filter: ['orgtree-eye*.ico'] })
