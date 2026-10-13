@@ -104,8 +104,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   switch, catalog, gates, proven room). A Muse seat is placed, tuned and
   pinned by its own login's catalog (`ops::muse_admit`,
   `providers::check_effort_on`); login reads happen before transactions and
-  an unknown login is refused. Every Muse turn carries the current workspace
-  roots; MSP requests and the launch fingerprint input are never logged.
+  an unknown login is refused. A retool naming an account and an effort
+  checks the effort on that account. Every hire and settings surface reads
+  each login's offer and levels from `/api/providers` › `muse.logins` (pushed
+  when a login's offer changes) and names an eligible subscription login when
+  the one a no-account hire lands on lacks the model; never a key. Removing a
+  Muse login moves a live seat to the own login only where that login offers
+  its exact model, else the seat waits frozen. Every Muse turn carries the
+  current workspace roots; MSP requests and the launch fingerprint input are
+  never logged.
   [decided: user 2026-10-12 18:32-20:31Z, lead 2026-10-13, DECISIONS 76;
   verified: real Muse 1.4.6 and rig proofs 2026-10-13; `docs/rust-engine/muse-code.md`]
 

@@ -760,4 +760,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     Independent review R1 (2026-10-13): every turn carries the current
     workspace roots; no raw MSP request reaches the log; placement, effort and
     pins are judged by the seat's own login's catalog, an unknown login
-    refused. Contract, evidence and every remaining gap: [`muse-code.md`](muse-code.md).
+    refused. Independent review R2 (2026-10-13, lead 08:17Z): every hire and
+    settings surface offers what the seat's login offers, its levels by login
+    and pin, and a retool naming an account and an effort checks the effort on
+    that account. Removing a registered Muse login, refused before, moves a
+    live seat to the user's own login only where that login offers its exact
+    model; otherwise the seat waits frozen saying why (the entitlement rule
+    applied to the existing reassign-or-freeze removal). Contract, evidence
+    and every remaining gap: [`muse-code.md`](muse-code.md).

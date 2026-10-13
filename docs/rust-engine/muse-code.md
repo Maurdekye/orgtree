@@ -183,14 +183,52 @@ fallback, usage probe, identity, a refresh bounded to 10 s;
 op's transaction, never inside it, and a login never read, or whose last read
 failed, is refused as unknown rather than assumed. The user's own login is
 judged by discovery and offers nothing while signed out. Staffing offers a
-Muse tier when some login offers it, lists only the logins that do, and offers
-it with no account named only when the user's own login does (independent
-review R1, 2026-10-13: the user's own entitlement is no prerequisite for
-another login's, and never stands in for it).
+Muse tier when some login offers it, lists only the logins that do (each with
+its own levels for the model; the tier's levels are every level some login
+takes), and offers it with no account named only when the user's own login
+does (independent review R1, 2026-10-13: the user's own entitlement is no
+prerequisite for another login's, and never stands in for it). An omitted
+account auto-placed on the best allowed login (the user's own switched off for
+the org) skips a login that does not offer the model. A retool that names an
+account and an effort together checks the effort on the account it names
+(`primary`, `default` and `muse/primary` are the user's own login), before
+anything is written, and the account move that follows keeps every gate and
+the busy queue; the settings route asks the login of an account change queued
+behind a running turn, the one the next turn runs on (independent review R2,
+2026-10-13). An unchanged saved level keeps the launch's mapping to the
+nearest level the model takes.
+
+**Removing a Muse login.** A registered Muse profile or key can be removed
+like any account (`account_removal::remove`; it was refused before): its
+bindings, queued switches and the defaults naming it move to the provider's
+own login, in one transaction whose late org scan stays `FOR UPDATE NOWAIT`
+with rollback-then-backoff. A live seat moves to the user's own login only if
+that login's own catalog offers its exact model, pinned version included
+(cached catalogs: no provider request in the transaction). Otherwise it is
+unbound and waits frozen (cause `account`), saying which login was removed and
+why, until it is continued on a login that offers the model; the removal's
+answer marks it `frozen`. A seat leaving a Muse login takes a session
+boundary, its session living in that login's own data root. (Claude's and
+Codex's own logins run every tier, so their removals never meet this case.)
 
 **UI.** A Muse family in every hire surface, the agent settings model list,
 quick chat and templates; the Providers row with its tiers and seats; a
-Muse Code card in Usage; Muse in the usage title, glow and history. Colours:
+Muse Code card in Usage; Muse in the usage title, glow and history. What a
+surface offers a Muse seat is what the login it runs on offers:
+`/api/providers` lists a Muse tier when the user's own login or any registered
+login switched on offers it (`own`, `logins`), and `muse.logins` gives every
+login's state and, per tier, the exact model's levels for the latest model and
+each offered version. The payload is pushed to the windows when a login's read
+changes its offer and on every account change. The hire menus, the draft, the
+hire sheet and Quick chat name the first eligible subscription login that
+offers the model when the login a no-account hire would land on (the org's
+default Muse account, else the user's own) does not; a metered key is never
+picked for the user. An agent's settings, its desk's effort control, the
+draft, Quick chat and Quick staff offer the levels of the model's row on the
+seat's login and pin, and the settings say why a login cannot run the chosen
+model. Unknown stays unknown: a login whose catalog is not known is offered as
+before and the engine decides at the door (independent review R2, 2026-10-13).
+Colours:
 `--prov-muse` `#afe5ff` (11.28:1 on `--panel`), rebound on the light surfaces
 to the same hue at 34.6 % lightness, `#0077b0` (4.56:1 or more on every light
 and solarized panel and background), with `--prov-muse-ink` for text on accent
@@ -224,18 +262,22 @@ status and the exact HEAD it ran on.
 | What | Result |
 |---|---|
 | `cargo check --all-targets`; engine and fake CLI builds | 0 warnings |
-| Engine unit tests (Muse, effort, staffing, usage incl. Muse room, accounts, identity, startup incl. granted folders' notes, tool definitions, catalog) | 66 passed |
-| The identity group test `prompt_follows_every_combination_of_group_switches` | fails the same way on the exact bases `9fc30fb` and `67fc92e` as on this branch (measured); not caused here, so left out of the 66 |
-| Typecheck, renderer and desktop TypeScript (283 files of the worktree, TypeScript 7.0.2) | exit 0 |
-| Renderer tests touching providers, accounts, usage, effort, tiers, themes (78 files) | 551 passed |
+| Engine unit tests (Muse, effort, staffing, usage incl. Muse room, accounts, account removal, identity, the phone-link authority on every lane Muse included, startup incl. granted folders' notes, tool definitions, question cards, mail tools, OpenRouter, catalog) | 80 passed |
+| The identity group test `prompt_follows_every_combination_of_group_switches` | fails the same way on the exact bases `9fc30fb` and `67fc92e` as on this branch (measured); not caused here, so left out of the 80 |
+| Typecheck, renderer and desktop TypeScript (TypeScript 7.0.2) | exit 0 |
+| Renderer tests touching providers, accounts, usage, effort, tiers, themes, OpenRouter keys, and `musehire` (each login's offer and levels, the account a hire names) (80 files) | 561 passed |
 | Root tests: `providerlogin` (sign-in door), `themes` (presets), `icon-assets` (tray eyes) | 51 passed |
 | Rig `muse-lane.mjs` on the fake `muse serve`, fallback and API-key fixtures included | 48 checks passed |
 | Rig `muse-r1.mjs`: roots after a resume (B made read-only, C added, unchanged, C revoked); sentinel credentials never in the log, through a start and a resume | 12 passed with verbose logging, 12 with `--quiet-log` |
 | Rig `muse-routes.mjs`: the limit fallback onto the user's own login and every gate that refuses it; the org account-list move | 19 passed |
 | Rig `muse-placement.mjs`: placement, effort and pins by the login, entitled and not, the org default, an unreadable login, a signed-out own login | 13 passed |
+| Rig `muse-r2.mjs`: a retool naming an account and an effort (A to B with max, B to A refused with nothing changed, the primary aliases, the account it is on, an unknown one); a busy seat's queue (retool, settings route); the providers payload and `muse.logins`; staffing kinds and levels; best-allowed placement; removing a Muse login (moved, frozen, the pin) | 14 passed |
+| Rig `muse-ui-logins.mjs`, the real renderer: Full in "Hire a subordinate" only a profile offers and the draft landing there; a signed-out own login; a seat's settings switched to Full leaving out its profile and saying why; pinned and profile levels in settings and on the desk | 7 checks passed; screenshots inspected |
 | Rig `muse-visual.mjs`, the real renderer: cards in charcoal and light, Providers, Usage, the Muse Cyan theme in all four contrast themes, effort names | 24 checks passed; screenshots inspected |
 | Rig `effort-selects.mjs` (existing effort UI) | 12 checks passed |
 | Other providers' account paths, unchanged: `continue-primary.mjs`, `claude-accounts.mjs`, `codex-accounts.mjs`, `fallback-slow-read.mjs` | 46, 19, 22 and 2 passed |
+| The integrated base's own proofs where its source overlaps this lane: `openrouter-keys.mjs`, `openrouter-keys-corrections.mjs`, `openrouter-lane.mjs`, `folder-grants-account-removal.mjs`, `approved-folder-grants.mjs` | 29, 50, 13, 23 and 24 passed |
+| `question-options.mjs` (question cards) | not run here: it hosts a mail hub; the question-card unit tests ran (above) |
 | `org-accounts.mjs` | 23 of 24: "the agent tool refuses it too" fails the same way on the exact base `67fc92e` (an agent hire now needs an explicit index); not caused here |
 | Rig `muse-real.mjs` on the REAL Muse Code 1.4.6, the user's own login | see below |
 
@@ -254,7 +296,10 @@ revoked one stays; and all three sentinels reach the log. Without C4a and C4b
 seven route checks fail: the user's own login is not taken, a key is taken
 before it, and the org-list move strands seats on logins without their model
 or past a needed sign-in. Without the placement change all thirteen placement
-checks fail.
+checks fail. Against the round-2 predecessor (the reviewed candidate rebased
+onto this base), `muse-r2.mjs` fails 13 of its 14 checks (only its control,
+the account the seat is on, passes) and `muse-ui-logins.mjs` 6 of its 7 (only
+the unpinned control passes).
 
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
@@ -307,7 +352,8 @@ be paid).
 | Cache countdown and keepalive | none (no lifetime published) | 5 min / 1 h, keepalive | 30 min estimate | measured (no TTL); receipts only |
 | Contributor mode | off per process, saved setting untouched | n/a | n/a | measured (real, incl. resume) |
 | Account fallback on limits | opt-in per agent; registered Muse logins, then the user's own login, each offering the seat's exact model (pin included), passing every gate and proving room; keys only with the key switch, on their own catalog | same mechanism (the own login as a registered row) | same as Claude Code | measured (fake, with red controls); real untested (one account) |
-| Placement and effort by the login | hire, rehire, switch, account move, effort and pins judged by the seat's own login's catalog; unknown refused | same outcome (Claude Code's models are fixed) | same outcome | measured (fake, with red controls) |
+| Placement and effort by the login | hire, rehire, switch, account move, a retool naming both, effort and pins judged by the seat's own login's catalog; unknown refused; every hire and settings surface offers what that login offers | same outcome (Claude Code's models are fixed) | same outcome | measured (fake, routes and rendered, with red controls) |
+| Removing an account | bindings move to the own login, a live seat only where that login offers its exact model, else it waits frozen saying why | moves to the own login (which runs every tier) | same as Claude Code | measured (fake, with red control) |
 | Resume after changed folder grants | every turn carries the current roots | same outcome (folders given at each launch) | same outcome | measured (fake sticky-roots model, with red control); real untested |
 | Credentials in the engine log | no raw MSP request or answer; safe method lines | not audited here | not audited here | measured (sentinels, verbose and quiet, with red control) |
 | Continue on another login, `muse/primary` | host restarts in that login's roots; session resumed if that login has it, else a new one with a handoff note | same | same (new conversation) | measured (fake); the real session store per login inferred |
@@ -376,6 +422,9 @@ Engine: `providers/{mod,muse_models,catalog,codex_models}.rs`,
 renderer's `canvas/{shared,OrgCanvas,cards,modals,desk,accounts,accountsregistry,effortbar,effortlevels}`,
 `App.tsx`, `api.ts`, `registrylabels.ts`, `usagehistory.tsx`,
 `orgaccounts.tsx`, `QuickChatBox.tsx`, `shell/templatepicker.tsx`,
-`themes.tsx`, `styles.css`. Rig: `tools/rig/fakecli/src/muse.rs`,
-`proofs/muse-{lane,visual,real,r1,routes,placement}.mjs`,
-`desktop/muse-{visual,effort,theme}.cjs`, `up --real-muse`, `up --quiet-log`.
+`canvas/{musehire,quickstaff,staffingoptions}.ts`,
+`themes.tsx`, `styles.css`. Engine, round 2: `domain/account_removal.rs`,
+`runtime/prompt.rs` (the phone-link authority tests on the Muse lane). Rig:
+`tools/rig/fakecli/src/muse.rs`,
+`proofs/muse-{lane,visual,real,r1,routes,placement,r2,ui-logins}.mjs`,
+`desktop/muse-{visual,effort,theme,logins}.cjs`, `up --real-muse`, `up --quiet-log`.
