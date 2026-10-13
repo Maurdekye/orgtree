@@ -142,8 +142,8 @@ root, every build/test inside the machine build lock and a kernel Job limit.
 | Rig `effort-selects.mjs` (existing effort UI) | 12 checks passed |
 | Rig `muse-real.mjs` on the REAL Muse Code 1.4.6, the user's own login | see below |
 
-**Real Muse Code, 2026-10-13** (`muse-real.mjs`, evidence
-`D:\orgtree-work\muse-code-opus-evidence\real-muse-20261013`). The account's
+**Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
+in the implementing agent's evidence folder, off the repository). The account's
 catalog offered Wonder 1.0, Wonder Full 1.0, Spark 1.3 and Spark 1.2. Each ran
 one synthetic turn at `minimal` through the adapter and answered `READY`; the
 turn row, `run.model.configured` and every completion in Muse's own session
