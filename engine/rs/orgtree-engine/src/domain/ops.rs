@@ -400,17 +400,58 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
     Ok(())
 }
 
+/// A Muse seat's placement, judged by the login it will run on (`account`: a
+/// registered id, else the user's own login) and the exact model it runs
+/// (`version` pinned): that login's own catalog must offer it (user
+/// 2026-10-12 19:57Z: a bundled row, another login's catalog or a guess
+/// never does). A login never read, or whose read failed, is refused as
+/// unknown, not inferred. The reads happen before the transaction
+/// (`ops::run`, `providers::muse_logins_refresh`); this only consults them.
+#[logged]
+fn muse_admit(engine: &Engine, tier: &str, version: Option<&str>, account: Option<&str>) -> Result<()> {
+    if !catalog::is_muse(tier) {
+        return Ok(());
+    }
+    let view = engine.accounts.view();
+    let login = account.and_then(|id| view.get(id)).filter(|a| a.provider == catalog::MUSE).cloned();
+    match crate::providers::muse_offer(engine, login.as_ref(), &catalog::model_for(tier, version)) {
+        crate::providers::MuseOffer::Offered(_) => Ok(()),
+        crate::providers::MuseOffer::NotOffered(why) => {
+            refuse!(Conflict, "{why} now, so it cannot run {tier} (App settings › Providers › Muse lists what each login offers)")
+        }
+        crate::providers::MuseOffer::Unknown(why) => refuse!(Conflict, "{why}: {tier} is not placed on a login whose catalog is unknown; try again in a moment"),
+    }
+}
+
+/// The seat's pinned model version (its scope's `model_version`).
+#[nolog]
+fn pinned(scope: &Value) -> Option<&str> {
+    scope.get("model_version").and_then(Value::as_str).filter(|v| !v.is_empty())
+}
+
+/// Whether an op places or tunes a Muse seat: its tier, or the tier of the
+/// node it names. Its logins are read before the transaction (bounded).
+#[logged]
+async fn muse_op(engine: &Engine, org: &OrgHandle, req: &Value) -> bool {
+    if !matches!(req["op"].as_str().unwrap_or(""), "hire" | "rehire" | "switch_model" | "account" | "retool") {
+        return false;
+    }
+    if str_arg(req, "tier").is_some_and(catalog::is_muse) {
+        return true;
+    }
+    let Some(node) = str_arg(req, "node") else { return false };
+    let Ok(client) = engine.db.get().await else { return false };
+    client.query_opt("SELECT tier FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' LIMIT 1", &[&org.id, &node])
+        .await.ok().flatten().is_some_and(|r| catalog::is_muse(&r.get::<_, String>(0)))
+}
+
 /// The seat price of a tier (catalog, an OpenRouter favorite, or a language server's model).
 #[logged]
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
     if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
         refuse!(Conflict, "Claude models through Antigravity are turned off in App settings > Runtime");
     }
-    // a Muse tier is placed only while the signed-in account's own catalog
-    // offers its model (user 2026-10-12: never a bundled row or a guess)
-    if catalog::is_muse(tier) && !crate::providers::muse_offered(engine, tier) {
-        refuse!(Conflict, "the signed-in Muse account does not offer {tier} now (App settings › Providers › Muse lists what it offers)");
-    }
+    // a Muse tier's placement is judged once its login is known (`muse_admit`)
     if let Some(t) = catalog::tier(tier) {
         return Ok(t.seat);
     }
@@ -446,6 +487,11 @@ fn str_arg<'a>(req: &'a Value, k: &str) -> Option<&'a str> {
 #[logged]
 pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: &Value) -> Result<Value> {
     let op = req["op"].as_str().unwrap_or("").to_string();
+    // a Muse seat is placed by its own login's catalog: read stale logins now,
+    // before the transaction, never inside it
+    if muse_op(engine, org, req).await {
+        crate::providers::muse_logins_refresh(engine, &org.slug).await;
+    }
     let mut attempt = 0;
     loop {
         attempt += 1;
@@ -844,7 +890,8 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     if !engine.settings.provider_enabled(provider) {
         refuse!(Conflict, "{} is turned off in App settings", catalog::provider_label(provider));
     }
-    if let Some(e) = str_arg(req, "effort") {
+    // a Muse seat's level is judged with its login below
+    if let Some(e) = str_arg(req, "effort").filter(|_| !catalog::is_muse(&tier)) {
         crate::providers::check_effort(engine, &tier, e)?;
     }
     let grant = req["grant"].as_f64().unwrap_or(0.0);
@@ -942,6 +989,16 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             _ if no_original => refuse!(Conflict, "the original OpenRouter key was removed and no other OpenRouter key this org \
                                                    uses can run {tier}; name one, or add a key in App settings › Providers › OpenRouter"),
             _ => refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, &org.slug, &crate::org_accounts::default_lane(provider), provider)),
+        }
+    }
+    // a Muse seat: the login it lands on (explicit, the org's default, the
+    // best allowed, or the user's own) must offer the model, and its level
+    // must be one that model names there
+    if catalog::is_muse(&tier) {
+        muse_admit(engine, &tier, None, account.as_deref())?;
+        if let Some(e) = str_arg(req, "effort") {
+            let view = engine.accounts.view();
+            crate::providers::check_effort_on(engine, &tier, None, account.as_deref().and_then(|id| view.get(id)), e)?;
         }
     }
     // A user/internal hire without placement keeps the historical append rule,
@@ -1089,6 +1146,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         refuse!(Conflict, "provider is disabled for {tier}");
     }
     validate_account(engine, &org.slug, &tier, str_arg(req, "account").or(n.account.as_deref()))?;
+    muse_admit(engine, &tier, pinned(&n.scope), str_arg(req, "account").or(n.account.as_deref()))?;
     let anchor_stake = anchor.as_ref().map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = req["grant"].as_f64().unwrap_or(n.grant);
     if grant < 0.0 { refuse!(BadRequest, "a grant cannot be negative"); }
@@ -1623,6 +1681,14 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         None
     };
     let crossing = from != to || harnesses.is_some();
+    // the login the seat runs on after the switch: the one named, else (same
+    // provider) the one it is on, else the new provider's own login
+    let lands = match crate::accounts::choice(str_arg(req, "account")) {
+        crate::accounts::Choice::Account(a) => Some(a),
+        crate::accounts::Choice::Primary => None,
+        crate::accounts::Choice::Unset => if from == to { n.account.clone() } else { None },
+    };
+    muse_admit(engine, &tier, pinned(&n.scope), lands.as_deref())?;
     if busy(tx, n.id).await? {
         let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": crossing, "account": req["account"] }), true).await?;
         event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier, "by": actor.label() }), fx).await?;
@@ -1771,6 +1837,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
         crate::accounts::Choice::Account(a) => Some(a),
         _ => None,
     };
+    muse_admit(engine, target_tier, pinned(&n.scope), acc.as_deref())?;
     if busy(tx, n.id).await? {
         if acc == n.account {
             tx.execute("UPDATE ot.agents SET pending_account = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?;
@@ -2134,8 +2201,11 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         if v.is_empty() {
             o.remove("effort");
         } else {
-            // the agent's own harness and model name its levels (user 2026-10-12)
-            crate::providers::check_effort(engine, &n.tier, v)?;
+            // the agent's own harness and model name its levels (user 2026-10-12):
+            // for Muse, the exact model's row on the login it runs on
+            let view = engine.accounts.view();
+            let version = req.get("model_version").and_then(Value::as_str).filter(|s| !s.is_empty()).or(pinned(&n.scope));
+            crate::providers::check_effort_on(engine, &n.tier, version, n.account.as_deref().and_then(|id| view.get(id)), v)?;
             o.insert("effort".into(), json!(v));
         }
     }

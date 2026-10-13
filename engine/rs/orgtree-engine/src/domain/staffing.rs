@@ -33,8 +33,9 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
     let st = engine.providers.state.load();
     let mut out: Vec<Offer> = catalog::TIERS
         .iter()
-        // a Muse tier is conditional on the signed-in account's own catalog
-        .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && crate::providers::muse_offered(engine, t.tier)))
+        // a Muse tier is conditional on a Muse login's own catalog: the user's
+        // own, or a registered one (primary entitlement is no prerequisite)
+        .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && muse_somewhere(engine, t.tier)))
             && engine.settings.provider_enabled(t.provider))
         .filter(|t| !catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled())
         .filter(|t| crate::usage::antigravity_limit(engine, t.tier).is_none())
@@ -45,7 +46,8 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
             catalog::MUSE => st.muse.installed,
             _ => false,
         })
-        .map(|t| Offer { tier: t.tier.to_string(), seat: t.seat, provider: t.provider, efforts: efforts(t, &st) })
+        .map(|t| Offer { tier: t.tier.to_string(), seat: t.seat, provider: t.provider,
+                         efforts: if t.provider == catalog::MUSE { muse_efforts(engine, t) } else { efforts(t, &st) } })
         .collect();
     let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
     if key_set && engine.settings.provider_enabled(catalog::OPENROUTER) {
@@ -113,6 +115,29 @@ fn efforts(t: &catalog::Tier, state: &crate::providers::State) -> Vec<&'static s
     catalog::EFFORT_ORDER.iter().copied().filter(|e| names.iter().any(|n| n == e)).collect()
 }
 
+/// Whether some Muse login offers `tier`: the user's own, or a registered,
+/// enabled one, by its own catalog as last read.
+#[logged]
+fn muse_somewhere(engine: &Engine, tier: &str) -> bool {
+    let model = catalog::model_for(tier, None);
+    crate::providers::muse_offered(engine, tier)
+        || engine.accounts.view().all().into_iter().filter(|a| a.provider == catalog::MUSE && a.enabled)
+            .any(|a| matches!(crate::providers::muse_offer(engine, Some(a), &model), crate::providers::MuseOffer::Offered(_)))
+}
+
+/// A Muse tier's level names: the user's own login's row when it offers the
+/// tier, else the first registered login's that does (a hire is checked
+/// again against the login it lands on).
+#[logged]
+fn muse_efforts(engine: &Engine, t: &catalog::Tier) -> Vec<&'static str> {
+    let own = crate::providers::effort_names_on(engine, t.tier, None, None);
+    let names = own.or_else(|| engine.accounts.view().all().into_iter()
+        .filter(|a| a.provider == catalog::MUSE && a.enabled)
+        .find_map(|a| crate::providers::effort_names_on(engine, t.tier, None, Some(a))))
+        .unwrap_or_default();
+    catalog::EFFORT_ORDER.iter().copied().filter(|e| names.iter().any(|n| n == e)).collect()
+}
+
 /// The login a hire that names no account runs on: the org's default
 /// account when it can serve `tier`, else the provider's own sign-in (None).
 #[logged]
@@ -148,6 +173,9 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
                 && a.auth != "signed_out"
                 && a.limited_for(tier, now).is_none()
                 && crate::usage::at_limit(engine, Some(a), tier).is_none()
+                // a Muse login offers the tier by its own catalog, never by another's
+                && (provider != catalog::MUSE || matches!(
+                    crate::providers::muse_offer(engine, Some(a), &catalog::model_for(tier, None)), crate::providers::MuseOffer::Offered(_)))
         })
         .map(|a| {
             let mut v = json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email });
@@ -203,6 +231,7 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
                 let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, &org.slug) };
                 // the user's hard rule: never a model on a login whose window it spends is at 100%
                 let host = host_for(engine, &org.slug, &t.tier, t.provider)
+                    && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier))
                     && (accountless(t.provider)
                         || crate::usage::at_limit(engine, default_login(engine, org_default.as_deref(), &t.tier).as_ref(), &t.tier).is_none());
                 if accounts.is_empty() && !host {
@@ -471,7 +500,8 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
         .into_iter()
         .filter_map(|t| {
             let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
-            let host = host_for(engine, org_slug, &t.tier, t.provider);
+            let host = host_for(engine, org_slug, &t.tier, t.provider)
+                && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier));
             if accounts.is_empty() && !host {
                 return None;
             }

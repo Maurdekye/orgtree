@@ -246,8 +246,15 @@ pub async fn identity(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> A
         // Muse says who is signed in (`account/read` on a metadata host): its
         // auth file is never read here
         match crate::providers::muse_probe_login(&e, a.config_dir.as_deref()).await {
-            Ok(p) => (p.account_state.as_deref().is_some_and(|s| s != "loggedOut"), p.label),
-            Err(err) => return Err(ApiError::internal(format!("Muse could not say who is signed in: {err:#}"))),
+            Ok(p) => {
+                // the same read says what this login offers (placement checks)
+                crate::providers::muse_login_seen(&e, &a.id, Ok(&p));
+                (p.account_state.as_deref().is_some_and(|s| s != "loggedOut"), p.label)
+            }
+            Err(err) => {
+                crate::providers::muse_login_seen(&e, &a.id, Err(format!("{err:#}")));
+                return Err(ApiError::internal(format!("Muse could not say who is signed in: {err:#}")));
+            }
         }
     } else {
         identity_of(&a.provider, a.config_dir.as_deref())

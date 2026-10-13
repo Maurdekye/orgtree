@@ -176,5 +176,7 @@ pub async fn quick_commit(State(e): State<Arc<Engine>>, Path((slug, wid)): Path<
 #[logged]
 pub async fn staffing_options(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    // each registered Muse login offers what its own catalog lists: stale ones are read first
+    crate::providers::muse_logins_refresh(&e, &o.slug).await;
     Ok(Json(crate::domain::staffing::options(&e, &o.slug)))
 }

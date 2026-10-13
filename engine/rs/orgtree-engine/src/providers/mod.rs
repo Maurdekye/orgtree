@@ -61,6 +61,29 @@ pub struct Providers {
     pub state: ArcSwap<State>,
     /// `~/.claude.json` mcpServers, re-read when the file changes
     mcp: ArcSwap<McpRegistry>,
+    /// each registered Muse login's last own metadata read (account id →
+    /// read): what it offers, as the login itself said (the user's own login
+    /// is `State::muse_probe`)
+    muse_logins: ArcSwap<std::collections::HashMap<String, MuseLoginRead>>,
+}
+
+/// One registered Muse login's catalog as its own metadata read last saw it.
+#[derive(Clone, Debug)]
+pub struct MuseLoginRead {
+    pub at: chrono::DateTime<chrono::Utc>,
+    pub catalog: Option<muse_models::MuseCatalog>,
+    pub signed_in: Option<bool>,
+    /// why the read failed (the catalog is then the previous read's, if any)
+    pub error: Option<String>,
+}
+
+/// What a Muse login offers for one model, by its own catalog.
+#[derive(Clone, Debug)]
+pub enum MuseOffer {
+    Offered(muse_models::MuseModel),
+    NotOffered(String),
+    /// never read, or its last read failed: entitlement is not inferred
+    Unknown(String),
 }
 
 #[derive(Default)]
@@ -450,15 +473,173 @@ pub async fn muse_stored_key(engine: &Engine, account: &str, org_slug: &str) -> 
 pub async fn muse_model_for(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, key: Option<&str>, model: &str)
     -> anyhow::Result<Option<muse_models::MuseModel>> {
     let Some(a) = account else { return Ok(engine.providers.muse_model(model)) };
-    let exe = engine.providers.muse_path().ok_or_else(|| anyhow::anyhow!("Muse Code is not installed"))?;
-    let dir = engine.cfg.path("profiles").join("muse-discovery");
-    std::fs::create_dir_all(&dir)?;
-    let env = muse_models::clean_env(&muse_account_env(engine, a, key)?);
-    let probe = muse_models::probe(&exe, &env, &dir).await?;
+    let probe = muse_login_probe(engine, a, key).await?;
     if probe.account_state.as_deref() == Some("loggedOut") {
         anyhow::bail!("the Muse account {} is not signed in", a.id);
     }
     Ok(probe.catalog.as_ref().and_then(|c| c.offered(model)).cloned())
+}
+
+/// One metadata read of a registered Muse login (a profile in its roots, a
+/// key with itself), kept as that login's catalog for placement checks.
+/// Not logged: it handles the key.
+#[nolog]
+async fn muse_login_probe(engine: &Engine, a: &crate::accounts::AccountInfo, key: Option<&str>) -> anyhow::Result<muse_models::MuseProbe> {
+    let read = async {
+        let exe = engine.providers.muse_path().ok_or_else(|| anyhow::anyhow!("Muse Code is not installed"))?;
+        let dir = engine.cfg.path("profiles").join("muse-discovery");
+        std::fs::create_dir_all(&dir)?;
+        let env = muse_models::clean_env(&muse_account_env(engine, a, key)?);
+        muse_models::probe(&exe, &env, &dir).await
+    }
+    .await;
+    muse_login_seen(engine, &a.id, read.as_ref().map_err(|e| format!("{e:#}")));
+    read
+}
+
+/// Keep what one registered Muse login's own read said: its catalog and
+/// sign-in, or why the read failed (an earlier catalog stays, dated).
+#[nolog]
+pub fn muse_login_seen(engine: &Engine, account: &str, read: Result<&muse_models::MuseProbe, String>) {
+    let now = chrono::Utc::now();
+    engine.providers.muse_logins.rcu(|cur| {
+        let mut next = (**cur).clone();
+        let entry = match &read {
+            Ok(p) => MuseLoginRead {
+                at: now,
+                catalog: p.catalog.clone(),
+                signed_in: p.account_state.as_deref().map(|s| s != "loggedOut"),
+                error: None,
+            },
+            Err(e) => {
+                let prev = cur.get(account);
+                MuseLoginRead {
+                    at: prev.map(|r| r.at).unwrap_or(now),
+                    catalog: prev.and_then(|r| r.catalog.clone()),
+                    signed_in: prev.and_then(|r| r.signed_in),
+                    error: Some(e.clone()),
+                }
+            }
+        };
+        next.insert(account.to_string(), entry);
+        next
+    });
+}
+
+/// How long a registered login's read stands for a placement check before
+/// it is read again (as often as its usage is probed).
+pub const MUSE_LOGIN_FRESH: Duration = Duration::from_secs(300);
+
+/// Read a registered Muse login again unless its last good read is recent;
+/// at most `FALLBACK`-style bounded (10 s). Run before a transaction that
+/// will judge a placement on it, never inside one. Not logged: the key.
+#[nolog]
+pub async fn muse_login_refresh(engine: &Engine, a: &crate::accounts::AccountInfo, org_slug: &str) {
+    if a.provider != catalog::MUSE {
+        return;
+    }
+    let fresh = engine.providers.muse_logins.load().get(&a.id).is_some_and(|r| {
+        r.error.is_none() && (chrono::Utc::now() - r.at).to_std().is_ok_and(|age| age < MUSE_LOGIN_FRESH)
+    });
+    if fresh {
+        return;
+    }
+    let key = if a.is_apikey() {
+        match muse_stored_key(engine, &a.id, org_slug).await {
+            Some(k) => Some(k),
+            None => {
+                muse_login_seen(engine, &a.id, Err("its API key is not stored for this organization".into()));
+                return;
+            }
+        }
+    } else {
+        None
+    };
+    if tokio::time::timeout(Duration::from_secs(10), muse_login_probe(engine, a, key.as_deref())).await.is_err() {
+        muse_login_seen(engine, &a.id, Err("its metadata read took longer than 10 s".into()));
+    }
+}
+
+/// Read every registered Muse login `org_slug` may use whose last read is
+/// not recent (before staffing answers or an op's transaction).
+#[logged]
+pub async fn muse_logins_refresh(engine: &Engine, org_slug: &str) {
+    let view = engine.accounts.view();
+    let logins: Vec<crate::accounts::AccountInfo> = view.all().into_iter()
+        .filter(|a| a.provider == catalog::MUSE && a.enabled && a.available_to(Some(org_slug)))
+        .cloned()
+        .collect();
+    for a in &logins {
+        muse_login_refresh(engine, a, org_slug).await;
+    }
+}
+
+/// What the Muse login a seat runs on offers for `model`, by its own catalog
+/// as last read (None: the user's own login, read by discovery). Never a
+/// provider request: placement checks run inside transactions.
+#[logged]
+pub fn muse_offer(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, model: &str) -> MuseOffer {
+    let Some(a) = account else {
+        let st = engine.providers.state.load();
+        if st.muse_probe.as_ref().and_then(|d| d.probe.account_state.as_deref()) == Some("loggedOut") {
+            return MuseOffer::NotOffered("the signed-in Muse login is signed out".into());
+        }
+        return match st.muse_probe.as_ref().and_then(|d| d.probe.catalog.as_ref()) {
+            Some(c) => match c.offered(model) {
+                Some(m) => MuseOffer::Offered(m.clone()),
+                None => MuseOffer::NotOffered(format!("the signed-in Muse account does not offer {model}")),
+            },
+            None => MuseOffer::Unknown(st.muse_error.clone().unwrap_or_else(|| "the signed-in Muse account has not been read yet".into())),
+        };
+    };
+    let logins = engine.providers.muse_logins.load();
+    let Some(r) = logins.get(&a.id) else {
+        return MuseOffer::Unknown(format!("what the Muse account {} offers has not been read yet", a.id));
+    };
+    if r.signed_in == Some(false) {
+        return MuseOffer::NotOffered(format!("the Muse account {} is not signed in", a.id));
+    }
+    match (&r.catalog, &r.error) {
+        (Some(c), None) => match c.offered(model) {
+            Some(m) => MuseOffer::Offered(m.clone()),
+            None => MuseOffer::NotOffered(format!("the Muse account {} does not offer {model}", a.id)),
+        },
+        (_, Some(e)) => MuseOffer::Unknown(format!("what the Muse account {} offers could not be read ({e})", a.id)),
+        (None, None) => MuseOffer::Unknown(format!("the Muse account {} returned no catalog", a.id)),
+    }
+}
+
+/// The effort names the seat's own login and model expose (`effort_names`
+/// for every provider but Muse, whose names are the row of the exact model,
+/// its pinned version included, in the catalog of the login it runs on).
+#[logged]
+pub fn effort_names_on(engine: &Engine, tier: &str, version: Option<&str>, account: Option<&crate::accounts::AccountInfo>) -> Option<Vec<String>> {
+    if !catalog::is_muse(tier) {
+        return effort_names(&engine.providers.state.load(), tier);
+    }
+    match muse_offer(engine, account.filter(|a| a.provider == catalog::MUSE), &catalog::model_for(tier, version)) {
+        MuseOffer::Offered(row) => Some(catalog::MUSE_EFFORTS.iter().filter(|e| row.variants.iter().any(|v| v == *e)).map(|e| e.to_string()).collect()),
+        _ => None,
+    }
+}
+
+/// `check_effort` for the seat's own login and exact model (see
+/// `effort_names_on`); while those are not known, any harness name is
+/// taken (the launch maps it to one the model lists).
+#[logged]
+pub fn check_effort_on(engine: &Engine, tier: &str, version: Option<&str>, account: Option<&crate::accounts::AccountInfo>, level: &str)
+    -> anyhow::Result<()> {
+    if level.is_empty() {
+        return Ok(());
+    }
+    match effort_names_on(engine, tier, version, account) {
+        Some(names) if names.iter().any(|n| n == level) => Ok(()),
+        Some(names) if names.is_empty() => crate::refuse!(BadRequest, "{tier} has no effort setting"),
+        Some(names) => crate::refuse!(BadRequest, "{} takes the effort levels {}; {level} is not one of them",
+            catalog::model_for(tier, version), names.join(", ")),
+        None if catalog::effort_rank(level).is_some() => Ok(()),
+        None => crate::refuse!(BadRequest, "unknown effort {level}"),
+    }
 }
 
 /// Read the user's own Muse login again now (a manual refresh) and publish

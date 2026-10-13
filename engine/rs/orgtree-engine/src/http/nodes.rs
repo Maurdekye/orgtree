@@ -435,6 +435,18 @@ pub async fn set_scope(
 /// requests apply.
 #[logged]
 pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, b: &Value) -> anyhow::Result<Value> {
+    // a Muse seat's level or version is judged by its own login's catalog:
+    // read stale logins before the transaction, never inside it
+    if !b["effort"].is_null() || !b["model_version"].is_null() {
+        let muse = {
+            let client = e.db.get().await?;
+            client.query_opt("SELECT tier FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' LIMIT 1", &[&org.id, &nid])
+                .await?.is_some_and(|r| crate::providers::catalog::is_muse(&r.get::<_, String>(0)))
+        };
+        if muse {
+            crate::providers::muse_logins_refresh(e, &org.slug).await;
+        }
+    }
     let mut client = e.db.get().await?;
     let tx = client.transaction().await?;
     let fx = apply_user_scope_in_tx(e, org, &tx, nid, b, None).await?;
@@ -480,7 +492,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     };
     let row = tx
-        .query_one("SELECT scope, charter, team_charter, tier FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
+        .query_one("SELECT scope, charter, team_charter, tier, account FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
     crate::domain::tool_groups::validate(&b["tools"])?;
     let before: Value = row.get(0);
@@ -507,10 +519,19 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
         obj.insert("permission_mode".into(), json!(v));
     }
+    // a Muse seat's own login and exact model (its version as this save leaves it)
+    let tier: String = row.get(3);
+    let login: Option<String> = row.get(4);
+    let version: Option<String> = match b.get("model_version") {
+        Some(v) => v.as_str().filter(|s| !s.is_empty()).map(str::to_string),
+        None => before.get("model_version").and_then(Value::as_str).map(str::to_string),
+    };
+    let view = e.accounts.view();
+    let seat_login = login.as_deref().and_then(|id| view.get(id)).filter(|a| a.provider == crate::providers::catalog::MUSE);
     if let Some(v) = b.get("effort") {
         let level = v.as_str().unwrap_or("").to_string();
         // the agent's own harness and model name its levels (user 2026-10-12)
-        crate::providers::check_effort(e, &row.get::<_, String>(3), &level)?;
+        crate::providers::check_effort_on(e, &tier, version.as_deref(), seat_login, &level)?;
         if level.is_empty() {
             obj.remove("effort");
         } else {
@@ -518,8 +539,16 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     }
     if let Some(v) = b.get("model_version") {
-        if crate::providers::catalog::antigravity_claude(&row.get::<_, String>(3)) && v.as_str().is_some_and(|s| !s.is_empty()) {
+        if crate::providers::catalog::antigravity_claude(&tier) && v.as_str().is_some_and(|s| !s.is_empty()) {
             crate::refuse!(BadRequest, "Antigravity Claude tiers are fixed at 5.5 and have no version choice");
+        }
+        // a Muse pin must be a model the seat's own login offers
+        if crate::providers::catalog::is_muse(&tier) && version.is_some() {
+            match crate::providers::muse_offer(e, seat_login, &crate::providers::catalog::model_for(&tier, version.as_deref())) {
+                crate::providers::MuseOffer::Offered(_) => {}
+                crate::providers::MuseOffer::NotOffered(why) => crate::refuse!(Conflict, "{why}, so it cannot be pinned"),
+                crate::providers::MuseOffer::Unknown(why) => crate::refuse!(Conflict, "{why}: the version is not pinned on a login whose catalog is unknown; try again in a moment"),
+            }
         }
         match v.as_str().filter(|s| !s.is_empty()) {
             Some(s) => obj.insert("model_version".into(), json!(s)),

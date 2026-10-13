@@ -1244,8 +1244,15 @@ async fn muse_read(engine: &Engine, account: &str, root: Option<&str>, force: bo
             Some(dir) => {
                 engine.usage.cooldown.pin().insert(probe_key, Instant::now() + MUSE_PROBE_EVERY);
                 match crate::providers::muse_probe_login(engine, Some(dir)).await {
-                    Ok(probe) => muse_probed(engine, root, &probe).await,
-                    Err(e) => tracing::info!(account, error = %gist(&format!("{e:#}"), 200), "Muse usage probe failed"),
+                    Ok(probe) => {
+                        // the same read says what this login offers (placement checks)
+                        crate::providers::muse_login_seen(engine, account, Ok(&probe));
+                        muse_probed(engine, root, &probe).await
+                    }
+                    Err(e) => {
+                        crate::providers::muse_login_seen(engine, account, Err(gist(&format!("{e:#}"), 200)));
+                        tracing::info!(account, error = %gist(&format!("{e:#}"), 200), "Muse usage probe failed")
+                    }
                 }
             }
         }
