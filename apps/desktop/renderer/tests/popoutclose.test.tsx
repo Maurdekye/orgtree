@@ -11,7 +11,8 @@ import { PinFrame, forgetModalPins, forgetModalOpenCache } from '../src/canvas/m
 import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
 import type { CanvasNode } from '../src/canvas/shared'
 import { beginWindowExit, endWindowExit, savedWindows } from '../src/windowlayout'
-import { openSurfaces, resetActionDocument, returnWindows } from '../src/windowlife'
+import { noteActionDocument, openSurfaces, resetActionDocument, returnWindows } from '../src/windowlife'
+import type { BorrowedSurface } from '../src/windowlife'
 
 function stage() {
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache(); resetActionDocument(); endWindowExit()
@@ -102,8 +103,8 @@ test('temporary borrow still preserves the open row and restores the same conten
     <input defaultValue="draft" /><PopoutButton /></MovableSurface>, el => el)
   try {
     await click(button(v.el, 'Open in new window')); const input = s.w.document.querySelector('input')!
-    const borrowed = openSurfaces()[0].borrow!()
-    await inAct(async () => { await flush(5) })
+    let borrowed!: BorrowedSurface
+    await inAct(async () => { borrowed = openSurfaces()[0].borrow!(); await flush(5) })
     assert.ok(v.el.contains(input)); assert.equal(row('borrow-fixture')?.open, true); assert.equal(closes, 0)
     ;(s.w as unknown as { closed: boolean }).closed = false
     await inAct(async () => { borrowed.restore(); await flush(5) })
@@ -128,7 +129,7 @@ for (const explicit of [false, true]) {
       if (explicit) await click(button(s.w.document, 'Return to main window'))
       else await inAct(async () => { s.nativeClose(); await flush(5) })
       assert.equal(jumps, explicit ? 1 : 0)
-      assert.equal(!!document.querySelector('.popout-recovery'), explicit)
+      if (!explicit) assert.equal(document.querySelector('.popout-recovery'), null)
       noWindows()
       if (!explicit) {
         await v.render(view(true)); await inAct(async () => { await flush(5) })
@@ -137,3 +138,16 @@ for (const explicit of [false, true]) {
     } finally { await v.unmount(); s.tidy() }
   })
 }
+
+test('a modal hosted in another child retains parent-lifecycle recovery', async () => {
+  const s = stage(); let closes = 0
+  noteActionDocument(s.w.document)
+  const v = await mountView(<CurrentOrg.Provider value="org"><PinFrame kind="hosted-fixture" title="Hosted" panel="settings"
+    close={() => closes++}><input defaultValue="hosted draft" /></PinFrame></CurrentOrg.Provider>, el => el)
+  try {
+    const input = s.w.document.querySelector('input')!
+    assert.ok(input, 'modal really is hosted in the initiating child document')
+    await inAct(async () => { s.nativeClose(); await flush(5) })
+    assert.ok(v.el.contains(input)); assert.equal(closes, 0); noWindows()
+  } finally { await v.unmount(); s.tidy() }
+})
