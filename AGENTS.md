@@ -14,10 +14,16 @@
   Presence comes from explicitly saved servers and offered models; harness
   choices detect installed Claude Code/Codex CLIs. Keep app/server enablement,
   org access and model offerings distinct, and match the server's real context
-  window. Muse setup documentation waits for checked integration details.
+  window. [Muse setup](README.md#muse-code) now documents the integrated lane:
+  detection, terminal sign-in/Refresh, managed accounts, each login's model/effort
+  catalog and contributor-off behavior. Keep published availability and historical
+  real-model evidence distinct from later fixture-based acceptance and remaining
+  real-account/platform gaps. This replaces the conditional documentation hold.
   [verified from source: `langserver.rs`, `providers/mod.rs`, renderer
   `canvas/langserver.tsx`, `orgaccounts.tsx`, 2026-10-12;
-  decided: user via coordinator 2026-10-12 22:03Z]
+  decided: user via coordinator 2026-10-12 22:03Z;
+  verified: 2026-10-13 `providers/muse_models.rs`, `canvas/accountsregistry.tsx`,
+  `main/providerlogin.ts`, `docs/rust-engine/muse-code.md`]
 
 - Recommend each developer installs Orgtree and Hubchat, both connected to a shared standalone mailhub on a company-accessible private server. The built-in Orgtree mailhub is for individuals and small teams. This is deployment guidance, not a size cutoff, migration or runtime default change. Keep person and organization identities separate; human hub mail uses Hubchat. See [team setup](docs/team-setup.md). [decided: user 2026-10-12 10:11–10:13Z]
 
