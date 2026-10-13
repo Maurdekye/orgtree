@@ -2,6 +2,7 @@ import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, 
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ToolTimes, ToolWritingLine, TurnActiveContext } from '../src/canvas/toolclock'
+import { Msg } from '../src/canvas/desk'
 import { ingestStream, refreshConvo, resetConvos, useConvo } from '../src/convo'
 import type { ChatMessage, ChatTransient } from '../src/types'
 
@@ -26,6 +27,10 @@ test('writing appears immediately with name and pencil; completed and reloaded c
   assert.doesNotMatch(view.last(), /written/)
   assert.match(view.last(), /writing time unavailable/)
   assert.match(view.last(), /ran for 200 ms/)
+  await view.render(<Msg m={{ role: 'assistant', text: '', tools: [chip] }} slug="org" nid="worker" />)
+  await inAct(() => { view.el.querySelector<HTMLElement>('.tline')!.click() }); await flush()
+  assert.equal(view.el.querySelectorAll('[aria-label="written in 3.0s"]').length, 1)
+  assert.equal(view.el.querySelectorAll('[aria-label="ran for 200 ms"]').length, 1)
 })
 
 test('parallel writing snapshots retire atomically with durable chips and survive transcript reload', async t => {

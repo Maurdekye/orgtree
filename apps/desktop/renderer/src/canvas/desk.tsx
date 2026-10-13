@@ -4842,7 +4842,6 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
         fallback={t.result || t.error || ''} clipped={t.truncated}
         renderOutput={output => <CopyablePre><pre className="filepre respre"
           data-reply-event={t.result_event_id ?? ''} data-reply-quote={output}>{output}</pre></CopyablePre>} />}
-      {open && <div className="dim tool-exec-line"><ToolTimes tool={t} /></div>}
       {open && !shellError && t.diff && (
         <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.diff.lines.map((l, i) => (
