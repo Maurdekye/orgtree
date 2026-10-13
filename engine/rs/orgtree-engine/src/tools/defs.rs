@@ -181,7 +181,7 @@ fn all() -> Vec<Value> {
              Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
              body last.",
             json!({
-                "metadata": { "type": "object", "description": META_FIRST, "additionalProperties": false, "required": ["to"], "properties": {
+                "metadata": { "type": "object", "description": META_FIRST, "required": ["to"], "properties": {
                 "to": TO.clone(),
                 "kind": { "type": "string", "enum": KINDS },
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
@@ -203,7 +203,7 @@ fn all() -> Vec<Value> {
             "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody. \
              Always write metadata (`to`) before body: metadata first, body last.",
             json!({
-                "metadata": { "type": "object", "description": META_FIRST, "additionalProperties": false, "required": ["to"],
+                "metadata": { "type": "object", "description": META_FIRST, "required": ["to"],
                               "properties": { "to": TO.clone() } },
                 "body": { "type": "string", "description": BODY_LAST },
             }),
