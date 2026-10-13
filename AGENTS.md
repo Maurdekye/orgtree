@@ -86,6 +86,18 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `net_cards.rs`, `net.rs` outgoing_payload, `tools/mailtools.rs`,
   `tools/defs.rs`, 2026-10-13]
 
+- Muse Code runs as `muse serve` (MSP v1), one warm host per agent, always
+  `--contributor-mode off` (never the user's saved setting, never changed) and
+  never `META_API_KEY` on a subscription seat. A Muse tier is offered only
+  while the signed-in account's own catalog lists it (a row without
+  `profileId` is bundled, not an entitlement); a turn arriving before startup
+  discovery waits for it (at most 60 s) rather than reading "not offered".
+  Read-only grants are never workspace roots (Muse gives every root write
+  access). Cost and cache lifetime stay unknown: Muse publishes neither. The
+  rig runs the real binary with `up --real-muse <muse-bin-*.exe>`.
+  [decided: user 2026-10-12 18:32-20:31Z, DECISIONS 76; verified: real Muse
+  1.4.6 and rig proofs 2026-10-13; `docs/rust-engine/muse-code.md`]
+
 - Organization profile pictures use a dedicated bounded `ot.meta` record,
   not the net/tree payload. Human settings edits carry the numeric org owner;
   incoming hub merges preserve logical revisions and removal tombstones.
@@ -433,11 +445,16 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `docs/rust-engine/docket-read-performance.md`]
 
 - Staffing effort choices describe launch-time model capabilities, not the
-  `live_effort` flag for mid-turn controls. Codex choices come from background
-  `model/list` discovery; menu reads never spawn a CLI. Claude/OpenRouter keep
-  all five levels; Antigravity uses its tier-specific vocabulary. Forward the
-  selected value at launch, including Haiku and OpenRouter's Claude harness.
-  [verified from source: 2026-10-07; `docs/rust-engine/staffing-effort-parity.md`]
+  `live_effort` flag for mid-turn controls, in each harness's own names (user
+  2026-10-12 20:01Z): Claude/OpenRouter Claude Code's five `--effort` levels,
+  Codex the model's `model/list` levels from background discovery (menu reads
+  never spawn a CLI; `none`/`minimal` kept), Muse the catalog row's variants,
+  Antigravity its tier-specific vocabulary. `catalog::EFFORT_ORDER` (none..max)
+  orders them all; a saved level a tier does not name launches as the highest
+  it names at or below it, else its lowest, and the saved value is never
+  rewritten (`launch_effort`; the effort bar shows the same clamp). Replaces
+  "every tier offers Claude Code's five". [verified from source: 2026-10-07,
+  2026-10-13; `docs/rust-engine/staffing-effort-parity.md`, `muse-code.md`]
 
 - Agent card and Agents List menus share `canvas/agentmenu.tsx`. The hire-tier
   submenu uses `hireTierOffer` (also used by HireSheet) and opens the existing

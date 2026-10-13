@@ -180,6 +180,7 @@ re-read-on-change rule above). That makes snapshots and catch-ups memory reads, 
 | Codex | `codex app-server` (JSON-RPC over stdio), `CODEX_HOME` per account | dynamic tools (`item/tool/call`) | `turn/steer` | `turn/interrupt` |
 | Antigravity | `agy -p --input-format stream-json --output-format stream-json`, `--conversation <id>` to resume | stdio MCP bridge (`orgtree-engine.exe mcp-bridge`) over a named pipe | next turn boundary | kill |
 | OpenRouter | the Claude Code CLI (or Codex, per the existing harness setting) pointed at OpenRouter's API with the stored key | as the harness | as the harness | as the harness |
+| Muse Code | `muse serve --contributor-mode off` (MSP v1, JSON-RPC over stdio), one host per agent, `session/resume` across restarts; a profile's own `config`/`data` roots per account | session MCP server (`config.mcpServers.orgtree`, the engine's `mcp-bridge`) | `turn/steer` on the exact running turn | `turn/interrupt` |
 
 **Cache forecasting (kept, decided 2026-10-06).** The engine predicts, per agent, whether the
 next turn will hit the provider's prompt cache, and publishes it as the agent's `cache_forecast`
@@ -392,6 +393,7 @@ their established restoration rules. See [`popout-close.md`](popout-close.md).
 
 | H7 | Every org could use every signed-in account | New (user 2026-10-10, 4.2.0): Org settings › Accounts ticks the accounts an org may use (default sign-ins, registered logins, OpenRouter, language servers; all ticked by default, a new sign-in starts ticked). The engine enforces it on every account choice (hire, rehire, switch, retool, staff, fallback, continue-on, balancing, the turn gate, the usage board, `orgtree_account_mark`); an agent on an unticked account moves at its next turn or stops saying none is left. Usage and Usage history opened from an org window show its accounts, the rest behind "Show all accounts"; recording is unchanged |
 | H8 | Agents receive usage only in their turn envelope | New (user 2026-10-11): `orgtree_usage` reads the saved cache during a turn, with exact account/provider/window filters and bounded account pages. An optional single-account refresh needs inherited runtime permission in addition to inspection, is rate limited, and causes no inference or account switch. Missing/stale/unsupported values stay explicit. Contract: `usage-query-proposal.md`. |
+| H9 | No Muse Code | New (user 2026-10-12, 4.2.0): Muse Code is a provider (Wonder, Wonder Full, Spark), offered per the signed-in account's own catalog, contributor mode off on every process, its own effort names, usage (5 h and weekly, Muse's dated observations), freezes, sign-in and Providers/Usage/hire UI. Cost and cache lifetime are unknown (Muse publishes neither). Contract and gaps: `muse-code.md` |
 
 ### I. Settings
 

@@ -731,3 +731,20 @@ All entries are dated 2026-10-06 unless stated otherwise.
     Preserve agent mail, inbox history, recorded quotes, file access, transfer
     custody and the integrated inbox-disable policy. No replacement composer
     or launch flow. See [`org-inbox-viewer.md`](org-inbox-viewer.md).
+
+76. **Muse Code is a provider lane at full feasible parity** (user 2026-10-12
+    18:32Z, 19:57Z, 20:01Z, 20:09Z, 20:21Z, 20:31Z, relayed by lead-astra; lead
+    decisions 2026-10-13). Muse runs as `muse serve` (MSP v1), one host per
+    agent, contributor mode off on every process (the user's saved setting is
+    never changed), never an API key on a subscription seat and never a paid
+    fallback. A Muse tier (Wonder 4, Wonder Full 10, Spark 2) is offered only
+    while the signed-in account's own catalog lists it; a bundled row is no
+    entitlement. Effort levels are each harness's and model's own names
+    (`catalog::EFFORT_ORDER` none..max); a saved level a tier does not name
+    launches as the highest it names at or below it, else its lowest, and is
+    never rewritten (agent's choice, replacing "the model's default": it is the
+    renderer bar's own clamp). Provider colour `#afe5ff` sampled from Muse's
+    official art, `#0077b0` on light surfaces; tier colours measured (lead:
+    routine). Sign-in runs `muse login` in a terminal, like Antigravity's.
+    Cost and cache lifetime stay unknown (Muse publishes neither). Contract,
+    evidence and every remaining gap: [`muse-code.md`](muse-code.md).
