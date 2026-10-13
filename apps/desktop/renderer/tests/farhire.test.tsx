@@ -97,8 +97,8 @@ test('the full three-provider set collapses only after its rendered width stops 
     assert.ok(codexRow, 'the Codex spawn row is present')
     assert.deepEqual(
       [...codexRow.querySelectorAll('button')].map((b) => b.className),
-      ['t-luna', 't-sol', 't-astra'],
-      'luna is leftmost in the Codex row; the legacy reserve token is gone (item 12)')
+      ['t-astra', 't-sol', 't-luna'],
+      'astra (the dearest) is leftmost in the Codex row, luna last (user 2026-10-13); the legacy reserve token is gone (item 12)')
 
     await inAct(() => { expand.click() })
     assert.equal(report.classList.contains('is-expanded'), false,

@@ -187,9 +187,11 @@ test('the header summary counts every provider family', async (t: TestContext) =
     [...view.el.querySelectorAll<HTMLBRElement>('.agents b')]
       .map((b) => [b.className, b.textContent]),
     [
-      ['t-opus', 'O1'], ['t-gpt-reserve', 'R1'], ['t-luna', 'L1'],
-      ['t-terra', 'T1'], ['t-sol', 'S1'],
-      ['t-flash', 'F1'], ['t-pro', 'P1'],
+      // every family dearest seat first (user 2026-10-13); equal seats keep
+      // the renderer's tier order (terra before sol)
+      ['t-opus', 'O1'], ['t-terra', 'T1'], ['t-sol', 'S1'],
+      ['t-gpt-reserve', 'R1'], ['t-luna', 'L1'],
+      ['t-pro', 'P1'], ['t-flash', 'F1'],
     ],
   )
 })
@@ -264,11 +266,12 @@ configTest('the switch lists every provider family with its ledger seats',
     assert.deepEqual(groups.map((g) => g.getAttribute('label')),
       ['Claude', 'Codex', 'Antigravity'])
     assert.deepEqual(options(el).map((o) => [o.value, o.textContent?.trim()]), [
-      ['haiku', 'haiku · seat 1'], ['sonnet', 'sonnet · seat 2'],
-      ['opus', 'opus · seat 4'], ['fable', 'fable · seat 10'],
+      // every family lists its dearest seat first (user 2026-10-13)
+      ['fable', 'fable · seat 10'], ['opus', 'opus · seat 4'],
+      ['sonnet', 'sonnet · seat 2'], ['haiku', 'haiku · seat 1'],
       // terra is an opt-in legacy tier, hidden by default (legacytiers.test)
+      ['astra', 'astra · seat 10'], ['sol', 'sol · seat 2'],
       ['luna', 'luna · seat 0.1'],
-      ['sol', 'sol · seat 2'], ['astra', 'astra · seat 10'],
       // pro is an opt-in legacy tier, hidden by default (legacypro.test)
       ['flash', 'flash · seat 1'],
     ])

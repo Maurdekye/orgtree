@@ -29,7 +29,7 @@ const tree = (): TreePayload => ({
 
 test('the tooltip breaks the chip down with the chip\'s own numbers', () => {
   assert.equal(activeOrgTitle(tree()),
-    'Orgtree: 4 live agents — 1 Sonnet · 3 Opus\n2 active now (a turn running)')
+    'Orgtree: 4 live agents — 3 Opus · 1 Sonnet\n2 active now (a turn running)')
 })
 
 test('the current organization is never listed again from the separately polled org list', () => {
@@ -42,7 +42,7 @@ test('the current organization is never listed again from the separately polled 
     { slug: 'idle', name: 'Idle', working: 0 },
     { slug: 'unknown', name: 'Unknown row' },
   ])
-  assert.equal(title, 'Orgtree: 4 live agents — 1 Sonnet · 3 Opus\n'
+  assert.equal(title, 'Orgtree: 4 live agents — 3 Opus · 1 Sonnet\n'
     + '2 active now (a turn running)\n'
     + 'active now in other organizations — Beta: 1')
   assert.doesNotMatch(title, /Orgtree: 7/)
@@ -63,11 +63,11 @@ test('the chip and its tooltip agree: tier counts sum to live, active matches', 
   const active = Number(counts?.[1])
   const live = Number(counts?.[2])
   const letters = [...chip!.querySelectorAll('b')].map((b) => b.textContent ?? '')
-  assert.deepEqual(letters, ['S1', 'O3'])
+  assert.deepEqual(letters, ['O3', 'S1'], 'dearest tier first (user 2026-10-13)')
   assert.equal(letters.reduce((s, l) => s + Number(l.slice(1)), 0), live,
     'the tier chips break down the live figure')
   const title = chip!.getAttribute('title') ?? ''
-  assert.match(title, new RegExp(`^Orgtree: ${live} live agents — 1 Sonnet · 3 Opus\\n`))
+  assert.match(title, new RegExp(`^Orgtree: ${live} live agents — 3 Opus · 1 Sonnet\\n`))
   assert.match(title, new RegExp(`\\n${active} active now`))
   assert.match(title, /other organizations — Beta: 2$/)
   assert.equal(chip!.getAttribute('role'), 'img')

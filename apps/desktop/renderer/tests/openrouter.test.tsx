@@ -330,26 +330,28 @@ test('§2b the SELECTED list on the modal (user ask 2026-09-03): every favorite 
 })
 
 test('§2c a click on a favorite\'s chip deselects it at once; it stays in its place, dimmed, and a second '
-  + 'click selects it again (user 2026-10-10: change the models without the edit form)', async () => {
+  + 'click selects it again (user 2026-10-10: change the models without the edit form); the chips list the '
+  + 'dearest model first (user 2026-10-13: kimi-k3 at $15 out before claude-sonnet-5 at $10)', async () => {
   const seen: Seen[] = []
   stubFetch(seen, { keySet: true, favorites: ['anthropic/claude-sonnet-5', 'moonshotai/kimi-k3'] })
   const view = await mountSection({ open: false })
   const chips = () => [...view.el.querySelectorAll<HTMLButtonElement>('.orr-favs .orr-tog')]
+  const chipOf = (name: string) => chips().find((c) => c.querySelector('.orr-sel-name')?.textContent === name)!
   const state = () => chips().map((c) => [c.querySelector('.orr-sel-name')?.textContent, c.getAttribute('aria-pressed')])
   const puts = () => seen.filter((r) => r.path === '/api/openrouter/favorites').map((r) => r.body)
   try {
-    assert.deepEqual(state(), [['claude-sonnet-5', 'true'], ['kimi-k3', 'true']])
-    assert.match(chips()[0]!.title, /\nclick to deselect: it can no longer be hired; agents already on it keep running$/)
+    assert.deepEqual(state(), [['kimi-k3', 'true'], ['claude-sonnet-5', 'true']], 'the dearest (output price) first')
+    assert.match(chipOf('claude-sonnet-5').title, /\nclick to deselect: it can no longer be hired; agents already on it keep running$/)
     assert.equal(view.el.querySelector('.orr-favs .orr-more')?.textContent, '+', 'favorites exist: "+" alone')
-    await inAct(async () => { chips()[0]!.click(); await flush(10) })
+    await inAct(async () => { chipOf('claude-sonnet-5').click(); await flush(10) })
     assert.deepEqual(puts(), [{ id: 'anthropic/claude-sonnet-5', selected: false }], 'saved at once')
-    assert.deepEqual(state(), [['claude-sonnet-5', 'false'], ['kimi-k3', 'true']], 'dimmed, in its place')
-    assert.match(chips()[0]!.title, /\nclick to select it again$/)
+    assert.deepEqual(state(), [['kimi-k3', 'true'], ['claude-sonnet-5', 'false']], 'dimmed, in its place')
+    assert.match(chipOf('claude-sonnet-5').title, /\nclick to select it again$/)
     assert.equal(view.el.querySelector('[role="dialog"]'), null, 'nothing opens')
-    await inAct(async () => { chips()[0]!.click(); await flush(10) })
+    await inAct(async () => { chipOf('claude-sonnet-5').click(); await flush(10) })
     assert.deepEqual(puts()[1], { id: 'anthropic/claude-sonnet-5', selected: true })
-    assert.deepEqual(state(), [['claude-sonnet-5', 'true'], ['kimi-k3', 'true']],
-      'selected again, still in its place (the engine appends it; the row does not jump)')
+    assert.deepEqual(state(), [['kimi-k3', 'true'], ['claude-sonnet-5', 'true']],
+      'selected again, still in its place (the price fixes the place; the row does not jump)')
   } finally { await view.unmount(); delete g.fetch }
 })
 
@@ -367,7 +369,7 @@ test('§2d more than eight favorites: the chips are their cards alone, each name
     assert.ok(row().classList.contains('icons'), 'ten favorites: icons only')
     assert.equal(row().querySelectorAll('.orr-tog').length, 10)
     assert.equal(row().querySelectorAll('.orr-sel-name').length, 0, 'no names')
-    assert.equal(row().querySelector('.orr-tog')?.getAttribute('aria-label'), 'claude-sonnet-5')
+    assert.equal(row().querySelector('.orr-tog')?.getAttribute('aria-label'), 'kimi-k3', 'the dearest model first')
     for (let i = 0; i < 2; i++) {
       await inAct(async () => { row().querySelector<HTMLButtonElement>('.orr-tog.on')!.click(); await flush(10) })
     }
