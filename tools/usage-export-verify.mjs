@@ -50,6 +50,8 @@ if (process.argv.includes('--bundle')) {
       esbuild.buildSync({ ...common, entryPoints: [path.join(root, 'tests/usage-export.fixture.tsx')], outfile: path.join(output, 'renderer.js'),
         platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } })
       esbuild.buildSync({ ...common, entryPoints: [path.join(root, 'tests/usage-export.probe.ts')], outfile: path.join(output, 'main.cjs'), platform: 'node', format: 'cjs', external: ['electron'] })
+      // A failed-only batch rerun may use a fresh output directory.
+      fs.copyFileSync(path.join(root, 'apps/desktop/renderer/src/styles.css'), path.join(output, 'styles.css'))
       const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
       results.renderer = run('renderer', electron, [path.join(output, 'main.cjs')], env)
       fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ base: '62f39ad', results }, null, 2))
