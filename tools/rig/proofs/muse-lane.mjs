@@ -97,7 +97,7 @@ export default async function (rig) {
     && wonderRow?.default_effort === 'high', wonderRow)
   const full = await rig.op({ op: 'hire', name: 'fiona', parent: 'boss', tier: 'wonder-full', title: 'Muse rig agent' })
     .then(r => ({ ok: true, r }), e => ({ ok: false, status: e.status, detail: e.body?.detail ?? e.message }))
-  p.check('hire: wonder-full is refused while the account does not offer it', !full.ok && full.status === 409 && /does not offer wonder-full/.test(full.detail), full)
+  p.check('hire: wonder-full is refused while the account does not offer it', !full.ok && full.status === 409 && /does not offer (wonder-full|muse-wonder-full-1\.0)/.test(full.detail), full)
 
   // ---------------------------------------------------------------- effort names
   const opts = await rig.api('GET', `/api/orgs/${rig.org}/staffing-options`)
