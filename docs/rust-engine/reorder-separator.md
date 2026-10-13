@@ -13,6 +13,9 @@ and Undo remain unchanged. The tree preview mirrors the drop's current x rule.
 Source scope is only drag-preview preparation/presentation, not the engine.
 
 Typecheck and all 58 focused tests pass across the geometry/component suite,
-existing move/Undo regression and retired display checks. Synthetic light/dark
-rendering remains queued after correcting the harness's nonzero-width visibility
-predicate for vertical SVG lines. No installed/native acceptance is claimed.
+existing move/Undo regression and retired display checks. Synthetic Electron44.2.0
+rendering passes: 12 inspected charcoal/light screenshots show first, middle
+and last markers in both layouts, with no console errors. These use production
+marker/slot helpers on schematic cards; no assembled/installed/native-input
+acceptance is claimed. The initial visual harness's nonzero-width visibility
+predicate was corrected for vertical SVG lines; product source stayed unchanged.
