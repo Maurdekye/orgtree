@@ -238,14 +238,29 @@ pub fn provider_of(tier: &str) -> &'static str {
     self::tier(tier).map(|t| t.provider).unwrap_or(CLAUDE)
 }
 
+/// The provider one agent runs on, as messages about that agent name it
+/// ("the Language Server process exited…"), so it stays singular. The
+/// provider class and collection are "Language servers" (user 2026-10-12
+/// 21:22Z): see the Providers payload and `turned_off`.
 pub fn provider_label(provider: &str) -> &'static str {
     match provider {
         OPENAI => "Codex",
         GOOGLE => "Antigravity",
         OPENROUTER => "OpenRouter",
-        LANGSERVER => "Language servers",
+        LANGSERVER => "Language Server",
         MUSE => "Muse",
         _ => "Claude",
+    }
+}
+
+/// Why a provider switched off in App settings › Providers can't be used.
+/// That switch belongs to the whole class, so Language servers take a
+/// plural verb (as `langserver::route` says it).
+#[nolog]
+pub fn turned_off(provider: &str) -> String {
+    match provider {
+        LANGSERVER => "Language servers are turned off in App settings".to_string(),
+        _ => format!("{} is turned off in App settings", provider_label(provider)),
     }
 }
 

@@ -782,7 +782,7 @@ pub fn payload(engine: &Engine) -> Value {
         } else if !s.connected {
             Some(format!("{label} is installed but not signed in"))
         } else if !enabled {
-            Some(format!("{label} is turned off in App settings"))
+            Some(catalog::turned_off(id))
         } else {
             None
         };

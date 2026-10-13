@@ -888,7 +888,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     let seat = seat_of(engine, &tier)?;
     let provider = catalog::provider_of(&tier);
     if !engine.settings.provider_enabled(provider) {
-        refuse!(Conflict, "{} is turned off in App settings", catalog::provider_label(provider));
+        refuse!(Conflict, "{}", catalog::turned_off(provider));
     }
     // a Muse seat's level is judged with its login below
     if let Some(e) = str_arg(req, "effort").filter(|_| !catalog::is_muse(&tier)) {
@@ -1662,7 +1662,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     let from = catalog::provider_of(&n.tier);
     let to = catalog::provider_of(&tier);
     if !engine.settings.provider_enabled(to) {
-        refuse!(Conflict, "{} is turned off in App settings", catalog::provider_label(to));
+        refuse!(Conflict, "{}", catalog::turned_off(to));
     }
     validate_account(engine, &org.slug, &tier, str_arg(req, "account"))?;
     // A language server's harness is fixed per server, so a move to a model
