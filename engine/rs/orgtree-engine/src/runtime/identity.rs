@@ -368,6 +368,23 @@ mod group_tests {
         let charter = "Preserve this literal text: orgtree_work and orgtree_ask.";
         assert!(render(&scope, Lane::Claude, false, Some(charter)).contains(charter));
     }
+
+    /// The Muse lane names its tools with their server prefix, describes Muse's
+    /// own skills and shell (none of Claude Code's), and a read-only seat is
+    /// told its shell is closed (the host runs it with --disable-shell).
+    #[test]
+    fn muse_lane_names_its_own_tools_and_closes_shell_on_read_only_seats() {
+        let rw = render(&json!({ "permission_mode": "acceptEdits", "tools": { "edit": true, "bash": true } }), Lane::Muse, false, None);
+        assert!(rw.contains("mcp__orgtree__orgtree_status"));
+        assert!(rw.contains("Muse Code's shell tool runs your commands"));
+        assert!(rw.contains(MUSE_SKILLS_AND_PROTECTED));
+        assert!(!rw.contains(".claude/skills") && !rw.contains("Sensitive-path gate"));
+        let ro = render(&json!({ "permission_mode": "acceptEdits", "tools": { "edit": false, "bash": true } }), Lane::Muse, false, None);
+        assert!(ro.contains(MUSE_NO_SHELL) && !ro.contains("Muse Code's shell tool runs your commands"));
+        // the other lanes keep their own text
+        let claude = render(&json!({ "permission_mode": "acceptEdits", "tools": { "edit": true, "bash": true } }), Lane::Claude, false, None);
+        assert!(claude.contains(".claude/skills") && !claude.contains(MUSE_SKILLS_AND_PROTECTED));
+    }
 }
 
 /// org.md, the organization's standing instructions, as 4.0 delivers it.
