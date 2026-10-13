@@ -992,6 +992,24 @@ pub async fn toolinput(
     Ok(Json(json!({ "input": kept["input"] })))
 }
 
+/// One indexed call lookup; failed output is never serialized into feed bodies.
+#[nolog]
+pub async fn tooloutput(
+    State(e): State<Arc<Engine>>,
+    Path((slug, nid, seq, tool)): Path<(String, String, i64, String)>,
+) -> ApiResult<Json<Value>> {
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    let client = e.db.get().await?;
+    let row = client.query_opt(
+        "SELECT tool_inputs -> $3::text -> 'failed_shell_output' FROM ot.convo WHERE agent_id = $1 AND seq = $2",
+        &[&a.id, &seq, &tool],
+    ).await?;
+    let kept = row.and_then(|r| r.get::<_, Option<Value>>(0))
+        .ok_or_else(|| ApiError::not_found("The full failed-shell output was not retained for this call."))?;
+    Ok(Json(kept))
+}
+
 /// `GET …/nodes/{nid}/toolimg/{tool_id}?idx=N`: an image a tool returned.
 #[logged]
 pub async fn toolimg(

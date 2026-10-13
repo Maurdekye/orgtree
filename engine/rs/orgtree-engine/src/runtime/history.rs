@@ -383,6 +383,7 @@ fn rows_of(all: Vec<Value>, cutoff: Option<DateTime<Utc>>) -> (Vec<Value>, Vec<(
                                     if b["is_error"].as_bool().unwrap_or(false) {
                                         chip["error"] = json!(crate::util::gist(&out, 500));
                                     }
+                                    convo::retain_failed_shell_output(chip, &out, b["is_error"] == true, false);
                                 }
                             }
                         }

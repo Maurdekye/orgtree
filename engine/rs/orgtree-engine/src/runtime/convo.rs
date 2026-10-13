@@ -28,6 +28,7 @@ impl ConvoWriter {
     }
 
     /// Append a row; returns its seq. `body` gets its identity fields filled.
+    #[nolog]
     pub async fn append(&mut self, client: &Client, mut body: Value) -> Result<i64> {
         self.seq += 1;
         self.ver += 1;
@@ -45,6 +46,7 @@ impl ConvoWriter {
         Ok(seq)
     }
 
+    #[nolog]
     pub async fn update(&mut self, client: &Client, seq: i64, mut body: Value) -> Result<()> {
         self.ver += 1;
         stamp(&mut body, seq);
@@ -52,7 +54,7 @@ impl ConvoWriter {
         let inputs = take_tool_inputs(&mut body, seq);
         client
             .execute(
-                "UPDATE ot.convo SET body = $3, ver = $4, tool_inputs = tool_inputs || $5 WHERE agent_id = $1 AND seq = $2",
+                "UPDATE ot.convo SET body = $3, ver = $4, tool_inputs = tool_inputs || coalesce((SELECT jsonb_object_agg(k, coalesce(tool_inputs -> k, '{}'::jsonb) || v) FROM jsonb_each($5::jsonb) AS incoming(k, v)), '{}'::jsonb) WHERE agent_id = $1 AND seq = $2",
                 &[&self.agent_id, &seq, &body, &self.ver, &inputs],
             )
             .await?;
@@ -76,6 +78,7 @@ impl ConvoWriter {
     }
 
     /// Each live amendment commits independently; a bad row cannot drop later results.
+    #[nolog]
     pub async fn update_batch(&mut self, client: &Client, updates: Vec<(i64, Value)>) -> usize {
         let mut failed = 0;
         for (seq, row) in updates {
@@ -91,7 +94,7 @@ impl ConvoWriter {
 }
 
 /// Atomically retained with the row, but never included in `/chat` or feeds.
-#[logged]
+#[nolog]
 pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
     crate::util::pg_json_mut(body);
     let mut inputs = serde_json::Map::new();
@@ -99,14 +102,68 @@ pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
         for chip in tools {
             let Some(id) = chip["id"].as_str().map(str::to_string) else { continue };
             let Some(chip) = chip.as_object_mut() else { continue };
+            let mut kept = serde_json::Map::new();
             if let Some(input) = chip.remove("input") {
                 let source = chip.remove("input_source");
-                inputs.insert(id, json!({ "input": input, "codex": source }));
+                kept.insert("input".into(), input);
+                kept.insert("codex".into(), json!(source));
                 chip.insert("input_seq".into(), json!(seq));
             }
+            if let Some(output) = chip.remove("failed_shell_output") {
+                kept.insert("failed_shell_output".into(), output);
+                chip.insert("output_seq".into(), json!(seq));
+            }
+            if !kept.is_empty() { inputs.insert(id, Value::Object(kept)); }
         }
     }
     Value::Object(inputs)
+}
+
+/// Provider-reported failed shell output only. Kept separately from chat/feed.
+#[nolog]
+pub fn retain_failed_shell_output(chip: &mut Value, text: &str, failed: bool, provider_truncated: bool) {
+    let name = chip["name"].as_str().unwrap_or("").rsplit("__").next().unwrap_or("").to_ascii_lowercase();
+    if !failed || !["bash", "powershell", "exec_command", "run_command", "run_shell_command", "shell"].contains(&name.as_str()) { return; }
+    const MAX_BYTES: usize = 1024 * 1024;
+    let mut end = text.len().min(MAX_BYTES);
+    while !text.is_char_boundary(end) { end -= 1; }
+    chip["failed_shell_output"] = json!({ "output": &text[..end], "truncated": end < text.len(), "provider_truncated": provider_truncated });
+    // Empty provider output is still a reported failure, never a success.
+    if chip["error"].is_null() { chip["error"] = json!(crate::util::gist(text, 500)); }
+}
+
+#[cfg(test)]
+mod failed_shell_output_tests {
+    use super::*;
+    #[test]
+    fn output_is_kept_off_feed_and_input_survives_extraction() {
+        let mut chip = json!({"id":"call", "name":"PowerShell", "input":{"command":"synthetic"}, "result":"clipped"});
+        retain_failed_shell_output(&mut chip, &"LONG".repeat(2000), true, false);
+        let mut row = json!({"tools":[chip]});
+        let retained = take_tool_inputs(&mut row, 7);
+        assert!(row["tools"][0].get("failed_shell_output").is_none());
+        assert_eq!(row["tools"][0]["output_seq"], 7);
+        assert_eq!(retained["call"]["input"]["command"], "synthetic");
+        assert_eq!(retained["call"]["failed_shell_output"]["output"].as_str().unwrap().len(), 8000);
+        for (name, failed) in [("Bash", false), ("Read", true), ("apply_patch", true)] {
+            let mut other = json!({"name":name});
+            retain_failed_shell_output(&mut other, "output", failed, false);
+            assert!(other.get("failed_shell_output").is_none());
+        }
+    }
+    #[test]
+    fn byte_cap_is_utf8_safe_and_provider_truncation_is_explicit() {
+        let mut chip = json!({"name":"exec_command"});
+        let text = format!("{}éTAIL", "x".repeat(1024 * 1024 - 1));
+        retain_failed_shell_output(&mut chip, &text, true, true);
+        assert_eq!(chip["failed_shell_output"]["output"].as_str().unwrap().len(), 1024 * 1024 - 1);
+        assert_eq!(chip["failed_shell_output"]["truncated"], true);
+        assert_eq!(chip["failed_shell_output"]["provider_truncated"], true);
+        let mut empty = json!({"name":"Bash"});
+        retain_failed_shell_output(&mut empty, "", true, false);
+        assert!(empty["error"].is_string());
+        assert_eq!(empty["failed_shell_output"]["truncated"], false);
+    }
 }
 
 /// Consecutive prose blocks keep their existing paragraph/fold grouping;

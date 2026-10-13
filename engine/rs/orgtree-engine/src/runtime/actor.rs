@@ -3819,6 +3819,7 @@ impl Actor {
                             if let Some(limit) = stopped_after {
                                 chip["error"] = json!(format!("stopped by Orgtree: no output for {} (the silence limit)", span_text(limit)));
                             }
+                            convo::retain_failed_shell_output(chip, &text, failed, item["truncated"] == true);
                             if let Some(extra) = card.as_ref().and_then(|c| c.as_object()) {
                                 if let Some(c) = chip.as_object_mut() {
                                     for (k, val) in extra {
@@ -4057,6 +4058,7 @@ impl Actor {
                                 if state == "ERROR" {
                                     chip["error"] = json!(gist(&result, 500));
                                 }
+                                convo::retain_failed_shell_output(chip, &result, state == "ERROR", false);
                             }
                         }
                         (*seq, row.clone())
@@ -4225,6 +4227,7 @@ impl Actor {
                             if failed {
                                 chip["error"] = json!(gist(&text, 500));
                             }
+                            convo::retain_failed_shell_output(chip, &text, failed, false);
                             if let Some(extra) = card.as_ref().and_then(|c| c.as_object()) {
                                 if let Some(c) = chip.as_object_mut() {
                                     for (k, val) in extra {
@@ -4594,6 +4597,7 @@ impl Actor {
                         if b["is_error"].as_bool().unwrap_or(false) {
                             chip["error"] = json!(gist(&text, 500));
                         }
+                        convo::retain_failed_shell_output(chip, &text, b["is_error"] == true, false);
                         if let Some(diff) = patch_of(v) {
                             chip["diff"] = diff;
                         }
