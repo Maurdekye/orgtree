@@ -197,6 +197,8 @@ struct Plan {
     add_dirs: Vec<String>,
     external: Vec<String>,
     print: Fingerprint,
+    /// the org's shared notes block, the end of `identity`
+    notes: String,
 }
 
 /// A plan as the log shows it: granted MCP servers by name only (their
@@ -214,6 +216,7 @@ impl std::fmt::Debug for Plan {
             .field("add_dirs", &self.add_dirs)
             .field("external", &self.external)
             .field("print", &self.print)
+            .field("notes", &self.notes.len())
             .finish()
     }
 }
@@ -548,6 +551,9 @@ struct Actor {
     span: tracing::Span,
     proc: Option<Proc>,
     proc_print: Option<Fingerprint>,
+    /// the org's shared notes block the running CLI started with: a
+    /// keepalive reads that CLI's prefix, not the file as it is now
+    proc_notes: Option<String>,
     /// the startup files of the last forecast, and when they were last re-read
     startup_seen: Option<(startup::Inputs, String)>,
     startup_checked: Instant,
@@ -643,6 +649,7 @@ impl Actor {
             name,
             proc: None,
             proc_print: None,
+            proc_notes: None,
             startup_seen: None,
             startup_checked: Instant::now(),
             proc_effort: None,
@@ -1651,7 +1658,7 @@ impl Actor {
             ],
             org_notes: Some(hash(&notes)),
         };
-        Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print }
+        Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print, notes }
     }
 
     /// The fingerprint's account part: the seat's binding, and once the
@@ -2152,6 +2159,7 @@ impl Actor {
         self.engine.credential_bridge.bind(self.id,proc.pid);
         self.proc = Some(Proc::Claude(proc));
         self.proc_print = Some(plan.print);
+        self.proc_notes = Some(plan.notes);
         self.proc_effort = effort;
         self.provider = ctx.provider.clone();
         self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
@@ -2348,6 +2356,7 @@ impl Actor {
         self.engine.credential_bridge.bind(self.id,proc.pid);
         self.proc = Some(Proc::Codex(proc));
         self.proc_print = Some(plan.print);
+        self.proc_notes = Some(plan.notes);
         self.proc_effort = Some(ctx.effort.clone());
         self.provider = ctx.provider.clone();
         self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
@@ -2421,6 +2430,7 @@ impl Actor {
         self.engine.credential_bridge.bind(self.id,proc.pid);
         self.proc = Some(Proc::Agy(proc));
         self.proc_print = Some(plan.print);
+        self.proc_notes = Some(plan.notes);
         self.proc_effort = Some(ctx.effort.clone());
         self.provider = ctx.provider.clone();
         self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
@@ -2581,6 +2591,7 @@ impl Actor {
                             "identity_by_file": proc.prompt_by_file });
         self.proc = Some(Proc::Muse(proc));
         self.proc_print = Some(plan.print);
+        self.proc_notes = Some(plan.notes);
         self.proc_effort = Some(ctx.effort.clone());
         self.provider = ctx.provider.clone();
         self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
@@ -2814,6 +2825,7 @@ impl Actor {
             p.close().await;
         }
         self.proc_print = None;
+        self.proc_notes = None;
         self.orphans("the CLI was closed");
     }
 
@@ -2824,6 +2836,7 @@ impl Actor {
             p.kill().await;
         }
         self.proc_print = None;
+        self.proc_notes = None;
         self.orphans("the CLI was stopped");
     }
 
@@ -4601,7 +4614,14 @@ impl Actor {
             return Ok(());
         }
         let Ok(slot) = keepalive::slots().try_acquire_owned() else { return Ok(()) };
-        let plan = self.plan(&ctx);
+        let mut plan = self.plan(&ctx);
+        // a warm CLI keeps the org's shared notes it started with, and its
+        // next turn reads that prefix: keep THAT one warm
+        if let Some(n) = self.proc_notes.as_ref().filter(|n| **n != plan.notes) {
+            plan.identity = format!("{}{n}", &plan.identity[..plan.identity.len() - plan.notes.len()]);
+            plan.print.org_notes = Some(hash(n));
+            plan.notes = n.clone();
+        }
         let (spec, config_dir) = self.claude_spec(&ctx, None, &plan, true).await?;
         // a session with no transcript has no prefix to read
         if spec.resume.as_deref() != Some(session.as_str()) {
@@ -4766,6 +4786,7 @@ impl Actor {
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
         self.proc = None;
         self.proc_print = None;
+        self.proc_notes = None;
         self.unpark();
         self.orphans(&format!("the CLI exited: {reason}"));
         if let Some(t) = self.turn.as_mut() {
