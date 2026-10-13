@@ -17,6 +17,7 @@ use crate::providers::catalog;
 const BUNDLED: &[(&str, &str)] = &[
     ("devteam-claude.json", include_str!("../../../../docs/templates/devteam-claude.json")),
     ("devteam-codex.json", include_str!("../../../../docs/templates/devteam-codex.json")),
+    ("devteam-muse.json", include_str!("../../../../docs/templates/devteam-muse.json")),
 ];
 const MAX_AGENTS: usize = 24;
 const MAX_DEPTH: usize = 4;
@@ -818,9 +819,9 @@ mod tests {
     fn a_fresh_folder_is_seeded_and_lists_only_its_files() {
         let d = scratch("fresh");
         let made = seed_into(&d).unwrap();
-        assert_eq!(made, vec!["devteam-claude.json", "devteam-codex.json"]);
+        assert_eq!(made, vec!["devteam-claude.json", "devteam-codex.json", "devteam-muse.json"]);
         let ids: Vec<String> = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok().map(|t| t.id)).collect();
-        assert_eq!(ids, vec!["devteam-claude", "devteam-codex"]);
+        assert_eq!(ids, vec!["devteam-claude", "devteam-codex", "devteam-muse"]);
         std::fs::write(d.join("mine.json"), r#"{"id":"mine","name":"Mine","agents":[{"name":"a","tier":"opus"}]}"#).unwrap();
         let mine = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok()).find(|t| t.id == "mine").unwrap();
         assert_eq!(mine.description, "");
@@ -848,11 +849,34 @@ mod tests {
         std::fs::write(d.join(SEEDED), format!("{}
 ", BUNDLED[0].0)).unwrap();
         std::fs::write(d.join(BUNDLED[1].0), "{}").unwrap();
-        assert!(seed_into(&d).unwrap().is_empty());
+        // only the third, which neither the note nor a file has, is written
+        assert_eq!(seed_into(&d).unwrap(), vec![BUNDLED[2].0.to_string()]);
         assert_eq!(std::fs::read_to_string(d.join(BUNDLED[1].0)).unwrap(), "{}");
         assert!(!d.join(BUNDLED[0].0).exists());
         let note = std::fs::read_to_string(d.join(SEEDED)).unwrap();
         assert!(note.contains(BUNDLED[1].0));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The Muse built-in reaches an install made before it existed (its note
+    /// names only the Claude and Codex ones) exactly once: a Codex file the
+    /// user deleted stays deleted, and the Muse one deleted later does too.
+    #[test]
+    fn the_muse_built_in_reaches_an_existing_install_once() {
+        let d = scratch("muse-upgrade");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(SEEDED), format!("{}
+{}
+", BUNDLED[0].0, BUNDLED[1].0)).unwrap();
+        std::fs::write(d.join(BUNDLED[0].0), BUNDLED[0].1).unwrap();
+        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-muse.json".to_string()]);
+        assert_eq!(std::fs::read_to_string(d.join("devteam-muse.json")).unwrap(), BUNDLED[2].1);
+        assert!(!d.join(BUNDLED[1].0).exists());
+        assert!(std::fs::read_to_string(d.join(SEEDED)).unwrap().contains("devteam-muse.json"));
+        assert!(seed_into(&d).unwrap().is_empty());
+        std::fs::remove_file(d.join("devteam-muse.json")).unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert!(!d.join("devteam-muse.json").exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -924,8 +948,30 @@ mod tests {
         Avail { tiers, ..Avail::default() }
     }
 
+    /// A machine whose Muse login offers all three Muse tiers at the ruled seat costs.
+    fn muse_only() -> Avail {
+        let mut tiers = HashMap::new();
+        tiers.insert("wonder".into(), offer(4.0, "muse"));
+        tiers.insert("wonder-full".into(), offer(10.0, "muse"));
+        tiers.insert("spark".into(), offer(2.0, "muse"));
+        Avail { tiers, ..Avail::default() }
+    }
+
     fn bundled(id: &str) -> Template {
         BUNDLED.iter().map(|(_, b)| parse(b).unwrap()).find(|t| t.id == id).unwrap()
+    }
+
+    #[test]
+    fn every_built_in_is_valid_and_named_after_its_file() {
+        let ids: Vec<String> = BUNDLED.iter().map(|(_, b)| parse(b).unwrap().id).collect();
+        assert_eq!(ids, ["devteam-claude", "devteam-codex", "devteam-muse"]);
+        for (file, body) in BUNDLED {
+            let t = parse(body).unwrap();
+            assert_eq!(*file, format!("{}.json", t.id));
+            assert!(validate(&t).is_empty(), "{file}: {:?}", validate(&t));
+            let names: Vec<_> = std::iter::once(&t.agents[0]).chain(&t.agents[0].reports).map(|s| s.name.as_str()).collect();
+            assert_eq!(names, ["coordinator", "implementer", "redteam", "curator"], "{file}");
+        }
     }
 
     #[test]
@@ -936,6 +982,11 @@ mod tests {
         let x = bundled("devteam-codex");
         let tiers: Vec<_> = std::iter::once(&x.agents[0]).chain(&x.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "sol"), ("implementer", "astra"), ("redteam", "sol"), ("curator", "luna")]);
+        let m = bundled("devteam-muse");
+        assert_eq!(m.name, "devteam (muse)");
+        let tiers: Vec<_> = std::iter::once(&m.agents[0]).chain(&m.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
+        assert_eq!(tiers, [("coordinator", "wonder"), ("implementer", "wonder-full"), ("redteam", "wonder"), ("curator", "spark")]);
+        assert!(std::iter::once(&m.agents[0]).chain(&m.agents[0].reports).all(|s| catalog::is_muse(&s.tier) && s.fallback.is_empty()));
     }
 
     #[test]
@@ -945,6 +996,38 @@ mod tests {
         assert_eq!(p[0].grant, 10.0 + 4.0 + 4.0 + 2.0);
         assert_eq!(p[0].account.as_deref(), Some("primary"));
         assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator")));
+    }
+
+    #[test]
+    fn the_muse_built_in_is_planned_on_the_offered_muse_seats() {
+        let (p, blocked) = plan(&bundled("devteam-muse"), &Choices::default(), &muse_only(), &[]).unwrap();
+        assert!(blocked.is_empty());
+        let got: Vec<_> = p.iter().map(|x| (x.name.as_str(), x.tier.as_deref(), x.seat)).collect();
+        assert_eq!(got, [("coordinator", Some("wonder"), 4.0), ("implementer", Some("wonder-full"), 10.0),
+                         ("redteam", Some("wonder"), 4.0), ("curator", Some("spark"), 2.0)]);
+        // the coordinator's grant is its spare plus its reports' seats, as for the other built-ins
+        assert_eq!(p[0].grant, 10.0 + 10.0 + 4.0 + 2.0);
+        assert_eq!(p[0].account.as_deref(), Some("primary"));
+        assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator") && x.note.is_none()));
+        assert_eq!(quick_chat_for(&bundled("devteam-muse"), &p), Some(json!({ "superior": "coordinator", "tier": "wonder" })));
+    }
+
+    #[test]
+    fn a_muse_tier_the_login_does_not_offer_blocks_its_slot_until_another_is_picked() {
+        let mut av = muse_only();
+        av.tiers.remove("wonder-full");
+        let (p, blocked) = plan(&bundled("devteam-muse"), &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(blocked, vec!["implementer".to_string()]);
+        assert!(p[1].tier.is_none());
+        assert!(p[1].note.as_deref().unwrap().contains("wonder-full cannot run on this computer now (Muse is not signed in or turned off)"));
+        assert!(p.iter().filter(|x| x.name != "implementer").all(|x| x.tier.is_some()));
+        let mut ch = Choices::default();
+        ch.overrides.insert("implementer".into(), SlotChoice { tier: Some("wonder".into()), name: None });
+        let (p, blocked) = plan(&bundled("devteam-muse"), &ch, &av, &[]).unwrap();
+        assert!(blocked.is_empty());
+        assert_eq!(p[1].tier.as_deref(), Some("wonder"));
+        assert_eq!(p[1].note.as_deref(), Some("chosen by you"));
+        assert_eq!(p[0].grant, 10.0 + 4.0 + 4.0 + 2.0);
     }
 
     #[test]
@@ -968,6 +1051,13 @@ mod tests {
     #[test]
     fn an_unavailable_provider_blocks_every_slot_without_a_fallback() {
         let (p, blocked) = plan(&bundled("devteam-codex"), &Choices::default(), &claude_only(), &[]).unwrap();
+        assert_eq!(blocked.len(), 4);
+        assert!(p.iter().all(|x| x.tier.is_none()));
+        // the same for Muse, with no Muse login offering a tier, and the other way round
+        let (p, blocked) = plan(&bundled("devteam-muse"), &Choices::default(), &claude_only(), &[]).unwrap();
+        assert_eq!(blocked.len(), 4);
+        assert!(p.iter().all(|x| x.tier.is_none() && x.note.as_deref().is_some_and(|n| n.contains("Muse is not signed in or turned off"))));
+        let (p, blocked) = plan(&bundled("devteam-claude"), &Choices::default(), &muse_only(), &[]).unwrap();
         assert_eq!(blocked.len(), 4);
         assert!(p.iter().all(|x| x.tier.is_none()));
     }
@@ -1072,6 +1162,7 @@ mod tests {
     fn the_built_ins_start_quick_chat_on_their_coordinator() {
         assert_eq!(bundled("devteam-claude").quick_chat, Some(json!({ "superior": "coordinator", "tier": "opus" })));
         assert_eq!(bundled("devteam-codex").quick_chat, Some(json!({ "superior": "coordinator", "tier": "sol" })));
+        assert_eq!(bundled("devteam-muse").quick_chat, Some(json!({ "superior": "coordinator", "tier": "wonder" })));
     }
 
     #[test]

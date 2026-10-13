@@ -1,0 +1,18 @@
+{
+  "id": "devteam-muse",
+  "name": "devteam (muse)",
+  "description": "A small development team on Muse: a coordinator (Wonder) who plans and reviews, an implementer (Wonder Full) who builds, a redteam reviewer (Wonder) who tries to break the work, and a curator (Spark) who keeps notes and docs tidy.",
+  "version": 1,
+  "quick_chat": { "superior": "coordinator", "tier": "wonder" },
+  "agents": [
+    {
+      "name": "coordinator", "tier": "wonder", "charter": { "preset": "coordinator" }, "spare": 10,
+      "kickoff": "Introduce yourself and your team to the user, and ask what we are building first.",
+      "reports": [
+        { "name": "implementer", "tier": "wonder-full", "charter": { "preset": "implementer" }, "spare": 0 },
+        { "name": "redteam", "tier": "wonder", "charter": { "preset": "redteam" }, "spare": 0 },
+        { "name": "curator", "tier": "spark", "charter": { "preset": "curator" }, "spare": 0 }
+      ]
+    }
+  ]
+}
