@@ -29,6 +29,7 @@ import path from 'node:path'
 import { DeskChat } from '../src/canvas/desk'
 import { NodeSquare } from '../src/canvas/cards'
 import { EFFORT_LEVELS, EffortLevelBadge, OrgDefaultEffort, explicitEffort, resolveOrgDefault } from '../src/canvas/effort'
+import { DEFAULT_EFFORT_LEVELS } from '../src/canvas/effortlevels'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -176,9 +177,13 @@ test('§1x3 an agent at the resolved default still shows when set explicitly', (
 })
 
 test('§1g the level list is the composer control\'s list, in order', () => {
-  // one list, so the card and the five-dot effort switch can never offer or
-  // describe different levels
-  assert.deepEqual([...EFFORT_LEVELS], ['low', 'medium', 'high', 'xhigh', 'max'])
+  // one list, so the card and the effort switch can never order or describe
+  // levels differently. Since the harness-native names (user 2026-10-12
+  // 20:01Z) it is every name any harness exposes, lowest first, as the
+  // engine's catalog::EFFORT_ORDER; each tier offers its own subset, and a
+  // bar that does not know its tier's levels yet offers Claude Code's five.
+  assert.deepEqual([...EFFORT_LEVELS], ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+  assert.deepEqual([...DEFAULT_EFFORT_LEVELS], ['low', 'medium', 'high', 'xhigh', 'max'])
 })
 
 /* ─── §2 the canvas card ─────────────────────────────────────────────────── */

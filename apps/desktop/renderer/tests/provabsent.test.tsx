@@ -433,7 +433,7 @@ test('§5 …and keeps it when Codex is installed', async () => {
 
 test('§5 usageTitle names only the providers present', () => {
   assert.equal(usageTitle(ALL_PRESENT),
-    'usage — Claude, Codex and Antigravity')
+    'usage — Claude, Codex, Antigravity and Muse')
   assert.equal(usageTitle({ claude: true, openai: false, google: false, openrouter: false }),
     'usage — Claude')
   assert.equal(usageTitle({ claude: false, openai: true, google: false, openrouter: false }),
@@ -444,4 +444,7 @@ test('§5 usageTitle names only the providers present', () => {
   // Antigravity now has the same real usage surface as the other two lanes.
   assert.equal(usageTitle({ claude: true, openai: false, google: true, openrouter: false }),
     'usage — Claude and Antigravity')
+  // Muse Code reports its own 5-hour and weekly windows (usage/read)
+  assert.equal(usageTitle({ claude: false, openai: false, google: false, openrouter: false, muse: true }),
+    'usage — Muse')
 })

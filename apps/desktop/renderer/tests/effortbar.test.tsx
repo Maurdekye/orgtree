@@ -7,11 +7,12 @@ import { createElement, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EffortBar, nearestLevel } from '../src/canvas/effortbar'
-import { EFFORT_LEVELS } from '../src/canvas/effortlevels'
+import { DEFAULT_EFFORT_LEVELS } from '../src/canvas/effortlevels'
 
 // the track is 132 wide with an 8px inset: levels sit at 8, 40.5, 66+, … of 116 usable px
+// (a bar given no levels offers Claude Code's five)
 const W = 132
-const x = (i: number) => 8 + (W - 16) * (i / (EFFORT_LEVELS.length - 1))
+const x = (i: number) => 8 + (W - 16) * (i / (DEFAULT_EFFORT_LEVELS.length - 1))
 
 test('nearestLevel picks the level closest to the pointer', () => {
   assert.equal(nearestLevel(0), 0)
@@ -90,5 +91,48 @@ test('the keys step the level and the slider names it', async () => {
     await inAct(async () => { t.dispatchEvent(new (t.ownerDocument.defaultView as unknown as { KeyboardEvent: typeof KeyboardEvent }).KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
   }
   assert.deepEqual(sets, ['high', 'low', 'max', 'low'])
+  await view.unmount()
+})
+
+// Each harness's own level names (user 2026-10-12 20:01Z): a bar takes the
+// tier's levels from the staffing options; a stored level the tier does not
+// name shows clamped as the engine launches it (the highest offered at or
+// below it, else the lowest), and the stored value itself is not rewritten.
+function mountLevels(value: string, level: string, levels: string[], sets: string[]) {
+  return mountView(createElement(EffortBar, { value, level, levels, onSet: (l: string) => { sets.push(l) } }), (el) => el)
+}
+
+test('a tier offers its own level names, in the shared order', async () => {
+  const sets: string[] = []
+  // Muse Spark 1.2's catalog variants
+  const view = await mountLevels('', 'high', ['minimal', 'low', 'medium', 'high', 'xhigh'], sets)
+  const t = track(view)
+  const dots = [...view.el.querySelectorAll('.effort-bar-dot')].map((d) => d.getAttribute('data-level'))
+  assert.deepEqual(dots, ['minimal', 'low', 'medium', 'high', 'xhigh'])
+  await fire(t, 'pointerdown', x(0)); await fire(t, 'pointerup', x(0))
+  assert.deepEqual(sets, ['minimal'])
+  await view.unmount()
+})
+
+test('a stored level the tier does not name shows clamped, never rewritten', async () => {
+  const sets: string[] = []
+  // a Claude agent's saved `max` on a tier whose top level is xhigh
+  const view = await mountLevels('max', 'max', ['minimal', 'low', 'medium', 'high', 'xhigh'], sets)
+  const t = track(view)
+  assert.equal(t.getAttribute('aria-valuetext'), 'xhigh')
+  assert.equal(t.getAttribute('data-effort-pinned'), 'xhigh')
+  assert.deepEqual(sets, [], 'showing it clamped saves nothing')
+  await view.unmount()
+  // and below the lowest offered level: the lowest
+  const low = await mountLevels('none', 'none', ['low', 'medium', 'high'], sets)
+  assert.equal(track(low).getAttribute('aria-valuetext'), 'low')
+  await low.unmount()
+})
+
+test('a tier with no effort setting disables the bar', async () => {
+  const sets: string[] = []
+  const view = await mountLevels('', 'high', [], sets)
+  assert.equal(view.el.querySelector('.effort-bar-label')!.textContent, 'No effort setting')
+  assert.ok(view.el.querySelector('.effort-bar.disabled'))
   await view.unmount()
 })

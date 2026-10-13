@@ -483,6 +483,8 @@ test('§8b every static seat table in shared.ts matches the backend’s', () => 
     ...table('TIER_SEAT'),
     ...table('CODEX_TIER_SEAT'),
     ...table('ANTIGRAVITY_TIER_SEAT'),
+    // Muse's family table (seats approved by the user 2026-10-12 20:31Z)
+    ...table('MUSE_TIER_SEAT'),
   }
   assert.deepEqual(merged, SEATS,
     'the seat tables in src/canvas/shared.ts disagree with ledger.TIERS.\n'
