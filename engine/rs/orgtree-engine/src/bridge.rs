@@ -27,6 +27,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::engine::Engine;
 use crate::runtime::Caller;
+use crate::tools::defs::MailShape;
 
 /// `mcp-bridge --pipe <name>`: relay stdio to the engine's pipe.
 pub fn run(args: &[String]) -> ExitCode {
@@ -107,16 +108,19 @@ async fn connect(path: &str) -> std::io::Result<tokio::net::UnixStream> {
     }
 }
 
-/// Ordinary bridge callers do not need launch-readiness observation.
+/// Ordinary bridge callers do not need launch-readiness observation; the
+/// mail tools are listed in `shape`.
 #[logged]
-pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken) -> Result<String> {
-    serve_observed(engine, caller, cancel, None)
+pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, shape: MailShape) -> Result<String> {
+    serve_observed(engine, caller, cancel, None, shape)
 }
 
-/// Serve this agent's tools on a fresh named pipe until `cancel`; returns its name.
+/// Serve this agent's tools on a fresh named pipe until `cancel`, the mail
+/// tools in `shape`; returns its name.
 #[cfg(windows)]
 #[logged]
-pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>) -> Result<String> {
+pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
+                      shape: MailShape) -> Result<String> {
     use tokio::net::windows::named_pipe::ServerOptions;
     let name = format!(r"\\.\pipe\orgtree-mcp-{}", crate::util::random_hex(16));
     let first = ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true).create(&name)?;
@@ -133,24 +137,25 @@ pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationT
                 Ok(s) => s,
                 Err(_) => break,
             };
-            tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone()));
+            tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone(), shape));
         }
     });
     Ok(name)
 }
 
 /// Serve this agent's tools on a fresh Unix socket until `cancel` (or the
-/// engine stops); returns its path.
+/// engine stops), the mail tools in `shape`; returns its path.
 #[cfg(unix)]
 #[logged]
-pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>) -> Result<String> {
+pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
+                      shape: MailShape) -> Result<String> {
     let name = format!("orgtree-mcp-{}", crate::util::random_hex(8));
     let mut refused = Vec::new();
     for dir in socket_dirs(&engine.cfg.data_root) {
         let path = dir.join(&name);
         match listen(&dir, &path) {
             Ok((listener, text)) => {
-                tokio::spawn(accept(engine, caller, listener, path, cancel, ready));
+                tokio::spawn(accept(engine, caller, listener, path, cancel, ready, shape));
                 return Ok(text);
             }
             Err(e) => refused.push(format!("{}: {e:#}", dir.display())),
@@ -240,7 +245,8 @@ fn listen(dir: &std::path::Path, path: &std::path::Path) -> Result<(tokio::net::
 /// socket file goes with the listener.
 #[cfg(unix)]
 #[logged]
-async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixListener, path: std::path::PathBuf, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>) {
+async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixListener, path: std::path::PathBuf, cancel: CancellationToken,
+                ready: Option<tokio::sync::watch::Sender<bool>>, shape: MailShape) {
     struct Unlink(std::path::PathBuf);
     impl Drop for Unlink {
         fn drop(&mut self) {
@@ -258,7 +264,7 @@ async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixL
         match r {
             // the folder admits only this user; any other peer is refused all the same
             Ok((conn, _)) if conn.peer_cred().map(|c| c.uid()).ok() == Some(me) => {
-                tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone()));
+                tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone(), shape));
             }
             Ok(_) => {}
             // a peer that left before it was accepted, or no file handles to spare: keep serving
@@ -290,8 +296,10 @@ pub fn clear_stale(data_root: &std::path::Path) {
     }
 }
 
-/// One CLI-side MCP session: each request answered as its own request.
-async fn connection<S>(engine: Arc<Engine>, caller: Caller, conn: S, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>)
+/// One CLI-side MCP session: each request answered as its own request, the
+/// mail tools listed in `shape`.
+async fn connection<S>(engine: Arc<Engine>, caller: Caller, conn: S, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>,
+                       shape: MailShape)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
@@ -328,7 +336,7 @@ where
         let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
         tokio::spawn(tracing::Instrument::instrument(
             async move {
-                let resp = crate::tools::handle_mcp(&engine, &caller, &msg).await;
+                let resp = crate::tools::handle_mcp_as(&engine, &caller, &msg, shape).await;
                 let observed = if resp.get("error").is_none() && resp.get("result").is_some() {
                     match msg["method"].as_str() {
                         Some("initialize") => Some("initialize"),

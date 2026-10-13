@@ -406,7 +406,7 @@ impl MuseProc {
     #[nolog]
     pub async fn spawn(engine: Arc<Engine>, spec: MuseSpec, caller: Caller, actor: AgentTx) -> Result<MuseProc> {
         let pipe = CancellationToken::new();
-        let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone())?;
+        let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone(), crate::tools::defs::MailShape::Split)?;
         // the identity by file when the command line cannot hold it
         let (prompt_file, prompt_by_file) = if spec.developer_prompt.chars().count() > PROMPT_ARG_BUDGET {
             let file = spec.cwd.join(".orgtree-muse-identity.md");

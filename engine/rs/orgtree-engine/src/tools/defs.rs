@@ -63,6 +63,24 @@ pub fn scoped(tools: &Value) -> Vec<Value> {
     }).collect()
 }
 
+/// `scoped`, with the mail tools in `shape` (`MailShape`).
+#[logged]
+pub fn scoped_as(tools: &Value, shape: MailShape) -> Vec<Value> {
+    let cards = scoped(tools);
+    if shape == MailShape::Split {
+        return cards;
+    }
+    let [message, notice] = mail_tools(shape);
+    cards
+        .into_iter()
+        .map(|c| match c["name"].as_str() {
+            Some("orgtree_message") => message.clone(),
+            Some("orgtree_send_notice") => notice.clone(),
+            _ => c,
+        })
+        .collect()
+}
+
 #[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     let mut out = json!({
@@ -98,6 +116,91 @@ const KINDS: &[&str] = &["message", "question", "request", "decision", "status"]
 /// and still the flat shape (`tools::mailtools::flat_args`).
 const META_FIRST: &str = "Write this FIRST, before body: who the message is for and how it is sent";
 const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
+const MESSAGE_DESC: &str = "Send mail. You may write to your superior, your reports and their reports (writing to a non-child \
+     descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
+     (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
+     '@net:<slug>'. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
+     later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
+     recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
+     and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
+     result lists every recipient's outcome (refused ones are named with the reason; the rest still get it).";
+const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
+     body last.";
+const NOTICE_DESC: &str = "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody.";
+const NOTICE_ORDER: &str = "Always write metadata (`to`) before body: metadata first, body last.";
+
+/// How a harness is given the two mail tools (coordinator 2026-10-13 21:36Z):
+/// split, `{metadata, body}`, wherever a no-spend check showed the CLI
+/// passes it through (Claude Code, Codex, Muse); flat, the shape from before
+/// the split, on Antigravity, whose CLI cannot be checked without the live
+/// Google sign-in. It switches to split once a check passes there. The
+/// handler takes both (`mailtools::flat_args`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MailShape {
+    Split,
+    Flat,
+}
+
+/// orgtree_message's arguments but `body`, in their order: the split cards'
+/// `metadata`, the flat cards' top level.
+#[logged]
+fn message_meta() -> Value {
+    json!({
+        "to": TO.clone(),
+        "kind": { "type": "string", "enum": KINDS },
+        "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
+        "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
+                         "description": "files to send, relative to your working folder or absolute" },
+        "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
+        "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
+        "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it" },
+        "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
+                     "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
+        "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
+    })
+}
+
+/// orgtree_message and orgtree_send_notice in `shape`.
+#[logged]
+fn mail_tools(shape: MailShape) -> [Value; 2] {
+    match shape {
+        MailShape::Split => [
+            tool(
+                "orgtree_message",
+                &format!("{MESSAGE_DESC} {MESSAGE_ORDER}"),
+                json!({
+                    "metadata": { "type": "object", "description": META_FIRST, "required": ["to"], "properties": message_meta() },
+                    "body": { "type": "string", "description": BODY_LAST },
+                }),
+                &["metadata", "body"],
+            ),
+            tool(
+                "orgtree_send_notice",
+                &format!("{NOTICE_DESC} {NOTICE_ORDER}"),
+                json!({
+                    "metadata": { "type": "object", "description": META_FIRST, "required": ["to"],
+                                  "properties": { "to": TO.clone() } },
+                    "body": { "type": "string", "description": BODY_LAST },
+                }),
+                &["metadata", "body"],
+            ),
+        ],
+        // the cards as they were before the split (rust-engine 536184d), so
+        // a seat on this shape keeps its tool prefix
+        MailShape::Flat => {
+            let mut props = serde_json::Map::new();
+            props.insert("to".into(), TO.clone());
+            props.insert("body".into(), json!({ "type": "string" }));
+            if let Value::Object(meta) = message_meta() {
+                props.extend(meta.into_iter().filter(|(k, _)| k != "to"));
+            }
+            [
+                tool("orgtree_message", MESSAGE_DESC, Value::Object(props), &["to", "body"]),
+                tool("orgtree_send_notice", NOTICE_DESC, json!({ "to": TO.clone(), "body": { "type": "string" } }), &["to", "body"]),
+            ]
+        }
+    }
+}
 
 /// `to` on orgtree_message / orgtree_send_notice: one recipient or a list.
 static TO: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
@@ -167,48 +270,10 @@ fn merge(mut a: Value, b: Value) -> Value {
 
 #[logged]
 fn all() -> Vec<Value> {
+    let [message, notice] = mail_tools(MailShape::Split);
     vec![
-        tool(
-            "orgtree_message",
-            "Send mail. You may write to your superior, your reports and their reports (writing to a non-child \
-             descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
-             (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
-             '@net:<slug>'. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
-             later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
-             recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
-             and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
-             result lists every recipient's outcome (refused ones are named with the reason; the rest still get it). \
-             Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
-             body last.",
-            json!({
-                "metadata": { "type": "object", "description": META_FIRST, "required": ["to"], "properties": {
-                "to": TO.clone(),
-                "kind": { "type": "string", "enum": KINDS },
-                "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
-                "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
-                                 "description": "files to send, relative to your working folder or absolute" },
-                "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
-                "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
-                "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it" },
-                "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
-                             "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
-                "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
-                } },
-                "body": { "type": "string", "description": BODY_LAST },
-            }),
-            &["metadata", "body"],
-        ),
-        tool(
-            "orgtree_send_notice",
-            "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody. \
-             Always write metadata (`to`) before body: metadata first, body last.",
-            json!({
-                "metadata": { "type": "object", "description": META_FIRST, "required": ["to"],
-                              "properties": { "to": TO.clone() } },
-                "body": { "type": "string", "description": BODY_LAST },
-            }),
-            &["metadata", "body"],
-        ),
+        message,
+        notice,
         tool(
             "orgtree_status",
             "Report your status. Required when you finish ('done') or get stuck ('blocked'): your superior gets \
@@ -672,6 +737,97 @@ fn all() -> Vec<Value> {
             &["target"],
         ),
     ]
+}
+
+#[cfg(test)]
+mod mail_shape_tests {
+    use super::*;
+
+    /// Antigravity keeps the mail tools of before the split (coordinator
+    /// 2026-10-13 21:36Z), byte for byte as rust-engine 536184d served them,
+    /// so its seats keep their tool prefix.
+    #[test]
+    fn the_flat_cards_are_the_cards_of_before_the_split() {
+        let to = json!({ "anyOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10 },
+        ], "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'; or a list of up to 10 of them" });
+        let message = json!({
+            "name": "orgtree_message",
+            "description": "Send mail. You may write to your superior, your reports and their reports (writing to a non-child \
+             descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
+             (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
+             '@net:<slug>'. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
+             later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
+             recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
+             and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
+             result lists every recipient's outcome (refused ones are named with the reason; the rest still get it).",
+            "inputSchema": { "type": "object", "properties": {
+                "to": to.clone(),
+                "body": { "type": "string" },
+                "kind": { "type": "string", "enum": ["message", "question", "request", "decision", "status"] },
+                "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
+                "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
+                                 "description": "files to send, relative to your working folder or absolute" },
+                "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
+                "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
+                "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it" },
+                "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
+                             "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
+                "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
+            }, "required": ["to", "body"] },
+            "_meta": { "anthropic/alwaysLoad": true },
+        });
+        let notice = json!({
+            "name": "orgtree_send_notice",
+            "description": "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody.",
+            "inputSchema": { "type": "object", "properties": { "to": to, "body": { "type": "string" } }, "required": ["to", "body"] },
+            "_meta": { "anthropic/alwaysLoad": true },
+        });
+        let [m, n] = mail_tools(MailShape::Flat);
+        // serialized, so the key order counts too (serde_json keeps insertion order)
+        assert_eq!(m.to_string(), message.to_string());
+        assert_eq!(n.to_string(), notice.to_string());
+    }
+
+    /// The split cards carry exactly the flat cards' fields, in the same order
+    /// and with the same schemas, metadata first and the order spelled out.
+    #[test]
+    fn the_split_cards_hold_every_flat_field_in_metadata() {
+        let [fm, fnote] = mail_tools(MailShape::Flat);
+        let [sm, snote] = mail_tools(MailShape::Split);
+        for (flat, split) in [(&fm, &sm), (&fnote, &snote)] {
+            let fp = flat["inputSchema"]["properties"].as_object().unwrap();
+            let sp = split["inputSchema"]["properties"].as_object().unwrap();
+            assert_eq!(sp.keys().collect::<Vec<_>>(), ["metadata", "body"]);
+            assert_eq!(split["inputSchema"]["required"], json!(["metadata", "body"]));
+            let meta = sp["metadata"]["properties"].as_object().unwrap();
+            let flat_meta: Vec<(&String, &Value)> = fp.iter().filter(|(k, _)| *k != "body").collect();
+            assert_eq!(meta.iter().collect::<Vec<_>>(), flat_meta);
+            assert_eq!(sp["metadata"]["required"], json!(["to"]));
+            let desc = split["description"].as_str().unwrap();
+            assert!(desc.starts_with(flat["description"].as_str().unwrap()) && desc.ends_with("metadata first, body last."), "{desc}");
+        }
+    }
+
+    /// Only the two mail cards change with the shape; every agent but an
+    /// Antigravity seat gets the split ones.
+    #[test]
+    fn a_flat_scope_swaps_only_the_mail_cards() {
+        let all_on = json!({});
+        let split = scoped_as(&all_on, MailShape::Split);
+        let flat = scoped_as(&all_on, MailShape::Flat);
+        assert_eq!(split, scoped(&all_on));
+        assert_eq!(split.len(), flat.len());
+        for (s, f) in split.iter().zip(&flat) {
+            assert_eq!(s["name"], f["name"]);
+            let mail = matches!(s["name"].as_str(), Some("orgtree_message" | "orgtree_send_notice"));
+            assert_eq!(s == f, !mail, "{}", s["name"]);
+        }
+        // a scope without messaging has no mail cards to swap
+        let quiet = json!({ "orgtree": { "messaging": false } });
+        assert_eq!(scoped_as(&quiet, MailShape::Flat), scoped(&quiet));
+    }
 }
 
 #[cfg(test)]

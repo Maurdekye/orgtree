@@ -90,7 +90,9 @@ impl AgyProc {
     #[nolog]
     pub async fn spawn(engine: Arc<Engine>, spec: AgySpec, caller: Caller, actor: AgentTx) -> Result<AgyProc> {
         let pipe = CancellationToken::new();
-        let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone())?;
+        // the mail tools in their flat shape: the nested one is unchecked on
+        // this CLI (coordinator 2026-10-13 21:36Z, tools::defs::MailShape)
+        let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone(), crate::tools::defs::MailShape::Flat)?;
         write_workspace(&spec, &pipe_name, &engine.cfg.data_root)?;
         let mut cmd = Command::new(&spec.exe);
         cmd.arg("-p=")

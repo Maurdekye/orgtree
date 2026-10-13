@@ -24,6 +24,13 @@ use crate::runtime::{AgentMsg, Caller};
 /// One JSON-RPC message from the CLI → the response it gets.
 #[logged]
 pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> Value {
+    handle_mcp_as(engine, caller, msg, defs::MailShape::Split).await
+}
+
+/// `handle_mcp`, listing the mail tools in `shape` (`defs::MailShape`: flat
+/// on Antigravity).
+#[logged]
+pub async fn handle_mcp_as(engine: &Arc<Engine>, caller: &Caller, msg: &Value, shape: defs::MailShape) -> Value {
     if msg["method"].as_str() == Some("tools/call") {
         if let Some(id) = msg.get("id").cloned().filter(|i| !i.is_null()) {
             return json!({ "jsonrpc": "2.0", "id": id, "result": call(engine, caller, &msg["params"]).await });
@@ -31,7 +38,7 @@ pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> V
     }
     let cards = if msg["method"] == "tools/list" {
         match caller_tools(engine, caller).await {
-            Ok(tools) => defs::scoped(&tools),
+            Ok(tools) => defs::scoped_as(&tools, shape),
             Err(_) => return json!({"jsonrpc":"2.0", "id":msg["id"],
                 "error":{"code":-32603,"message":"Could not read the agent's tool scope"}}),
         }

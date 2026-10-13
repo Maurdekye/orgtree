@@ -46,7 +46,9 @@ impl OpenCodeProc {
         // listener. Successful construction transfers that duty to the process.
         let startup_pipe = pipe.clone().drop_guard();
         let (ready_tx, ready_rx) = watch::channel(false);
-        let name = crate::bridge::serve_observed(engine, caller, pipe.clone(), Some(ready_tx))?;
+        // the split mail tools: opencode's MCP path passes the nested shape
+        // through (no-spend pre-check, docs/rust-engine/agent-typing.md)
+        let name = crate::bridge::serve_observed(engine, caller, pipe.clone(), Some(ready_tx), crate::tools::defs::MailShape::Split)?;
         spec.servers = servers(&name, &spec.servers)?;
         let cwd = spec.cwd.to_string_lossy().to_string();
         let prepared = Launch::prepare(spec);
