@@ -494,7 +494,10 @@ impl Fingerprint {
     }
 }
 
-#[logged]
+/// A fingerprint part's digest. Not logged: its input is the launch's own
+/// material, the granted MCP servers' configuration (environment, headers,
+/// arguments that can be credentials) included; the digest is what is kept.
+#[nolog]
 fn hash(s: &str) -> String {
     hex::encode(&Sha256::digest(s.as_bytes())[..12])
 }
