@@ -911,6 +911,8 @@ export interface ToolChip {
   arg?: string                 // _tool_arg (supervisor.py:2611) -> str
   /** Row identity for an on-demand full-input read; never the input itself. */
   input_seq?: number
+  /** Failed shell output retained separately, fetched only when expanded. */
+  output_seq?: number
   /** when the engine saw the call start, and when its result arrived (ISO); the
    *  chip shows the difference. Absent on older rows and on a call with no result. */
   started_at?: string

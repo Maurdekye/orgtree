@@ -5,6 +5,7 @@ import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { isFailedShellCall } from './shellerror'
+import { ToolOutputDetails } from './tooloutput'
 import { executionTime, RunningTimer, TurnActiveContext } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
@@ -4718,7 +4719,7 @@ function LiveSteerRow({ text, segments, slug, nid, truncated, refs }:
 }
 
 // Parity №1/№9/№10: the tool line says what it did — argument on the chip, a
-// red bit + first error line on failure, and the RESULT collapsed behind a
+// red bit on failure (shell errors hide their text), and the RESULT collapsed behind a
 // click (never inline: an always-expanded stream turns the desk into a log
 // tail). Edits expand to their pre-computed hunk.
 interface ToolChipProps {
@@ -4787,7 +4788,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
         {' '}{shortTool(t.name)}
         {t.arg ? <span className="targ"> {t.arg}</span> : null}
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
-        {!t.diff && !t.error && (t.result_lines ?? 0) > 0 && (
+        {!t.diff && !t.error && !shellError && (t.result_lines ?? 0) > 0 && (
           <span className="dim"> · {t.result_lines} line{t.result_lines === 1 ? '' : 's'}</span>)}
         {t.task && (
           <span className="dim"> · {t.task.tools ?? '?'} tools
@@ -4803,7 +4804,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             ? <RunningTimer startedAt={t.started_at} /> : null}
         {/* the agents and the watchdog this call concerns, as the same links
             and cards the rest of the app draws for them */}
-        {!t.error && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid} org={slug} onWorkLink={onWorkLink}
+        {!t.error && !shellError && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid} org={slug} onWorkLink={onWorkLink}
           agent={id => <MailFrom from={id} />} />}
         {/* mail sends carry the inline "open in mailbox" link (user spec):
             straight to the exact mail in whichever box holds it */}
@@ -4827,10 +4828,12 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
       {open && <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
-      {open && shellError && t.error && (!t.result || !t.result.includes(t.error)) &&
-        <CopyablePre><pre className="filepre respre">{t.error}</pre></CopyablePre>}
+      {open && shellError && <ToolOutputDetails slug={slug} nid={nid} seq={t.output_seq} tool={t.id}
+        fallback={t.result || t.error || ''} clipped={t.truncated}
+        renderOutput={output => <CopyablePre><pre className="filepre respre"
+          data-reply-event={t.result_event_id ?? ''} data-reply-quote={output}>{output}</pre></CopyablePre>} />}
       {open && execTime && <div className="dim tool-exec-line">Execution time {execTime}</div>}
-      {open && t.diff && (
+      {open && !shellError && t.diff && (
         <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.diff.lines.map((l, i) => (
             <div key={i} className={l.startsWith('@@') ? 'dhunk'
@@ -4838,13 +4841,13 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
               : l.startsWith('-') ? 'dminus' : ''}>{l}</div>))}
           {t.diff.truncated && <div className="dim">… truncated</div>}
         </pre></CopyablePre>)}
-      {open && !t.diff && t.result && parseStructured(t.result, !!t.truncated) !== undefined && (
+      {open && !shellError && !t.diff && t.result && parseStructured(t.result, !!t.truncated) !== undefined && (
         <div className="respre-json" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           <div className="dim">Output</div>
           <StructuredJson value={parseStructured(t.result, !!t.truncated)} raw={t.result}
             note={t.truncated ? '… truncated' : undefined} />
         </div>)}
-      {open && !t.diff && t.result && parseStructured(t.result, !!t.truncated) === undefined && (
+      {open && !shellError && !t.diff && t.result && parseStructured(t.result, !!t.truncated) === undefined && (
         <CopyablePre><pre className="filepre respre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.result}{t.truncated ? '\n… truncated' : ''}
         </pre></CopyablePre>)}
