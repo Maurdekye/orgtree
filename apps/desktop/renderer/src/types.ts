@@ -1392,7 +1392,9 @@ export interface OpenRouterDoc {
   favorites_max: number
   tiers: ProviderTier[]
   user_enabled: boolean
-  /** which CLI drives OpenRouter agents — see `OpenRouterHarness` */
+  /** which CLIs can drive OpenRouter agents here, and (`stored`) the one a
+   *  newly added key gets — see `OpenRouterHarness`; each key's own is
+   *  `OpenRouterKey.harness` */
   harness?: OpenRouterHarness
   /** every stored key, the original first (several keys at once, ruling
    *  2026-10-11). The top-level fields above describe the original key. */
@@ -1417,6 +1419,32 @@ export interface OpenRouterKey {
   reason: string | null
   limits: UsageLimit[]
   observed_at: string | null
+  /** the harness this key's agents launch on (an id from
+   *  `OpenRouterHarness.harnesses`; user 2026-10-13: the harness is chosen
+   *  per key). An older backend sends none. */
+  harness?: string
+  /** whether that harness is installed here (not: its agents refuse to
+   *  launch, saying so; nothing switches silently) */
+  harness_installed?: boolean
+  /** live agents billing this key pinned to their harness (hired with an
+   *  explicit one): a change of the key's harness skips them */
+  pinned_seats?: number
+}
+/** GET /api/harnesses: the engine's one harness registry (harnesses.rs) */
+export interface HarnessesDoc {
+  harnesses: HarnessInfo[]
+}
+export interface HarnessInfo {
+  id: string
+  name: string
+  what: string
+  installed: boolean
+  /** chosen per OpenRouter key, language server and hire (else it runs its
+   *  own provider's agents only) */
+  selectable: boolean
+  providers: { id: string; label: string }[]
+  install_url: string | null
+  install: string
 }
 /** one candidate CLI and why it can or cannot run an OpenRouter agent.
  *  `state` is deliberately four-valued (`missing` · `unavailable` ·
@@ -1428,6 +1456,7 @@ export interface OpenRouterHarnessOption {
   label: string
   state: string
   available: boolean
+  installed?: boolean
   why: string
   version?: string | null
   path?: string
@@ -1438,7 +1467,8 @@ export interface OpenRouterHarnessOption {
  *  `unavailable` true is the neither case (no choice is offered at all). */
 export interface OpenRouterHarness {
   harnesses: OpenRouterHarnessOption[]
-  /** the stored preference — what a NEW hire gets; not necessarily `selected` */
+  /** what a newly added key gets (the original key's harness, else the
+   *  old global setting); not necessarily `selected` */
   stored: string
   default: string
   enabled: boolean
@@ -1467,6 +1497,8 @@ export interface LangServerHarness {
   id: 'claude-code' | 'codex-cli'
   label: string
   available: boolean
+  /** not installed: never offered (user 2026-10-13), only named on a
+   *  server added with it */
   installed: boolean
   /** why it cannot drive this kind of server (empty when it can) */
   why: string

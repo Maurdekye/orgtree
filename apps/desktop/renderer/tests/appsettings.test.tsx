@@ -171,15 +171,16 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       // v3: the strip follows the user's own list (2026-09-29), and the
-      // panel opens on its first tab, Providers (user 2026-09-30).
+      // panel opens on its first tab, Providers (user 2026-09-30). Harnesses
+      // follows Providers (coordinator ruling 2026-10-13).
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['Providers', 'Runtime', 'Display', 'Default org settings',
+        ['Providers', 'Harnesses', 'Runtime', 'Display', 'Default org settings',
           'Mail hub', 'Developer', 'About'])
-      assert.equal(tabs[2]!.querySelector('.app-settings-scope'), null,
+      assert.equal(tabs[3]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true',
         'opens on Providers')
-      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'false')
+      assert.equal(tabs[7]!.getAttribute('aria-selected'), 'false')
       assert.equal(view.el.querySelector('#app-settings-panel-providers')!.hasAttribute('hidden'), false)
       await inAct(async () => {
         tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', {
@@ -200,15 +201,15 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
           key: 'End', bubbles: true,
         }))
       })
-      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[6])
+      assert.equal(tabs[7]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[7])
       await inAct(async () => {
-        tabs[6]!.dispatchEvent(new KeyboardEvent('keydown', {
+        tabs[7]!.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'ArrowLeft', bubbles: true,
         }))
       })
-      assert.equal(tabs[5]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[5])
+      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[6])
       const last = view.el.querySelector('#app-settings-panel-developer')!
       assert.equal(last.hasAttribute('hidden'), false)
       // the engine debug view's toggle lives here, and is off by default

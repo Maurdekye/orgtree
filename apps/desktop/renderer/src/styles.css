@@ -6783,7 +6783,9 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   display: inline-flex; align-items: center; gap: 7px;
   border: 0; border-bottom: 2px solid transparent; border-radius: 0;
   background: none; color: var(--dim);
-  padding: 5px 7px 7px; flex: none; white-space: nowrap;
+  /* 5px sides (was 7px) since the Harnesses tab (2026-10-13): eight tabs
+     still fit the panel at the default window width */
+  padding: 5px 5px 7px; flex: none; white-space: nowrap;
 }
 .settings .app-settings-tab:hover { color: var(--ink); background: var(--panel-2); }
 .settings .app-settings-tab.on {
@@ -8574,3 +8576,12 @@ main:has(> .orgbar.native-header) > .error {
 .transfer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .transfer-actions:empty { display: none; }
 .transfer-actions button { font-size: 11px; padding: 3px 7px; }
+
+/* App settings › Harnesses and the "Which harnesses are supported?" link
+   beside every harness selector (canvas/harnesses.tsx) */
+.harness-help-link { background: none; border: 0; padding: 0; font: inherit; font-size: 12px;
+  color: var(--agent-accent-text, var(--accent)); cursor: pointer; text-decoration: underline; align-self: flex-start; }
+.harness-intro { margin: 4px 0 10px; }
+.harness-list { display: flex; flex-direction: column; gap: 12px; }
+.harness-entry { display: flex; flex-direction: column; gap: 2px; }
+.harness-installed { color: var(--ok, inherit); }

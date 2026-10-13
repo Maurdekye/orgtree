@@ -5,7 +5,8 @@
 //  - a row per ADDED key (`openrouter-N`): its name, verdict and spend line,
 //    and the same three icon buttons as the original row (re-check · edit ·
 //    remove);
-//  - the shared name and optional replacement form every key uses in settings.
+//  - the shared name, harness and optional replacement form every key uses
+//    in settings (each key has its own harness, user 2026-10-13).
 // The section header owns its single add action for first and subsequent keys.
 //
 // Each key is its own account: agents are placed on it, Org settings ›
@@ -21,9 +22,10 @@ import {
   getOpenRouter, removeOpenRouterKey, setOpenRouterKeyEnabled, updateOpenRouterKey,
 } from '../api'
 import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
-import type { OpenRouterDoc, OpenRouterKey } from '../types'
+import type { OpenRouterDoc, OpenRouterHarness, OpenRouterHarnessOption, OpenRouterKey } from '../types'
 import { ProviderDialog } from './providerdialog'
 import { SetToggle } from './settingskit'
+import { HarnessesLink } from './harnesses'
 
 type Run = (p: Promise<OpenRouterDoc>, ok: string) => void
 
@@ -68,19 +70,50 @@ function standingOf(k: OpenRouterKey): string {
   return k.connected == null ? 'not read at openrouter.ai yet' : 'no spend reported'
 }
 
-/** the name (and, for an edit, an optional replacement key) of one key */
-export function OpenRouterKeyDialog({ title, keyRequired, initialName, busy, close, save }: {
+/** a key dialog's harness row: the CLIs that can drive OpenRouter agents
+ *  here, the key's stored harness, the backend's sentence when there is no
+ *  live choice, and (an edit) its agents pinned to their own harness */
+export interface KeyHarnessField {
+  value: string
+  options: OpenRouterHarnessOption[]
+  explain: string
+  pinned: number
+}
+
+export function keyHarness(h: OpenRouterHarness, value: string, pinned = 0): KeyHarnessField {
+  return { value, options: h.harnesses, explain: h.explain, pinned }
+}
+
+/** a harness id as people name it */
+export function harnessName(options: OpenRouterHarnessOption[], id: string | undefined): string {
+  return options.find((o) => o.id === id)?.label ?? id ?? ''
+}
+
+/** the name, the harness (an older backend sends none: no row) and, for an
+ *  edit, an optional replacement key of one key. `save` gets the harness
+ *  chosen, or undefined with no harness row. */
+export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, busy, close, save }: {
   title: string
   keyRequired: boolean
   initialName: string
+  harness?: KeyHarnessField
   busy: boolean
   close: () => void
-  save: (name: string, key: string) => void
+  save: (name: string, key: string, harness?: string) => void
 }) {
   const [name, setName] = useState(initialName)
   const [key, setKey] = useState('')
+  const [picked, setPicked] = useState(harness?.value)
   const ready = !busy && (!keyRequired || !!key.trim())
-  const submit = () => { if (ready) save(name.trim(), key.trim()) }
+  // a harness not installed is never sent: the key keeps what it has (an
+  // add gets the default)
+  const submit = () => { if (ready) save(name.trim(), key.trim(), missing ? undefined : picked) }
+  // only installed harnesses are offered (user 2026-10-13); a saved one no
+  // longer installed stays listed, saying so, until another is picked
+  const offered = (harness?.options ?? []).filter((o) => o.available || o.id === harness?.value)
+  const live = offered.filter((o) => o.available).length > 1
+  const missing = !!harness && !harness.options.find((o) => o.id === picked)?.available
+  const changed = !keyRequired && !!harness && picked !== harness.value
   return <ProviderDialog title={title} busy={busy} close={close}>
     <div className="provider-key-form">
       <label htmlFor="openrouter-key-name">Name (optional)</label>
@@ -88,6 +121,31 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, busy, clo
         placeholder="e.g. team budget" aria-label="OpenRouter key name"
         value={name} disabled={busy} onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
+      {harness && <>
+        <label htmlFor="openrouter-key-harness">Harness</label>
+        <select id="openrouter-key-harness" aria-label="OpenRouter key harness" value={picked ?? ''}
+          disabled={busy || !(live || (missing && offered.some((o) => o.available)))}
+          onChange={(e) => setPicked(e.target.value)}>
+          {offered.map((o) => (
+            <option key={o.id} value={o.id} disabled={!o.available}>
+              {o.available ? o.label : `${o.label} (not installed)`}
+            </option>
+          ))}
+        </select>
+        {missing && <div className="ask-warn-inline">
+          {harnessName(harness.options, picked)} is not installed on this computer: agents on this key
+          refuse to start until it is installed or another harness is chosen.</div>}
+        <div className="dim account-note">
+          {!live && harness.explain ? `${harness.explain} ` : ''}
+          {keyRequired
+            ? 'The CLI that runs agents on this key.'
+            : changed
+              ? `Its agents move to ${harnessName(harness.options, picked)} at their next turn, on a fresh session that starts with a summary.`
+              : 'The CLI that runs agents on this key. A change reaches them at their next turn.'}
+          {harness.pinned > 0 && ` ${harness.pinned} ${harness.pinned === 1 ? 'agent was' : 'agents were'} hired with a chosen harness and ${harness.pinned === 1 ? 'keeps it' : 'keep theirs'}.`}
+        </div>
+        <HarnessesLink />
+      </>}
       <label htmlFor="openrouter-key-secret">{keyRequired ? 'API key' : 'Replace the API key (optional)'}</label>
       <input type="password" id="openrouter-key-secret" autoComplete="off" spellCheck={false}
         placeholder={keyRequired ? 'paste an OpenRouter API key (sk-or-…)' : 'leave empty to keep the current key'}
@@ -108,6 +166,7 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, busy, clo
 
 /** the added keys' rows and settings; the section header owns adding */
 export function OpenRouterAddedKeys({ doc, busy, run }: { doc: OpenRouterDoc; busy: boolean; run: Run }) {
+  const h = doc.harness
   const [editing, setEditing] = useState<OpenRouterKey | null>(null)
   const added = (doc.keys ?? []).filter((k) => !k.original)
   return <>
@@ -122,11 +181,13 @@ export function OpenRouterAddedKeys({ doc, busy, run }: { doc: OpenRouterDoc; bu
               {' · '}{k.connected ? 'connected' : k.connected === false ? 'not connected' : 'not checked yet'}
               {k.enabled ? '' : ' · inactive'}
             </span>
+            {h && k.harness && <span className={k.harness_installed === false ? 'ask-warn-inline' : 'dim'}>
+              {' · '}{harnessName(h.harnesses, k.harness)}{k.harness_installed === false ? ' (not installed)' : ''}</span>}
           </span>
           <button className="acct-btn" title="re-check every key and its credit standing at openrouter.ai"
             disabled={busy} onClick={() => run(getOpenRouter(true), '')}>
             <AutorenewIcon fontSize="inherit" /></button>
-          <button className="acct-btn" title="rename this key or replace it" disabled={busy}
+          <button className="acct-btn" title="rename this key, choose its harness or replace it" disabled={busy}
             aria-haspopup="dialog" onClick={() => setEditing(k)}><EditIcon fontSize="inherit" /></button>
           <button className="acct-btn acct-del"
             title="remove this key — agents on it move to the first OpenRouter key"
@@ -140,10 +201,13 @@ export function OpenRouterAddedKeys({ doc, busy, run }: { doc: OpenRouterDoc; bu
       </div>
     </div>)}
     {editing && <OpenRouterKeyDialog title={`Edit ${editing.name}`} keyRequired={false} initialName={editing.label ?? ''}
+      harness={h && editing.harness ? keyHarness(h, editing.harness, editing.pinned_seats) : undefined}
       busy={busy} close={() => setEditing(null)}
-      save={(name, key) => {
-        run(updateOpenRouterKey(editing.id, key ? { label: name, key } : { label: name }),
-          key ? `${editing.id} replaced` : `${editing.id} renamed`)
+      save={(name, key, picked) => {
+        const moved = picked && picked !== editing.harness ? { harness: picked } : {}
+        run(updateOpenRouterKey(editing.id, key ? { label: name, key, ...moved } : { label: name, ...moved }),
+          key ? `${editing.id} replaced` : moved.harness && h
+            ? `${editing.id} now runs on ${harnessName(h.harnesses, moved.harness)}` : `${editing.id} renamed`)
         setEditing(null)
       }} />}
   </>

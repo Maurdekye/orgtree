@@ -1,277 +1,228 @@
-// THE OPENROUTER HARNESS ROW — which CLI drives OpenRouter agents. Since
-// 2026-09-30 it is an ordinary App settings > Runtime row (label, <select>,
-// hint), and the Providers > OpenRouter card no longer carries it.
+// THE OPENROUTER HARNESS IS EACH KEY'S OWN (user 2026-10-13: "configurable
+// which harness to use per openrouter key"; "only the installed harnesses are
+// available to select from"). The Runtime tab's global row is gone; each key's
+// settings dialog carries a Harness select next to its Name.
 //
-// The row has three shapes and they look similar on screen while meaning very
-// different things, which is exactly why each one is pinned here:
+//   · only installed harnesses are offered; one not installed is not listed;
+//   · a key whose saved harness is no longer installed names it "not
+//     installed", warns that its agents refuse to start, and sends nothing
+//     until another is picked (never a silent switch);
+//   · a change says its agents move at their next turn (fresh session), and
+//     agents hired with a chosen harness are counted as keeping theirs;
+//   · every harness selector links to App settings › Harnesses.
 //
-//   · both CLIs usable  → a live choice, Claude Code selected by default;
-//   · exactly one usable → that one shown SELECTED and the control DISABLED,
-//     with the reason the other is out (a greyed control with no reason is
-//     the state people file bugs about);
-//   · neither usable     → no choice offered at all, both reasons shown.
-//
-// ⚠ THE RENDERER DECIDES NONE OF THIS. The backend serves the whole decision
-// (`openrouter_harness.selector`) and these tests drive the component with
-// that payload, so a rule can never be half-implemented in two places. A test
-// that recomputed the rule here would agree with a broken renderer.
+// ⚠ THE RENDERER DECIDES NONE OF THIS: installed or not is the backend's
+// answer (`harness.harnesses[].available`, `keys[].harness_installed`).
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { HarnessChoice, OpenRouterHarnessSetting, OpenRouterSection } from '../src/canvas/openrouter'
-import type { OpenRouterDoc, OpenRouterHarness, ProviderInfo } from '../src/types'
+import { OpenRouterSection } from '../src/canvas/openrouter'
+import { HarnessesLink, HarnessesSection } from '../src/canvas/harnesses'
+import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
+import type { OpenRouterDoc, OpenRouterHarness, OpenRouterKey, ProviderInfo } from '../src/types'
 
+type Seen = { method: string; path: string; body: unknown }
 const g = globalThis as unknown as Record<string, unknown>
 
-const CLAUDE_OK = {
-  id: 'claude-code', label: 'Claude Code', state: 'available',
-  available: true, why: 'installed and ready', version: '2.1.241',
-}
-const CODEX_OK = {
-  id: 'codex-cli', label: 'Codex CLI', state: 'available',
-  available: true, why: 'installed and ready', version: '0.154.0',
-}
-const CODEX_GONE = {
-  id: 'codex-cli', label: 'Codex CLI', state: 'missing', available: false,
-  why: 'the Codex CLI was not found on this machine',
-}
-const CLAUDE_GONE = {
-  id: 'claude-code', label: 'Claude Code', state: 'missing', available: false,
-  why: 'the Claude Code CLI was not found on this machine',
-}
+const CLAUDE = { id: 'claude-code', label: 'Claude Code', state: 'available', available: true, installed: true, why: 'installed' }
+const CODEX = { id: 'codex-cli', label: 'Codex', state: 'available', available: true, installed: true, why: 'installed' }
+const CODEX_GONE = { ...CODEX, state: 'missing', available: false, installed: false, why: 'Codex is not installed on this computer' }
 
-const BOTH: OpenRouterHarness = {
-  harnesses: [CLAUDE_OK, CODEX_OK], stored: 'claude-code',
-  default: 'claude-code', enabled: true, unavailable: false,
-  selected: 'claude-code', explain: '',
-}
-const ONLY_CLAUDE: OpenRouterHarness = {
-  harnesses: [CLAUDE_OK, CODEX_GONE], stored: 'claude-code',
-  default: 'claude-code', enabled: false, unavailable: false,
-  selected: 'claude-code',
-  explain: `Claude Code is the only harness available on this machine — `
-    + `Codex CLI is not (${CODEX_GONE.why})`,
-}
-const ONLY_CODEX: OpenRouterHarness = {
-  harnesses: [CLAUDE_GONE, CODEX_OK], stored: 'claude-code',
-  default: 'claude-code', enabled: false, unavailable: false,
-  selected: 'codex-cli',
-  explain: `Codex CLI is the only harness available on this machine — `
-    + `Claude Code is not (${CLAUDE_GONE.why})`,
-}
-const NEITHER: OpenRouterHarness = {
-  harnesses: [CLAUDE_GONE, CODEX_GONE], stored: 'claude-code',
-  default: 'claude-code', enabled: false, unavailable: true,
-  selected: null,
-  explain: 'no OpenRouter harness is available on this machine. '
-    + `Claude Code: ${CLAUDE_GONE.why}; Codex CLI: ${CODEX_GONE.why}`,
-}
+const BOTH: OpenRouterHarness = { harnesses: [CLAUDE, CODEX], stored: 'claude-code', default: 'claude-code',
+  enabled: true, unavailable: false, selected: 'claude-code', explain: '' }
+const ONLY_CLAUDE: OpenRouterHarness = { harnesses: [CLAUDE, CODEX_GONE], stored: 'claude-code', default: 'claude-code',
+  enabled: false, unavailable: false, selected: 'claude-code', explain: 'Only Claude Code is installed, so it drives OpenRouter agents.' }
 
-async function mountRow(h: OpenRouterHarness, onPick: (id: string) => void = () => {}) {
-  const view = await mountView(
-    <HarnessChoice h={h} busy={false} onPick={onPick} />, (el) => el)
-  await inAct(async () => { await flush(2) })
-  return view
-}
-
-const selectOf = (el: Element): HTMLSelectElement | null => el.querySelector('select')
-const options = (el: Element): HTMLOptionElement[] =>
-  [...el.querySelectorAll('option')] as HTMLOptionElement[]
-async function choose(sel: HTMLSelectElement, value: string) {
-  const w = (globalThis as unknown as { window: Window }).window as unknown as {
-    HTMLSelectElement: typeof HTMLSelectElement
-    Event: typeof Event
+function key(id: string, over: Partial<OpenRouterKey> = {}): OpenRouterKey {
+  const original = id === 'openrouter-key'
+  return {
+    id, lane: original ? 'openrouter' : id, original, label: original ? null : 'team',
+    name: original ? 'personal' : 'team', key_label: null, enabled: true, connected: true, reason: null,
+    observed_at: '2026-10-13T19:00:00Z', limits: [], harness: 'claude-code', harness_installed: true, pinned_seats: 0,
+    ...over,
   }
-  const setter = Object.getOwnPropertyDescriptor(w.HTMLSelectElement.prototype, 'value')?.set
-  assert.ok(setter, 'no value setter on HTMLSelectElement')
-  await inAct(async () => {
-    setter.call(sel, value)
-    sel.dispatchEvent(new w.Event('change', { bubbles: true }))
-    await flush(10)
-  })
 }
 
-test('§0 it is a Runtime-style setting row: label, select, dim hint', async () => {
-  const view = await mountRow(BOTH)
-  const row = view.el.querySelector('.set-row')
-  assert.ok(row, 'rendered as the shared SetRow')
-  assert.equal(row!.querySelector('.set-label')?.textContent, 'OpenRouter harness')
-  assert.ok(row!.querySelector('.set-control select'), 'the control is a select')
-  assert.ok(row!.querySelector('.set-hint'), 'the help line is the dim hint')
-  assert.equal(view.el.querySelectorAll('input[type=radio]').length, 0,
-    'the old pill radios are gone')
-})
-
-test('§1 both available: the control is a live choice and Claude Code is '
-  + 'selected by default', async () => {
-  const view = await mountRow(BOTH)
-  const sel = selectOf(view.el)!
-  assert.equal(options(view.el).length, 2, 'both harnesses are offered')
-  assert.equal(sel.disabled, false, 'the control is enabled')
-  assert.ok(options(view.el).every((o) => !o.disabled))
-  assert.equal(sel.value, 'claude-code', 'Claude Code is the default')
-  assert.match(view.el.textContent ?? '', /New agents only/,
-    'the row says the choice applies to new hires, not to anyone running')
-})
-
-test('§1b both available: picking Codex reports that exact choice upward',
-  async () => {
-    const picked: string[] = []
-    const view = await mountRow(BOTH, (id) => picked.push(id))
-    await choose(selectOf(view.el)!, 'codex-cli')
-    assert.deepEqual(picked, ['codex-cli'])
-  })
-
-test('§2 exactly one available (Codex missing): Claude Code is shown selected '
-  + 'and the control is greyed out, with the reason', async () => {
-  const view = await mountRow(ONLY_CLAUDE)
-  const sel = selectOf(view.el)!
-  assert.equal(sel.disabled, true, 'no meaningless choice is offered')
-  assert.equal(sel.value, 'claude-code')
-  const text = view.el.textContent ?? ''
-  assert.match(text, /only harness available/)
-  assert.ok(text.includes(CODEX_GONE.why),
-    'a greyed control must say WHY the other option is not there')
-})
-
-test('§2b exactly one available (Claude missing): CODEX is shown selected — '
-  + 'the singular-harness rule outranks the default', async () => {
-  const view = await mountRow(ONLY_CODEX)
-  const sel = selectOf(view.el)!
-  assert.equal(sel.disabled, true)
-  assert.equal(sel.value, 'codex-cli',
-    'showing the unusable default selected would be a lie about the machine')
-  assert.ok((view.el.textContent ?? '').includes(CLAUDE_GONE.why))
-})
-
-test('§2c an unavailable option cannot be picked', async () => {
-  const view = await mountRow(ONLY_CLAUDE)
-  const codex = options(view.el).find((o) => o.value === 'codex-cli')!
-  assert.equal(codex.disabled, true, 'an unavailable harness must not be selectable')
-  assert.match(codex.textContent ?? '', /not available/)
-})
-
-test('§3 neither available: NO choice is offered, and both reasons are shown',
-  async () => {
-    const view = await mountRow(NEITHER)
-    assert.equal(selectOf(view.el), null, 'every option here would be a false choice')
-    const text = view.el.textContent ?? ''
-    assert.match(text, /none available/)
-    assert.ok(text.includes(CLAUDE_GONE.why))
-    assert.ok(text.includes(CODEX_GONE.why))
-  })
-
-test('§4 a stored choice that is not currently available: the row shows what '
-  + 'the machine CAN do and warns that agents set to the other one refuse',
-  async () => {
-    // the stored preference is Codex; only Claude Code works right now
-    const stale: OpenRouterHarness = { ...ONLY_CLAUDE, stored: 'codex-cli' }
-    const view = await mountRow(stale)
-    assert.equal(selectOf(view.el)!.value, 'claude-code', 'the row reflects reality')
-    const text = (view.el.textContent ?? '').replace(/\s+/g, ' ')
-    assert.match(text, /Your saved choice is Codex CLI/)
-    assert.match(text, /refuse rather than switch/,
-      'the user must be told the launch refuses — it does NOT fall back')
-  })
-
-// ── the row and the card together, over a scripted backend ───────────────
-
-function stubFetch(seen: { method: string; path: string; body: unknown }[],
-  harness: OpenRouterHarness) {
-  let current = harness
+function stubFetch(seen: Seen[], harness: OpenRouterHarness | undefined, initial: OpenRouterKey[]) {
+  let keys = initial
   const doc = (): OpenRouterDoc => ({
-    installed: true, connected: true, key_set: true, kind: 'api-key',
-    label: 'sk-or-v1-abc…xyz',
-    credits: { limit: null, limit_remaining: null, usage: 0, usage_daily: 0,
-      usage_weekly: 0, usage_monthly: 0, is_free_tier: false,
-      checked_at: '2026-09-19T14:00:00Z' },
-    reason: null, favorites: 0, favorites_max: 0, tiers: [],
-    user_enabled: true, harness: current,
+    installed: true, connected: true, key_set: true, kind: 'api-key', label: 'personal',
+    credits: { limit: null, limit_remaining: null, usage: 0, usage_daily: null, usage_weekly: null,
+      usage_monthly: null, is_free_tier: false, checked_at: '2026-10-13T19:00:00Z' },
+    reason: null, favorites: 0, favorites_max: 0, tiers: [], user_enabled: true,
+    ...(harness ? { harness } : {}), keys, any_key: true,
   })
   g.fetch = (url: string, init?: RequestInit) => {
     const u = new URL(String(url), 'http://localhost')
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : null
     seen.push({ method, path: u.pathname, body })
-    if (u.pathname === '/api/openrouter/harness' && method === 'PUT') {
-      const want = (body as { harness: string }).harness
-      current = { ...current, stored: want, selected: want }
+    let payload: unknown = null
+    if (u.pathname === '/api/openrouter' && method === 'GET') payload = doc()
+    else if (u.pathname === '/api/openrouter/keys' && method === 'POST') {
+      const b = body as { harness?: string }
+      keys = [...keys, key('openrouter-3', { name: 'OpenRouter key 3', label: null, harness: b.harness ?? harness?.stored })]
+      payload = { ...doc(), added: 'openrouter-3', added_lane: 'openrouter-3' }
+    } else if (u.pathname.startsWith('/api/openrouter/keys/') && method === 'PUT') {
+      const id = decodeURIComponent(u.pathname.split('/')[4]!)
+      const b = body as { harness?: string }
+      keys = keys.map((k) => (k.id === id && b.harness ? { ...k, harness: b.harness, harness_installed: true } : k))
+      payload = doc()
+    } else if (u.pathname === '/api/harnesses') {
+      payload = { harnesses: [
+        { id: 'claude-code', name: 'Claude Code', what: "Anthropic's coding agent CLI.", installed: true, selectable: true,
+          providers: [{ id: 'claude', label: 'Claude' }, { id: 'openrouter', label: 'OpenRouter' }],
+          install_url: 'https://code.claude.com/docs/en/setup', install: 'Install Claude Code.' },
+        { id: 'opencode', name: 'opencode', what: 'A registry entry this file never names.', installed: false, selectable: true,
+          providers: [{ id: 'openrouter', label: 'OpenRouter' }], install_url: null, install: 'Install opencode.' },
+      ] }
     }
-    return Promise.resolve({
-      ok: true, status: 200, headers: new Headers(),
-      json: () => Promise.resolve(doc()),
-    })
+    if (!payload) return Promise.reject(new Error(`unexpected ${method} ${u.pathname}`))
+    return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(payload) })
   }
 }
 
 const PROVIDER: ProviderInfo = {
-  id: 'openrouter', label: 'OpenRouter', cli: 'REST API',
-  tiers: [], status: { installed: true, connected: true, key_set: true },
-  hire_enabled: true, user_enabled: true, reason: null,
+  id: 'openrouter', label: 'OpenRouter', cli: 'REST API', tiers: [],
+  status: { installed: true, connected: true, key_set: true }, hire_enabled: true, user_enabled: true, reason: null,
 }
 
-test('§5 the Runtime row PUTs the chosen harness; the Providers card no longer '
-  + 'carries the choice, and its head follows the new harness', async () => {
-  const seen: { method: string; path: string; body: unknown }[] = []
-  stubFetch(seen, BOTH)
+async function mount() {
   const picker = { open: false }
-  const view = await mountView(
-    <>
-      <div className="providers">
-        <OpenRouterSection provider={PROVIDER} toast={() => {}}
-          pickerOpen={picker.open}
-          setPickerOpen={(o) => { picker.open = o }} />
-      </div>
-      <div className="runtime"><OpenRouterHarnessSetting toast={() => {}} /></div>
-    </>, (el) => el)
+  const view = await mountView(<OpenRouterSection provider={PROVIDER} toast={() => {}}
+    pickerOpen={picker.open} setPickerOpen={(o) => { picker.open = o }} />, (el) => el)
   await inAct(async () => { await flush(10) })
+  return view
+}
 
-  const card = view.el.querySelector('.providers')!
-  const runtime = view.el.querySelector('.runtime')!
-  assert.equal(card.querySelectorAll('select, input[type=radio]').length, 0,
-    'no harness control left in the OpenRouter card')
-  assert.doesNotMatch(card.textContent ?? '', /new agents only/i)
-  assert.match(card.textContent ?? '', /runs on Claude Code/,
-    'the head names the harness actually in use')
+const button = (root: ParentNode, text: string) =>
+  [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!
+const harnessSelect = (root: ParentNode) => root.querySelector<HTMLSelectElement>('select[aria-label="OpenRouter key harness"]')
+const optionValues = (sel: HTMLSelectElement) => [...sel.querySelectorAll('option')].map((o) => o.value)
 
-  await choose(selectOf(runtime)!, 'codex-cli')
+async function choose(sel: HTMLSelectElement, value: string) {
+  const w = (globalThis as unknown as { window: Window }).window as unknown as {
+    HTMLSelectElement: typeof HTMLSelectElement; Event: typeof Event }
+  const setter = Object.getOwnPropertyDescriptor(w.HTMLSelectElement.prototype, 'value')?.set!
+  await inAct(async () => { setter.call(sel, value); sel.dispatchEvent(new w.Event('change', { bubbles: true })); await flush(4) })
+}
+function type(input: HTMLInputElement, value: string) {
+  const w = (globalThis as unknown as { window: Window }).window as unknown as {
+    HTMLInputElement: typeof HTMLInputElement; Event: typeof Event }
+  Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+  input.dispatchEvent(new w.Event('input', { bubbles: true }))
+}
 
-  const put = seen.find((s) => s.path === '/api/openrouter/harness')
-  assert.ok(put, 'the choice reached the backend')
-  assert.equal(put!.method, 'PUT')
-  assert.deepEqual(put!.body, { harness: 'codex-cli' })
-  assert.equal(selectOf(runtime)!.value, 'codex-cli')
-  assert.match(card.textContent ?? '', /runs on Codex CLI/,
-    'the card head follows a harness picked in Runtime')
+test('§1 adding a key: both harnesses installed, the default is preselected and a pick is POSTed', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, BOTH, [key('openrouter-key')])
+  const view = await mount()
+  try {
+    assert.equal(view.el.querySelector('select'), null, 'no harness control on the card itself')
+    assert.match(view.el.textContent ?? '', /runs on Claude Code/, 'one harness across the keys: the head names it')
+    await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
+    const dialog = document.querySelector('[aria-label="Add another OpenRouter key"]')!
+    const sel = harnessSelect(dialog)!
+    assert.ok(sel, 'the harness is chosen in the key dialog')
+    assert.deepEqual(optionValues(sel), ['claude-code', 'codex-cli'])
+    assert.equal(sel.value, 'claude-code', 'a new key starts on the original key\'s harness')
+    assert.ok(button(dialog, 'Which harnesses are supported?'), 'the selector links to the harness list')
+    await choose(sel, 'codex-cli')
+    await inAct(async () => {
+      type(dialog.querySelector<HTMLInputElement>('input[aria-label="OpenRouter API key"]')!, 'sk-or-v1-third-000')
+      await flush(2)
+    })
+    await inAct(async () => { button(dialog, 'Save').click(); await flush(10) })
+    assert.deepEqual(seen.find((r) => r.method === 'POST')?.body, { key: 'sk-or-v1-third-000', harness: 'codex-cli' })
+    assert.match(view.el.textContent ?? '', /each key on its own harness/, 'keys on two harnesses: the head says so')
+  } finally { await view.unmount(); delete g.fetch }
 })
 
-test('§6 an older backend that serves no harness block renders no row at all '
-  + '(and does not crash)', async () => {
-  const seen: { method: string; path: string; body: unknown }[] = []
-  const noHarness = { ...BOTH }
-  stubFetch(seen, noHarness)
-  const prev = g.fetch as (url: string, init?: RequestInit) => Promise<unknown>
-  g.fetch = (url: string, init?: RequestInit) =>
-    prev(url, init).then((r) => {
-      const res = r as { json: () => Promise<OpenRouterDoc> }
-      return {
-        ...res,
-        json: () => res.json().then((d) => {
-          const { harness: _drop, ...rest } = d
-          return rest as OpenRouterDoc
-        }),
-      }
-    })
-  const picker = { open: false }
-  const view = await mountView(
-    <>
-      <OpenRouterSection provider={PROVIDER} toast={() => {}}
-        pickerOpen={picker.open}
-        setPickerOpen={(o) => { picker.open = o }} />
-      <OpenRouterHarnessSetting toast={() => {}} />
-    </>, (el) => el)
-  await inAct(async () => { await flush(10) })
-  assert.equal(view.el.querySelectorAll('select').length, 0)
-  assert.doesNotMatch(view.el.textContent ?? '', /runs on|OpenRouter harness/)
+test('§2 editing a key: a change says when its agents move, counts pinned agents, and PUTs only the change', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, BOTH, [key('openrouter-key'), key('openrouter-2', { pinned_seats: 2 })])
+  const view = await mount()
+  try {
+    const edit = view.el.querySelectorAll<HTMLButtonElement>('.acct-row.orr-keyrow')[1]!
+      .querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
+    await inAct(async () => { edit.click(); await flush(4) })
+    const dialog = document.querySelector('[aria-label="Edit team"]')!
+    const sel = harnessSelect(dialog)!
+    assert.equal(sel.value, 'claude-code')
+    assert.match(dialog.textContent ?? '', /2 agents were hired with a chosen harness and keep theirs/)
+    await choose(sel, 'codex-cli')
+    assert.match(dialog.textContent ?? '', /move to Codex at their next turn, on a fresh session/)
+    await inAct(async () => { button(dialog, 'Save').click(); await flush(10) })
+    assert.deepEqual(seen.filter((r) => r.method === 'PUT').at(-1)?.body, { label: 'team', harness: 'codex-cli' })
+    assert.match(view.el.textContent ?? '', /team \(openrouter-2\)[^]*Codex/, 'the key row names its harness')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§3 only Claude Code installed: Codex is not offered at all, and the control says why', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, ONLY_CLAUDE, [key('openrouter-key')])
+  const view = await mount()
+  try {
+    await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
+    const dialog = document.querySelector('[aria-label="Add another OpenRouter key"]')!
+    const sel = harnessSelect(dialog)!
+    assert.deepEqual(optionValues(sel), ['claude-code'], 'a harness not installed is not offered')
+    assert.equal(sel.disabled, true, 'nothing to choose between')
+    assert.match(dialog.textContent ?? '', /Only Claude Code is installed/)
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§4 a saved harness since uninstalled is named, warned about, and never sent', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, ONLY_CLAUDE, [key('openrouter-key'), key('openrouter-2', { harness: 'codex-cli', harness_installed: false })])
+  const view = await mount()
+  try {
+    assert.match(view.el.textContent ?? '', /Codex \(not installed\)/, 'the key row says so')
+    const edit = view.el.querySelectorAll<HTMLButtonElement>('.acct-row.orr-keyrow')[1]!
+      .querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
+    await inAct(async () => { edit.click(); await flush(4) })
+    const dialog = document.querySelector('[aria-label="Edit team"]')!
+    const sel = harnessSelect(dialog)!
+    assert.equal(sel.value, 'codex-cli', 'the saved choice is shown, not silently replaced')
+    const codex = [...sel.querySelectorAll('option')].find((o) => o.value === 'codex-cli')!
+    assert.equal(codex.disabled, true)
+    assert.match(codex.textContent ?? '', /not installed/)
+    assert.match(dialog.textContent ?? '', /refuse to start until it is installed or another harness is chosen/)
+    assert.equal(sel.disabled, false, 'an installed one can be picked instead')
+    await inAct(async () => { button(dialog, 'Save').click(); await flush(10) })
+    assert.deepEqual(seen.filter((r) => r.method === 'PUT').at(-1)?.body, { label: 'team' }, 'the uninstalled harness is not sent')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§5 an older backend with no harness block: no harness row and no head clause', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, undefined, [key('openrouter-key', { harness: undefined, harness_installed: undefined })])
+  const view = await mount()
+  try {
+    assert.doesNotMatch(view.el.textContent ?? '', /runs on/)
+    await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
+    assert.equal(harnessSelect(document.querySelector('[aria-label="Add another OpenRouter key"]')!), null)
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§6 App settings › Harnesses lists the registry, installed or not, and the link opens it', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, BOTH, [])
+  const view = await mountView(<><HarnessesSection active /><HarnessesLink /></>, (el) => el)
+  try {
+    await inAct(async () => { await flush(10) })
+    const text = (view.el.textContent ?? '').replace(/\s+/g, ' ')
+    assert.match(text, /Claude Code · installed/)
+    assert.match(text, /opencode · not installed/, 'a registry entry appears with nothing named in the renderer')
+    assert.match(text, /Runs agents on: Claude, OpenRouter/)
+    assert.match(text, /Install: Install Claude Code\. https:\/\/code\.claude\.com/)
+    const opened: string[] = []
+    const w = (globalThis as unknown as { window: Window }).window
+    const on = (e: Event) => opened.push((e as CustomEvent<{ tab: string }>).detail.tab)
+    w.addEventListener(OPEN_APP_SETTINGS_EVENT, on)
+    await inAct(async () => { button(view.el, 'Which harnesses are supported?').click(); await flush(2) })
+    w.removeEventListener(OPEN_APP_SETTINGS_EVENT, on)
+    assert.deepEqual(opened, ['harnesses'])
+  } finally { await view.unmount(); delete g.fetch }
 })

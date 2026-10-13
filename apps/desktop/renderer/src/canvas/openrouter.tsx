@@ -1,6 +1,6 @@
 import { PinFrame } from './modalpin'
 import { ProviderDialog } from './providerdialog'
-import { OpenRouterAddedKeys, OpenRouterKeyDialog, OriginalKeyActive, originalKeyName } from './openrouterkeys'
+import { OpenRouterAddedKeys, OpenRouterKeyDialog, OriginalKeyActive, keyHarness, originalKeyName } from './openrouterkeys'
 import { useAppValue } from '../appfeed'
 // canvas/openrouter.tsx — the OpenRouter lane's settings surface (user spec
 // 2026-09-02, verbatim intent):
@@ -48,7 +48,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   addOpenRouterKey, clearOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
-  setOpenRouterHarness, setOpenRouterKey, updateOpenRouterKey,
+  setOpenRouterKey, updateOpenRouterKey,
 } from '../api'
 import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
 import type {
@@ -57,17 +57,15 @@ import type {
 } from '../types'
 import { byOpenrouterPriceDesc, capabilityNote, capabilityNotes, fmtCredits, modelLabel, setOpenRouterTiers } from './shared'
 import { BrowserPager, BrowserSelected, ModelCard, ToggleChips } from './modelbrowser'
-import { SetRow, SetToggle } from './settingskit'
+import { SetToggle } from './settingskit'
 import { fmtHm, fmtMonth } from '../timefmt'
 
 type ToastFn = (lines: string[]) => void
 
-/** ONE OpenRouter document for every surface that shows it. The Providers
- *  card and the Runtime tab's harness row (user 2026-09-30: the harness
- *  choice moved to Runtime) are both mounted while App settings is open, one
- *  of them hidden; whichever writes, the other re-reads nothing and still
- *  shows the answer — so the card's "runs on …" head follows a harness picked
- *  in Runtime. */
+/** ONE OpenRouter document for every surface that shows it: whichever
+ *  writes, the others re-read nothing and still show the answer. (The
+ *  Runtime tab's global harness row it once fed is gone: each key has its
+ *  own harness, user 2026-10-13.) */
 const docListeners = new Set<(d: OpenRouterDoc) => void>()
 function shareDoc(d: OpenRouterDoc): void {
   for (const l of docListeners) l(d)
@@ -213,9 +211,11 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   // favorites and the lane's state follow it, the original's row `keySet`
   const anyKey = !!(doc?.any_key ?? keySet)
   // an older backend serves no `harness` at all, and the head's clause simply
-  // does not appear for it. The CHOICE itself lives in App settings → Runtime
-  // (OpenRouterHarnessSetting); the head only reports it.
+  // does not appear for it. The CHOICE is each key's own, in its settings
+  // dialog (user 2026-10-13); the head only reports it.
   const harness = doc?.harness
+  const keyHarnesses = [...new Set((doc?.keys ?? []).map((k) => k.harness).filter((h): h is string => !!h))]
+  const original = doc?.keys?.find((k) => k.original)
   const favorites = doc?.tiers ?? []
   // the chips as shown since the section opened: a model deselected here or in
   // the picker keeps its place, dimmed, and a new favorite joins at the end.
@@ -240,9 +240,9 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
             That was true while there was one harness and became a false
             claim the moment there were two — the head is exactly where a
             person looks to learn what this lane is. */}
-        <span className="dim"> · REST API{harness?.selected
-          ? `, runs on ${labelOf(harness, harness.selected)}`
-          : ''}</span>
+        <span className="dim"> · REST API{harness && keyHarnesses.length === 1
+          ? `, runs on ${labelOf(harness, keyHarnesses[0])}`
+          : keyHarnesses.length > 1 ? ', each key on its own harness' : ''}</span>
         <span className="set-head-right">
           {doc && <button type="button" className="acct-secondary-btn"
             disabled={busy} aria-haspopup="dialog"
@@ -258,14 +258,19 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
       {!doc && !err && <div className="dim acct-prov-note">reading OpenRouter state…</div>}
 
       {doc && addingKey && <OpenRouterKeyDialog title="Add another OpenRouter key" keyRequired
-        initialName="" busy={busy} close={() => setAddingKey(false)}
-        save={(name, key) => { run(addOpenRouterKey(key, name), 'OpenRouter key added'); setAddingKey(false) }} />}
+        initialName="" harness={harness && keyHarness(harness, harness.stored)}
+        busy={busy} close={() => setAddingKey(false)}
+        save={(name, key, h) => { run(addOpenRouterKey(key, name, h), 'OpenRouter key added'); setAddingKey(false) }} />}
       {doc && editingKey && keySet && <OpenRouterKeyDialog title="Replace OpenRouter key"
-        keyRequired={false} initialName={doc.keys?.find(k => k.original)?.label ?? ''}
+        keyRequired={false} initialName={original?.label ?? ''}
+        harness={harness && original?.harness
+          ? keyHarness(harness, original.harness, original.pinned_seats) : undefined}
         busy={busy} close={() => setEditingKey(false)}
-        save={(name, key) => {
-          run(updateOpenRouterKey('openrouter-key', key ? { label: name, key } : { label: name }),
-            key ? 'OpenRouter key saved' : 'OpenRouter key renamed')
+        save={(name, key, h) => {
+          const moved = h && h !== original?.harness ? { harness: h } : {}
+          run(updateOpenRouterKey('openrouter-key', key ? { label: name, key, ...moved } : { label: name, ...moved }),
+            key ? 'OpenRouter key saved' : moved.harness && harness
+              ? `OpenRouter key now runs on ${labelOf(harness, moved.harness)}` : 'OpenRouter key renamed')
           setEditingKey(false)
         }} />}
       {doc && editingKey && !keySet && (
@@ -311,6 +316,9 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
                   .filter(Boolean).join(' · ')}>
                 {originalKeyName(doc)}
                 <span className={verdictClass}> · {verdict}</span>
+                {harness && original?.harness
+                  && <span className={original.harness_installed === false ? 'ask-warn-inline' : 'dim'}>
+                    {' · '}{labelOf(harness, original.harness)}{original.harness_installed === false ? ' (not installed)' : ''}</span>}
               </span>
               <button className="acct-btn"
                 title="re-check the key and its credit standing at openrouter.ai"
@@ -376,87 +384,6 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
 
 export function labelOf(h: OpenRouterHarness, id: string | null): string {
   return h.harnesses.find((x) => x.id === id)?.label ?? (id ?? '')
-}
-
-/** WHICH CLI DRIVES OPENROUTER AGENTS.
- *
- *  Every state here is a state the backend named; this component chooses no
- *  policy of its own. That matters because the three cases look similar on
- *  screen and mean very different things:
- *
- *    · a live choice — both CLIs are installed and ready;
- *    · a DISABLED control showing one harness — it is the only one available,
- *      so there is nothing to choose; the row says which and why the other is
- *      out, because "greyed out with no reason" is the state people file bugs
- *      about;
- *    · NO control — neither can run, so no option is offered at all. Drawing
- *      a picker here would invite a choice that cannot be honoured.
- *
- *  ⚠ THE SELECTED RADIO IS NOT ALWAYS THE STORED PREFERENCE. When the stored
- *  harness is the unavailable one, the row shows what the machine can
- *  actually do and says so in its note — nothing is written back, and no
- *  agent is moved.
- *
- *  It is an ordinary Runtime setting row (user 2026-09-30: "move the
- *  openrouter harness selection to the runtime tab of app settings, and make
- *  it look like the other settings there"): label, a `<select>` like "open an
- *  org at", and the dim hint line. */
-export function HarnessChoice({ h, busy, onPick }: {
-  h: OpenRouterHarness
-  busy: boolean
-  onPick: (id: string) => void
-}) {
-  if (h.unavailable) {
-    return (
-      <SetRow label="OpenRouter harness"
-        hint={h.harnesses.map((o) => `${o.label}: ${o.why}`).join(' · ')}>
-        <span className="ask-warn-inline">none available</span>
-      </SetRow>
-    )
-  }
-  const stale = h.selected !== null && h.stored !== h.selected
-  return (
-    <SetRow label="OpenRouter harness"
-      hint={<>
-        {h.explain || 'which CLI runs OpenRouter agents. New agents only — '
-          + 'everyone already hired keeps the harness they started on.'}
-        {stale && <span className="ask-warn-inline"> Your saved choice
-          is {labelOf(h, h.stored)}, which is not available right now; agents
-          set to it will refuse rather than switch.</span>}
-      </>}>
-      <select aria-label="OpenRouter harness" value={h.selected ?? ''}
-        disabled={busy || !h.enabled}
-        onChange={(e) => onPick(e.target.value)}>
-        {h.harnesses.map((o) => (
-          <option key={o.id} value={o.id} disabled={!o.available}>
-            {o.available ? o.label : `${o.label} (not available)`}
-          </option>
-        ))}
-      </select>
-    </SetRow>
-  )
-}
-
-/** the Runtime tab's harness row: reads and writes the same OpenRouter
- *  document as the Providers card (`shareDoc`). An older backend that serves
- *  no `harness` block gets no row. */
-export function OpenRouterHarnessSetting({ toast }: { toast: ToastFn }) {
-  const [doc, setDoc] = useState<OpenRouterDoc | null>(null)
-  const [busy, setBusy] = useState(false)
-  useSharedDoc(setDoc)
-  useEffect(() => {
-    getOpenRouter().then(shareDoc).catch(() => { /* the Providers card reports it */ })
-  }, [])
-  const h = doc?.harness
-  if (!h) return null
-  const pick = (id: string) => {
-    setBusy(true)
-    setOpenRouterHarness(id)
-      .then((d) => { shareDoc(d); toast([`new OpenRouter agents will run on ${labelOf(h, id)}`]) })
-      .catch((e: Error) => toast([`error: ${e.message}`]))
-      .finally(() => setBusy(false))
-  }
-  return <HarnessChoice h={h} busy={busy} onPick={pick} />
 }
 
 /** the model-selection modal (user spec): search → a page of results with card,

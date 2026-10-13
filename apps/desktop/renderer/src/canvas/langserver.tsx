@@ -71,6 +71,7 @@ import {
   fmtTokens, LANE_CARD_COLOR, monogram, probeFacts, startWindow, variantName, wantsVariant, windowMismatch,
 } from './lsmodels'
 import { SetRow, SetToggle } from './settingskit'
+import { HarnessesLink } from './harnesses'
 
 export { fmtTokens, variantName, wantsVariant } from './lsmodels'
 
@@ -368,7 +369,8 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
             hint="Anthropic-compatible servers are driven by Claude Code; OpenAI-compatible ones (the Responses API) by Codex.">
             <select aria-label="API style" value={harness} disabled={busy}
               onChange={(e) => setHarness(e.target.value)}>
-              {preset?.harnesses.map((h) => (
+              {/* only installed harnesses are offered (user 2026-10-13) */}
+              {preset?.harnesses.filter((h) => h.installed).map((h) => (
                 <option key={h.id} value={h.id} disabled={!h.available}>
                   {h.id === 'codex-cli' ? 'OpenAI-compatible (Codex)' : 'Anthropic-compatible (Claude Code)'}
                   {h.available ? '' : ` — ${h.why}`}
@@ -381,13 +383,15 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
               || 'The CLI that drives this server’s agents. It stays with the server.'}>
             <select aria-label="harness" value={harness} disabled={busy}
               onChange={(e) => setHarness(e.target.value)}>
-              {preset?.harnesses.map((h) => (
+              {/* only installed harnesses are offered (user 2026-10-13) */}
+              {preset?.harnesses.filter((h) => h.installed).map((h) => (
                 <option key={h.id} value={h.id} disabled={!h.available} title={h.why || undefined}>
                   {h.label}{h.available ? '' : ' (unavailable)'}
                 </option>
               ))}
             </select>
           </SetRow>}
+      <HarnessesLink />
       {custom && <>
         <SetRow label="Base path" hint="Added to the address, e.g. v1 or api/anthropic. Leave empty if the address already ends there.">
           <input type="text" aria-label="base path" spellCheck={false} value={basePath} disabled={busy}
@@ -652,7 +656,10 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
             <span className="acct-email ls-server-head">
               <b>{s.label}</b>
               <span className="dim">
-                {' · '}{preset?.label ?? s.preset}{' · '}{HARNESS_LABEL[s.harness] ?? s.harness}{' · '}
+                {' · '}{preset?.label ?? s.preset}{' · '}{HARNESS_LABEL[s.harness] ?? s.harness}
+                {/* a server's harness since uninstalled: its agents refuse, saying so */}
+                {preset?.harnesses.find((h) => h.id === s.harness)?.installed === false
+                  && <span className="ask-warn-inline"> (not installed)</span>}{' · '}
                 <span className="mono">{s.base_url}</span>
               </span>
             </span>

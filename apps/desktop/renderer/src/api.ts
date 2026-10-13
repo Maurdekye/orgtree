@@ -22,7 +22,7 @@ import type {
   HireDefaultsRequest, HistoryPayload, HostPayload,
   InboxPayload, MailEntry,
   LangServer, LangServerDoc, LangServerProbe, LangServerRepriced,
-  McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
+  HarnessesDoc, McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
   OrgInboxEntry, OrgNetReveal, ProvidersPayload, ReorderRequest,
   RuntimeSettingsPayload,
@@ -955,14 +955,16 @@ export const clearOpenRouterKey = (): Promise<OpenRouterDoc> =>
 // 2026-10-11): each key is its own account. The original key keeps the
 // `openrouter` lane; an added one is `openrouter-N`. A key crosses the wire
 // once, inward; the answers are the panel's document (`keys` lists them).
-export const addOpenRouterKey = (key: string, label?: string): Promise<OpenRouterDoc & { added: string; added_lane: string }> =>
+export const addOpenRouterKey = (key: string, label?: string, harness?: string): Promise<OpenRouterDoc & { added: string; added_lane: string }> =>
   req('/api/openrouter/keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(label?.trim() ? { key, label } : { key }),
+    body: JSON.stringify({ key, ...(label?.trim() ? { label } : {}), ...(harness ? { harness } : {}) }),
   })
-/** rename a key (`label`; empty clears the name) and/or replace its secret (`key`) */
-export const updateOpenRouterKey = (id: string, change: { key?: string; label?: string }): Promise<OpenRouterDoc> =>
+/** rename a key (`label`; empty clears the name), set its harness
+ *  (`harness`; its agents switch at their next turn) and/or replace its
+ *  secret (`key`) */
+export const updateOpenRouterKey = (id: string, change: { key?: string; label?: string; harness?: string }): Promise<OpenRouterDoc> =>
   req(`/api/openrouter/keys/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -978,17 +980,12 @@ export const setOpenRouterKeyEnabled = (id: string, enabled: boolean): Promise<O
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled }),
   }).then(() => req<OpenRouterDoc>('/api/openrouter'))
+/** every harness the engine knows (App settings › Harnesses): presence
+ *  only, nothing is spawned */
+export const getHarnesses = (): Promise<HarnessesDoc> => req('/api/harnesses')
 /** remove a key; an added key's agents move to the original key first */
 export const removeOpenRouterKey = (id: string): Promise<OpenRouterDoc> =>
   req(`/api/openrouter/keys/${encodeURIComponent(id)}`, { method: 'DELETE' })
-/** choose the CLI that NEWLY HIRED OpenRouter agents get. Moves nobody who is
- *  already running — each agent keeps the harness it was hired on. */
-export const setOpenRouterHarness = (harness: string): Promise<OpenRouterDoc> =>
-  req('/api/openrouter/harness', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ harness }),
-  })
 export const searchOpenRouterModels = (
   q: string, offset = 0, limit = 8,
   sort: OpenRouterSort = 'relevance', order = '', groupByVendor = false,

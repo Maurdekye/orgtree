@@ -32,7 +32,8 @@ import {
   SetToggle,
 } from './settingskit'
 import type { SettingsTab } from './settingskit'
-import { OpenRouterHarnessSetting, OpenRouterSection } from './openrouter'
+import { OpenRouterSection } from './openrouter'
+import { HarnessesSection } from './harnesses'
 import { LanguageServerSection } from './langserver'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
@@ -259,7 +260,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'about' | 'providers' | 'runtime' | 'mailhub'
+type AppSettingsTab = 'about' | 'providers' | 'harnesses' | 'runtime' | 'mailhub'
   | 'display' | 'defaults' | 'developer'
 // Strip order is the user's own list (2026-09-29): Providers, Runtime,
 // Display, Default org settings, Mail hub, Developer, About. The panel OPENS
@@ -268,6 +269,10 @@ type AppSettingsTab = 'about' | 'providers' | 'runtime' | 'mailhub'
 // App-wide composer behavior lives in Display > Typing (user 2026-10-07).
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'providers', label: 'Providers' },
+  // every harness, installed or not, and how to install it (user
+  // 2026-10-13); each harness selector's "Which harnesses are supported?"
+  // opens it
+  { id: 'harnesses', label: 'Harnesses' },
   { id: 'runtime', label: 'Runtime' },
   { id: 'display', label: 'Display' },
   // Default org settings USED TO BE ITS OWN WINDOW, opened from the sidebar
@@ -824,6 +829,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <LanguageServerSection provider={langserver} toast={toast} onChanged={() => { void loadProviders() }}
         headRight={<ProviderSwitch provider={langserver} busy={busy} onChange={toggleProvider} />} />
     </SettingsTabPanel>
+    <SettingsTabPanel id="harnesses" idBase="app-settings" active={tab === 'harnesses'}>
+      <HarnessesSection active={tab === 'harnesses'} />
+    </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
       <DesktopSettings />
       <RunAsAdministratorSetting />
@@ -844,7 +852,6 @@ export function AccountsPanel({ toast, close, initialTab }: {
           hint={'Every live agent’s CLI starts with Orgtree and on hire, and stays ready between turns '
             + '(at most 64 idle at once, the longest idle closed first; warming pauses when the machine is '
             + 'low on memory). Off: close each CLI when its turn ends.'} />
-        <OpenRouterHarnessSetting toast={toast} />
       </SetGroup>
       <SetGroup title="Turns">
         <TurnLimitSetting runtime={runtime} busy={busy} onSave={limit => {
