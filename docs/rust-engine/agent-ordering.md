@@ -17,7 +17,17 @@ require `index`, accepting `0..existing_live_child_count`. The existing
 superior-insertion rules remain: its target becomes the new seat's child,
 so its former sibling set excludes that target before indexing the new
 superior under the old parent. Existing authority, inherited capabilities
-and credit checks all still apply. Above a top-level target remains user-only.
+and credit checks all still apply. Above a top-level target other than the
+calling agent remains user-only. Root self-parent hiring is allowed by the
+parent-hire ruling: its seat and requested free grant must come from the
+caller's own available credits, its effective capabilities cannot widen,
+and its explicit index selects the final root sibling position excluding
+the caller. See [parent-hire accounting and authority](parent-hire.md).
+
+The ordering proof now checks both root self-insertion at the requested index
+and atomic refusal above an unrelated root. This supersedes its former blanket
+root-superior refusal expectation; historical 63-check results below predate
+that feature, and the updated proof has 64 checks.
 
 `orgtree_state_inspect` exposes `sibling_index` (null for archived rows),
 `live_sibling_count`, `live_child_count` and the stored `sibling_order`.

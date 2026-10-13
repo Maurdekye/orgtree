@@ -478,7 +478,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 - Hiring a superior above self, including at the root, preserves the caller's
   external seat-plus-grant allocation: the new seat and requested free grant
-  come only from the caller's existing free credits. The new parent inherits
+  come only from the caller's existing free credits. Root self-insertion is
+  allowed; insertion above another root remains user-only. The new parent inherits
   the caller's **effective** scope, never broader configured defaults. Validate
   composite actions before promotion and commit both atomically; publish no
   intermediate topology or effects. Its explicit index is chosen in the final

@@ -115,8 +115,13 @@ export default async function (rig) {
   r = await hire('superior-mid', 1, { hire_type: 'superior', target: 'middle', add_dirs: undefined, tools: undefined, org_visibility: undefined })
   p.check('superior hire index excludes anchor and reparents it', r.ok && sibs('boss')[1] === 'superior-mid'
     && joined('superior-mid') === 'middle' && !sibs('boss').includes('middle'), r.json)
-  await refusedWithoutWrites('agent cannot insert superior above root', () => hire('above-root', 0,
-    { hire_type: 'superior', target: 'boss', add_dirs: undefined, tools: undefined, org_visibility: undefined }), /top.level|top level/)
+  r = await hire('above-root', 0,
+    { hire_type: 'superior', target: 'boss', add_dirs: undefined, tools: undefined, org_visibility: undefined })
+  p.check('root self-superior hire honors explicit index and reports final topology', r.ok
+    && r.json.above_self === true && r.json.parent === null && r.json.index === 0
+    && sibs(null)[0] === 'above-root' && joined('above-root') === 'boss', r.json)
+  await refusedWithoutWrites('agent cannot insert superior above another root', () => hire('above-other-root', 0,
+    { hire_type: 'superior', target: 'outside', add_dirs: undefined, tools: undefined, org_visibility: undefined }), /top.level|top level/)
   await refusedWithoutWrites('superior hire rejects conflicting capability input', () => hire('bad-superior', 0,
     { hire_type: 'superior', target: 'alice' }), /inherits target scope/)
 
