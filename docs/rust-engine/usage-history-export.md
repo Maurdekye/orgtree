@@ -51,6 +51,14 @@ or copies. `USAGE_EXPORT_BUILD` must be under
 `D:\orgtree-work\rig\hubchat-dm-sol\`. Set TEMP/TMP to the owned C temporary
 directory and `ORGTREE_AGENT=hubchat-dm-sol`.
 
-Verification is pending the shared build slot; this section will be updated
-with measured results before hand-in. Native Save-dialog interaction with a
-person and the installed artifact are outside this synthetic proof.
+First measured phase at `b2e8026`: existing tests **8/8 at base** and focused
+tests **15/15 at tip** (eight existing plus seven new, no skips), exit 0 each.
+The runner then stopped before typecheck or Electron on a package-export lookup
+error for `typescript/bin/tsc`. Runner-only correction `7781a39` uses the
+dependency's direct executable path and allows `--remaining` to resume those
+unperformed checks without repeating passed tests. Initial test logs are
+retained under the owned C `usage-export` output. Shared lock handed on normally.
+
+Typecheck and native rendering/download verification await the next shared
+build slot. Native Save-dialog interaction with a person and the installed
+artifact are outside this synthetic proof.
