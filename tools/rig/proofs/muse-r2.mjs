@@ -20,8 +20,10 @@
 //     account is placed on the best allowed login that offers the model,
 //     never on one that does not (which sorts first here).
 //   removal: a registered Muse login can be removed: its seat moves to the
-//     own login where that offers its exact model, pin included, else waits
-//     frozen saying why; the org default naming it moves to the own login.
+//     own login where that offers its exact model, pin included, else to the
+//     first other subscription login that does (independent review R3: the
+//     Full seat to PF, the Spark 1.2 seat to PS; muse-r4-removal.mjs has the
+//     rest); the org default naming it moves to the own login.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-r2.mjs
 
 import fs from 'node:fs'
@@ -187,13 +189,12 @@ export default async function (rig) {
   p.check('removal: a Muse login can be removed; its seat moves to the own login, which offers Wonder (unbound, not frozen), and the org default naming it moves there too',
     m1.ok && d1.ok && gone(PR) && row('m1').account === null && row('m1').frozen === null && orgDefault() === 'muse/primary', { d1, m1: row('m1'), default: orgDefault() })
   const d2 = await del(PRF)
-  const f2 = row('m2').frozen
-  p.check('removal: a seat whose model the own login does not offer (Full) is unbound and waits frozen, saying which login went and why',
-    m2.ok && d2.ok && gone(PRF) && row('m2').account === null && f2?.cause === 'account' && (f2?.error ?? '').includes(PRF)
-      && /does not offer/.test(f2?.error ?? '') && (d2.r?.rebound ?? []).some((x) => x.node === 'm2' && x.frozen === true), { d2, f2 })
+  p.check('removal: a seat whose model the own login does not offer (Full) moves to the first other subscription that offers it (PF; not the Wonder-only PW, never the key KF)',
+    m2.ok && d2.ok && gone(PRF) && row('m2').account === PF && row('m2').frozen === null
+      && (d2.r?.rebound ?? []).some((x) => x.node === 'm2' && x.account === PF && x.frozen === false), { d2, m2: row('m2') })
   const d3 = await del(PRS)
-  p.check('removal: the pinned version counts (Spark 1.2, which the own login lacks, waits frozen; unpinned Spark 1.3 moves)',
-    m3.ok && pin3.ok && m4.ok && d3.ok && row('m3').frozen?.cause === 'account' && /muse-spark-1\.2/.test(row('m3').frozen?.error ?? '')
+  p.check('removal: the pinned version counts (Spark 1.2, which the own login lacks, moves to PS, which offers it; unpinned Spark 1.3 to the own login)',
+    m3.ok && pin3.ok && m4.ok && d3.ok && row('m3').account === PS && row('m3').frozen === null
       && row('m4').frozen === null && row('m4').account === null, { d3, m3: row('m3'), m4: row('m4') })
   await settings({ default_account: '' })
 
