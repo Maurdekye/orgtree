@@ -91,6 +91,15 @@ pub fn run()->i32 {
             Some("session/cancel")=>{peer.cancelled.store(true,Ordering::SeqCst);},
             Some("session/prompt")=>{
                 peer.cancelled.store(false,Ordering::SeqCst);
+                // Secret-free start receipt lets the rig distinguish a new
+                // process from warm reuse and next-turn mail from injection.
+                let observed=json!({"pid":std::process::id(),"session":session,
+                    "home":std::env::var("HOME").unwrap_or_default(),
+                    "model":config["model"],
+                    "queuedMarker":params.to_string().contains("ACP_QUEUED_MARKER")});
+                if let Ok(mut file)=std::fs::OpenOptions::new().create(true).append(true).open("acp-observed.jsonl") {
+                    let _=writeln!(file,"{observed}");
+                }
                 let p=peer.clone();let sid=session.clone();let id=id.clone();let bridge=bridge.clone();
                 let fixture=super::load_json(&PathBuf::from("acp-fixture.json")).unwrap_or(json!({}));
                 std::thread::spawn(move||{

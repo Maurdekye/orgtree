@@ -42,6 +42,9 @@ impl OpenCodeProc {
     pub async fn spawn(mut spec: Spec, engine: Arc<crate::engine::Engine>, caller: super::Caller,
                        resume: Option<String>, emit: Arc<dyn Fn(uuid::Uuid, SessionEvent) + Send + Sync>) -> Result<Self> {
         let pipe = CancellationToken::new();
+        // Every startup error (including config conversion) must close the
+        // listener. Successful construction transfers that duty to the process.
+        let startup_pipe = pipe.clone().drop_guard();
         let (ready_tx, ready_rx) = watch::channel(false);
         let name = crate::bridge::serve_observed(engine, caller, pipe.clone(), Some(ready_tx))?;
         spec.servers = servers(&name, &spec.servers)?;
@@ -114,6 +117,7 @@ impl OpenCodeProc {
             }
             active_worker.store(false, Ordering::Release);
         });
+        startup_pipe.disarm();
         Ok(Self { process:inner.process,pid:inner.pid,session_id,model:launch.model.clone(),mcp_observed,
             inner,launch:Some(launch),pipe,active,commands,worker:Some(worker) })
     }
