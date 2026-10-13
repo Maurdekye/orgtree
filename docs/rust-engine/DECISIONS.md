@@ -766,5 +766,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     that account. Removing a registered Muse login, refused before, moves a
     live seat to the user's own login only where that login offers its exact
     model; otherwise the seat waits frozen saying why (the entitlement rule
-    applied to the existing reassign-or-freeze removal). Contract, evidence
+    applied to the existing reassign-or-freeze removal). Independent review
+    R3 (2026-10-13, coordinator 09:49Z; user 11:02Z: fix, then one more
+    review): removal examines every permitted replacement, not the own login
+    alone: the own login first (as every provider's removal), then the
+    registered subscriptions in registry order, each passing every
+    continuation gate and offering the exact model and pin; never a key; with
+    none the seat freezes saying why, replacing any freeze it had and keeping
+    its held request; queued moves and switches naming the login are
+    retargeted the same way (a move with no target dropped, a switch left
+    naming no account); defaults go to the own login as for every provider. An
+    effort saved with no account named is judged on the login the next turn
+    runs on (a queued move's), in retool as in the settings route. Every
+    continue-on checks the target login's own catalog for the exact model and
+    pin before anything changes, an unknown catalog refused, and a frozen
+    seat's choices leave out logins whose catalog lacks it. Contract, evidence
     and every remaining gap: [`muse-code.md`](muse-code.md).

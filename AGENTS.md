@@ -108,11 +108,17 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   checks the effort on that account. Every hire and settings surface reads
   each login's offer and levels from `/api/providers` › `muse.logins` (pushed
   when a login's offer changes) and names an eligible subscription login when
-  the one a no-account hire lands on lacks the model; never a key. Removing a
-  Muse login moves a live seat to the own login only where that login offers
-  its exact model, else the seat waits frozen. Every Muse turn carries the
-  current workspace roots; MSP requests and the launch fingerprint input are
-  never logged.
+  the one a no-account hire lands on lacks the model; never a key. A level
+  saved with no account named is judged on the login the next turn runs on (a
+  queued account move's: `accounts::next_turn_login`). Removing a Muse login
+  moves a live seat to the own login, else to the first registered
+  subscription login that offers its exact model, each passing every
+  continuation gate (never a key); with none it waits frozen, its held request
+  kept; queued intents naming the login follow. Continue-on (route, tool,
+  automatic) refuses a login whose own catalog lacks the seat's exact model or
+  is unknown, before anything changes, and a frozen seat's choices leave such
+  logins out. Every Muse turn carries the current workspace roots; MSP
+  requests and the launch fingerprint input are never logged.
   [decided: user 2026-10-12 18:32-20:31Z, lead 2026-10-13, DECISIONS 76;
   verified: real Muse 1.4.6 and rig proofs 2026-10-13; `docs/rust-engine/muse-code.md`]
 
@@ -1705,6 +1711,13 @@ commands. [verified: incidents 2026-08-26 to 2026-10-05]
 11. **Windows command-line limit** (32,767 characters): put large settings in a file, not on
     the command line (it broke every agent spawn on 2026-09-01).
 12. **Time:** the machine clock is UTC+3; org timestamps are UTC.
+13. **One `CARGO_TARGET_DIR` for several worktrees:** cargo judges freshness by file times
+    on package-relative paths, so building an older checkout after a newer one says
+    `Finished` in seconds and keeps the newer binary (2026-10-13: a build of the reviewed
+    `b70ca2c` kept the later tip's binary, same hash). Run `cargo clean -p orgtree-engine`
+    before building another worktree into the same target, and check the log says
+    `Compiling orgtree-engine (<that worktree>)`. [verified: 2026-10-13, muse-code-opus
+    build logs]
 
 ## Gotchas in Orgtree's own agent tools
 
