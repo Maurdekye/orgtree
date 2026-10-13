@@ -97,6 +97,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Generated prompt text never names a tool the agent's Orgtree tool groups switch
+  off (since `aa2d7db`). Text inside one group's branch of `identity.rs` that names
+  another group's tool also needs that group on: `2f8ebae`'s team sentence named the
+  inspection tool `orgtree_state_inspect` until 2026-10-13. Charters, org.md and
+  folder notes stay verbatim. `group_tests::prompt_follows_every_combination_of_group_switches`
+  covers all 128 combinations, so a failure there is a prompt bug. Tool descriptions
+  (`tools/defs.rs`) are not group-scoped. [verified: `runtime/identity.rs`,
+  `domain/tool_groups.rs`, 2026-10-13]
+
 - Model browser list children must not flex-shrink: OpenRouter and Language
   Server rows and sticky vendor headings keep their natural height inside the
   capped scrolling frame. See [model browser layout](docs/rust-engine/model-browser-layout.md).
