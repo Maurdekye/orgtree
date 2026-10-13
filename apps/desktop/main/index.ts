@@ -1,5 +1,6 @@
 import { CredentialBridge } from './credential-bridge'
 import { CoreLifecycle } from './core-lifecycle'
+import { recordCoreControlFailure } from './core-exit-log'
 import { openAgentScratchFolder } from './scratch-folder'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
@@ -2048,8 +2049,10 @@ else {
       // data root and UI directory it was started with - never a set of its own.
       engineRestartOptions = engineOptions
       if (process.platform === 'win32' && engineOptions.binary) {
+        // a refused launch or failed recovery control records why (fixed shape)
         coreLifecycle = new CoreLifecycle(engineOptions.binary, engineOptions.dataRoot, credentialBridge,
-          () => ({origin: engine.origin, token: engine.token}), stopCoreApplication)
+          () => ({origin: engine.origin, token: engine.token}), stopCoreApplication,
+          failure => recordCoreControlFailure(engineOptions.dataRoot, failure))
         if (await coreLifecycle.begin(process.argv.includes('--background') || process.argv.includes('--core-recovered'))) {
           stopCoreApplication(); return
         }

@@ -3,6 +3,48 @@
 import {execFile} from 'node:child_process'
 import type {CredentialBridge} from './credential-bridge'
 
+/** A failed native lifecycle command as the desktop records it: fixed words
+ * and numbers only. Stderr is read solely as the refusal line `core-control
+ * begin` prints, and only its allowed fields are kept; never raw text. */
+export type CoreControlFailure = {
+  event: 'core-control-failed'; command: 'core-control' | 'core-recovery'; action: string; ms: number
+  exit: number | null; errno: string | null; signal: string | null; timedOut: boolean
+  refusal: {refused: string; members?: {role: string; life: string; stage?: string; os?: number}[]} | null
+}
+
+const ROLES = ['engine', 'host', 'desktop', 'helper'], LIVES = ['alive', 'unknown'], STAGES = ['open', 'wait', 'times']
+
+function refusalOf(stderr: unknown): CoreControlFailure['refusal'] {
+  if (typeof stderr !== 'string') return null
+  let line: unknown
+  try { line = JSON.parse(stderr.split(/\r?\n/, 1)[0]) } catch { return null }
+  if (!line || typeof line !== 'object') return null
+  const {refused, members} = line as {refused?: unknown; members?: unknown}
+  if (refused === 'session' || refused === 'quit') return {refused}
+  if (refused !== 'members' || !Array.isArray(members) || members.length > 4) return null
+  const kept: {role: string; life: string; stage?: string; os?: number}[] = []
+  for (const m of members as unknown[]) {
+    const {role, life, stage, os} = (m && typeof m === 'object' ? m : {}) as Record<string, unknown>
+    if (typeof role !== 'string' || !ROLES.includes(role) || typeof life !== 'string' || !LIVES.includes(life)) return null
+    if (stage === undefined && os === undefined) { kept.push({role, life}); continue }
+    if (typeof stage !== 'string' || !STAGES.includes(stage) || typeof os !== 'number'
+      || !Number.isInteger(os) || os < 0 || os > 0xFFFFFFFF) return null
+    kept.push({role, life, stage, os})
+  }
+  return {refused, members: kept}
+}
+
+export function controlFailure(command: CoreControlFailure['command'], action: string, ms: number,
+  error: {code?: unknown; signal?: unknown; killed?: unknown}, stderr: unknown): CoreControlFailure {
+  const errno = typeof error.code === 'string' && /^E[A-Z0-9_]{1,40}$/.test(error.code) ? error.code : null
+  return {event: 'core-control-failed', command, action, ms: Math.max(0, Math.round(ms)),
+    exit: typeof error.code === 'number' && Number.isInteger(error.code) ? error.code : null, errno,
+    signal: typeof error.signal === 'string' && /^SIG[A-Z0-9]{1,12}$/.test(error.signal) ? error.signal : null,
+    // execFile also kills a child for an overfull buffer; that is not a timeout
+    timedOut: error.killed === true && errno !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+    refusal: command === 'core-control' && action === 'begin' ? refusalOf(stderr) : null}
+}
+
 export class CoreLifecycle {
   private busy = false
   private timer?: ReturnType<typeof setInterval>
@@ -14,14 +56,28 @@ export class CoreLifecycle {
   private armedAt = 0
   private armedGeneration?: string
   private failure?: {generation: string; since: number; attempted: boolean}
+  private noted?: {key: string; at: number}
   configureRecovery(recover: (allowSpawn: boolean) => Promise<void>, watchDesktop: boolean): void {
     this.recovery = recover; this.watchDesktop = watchDesktop
   }
+  /** Diagnosis never changes a decision. The 2-second tick repeats a status
+   *  failure: the same failure is recorded at most once a minute. */
+  private note(command: CoreControlFailure['command'], action: string, started: number, error: unknown, stderr: unknown): void {
+    try {
+      if (!this.record) return
+      const failure = controlFailure(command, action, Date.now() - started, error as {code?: unknown}, stderr)
+      const key = JSON.stringify({...failure, ms: 0}), now = Date.now()
+      if (this.noted?.key === key && now - this.noted.at < 60000) return
+      this.noted = {key, at: now}
+      this.record(failure)
+    } catch { /* never obstruct the lifecycle it describes */ }
+  }
   private command(action: 'arm' | 'quit' | 'engine'): Promise<{armed?: boolean; admitted?: boolean}> {
+    const started = Date.now()
     return new Promise((resolve, reject) => execFile(this.binary,
       ['core-recovery', action, this.root, String(process.pid)],
-      {windowsHide: true, timeout: 5000, maxBuffer: 8192}, (error, stdout) => {
-        if (error) { reject(new Error('Native recovery control failed')); return }
+      {windowsHide: true, timeout: 5000, maxBuffer: 8192}, (error, stdout, stderr) => {
+        if (error) { this.note('core-recovery', action, started, error, stderr); reject(new Error('Native recovery control failed')); return }
         try { resolve(JSON.parse(stdout)) } catch { reject(new Error('Invalid recovery reply')) }
       }))
   }
@@ -33,13 +89,18 @@ export class CoreLifecycle {
   constructor(private readonly binary: string, private readonly root: string,
     private readonly bridge: CredentialBridge,
     private readonly endpoint: () => {origin: string; token: string},
-    private readonly shutdown: () => void) {}
+    private readonly shutdown: () => void,
+    private readonly record?: (failure: CoreControlFailure) => void) {}
 
   private native(action: 'begin' | 'status'): Promise<{stopped?: boolean; generation?: string; engineGone?: boolean; transitioning?: boolean}> {
+    const started = Date.now()
     return new Promise((resolve, reject) => {
       execFile(this.binary, ['core-control', action, this.root], {windowsHide: true, timeout: 5000, maxBuffer: 8192},
-        (error, stdout) => {
-          if (error) { reject(new Error('The previous Orgtree session has not finished stopping. Wait, then reopen Orgtree.')); return }
+        (error, stdout, stderr) => {
+          if (error) {
+            this.note('core-control', action, started, error, stderr)
+            reject(new Error('The previous Orgtree session has not finished stopping. Wait, then reopen Orgtree.')); return
+          }
           try { resolve(action === 'begin' ? {} : JSON.parse(stdout)) } catch { reject(new Error('Invalid lifecycle reply')) }
         })
     })
