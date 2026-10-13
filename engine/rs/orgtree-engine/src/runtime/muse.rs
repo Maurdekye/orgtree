@@ -21,6 +21,9 @@
 //! - Mid-turn mail goes in with `turn/steer` on the exact running turn;
 //!   interrupt is `turn/interrupt`; every notification goes to the actor as
 //!   `AgentMsg::Muse`.
+//! - A tool call that outlives the turn's silence limit is ended by itself
+//!   (`task/stop`, after a `turn/steer` note naming the limit); the turn
+//!   goes on (user 2026-10-13).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -660,14 +663,31 @@ impl MuseProc {
     /// Mid-turn input into the exact running turn; an error means it did not
     /// reach that turn (it ended or was replaced).
     pub async fn steer(&self, turn_id: &str, text: &str) -> Result<()> {
+        self.steer_within(turn_id, text, Duration::from_secs(30)).await
+    }
+
+    /// `steer`, waiting at most `timeout` for the host's acknowledgement.
+    pub async fn steer_within(&self, turn_id: &str, text: &str, timeout: Duration) -> Result<()> {
         self.request(
             "turn/steer",
             json!({ "commandId": uuid7(), "sessionId": self.session_id, "expectedTurnId": turn_id,
                     "input": [{ "type": "text", "text": text }] }),
-            Duration::from_secs(30),
+            timeout,
         )
         .await
         .map(|_| ())
+    }
+
+    /// End one tool call of the running turn by itself (MSP `task/stop`; a
+    /// tool call's task id is its item id). Measured on Muse 1.4.6, for a call
+    /// in the foreground too: the item settles `cancelled` ("cancelled by
+    /// runtime client"), the model receives that result and the turn goes on.
+    /// The acknowledgement only; the item reports the end.
+    pub async fn stop_task(&self, task_id: &str) -> Result<()> {
+        self.request("task/stop", json!({ "commandId": uuid7(), "sessionId": self.session_id, "taskId": task_id }),
+            Duration::from_secs(10))
+            .await
+            .map(|_| ())
     }
 
     /// Ask the host to stop the turn (its `turn/completed` ends it).

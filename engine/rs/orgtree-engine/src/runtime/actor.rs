@@ -249,6 +249,16 @@ enum KeepaliveEnd {
     Failed(&'static str),
 }
 
+/// Muse: one tool call of the running turn that has not settled.
+#[derive(Debug, Clone)]
+struct MuseTool {
+    name: String,
+    /// Muse moved it to the background: the turn no longer waits on it
+    background: bool,
+    /// when Orgtree asked the host to stop it, and the silence limit (s) it passed
+    stop_asked: Option<(Instant, u64)>,
+}
+
 struct Turn {
     id: i64,
     started: Instant,
@@ -296,6 +306,9 @@ struct Turn {
     muse_quota: Option<DateTime<Utc>>,
     /// Muse: the kind of each open item, by item id (deltas name only the id)
     muse_items: HashMap<String, String>,
+    /// Muse: the turn's tool calls in flight, by item id (MSP: a tool
+    /// call's item id is its task id)
+    muse_tools: HashMap<String, MuseTool>,
     /// One persisted runner-startup diagnostic and steer attempt per turn.
     codex_runner_hint: bool,
     /// approvals declined during the turn
@@ -348,6 +361,7 @@ impl Turn {
             muse_error: None,
             muse_quota: None,
             muse_items: HashMap::new(),
+            muse_tools: HashMap::new(),
             codex_runner_hint: false,
             denials: Vec::new(),
             agy_text: HashMap::new(),
@@ -850,17 +864,22 @@ impl Actor {
                 self.publish();
             }
         }
-        let expired = self.turn.as_ref().and_then(|t| {
+        let (silent, over) = self.turn.as_ref().map_or((false, false), |t| {
             let idle_limit = self.engine.settings.turn_idle_s();
             let total = self.engine.settings.turn_timeout_s();
-            if idle_limit > 0 && t.last_event.elapsed() >= Duration::from_secs(idle_limit) {
-                Some("the turn produced nothing for too long and was stopped")
-            } else if total > 0 && t.started.elapsed() >= Duration::from_secs(total) {
-                Some("the turn ran past its time limit and was stopped")
-            } else {
-                None
-            }
+            (idle_limit > 0 && t.last_event.elapsed() >= Duration::from_secs(idle_limit),
+             total > 0 && t.started.elapsed() >= Duration::from_secs(total))
         });
+        // a Muse turn whose silence is a tool call's: that call ends alone and
+        // the turn goes on (user 2026-10-13); the total ceiling still ends it
+        let silent = silent && (over || !self.stop_silent_muse_tools().await);
+        let expired = if silent {
+            Some("the turn produced nothing for too long and was stopped")
+        } else if over {
+            Some("the turn ran past its time limit and was stopped")
+        } else {
+            None
+        };
         if self.turn.is_some()
             && self.steer_since.map(|s| s.elapsed() >= recovery::steer_late_after()).unwrap_or(false)
         {
@@ -879,6 +898,51 @@ impl Actor {
             self.on_wake().await?;
         }
         Ok(())
+    }
+
+    /// The turn went silent. When it is a Muse turn waiting on tool calls,
+    /// the silence is theirs: each call in flight is stopped by itself (MSP
+    /// `task/stop`: its item settles `cancelled` and the model gets that
+    /// result), a note naming the limit going into the turn first
+    /// (`turn/steer`, measured on Muse 1.4.6 to reach the model with the
+    /// call's result), and the silence clock restarts. False, so the turn
+    /// ends as before, when the silence is the model's (no call in flight,
+    /// or only work Muse moved to the background) or a call Orgtree already
+    /// stopped is still in flight a whole limit later.
+    async fn stop_silent_muse_tools(&mut self) -> bool {
+        let limit = self.engine.settings.turn_idle_s();
+        let (turn_id, calls, names) = {
+            let Some(t) = self.turn.as_ref() else { return false };
+            let Some(turn_id) = t.codex_turn.clone() else { return false };
+            let Some(calls) = muse_silent_calls(&t.muse_tools) else {
+                if t.muse_tools.values().any(|c| !c.background && c.stop_asked.is_some()) {
+                    tracing::warn!(agent = %self.name, "a Muse tool call Orgtree stopped is still running a whole silence limit later; ending the turn");
+                }
+                return false;
+            };
+            let names: Vec<String> = calls.iter().map(|id| t.muse_tools[id].name.clone()).collect();
+            (turn_id, calls, names)
+        };
+        let Some(Proc::Muse(m)) = self.proc.as_ref() else { return false };
+        tracing::warn!(agent = %self.name, tools = ?names, limit_s = limit, "stopping Muse tool calls that passed the silence limit; the turn goes on");
+        if let Err(e) = m.steer_within(&turn_id, &muse_silence_note(&names, limit), Duration::from_secs(10)).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the silence note did not reach the Muse turn");
+        }
+        for id in &calls {
+            if let Err(e) = m.stop_task(id).await {
+                tracing::warn!(agent = %self.name, task = %id, error = %format!("{e:#}"), "the Muse host did not take the stop");
+            }
+        }
+        let now = Instant::now();
+        if let Some(t) = self.turn.as_mut() {
+            for id in &calls {
+                if let Some(c) = t.muse_tools.get_mut(id) {
+                    c.stop_asked = Some((now, limit));
+                }
+            }
+            t.last_event = now;
+        }
+        true
     }
 
     async fn handle_msg(&mut self, msg: AgentMsg) -> Result<()> {
@@ -3599,6 +3663,8 @@ impl Actor {
         }
         let kind = item["kind"].as_str().unwrap_or("").to_string();
         let id = item["itemId"].as_str().unwrap_or("").to_string();
+        // a settled tool call Orgtree stopped: the silence limit it passed
+        let mut stopped_after: Option<u64> = None;
         if let Some(t) = self.turn.as_mut() {
             t.activity = true;
             if done {
@@ -3606,6 +3672,13 @@ impl Actor {
             } else {
                 t.muse_items.insert(id.clone(), kind.clone());
             }
+            if kind == "toolCall" {
+                stopped_after = muse_track_tool(&mut t.muse_tools, &id, item, done).and_then(|c| c.stop_asked).map(|(_, limit)| limit);
+            }
+        }
+        if let Some(limit) = stopped_after {
+            tracing::info!(agent = %self.name, item = %id, tool = ?item["tool"], status = ?item["status"], limit_s = limit,
+                "a Muse tool call Orgtree stopped at the silence limit has settled");
         }
         match kind.as_str() {
             "userMessage" | "hookRun" | "sideChat" | "compaction" => {}
@@ -3741,6 +3814,9 @@ impl Actor {
                             }
                             if failed {
                                 chip["error"] = json!(gist(&text, 500));
+                            }
+                            if let Some(limit) = stopped_after {
+                                chip["error"] = json!(format!("stopped by Orgtree: no output for {} (the silence limit)", span_text(limit)));
                             }
                             if let Some(extra) = card.as_ref().and_then(|c| c.as_object()) {
                                 if let Some(c) = chip.as_object_mut() {
@@ -6019,5 +6095,111 @@ mod print_tests {
         let old = json!(a.parts.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>());
         let back = Fingerprint::from_json(&old).unwrap();
         assert_eq!((back.org_notes, back.parts), (None, a.parts));
+    }
+}
+
+/// Follow one Muse tool call of the running turn: in flight (and whether
+/// Muse moved it to the background, which it does by itself to a shell
+/// command still running after about 10 s) until its item settles, when its
+/// record is returned.
+#[nolog] // every tool item event, with the item's output
+fn muse_track_tool(tools: &mut HashMap<String, MuseTool>, id: &str, item: &Value, done: bool) -> Option<MuseTool> {
+    if done {
+        return tools.remove(id);
+    }
+    let background = item["background"].as_bool() == Some(true)
+        || item.pointer("/backgroundStatus/state").and_then(Value::as_str) == Some("backgrounded");
+    let call = tools.entry(id.to_string()).or_insert_with(|| MuseTool {
+        name: item["tool"].as_str().filter(|s| !s.is_empty()).unwrap_or("tool").to_string(),
+        background: false,
+        stop_asked: None,
+    });
+    call.background |= background;
+    None
+}
+
+/// The tool calls a silent Muse turn is waiting on, all to be stopped. None
+/// when the silence is the model's (nothing in flight but background work)
+/// or a call Orgtree already stopped is still in flight: that stop did not
+/// take, so the turn ends as before instead of waiting on it again.
+#[logged]
+fn muse_silent_calls(tools: &HashMap<String, MuseTool>) -> Option<Vec<String>> {
+    let waiting: Vec<(&String, &MuseTool)> = tools.iter().filter(|(_, c)| !c.background).collect();
+    if waiting.is_empty() || waiting.iter().any(|(_, c)| c.stop_asked.is_some()) {
+        return None;
+    }
+    let mut ids: Vec<String> = waiting.into_iter().map(|(id, _)| id.clone()).collect();
+    ids.sort();
+    Some(ids)
+}
+
+/// What a Muse turn is told when Orgtree stops its silent tool calls.
+#[logged]
+fn muse_silence_note(names: &[String], limit_s: u64) -> String {
+    let span = span_text(limit_s);
+    match names {
+        [one] => format!("Orgtree stopped your {one} call: it produced no output for {span}, the silence limit for a turn. \
+                          Treat that call as failed and carry on with your turn."),
+        many => format!("Orgtree stopped your {} tool calls ({}): they produced no output for {span}, the silence limit for a turn. \
+                         Treat those calls as failed and carry on with your turn.", many.len(), many.join(", ")),
+    }
+}
+
+/// A limit in seconds in words; whole minutes as minutes.
+#[logged]
+fn span_text(s: u64) -> String {
+    let (n, unit) = if s >= 60 && s % 60 == 0 { (s / 60, "minute") } else { (s, "second") };
+    format!("{n} {unit}{}", if n == 1 { "" } else { "s" })
+}
+
+#[cfg(test)]
+mod muse_silence_tests {
+    use super::*;
+
+    fn started(tools: &mut HashMap<String, MuseTool>, id: &str, tool: &str) {
+        muse_track_tool(tools, id, &json!({ "itemId": id, "kind": "toolCall", "tool": tool, "status": "inProgress" }), false);
+    }
+
+    #[test]
+    fn muse_silence_stops_each_waiting_call_once() {
+        let mut tools = HashMap::new();
+        assert_eq!(muse_silent_calls(&tools), None, "nothing in flight: the model is silent");
+        started(&mut tools, "b", "powershell");
+        started(&mut tools, "a", "mcp__slow__wait");
+        assert_eq!(muse_silent_calls(&tools), Some(vec!["a".to_string(), "b".to_string()]));
+        // a stop asked a whole limit ago that did not take: the turn ends as before
+        tools.get_mut("a").unwrap().stop_asked = Some((Instant::now(), 600));
+        assert_eq!(muse_silent_calls(&tools), None);
+        // once the stopped call settles, a later silent call is stopped in its turn
+        let gone = muse_track_tool(&mut tools, "a", &json!({ "itemId": "a", "kind": "toolCall", "status": "cancelled" }), true);
+        assert_eq!(gone.and_then(|c| c.stop_asked).map(|(_, limit)| limit), Some(600));
+        assert_eq!(muse_silent_calls(&tools), Some(vec!["b".to_string()]));
+    }
+
+    #[test]
+    fn muse_background_work_is_not_the_turns_silence() {
+        let mut tools = HashMap::new();
+        started(&mut tools, "x", "powershell");
+        // Muse moved it to the background by itself (measured shape, 1.4.6)
+        muse_track_tool(&mut tools, "x", &json!({ "itemId": "x", "kind": "toolCall", "tool": "powershell", "status": "inProgress",
+            "backgroundStatus": { "state": "backgrounded", "detail": "{}" } }), false);
+        assert!(tools["x"].background);
+        assert_eq!(muse_silent_calls(&tools), None);
+        started(&mut tools, "y", "read_file");
+        muse_track_tool(&mut tools, "y", &json!({ "itemId": "y", "kind": "toolCall", "status": "inProgress", "background": true }), false);
+        assert!(tools["y"].background && tools["y"].name == "read_file", "a later update keeps the name and the flag");
+        assert_eq!(muse_silent_calls(&tools), None);
+    }
+
+    #[test]
+    fn muse_silence_note_names_the_call_and_the_limit() {
+        assert_eq!(span_text(600), "10 minutes");
+        assert_eq!(span_text(60), "1 minute");
+        assert_eq!(span_text(90), "90 seconds");
+        assert_eq!(span_text(1), "1 second");
+        let one = muse_silence_note(&["powershell".to_string()], 600);
+        assert!(one.contains("your powershell call") && one.contains("no output for 10 minutes") && one.contains("silence limit"), "{one}");
+        let two = muse_silence_note(&["a".to_string(), "b".to_string()], 3);
+        assert!(two.contains("your 2 tool calls (a, b)") && two.contains("3 seconds"), "{two}");
     }
 }
