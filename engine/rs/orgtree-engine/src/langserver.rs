@@ -103,7 +103,20 @@ pub fn preset(id: &str) -> Option<&'static Preset> {
 /// Codex needs OpenAI Responses.
 #[logged]
 pub fn api_of(harness: &str) -> &'static str {
-    if harness == "codex-cli" { "responses" } else { "anthropic" }
+    match harness { "codex-cli" => "responses", "opencode" => "chat_completions", _ => "anthropic" }
+}
+
+#[cfg(test)]
+mod acp_routing_tests {
+    use super::*;
+    #[test]
+    fn acp_chat_endpoint_keeps_custom_path_and_preset_v1() {
+        assert_eq!(api_of("opencode"),"chat_completions");
+        assert_eq!(api_of("codex-cli"),"responses");
+        assert_eq!(api_of("claude-code"),"anthropic");
+        assert_eq!(base_url(&json!({"preset":"llamacpp","address":"http://127.0.0.1:9933/","harness":"opencode"})),"http://127.0.0.1:9933/v1");
+        assert_eq!(base_url(&json!({"preset":"custom","address":"http://localhost:1234","base_path":"api/v1","harness":"opencode"})),"http://localhost:1234/api/v1");
+    }
 }
 
 /// Every server, in the order they were added.
@@ -197,7 +210,7 @@ pub fn base_url(server: &Value) -> String {
         let path = server["base_path"].as_str().unwrap_or("").trim().trim_matches('/');
         return if path.is_empty() { address } else { format!("{address}/{path}") };
     }
-    if harness == "codex-cli" { format!("{address}/v1") } else { address }
+    if matches!(harness, "codex-cli" | "opencode") { format!("{address}/v1") } else { address }
 }
 
 /// A server's seat price: the user's figure, else DEFAULT_SEAT (servers
@@ -310,6 +323,7 @@ pub fn harnesses(engine: &Engine, preset_id: &str) -> Vec<Value> {
     vec![
         opt("claude-code", "Claude Code", claude, p.map(|p| p.claude).unwrap_or(false)),
         opt("codex-cli", "Codex", codex, p.map(|p| p.codex).unwrap_or(false)),
+        opt("opencode", "OpenCode (ACP)", crate::harnesses::installed(engine, "opencode"), p.is_some()),
     ]
 }
 
@@ -385,7 +399,7 @@ pub async fn add_server(engine: &Engine, b: NewServer) -> Result<Value> {
     let address = normalize_address(&b.address)?;
     let h = harnesses(engine, p.id);
     let Some(choice) = h.iter().find(|o| o["id"].as_str() == Some(b.harness.as_str())) else {
-        crate::refuse!(BadRequest, "the harness is claude-code or codex-cli")
+        crate::refuse!(BadRequest, "the harness is claude-code, codex-cli or opencode")
     };
     if choice["available"] != json!(true) {
         crate::refuse!(Conflict, "{}", choice["why"].as_str().unwrap_or("that harness cannot drive this server"));
@@ -612,7 +626,7 @@ pub async fn probe(preset_id: &str, address: &str, key: Option<&str>, harness: &
             } else {
                 format!("{address}/v1")
             };
-            let base = if preset_id == "custom" && harness != "codex-cli" && !base.ends_with("/v1") { format!("{base}/v1") } else { base };
+            let base = if preset_id == "custom" && harness == "claude-code" && !base.ends_with("/v1") { format!("{base}/v1") } else { base };
             probe_openai_models(&format!("{base}/models"), &get).await
         }
     };

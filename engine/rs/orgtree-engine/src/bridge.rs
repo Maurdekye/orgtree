@@ -107,10 +107,16 @@ async fn connect(path: &str) -> std::io::Result<tokio::net::UnixStream> {
     }
 }
 
+/// Ordinary bridge callers do not need launch-readiness observation.
+#[logged]
+pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken) -> Result<String> {
+    serve_observed(engine, caller, cancel, None)
+}
+
 /// Serve this agent's tools on a fresh named pipe until `cancel`; returns its name.
 #[cfg(windows)]
 #[logged]
-pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken) -> Result<String> {
+pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>) -> Result<String> {
     use tokio::net::windows::named_pipe::ServerOptions;
     let name = format!(r"\\.\pipe\orgtree-mcp-{}", crate::util::random_hex(16));
     let first = ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true).create(&name)?;
@@ -127,7 +133,7 @@ pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken) -> 
                 Ok(s) => s,
                 Err(_) => break,
             };
-            tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone()));
+            tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone()));
         }
     });
     Ok(name)
@@ -137,14 +143,14 @@ pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken) -> 
 /// engine stops); returns its path.
 #[cfg(unix)]
 #[logged]
-pub fn serve(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken) -> Result<String> {
+pub fn serve_observed(engine: Arc<Engine>, caller: Caller, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>) -> Result<String> {
     let name = format!("orgtree-mcp-{}", crate::util::random_hex(8));
     let mut refused = Vec::new();
     for dir in socket_dirs(&engine.cfg.data_root) {
         let path = dir.join(&name);
         match listen(&dir, &path) {
             Ok((listener, text)) => {
-                tokio::spawn(accept(engine, caller, listener, path, cancel));
+                tokio::spawn(accept(engine, caller, listener, path, cancel, ready));
                 return Ok(text);
             }
             Err(e) => refused.push(format!("{}: {e:#}", dir.display())),
@@ -234,7 +240,7 @@ fn listen(dir: &std::path::Path, path: &std::path::Path) -> Result<(tokio::net::
 /// socket file goes with the listener.
 #[cfg(unix)]
 #[logged]
-async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixListener, path: std::path::PathBuf, cancel: CancellationToken) {
+async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixListener, path: std::path::PathBuf, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>) {
     struct Unlink(std::path::PathBuf);
     impl Drop for Unlink {
         fn drop(&mut self) {
@@ -252,7 +258,7 @@ async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixL
         match r {
             // the folder admits only this user; any other peer is refused all the same
             Ok((conn, _)) if conn.peer_cred().map(|c| c.uid()).ok() == Some(me) => {
-                tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone()));
+                tokio::spawn(connection(engine.clone(), caller.clone(), conn, cancel.clone(), ready.clone()));
             }
             Ok(_) => {}
             // a peer that left before it was accepted, or no file handles to spare: keep serving
@@ -285,17 +291,24 @@ pub fn clear_stale(data_root: &std::path::Path) {
 }
 
 /// One CLI-side MCP session: each request answered as its own request.
-async fn connection<S>(engine: Arc<Engine>, caller: Caller, conn: S, cancel: CancellationToken)
+async fn connection<S>(engine: Arc<Engine>, caller: Caller, conn: S, cancel: CancellationToken, ready: Option<tokio::sync::watch::Sender<bool>>)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let (read, mut write) = tokio::io::split(conn);
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Option<&'static str>)>();
     tokio::spawn(async move {
-        while let Some(line) = rx.recv().await {
+        let mut initialized = false;
+        while let Some((line, observed)) = rx.recv().await {
             if write.write_all(line.as_bytes()).await.is_err() || write.write_all(b"\n").await.is_err() || write.flush().await.is_err() {
                 break;
+            }
+            // Observe only successful responses actually flushed to this
+            // launch's MCP connection, never a request merely received.
+            if observed == Some("initialize") { initialized = true; }
+            if initialized && observed == Some("tools/list") {
+                if let Some(ready) = &ready { let _ = ready.send(true); }
             }
         }
     });
@@ -316,7 +329,14 @@ where
         tokio::spawn(tracing::Instrument::instrument(
             async move {
                 let resp = crate::tools::handle_mcp(&engine, &caller, &msg).await;
-                let _ = tx.send(resp.to_string());
+                let observed = if resp.get("error").is_none() && resp.get("result").is_some() {
+                    match msg["method"].as_str() {
+                        Some("initialize") => Some("initialize"),
+                        Some("tools/list") => Some("tools/list"),
+                        _ => None,
+                    }
+                } else { None };
+                let _ = tx.send((resp.to_string(), observed));
             },
             span,
         ));

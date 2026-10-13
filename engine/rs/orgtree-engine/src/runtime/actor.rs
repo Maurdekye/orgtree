@@ -23,6 +23,8 @@ use crate::runtime::claude::{self, ClaudeProc, SpawnSpec};
 use crate::runtime::codex::{self as codexrt, CodexProc, CodexSpec};
 use crate::runtime::agy::{self as agyrt, AgyProc, AgySpec};
 use crate::runtime::muse::{self as musert, MuseProc, MuseSpec};
+use crate::runtime::opencode::{self as opencodert, OpenCodeProc};
+use crate::runtime::acp_scope;
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
@@ -317,6 +319,8 @@ struct Turn {
     /// Muse: the turn's tool calls in flight, by item id (MSP: a tool
     /// call's item id is its task id)
     muse_tools: HashMap<String, MuseTool>,
+    acp_items: HashMap<String, Value>,
+    acp: bool,
     /// One persisted runner-startup diagnostic and steer attempt per turn.
     codex_runner_hint: bool,
     /// approvals declined during the turn
@@ -371,6 +375,8 @@ impl Turn {
             muse_quota: None,
             muse_items: HashMap::new(),
             muse_tools: HashMap::new(),
+            acp_items: HashMap::new(),
+            acp: false,
             codex_runner_hint: false,
             denials: Vec::new(),
             agy_text: HashMap::new(),
@@ -388,6 +394,7 @@ enum Proc {
     Codex(CodexProc),
     Agy(AgyProc),
     Muse(MuseProc),
+    Acp(OpenCodeProc),
 }
 
 #[logged]
@@ -399,6 +406,7 @@ impl Proc {
             Proc::Codex(p) => p.process,
             Proc::Agy(p) => p.process,
             Proc::Muse(p) => p.process,
+            Proc::Acp(p) => p.process,
         }
     }
 
@@ -408,6 +416,7 @@ impl Proc {
             Proc::Codex(p) => p.exit_status(reason).await,
             Proc::Agy(p) => p.exit_status(reason).await,
             Proc::Muse(p) => p.exit_status(reason).await,
+            Proc::Acp(p) => p.exit_status(reason).await,
         }
     }
 
@@ -418,6 +427,7 @@ impl Proc {
             Proc::Codex(p) => p.alive(),
             Proc::Agy(p) => p.alive(),
             Proc::Muse(p) => p.alive(),
+            Proc::Acp(p) => p.alive(),
         }
     }
 
@@ -429,6 +439,7 @@ impl Proc {
             (Proc::Muse(p), Some(t)) => p.interrupt(t),
             (Proc::Codex(_) | Proc::Muse(_), None) => false,
             (Proc::Agy(p), _) => p.interrupt(),
+            (Proc::Acp(p), _) => p.interrupt(),
         }
     }
 
@@ -436,7 +447,7 @@ impl Proc {
     fn set_effort(&self, level: &str) -> bool {
         match self {
             Proc::Claude(p) => p.set_effort(level),
-            Proc::Codex(_) | Proc::Agy(_) | Proc::Muse(_) => false,
+            Proc::Codex(_) | Proc::Agy(_) | Proc::Muse(_) | Proc::Acp(_) => false,
         }
     }
 
@@ -446,6 +457,7 @@ impl Proc {
             Proc::Codex(p) => p.close().await,
             Proc::Agy(p) => p.close().await,
             Proc::Muse(p) => p.close().await,
+            Proc::Acp(p) => p.close().await,
         }
     }
 
@@ -455,8 +467,12 @@ impl Proc {
             Proc::Codex(p) => p.kill().await,
             Proc::Agy(p) => p.kill().await,
             Proc::Muse(p) => p.kill().await,
+            Proc::Acp(p) => p.close().await,
         }
     }
+
+    #[nolog]
+    fn is_acp(&self) -> bool { matches!(self, Proc::Acp(_)) }
 
     #[nolog]
     fn is_codex(&self) -> bool {
@@ -744,6 +760,11 @@ impl Actor {
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
                             tracing::Instrument::instrument(self.on_agy(v), span).await
                         }
+                        AgentMsg::Acp(process, v) => {
+                            if !self.owns_process(process) { continue; }
+                            let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
+                            tracing::Instrument::instrument(self.on_acp(v), span).await
+                        }
                         AgentMsg::Muse(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
@@ -985,6 +1006,9 @@ impl Actor {
             }
             AgentMsg::Agy(process, v) => {
                 if self.owns_process(process) { self.on_agy(v).await?; }
+            }
+            AgentMsg::Acp(process, v) => {
+                if self.owns_process(process) { self.on_acp(v).await?; }
             }
             AgentMsg::Muse(process, v) => {
                 if self.owns_process(process) { self.on_muse(v).await?; }
@@ -1632,7 +1656,9 @@ impl Actor {
     /// agent's own and its granted folders' AGENTS.md and legacy CLAUDE.md; no side effects.
     fn identity(&self, ctx: &Ctx, external: &[String]) -> String {
         let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
-        let lane = if codex {
+        let lane = if ctx.harness.as_deref() == Some("opencode") {
+            prompt::Lane::OpenCode
+        } else if codex {
             prompt::Lane::Codex
         } else if ctx.provider == catalog::GOOGLE {
             prompt::Lane::Antigravity
@@ -1768,6 +1794,7 @@ impl Actor {
     /// Where this launch's CLI finds its startup instruction files: the same
     /// cwd and homes `claude_spec` and `ensure_codex` start it with.
     fn startup_inputs(&self, ctx: &Ctx) -> startup::Inputs {
+        if ctx.harness.as_deref() == Some("opencode") { return startup::Inputs::None; }
         let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
         if codex {
             let apikey = ctx.account.as_deref().and_then(|a| self.engine.accounts.view().get(a).map(|a| a.is_apikey())).unwrap_or(false);
@@ -2240,6 +2267,10 @@ impl Actor {
         if let Err(e) = std::fs::create_dir_all(&ctx.org_notes_dir) {
             tracing::warn!(agent = %ctx.name, error = %e, "the org's shared notes folder could not be created");
         }
+        if ctx.harness.as_deref() == Some("opencode") {
+            let route = route.as_ref().ok_or_else(|| anyhow!("OpenCode requires an OpenRouter or language-server lane"))?;
+            return self.ensure_acp(ctx, route).await;
+        }
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
             return self.ensure_codex(ctx, route.as_ref()).await;
         }
@@ -2258,7 +2289,7 @@ impl Actor {
         let plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => {
-                !p.is_codex() && !p.is_agy() && !p.is_muse() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
+                !p.is_codex() && !p.is_agy() && !p.is_muse() && !p.is_acp() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
             }
             None => false,
         };
@@ -2581,6 +2612,150 @@ impl Actor {
     /// nothing, user 2026-10-12); the level goes with each turn, the nearest
     /// one the model lists at or below the saved level when it does not list
     /// the saved one (catalog::launch_effort).
+    #[nolog]
+    async fn ensure_acp(&mut self, ctx: &Ctx, route: &OrRoute) -> Result<()> {
+        let plan = self.plan(ctx);
+        if self.proc.as_mut().is_some_and(|p| p.is_acp() && p.alive())
+            && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured { return Ok(()); }
+        self.close_proc().await;
+        self.reconfigured = false;
+        let exe = self.engine.providers.state.load().opencode.path.clone()
+            .filter(|p| p.is_file()).ok_or_else(|| anyhow!("OpenCode with ACP is not installed or its discovery has not completed"))?;
+        std::fs::create_dir_all(&ctx.scratch)?;
+        let tools = &ctx.effective["tools"];
+        let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
+        let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
+        let may_write = on("edit") && pm != "plan";
+        let mut read = vec![ctx.scratch.clone()];
+        let mut write = if may_write { vec![ctx.scratch.clone()] } else { vec![] };
+        for dir in ctx.effective["add_dirs"].as_array().into_iter().flatten() {
+            let Some(path) = dir["path"].as_str().map(PathBuf::from) else { continue };
+            read.push(path.clone());
+            if may_write && dir["mode"] != "ro" { write.push(path); }
+        }
+        let granted = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
+        let policy = acp_scope::Policy { cwd:ctx.scratch.clone(),read,write,may_write,
+            may_shell:on("bash"),may_web:on("web"),bypass:pm=="bypassPermissions",
+            mcp_tools:crate::tools::defs::scoped(tools).iter().filter_map(|d| d["name"].as_str().map(|n| format!("orgtree_{n}"))).collect(),
+            mcp_prefixes:granted.keys().filter(|k| k.as_str()!="orgtree").map(|k| format!("{}_",opencodert::server_alias(k))).collect() };
+        let context = route.local.as_ref().map(|r| r.context as u64)
+            .or_else(|| crate::openrouter::favorite(&self.engine,&ctx.tier).and_then(|f| f["context"].as_u64())).unwrap_or(65536).max(1024);
+        let spec = opencodert::Spec { exe,cwd:ctx.scratch.clone(),
+            profile:self.engine.cfg.path("profiles").join("opencode").join(self.org_id.to_string()).join(self.id.to_string()).join(ctx.generation.to_string()),
+            base_url:route.local.as_ref().map(|r| r.base_url.clone()).unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
+            key:route.key.clone(),model:ctx.model.clone(),context,output:(context/4).min(8192),
+            identity:plan.identity.clone(),policy,servers:granted,who:format!("{} / {}",ctx.org_slug,ctx.name) };
+        let resume = ctx.session_id.clone().filter(|_| ctx.session_provider.as_deref()==Some(ctx.provider.as_str()));
+        let actor = self.tx.clone();
+        let emit = Arc::new(move |process, event| {
+            match event {
+                opencodert::SessionEvent::Update { turn,value } => { actor.post(AgentMsg::Acp(process,json!({"turn":turn,"update":value["params"]["update"]}))); },
+                opencodert::SessionEvent::Finished { turn,result } => {
+                    let message = match result {
+                        Ok(result) => json!({"turn":turn,"result":result}),
+                        Err(e) => json!({"turn":turn,"error":e.to_string()}),
+                    };
+                    actor.post(AgentMsg::Acp(process,message));
+                },
+                opencodert::SessionEvent::Ended(reason) => { actor.post(AgentMsg::ProcExited {process,reason}); },
+            }
+        });
+        let caller = Caller {org_id:self.org_id,org_slug:ctx.org_slug.clone(),agent_id:self.id,name:ctx.name.clone()};
+        let mut proc = OpenCodeProc::spawn(spec,self.engine.clone(),caller,resume.clone(),emit).await?;
+        if resume.as_deref()!=Some(proc.session_id.as_str()) {
+            let recorded: Result<()> = async {
+                let client = self.engine.db.get().await?;
+                client.execute("UPDATE ot.agents SET session_id=$2, provider=$3 WHERE id=$1",&[&self.id,&proc.session_id,&ctx.provider]).await?;
+                client.execute("INSERT INTO ot.agent_sessions (agent_id,generation,provider,session_id) VALUES ($1,$2,$3,$4)",
+                    &[&self.id,&ctx.generation,&ctx.provider,&proc.session_id]).await?;
+                Ok(())
+            }.await;
+            if let Err(e)=recorded { proc.close().await;return Err(e); }
+        }
+        self.init=json!({"model":ctx.model,"session":proc.session_id,"harness":"opencode","protocol":"ACP1",
+            "mcp_handshake_observed":proc.mcp_observed,"mid_turn_mail":"queued","effort":"not configured","cost":"unknown; provider usage authoritative"});
+        self.mcp=McpState { state:Some(if proc.mcp_observed {"handshake_observed"} else {"unobserved"}.into()),
+            reason:Some("OpenCode registers tools asynchronously; handshake plus catalog settle is not a catalog acknowledgement".into()),
+            last_turn_count:self.mcp.last_turn_count,..McpState::default() };
+        self.proc=Some(Proc::Acp(proc));self.proc_print=Some(plan.print);self.proc_notes=Some(plan.notes);
+        self.proc_effort=Some(ctx.effort.clone());self.provider=ctx.provider.clone();self.publish();Ok(())
+    }
+
+    async fn on_acp(&mut self, event: Value) -> Result<()> {
+        let Some(turn)=self.turn.as_mut() else {return Ok(())};
+        if event["turn"].as_str()!=turn.codex_turn.as_deref() {return Ok(())}
+        turn.last_event=Instant::now();
+        if let Some(result)=event.get("result") {
+            let mut usage=super::acp::usage(result);
+            for key in ["context_used","context_window"] { usage[key]=turn.usage[key].clone(); }
+            turn.usage=usage;
+            let error=match result["stopReason"].as_str() {
+                Some("end_turn")=>None,
+                Some("cancelled") if turn.interrupted=>None,
+                Some(reason)=>Some(format!("OpenCode ACP turn stopped: {reason}")),
+                None=>Some("OpenCode ACP prompt returned no stop reason".into()),
+            };
+            return self.end_turn(error,json!({"acp":true})).await;
+        }
+        if let Some(error)=event["error"].as_str() { return self.end_turn(Some(error.to_string()),json!({"acp":true})).await; }
+        let update=&event["update"];
+        match update["sessionUpdate"].as_str().unwrap_or("") {
+            "agent_message_chunk" | "agent_thought_chunk" => {
+                turn.activity=true;
+                let thinking=update["sessionUpdate"]=="agent_thought_chunk";
+                let Some(text)=update["content"]["text"].as_str() else {return Ok(())};
+                let field=if thinking {"thinking"} else {"text"};
+                let id=update["messageId"].as_str().map(str::to_string).unwrap_or_else(|| format!("acp-{}-{field}",turn.id));
+                let existing=turn.rows.get(&id).cloned();
+                let mut row=existing.as_ref().map(|(_,r)|r.clone()).unwrap_or_else(|| json!({"role":"assistant","text":"","tools":[],"ts":now_iso(),"assistant_id":id}));
+                let current=row[field].as_str().unwrap_or("");
+                row[field]=json!(convo::clip(&format!("{current}{text}"),if thinking {20000} else {64000}).0);
+                let client=self.engine.db.get().await?;
+                let seq=if let Some((seq,_))=existing {self.convo.update(&client,seq,row.clone()).await?;seq}
+                    else {self.convo.append(&client,row.clone()).await?};
+                drop(client);
+                if let Some(turn)=self.turn.as_mut() {turn.rows.insert(id.clone(),(seq,row));turn.codex_row=Some(id);}
+                self.set_activity(if thinking {"thinking"} else {"writing"},None);
+                self.stream(if thinking {"thinking"} else {"delta"},json!({"text":text}));
+            },
+            "tool_call" | "tool_call_update" => {
+                turn.activity=true;
+                let Some(id)=update["toolCallId"].as_str() else {return Ok(())};
+                if turn.acp_items.len()>=512 && !turn.acp_items.contains_key(id) {return Err(anyhow!("ACP turn tool count exceeds limit"));}
+                let item=turn.acp_items.entry(id.into()).or_insert_with(|| json!({}));
+                if let Some(fields)=update.as_object() { for (k,v) in fields {item[k]=v.clone();} }
+                // Transcript previews must not retain frame-sized inputs for
+                // hundreds of tools. This affects display only; approvals saw
+                // the original complete payload on the transport task.
+                for field in ["rawInput","rawOutput","content"] {
+                    if item[field].to_string().len()>64_000 {
+                        item[field]=if field=="content" { json!([{"type":"content","content":{"type":"text","text":"[tool output exceeds transcript preview limit]"}}]) }
+                            else { json!({"truncated":true,"preview":convo::clip(&item[field].to_string(),4000).0}) };
+                    }
+                }
+                let name=item["name"].as_str().or(item["title"].as_str()).unwrap_or("tool");
+                let name=name.strip_prefix("orgtree_").map(|n|format!("mcp__orgtree__{n}")).unwrap_or_else(||name.to_string());
+                let status=item["status"].as_str().unwrap_or("in_progress");
+                let done=matches!(status,"completed"|"failed");
+                let output=item["content"].as_array().map(|a|a.iter().filter_map(|v|v.pointer("/content/text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")).unwrap_or_default();
+                let display=json!({"itemId":id,"callId":id,"kind":"toolCall","tool":name,"args":item["rawInput"].to_string(),
+                    "visibleOutput":output,"status":if done {status} else {"inProgress"}});
+                self.on_muse_item(&display,done).await?;
+            },
+            "usage_update" => {
+                if !turn.usage.is_object() {turn.usage=json!({});}
+                turn.usage["context_used"]=update["used"].clone();turn.usage["context_window"]=update["size"].clone();
+                // cost.amount=0 for custom providers is not a price receipt.
+            },
+            "plan" => {
+                let plan:Vec<Value>=update["entries"].as_array().into_iter().flatten().map(|e|json!({"step":e["content"],"status":e["status"]})).collect();
+                self.on_codex_plan(&json!({"plan":plan})).await?;
+            },
+            _=>{},
+        }
+        Ok(())
+    }
+
     async fn ensure_muse(&mut self, ctx: &Ctx) -> Result<()> {
         if !self.engine.settings.provider_enabled(catalog::MUSE) {
             return Err(anyhow!("Muse is turned off in App settings"));
@@ -3214,6 +3389,10 @@ impl Actor {
                     false
                 }
             },
+            Some(Proc::Acp(p)) => match p.start_turn(&text) {
+                Ok(id) => { codex_turn = Some(id); true },
+                Err(e) => { refused = Some(e.to_string()); false },
+            },
             Some(Proc::Muse(p)) => match p.start_turn(&text, musert::images(&attachment_paths(&mails))).await {
                 Ok((t, disposition)) => {
                     if disposition != "started" {
@@ -3251,6 +3430,7 @@ impl Actor {
         turn.serving_provider = ctx.provider.clone();
         turn.serving_tier = ctx.tier.clone();
         turn.codex_turn = codex_turn;
+        turn.acp = self.proc.as_ref().is_some_and(Proc::is_acp);
         turn.usage_base = self.codex_total.clone();
         turn.replay = replay;
         self.begin_turn(turn);
@@ -5080,7 +5260,10 @@ impl Actor {
             error = turn.codex_error.clone().filter(|_| !turn.interrupted);
         }
         let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
-        let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if agy {
+        let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if turn.acp {
+            let u = &turn.usage;
+            (n(u,"input_tokens"),n(u,"cache_read_input_tokens"),n(u,"cache_creation_input_tokens"),n(u,"output_tokens"),0,n(u,"context_used") as i32,0.0)
+        } else if agy {
             let u = &turn.usage;
             (n(u, "input"), n(u, "cached"), 0, n(u, "output"), 300, n(u, "last_prompt") as i32, u["cost"].as_f64().unwrap_or(0.0))
         } else if muse {
@@ -5148,7 +5331,7 @@ impl Actor {
         let langserver = self.provider == catalog::LANGSERVER;
         let cost = if langserver {
             0.0
-        } else if openrouter && !codex {
+        } else if openrouter && !codex && !turn.acp {
             let tier = self.tier().await;
             match crate::openrouter::prices(&self.engine, &tier) {
                 Some((pi, pc, po)) => {
@@ -5354,7 +5537,7 @@ impl Actor {
                 &[
                     &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &turn.compact,
                     &freeze_rec, &self.cost_seen,
-                    &((agy && catalog::antigravity_claude(&turn.serving_tier) || muse) && input + cache_read + output > 0),
+                    &(turn.acp && !langserver || (agy && catalog::antigravity_claude(&turn.serving_tier) || muse) && input + cache_read + output > 0),
                     &langserver,
                 ],
             )
@@ -5865,6 +6048,7 @@ impl Actor {
 
     fn forecast_for(&self, ctx: &Ctx) -> Value {
         let lane = match ctx.provider.as_str() {
+            _ if ctx.harness.as_deref()==Some("opencode") => "opencode-acp",
             p if p == catalog::OPENAI => "codex",
             p if (p == catalog::OPENROUTER || p == catalog::LANGSERVER) && ctx.harness.as_deref() == Some("codex-cli") => "codex",
             p if p == catalog::GOOGLE => "antigravity",
@@ -5907,6 +6091,11 @@ impl Actor {
                            "readiness_cause": "unsupported_capability", "reason": "a language server publishes no cache data",
                            "source": "unsupported_capability", "lane": lane, "last_receipt_at": receipt_at,
                            "ttl_seconds": null, "expires_at": null });
+        }
+        if ctx.harness.as_deref()==Some("opencode") {
+            return json!({"generation":generation,"state":"uncertain","readiness":"unknown",
+                "readiness_cause":"unsupported_capability","reason":"ACP custom providers do not report a verified cache lifetime",
+                "source":"unsupported_capability","lane":lane,"last_receipt_at":receipt_at,"ttl_seconds":null,"expires_at":null});
         }
         let Some((at, ttl)) = self.receipt else {
             return json!({ "generation": generation, "state": "uncertain", "readiness": "not_ready",

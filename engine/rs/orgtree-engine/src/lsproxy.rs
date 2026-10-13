@@ -232,6 +232,12 @@ pub fn is_template_error(text: &str) -> bool {
 /// whether it changed, and what was done to a summary request.
 #[nolog]
 fn prepare(tail: &str, bytes: Bytes, server: &Value) -> (Bytes, bool, Option<Assist>) {
+    if tail.ends_with("/chat/completions") {
+        let Ok(mut body) = serde_json::from_slice::<Value>(&bytes) else { return (bytes,false,None) };
+        return if normalize_chat(&mut body) {
+            match serde_json::to_vec(&body) { Ok(b)=>(Bytes::from(b),true,None),Err(_)=>(bytes,false,None) }
+        } else { (bytes,false,None) };
+    }
     let messages = tail.ends_with("/messages") || tail.ends_with("/messages/count_tokens");
     if !messages && !tail.ends_with("/responses") {
         return (bytes, false, None);
@@ -246,6 +252,47 @@ fn prepare(tail: &str, bytes: Bytes, server: &Value) -> (Bytes, bool, Option<Ass
     match changed.then(|| serde_json::to_vec(&v)) {
         Some(Ok(b)) => (Bytes::from(b), true, assist),
         _ => (bytes, false, None),
+    }
+}
+
+/// ACP/OpenCode speaks Chat Completions. Strict templates accept a leading
+/// system block only. Later system/developer reminders stay at their original
+/// position as user context; tool-call ids and tool-result order are untouched.
+#[nolog]
+pub fn normalize_chat(body: &mut Value) -> bool {
+    let Some(messages)=body["messages"].as_array_mut() else {return false};
+    let mut out:Vec<Value>=Vec::with_capacity(messages.len());
+    let mut lead:Vec<String>=Vec::new();
+    let mut changed=false;
+    for mut message in messages.drain(..) {
+        if matches!(message["role"].as_str(),Some("system"|"developer")) {
+            if out.is_empty() {
+                changed |= message["role"]=="developer" || !message["content"].is_string() || !lead.is_empty();
+                lead.push(text_of(&message["content"]));continue;
+            }
+            message=json!({"role":"user","content":format!("<system-reminder>\n{}\n</system-reminder>",text_of(&message["content"]))});
+            changed=true;
+        }
+        out.push(message);
+    }
+    if !lead.is_empty() {out.insert(0,json!({"role":"system","content":lead.join("\n\n")}));}
+    *messages=out;changed
+}
+
+#[cfg(test)]
+mod acp_chat_tests {
+    use super::*;
+    #[test]
+    fn acp_strict_chat_keeps_tool_custody_and_late_reminder_position() {
+        let call=json!({"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]});
+        let answer=json!({"role":"tool","tool_call_id":"c1","content":"result"});
+        let mut body=json!({"messages":[{"role":"system","content":"a"},{"role":"developer","content":"b"},
+            {"role":"user","content":"start"},call,answer,{"role":"system","content":"late"}]});
+        assert!(normalize_chat(&mut body));
+        assert_eq!(body["messages"][0],json!({"role":"system","content":"a\n\nb"}));
+        assert_eq!(body["messages"][2],call);assert_eq!(body["messages"][3],answer);
+        assert_eq!(body["messages"][4]["role"],"user");
+        assert!(!normalize_chat(&mut body));
     }
 }
 

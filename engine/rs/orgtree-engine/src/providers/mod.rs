@@ -40,6 +40,8 @@ pub struct State {
     pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
     pub codex_efforts_error: Option<String>,
     pub muse: CliStatus,
+    /// OpenCode is offered only after its installed ACP entrypoint negotiates.
+    pub opencode: CliStatus,
     /// what the last Muse metadata host reported (schema, sign-in, catalog)
     pub muse_probe: Option<MuseDiscovery>,
     pub muse_error: Option<String>,
@@ -345,6 +347,10 @@ pub async fn discover(engine: &Engine) {
         st.muse = status;
         st.muse_probe = found;
         st.muse_error = error;
+    }
+    if let Some((path, version)) = crate::runtime::opencode::discover(engine.cfg.path("profiles").join("opencode-discovery")).await {
+        st.opencode = CliStatus { installed:true, path:Some(path),version:Some(version),
+            source:"ACP initialize".into(), ..CliStatus::default() };
     }
     st.openrouter = openrouter_favorites(engine);
     let prev_models = engine.providers.state.load().agy_models.clone();

@@ -19,6 +19,8 @@ pub enum Lane {
     Antigravity,
     /// Muse Code over MSP (`runtime::muse`)
     Muse,
+    /// OpenCode through ACP, with explicit client-side approvals.
+    OpenCode,
 }
 
 #[derive(Debug)]
@@ -132,7 +134,9 @@ pub fn identity(i: &Identity) -> String {
         s.push_str(&format!(". Read-only: {}", ro.join(", ")));
     }
     s.push_str(". ");
-    if i.lane == Lane::Muse {
+    if i.lane == Lane::OpenCode {
+        s.push_str("File tools are checked at approval points against folder scope, not an OS sandbox. Shell follows the Bash capability. Code Mode execute is denied in default/acceptEdits; bypassPermissions approves it including nested tools and fetch. No Claude/Codex sensitive-path gate is claimed. Skills are not auto-loaded by this adapter. ");
+    } else if i.lane == Lane::Muse {
         s.push_str(MUSE_SKILLS_AND_PROTECTED);
     } else {
         s.push_str(&format!(
@@ -169,7 +173,9 @@ pub fn identity(i: &Identity) -> String {
     let may_write = on("edit") && pm != "plan";
     let agy_no_shell = i.lane == Lane::Antigravity && !may_write;
     let muse_no_shell = i.lane == Lane::Muse && !may_write;
-    if on("bash") && i.lane == Lane::Muse && !muse_no_shell {
+    if on("bash") && i.lane == Lane::OpenCode {
+        s.push_str("Terminal: OpenCode shell executes commands (PowerShell on Windows). ");
+    } else if on("bash") && i.lane == Lane::Muse && !muse_no_shell {
         s.push_str("Terminal: Muse Code's shell tool runs your commands (PowerShell on Windows); for a cmd command, run `cmd /c …`. ");
     } else if on("bash") && !agy_no_shell && !muse_no_shell {
         s.push_str("Terminal: Bash and PowerShell are both available to you; for a cmd command, run `cmd /c …` from either. ");
@@ -191,6 +197,8 @@ pub fn identity(i: &Identity) -> String {
         s.push_str(if i.lane == Lane::Claude {
             " (their tools are named mcp__<server>__<tool> — under deferred tools, ToolSearch by that full form or a \
              loose keyword; a bare tool name will not match). "
+        } else if i.lane == Lane::OpenCode {
+            " (direct tools use a reserved server alias followed by an underscore and tool name; use the actual offered names). "
         } else if i.lane == Lane::Muse {
             " (their tools are named mcp__<server>__<tool>). "
         } else {
@@ -212,6 +220,7 @@ pub fn identity(i: &Identity) -> String {
             "Act on the org with the orgtree tools. Their full names carry the server prefix — \
              mcp__orgtree__orgtree_status and so on — and they are always loaded, never deferred. "
         }
+        Lane::OpenCode => "Act on the org with the direct tools named orgtree_orgtree_status and so on. ",
         Lane::Codex => "Act on the org with the orgtree tools: orgtree_status and so on. ",
         Lane::Antigravity => {
             "Act on the org with the orgtree tools: orgtree_status and so on (your CLI may show them under an \
@@ -259,7 +268,9 @@ pub fn identity(i: &Identity) -> String {
     if on("edit") || on("bash") {
         s.push_str(BREADCRUMBS);
     }
-    s.push_str(AUTHENTIC_CHANNEL);
+    if i.lane == Lane::OpenCode {
+        s.push_str("MAIL DELIVERY: mail arriving during an ACP turn is queued for your next turn; it is not injected mid-turn. REQUIRED: call orgtree_status when done or blocked");
+    } else { s.push_str(AUTHENTIC_CHANNEL); }
     s.push_str(if top && group("messaging") {
         " — it records your status for the user's dashboard; it does NOT message the user, so send your actual \
          results in an orgtree_message to 'user' (one message — do not duplicate it). "

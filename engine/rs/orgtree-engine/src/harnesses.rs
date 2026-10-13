@@ -49,6 +49,15 @@ pub const ALL: &[Harness] = &[
         install: "Install the Codex CLI from its official page and sign in once in a terminal.",
     },
     Harness {
+        id: "opencode",
+        name: "OpenCode (ACP)",
+        what: "OpenCode 2.x through Agent Client Protocol. Mail arriving mid-turn waits for the next turn. File approvals check folder scope; shell follows the Bash switch, not an OS sandbox. Code Mode is denied in default/acceptEdits and unrestricted in bypassPermissions. Custom-provider cost is unknown; the provider key's usage is authoritative.",
+        providers: &[catalog::OPENROUTER, catalog::LANGSERVER],
+        selectable: true,
+        install_url: "https://opencode.ai/docs/",
+        install: "Install OpenCode 2.x with the ACP entrypoint. Orgtree verifies ACP during CLI discovery and uses isolated configuration with the selected provider, not your OpenCode login. Restart discovery after installation. MCP readiness is observed at its bridge with a short catalog settle; an unobserved startup is reported to the agent.",
+    },
+    Harness {
         id: "antigravity",
         name: "Antigravity",
         what: "Google's agent CLI (agy).",
@@ -92,6 +101,7 @@ pub fn installed(engine: &Engine, id: &str) -> bool {
         "codex-cli" => found(p.codex_path()) || crate::providers::locate_codex().is_some(),
         "antigravity" => found(p.agy_path()) || crate::providers::locate_agy().is_some(),
         "muse" => found(p.muse_path()) || crate::providers::locate_muse().is_some(),
+        "opencode" => p.state.load().opencode.installed && found(p.state.load().opencode.path.clone()),
         _ => false,
     }
 }
@@ -169,7 +179,7 @@ mod tests {
             assert!(!h.providers.is_empty(), "{}", h.id);
         }
         let or: Vec<&str> = selectable_for(catalog::OPENROUTER).iter().map(|h| h.id).collect();
-        assert_eq!(or, ["claude-code", "codex-cli"]);
+        assert_eq!(or, ["claude-code", "codex-cli", "opencode"]);
         assert!(selectable_for(catalog::GOOGLE).is_empty());
         assert_eq!(label("codex-cli"), "Codex");
         assert_eq!(label("nope"), "nope");
