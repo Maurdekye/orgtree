@@ -21,3 +21,17 @@ is invoked. Zooming back in remounts the same attachment surfaces. Agent
 hire controls and far status indicators retain their existing behaviour.
 
 Verification pending shared queue; no packaged application claim.
+
+
+## Verification fixture corrections (2026-10-13)
+
+The shared batch root typecheck and 14 focused tests pass. Visual acceptance
+is still pending. The original synthetic camera aimed at x=450 rather than
+the canvas's fixed x=6000 eye anchor, so agent/watchdog cards were culled.
+The corrected fixture derives its camera from EYE_ANCHOR_X and NODE_W.
+Opening the mailbox also queried `/transfers`; its generic fake reply lacked
+`transfers`, causing TransferPanel to throw. The fixture now returns the
+actual empty-transfer schema. A local WebSocket stub prevents real DNS or
+transport attempts. These changes affect proof data only; no product API
+or rendering semantics were changed. The baseline reverses only this item's
+rendering hunks in current combined source, preserving other batch work.
