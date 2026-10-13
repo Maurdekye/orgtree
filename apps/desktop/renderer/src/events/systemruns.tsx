@@ -26,7 +26,7 @@ export function systemEntry(row: unknown, passiveContainer = false): Omit<System
   const from = typeof row.from === 'string' ? row.from
     : event?.engine_authored ? '@system' : ''
   return {
-    system: !waiting && !tools && !row.cmd_out && event?.engine_authored !== false
+    system: !waiting && !tools && !row.cmd_out
       && isSystemNotice({ id: '', from, kind: typeof row.kind === 'string' ? row.kind : 'message', ev: event,
         notice: typeof row.notice === 'boolean' ? row.notice : passiveContainer ? true : undefined,
         body: '', at: '' }),

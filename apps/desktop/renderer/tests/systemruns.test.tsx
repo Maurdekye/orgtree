@@ -23,6 +23,8 @@ const toggle = async (run: HTMLDetailsElement) => inAct(() => { run.open = !run.
 
 test('same inbox passive-system boundary; authors, waking requests, tools and user prompts stay visible', () => {
   assert.equal(systemEntry(notice('yes')).system, true)
+  // Engine-delivered audit notices may record the initiating user's actor.
+  assert.equal(systemEntry({ ...notice('audit'), ev: fixture('access.audience_changed') }).system, true)
   for (const row of [notice('agent', 'agent'), notice('user', '@user'), notice('wake', '@system', false),
     { ...notice('ask'), _ask: { status: 'open' } }, { ...notice('wait'), _wait: true },
     { ...notice('question'), kind: 'question' }, { ...notice('tools'), tools: [{ id: 't' }] },
