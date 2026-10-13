@@ -39,6 +39,10 @@ directly), **untested**.
 - 20:31Z: seats Wonder 4, Wonder Full 10, Spark 2. Contributor mode is off for
   Orgtree on every process (`--contributor-mode off`); the user's saved Muse
   setting is never changed.
+- Lead 2026-10-13 02:12Z: Orgtree's own team keeps account fallback off as a
+  staffing policy; that is not a product reason to leave it out. Muse has the
+  existing same-provider fallback, off by default per agent, with no silent
+  move onto paid inference and no mixing of credentials.
 
 ## How the lane runs
 
@@ -107,12 +111,39 @@ unknown and no cache countdown is claimed.
 
 **Accounts and sign-in.** `muse/primary` is the user's own Muse login. A
 managed account is a profile folder with its own `config` and `data` roots
-(`XDG_CONFIG_HOME` / `XDG_DATA_HOME`); an API-key account runs with
-`META_API_KEY`; importing a folder is refused (a Muse login is two roots Muse
-lays out itself). Sign-in runs Muse's own `muse login` (a code approved in the
-browser) in a visible terminal the desktop opens, like Antigravity's, and the
-user clicks Refresh; identity comes from `account/read`, never the auth file.
-Automatic account fallback does not apply to Muse.
+(`XDG_CONFIG_HOME` / `XDG_DATA_HOME`). An API-key account runs with
+`META_API_KEY` in roots of its own (`profiles/muse-key-<id>`), never the
+user's, so a key seat neither sees that sign-in nor resumes its sessions
+(Codex keys get their own home the same way). Importing a folder is refused (a
+Muse login is two roots Muse lays out itself). Sign-in runs Muse's own `muse
+login` (a code approved in the browser) in a visible terminal the desktop
+opens, like Antigravity's, and the user clicks Refresh; identity comes from
+`account/read`, never the auth file. A seat on a registered login runs only
+what that login's own catalog offers (`providers::muse_model_for`): a profile
+is read in its own roots and a key with itself, so entitlement is never
+borrowed from another login and never assumed for a key.
+
+**Account fallback** is the existing product feature: per agent ("Switch
+accounts when limited", off by default), with the provider-wide switches in
+App settings › Providers. An opted-in Muse agent frozen by a Muse quota moves
+only to another Muse login (`freeze::pick_fallback`). First the registered
+subscription logins (managed profiles): each must offer the exact model the
+seat runs, its pinned version included (`freeze::muse_pin`), and show room in
+its own reading. The user's own login is not a registry row (as for
+Antigravity), so it is never an automatic target; `orgtree_continue_on` moves
+an agent back to it. Then, only while "fall
+back to Muse API-key accounts" is on (off by default, the same switch every
+provider has), an API key whose own catalog offers that model; a key is
+metered, so it needs no room proof, as for every provider. Room
+(`usage::room_in`): an account-wide window from a login's metadata read counts
+for every tier the login offers; a window observed under another model never
+does. Each read is limited to 5 s (a real metadata read took about 0.4 s).
+The agent then continues on that login (`continue_on`, the step every
+provider uses): its host restarts in the new login's roots and asks to resume
+its session; Muse keeps sessions under the login's own data root, so on
+another login the session is expected to be missing, and the agent starts a
+new one with Orgtree's handoff note (inferred: the fake shares one session
+store, so the rig resumes). `orgtree_continue_on` also takes `muse/primary`.
 
 **UI.** A Muse family in every hire surface, the agent settings model list,
 quick chat and templates; the Providers row with its tiers and seats; a
@@ -126,6 +157,20 @@ CIE76 1.9 from `--tier-flash` and 6.5 from the frozen `--ice`; `#0077b0` is
 7.8 from the light `--work`. Each state also has its own rail, letter, icon
 or label (rendered proof below).
 
+**App theme.** Settings › Display offers **Muse Cyan**, the provider cyan, as
+Claude Terracotta and Codex Teal are their providers' colours: the existing
+provider-theme rule ([`v2-visual-themes.md`](../v2-visual-themes.md), with
+Language Server Gold as the precedent in
+[`langserver-theme.md`](langserver-theme.md)). `THEME_ACCENTS.muse` is the one
+source for `#afe5ff`; the tray and window eye has a Muse variant
+(`orgtree-eye-tray-muse.ico`). It is CIE76 20.0 from Orgtree Grey, its nearest
+preset (the precedent's floor is 18). Initial detection, which uses installed
+CLIs only, puts Muse after Claude, Codex and Antigravity, so it never changes
+the starting theme of a machine that has any of those. On the light surfaces
+the pale cyan would paint text at 1.36:1, so this theme's accent becomes the
+provider's light partner `#0077b0` with white ink there (the other presets
+have no such rule; their accents are darker).
+
 ## Verification
 
 All on branch `muse-code-opus/muse-harness`, output under the agent's own build
@@ -134,13 +179,24 @@ root, every build/test inside the machine build lock and a kernel Job limit.
 | What | Result |
 |---|---|
 | `cargo check --all-targets`; engine and fake CLI builds | 0 warnings |
-| Engine unit tests (Muse, effort, staffing, usage, accounts, identity, tool definitions, catalog) | 64 passed |
-| Renderer tests touching providers, accounts, usage, effort, tiers, themes (77 files) | 545 passed |
-| `tests/providerlogin.test.mjs` (the sign-in door) | 40 passed |
-| Rig `muse-lane.mjs` on the fake `muse serve` | 39 checks passed |
-| Rig `muse-visual.mjs`, the real renderer, charcoal and light | 20 checks passed; screenshots inspected |
+| Engine unit tests (Muse, effort, staffing, usage incl. Muse room, accounts, identity, startup incl. granted folders' notes, tool definitions, catalog) | 66 passed |
+| The identity group test `prompt_follows_every_combination_of_group_switches` | fails the same way on the exact bases `9fc30fb` and `67fc92e` as on this branch (measured); not caused here, so left out of the 66 |
+| Renderer tests touching providers, accounts, usage, effort, tiers, themes (78 files) | 551 passed |
+| Root tests: `providerlogin` (sign-in door), `themes` (presets), `icon-assets` (tray eyes) | 51 passed |
+| Rig `muse-lane.mjs` on the fake `muse serve`, fallback and API-key fixtures included | 48 checks passed; red controls below |
+| Rig `muse-visual.mjs`, the real renderer: cards in charcoal and light, Providers, Usage, the Muse Cyan theme in all four contrast themes, effort names | 24 checks passed; screenshots inspected |
 | Rig `effort-selects.mjs` (existing effort UI) | 12 checks passed |
 | Rig `muse-real.mjs` on the REAL Muse Code 1.4.6, the user's own login | see below |
+
+**Red controls** (the same proof, run against an engine without the change):
+without the Muse fallback five checks fail (the move to the profile, its
+roots, the key seat's own roots, `muse/primary`, the key fixtures); without
+the key's own-catalog check an agent is moved onto a key that lacks its model
+and stranded there ("does not offer wonder"); without the pin a Spark 1.2
+seat is moved onto a login that offers only Spark 1.3 and stranded the same
+way. A first version of the pin fixture passed its red control too (that
+login had no room for Spark anyway) and was replaced by one only the pin can
+refuse.
 
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
@@ -156,6 +212,8 @@ session across an engine restart, the relaunched host again carried
 The user's `settings.json` was byte-identical before and after (their saved
 contributor preference, on, untouched). A provider cache read of 74,984
 tokens on the re-run's first turn is a positive cache receipt, not a TTL.
+Fallback, API keys and a second account were not run on the real binary
+(one real account, no key: a key would be paid).
 
 ## Parity with Claude Code and Codex
 
@@ -164,8 +222,8 @@ tokens on the re-run's first turn is a positive cache receipt, not a TTL.
 | Feature | Muse lane | vs Claude Code | vs Codex | Evidence |
 |---|---|---|---|---|
 | Subscription sign-in, user's own login | yes | same | same | measured (real) |
-| Isolated managed profiles | own config/data roots per account | same idea | same idea | inferred from code; no second real account |
-| API-key accounts | `META_API_KEY` per account | same | same | untested (no key; paid) |
+| Isolated managed profiles | own config/data roots per account | same idea | same idea | measured (fake: a moved host runs in the profile's roots, no key); no second real account |
+| API-key accounts | `META_API_KEY` in the key's own roots | same | same (Codex keys get their own home) | measured (fake); real untested (no key; paid) |
 | Sign-in from the app | `muse login` in a visible terminal, then Refresh | Claude pastes a code in-app | Codex completes on its own | measured (desktop tests); real sign-in not run |
 | Model selection, entitlement-aware | catalog rows only; Wonder Full when offered | Claude tiers are fixed | Codex models are fixed | measured (real catalog, fake gating) |
 | Model version pin | Spark 1.3 / 1.2 | same | same | measured (real Spark 1.2) |
@@ -189,8 +247,12 @@ tokens on the re-run's first turn is a positive cache receipt, not a TTL.
 | Cost | unknown (no price published) | known | known | measured |
 | Cache countdown and keepalive | none (no lifetime published) | 5 min / 1 h, keepalive | 30 min estimate | measured (no TTL); receipts only |
 | Contributor mode | off per process, saved setting untouched | n/a | n/a | measured (real, incl. resume) |
-| Account fallback on limits | not offered | offered | offered (new conversation) | by design |
+| Account fallback on limits | opt-in per agent; registered Muse logins only; each must offer the seat's exact model (pin included) and show room; keys only with the key switch, on their own catalog; the user's own login never an automatic target | same mechanism; the own login is a target once registered as an account | same as Claude Code | measured (fake, with red controls); real untested (one account) |
+| Continue on another login, `muse/primary` | host restarts in that login's roots; session resumed if that login has it, else a new one with a handoff note | same | same (new conversation) | measured (fake); the real session store per login inferred |
 | UI parity (hire, settings, Providers, Usage, colours) | yes | same | same | measured (rendered) |
+| App theme preset | Muse Cyan; `#0077b0` accent on light surfaces | Claude Terracotta | Codex Teal | measured (rendered in four contrast themes; unit tests) |
+| Granted folders' instructions (AGENTS.md, CLAUDE.md) | own folder's rules loaded by Muse; every granted folder's in the identity | same identity injection | same identity injection | measured (unit test) |
+| Network for shell commands | Muse's own default (`proxy-only`); Orgtree sets no mode | Claude Code's own default | Codex's own default for the seat's sandbox | source: no lane gets a network mode; Muse's modes undocumented, untested |
 | Effort names in tools (`orgtree_hire`, `orgtree_retool`) | all harness names, checked per tier | same | same | measured (unit tests) |
 
 ### What does not match, and why
@@ -207,32 +269,62 @@ tokens on the re-run's first turn is a positive cache receipt, not a TTL.
    Class: adapter choice on an unscripted CLI flow (the output format was not
    measured, since that needs a real sign-in). Closes with a measured
    machine-readable login, or one supervised real sign-in to measure it.
-4. **No automatic account fallback** (vs both). Muse accounts are not switched
-   on limits. Class: adapter omission by design (team rule: account fallback
-   off). Closes with a ruling to add it.
+4. **Network for shell commands is Muse's default, whose meaning is not
+   known here** (vs both, which also run their own defaults: Orgtree sets no
+   network mode on any lane). Muse's command sandbox takes
+   `--sandbox-network restricted|enabled|proxy-only` (default `proxy-only`).
+   Orgtree passes no network mode to any lane, so Muse runs its default, and
+   Muse documents no meaning for the values locally (help, schema, bundled
+   skills); none was measured. `enabled` would widen what a seat may do
+   (refused by the parity ruling); `restricted` would narrow Muse below the
+   other lanes without a ruling asking for it. Impact: a Muse command reaches
+   the network as `proxy-only` allows. Class: upstream undocumented,
+   unverified. Closes with Muse's documentation or a measured probe of each
+   mode, then a ruling mapping scopes to one.
 5. **Read-only extra folders are approval-gated, not roots** (vs both, which
    pass them read-only). Muse gives every workspace root write access. Impact:
    reads there go through an approval the engine grants; Muse's own
    project-rule loading does not see them. Class: upstream unsupported.
-6. **Only the primary root's AGENTS.md is loaded** (measured probe). Class:
-   upstream behaviour. Workaround: the identity carries Orgtree's instructions.
-7. **Untested here**: API-key accounts and a second real subscription account
-   (missing credentials; a key would be paid), images, real quota/auth/retry
-   paths, subagents allowed by scope, compaction on the real binary, the
-   real sign-in. Class: unverified. Closes with authorized tests.
-8. **Wonder Full shares the F letter with Flash and Fable** in the header's
+6. **Muse itself loads only the primary root's rules file** (measured probe).
+   Not a gap for the agent: Orgtree's identity carries every granted folder's
+   AGENTS.md and CLAUDE.md for every lane under "STANDING INSTRUCTIONS from
+   your granted folders", Muse included (unit test), and Muse loads the
+   agent's own folder's file itself. Only where the guidance is loaded
+   differs. Class: upstream behaviour, covered by the adapter.
+7. **The user's own Muse login is never an automatic fallback target** (vs
+   both: Claude Code's and Codex's own logins become targets once their
+   default home is registered as an account; Antigravity is like Muse). A
+   Muse login is two roots Muse lays out itself, so it cannot be registered
+   as a folder. Impact: an agent on a profile at its limit does not move back
+   to the user's own login by itself; `orgtree_continue_on` with
+   `muse/primary` moves it. Class: adapter limitation. Closes with a ruling
+   to offer the native login in the pick, or a registry row for it.
+8. **The org account-list move's last resort does not ask a Muse login's
+   catalog.** When an org switches a lane off (`org_accounts::leave`), the
+   pick above runs first; its fallback steps ("any account that will take
+   it", then the provider's own login) are the existing generic ones. A Muse
+   seat moved there onto a login without its model is refused at launch with
+   a clear error and its mail waits. Class: adapter limitation, left narrow.
+9. **Untested here**: API-key accounts and a second real subscription account
+   (missing credentials; a key would be paid), fallback on the real binary,
+   images, real quota/auth/retry paths, subagents allowed by scope,
+   compaction on the real binary, the real sign-in, each network mode.
+   Class: unverified. Closes with authorized tests.
+10. **Wonder Full shares the F letter with Flash and Fable** in the header's
    agent summary, told apart there by colour (as Fable and Flash already
    are). Class: existing design. Cards also carry the family rail.
 
 ## Files
 
 Engine: `providers/{mod,muse_models,catalog,codex_models}.rs`,
-`runtime/{muse,actor,identity,recovery}.rs`, `usage.rs`, `accounts.rs`,
+`runtime/{muse,actor,identity,recovery,startup,freeze}.rs`,
+`runtime/freeze/continuation.rs`, `usage.rs`, `accounts.rs`,
 `account_marks.rs`, `org_accounts.rs`, `domain/{staffing,ops,templates}.rs`,
 `http/{accounts,settings,nodes,mod}.rs`, `tools/{defs,usage}.rs`. Desktop:
-`apps/desktop/main/providerlogin.ts`, `packages/contracts/index.ts`, the
+`apps/desktop/main/{providerlogin,index}.ts`, `packages/contracts/{index,visual-theme}.ts`,
+`tools/generate-icon.mjs` and `apps/desktop/assets/orgtree-eye-tray-muse.ico`, the
 renderer's `canvas/{shared,OrgCanvas,cards,modals,desk,accounts,accountsregistry,effortbar,effortlevels}`,
 `App.tsx`, `api.ts`, `registrylabels.ts`, `usagehistory.tsx`,
 `orgaccounts.tsx`, `QuickChatBox.tsx`, `shell/templatepicker.tsx`,
-`styles.css`. Rig: `tools/rig/fakecli/src/muse.rs`, `proofs/muse-{lane,visual,real}.mjs`,
-`desktop/muse-{visual,effort}.cjs`, `up --real-muse`.
+`themes.tsx`, `styles.css`. Rig: `tools/rig/fakecli/src/muse.rs`, `proofs/muse-{lane,visual,real}.mjs`,
+`desktop/muse-{visual,effort,theme}.cjs`, `up --real-muse`.

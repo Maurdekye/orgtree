@@ -94,9 +94,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   discovery waits for it (at most 60 s) rather than reading "not offered".
   Read-only grants are never workspace roots (Muse gives every root write
   access). Cost and cache lifetime stay unknown: Muse publishes neither. The
-  rig runs the real binary with `up --real-muse <muse-bin-*.exe>`.
-  [decided: user 2026-10-12 18:32-20:31Z, DECISIONS 76; verified: real Muse
-  1.4.6 and rig proofs 2026-10-13; `docs/rust-engine/muse-code.md`]
+  rig runs the real binary with `up --real-muse <muse-bin-*.exe>`. A seat on
+  a registered Muse login runs only what that login's own catalog offers
+  (checked at launch), and the limit fallback picks only a login whose own
+  catalog offers the seat's exact model (pinned version included). An
+  API-key login runs in its own roots (`profiles/muse-key-<id>`) and is a
+  fallback only while the provider's key switch is on.
+  [decided: user 2026-10-12 18:32-20:31Z, lead 2026-10-13, DECISIONS 76;
+  verified: real Muse 1.4.6 and rig proofs 2026-10-13; `docs/rust-engine/muse-code.md`]
 
 - Organization profile pictures use a dedicated bounded `ot.meta` record,
   not the net/tree payload. Human settings edits carry the numeric org owner;

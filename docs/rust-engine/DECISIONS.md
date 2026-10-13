@@ -736,8 +736,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     18:32Z, 19:57Z, 20:01Z, 20:09Z, 20:21Z, 20:31Z, relayed by lead-astra; lead
     decisions 2026-10-13). Muse runs as `muse serve` (MSP v1), one host per
     agent, contributor mode off on every process (the user's saved setting is
-    never changed), never an API key on a subscription seat and never a paid
-    fallback. A Muse tier (Wonder 4, Wonder Full 10, Spark 2) is offered only
+    never changed), never an API key on a subscription seat and never a silent
+    move onto paid inference. A Muse tier (Wonder 4, Wonder Full 10, Spark 2) is offered only
     while the signed-in account's own catalog lists it; a bundled row is no
     entitlement. Effort levels are each harness's and model's own names
     (`catalog::EFFORT_ORDER` none..max); a saved level a tier does not name
@@ -746,5 +746,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     renderer bar's own clamp). Provider colour `#afe5ff` sampled from Muse's
     official art, `#0077b0` on light surfaces; tier colours measured (lead:
     routine). Sign-in runs `muse login` in a terminal, like Antigravity's.
-    Cost and cache lifetime stay unknown (Muse publishes neither). Contract,
-    evidence and every remaining gap: [`muse-code.md`](muse-code.md).
+    Cost and cache lifetime stay unknown (Muse publishes neither). Account
+    fallback is offered as for every provider (lead 2026-10-13 02:12Z: the
+    team's fallback-off is staffing, not product scope): opt-in per agent,
+    Muse logins only, each asked for the seat's exact model and its room; an
+    API key only while "fall back to Muse API-key accounts" is on, and only if
+    its own catalog offers the model. The Muse Cyan theme preset follows the
+    existing provider-theme rule, after Antigravity in initial detection.
+    Contract, evidence and every remaining gap: [`muse-code.md`](muse-code.md).
