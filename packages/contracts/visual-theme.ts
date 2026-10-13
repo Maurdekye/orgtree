@@ -1,5 +1,5 @@
 /** Appearance only: never use these values as provider or route identities. */
-export const VISUAL_THEMES = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'langserver'] as const
+export const VISUAL_THEMES = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'langserver', 'muse'] as const
 export type PresetVisualTheme = typeof VISUAL_THEMES[number]
 export type VisualTheme = PresetVisualTheme | `custom:#${string}`
 export const isCustomTheme = (value: unknown): value is `custom:#${string}` =>
@@ -16,6 +16,9 @@ export const THEME_ACCENTS: Record<PresetVisualTheme, string> = {
   openrouter: '#b69afa',
   // Existing Language Server chat/tier gold; renderer CSS shares this token.
   langserver: '#cda206',
+  // Muse Code's provider cyan, sampled from its official art (styles.css
+  // --prov-muse; lead decision 2026-10-13); the renderer's MUSE_COLOR is this.
+  muse: '#afe5ff',
 }
 
 export function themeAccent(theme?: VisualTheme | string | null): string {

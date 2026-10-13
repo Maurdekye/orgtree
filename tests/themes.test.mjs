@@ -57,6 +57,8 @@ test('fresh theme follows installed-provider priority without persisting a provi
   assert.equal(defaultThemeForProviders({providers:[{id:'google',status:{installed:true}}]}),'antigravity')
   assert.equal(defaultThemeForProviders({providers:[]}),'claude')
   assert.equal(defaultThemeForProviders({providers:[{id:'langserver',status:{installed:true}}]}),'claude','remote servers keep the existing CLI-only initial theme rule')
+  assert.equal(defaultThemeForProviders({providers:[{id:'muse',status:{installed:true}}]}),'muse','Muse Code is an installed CLI: it supplies the initial appearance after Antigravity')
+  assert.equal(defaultThemeForProviders({providers:[{id:'muse',status:{installed:true}},{id:'google',status:{installed:true}}]}),'antigravity')
   const stop=startThemeSync()
   assert.equal(document.documentElement.style.getPropertyValue('--accent'),THEMES.claude.accent)
   assert.equal(localStorage.getItem('orgtree-visual-theme'),null,'unresolved detection does not persist the provisional Claude fallback')

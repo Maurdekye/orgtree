@@ -15,6 +15,7 @@ import './lightbox'
 import { renderHtmlResponses } from './htmlresponse'
 // the native bridge, for revealing a local file link in the OS file manager
 import { desktop } from '../desktop'
+import { THEME_ACCENTS } from '../../../../../packages/contracts/visual-theme'
 import { siblingOrder } from '../treeorder'
 import { ringArcCentres } from './ringarcs'
 import { settleRingSprings, type SpringRing } from './ringsprings'
@@ -547,7 +548,7 @@ export const PROVIDER_LABEL: Record<string, string> = {
  *  Muse marketing"). Too pale for text on the light surfaces (1.36:1 on
  *  white): there the stylesheet rebinds `--prov-muse` to the same hue at
  *  34.6 % lightness, #0077b0 (4.56:1 or more on every light surface). */
-export const MUSE_COLOR = '#afe5ff'
+export const MUSE_COLOR: string = THEME_ACCENTS.muse
 
 /** One provider's hire state as a hire surface needs it — the `/api/providers`
  *  entry narrowed to the three things any surface asks. `null`/`undefined`

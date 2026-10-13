@@ -344,6 +344,7 @@ else {
     claude: 'orgtree-eye-tray-claude' + iconExt, codex: 'orgtree-eye-tray-codex' + iconExt,
     antigravity: 'orgtree-eye-tray-antigravity' + iconExt, openrouter: 'orgtree-eye-tray-openrouter' + iconExt,
     langserver: 'orgtree-eye-tray-langserver' + iconExt,
+    muse: 'orgtree-eye-tray-muse' + iconExt,
   }
   const runtimeIconChoice = () => {
     const current = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined

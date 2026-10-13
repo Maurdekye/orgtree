@@ -20,6 +20,7 @@ export const THEMES = {
   antigravity: { label: 'Antigravity Blue', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
   openrouter: { label: 'OpenRouter Lavender', accent: '#b69afa', hover: '#d0baff', soft: 'rgba(182,154,250,.16)' },
   langserver: { label: 'Language Server Gold', ...customTheme(THEME_ACCENTS.langserver) },
+  muse: { label: 'Muse Cyan', ...customTheme(THEME_ACCENTS.muse) },
 } satisfies Record<PresetVisualTheme, { label: string; accent: string; hover: string; soft: string }>
 
 const STORAGE_KEY = 'orgtree-visual-theme'
@@ -33,6 +34,7 @@ export function defaultThemeForProviders(payload: ProviderPayload | null | undef
   if (installed('claude')) return 'claude'
   if (installed('openai')) return 'codex'
   if (installed('google')) return 'antigravity'
+  if (installed('muse')) return 'muse'
   return DEFAULT_THEME
 }
 

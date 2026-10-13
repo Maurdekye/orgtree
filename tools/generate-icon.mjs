@@ -18,6 +18,7 @@ const trayColors = {
   antigravity: [117, 165, 255],
   openrouter: [182, 154, 250],
   langserver: [1, 3, 5].map(i => parseInt(THEME_ACCENTS.langserver.slice(i, i + 2), 16)),
+  muse: [1, 3, 5].map(i => parseInt(THEME_ACCENTS.muse.slice(i, i + 2), 16)),
 }
 // Keep the loading mark grey while using the established Orgtree neutral as a
 // lighter iris, so the state remains legible against its outer grey shell.
