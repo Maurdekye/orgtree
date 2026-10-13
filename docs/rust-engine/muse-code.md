@@ -233,7 +233,13 @@ waits frozen (cause `account`), saying which login was removed and why no
 login could take it; that freeze replaces any the seat had (a usage limit's
 reset could not make it run) and keeps the request that one held, and
 continuing the seat on a login that offers its model runs it there with that
-request. A queued account move naming the login names the login chosen for
+request. When a removal does find a login for a seat and so releases a freeze
+it may rebind past (cause `account`, `auth`, `balance`, or an untrusted one),
+a request that freeze held comes back as the agent's wake mail, queued in the
+removal's own transaction as continue-on queues its own (`freeze::queue_replay`):
+committed with the release or not at all, so an attempt rolled back at the
+late `NOWAIT` org scan leaves none and its retry queues it once; a halt stays,
+the mail waiting for it (independent review R4, 2026-10-13). A queued account move naming the login names the login chosen for
 the model it will run (a queued switch's tier, else the seat's), or is dropped
 when none can take it; a queued model switch naming it names the login chosen
 for its tier, or no account (it lands where the seat is at its boundary,
@@ -302,8 +308,8 @@ status and the exact HEAD it ran on.
 | What | Result |
 |---|---|
 | `cargo check --all-targets`; engine and fake CLI builds | 0 warnings |
-| Engine unit tests (Muse incl. each login's own catalog, effort incl. the next turn's login, staffing, usage incl. Muse room, accounts, account removal incl. queued intents, identity, the phone-link authority on every lane Muse included, startup incl. granted folders' notes, tool definitions, question cards, mail tools, OpenRouter, catalog) | 83 passed |
-| The identity group test `prompt_follows_every_combination_of_group_switches` | fails the same way on the exact bases `9fc30fb` and `67fc92e` as on this branch (measured); not caused here, so left out of the 83 |
+| Engine unit tests (Muse incl. each login's own catalog, effort incl. the next turn's login, staffing, usage incl. Muse room, accounts, account removal incl. queued intents, identity, the phone-link authority on every lane Muse included, startup incl. granted folders' notes, tool definitions, question cards, mail tools, OpenRouter, catalog) | 84 passed |
+| The identity group test `prompt_follows_every_combination_of_group_switches` | fails the same way on the exact bases `9fc30fb` and `67fc92e` as on this branch (measured); not caused here, so left out of the 84 |
 | Typecheck, renderer and desktop TypeScript (TypeScript 7.0.2) | exit 0 |
 | Renderer tests touching providers, accounts, usage, effort, tiers, themes, OpenRouter keys, `musehire` (each login's offer and levels, the account a hire names), `musequeued` (settings levels after a queued move) and `museremoval` (the removal toast) (82 files) | 568 passed |
 | Root tests: `providerlogin` (sign-in door), `themes` (presets), `icon-assets` (tray eyes) | 51 passed |
@@ -313,6 +319,7 @@ status and the exact HEAD it ran on.
 | Rig `muse-placement.mjs`: placement, effort and pins by the login, entitled and not, the org default, an unreadable login, a signed-out own login | 13 passed |
 | Rig `muse-r2.mjs`: a retool naming an account and an effort (A to B with max, B to A refused with nothing changed, the primary aliases, the account it is on, an unknown one); a busy seat's queue (retool, settings route); the providers payload and `muse.logins`; staffing kinds and levels; best-allowed placement; removing a Muse login (to the own login, Full to the subscription that offers it, the Spark 1.2 pin to the login that offers it) | 14 passed |
 | Rig `muse-r4-removal.mjs`: a removed login's seats to another entitled subscription (never the Wonder-only login first in order, never the key), the pin, the own login first, the own login's five gates (switch, org list, signed out, sign-in, full), no login left (unbound, frozen with the held request, refused on the own login, recovered on PF and replayed), queued moves and switches retargeted or dropped, defaults, an atomic refusal | 10 passed |
+| Rig `muse-held-replay.mjs`: the independent R4 schedule on the routes (quota walls hold requests; the logins removed with none left freeze the seats keeping them; the account operation binds them to B, keeping the freezes; B removed while C offers Full, through a first attempt rolled back at the NOWAIT org scan and a retry): one given-back wake mail per held request, run on C; a halted seat stays halted with its mail waiting and runs it once unhalted; a freeze holding no request gets no mail | 5 passed |
 | Rig `muse-r4-routes.mjs`: an effort-only retool after a queued move (route and agent tool, the inverse with nothing changed, a named account overriding, a queued `default`, no queue); continue-on refused on the own login, a Wonder-only login, an unreadable login and a Spark-1.3-only login for a 1.2 pin with nothing changed; the frozen seats' choices; continue-on positives | 10 passed |
 | Rig `muse-ui-logins.mjs`, the real renderer: Full in "Hire a subordinate" only a profile offers and the draft landing there; a signed-out own login; a seat's settings switched to Full leaving out its profile and saying why; pinned and profile levels in settings and on the desk | 7 checks passed; screenshots inspected |
 | Rig `muse-visual.mjs`, the real renderer: cards in charcoal and light, Providers, Usage, the Muse Cyan theme in all four contrast themes, effort names | 24 checks passed; screenshots inspected |
@@ -349,7 +356,10 @@ fails 8 of 10 (its defaults and atomic-refusal controls pass),
 continue-on positive controls pass) and `muse-r2.mjs` exactly its two
 corrected removal checks; `b70ca2c`'s renderer with only the two new test
 files added (`441d037`) fails exactly the four corrected-behaviour tests, their
-three controls passing.
+three controls passing. Round 4, against an engine compiled from a clean
+checkout of `d982c87` (sha256 `210a78fe…`): `muse-held-replay.mjs` fails its
+three give-back checks (the seats are moved and released with no mail; the
+retry happens there too), its setup and no-request control passing.
 
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
@@ -403,7 +413,7 @@ be paid).
 | Contributor mode | off per process, saved setting untouched | n/a | n/a | measured (real, incl. resume) |
 | Account fallback on limits | opt-in per agent; registered Muse logins, then the user's own login, each offering the seat's exact model (pin included), passing every gate and proving room; keys only with the key switch, on their own catalog | same mechanism (the own login as a registered row) | same as Claude Code | measured (fake, with red controls); real untested (one account) |
 | Placement and effort by the login | hire, rehire, switch, account move, a retool naming both, effort and pins judged by the seat's own login's catalog (with no account named, the login an account change queued behind a running turn lands on); unknown refused; every hire and settings surface offers what that login offers | same outcome (Claude Code's models are fixed) | same outcome | measured (fake, routes and rendered, with red controls) |
-| Removing an account | a live seat moves to the own login, else to the first registered subscription login that offers its exact model, each passing every gate; never a key; with none it waits frozen saying why, its held request kept; queued intents follow; defaults to the own login | moves to the own login (which runs every tier) | same as Claude Code | measured (fake, with red controls from the exact reviewed ref) |
+| Removing an account | a live seat moves to the own login, else to the first registered subscription login that offers its exact model, each passing every gate; never a key; with none it waits frozen saying why, its held request kept; queued intents follow; a released freeze's held request given back once; defaults to the own login | moves to the own login (which runs every tier) | same as Claude Code | measured (fake, with red controls from the exact reviewed ref) |
 | Resume after changed folder grants | every turn carries the current roots | same outcome (folders given at each launch) | same outcome | measured (fake sticky-roots model, with red control); real untested |
 | Credentials in the engine log | no raw MSP request or answer; safe method lines | not audited here | not audited here | measured (sentinels, verbose and quiet, with red control) |
 | Continue on another login, `muse/primary` | only onto a login whose own catalog offers the seat's exact model (unknown refused, nothing changed); host restarts in that login's roots; session resumed if that login has it, else a new one with a handoff note; the choices list only such logins | same | same (new conversation) | measured (fake, with red controls); the real session store per login inferred |
@@ -480,5 +490,5 @@ renderer's `canvas/{shared,OrgCanvas,cards,modals,desk,accounts,accountsregistry
 `http/{nodes,mailbox}.rs`, `feed/mod.rs`; the renderer's
 `canvas/{modals,accountsregistry}.tsx` and tests `musequeued`, `museremoval`. Rig:
 `tools/rig/fakecli/src/muse.rs`,
-`proofs/muse-{lane,visual,real,r1,routes,placement,r2,ui-logins,r4-removal,r4-routes}.mjs`,
+`proofs/muse-{lane,visual,real,r1,routes,placement,r2,ui-logins,r4-removal,r4-routes,held-replay}.mjs`,
 `desktop/muse-{visual,effort,theme,logins}.cjs`, `up --real-muse`, `up --quiet-log`.

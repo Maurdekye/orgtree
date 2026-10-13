@@ -780,5 +780,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
     runs on (a queued move's), in retool as in the settings route. Every
     continue-on checks the target login's own catalog for the exact model and
     pin before anything changes, an unknown catalog refused, and a frozen
-    seat's choices leave out logins whose catalog lacks it. Contract, evidence
+    seat's choices leave out logins whose catalog lacks it. Independent review
+    R4 (2026-10-13, lead 12:26Z: correction only, no further review round): a
+    Muse removal that releases a freeze holding a request gives it back as the
+    agent's wake mail in the removal's own transaction (once, through a
+    rolled-back retry; a halt kept). Contract, evidence
     and every remaining gap: [`muse-code.md`](muse-code.md).

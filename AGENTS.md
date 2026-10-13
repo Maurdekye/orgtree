@@ -114,7 +114,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   moves a live seat to the own login, else to the first registered
   subscription login that offers its exact model, each passing every
   continuation gate (never a key); with none it waits frozen, its held request
-  kept; queued intents naming the login follow. Continue-on (route, tool,
+  kept; a removal that releases a freeze gives its held request back as wake
+  mail in the same transaction; queued intents naming the login follow.
+  Continue-on (route, tool,
   automatic) refuses a login whose own catalog lacks the seat's exact model or
   is unknown, before anything changes, and a frozen seat's choices leave such
   logins out. Every Muse turn carries the current workspace roots; MSP
