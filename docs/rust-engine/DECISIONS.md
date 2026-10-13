@@ -753,4 +753,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     API key only while "fall back to Muse API-key accounts" is on, and only if
     its own catalog offers the model. The Muse Cyan theme preset follows the
     existing provider-theme rule, after Antigravity in initial detection.
-    Contract, evidence and every remaining gap: [`muse-code.md`](muse-code.md).
+    The user's own Muse login, which can never be a registry row, is a limit
+    fallback target after the registered subscriptions, with the same gates
+    and proven room, and an org account-list move only lands where the exact
+    model is offered (lead 2026-10-13 06:50Z: feasible parity, no new ruling).
+    Independent review R1 (2026-10-13): every turn carries the current
+    workspace roots; no raw MSP request reaches the log; placement, effort and
+    pins are judged by the seat's own login's catalog, an unknown login
+    refused. Contract, evidence and every remaining gap: [`muse-code.md`](muse-code.md).

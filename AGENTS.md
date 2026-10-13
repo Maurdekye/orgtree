@@ -99,7 +99,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   (checked at launch), and the limit fallback picks only a login whose own
   catalog offers the seat's exact model (pinned version included). An
   API-key login runs in its own roots (`profiles/muse-key-<id>`) and is a
-  fallback only while the provider's key switch is on.
+  fallback only while the provider's key switch is on. The user's own Muse
+  login is a limit-fallback target after registered subscriptions (same
+  switch, catalog, gates, proven room). A Muse seat is placed, tuned and
+  pinned by its own login's catalog (`ops::muse_admit`,
+  `providers::check_effort_on`); login reads happen before transactions and
+  an unknown login is refused. Every Muse turn carries the current workspace
+  roots; MSP requests and the launch fingerprint input are never logged.
   [decided: user 2026-10-12 18:32-20:31Z, lead 2026-10-13, DECISIONS 76;
   verified: real Muse 1.4.6 and rig proofs 2026-10-13; `docs/rust-engine/muse-code.md`]
 

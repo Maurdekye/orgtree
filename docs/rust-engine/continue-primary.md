@@ -11,7 +11,8 @@ change does not introduce native primary aliases for them.
 Primary means the provider's ambient sign-in and stores `account = NULL`.
 It does not inherit the old secondary binding or the org's hiring default.
 Registry IDs still store their existing binding and remain the response/audit
-identifier. Automatic account fallback remains registry-only.
+identifier. Automatic account fallback remains registry-only, except Muse's
+own login, which can never be a registry row ([`muse-code.md`](muse-code.md)).
 
 The shared resolver checks origin visibility and the org lane allowlist, provider
 activation, the account's active switch, published native CLI/sign-in state or
@@ -70,7 +71,9 @@ Automatic fallback retains registry candidate order, subscription and API-key
 switches, and proven-room requirements. Candidate selection also checks shared
 synchronous continuation eligibility, skips rejected candidates, and considers
 later eligible accounts. Execution still revalidates. This does not add native
-primary aliases to automatic selection.
+primary aliases to automatic selection; Muse's own login is the one exception,
+asked after the registered subscriptions with these same gates and proven room
+([`muse-code.md`](muse-code.md)).
 
 ## Focused verification
 
