@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn a_heartbeat_carries_the_addresses_and_nothing_else() {
-        let to = vec!["alice.k3x9".to_string(), "bob.p2q7".to_string()];
+        let to = ["alice.k3x9".to_string(), "bob.p2q7".to_string()];
         assert_eq!(body(&to), json!({ "to": ["alice.k3x9", "bob.p2q7"] }));
     }
 }
