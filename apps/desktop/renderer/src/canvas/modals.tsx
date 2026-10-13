@@ -1033,6 +1033,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       .filter((v) => museOffersOn(model, museVersion, v) !== false)
     : undefined
   const museWhy = museModel ? museUnofferedWhy(model, museVersion, acct) : null
+  // the login a level saved here is judged on: the one chosen here, else the
+  // one the next turn runs on (an account change queued behind a running
+  // turn, as the engine judges it: accounts::next_turn_login)
+  const levelsAcct = 'account' in edit ? acct : (node.pending_account?.account ?? acct)
   const [initInfo, setInitInfo] = useState<ChatInit | null>(null)   // №14: the CLI's own resolution
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -1310,7 +1314,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
 
 
         <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
-          levels={museModel ? museEffortLevels(model, museVersion, acct) : tierEffortLevels(tree.slug, model)}
+          levels={museModel ? museEffortLevels(model, museVersion, levelsAcct) : tierEffortLevels(tree.slug, model)}
           inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
 
         {/* Primary is selectable even if no registry row exists. */}

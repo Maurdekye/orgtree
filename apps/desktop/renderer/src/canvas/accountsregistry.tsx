@@ -250,24 +250,30 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
   }
   /** Removing an account MOVES ITS AGENTS: the backend rebinds every stored
    *  binding — live, halted, frozen and archived alike — to the provider's
-   *  primary account and only then removes the row. The reload is what makes
+   *  primary account (a live Muse agent to a login whose own catalog offers
+   *  its model, else it waits frozen) and only then removes the row. The reload is what makes
    *  the removed account disappear and the moved agents show `default`; the
    *  toast says how many moved, because a button that silently relocates
    *  agents would be a worse surprise than the refusal it replaces. */
   const remove = async (row: AccountRow) => {
     setBusy(row.id)
     try {
-      const out = await req<{ removed: string; rebound?: { org: string; node: string; frozen?: boolean }[] }>(
+      const out = await req<{ removed: string; rebound?: { org: string; node: string; account?: string | null; frozen?: boolean }[] }>(
         `/api/accounts/${row.id}`, { method: 'DELETE' })
       await registry.reload()
-      // a Muse seat whose model the signed-in login does not offer is not
-      // moved onto it: it waits frozen until it is continued on one that does
-      const frozen = out?.rebound?.filter((r) => r.frozen).length ?? 0
-      const moved = (out?.rebound?.length ?? 0) - frozen
+      // a Muse seat goes to a login that offers its model (the signed-in one
+      // first, else another subscription login); with none it waits frozen
+      // until it is continued on one that does
+      const rebound = out?.rebound ?? []
+      const toDefault = (r: { account?: string | null }) => !r.account || r.account.endsWith('/primary')
+      const frozen = rebound.filter((r) => r.frozen).length
+      const moved = rebound.filter((r) => !r.frozen && toDefault(r)).length
+      const elsewhere = rebound.filter((r) => !r.frozen && !toDefault(r))
       const who = accountIdentity(accountDisplayId(row), row.identity?.email)
       toast([[`${who} removed`,
         moved > 0 ? `${moved} agent(s) moved to ${LABELS[provider]} default` : '',
-        frozen > 0 ? `${frozen} agent(s) wait frozen: the signed-in ${LABELS[provider]} login does not offer their model` : '',
+        elsewhere.length > 0 ? `${elsewhere.length} agent(s) moved to ${[...new Set(elsewhere.map((r) => r.account))].join(', ')}` : '',
+        frozen > 0 ? `${frozen} agent(s) wait frozen: no ${LABELS[provider]} login they may use can run their model now` : '',
       ].filter(Boolean).join(' — ')])
     }
     catch (e) { toast([e instanceof Error ? e.message : 'Could not remove account']) }
@@ -321,7 +327,9 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
           <button disabled={busy !== null || !!row.ambient}
             title={row.ambient ? `The ${LABELS[provider]} default account cannot be removed`
               : row.bound.length > 0
-                ? `Remove this account and move its ${row.bound.length} agent(s) to the ${LABELS[provider]} default account`
+                ? provider === 'muse'
+                  ? `Remove this account and move its ${row.bound.length} agent(s) to a Muse login that offers their model (the default account first); one no login can run waits frozen`
+                  : `Remove this account and move its ${row.bound.length} agent(s) to the ${LABELS[provider]} default account`
                 : 'Remove this account'}
             onClick={() => { void remove(row) }}>remove</button>
         </div>
