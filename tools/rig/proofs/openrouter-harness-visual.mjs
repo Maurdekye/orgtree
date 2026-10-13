@@ -27,19 +27,28 @@ export default async function (rig) {
     p.check('a --ui bundle was given (this proof is visual only)', false)
     return p.summary()
   }
+  // "installed" is only settled once the engine's first discovery pass has
+  // landed (OpenCode is known only through it): read the registry after it,
+  // never before (batch round 430 compared the page to a pre-discovery read)
+  await rig.waitFor(async () => (await rig.api('GET', '/api/providers')).checking === false,
+    { what: 'the first provider discovery to land', timeout: 60000 })
   await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-TWO222', label: 'team', harness: 'codex-cli' })
   // nothing runs Antigravity here, so its fake CLI can simply be moved away
   const agy = path.join(rig.dir, 'bin', 'agy.exe')
   fs.renameSync(agy, agy + '.gone')
-  let reg, r
+  let reg, regAfter, r
   try {
     reg = (await rig.api('GET', '/api/harnesses')).harnesses ?? []
     r = await runDesktop(rig, path.join(here, '../desktop/openrouter-harness-visual.cjs'),
       { out: path.join(p.dir, 'desk'), timeout: 120000 })
+    regAfter = (await rig.api('GET', '/api/harnesses')).harnesses ?? []
   } finally {
     fs.renameSync(agy + '.gone', agy)
   }
   p.check('the desktop script ran', r.ok, r.ok ? undefined : r)
+  const states = (x) => x.map((h) => [h.id, h.installed])
+  p.check('control: the engine’s installed states did not change while the page was read',
+    JSON.stringify(states(reg)) === JSON.stringify(states(regAfter)), { before: states(reg), after: states(regAfter) })
   const v = r.value ?? {}
   p.check('the settings open on the Harnesses tab', v.selected === 'Harnesses', v.selected)
   p.check('every App settings tab fits the strip at the default window width (nothing cut off)',
