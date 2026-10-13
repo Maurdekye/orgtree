@@ -9,7 +9,7 @@ module.exports=async (page,ctx)=>{
       await page.eval(s=>document.querySelector(s).scrollIntoView({block:'center'}),selector)
       const geometry=await page.eval(s=>{
         const panel=document.querySelector(s),r=panel.getBoundingClientRect()
-        const card=s.includes('ls-toggles')?panel.closest('.ls-server').querySelector('.ls-server-row'):
+        const card=s==='.ls-toggles'?panel.closest('.ls-server').querySelector('.ls-server-row'):
           document.querySelector('.orr-keyrow')
         if(!card)throw new Error('missing key/server card')
         const c=card.getBoundingClientRect(),container=document.querySelector('#app-settings-panel-providers')
@@ -21,10 +21,10 @@ module.exports=async (page,ctx)=>{
       if(geometry.overflow)throw new Error('overflow '+JSON.stringify(geometry))
       if(!baseline&&(Math.abs(geometry.left-geometry.cardLeft)>1||Math.abs(geometry.right-geometry.cardRight)>1||geometry.cursor!=='pointer'))
         throw new Error('alignment '+JSON.stringify(geometry))
-      const shot=await page.screenshot('model-'+(selector.includes('ls-')?'language':'openrouter')+'-'+size+'-'+theme)
+      const shot=await page.screenshot('model-'+(selector==='.ls-toggles'?'language':'openrouter')+'-'+size+'-'+theme)
       results.push({theme,size,selector,baseline,...geometry,shot})
       if(baseline)continue
-      const menu=selector.includes('ls-toggles')?'.ls-browser':'.orr-picker'
+      const menu=selector==='.ls-toggles'?'.ls-browser':'.orr-picker'
       await page.mouse('mousePressed',geometry.empty.x,geometry.empty.y);await page.mouse('mouseReleased',geometry.empty.x,geometry.empty.y)
       await page.waitFor(menu);await page.press('Escape')
       await page.eval(s=>document.querySelector(s+' .orr-panel-open').focus(),selector)
