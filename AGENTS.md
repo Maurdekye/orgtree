@@ -195,6 +195,21 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- `orgtree_message`/`orgtree_send_notice` take `{metadata, body}`. Metadata
+  holds every former argument, is listed first and is described as written
+  first. The handler (`mailtools::flat_args`) reads it in any order and still
+  takes the flat shape. Keep metadata first: the API sends each top-level
+  argument whole, so `runtime::actor` sees it early and `net::typing` shows
+  Hubchat "typing" after the send's own read-only checks
+  (`orginbox::may_send_extern`, never `ensure_holders`). It stops on call
+  return, orphan (30 s), turn or process end, or the cap (120 s). Never send
+  content, never set the fine-grained streaming switch. This changed every
+  agent's tool prefix: one cold turn after the update. Measured 116/116
+  metadata first (bound <2.6%, not zero). See [agent typing](docs/rust-engine/agent-typing.md).
+  [decided: user 2026-10-13 20:01-20:05Z, coordinator 20:23Z/20:27Z;
+  verified: `tools/defs.rs`, `tools/mailtools.rs`, `net/typing.rs`,
+  `runtime/actor.rs`, 2026-10-13]
+
 - Provider model-chip panels align with their key/server cards at both edges.
   A sibling full-panel native button opens the same browser as +; chips remain
   independent controls above it. Keep empty-space and Enter/Space browsing, chip
