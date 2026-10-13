@@ -57,10 +57,13 @@ it as hub mail like any other; it does not track whether a card is settled,
 and a later reply cannot change Hubchat's settled card. To ask again, the
 agent sends a new question.
 
-## Measured verification (2026-10-13, after review R1)
+## Measured verification (2026-10-13, after reviews R1 to R4)
 
-On `hubchat-opus/question-options`, rebased on rust-engine `9fc30fb`, under
-the machine build lock inside the repository's kernel Job runner:
+On `hubchat-opus/question-options`, rebased on rust-engine `67fc92e`, under
+the machine build lock inside the repository's kernel Job runner (6144 MB,
+600 s per step). The tests, build and proof below ran again after that
+rebase; the red controls ran before it, on `9fc30fb`. Reviews R2 to R4
+changed nothing in Orgtree.
 
 - `cargo test --locked -j2 -p orgtree-engine net::cards::` passes all three
   `net_cards` tests (the tool's option checks; the list in the body becoming
