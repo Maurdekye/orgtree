@@ -25,9 +25,16 @@ for (const base of [true, false]) {
       })
     } }],
   }); await esbuild.stop()
-  const p = spawnSync(process.execPath, ['--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', out + '/' + (base ? 'base' : 'green') + '.mjs'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 45000 })
-  fs.writeFileSync(out + '/' + (base ? 'base' : 'green') + '-tests.log', p.stdout + p.stderr)
-  check((base ? 'base' : 'green') + ' focused owner/crop/Logo tests', p.status === 0, (p.stdout + p.stderr).slice(-1700))
+  const label = base ? 'base' : 'green', started = Date.now()
+  console.log(label + ' focused tests starting; process budget 120s, each test 10s')
+  const p = spawnSync(process.execPath, ['--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', out + '/' + label + '.mjs'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120000 })
+  const log = (p.stdout || '') + (p.stderr || '') + (p.error ? '\n' + String(p.error) : '')
+  const diagnostic = { status: p.status, signal: p.signal, error: p.error ? String(p.error) : null, elapsedMs: Date.now() - started,
+    tests: Number(log.match(/^# tests (\d+)\r?$/m)?.[1] || 0), passed: Number(log.match(/^# pass (\d+)\r?$/m)?.[1] || 0), expected: base ? 5 : 8 }
+  fs.writeFileSync(out + '/' + label + '-tests.log', log)
+  fs.writeFileSync(out + '/' + label + '-tests.json', JSON.stringify(diagnostic, null, 2))
+  check(label + ' focused owner/crop/Logo tests', p.status === 0 && diagnostic.tests === diagnostic.expected && diagnostic.passed === diagnostic.expected,
+    { ...diagnostic, tail: log.slice(-1700) })
 }
 await esbuild.build({ ...common, entryPoints: [root + '/tests/org-logo.fixture.tsx'], outfile: out + '/renderer.js', platform: 'browser', format: 'iife',
   define: { 'process.env.NODE_ENV': '"production"' } }); await esbuild.stop()
@@ -54,6 +61,10 @@ try {
   for (const contrast of ['charcoal', 'light']) {
     await browser.eval(`proof.mount('claude','${contrast}',true)`); await browser.sleep(100)
     check(contrast + ' current image and separate X', !!await browser.count('.org-logo-avatar img') && !!await browser.count('button.org-logo-remove'))
+    const geometry = await browser.eval(`(()=>{const b=document.querySelector('.org-logo-button'),x=document.querySelector('.org-logo-remove'),s=getComputedStyle(x),a=getComputedStyle(b),root=getComputedStyle(document.documentElement),r=x.getBoundingClientRect();const resolve=v=>{const e=document.createElement('span');e.style.color=v;document.body.append(e);const c=getComputedStyle(e).color;e.remove();return c};return {width:r.width,height:r.height,radius:s.borderRadius,padding:s.padding,avatarPadding:a.padding,avatarRadius:a.borderRadius,color:s.color,background:s.backgroundColor,ink:resolve(root.getPropertyValue('--ink')),panel:resolve(root.getPropertyValue('--panel'))}})()`)
+    check(contrast + ' round X and avatar override settings button chrome', geometry.width === 23 && geometry.height === 23
+      && geometry.radius === '50%' && geometry.padding === '0px' && geometry.avatarPadding === '0px' && geometry.avatarRadius === '50%'
+      && geometry.color === geometry.panel && geometry.background === geometry.ink && geometry.color !== geometry.background, geometry)
     await browser.shot(out + '/' + contrast + '-picture.png')
     const count = await browser.eval('proof.chooser()')
     await browser.mouse('.org-logo-button')
