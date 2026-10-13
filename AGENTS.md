@@ -199,10 +199,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   holds every former argument, is listed first and is described as written
   first. The handler (`mailtools::flat_args`) reads it in any order and still
   takes the flat shape. Keep metadata first: the API sends each top-level
-  argument whole, so `runtime::actor` sees it early and `net::typing` shows
-  Hubchat "typing" after the send's own read-only checks
-  (`orginbox::may_send_extern`, never `ensure_holders`). It stops on call
-  return, orphan (30 s), turn or process end, or the cap (120 s). Never send
+  argument whole, so `runtime::actor` sees it early and `net::typing` sends
+  the hub a typing heartbeat every 500 ms (no start, no stop on the wire;
+  user 2026-10-13 22:34Z) after the send's own read-only checks
+  (`orginbox::may_send_extern`, never `ensure_holders`). They stop when the
+  call's block ends, its tool returns, the turn or process ends, or the cap
+  (120 s); Hubchat drops the row a second after the last. Never send
   content, never set the fine-grained streaming switch. The probe shares
   `on_stream_event`'s `content_block_start`/`content_block_stop` arms with
   the tool-writing clock: one arm per event type (a second is unreachable,
@@ -213,8 +215,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   turn after the update. Measured 116/116 metadata first (bound <2.6%, not
   zero); Claude Code, Codex, Muse and opencode pass the nested shape. See
   [agent typing](docs/rust-engine/agent-typing.md).
-  [decided: user 2026-10-13 20:01-20:05Z, coordinator 20:23Z/20:27Z/21:36Z;
-  verified: `tools/defs.rs`, `tools/mailtools.rs`, `net/typing.rs`,
+  [decided: user 2026-10-13 20:01-20:05Z and 22:34Z, coordinator
+  20:23Z/20:27Z/21:36Z; verified: `tools/defs.rs`, `tools/mailtools.rs`, `net/typing.rs`,
   `runtime/actor.rs`, `bridge.rs`, 2026-10-14]
 
 - Provider model-chip panels align with their key/server cards at both edges.

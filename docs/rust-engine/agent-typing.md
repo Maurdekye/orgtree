@@ -3,7 +3,9 @@
 Docket: `show-agent-typing-in-hubchat-using-ordered-messa`. While an agent
 writes mail to a Hubchat user (an `@net:` address), the user's Hubchat shows
 "<org> is typing…" in that chat. It starts as soon as the call's recipients
-are known and stops when the call ends.
+are known and stops about a second after the call is written: the engine
+sends heartbeats while it is written, and the indicator lasts while they
+come.
 
 ## The message tools take metadata first, then body
 
@@ -83,24 +85,35 @@ real model).
    - The peer is in a cached hub roster. Typing never fetches one.
    - The hub is the one the send would use (`pick_hub`), and the org is
      registered there.
-3. **Signal.** `POST /api/typing` with the org's credentials, keyed by the
-   call's tool-use id. It is refreshed every 8 s with a hub TTL of 20 s, and
-   kept for at most 120 s.
-4. **Stop.** Typing stops on whichever comes first:
+3. **Heartbeats** (user 2026-10-13 22:34Z). `POST /api/typing {"to":
+   [peers]}` with the org's credentials, every 500 ms while the call is
+   being written. There is no start and no stop on the wire: the heartbeats
+   simply stop, and the recipient's Hubchat drops the indicator a second
+   after the last one it got, so a crashed engine or a lost connection can't
+   leave it standing. One call heartbeats for 120 s at most.
+4. **They stop** on whichever comes first:
+   - the call's content block ends: the model has written it (whether or
+     not it then becomes a call);
    - the MCP call with that id returns, sent or refused (`tools::call`);
-   - 30 s after the call's block ended without a call (a permission refusal,
-     a cancelled turn);
    - the agent's turn ends or its CLI exits;
    - the cap.
-   A stop that arrives before the start finished its checks keeps the start
-   from happening (a tombstone kept for 10 minutes).
+   A stop that arrives before the checks finished keeps the heartbeats from
+   starting (a tombstone kept for 10 minutes). Stopping at the block's end
+   means no heartbeat follows the message: the indicator's last second
+   covers the tool's execution, and the message's arrival ends it at once.
 5. **Hubs without the feature.** A hub that answers 404 is not asked again
    for 10 minutes.
 
-Only addresses and the call id leave the engine, never content. There is no
-push and no notification. Codex, Muse, Antigravity and language-server lanes
-get the same tool shape and validation, but no indicator: only the Claude
-stream is probed.
+Only addresses leave the engine, never content: the body is `{"to": [...]}`
+and the hub refuses any other field. The per-heartbeat helper is `#[nolog]`
+(hot); the call's `run` is logged once. There is no push and no
+notification. Codex, Muse, Antigravity and language-server lanes get the
+same tool shape and validation, but no indicator: only the Claude stream is
+probed.
+
+Hubchat users send heartbeats too while they write (user 2026-10-13
+22:33Z), including to an org's address. The engine's polls never ask for
+them, so it ignores them.
 
 ## Every harness takes the nested shape (measured 2026-10-14, no spend)
 
@@ -131,11 +144,15 @@ Evidence: `D:\orgtree-work\rig\hubchat-opus\typing\harness\results.md`.
 
 ## The other two parts
 
-- **Mail hub** (`orgtree-mailhub`, feature `typing`): `POST /api/typing`,
-  kept in memory only, never mail, ending by its TTL. A sync that sends
-  `"typing"` gets who is writing to it. Only a device in use is woken, and
-  only when the set of writers changes. See the hub's `docs/v2-additions.md`.
-- **Hubchat:** the core asks hubs with the feature and emits
-  `Event::Typing`. The chat shows "<name> is typing…" under the newest
-  message, and the chat list's preview reads "typing…". A message from that
-  peer in the same answer wins over its typing row. Never a notification.
+- **Mail hub** (`orgtree-mailhub`, feature `typing`): `POST /api/typing`
+  is one heartbeat, kept in memory for 2 s at most, never mail, at most one
+  per 300 ms counted per sender and recipient. A sync that sends `"typing"`
+  (then its `typing_seq`) is told each fresh heartbeat once. A device in use
+  is woken for each; when that is all that changed, the hub answers from
+  memory (`typing_only`). See the hub's `docs/v2-additions.md`.
+- **Hubchat:** the core asks hubs with the feature and emits one
+  `Event::Typing` per heartbeat. The chat shows "<name> is typing…" under
+  the newest message, and the chat list's preview reads "typing…", while
+  the last heartbeat came under a second ago by its own clock; the message
+  ends it at once. Never a notification. Its users' own heartbeats: its
+  `docs/typing.md`.
