@@ -88,8 +88,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   and, last, the file's text (12,000-char cap). The copy is read when a CLI starts: another
   agent's edit never respawns a warm CLI. The fingerprint keeps the copy's digest outside
   `system_prompt` and equality, and the forecast counts `org_notes` only when a CLI would
-  start, so refresh the forecast wherever an idle CLI closes. Antigravity reaches it by path
-  like every grant. See [the org's shared AGENTS.md](docs/rust-engine/org-shared-notes.md).
+  start, so refresh the forecast wherever an idle CLI closes. The cache keeper reads the warm
+  CLI's copy (`proc_notes`), not the file. Antigravity reaches it by path like every grant.
+  See [the org's shared AGENTS.md](docs/rust-engine/org-shared-notes.md).
   [decided: user 2026-10-13 18:10-18:12Z, coordinator 18:19Z (session-start copy);
   verified: `runtime/actor.rs`, `runtime/identity.rs`, `domain/scope.rs`, 2026-10-13]
 

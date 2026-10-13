@@ -71,6 +71,12 @@ this change reads with the notes digest unknown and is never counted as changed.
 next-turn delivery (like an agent's own notes, decision 61) would mean putting the copy back
 into the `system_prompt` hash; every agent of the org would then pay a cold turn per edit.
 
+The working cache keeper reads an agent's prefix from its own forked CLI, built from the plan
+of the moment. Because a warm CLI keeps its copy, the keeper must read THAT copy: the actor
+keeps the notes block each CLI started with (`proc_notes`), and the keepalive uses it in place
+of the file's current text. Otherwise the keeper would keep a prefix warm that the agent's next
+turn never reads.
+
 ## Concurrent edits
 
 Ordinary file semantics. Orgtree never writes the file, so it never loses an agent's edit.
@@ -92,3 +98,31 @@ to write their session-start copy back over it.
 - First launch after the update: every agent's prompt gains the rule (and the copy once there
   is a file) and its folders gain one entry, so each agent's first turn on the new engine is a
   changed prefix (one cold turn each).
+
+## Verification (2026-10-13, on `rust-engine` `fa3a5f3`)
+
+Measured in an isolated rig (scratch data root and cluster, fake home); no live data, provider
+or account was involved. Engine binaries were built here: `fa3a5f3` (before) and the change
+(after).
+
+- `cargo build`, `cargo check --all-targets`: 0 warnings. The Unix compile check
+  (`--target x86_64-linux-android`) passed with 4 warnings, all in `core_monitor.rs` and
+  `core_startup.rs`, which this change doesn't touch. It shows only that the code compiles.
+- Unit tests of the touched modules (identity, prompt, scope, the fingerprint, startup, docs,
+  watchdogs): 18 of 19 pass, including the 4 new ones. The failing one,
+  `prompt_follows_every_combination_of_group_switches` ("disabled orgtree_state_inspect in 2
+  Claude top=false"), fails the same way at `fa3a5f3` (14 of 15). It predates this change.
+- `org-shared-notes.mjs` (fake CLIs): 15 of 15 checks after, 2 of 15 before. The two that hold
+  before are "an edit doesn't respawn a warm CLI" and "no agent of this org got the other
+  org's text", which hold without the feature.
+- `org-shared-notes-real.mjs` (installed Claude Code 2.1.292, a language-server seat on
+  `fakellm.mjs`): 5 of 5 after, 1 of 5 before. After, the CLI's own Write created the org's
+  file ("File created successfully at …") on an acceptEdits seat; before, the same Write was
+  refused ("Claude requested permissions to write to …"). Writing another org's file was
+  refused both times.
+- `org-shared-notes-keeper.mjs`: 3 of 3 after. The keeper's forked read carried the warm CLI's
+  V1 copy after an edit to V2, and the warm CLI ran on. This was measured only on the change;
+  that the keeper would otherwise read V2 is inferred from the source (it builds its read from
+  the current plan).
+- Not measured: the real Codex, Muse and Antigravity CLIs (their prompts and folders were
+  checked on the fake ones), a packaged app, and every case beyond these proofs.
