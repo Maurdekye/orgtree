@@ -23,7 +23,10 @@ CSS is scoped to `#app-settings-panel-providers`; other settings tabs and portal
 configuration dialogs keep their existing spacing. Generic provider/account markup
 supports additive provider rows, including Muse. Individual OpenRouter key rows
 retain the original/default distinction, key names, account balance, inactivity,
-switches and actions; runtime owners retain those behaviors.
+switches and actions; runtime owners retain those behaviors. Each key's switch is
+compact like an account's: "Active" on the key's identity line (its own line below
+520px, where the icon buttons leave the name no room), accessible name
+"<key> active", the "Allow this key to serve new turns." caption removed.
 
 ## Verification and limits
 
@@ -74,6 +77,29 @@ server rows. Source typecheck passes with explicit shared-dependency resolution.
 All 50 focused behavioral tests pass across account creation/removal, marks,
 API-key fallback and usage, provider discovery, OpenRouter models/usage, language
 servers and dialogs. Their bundling and execution used the same 4096MB/150s kernel
-Job containment. Composition with the later checked OpenRouter/Muse rows remains
-pending. No installed app, live settings, provider inference, packaging or
+Job containment. No installed app, live settings, provider inference, packaging or
 publication was tested.
+
+### Composition with OpenRouter keys and Muse (2026-10-13)
+
+rig-opus composed the layout and terminology onto rust-engine 1e2d4e1, which
+carries several OpenRouter keys and Muse Code. Muse renders through the generic
+provider and account rows and needed no change. The per-key OpenRouter switch was
+new, so it now follows the account switches (above). The fixture adds a Muse
+provider with its three tiers, a managed Muse login with an agent and a Muse
+API-key account, and three OpenRouter keys: the named original, a named added key,
+and an inactive key openrouter.ai refused.
+
+Measured with that fixture, before (base plus fixture) and after, in both themes:
+content height 3210px to 1863px wide (-42.0%) and 4017px to 2690px narrow
+(-33.0%); OpenRouter 583px to 322px and Muse 760px to 400px wide. Wide key rows
+went from 117-147px to 59-78px, each switch on its identity line. All 52 controls
+were reachable in all four cases, scroll width equaled client width, and the
+smallest label/button hit area was 28px (18.6px before). The keys test's new
+check of the short label and per-key names fails before the change and passes
+after it. The 36 suites that render the Providers panel, its account and key
+rows, or the label lines shared with Muse (257 tests) pass.
+
+Limit: at the 303px narrow panel the key rows cut off the key's name and verdict,
+before and after (the tooltip carries them, and a refusal stays visible on the
+spend line); the row's own layout belongs to its owner.
