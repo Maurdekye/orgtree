@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { UsageHistoryModal } from '../apps/desktop/renderer/src/usagehistory'
+import { CurrentOrg } from '../apps/desktop/renderer/src/popout'
 import type { UsageHistory, UsageHistorySeries } from '../apps/desktop/renderer/src/api'
 
 const W = window as any
@@ -34,5 +35,5 @@ W.fetch = async (input: unknown) => {
 W.orgtreeDesktop = { getPopoutState: async (name: string) => ({ name, present: true, maximized: false }),
   getPreferences: async () => ({}), onEvent: () => () => {} }
 const root = createRoot(document.getElementById('root')!)
-root.render(<UsageHistoryModal close={() => {}} />)
+root.render(<CurrentOrg.Provider value="synthetic"><UsageHistoryModal close={() => {}} /></CurrentOrg.Provider>)
 W.proof = { requests, errors, dispose: () => root.unmount() }

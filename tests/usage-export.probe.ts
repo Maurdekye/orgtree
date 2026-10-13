@@ -61,7 +61,7 @@ app.whenReady().then(async () => {
       w = BrowserWindow.getAllWindows().find(c => c !== main)!
       await until(async () => await w!.webContents.executeJavaScript(`!!document.querySelector('.uh-export-btn')`), 'adopted card')
       await click(w, '.uh-ranges button:first-child')
-      await until(async () => await w!.webContents.executeJavaScript(`document.querySelector('.uh-range.on')?.textContent==='24 hours' && document.querySelector('.uh-period')?.textContent.includes('Oct 12')`), 'new period')
+      await until(async () => await w!.webContents.executeJavaScript(`document.querySelector('.uh-range.on')?.textContent==='24 hours' && document.querySelector('.uh-period')?.textContent.includes('2026-10-12')`), 'new period')
     }
     const features = await w!.webContents.executeJavaScript(`(()=>{const plot=document.querySelector('.uh-plot svg');const r=plot.getBoundingClientRect();plot.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+120,clientY:r.top+40}));return {cards:document.querySelectorAll('.uh-card').length,buttons:[...document.querySelectorAll('.uh-export-btn')].map(b=>({text:b.textContent,label:b.getAttribute('aria-label')})),now:!!document.querySelector('.uh-now'),table:!!document.querySelector('.uh-table'),reset:!!document.querySelector('.uh-reset'),future:!!document.querySelector('.uh-future'),end:!!document.querySelector('.uh-end'),next:!!document.querySelector('.uh-next-reset')}})()`)
     check(place + ' exports replace table', features.cards === 1 && !features.table && features.buttons.length === 2 && features.buttons[0].text === 'CSV' && features.buttons[1].text === 'JSONL' && features.buttons.every((b: any) => b.label.startsWith('Export ')), features)

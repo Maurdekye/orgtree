@@ -47,6 +47,8 @@ if (process.argv.includes('--bundle')) {
     }
     const results = {}
     if (process.argv.includes('--renderer-only')) {
+      esbuild.buildSync({ ...common, entryPoints: [path.join(root, 'tests/usage-export.fixture.tsx')], outfile: path.join(output, 'renderer.js'),
+        platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } })
       esbuild.buildSync({ ...common, entryPoints: [path.join(root, 'tests/usage-export.probe.ts')], outfile: path.join(output, 'main.cjs'), platform: 'node', format: 'cjs', external: ['electron'] })
       const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
       results.renderer = run('renderer', electron, [path.join(output, 'main.cjs')], env)
