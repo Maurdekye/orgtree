@@ -45,10 +45,10 @@ try {
   const themes = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'langserver', 'muse', 'custom:#336699']
   for (const theme of themes) for (const contrast of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
     await browser.eval(`proof.mount('${theme}','${contrast}',false)`); await browser.sleep(70)
-    const view = await browser.eval(`(()=>{const a=document.querySelector('.org-logo-avatar'),p=document.querySelector('.org-logo-pencil');const style=getComputedStyle(a),r=p.getBoundingClientRect();return {initials:a.textContent,color:style.color,fill:style.backgroundColor,font:style.fontSize,round:style.borderRadius,pencil:r.width,chooser:document.querySelector('input[type=file]').hidden,x:!!document.querySelector('.org-logo-remove'),title:document.querySelector('.set-group h4')?.textContent,text:document.querySelector('main').textContent}})()`)
+    const view = await browser.eval(`(()=>{const a=document.querySelector('.org-logo-avatar'),p=document.querySelector('.org-logo-pencil');const style=getComputedStyle(a),r=p.getBoundingClientRect();return {initials:a.textContent,color:style.color,fill:style.backgroundColor,font:style.fontSize,round:style.borderRadius,pencil:r.width,chooser:document.querySelector('input[type=file]').hidden,x:!!document.querySelector('.org-logo-remove'),title:document.querySelector('.set-group-head')?.textContent,text:document.querySelector('main').textContent}})()`)
     const light = contrast.includes('light')
     check(theme + ' ' + contrast + ' Hubchat fallback/Logo/pencil', view.initials === 'SO' && view.color === (light ? 'rgb(176, 79, 44)' : 'rgb(227, 137, 107)')
-      && view.fill === (light ? 'rgba(217, 119, 87, 0.18)' : 'rgba(217, 119, 87, 0.2)') && view.font === '26px' && view.round === '50%' && view.pencil > 20 && view.chooser && !view.x && view.text.includes("org's account picture in Hubchat"), view)
+      && view.fill === (light ? 'rgba(217, 119, 87, 0.18)' : 'rgba(217, 119, 87, 0.2)') && view.font === '26px' && view.round === '50%' && view.pencil > 20 && view.chooser && !view.x && view.title === 'Logo' && view.text.includes("org's account picture in Hubchat"), view)
     if (theme !== 'custom:#336699' && (contrast === 'charcoal' || contrast === 'light')) await browser.shot(out + '/' + theme + '-' + contrast + '-empty.png')
   }
   for (const contrast of ['charcoal', 'light']) {

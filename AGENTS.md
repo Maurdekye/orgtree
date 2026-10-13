@@ -51,6 +51,13 @@
   verified: `actor.rs` `stop_silent_muse_tools`, `muse.rs` `stop_task`, real
   Muse 1.4.6 probes 2026-10-13]
 
+- Organization settings calls its Hubchat account image **Logo**. The avatar
+  opens the existing chooser; pencil is always bottom-right and a separate X
+  removes an existing logo. Preserve numeric-owner/intent guards, crop and API
+  semantics. Empty fallback copies Hubchat org orange/initials independent of
+  provider accents; the requested round shape is editor-local. See [Logo editor](docs/rust-engine/org-logo-editor.md).
+  [decided: user 2026-10-13; verified: `canvas/orgpicture.tsx`, `orglogo.css`, `App.tsx`]
+
 - Ctrl/Cmd+Z runs the newest visible toast Undo in its own window; keep text
   editor undo and the 12-second deadline. Clicks and mirrors consume the same
   callback once before invoking it. See [toast shortcut](docs/rust-engine/toast-undo-shortcut.md).
