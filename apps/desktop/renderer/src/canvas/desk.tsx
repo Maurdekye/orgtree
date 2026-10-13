@@ -4443,7 +4443,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
               {b.state === 'archived' && b.bearer_state !== 'lost' ? (
                 userDisabled[providerKey(b.tier)] ? (
                   <span className="lin-provider-off">
-                    {providerName(b.tier)} is off · App settings → Providers
+                    {providerName(b.tier)} {providerKey(b.tier) === 'langserver' ? 'are' : 'is'} off · App settings → Providers
                   </span>
                 ) : <>
                   <select title={modelChoiceTitle(tiers[b.id] || b.tier)} value={tiers[b.id] ?? ''} onChange={(e) =>
