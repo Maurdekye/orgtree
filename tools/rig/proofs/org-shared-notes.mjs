@@ -25,7 +25,8 @@ import path from 'node:path'
 
 import { Proof } from '../proof.mjs'
 
-const norm = p => String(p ?? '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+// paths compared as Windows does: a verbatim \\?\ prefix (Muse's roots) dropped
+const norm = p => String(p ?? '').replace(/\//g, '\\').replace(/^\\\\\?\\/, '').replace(/\\+$/, '').toLowerCase()
 const has = (text, part) => String(text ?? '').toLowerCase().includes(String(part).toLowerCase())
 const read = f => { try { return fs.readFileSync(f, 'utf8') } catch { return null } }
 const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
@@ -81,6 +82,7 @@ export default async function (rig) {
 
   // ------------------------------------------------- B: an agent's edit
   const V1 = '# Rig Org shared notes\n\n- PROOF-NOTES-V1: times are UTC.\n'
+  fs.mkdirSync(notesDir(ORG), { recursive: true })   // already there, unless the engine predates the feature
   fs.writeFileSync(FILE, V1)
   const before = starts('nia').length
   const pid = a?.pid
@@ -160,8 +162,9 @@ export default async function (rig) {
   p.check('F: a file watchdog on this org\'s shared notes is accepted for nia and refused for zed (another org)', niaDog.ok && !zedDog.ok,
     { nia: niaDog.text?.slice(0, 200), zed: zedDog.text?.slice(0, 200) })
   if (niaDog.ok) await rig.tool('nia', 'orgtree_watchdog', { action: 'remove', id: 'notes-watch' })
-  const att = await rig.tool('nia', 'orgtree_message', { to: 'boss', body: 'The shared notes, attached.', notice: true, attachments: [FILE] })
-  p.check('F: nia may attach the shared notes file to mail', att.ok, { text: att.text?.slice(0, 200) })
+  // attachments ride mail to the user (a top-level agent writes to them)
+  const att = await rig.tool('boss', 'orgtree_message', { to: 'user', body: 'The shared notes, attached.', attachments: [FILE] })
+  p.check('F: boss may attach the shared notes file to his mail to the user', att.ok, { text: att.text?.slice(0, 200) })
 
   p.note('the file\'s final state', { file: FILE, text: read(FILE) })
   p.keep(rig, { agents: ['nia', 'ned', 'rod', 'cody', 'musa', 'gus', 'zed'] })
