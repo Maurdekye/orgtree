@@ -801,8 +801,10 @@ pub async fn set_harness(engine: &Engine, h: &str) -> Result<()> {
     Ok(())
 }
 
-/// The lane's document for App settings (secret-free).
-#[logged]
+/// The lane's document for App settings (secret-free). Not logged: its
+/// `keys` carry each key's reading and error text (`keys_doc`); one safe
+/// summary line is logged instead.
+#[nolog]
 pub async fn doc(engine: &Engine, force: bool) -> Value {
     let key_set = key(engine).await.is_some();
     let mut credits = json!({ "limit": null, "limit_remaining": null, "limit_reset": null, "usage": null, "usage_daily": null,
@@ -842,6 +844,7 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
         .collect();
     let keys = keys_doc(engine, connected, &reason);
     let any = !keys.is_empty();
+    tracing::info!(force, key_set, connected, keys = keys.len(), favorites = favs.len(), "OpenRouter document");
     json!({
         "installed": any, "connected": connected, "key_set": key_set, "kind": if key_set { json!("api-key") } else { Value::Null },
         "label": label, "credits": credits, "reason": reason, "favorites": favs.len(), "favorites_max": 0, "tiers": tiers,

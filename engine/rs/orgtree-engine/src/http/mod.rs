@@ -304,6 +304,10 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         // Old clients may still POST files to this retired route. Omit their
         // bodies before authentication/404; do not buffer or log private bytes.
         || path.contains("/org_inbox/staging/")
+        // The OpenRouter document and key routes answer with each key's
+        // usage reading, whose error text is the provider's own; the
+        // handlers log a safe summary instead. The catalog search stays.
+        || ((path == "/api/openrouter" || path.starts_with("/api/openrouter/")) && !path.starts_with("/api/openrouter/models"))
         || headers.contains_key(axum::http::header::UPGRADE)
         || headers
             .get(axum::http::header::CONTENT_TYPE)
