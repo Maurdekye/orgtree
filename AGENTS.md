@@ -15,6 +15,12 @@
   double-click open-app route and sandbox. See [tray toggle](docs/rust-engine/tray-toggle.md).
   [decided: user 2026-10-13 18:42UTC; verified: desktop `main/index.ts`]
 
+- The org Docket selects its first visible unarchived, non-backlogged row once
+  after opening/initial load, using current grouping/nesting/sort. Requested
+  jumps and deliberate selection/clear take precedence; polls cannot reselect.
+  The popped-out org surface shares DocketModal; agent/team lists are unchanged.
+  [decided: user 2026-10-13 18:46UTC; verified: `canvas/docket.tsx`]
+
 - Ctrl/Cmd+Z runs the newest visible toast Undo in its own window; keep text
   editor undo and the 12-second deadline. Clicks and mirrors consume the same
   callback once before invoking it. See [toast shortcut](docs/rust-engine/toast-undo-shortcut.md).

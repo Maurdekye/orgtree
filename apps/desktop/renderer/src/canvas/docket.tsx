@@ -1408,6 +1408,20 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       ?? null
   }, [sections, searching, collapsed])
 
+  // Opening an org docket gets one default selection after its first load.
+  // Explicit navigation and deliberate selects/clears already advance this
+  // sequence, so neither a delayed load nor a later poll can steal their place.
+  // Use the rendered nesting/folds, skipping archive/backlog and group headers.
+  useEffect(() => {
+    if (!data || work.status.loading || navigation.current.sequence !== 0
+        || jumpTo || selId) return
+    const first = windowSections.filter(section => !section.folded)
+      .flatMap(section => section.rows)
+      .find(row => !row.item.archived && row.item.status !== 'backlogged')
+    ++navigation.current.sequence // consume even an empty initial list
+    if (first) setSelId(first.item.slug)
+  }, [slug, data, work.status.loading, windowSections, jumpTo, selId, setSelId])
+
   const onSearchKey = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
     // ⚠ ESCAPE IS HANDLED TWICE, AND BOTH ARE NEEDED. `escClose` catches it for
     // a CENTRED docket, where `useEsc` wins the event on window before React
