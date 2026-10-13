@@ -104,6 +104,34 @@ Limit: at the 303px narrow panel the key rows cut off the key's name and verdict
 before and after (the tooltip carries them, and a refusal stays visible on the
 spend line); the row's own layout belongs to its owner.
 
+### Key dialogs and backdrop dismissal (2026-10-13)
+
+OpenRouter's single header Add action uses the native providers' secondary-button
+class and opens the first-key or additional-key form according to saved state.
+The original key's settings shares the added keys' Name/optional-key form: a name
+alone renames, an empty name uses the provider label, and a replacement key keeps
+the existing replacement toast. The separate naming control is removed.
+
+Shared provider dialogs close on idle outside clicks and Escape, discard the
+draft, and restore focus. Inside clicks and inside-started drags ending outside
+remain open. Busy saves keep the existing guard. Other PinFrame dismissal and
+pinned/detached behavior retain their existing gates.
+
+Measured production sourcea92dcb6: full typecheck0;50 valid focused checks across
+the initial40 unaffected passes and the corrected affected OpenRouter10/10 rerun
+(not a fresh full50 run). Actual synthetic native-renderer proof atb7fbc8c passed
+four header checks and16 dialog cases for OpenRouter add/settings and language
+server add/edit, each in light/dark at1366x768 and390x844. Every case retains
+inside/drag-out, closes outside/Escape and discards an unsaved draft. All four
+header PNGs were inspected; hit height29.69px and no Providers-panel horizontal
+overflow (596px wide,303px narrow). Narrow header controls wrap as intended.
+
+Rebase onto integrated3528a4e preserves the four changed production components
+and visual scripts byte-for-byte; only AGENTS notes required a union. Full
+typecheck at rebasedd9566a2 passed. Earlier renderer measurements retain their
+original provenance; no installed app, live key/provider or post-rebase visual
+execution is claimed. Fixture-only failed predecessor receipts remain preserved.
+
 ### OpenRouter key actions and provider drafts (2026-10-13)
 
 The OpenRouter provider header now owns one add action beside its enable switch,
