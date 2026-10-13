@@ -24,7 +24,8 @@ window.fetch=async (url,init)=>{
   }
   if(path==='/api/langservers'){
     const body=await response.json()
-    for(const server of body.servers)server.models={'qwen3.8-27b-iq3xxs':{offered:true,context:65536}}
+    for(const server of body.servers)server.models={'qwen3.8-27b-iq3xxs':{id:'qwen3.8-27b-iq3xxs',label:'qwen3.8-27b-iq3xxs',
+      tier:'ls-fixture',offered:true,context:65536,context_in_use:65536,too_small:false}}
     return reply(body)
   }
   return response
