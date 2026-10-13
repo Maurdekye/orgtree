@@ -366,6 +366,23 @@ pub fn eligible(engine: &Engine, org_slug: &str, tier: &str, account: &str) -> b
     admits(engine, org_slug, tier, None, account).is_ok()
 }
 
+/// Whether a freeze holds a request its release must give back (a non-blank
+/// `resume_texts` entry: a refused turn's request, or one a later freeze kept).
+#[logged]
+pub fn holds_request(rec: &Value) -> bool {
+    rec["resume_texts"].as_array().is_some_and(|a| a.iter().filter_map(Value::as_str).any(|t| !t.trim().is_empty()))
+}
+
+/// Queue the wake that gives back a released freeze's held request, inside
+/// the caller's transaction, as `continue_on` does: it commits with the
+/// release or not at all, so a rolled-back attempt leaves neither and its
+/// retry queues it once. The caller publishes and wakes after commit.
+#[logged]
+pub(crate) async fn queue_replay(tx: &tokio_postgres::Transaction<'_>, org_id: i64, agent_id: i64, name: &str, wake: &str,
+    held: &Value) -> Result<String> {
+    continuation::queue_wake(tx, org_id, agent_id, name, &with_replay(wake, Some(held))).await
+}
+
 /// Every check a continuation makes before it moves a seat on `tier` (its
 /// pinned `version`) to `account`, or why it would refuse: the shared gates
 /// and, for Muse, that login's own catalog offering the exact model.

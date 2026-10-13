@@ -21,6 +21,9 @@ struct Outcome {
     defaults: BTreeSet<i64>,
     orgs: BTreeSet<String>,
     app_default: bool,
+    /// (org, agent, name, mail uid): a released freeze's held request, queued
+    /// as the agent's wake in the removal's own transaction
+    replayed: Vec<(i64, i64, String, String)>,
 }
 
 /// The same boundary as 3.x, using 4.0's same-seat session/handoff model.
@@ -189,6 +192,12 @@ async fn announce(engine: &Arc<Engine>, out: &Outcome) {
     if out.app_default {
         for org in engine.orgs.all() { changes::notify(engine, &org, vec![Change::Org]); }
     }
+    // a held request given back is committed mail: published as continue-on's
+    for (org_id, aid, name, uid) in &out.replayed {
+        changes::notify_id(engine, *org_id, vec![Change::Mailbox(*aid), Change::Spark { from: "@system".into(), to: name.clone() },
+            Change::EngineEvent(crate::runtime::watchdogs::events::event("mail.waiting",
+                crate::runtime::watchdogs::events::Scope::Agent(*org_id, *aid), json!({"agent_id": aid, "mail_id": uid})))]);
+    }
     for (org_id, id) in &out.live {
         if let Some(h) = engine.agents.get(*id) { h.send(AgentMsg::Reconfigured); }
         crate::runtime::wake(engine, *org_id, *id);
@@ -325,8 +334,20 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
                 crate::domain::asks::moot_for_fresh_session(&tx, aid,
                     "the asking session was replaced when its account was removed; the fresh session never posed it").await?;
             }
+            // a Muse seat's freeze released by this move gives back the request
+            // it held (a removal freeze keeps a refused turn's request), as its
+            // wake mail in this same transaction, as continue-on does: never
+            // lost, never queued twice by a rolled-back and retried attempt
+            // (independent review R4, 2026-10-13)
+            let replayed = if provider == catalog::MUSE && thaw && crate::runtime::freeze::holds_request(&frozen) {
+                let wake = format!("Your Muse account {id} was removed; you now run on the account {lands_on}. Continue where you left off.");
+                Some(crate::runtime::freeze::queue_replay(&tx, org_id, aid, &name, &wake, &frozen).await?)
+            } else {
+                None
+            };
             let detail = json!({"node": name, "removed_account": id, "account": lands_on,
                 "binding_rebound": bound, "session_boundary": boundary, "thawed": thaw, "frozen": wait.is_some(),
+                "replayed": replayed.is_some(),
                 "pending_account_rebound": pa["account"].as_str() == Some(id),
                 "pending_switch_rebound": ps["account"].as_str() == Some(id),
                 "pending_account": next_pa["account"], "pending_switch_account": next_ps["account"]});
@@ -336,7 +357,10 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
             if bound {
                 out.rebound.push(json!({"org": slug, "node": name, "state": state, "account": lands_on,
                     "session_boundary": boundary, "in_flight_turn": live && r.get::<_, bool>(9),
-                    "frozen": wait.is_some(), "reason": stranded}));
+                    "frozen": wait.is_some(), "replayed": replayed.is_some(), "reason": stranded}));
+            }
+            if let Some(uid) = replayed {
+                out.replayed.push((org_id, aid, name.clone(), uid));
             }
             if live { out.live.push((org_id, aid)); }
         }
@@ -581,5 +605,21 @@ mod tests {
         assert_eq!(requeue(&moved, Some("muse/primary".into()))["account"], "muse/primary");
         assert_eq!(rebound_queue(&json!({ "account": "claude-2" }), "claude-2", "claude/primary", false), json!({ "account": "claude/primary" }));
         assert_eq!(rebound_queue(&json!({ "account": "claude-3" }), "claude-2", "claude/primary", false), json!({ "account": "claude-3" }));
+    }
+
+    /// A freeze a removal releases gives back the request it held: only a
+    /// non-blank held request counts, and the wake carries it after the
+    /// removal's own words.
+    #[test]
+    fn account_removal_gives_back_a_held_request() {
+        use crate::runtime::freeze::{holds_request, with_replay};
+        let held = json!({ "cause": "account", "limit": false, "resume_texts": ["PROOF-WALL: please do the thing."] });
+        assert!(holds_request(&held));
+        for none in [json!({ "cause": "account" }), json!({ "resume_texts": [] }), json!({ "resume_texts": ["  "] }), json!(null)] {
+            assert!(!holds_request(&none), "{none}");
+        }
+        let wake = with_replay("Your Muse account muse-7 was removed; you now run on the account muse-2. Continue where you left off.", Some(&held));
+        assert!(wake.starts_with("Your Muse account muse-7 was removed"));
+        assert!(wake.ends_with("It was given:\n\nPROOF-WALL: please do the thing."), "{wake}");
     }
 }
