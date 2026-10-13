@@ -1,5 +1,10 @@
 # AGENTS.md — working on Orgtree
 
+- Sibling drag preview is a node-height accent separator: vertical in tree rows,
+  radial through the eye in rings. Preserve angular/x drop request semantics;
+  marker geometry is visual-only. See [reorder separator](docs/rust-engine/reorder-separator.md).
+  [decided: user 2026-10-13 18:58UTC; verified: `canvas/reorderpreview.tsx`, `OrgCanvas.tsx`]
+
 - Ctrl/Cmd+Z runs the newest visible toast Undo in its own window; keep text
   editor undo and the 12-second deadline. Clicks and mirrors consume the same
   callback once before invoking it. See [toast shortcut](docs/rust-engine/toast-undo-shortcut.md).
