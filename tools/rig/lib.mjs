@@ -753,6 +753,8 @@ export async function startRun(opts = {}) {
       realCli: !!opts.realCli,
       // the Muse lane's binary is the installed Muse Code, copied (`up --real-muse`)
       realMuse,
+      // the engine logs no verbose call lines (`up --quiet-log`), as a release build by default
+      quietLog: !!opts.quietLog,
       // the engine believes it runs under the boot task's S4U logon (`up --boot-isolated`)
       bootIsolated: !!opts.bootIsolated,
       // the engine's Session 0 answer, forced ('1' | '0'); null: measured

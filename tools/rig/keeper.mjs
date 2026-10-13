@@ -30,7 +30,8 @@ const env = {
   ORGTREE_ENGINE_RIG: '1',
   ORGTREE_ENGINE_ALLOW_INITDB: '1',
   ORGTREE_NET_OFFLINE: '1',
-  ORGTREE_LOG_VERBOSE: '1',
+  // verbose call logging, unless the run asked for none (`up --quiet-log`)
+  ORGTREE_LOG_VERBOSE: run.quietLog ? '0' : '1',
   ORGTREE_CLAUDE_BIN: path.join(dir, 'bin', 'claude.exe'),
   ORGTREE_CODEX_BIN: path.join(dir, 'bin', 'codex.exe'),
   ORGTREE_AGY_BIN: path.join(dir, 'bin', 'agy.exe'),

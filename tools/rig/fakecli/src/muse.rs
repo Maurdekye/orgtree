@@ -22,6 +22,13 @@
 //!   {"subagent": {"role": "...", "objective": "...", "run_ms": 3000}}   a child run
 //!   {"reminder": true}   a reminder child (Orgtree switches them off; the proof
 //!       checks the engine records one that appears anyway)
+//!   {"tool": "write_file", "args": {"path": "..."}, "native_write": true}   a
+//!       write Muse's own root rules decide: inside one of the session's
+//!       workspace roots it runs unasked, outside it asks (`approval/request`)
+//! Workspace roots are sticky per session, as in MSP: session/start sets them,
+//! a resume restores the stored set, turn/start's `workspaceRoots` replaces
+//! it and its absence keeps it. The session log records each set, and the
+//! servers' configuration as received (a proof's sentinel control).
 //!   {"unsolicited": true}   a turn the engine did not start (as a cron fires one)
 //!   {"poll_mail": {"every_ms": 500, "timeout_ms": 30000}}, {"sleep_ms": N},
 //!   {"hang": true}, {"exit": N}
@@ -65,6 +72,8 @@ struct Srv {
     steers: Mutex<VecDeque<String>>,
     /// the session's MCP servers as session/start or resume named them
     servers: Mutex<Value>,
+    /// the session's workspace roots (sticky, as MSP keeps them)
+    roots: Mutex<Vec<String>>,
     cancelled: Mutex<Vec<String>>,
     stopped: Mutex<Vec<String>>,
 }
@@ -200,6 +209,40 @@ fn known_sessions(srv: &Srv) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// A path folded for comparison: no `\\?\` prefix, backslashes, lower case.
+fn fold(p: &str) -> String {
+    p.trim_start_matches(r"\\?\").replace('/', "\\").trim_end_matches('\\').to_lowercase()
+}
+
+/// Whether `path` lies in one of the session's workspace roots.
+fn in_roots(srv: &Srv, path: &str) -> bool {
+    let p = fold(path);
+    srv.roots.lock().unwrap().iter().map(|r| fold(r)).any(|r| p == r || p.starts_with(&format!("{r}\\")))
+}
+
+/// Keep `roots` as the session's stored set (a later resume restores it).
+fn store_roots(srv: &Srv, sid: &str, roots: &[String]) {
+    *srv.roots.lock().unwrap() = roots.to_vec();
+    let Some(p) = srv.state_file() else { return };
+    let mut s = load_json(&p).filter(Value::is_object).unwrap_or_else(|| json!({}));
+    if !s["muse_roots"].is_object() {
+        s["muse_roots"] = json!({});
+    }
+    s["muse_roots"][sid] = json!(roots);
+    save_json(&p, &s);
+}
+
+fn stored_roots(srv: &Srv, sid: &str) -> Vec<String> {
+    srv.state_file().and_then(|p| load_json(&p))
+        .and_then(|s| s["muse_roots"][sid].as_array().cloned())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+fn strings(v: &Value) -> Option<Vec<String>> {
+    v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+}
+
 fn remember_session(srv: &Srv, sid: &str) {
     let Some(p) = srv.state_file() else { return };
     let mut s = load_json(&p).filter(Value::is_object).unwrap_or_else(|| json!({}));
@@ -245,9 +288,12 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             *srv.model.lock().unwrap() = p["modelId"].as_str().unwrap_or("muse-wonder-1.0").to_string();
             *srv.servers.lock().unwrap() = p.pointer("/config/mcpServers").cloned().unwrap_or(Value::Null);
             remember_session(srv, &sid);
+            let roots = strings(&p["workspaceRoots"]).unwrap_or_else(|| vec![root.to_string()]);
+            store_roots(srv, &sid, &roots);
             srv.log("session", json!({ "action": "start", "session": sid, "model": p["modelId"], "approval": p["approvalMode"],
-                                       "profile": p["permissionProfile"], "roots": p["workspaceRoots"],
-                                       "servers": p.pointer("/config/mcpServers").and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>()) }));
+                                       "profile": p["permissionProfile"], "roots": roots,
+                                       "servers": p.pointer("/config/mcpServers").and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>()),
+                                       "server_config": p.pointer("/config/mcpServers") }));
             srv.respond(id, json!({ "session": { "sessionId": sid, "status": "idle", "modelId": p["modelId"] } }));
         }
         "session/resume" => {
@@ -255,7 +301,11 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             if known_sessions(srv).contains(&sid) {
                 *srv.session.lock().unwrap() = Some(sid.clone());
                 *srv.servers.lock().unwrap() = p.pointer("/config/mcpServers").cloned().unwrap_or(Value::Null);
-                srv.log("session", json!({ "action": "resume", "session": sid, "exclude_items": p["excludeItems"] }));
+                // resume admits no roots: the session keeps the set it last had
+                let roots = stored_roots(srv, &sid);
+                *srv.roots.lock().unwrap() = roots.clone();
+                srv.log("session", json!({ "action": "resume", "session": sid, "exclude_items": p["excludeItems"],
+                                           "roots": roots, "server_config": p.pointer("/config/mcpServers") }));
                 srv.respond(id, json!({ "session": { "sessionId": sid, "status": "idle" } }));
             } else {
                 srv.log("session", json!({ "action": "resume_failed", "session": sid }));
@@ -289,7 +339,14 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             let busy = srv.turn.lock().unwrap().is_some();
             *srv.turn.lock().unwrap() = Some(turn.clone());
             srv.steers.lock().unwrap().clear();
-            srv.log("turn_start", json!({ "turn": turn, "if_busy": p["ifBusy"], "effort": p["reasoningEffort"], "images": images }));
+            // a sticky replacement of the root set; absent, the set is unchanged
+            let sent = strings(&p["workspaceRoots"]);
+            if let (Some(roots), Some(sid)) = (&sent, srv.session.lock().unwrap().clone()) {
+                store_roots(srv, &sid, roots);
+            }
+            let roots = srv.roots.lock().unwrap().clone();
+            srv.log("turn_start", json!({ "turn": turn, "if_busy": p["ifBusy"], "effort": p["reasoningEffort"], "images": images,
+                                          "roots_sent": sent.is_some(), "roots": roots }));
             srv.respond(id, json!({ "commandId": p["commandId"], "turnId": turn, "status": "accepted",
                                     "disposition": if busy { "queued" } else { "started" }, "startedNewTurn": !busy }));
             let _ = tx.send(Job { turn, prompt, script, steps, effort: p["reasoningEffort"].as_str().map(str::to_string) });
@@ -511,11 +568,21 @@ fn tool(srv: &Srv, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
         }
         item(srv, turn, true, done);
     };
-    if step["approval"].as_bool() == Some(true) {
+    // Muse's own root rules: a write inside a workspace root runs unasked
+    let native = step["native_write"].as_bool() == Some(true);
+    let in_root = native && args["path"].as_str().is_some_and(|p| in_roots(srv, p));
+    if native {
+        srv.log("native_write", json!({ "path": args["path"], "in_root": in_root, "roots": srv.roots.lock().unwrap().clone() }));
+    }
+    if step["approval"].as_bool() == Some(true) || (native && !in_root) {
         let aid = srv.uid();
         let (dtx, drx) = mpsc::channel();
         srv.decisions.lock().unwrap().insert(aid.clone(), dtx);
-        let subject = step.get("subject").cloned().unwrap_or_else(|| json!({ "kind": "shell", "command": args["command"] }));
+        let subject = step.get("subject").cloned().unwrap_or_else(|| if native {
+            json!({ "kind": "fileAccess", "access": "write", "path": args["path"] })
+        } else {
+            json!({ "kind": "shell", "command": args["command"] })
+        });
         let receipt = srv.request("approval/request", json!({ "sessionId": srv.sid(), "approvalId": aid, "toolName": name,
             "subject": subject, "currentRequirementId": "req-1", "rawArgs": args.to_string(),
             "availableChoices": [
@@ -721,6 +788,7 @@ pub fn run(raw: &[String]) -> i32 {
         model: Mutex::new(String::new()),
         steers: Mutex::new(VecDeque::new()),
         servers: Mutex::new(Value::Null),
+        roots: Mutex::new(Vec::new()),
         cancelled: Mutex::new(Vec::new()),
         stopped: Mutex::new(Vec::new()),
     });
