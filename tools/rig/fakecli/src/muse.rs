@@ -25,6 +25,10 @@
 //!   {"tool": "write_file", "args": {"path": "..."}, "native_write": true}   a
 //!       write Muse's own root rules decide: inside one of the session's
 //!       workspace roots it runs unasked, outside it asks (`approval/request`)
+//! A catalog file `{"fail": "..."}` makes that login's model/list fail.
+//! A login's account/read answer: its own `<XDG_CONFIG_HOME>/muse-account.json`
+//! when present (`{"state": "loggedOut"}`, or `{"fail": "..."}` for a read that
+//! fails), the user's own login's `<fakecli dir>/muse-account.json`, else signed in.
 //! Workspace roots are sticky per session, as in MSP: session/start sets them,
 //! a resume restores the stored set, turn/start's `workspaceRoots` replaces
 //! it and its absence keeps it. The session log records each set, and the
@@ -168,6 +172,17 @@ fn text_of(input: &Value) -> String {
     input.as_array().map(|a| a.iter().filter_map(|x| x["text"].as_str()).collect::<Vec<_>>().join("\n")).unwrap_or_default()
 }
 
+/// The login's account/read answer: its own `<XDG_CONFIG_HOME>/muse-account.json`
+/// (a fixture: `{"state": "loggedOut"}`, or `{"fail": "..."}` for a read that
+/// fails), the user's own login's `<fakecli dir>/muse-account.json`, else signed in.
+fn account_doc(dir: Option<&Path>) -> Value {
+    let doc = match std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        Some(own) => load_json(&own.join("muse-account.json")),
+        None => dir.and_then(|d| load_json(&d.join("muse-account.json"))),
+    };
+    doc.unwrap_or_else(|| json!({ "state": "accountLogin", "label": "rig@example.invalid", "credentialRequired": true }))
+}
+
 fn catalog(dir: Option<&Path>) -> Value {
     let own = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
     if let Some(c) = own.as_deref().into_iter().chain(dir).find_map(|d| load_json(&d.join("muse-catalog.json"))) {
@@ -266,9 +281,20 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
                                     "grantedCapabilities": if wants_mcp { json!(["sessionMcp"]) } else { json!([]) },
                                     "experimentalApi": true, "sessionDurability": "durable" }));
         }
-        "account/read" => srv.respond(id, json!({ "state": "accountLogin", "label": "rig@example.invalid", "credentialRequired": true })),
+        "account/read" => {
+            let doc = account_doc(srv.dir.as_deref());
+            match doc["fail"].as_str() {
+                Some(msg) => srv.fail(id, -32603, msg, "internalError"),
+                None => srv.respond(id, doc),
+            }
+        }
         "model/list" => {
             let mut c = catalog(srv.dir.as_deref());
+            // a catalog file `{"fail": "..."}`: this login's catalog cannot be read
+            if let Some(msg) = c["fail"].as_str().map(str::to_string) {
+                srv.fail(id, -32603, &msg, "internalError");
+                return;
+            }
             if let Some(ms) = c.as_object_mut().and_then(|o| o.remove("delayMs")).and_then(|v| v.as_u64()) {
                 std::thread::sleep(Duration::from_millis(ms));
             }
