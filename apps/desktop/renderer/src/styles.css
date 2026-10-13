@@ -8232,6 +8232,129 @@ main:has(> .orgbar.native-header) > .error {
 }
 .tray-row.prov-langserver { --accent: var(--prov-langserver); }
 .acct-provider-head.prov-langserver { border-bottom-color: color-mix(in srgb, var(--prov-langserver) 45%, var(--line)); }
+/* MUSE CODE's provider and tier colours (user 2026-10-12 20:09Z: the exact
+   baby-blue cyan of Muse's official marketing, on every provider-colour
+   surface, readable in every theme; lead decision 2026-10-13). Laid out like
+   the Language servers block above:
+   - --prov-muse is the lane ACCENT that paints desk text, badges, borders,
+     rails and spinners. #afe5ff is SAMPLED, NOT CHOSEN: pixel (1210,246) of
+     Muse Code's official landing art,
+     dev.meta.ai/images/landing/model_api_muse_glimmer.png (sha256
+     9680c092536b...). 11.28:1 on --panel, 12.15:1 on --bg, 9.59:1 on
+     --input, 14.02:1 on obsidian --panel. On the light surfaces it is
+     1.36:1, so there the accent is the same hue (199.5 deg) at 35 %
+     lightness, #0078b2: 4.85:1 on --panel #fff, 4.52:1 on --bg #f6f7f9,
+     4.69:1 / 4.50:1 on the solarized --panel / --bg (3.7-4.2:1 on the
+     --panel-2 and --side greys).
+   - KNOWN COLLISIONS, KEPT BY DECISION (CIE76, normal vision): #afe5ff is
+     1.9 from --tier-flash #aee2f9 and 6.5 from the frozen --ice #a8d4ea;
+     #0078b2 is 8.1 from the light --work #23679e. Every one is carried by
+     more than colour: a Muse card has the Muse rail and its own W/F/S tier
+     letter and colour, a Flash card the Antigravity blue rail and its F, a
+     frozen agent the snowflake icon and its freeze label, a working task
+     the word "working".
+   - --prov-muse-ink is the text on an accent fill: dark on the cyan
+     (12.97:1; white would be 1.36:1), white on the deep cyan (4.85:1). */
+:root { --prov-muse: #afe5ff; --prov-muse-ink: #17191d; }
+:root:is(.contrast-light, .contrast-solarized-light) { --prov-muse: #0078b2; --prov-muse-ink: #ffffff; }
+:root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
+  .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
+  .tab-count, .badge, .mailbtn .count).prov-muse {
+  --prov-muse: var(--org-accent);
+  --provider-accent: var(--org-accent) !important;
+  --accent: var(--org-accent);
+  --accent-hover: var(--org-accent-hover);
+  --accent-soft: var(--org-accent-soft);
+  --accent-ink: var(--org-agent-ink);
+  --agent-accent-text: var(--org-agent-text);
+  --agent-accent-ink: var(--org-agent-ink);
+  --agent-count-ink: var(--org-agent-count-ink);
+}
+.prov-muse { --button-accent: var(--prov-muse); }
+.sq.prov-muse.busy {
+  border-color: color-mix(in srgb, var(--prov-muse) 55%, transparent);
+}
+.sq.prov-muse.busy:not(.desk) {
+  border-top-color: color-mix(
+    in srgb, var(--tier-accent, var(--provider-accent)) 55%, var(--line));
+}
+.sq.prov-muse.desk {
+  border-color: var(--prov-muse);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
+    0 0 0 1px color-mix(in srgb, var(--prov-muse) 25%, transparent);
+}
+.sq.prov-muse.desk.proc-warm {
+  box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
+    0 0 0 1px color-mix(in srgb, var(--prov-muse) 25%, transparent),
+    0 0 20px color-mix(in srgb, var(--prov-muse) 20%, transparent);
+}
+.sq.prov-muse, .desk-body.prov-muse {
+  --provider-accent: var(--prov-muse);
+  --accent: var(--prov-muse);
+  --accent-soft: color-mix(in srgb, var(--prov-muse) 16%, transparent);
+  --accent-hover: color-mix(in srgb, var(--prov-muse) 82%, white);
+  --accent-ink: var(--prov-muse-ink);
+  --agent-accent-ink: var(--prov-muse-ink);
+}
+/* Stop stays the red destructive action with its white text */
+:is(.sq, .desk-body).prov-muse .cc-send.stop { --agent-accent-ink: initial; }
+.tempdesk-panel.prov-muse { --accent: var(--prov-muse); --accent-soft: color-mix(in srgb, var(--prov-muse) 16%, transparent); }
+.proc-state.active.prov-muse { --process-accent: var(--prov-muse); }
+.cc-spin.prov-muse { color: var(--prov-muse); }
+.eye-count.prov-muse { background: color-mix(in srgb, var(--prov-muse) 42%, var(--panel-2)); }
+.tab-count.prov-muse { color: var(--agent-accent-text, var(--prov-muse)); font-weight: 700; }
+.mailbtn .count.prov-muse { background: var(--prov-muse); --agent-accent-ink: var(--prov-muse-ink); }
+.badge.prov-muse { color: var(--agent-accent-text, var(--prov-muse)); border-color: color-mix(in srgb, var(--prov-muse) 45%, var(--line)); }
+.edge-jump.prov-muse, .desk-nav-chip.prov-muse {
+  --accent: var(--prov-muse);
+  --accent-soft: color-mix(in srgb, var(--prov-muse) 16%, transparent);
+}
+.tray-row.prov-muse { --accent: var(--prov-muse); }
+.pinwin.prov-muse, .pin-snap-preview.prov-muse { --accent: var(--prov-muse); --accent-soft: color-mix(in srgb, var(--prov-muse) 16%, transparent); }
+.acct-provider-head.prov-muse { border-bottom-color: color-mix(in srgb, var(--prov-muse) 45%, var(--line)); }
+.acct-provider-head.prov-muse .acct-preview-tag { color: var(--agent-accent-text, var(--prov-muse));
+  border-color: color-mix(in srgb, var(--prov-muse) 45%, var(--line)); }
+/* an account swatch is a fill with no text: on white the pale cyan of a
+   tinted Muse account would all but vanish, so the light surfaces ring it in
+   the deep cyan (the swatch itself keeps the account's own tint) */
+:root:is(.contrast-light, .contrast-solarized-light) .account-swatch.swatch-muse { box-shadow: inset 0 0 0 1px var(--prov-muse); }
+/* Muse's tiers: routine colours inside the tier design (lead 2026-10-13),
+   MEASURED (tools tier_pick / tier_check): at least 4.5:1 on --panel and on
+   the badge fill --input, then as far as the hue allows from every tier,
+   provider, status and theme colour and from each other, in the CIE76
+   distance and in simulated deuteranopia/protanopia (Machado 2009 matrices,
+   a model, not a measurement of anyone's vision).
+   - wonder #97edd0, mint teal: 11.19:1 / 9.50:1; nearest --tip-seat 21.0,
+     --tier-haiku 21.1 (13.2 simulated).
+   - wonder-full #f07582, rose coral: 5.52:1 / 4.69:1; nearest --prov-claude
+     23.3, --bad 26.5 (12.6 simulated, from --tier-terra). A magenta was
+     tried first and sat 4.9 from --review in simulated protanopia.
+   - spark #ffff7a, electric yellow: 14.47:1 / 12.29:1; nearest --tier-fable
+     35.8, --warn 36.3 (21.3 simulated).
+   The three are 59.6-87.4 apart (25.7+ simulated). The W, F and S letters
+   stay the redundant glyph (F and S are shared with Fable/Flash and
+   Sonnet/Sol, told apart by family row and colour, as A is for Astra and
+   Argon); on the light surfaces every tier chip is drawn grey on a dark
+   backing (the rule near the top of this file). */
+:root { --tier-wonder: #97edd0; --tier-wonder-full: #f07582; --tier-spark: #ffff7a; }
+.chip.agents b.t-wonder { color: var(--tier-wonder); }
+.chip.agents b.t-wonder-full { color: var(--tier-wonder-full); }
+.chip.agents b.t-spark { color: var(--tier-spark); }
+.sq.tier-wonder { --tier-accent: var(--tier-wonder); border-top-color: color-mix(in srgb, var(--tier-wonder) 55%, var(--line)); }
+.sq.tier-wonder-full { --tier-accent: var(--tier-wonder-full); border-top-color: color-mix(in srgb, var(--tier-wonder-full) 55%, var(--line)); }
+.sq.tier-spark { --tier-accent: var(--tier-spark); border-top-color: color-mix(in srgb, var(--tier-spark) 55%, var(--line)); }
+.sq.mini.tier-wonder { --mini-tier: var(--tier-wonder); }
+.sq.mini.tier-wonder-full { --mini-tier: var(--tier-wonder-full); }
+.sq.mini.tier-spark { --mini-tier: var(--tier-spark); }
+.sq.prov-muse.desk.tier-wonder { border-top-color: var(--tier-wonder); }
+.sq.prov-muse.desk.tier-wonder-full { border-top-color: var(--tier-wonder-full); }
+.sq.prov-muse.desk.tier-spark { border-top-color: var(--tier-spark); }
+.tier.t-wonder { color: var(--tier-wonder); border-color: color-mix(in srgb, var(--tier-wonder) 45%, var(--line)); }
+.tier.t-wonder-full { color: var(--tier-wonder-full); border-color: color-mix(in srgb, var(--tier-wonder-full) 45%, var(--line)); }
+.tier.t-spark { color: var(--tier-spark); border-color: color-mix(in srgb, var(--tier-spark) 45%, var(--line)); }
+.hsof button.t-wonder { color: var(--tier-wonder); border-color: color-mix(in srgb, var(--tier-wonder) 45%, var(--line)); }
+.hsof button.t-wonder-full { color: var(--tier-wonder-full); border-color: color-mix(in srgb, var(--tier-wonder-full) 45%, var(--line)); }
+.hsof button.t-spark { color: var(--tier-spark); border-color: color-mix(in srgb, var(--tier-spark) 45%, var(--line)); }
 /* the settings section (user 2026-10-10: "it should look similar to
    openrouter"): a server is the OpenRouter key row — name · preset · harness ·
    address with ⟳ ✎ ✕, its digest under it — and its offered models are chips
