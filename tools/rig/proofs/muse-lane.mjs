@@ -41,7 +41,8 @@ export default async function (rig) {
       ] },
       kara: { turns: [{ name: 'key', match: 'PROOF-KEY', steps: [{ text: 'On the key account.' }] }] },
       // kian, kofi, kemi: opted in; their wall tries the API-key branch of the fallback
-      ...Object.fromEntries(['kian', 'kofi', 'kemi'].map((n) => [n, { turns: [
+      // (pia, pinned to Spark 1.2, tries a login that offers only Spark 1.3)
+      ...Object.fromEntries(['kian', 'kofi', 'kemi', 'pia'].map((n) => [n, { turns: [
         { name: 'moved', match: 'You now run on the account', steps: [{ text: 'Continuing on the key account.' }] },
         { name: 'wall', match: 'PROOF-KEYWALL', once: true, steps: [{ text: 'Trying.' }, { quota: { resetsAtMs: resetMs } }] },
       ] }])),
@@ -295,9 +296,10 @@ export default async function (rig) {
     contextLimit: 1007997, outputLimit: 128000 }
   const only = (modelId) => JSON.stringify({ source: 'providerCatalog', models: [{ modelId, isDefault: true, ...ROW }] })
   const own = (start, catalog) => fs.writeFileSync(path.join(start.xdg_config, 'muse-catalog.json'), catalog)
-  /** hire `name` opted into fallback, give it the wall; resolves once the fallback has moved it or left it frozen */
-  const wall = async (name) => {
-    await rig.op({ op: 'hire', name, parent: 'boss', tier: 'wonder', title: 'key fallback agent', account_fallback: true })
+  /** hire `name` opted into fallback (on `tier`, pinned to `version`), give it the wall; resolves once the fallback has moved it or left it frozen */
+  const wall = async (name, { tier = 'wonder', version } = {}) => {
+    await rig.op({ op: 'hire', name, parent: 'boss', tier, title: 'key fallback agent', account_fallback: true })
+    if (version) await rig.api('POST', `/api/orgs/${rig.org}/nodes/${name}/scope`, { model_version: version })
     await rig.userMail(name, 'PROOF-KEYWALL: please do the thing.')
     const id = await rig.waitFor(() => rig.agentRow(name)?.id, { what: `${name} hired`, timeout: 20000 })
     const stays = new RegExp(`it stays frozen[^\\n]*agent=${id}\\b|agent=${id}\\b[^\\n]*it stays frozen`)
@@ -324,6 +326,16 @@ export default async function (rig) {
     p.check('key: with the switch on, a key that offers the model takes the agent, in its own roots with its key',
       takes.account === K && kemiStart?.meta_api_key_set === true && /muse-key-/i.test(kemiStart?.xdg_config ?? ''),
       { account: takes.account, frozen: rig.agentRow('kemi')?.frozen, start: { xdg_config: kemiStart?.xdg_config, key: kemiStart?.meta_api_key_set } })
+    // a pinned version: the user's own login offers Spark 1.3 and 1.2, the profile M only 1.3 (with room)
+    fs.writeFileSync(path.join(rig.fakeDir, 'muse-catalog.json'), JSON.stringify({ source: 'providerCatalog', models: [
+      { modelId: 'muse-wonder-1.0', isDefault: true, ...ROW }, { modelId: 'muse-spark-1.3', isDefault: false, ...ROW },
+      { modelId: 'muse-spark-1.2', isDefault: false, ...ROW }] }))
+    await rig.api('GET', '/api/muse/usage?force=true')
+    const pinned = await wall('pia', { tier: 'spark', version: '1.2' })
+    const piaModel = log('pia', 'session').find((e) => e.action === 'start')?.model
+    p.check('pin: a seat pinned to Spark 1.2 is not moved to a login that offers only Spark 1.3; it stays frozen on its own',
+      piaModel === 'muse-spark-1.2' && pinned.row?.frozen && pinned.account == null,
+      { model: piaModel, account: pinned.account, frozen: pinned.row?.frozen, last_error: pinned.row?.last_error })
   } else {
     p.check('key: the API-key fallback fixtures could run (both logins started)', false, { ninaStart, karaStart })
   }
