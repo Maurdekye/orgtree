@@ -116,6 +116,10 @@ struct Ctx {
     /// holds the org-inbox audience
     extern_holder: bool,
     org_md: Option<String>,
+    /// the org's shared notes folder (`Config::org_notes_dir`) and its
+    /// AGENTS.md as read now; a CLI is given the text when it starts
+    org_notes_dir: PathBuf,
+    org_notes: Option<String>,
     session_id: Option<String>,
     session_provider: Option<String>,
     generation: i32,
@@ -444,15 +448,30 @@ impl Proc {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct Fingerprint {
     parts: Vec<(&'static str, String)>,
+    /// the digest of the org's shared notes the launch delivers (None: a
+    /// fingerprint saved before it existed). Never part of equality: a warm
+    /// CLI keeps the copy it started with (coordinator ruling (b),
+    /// 2026-10-13); the forecast compares it when a CLI would start.
+    org_notes: Option<String>,
+}
+
+/// Equal when a warm CLI may serve the launch: every part but the org's
+/// shared notes.
+impl PartialEq for Fingerprint {
+    fn eq(&self, other: &Fingerprint) -> bool {
+        self.parts == other.parts
+    }
 }
 
 /// The fingerprint's parts, in `plan`'s order. `startup` is the digest of the
 /// instruction files the CLI reads when it starts (runtime/startup.rs). A
 /// fingerprint saved before it existed reads as unknown, never as changed.
 const PRINT_PARTS: [&str; 7] = ["system_prompt", "tools", "model", "permission_mode", "folders", "account", "startup"];
+/// The org's shared notes, kept beside the parts (`Fingerprint::org_notes`).
+const ORG_NOTES_PART: &str = "org_notes";
 /// An idle agent re-reads its startup files this often, so an edit shows in
 /// its forecast and its parked CLI is replaced before the next turn.
 const STARTUP_RECHECK: Duration = Duration::from_secs(20);
@@ -464,20 +483,24 @@ const ADMIT_RETRY_MAX: Duration = Duration::from_secs(60);
 #[logged]
 impl Fingerprint {
     fn to_json(&self) -> Value {
-        json!(self.parts.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>())
+        let notes = self.org_notes.iter().map(|v| json!([ORG_NOTES_PART, v]));
+        json!(self.parts.iter().map(|(k, v)| json!([k, v])).chain(notes).collect::<Vec<_>>())
     }
 
     fn from_json(v: &Value) -> Option<Fingerprint> {
-        let parts = v
-            .as_array()?
+        let all = v.as_array()?;
+        let is_notes = |p: &&Value| p.get(0).and_then(Value::as_str) == Some(ORG_NOTES_PART);
+        let org_notes = all.iter().find(is_notes).and_then(|p| p.get(1)?.as_str().map(str::to_string));
+        let parts = all
             .iter()
+            .filter(|p| !is_notes(p))
             .map(|p| {
                 let name = p.get(0)?.as_str()?;
                 let k = PRINT_PARTS.iter().find(|n| **n == name)?;
                 Some((*k, p.get(1)?.as_str()?.to_string()))
             })
             .collect::<Option<Vec<_>>>()?;
-        (parts.len() == PRINT_PARTS.len()).then_some(Fingerprint { parts })
+        (parts.len() == PRINT_PARTS.len()).then_some(Fingerprint { parts, org_notes })
     }
 
     fn part(&self, name: &str) -> Option<&str> {
@@ -816,6 +839,7 @@ impl Actor {
             if Instant::now() >= k && self.turn.is_none() {
                 self.keep_until = None;
                 self.close_proc().await;
+                self.update_forecast().await;
                 self.publish();
             }
         }
@@ -946,6 +970,7 @@ impl Actor {
             AgentMsg::Process { action, reply } => {
                 self.cancel_keepalive().await;
                 let r = self.process_control(&action).await;
+                self.update_forecast().await;
                 self.publish();
                 let _ = reply.send(r);
             }
@@ -1000,6 +1025,7 @@ impl Actor {
                     crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("cli.evicted",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
                     self.keep_until = None;
                     self.close_proc().await;
+                    self.update_forecast().await;
                     self.publish();
                 }
             }
@@ -1412,6 +1438,10 @@ impl Actor {
             .map(PathBuf::from)
             .unwrap_or_else(|| self.engine.cfg.scratch_root(&slug).join(&name));
         let org_md = std::fs::read_to_string(self.engine.cfg.workspace_dir(&slug).join("org.md")).ok();
+        // every agent of the org holds its shared notes folder, without a stored grant
+        let org_notes_dir = self.engine.cfg.org_notes_dir(&slug);
+        let eff = scope::with_org_notes(&eff, &org_notes_dir.to_string_lossy());
+        let org_notes = std::fs::read_to_string(org_notes_dir.join(crate::config::ORG_NOTES_FILE)).ok();
         // §15 cascade: every ancestor's team charter binds its subtree, root first
         let cascade: Vec<(String, String)> = chain
             .iter()
@@ -1441,6 +1471,8 @@ impl Actor {
             org_slug: slug,
             killswitch: r.get(18),
             org_md,
+            org_notes_dir,
+            org_notes,
             effort,
             fallback,
             harness,
@@ -1520,7 +1552,9 @@ impl Actor {
         let sb = if lane == prompt::Lane::Codex { self.codex_seat(may_write, pm).0 } else { codexrt::sandbox(may_write, pm, false) };
         // a read-only seat without the OS sandbox is held by the approval policy instead
         let sandbox = if sb.approval == "untrusted" { "untrusted" } else { sb.mode };
+        // the org's shared notes are delivered on their own (`plan`), not as a granted folder's
         let folders: Vec<PathBuf> = ctx.effective["add_dirs"].as_array().into_iter().flatten()
+            .filter(|d| !scope::is_org_notes(d))
             .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
         let (own_notes, folder_notes) = startup::standing_notes(&self.startup_inputs(ctx), &ctx.scratch, &folders);
         let skills = crate::rig::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
@@ -1570,7 +1604,14 @@ impl Actor {
                 }
             }
         }
-        let identity = self.identity(ctx, &external);
+        let base = self.identity(ctx, &external);
+        // the org's shared notes as read now, last in the prompt. A CLI keeps
+        // the copy it started with: the text stays out of the system prompt
+        // part, so another agent's edit never respawns a warm CLI
+        // (coordinator ruling (b), 2026-10-13)
+        let notes_file = ctx.org_notes_dir.join(crate::config::ORG_NOTES_FILE);
+        let notes = prompt::org_notes(&notes_file.to_string_lossy(), ctx.org_notes.as_deref());
+        let identity = format!("{base}{notes}");
         let mcp = json!({ "mcpServers": servers });
         let mut allowed: Vec<String> = servers.keys().map(|k| format!("mcp__{k}")).collect();
         if on("bash") {
@@ -1600,7 +1641,7 @@ impl Actor {
         let dirs_print = format!("{}|{}", add_dirs.join(";"), settings);
         let print = Fingerprint {
             parts: vec![
-                ("system_prompt", hash(&identity)),
+                ("system_prompt", hash(&base)),
                 ("tools", hash(&tools_print)),
                 ("model", ctx.model.clone()),
                 ("permission_mode", ctx.effective["permission_mode"].as_str().unwrap_or("").to_string()),
@@ -1608,6 +1649,7 @@ impl Actor {
                 ("account", self.account_print(ctx)),
                 ("startup", startup::digest(&self.startup_inputs(ctx))),
             ],
+            org_notes: Some(hash(&notes)),
         };
         Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print }
     }
@@ -2048,6 +2090,11 @@ impl Actor {
             None
         };
         self.account_gate(ctx, route.as_ref())?;
+        // the org's shared notes folder exists before a CLI is given it; the
+        // file is the agents' to create
+        if let Err(e) = std::fs::create_dir_all(&ctx.org_notes_dir) {
+            tracing::warn!(agent = %ctx.name, error = %e, "the org's shared notes folder could not be created");
+        }
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
             return self.ensure_codex(ctx, route.as_ref()).await;
         }
@@ -4728,6 +4775,9 @@ impl Actor {
             let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
             let msg = if quiet { None } else { Some(format!("the {} process exited during the turn ({status}; {reason})", catalog::provider_label(&self.provider))) };
             self.end_turn(msg, Value::Null).await?;
+        } else {
+            // the next turn starts a CLI: the forecast weighs what it will read (org notes)
+            self.update_forecast().await;
         }
         self.publish();
         Ok(())
@@ -5619,7 +5669,13 @@ impl Actor {
                            "ttl_seconds": null, "expires_at": null });
         };
         let now_print = self.plan(ctx).print;
-        let changed = now_print.changed(sent);
+        let mut changed = now_print.changed(sent);
+        // the org's shared notes reach only a CLI that starts: a warm one
+        // serving the next turn keeps its copy
+        let starts = self.proc.is_none() || self.reconfigured || !changed.is_empty();
+        if starts && now_print.org_notes.is_some() && sent.org_notes.is_some() && now_print.org_notes != sent.org_notes {
+            changed.push(ORG_NOTES_PART.to_string());
+        }
         if !changed.is_empty() {
             return json!({ "generation": generation, "state": "known_incompatible", "readiness": "not_ready",
                            "readiness_cause": "prefix_changed", "reason": "the prompt prefix changed since the last turn",
@@ -5915,4 +5971,32 @@ fn muse_result(item: &Value) -> (String, bool) {
     .or_else(|| item["fallbackText"].as_str().map(str::to_string))
     .unwrap_or_else(|| status.to_string());
     (text, failed)
+}
+
+#[cfg(test)]
+mod print_tests {
+    use super::*;
+
+    #[nolog]
+    fn print(prompt: &str, notes: Option<&str>) -> Fingerprint {
+        let parts = PRINT_PARTS.iter().map(|k| (*k, if *k == "system_prompt" { prompt.to_string() } else { format!("{k}-1") })).collect();
+        Fingerprint { parts, org_notes: notes.map(str::to_string) }
+    }
+
+    /// Another agent's edit of the org's shared notes leaves a warm CLI
+    /// usable (coordinator ruling (b), 2026-10-13), and the notes' digest
+    /// survives an engine restart beside the parts.
+    #[test]
+    fn org_notes_never_make_a_warm_cli_stale_and_are_kept_across_restarts() {
+        let a = print("p", Some("n1"));
+        assert_eq!(a, print("p", Some("n2")));
+        assert!(a.changed(&print("p", Some("n2"))).is_empty());
+        assert_ne!(a, print("q", Some("n1")));
+        let back = Fingerprint::from_json(&a.to_json()).unwrap();
+        assert_eq!((back.org_notes.as_deref(), &back.parts), (Some("n1"), &a.parts));
+        // a fingerprint saved before the notes existed reads, their digest unknown
+        let old = json!(a.parts.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>());
+        let back = Fingerprint::from_json(&old).unwrap();
+        assert_eq!((back.org_notes, back.parts), (None, a.parts));
+    }
 }

@@ -655,14 +655,16 @@ fn real_path(p: &Path) -> PathBuf {
 }
 
 /// Is `target` (already real) inside a tree a file dog of `owner` may read:
-/// its working folder, the org workspace, or a folder its effective scope
-/// holds? One rule for create and for every tick (3.x `wd_file_contained`).
+/// its working folder, the org workspace, the org's shared notes folder, or
+/// a folder its effective scope holds? One rule for create and for every
+/// tick (3.x `wd_file_contained`).
 #[logged]
 async fn file_contained(engine: &Engine, org_id: i64, owner: i64, scratch: &Path, target: &Path) -> Result<bool> {
     let eff = effective_scope(engine, owner).await?;
     let mut roots = vec![real_path(scratch)];
     if let Some(o) = engine.orgs.by_id(org_id) {
         roots.push(real_path(&engine.cfg.workspace_dir(&o.slug)));
+        roots.push(real_path(&engine.cfg.org_notes_dir(&o.slug)));
     }
     for d in eff["add_dirs"].as_array().into_iter().flatten() {
         if let Some(p) = d["path"].as_str() {

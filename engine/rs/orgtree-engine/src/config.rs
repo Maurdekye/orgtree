@@ -91,7 +91,20 @@ impl Config {
     pub fn workspace_dir(&self, org_slug: &str) -> PathBuf {
         self.data_root.join("workspaces").join(org_slug)
     }
+
+    /// The org's shared notes folder, holding the one AGENTS.md every agent of
+    /// the org reads and edits without a stored grant (user 2026-10-13 18:10Z).
+    /// A leading `_` is never an agent's name (`ops::valid_name`), so no
+    /// agent's folder can be it; org.md and the workspace stay out of reach.
+    pub fn org_notes_dir(&self, org_slug: &str) -> PathBuf {
+        self.scratch_root(org_slug).join(ORG_NOTES_DIR)
+    }
 }
+
+/// the org's shared notes folder, under its scratch root (`org_notes_dir`)
+pub const ORG_NOTES_DIR: &str = "_shared";
+/// the one file delivered from that folder
+pub const ORG_NOTES_FILE: &str = "AGENTS.md";
 
 /// Canonical path WITHOUT the `\\?\` verbatim prefix Windows' canonicalize adds:
 /// the desktop compares `dataRootId` with `path.resolve(...)` output.

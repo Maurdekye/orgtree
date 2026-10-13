@@ -224,6 +224,29 @@ pub fn org_ceiling(org_dirs: &Value) -> Value {
     })
 }
 
+/// `effective` plus the org's shared notes folder (`Config::org_notes_dir`),
+/// as a launch runs with it and never stored: read-write when the seat may
+/// write its own folder, else read-only. It replaces a stored grant of the
+/// same folder and is marked, so the prompt names it apart from the folders
+/// the agent was granted (user 2026-10-13 18:10Z).
+#[logged]
+pub fn with_org_notes(effective: &Value, dir: &str) -> Value {
+    let mut out = effective.clone();
+    let pm = out["permission_mode"].as_str().unwrap_or("acceptEdits");
+    let may_write = out["tools"].get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
+    let mut dirs = out["add_dirs"].as_array().cloned().unwrap_or_default();
+    dirs.retain(|d| !d["path"].as_str().is_some_and(|p| norm_path(p) == norm_path(dir)));
+    dirs.push(json!({ "path": dir, "mode": if may_write { "rw" } else { "ro" }, "org_notes": true }));
+    out["add_dirs"] = Value::Array(dirs);
+    out
+}
+
+/// Is this folder entry the org's shared notes folder (`with_org_notes`)?
+#[logged]
+pub fn is_org_notes(dir: &Value) -> bool {
+    dir["org_notes"].as_bool() == Some(true)
+}
+
 /// Refuse a capability grant above the caller, rather than storing a dormant
 /// privilege that could become effective after a move. Only supplied axes count.
 #[logged]
@@ -347,6 +370,22 @@ mod tests {
         let raised = raise(&effective, &json!({"tools":{"orgtree":{"messaging":true}}}));
         assert_eq!(raised["tools"]["orgtree"]["messaging"], true);
         assert_eq!(raised["tools"]["orgtree"]["team"], false);
+    }
+
+    #[test]
+    fn org_notes_folder_joins_a_launch_scope_marked_with_the_seat_write_right() {
+        let notes = "D:\\data\\scratch\\proof\\_shared";
+        let stored = json!({ "permission_mode": "acceptEdits", "tools": { "edit": true },
+            "add_dirs": [{ "path": "E:\\repo", "mode": "ro" }, { "path": "D:/data/scratch/proof/_shared/.", "mode": "ro" }] });
+        let eff = with_org_notes(&stored, notes);
+        // a stored grant of the same folder gives way; every other folder stays as it was
+        assert_eq!(eff["add_dirs"], json!([{ "path": "E:\\repo", "mode": "ro" }, { "path": notes, "mode": "rw", "org_notes": true }]));
+        assert!(is_org_notes(&eff["add_dirs"][1]) && !is_org_notes(&eff["add_dirs"][0]));
+        assert_eq!(eff["permission_mode"], "acceptEdits");
+        // a seat that may not write its own folder only reads the notes
+        for seat in [json!({ "permission_mode": "plan" }), json!({ "tools": { "edit": false } })] {
+            assert_eq!(with_org_notes(&seat, notes)["add_dirs"], json!([{ "path": notes, "mode": "ro", "org_notes": true }]));
+        }
     }
 
     #[test]

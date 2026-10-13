@@ -113,14 +113,14 @@ pub fn identity(i: &Identity) -> String {
     s.push('\n');
 
     // ---- folders, skills, the gate ----
-    let dirs: Vec<(String, bool)> = i.scope["add_dirs"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|d| d["path"].as_str().map(|p| (p.to_string(), d["mode"].as_str() == Some("ro"))))
-                .collect()
-        })
-        .unwrap_or_default();
+    // the org's shared notes folder is every agent's, described on its own below
+    let all_dirs = i.scope["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let org_notes_dir = all_dirs.iter().find(|d| crate::domain::scope::is_org_notes(d));
+    let dirs: Vec<(String, bool)> = all_dirs
+        .iter()
+        .filter(|d| !crate::domain::scope::is_org_notes(d))
+        .filter_map(|d| d["path"].as_str().map(|p| (p.to_string(), d["mode"].as_str() == Some("ro"))))
+        .collect();
     s.push_str("Folders you may work in: ");
     if dirs.is_empty() {
         s.push_str("only your own scratch folder");
@@ -271,6 +271,9 @@ pub fn identity(i: &Identity) -> String {
         "Your scratch folder is your own: keep an AGENTS.md there as standing memories. Existing CLAUDE.md notes still apply; use AGENTS.md for new notes. It is delivered to you at the \
          start of every session and survives compaction; notes you add apply from your next session. ",
     );
+    if let Some(d) = org_notes_dir.and_then(|d| d["path"].as_str().map(|p| (p, d["mode"].as_str() != Some("ro")))) {
+        s.push_str(&org_notes_rule(i.org_name, d.0, d.1));
+    }
     for (path, text) in i.own_notes { s.push_str(&own_notes(path, text)); }
     s.push_str(&folder_notes(i.folder_notes));
     s
@@ -385,6 +388,39 @@ mod group_tests {
         let claude = render(&json!({ "permission_mode": "acceptEdits", "tools": { "edit": true, "bash": true } }), Lane::Claude, false, None);
         assert!(claude.contains(".claude/skills") && !claude.contains(MUSE_SKILLS_AND_PROTECTED));
     }
+
+    /// The org's shared notes folder is told apart from granted folders on
+    /// every lane, writable only where the seat may write its own folder.
+    #[test]
+    fn org_notes_rule_names_the_file_apart_from_granted_folders() {
+        let dir = "D:/proof/_shared";
+        let file = std::path::Path::new(dir).join("AGENTS.md").display().to_string();
+        let rw = crate::domain::scope::with_org_notes(&json!({ "add_dirs": [{ "path": "E:/repo", "mode": "rw" }] }), dir);
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse] {
+            let s = render(&rw, lane, false, None);
+            assert!(s.contains("Folders you may work in: E:/repo. "), "{lane:?}");
+            assert!(s.contains(&format!("ORG SHARED NOTES: Proof keeps ONE shared AGENTS.md for all its agents, {file} ")));
+            assert!(s.contains("You may edit it with no grant") && !s.contains("Your scope lets you read it, not edit it."));
+        }
+        let ro = render(&crate::domain::scope::with_org_notes(&json!({ "tools": { "edit": false } }), dir), Lane::Claude, false, None);
+        assert!(ro.contains("Folders you may work in: only your own scratch folder. ") && !ro.contains("Read-only:"));
+        assert!(ro.contains("Your scope lets you read it, not edit it.") && !ro.contains("You may edit it with no grant"));
+        assert!(!render(&json!({}), Lane::Claude, false, None).contains("ORG SHARED NOTES"));
+    }
+
+    #[test]
+    fn org_notes_copy_takes_the_own_notes_cap() {
+        let path = "D:/proof/_shared/AGENTS.md";
+        assert_eq!(org_notes(path, None), "");
+        assert_eq!(org_notes(path, Some(" \n ")), "");
+        let s = org_notes(path, Some("Times are UTC.\n"));
+        assert!(s.starts_with(&format!("\n\n[ORG SHARED NOTES - {path}, your organization's shared AGENTS.md")));
+        assert!(s.ends_with("current version.]\nTimes are UTC.\n[END ORG SHARED NOTES]"));
+        let long = "x".repeat(OWN_NOTES_MAX + 5);
+        let s = org_notes(path, Some(&long));
+        assert!(s.contains(&format!("TRUNCATED: the file is {} chars and only the first {OWN_NOTES_MAX}", OWN_NOTES_MAX + 5)));
+        assert!(s.ends_with(&format!("]\n{}\n[END ORG SHARED NOTES]", "x".repeat(OWN_NOTES_MAX))));
+    }
 }
 
 /// org.md, the organization's standing instructions, as 4.0 delivers it.
@@ -464,6 +500,49 @@ fn own_notes(path: &str, text: &str) -> String {
          you run does not read that file itself. You wrote these; they are yours to revise. Editing the file changes \
          this prompt, so your next session starts cold with the new notes; this is why the file is worth keeping \
          short.{}]\n{body}\n[END STANDING NOTES]",
+        if cut { format!(" TRUNCATED: the file is {full} chars and only the first {OWN_NOTES_MAX} are here; read the file for the rest.") } else { String::new() }
+    )
+}
+
+/// What every agent of an org is told about the org's shared notes (user
+/// 2026-10-13 18:10Z): where the file is, who reads and edits it, and that
+/// the copy at the end of the prompt is the file as its CLI started with it.
+#[logged]
+fn org_notes_rule(org: &str, dir: &str, writable: bool) -> String {
+    let file = std::path::Path::new(dir).join(crate::config::ORG_NOTES_FILE);
+    let edit = if writable {
+        "You may edit it with no grant: re-read the file right before you change it, change it in place with small \
+         edits, and never write that copy back over it."
+    } else {
+        "Your scope lets you read it, not edit it."
+    };
+    format!(
+        "ORG SHARED NOTES: {org} keeps ONE shared AGENTS.md for all its agents, {} (it exists once an agent writes \
+         it). Every agent of this organization, including agents hired later, gets it at session start, and every \
+         agent that may write files may edit it; agents of other organizations never see it. Put there what the \
+         whole org should know (conventions, decisions, where things live); your own memories stay in your scratch \
+         AGENTS.md. When it has content, the copy at the end of this prompt is the file as it was when your CLI \
+         started: others may have edited it since, so read the file before relying on a recent entry. {edit} ",
+        file.display()
+    )
+}
+
+/// The org's shared notes as a CLI gets them when it starts, last in the
+/// prompt, with the cap and truncation notice of the agent's own notes. The
+/// launch fingerprint keeps them apart from the system prompt part, so
+/// another agent's edit never respawns a warm CLI (coordinator ruling (b),
+/// 2026-10-13).
+#[logged]
+pub fn org_notes(path: &str, text: Option<&str>) -> String {
+    let t = text.unwrap_or_default().trim();
+    if t.is_empty() { return String::new(); }
+    let full = t.chars().count();
+    let cut = full > OWN_NOTES_MAX;
+    let body: String = t.chars().take(OWN_NOTES_MAX).collect();
+    format!(
+        "\n\n[ORG SHARED NOTES - {path}, your organization's shared AGENTS.md as it was when your CLI started. Every \
+         agent of this organization gets it and may edit it; the file itself is the current version.{}]\n{body}\n\
+         [END ORG SHARED NOTES]",
         if cut { format!(" TRUNCATED: the file is {full} chars and only the first {OWN_NOTES_MAX} are here; read the file for the rest.") } else { String::new() }
     )
 }
