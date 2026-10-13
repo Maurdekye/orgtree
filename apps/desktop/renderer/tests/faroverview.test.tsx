@@ -27,7 +27,7 @@ function node(): CanvasNode {
 
 function card(lod:'mini'|'norm',sink:Sink={spawned:[],downs:[]}) {
   const nd = node()
-  nd.documents = [{id:"plan",title:"Plan",format:"md",at:"2026-10-13T00:00:00Z",bytes:10},{id:"file",title:"Download",format:"file",at:"2026-10-13T00:00:01Z",bytes:20}] as CanvasNode["documents"]
+  nd.documents = [{id:"plan",title:"Plan",format:"markdown",at:"2026-10-13T00:00:00Z",bytes:10},{id:"html",title:"Mockup",format:"html",at:"2026-10-13T00:00:01Z",bytes:20}] as CanvasNode["documents"]
   return mountView(
     <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} focused={false}
       dragging={false} isDrop={false} seats={seats} codexHire={hire}
@@ -45,7 +45,7 @@ function card(lod:'mini'|'norm',sink:Sink={spawned:[],downs:[]}) {
     (el) => el)
 }
 
-test('side presentation and download cards disappear only at mini',async(t)=>{
+test('side markdown and HTML presentation cards disappear only at mini',async(t)=>{
   const near=await card('norm');const far=await card('mini')
   t.after(()=>near.unmount());t.after(()=>far.unmount())
   assert.equal(near.el.querySelectorAll('.doc-chip').length,2,'normal control has both retained attachments')

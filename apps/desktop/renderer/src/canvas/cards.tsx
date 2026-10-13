@@ -1954,7 +1954,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           openrouterHire={openrouterHire} langserverHire={langserverHire}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'b'}
           onToggleExpanded={() => toggleCompactHire('b')} />}
-      {/* Presented documents and file/download chips disappear at mini
+      {/* Presented markdown and HTML chips disappear at mini
           (user 2026-10-13). Unmount only this side attachment surface:
           documents remain in the tree and return at normal zoom; desks,
           pinned readers and the gallery keep their own presentation. */}
