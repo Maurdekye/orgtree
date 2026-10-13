@@ -58,7 +58,7 @@ export default async function (rig) {
     { what: 'unobserved turn settles', timeout: 15000 })
   await rig.userMail('boss', 'CANCEL-WRITING')
   await rig.waitFor(async () => (await active()).some(r => r.tool_id === 'write-cancel'), { what: 'cancel target writing', timeout: 15000 })
-  await rig.op({ op: 'halt', node: 'boss' })
+  await rig.op({ op: 'halt', nodes: ['boss'] })
   await rig.waitFor(async () => !(await chat()).busy, { what: 'halt settles writing turn', timeout: 20000 })
   p.check('cancellation clears active writing and admits no fictitious tool chip', (await active()).length === 0
     && !(await chat()).messages.some(m => m.tools?.some(t => t.id === 'write-cancel')))
