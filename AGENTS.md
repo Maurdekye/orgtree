@@ -182,6 +182,20 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   (`tools/defs.rs`) are not group-scoped. [verified: `runtime/identity.rs`,
   `domain/tool_groups.rs`, 2026-10-13]
 
+- OpenCode is an optional OpenRouter/language-server harness over the reusable
+  ACP1 transport. Discovery must negotiate an installed OpenCode 2.x entrypoint;
+  the per-seat OpenRouter pin still wins. Default/acceptEdits deny Code Mode
+  execute; bypass permits nested calls and fetch. Direct file approvals check
+  folder grants, shell follows the bash switch, and neither claims an OS sandbox.
+  Config-injected MCP is direct (`codemode:false`); the first prompt observes
+  bridge initialize/tools-list plus a measured 250 ms catalog settle, or continues
+  after five seconds with an explicit unobserved-tools note. Queue mid-turn mail
+  for the next turn; never label it injected. Custom-provider cost/cache lifetime
+  remain unknown. Credentials stay in isolated launch environment/config and
+  launch directories are removed at teardown. See [ACP contract and evidence
+  limits](docs/rust-engine/opencode-acp.md). [decided: user/coordinator 2026-10-13;
+  verified from source: `runtime/{acp,acp_scope,opencode}.rs`, `bridge.rs`]
+
 - Model browser list children must not flex-shrink: OpenRouter and Language
   Server rows and sticky vendor headings keep their natural height inside the
   capped scrolling frame. See [model browser layout](docs/rust-engine/model-browser-layout.md).
