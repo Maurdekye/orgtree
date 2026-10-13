@@ -7,12 +7,13 @@ import { accountDisplayId, accountIdentity } from '../accountidentity'
 import { THEMES } from '../themes'
 import { pickFolder } from '../picker'
 import { ProviderSignIn } from './accounts'
+import { MUSE_COLOR } from './shared'
 import { PinFrame } from './modalpin'
 import { SetToggle } from './settingskit'
 import type { LoginProvider } from '../../../../../packages/contracts'
 import type { ToastFn } from '../types'
 
-export type AccountProvider = 'claude' | 'openai' | 'google'
+export type AccountProvider = 'claude' | 'openai' | 'google' | 'muse'
 type AccountRow = {
   id: string; provider: string; label: string; name?: string; ambient?: boolean
   credential: { kind: string; path?: string; default_config?: boolean }
@@ -158,11 +159,14 @@ export function ClearMarkDialog({ row, mark, toast, reload, close }: {
     </div>
   </PinFrame>
 }
-const LABELS: Record<AccountProvider, string> = { claude: 'Claude', openai: 'Codex', google: 'Antigravity' }
+const LABELS: Record<AccountProvider, string> = { claude: 'Claude', openai: 'Codex', google: 'Antigravity',
+  muse: 'Muse' }
 const ANTIGRAVITY_ACCOUNT_PROFILE_ISSUE =
   'https://github.com/google-antigravity/antigravity-cli/issues/381'
 const COLORS: Record<AccountProvider, string> = {
   claude: THEMES.claude.accent, openai: THEMES.codex.accent, google: THEMES.antigravity.accent,
+  // Muse's provider color (styles.css --prov-muse): no visual theme of its own
+  muse: MUSE_COLOR,
 }
 
 export function useAccountRegistry() {
@@ -272,7 +276,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
     {native?.installed && !nativeRow &&
       <div className={'account-row native-login' + (nativeActive === false ? ' inactive' : '')}>
         <div className="account-identity">
-          <span className="account-swatch" aria-hidden="true" style={{ background: COLORS[provider] }} />
+          <span className={'account-swatch swatch-' + provider} aria-hidden="true" style={{ background: COLORS[provider] }} />
           <strong>{accountIdentity('default', native.email)}</strong>
           <span className="dim">signed-in subscription · {native.connected === true ? 'Signed in'
             : native.connected === false ? 'Sign-in required' : 'Sign-in not verified'}</span>
@@ -283,12 +287,14 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
       </div>}
     {rows.map(row => {
       const login: LoginProvider | null = row.credential.kind === 'token' ? null
-        : provider === 'claude' ? 'claude' : provider === 'openai' ? 'codex' : null
+        : provider === 'claude' ? 'claude' : provider === 'openai' ? 'codex'
+          // a Muse API-key row has no sign-in; a managed one runs `muse login`
+          : provider === 'muse' && row.mode !== 'apikey' ? 'muse' : null
       const who = accountIdentity(accountDisplayId(row), row.identity?.email)
       const active = row.ambient ? nativeActive : row.enabled !== false
       return <div key={row.id} className={'account-row' + (active === false ? ' inactive' : '')}>
         <div className="account-identity">
-          <span className="account-swatch" aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
+          <span className={'account-swatch swatch-' + provider} aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
           <strong>{who}</strong>
           <span className="dim">{row.ambient ? 'signed-in subscription · ' : ''}{signInText(row.standing.auth)}</span>
         </div>
@@ -375,7 +381,9 @@ export function AddAccountDialog({ provider, onAdded, close }: {
         <p className="dim">Create a separate profile for this account, then sign in.</p>
         <button disabled={busy} onClick={() => { void create('managed') }}>Create managed account</button>
       </section>
-      <section className="account-add-option">
+      {/* a Muse sign-in is its own config and data roots, laid out by Muse
+          itself on sign-in: the engine refuses an imported folder */}
+      {provider !== 'muse' && <section className="account-add-option">
         <h4>Import a folder</h4>
         <p className="dim">Use an existing {LABELS[provider]} profile folder.</p>
         <label>Profile folder<input aria-label="Profile folder" value={path} disabled={busy} onChange={e => setPath(e.target.value)} /></label>
@@ -383,7 +391,7 @@ export function AddAccountDialog({ provider, onAdded, close }: {
           <button disabled={busy} onClick={() => { void browse() }}>Browse...</button>
           <button disabled={busy || !path.trim()} onClick={() => { void create('imported') }}>Import folder</button>
         </div>
-      </section>
+      </section>}
     </>}
     {/* ⚠ OFFERED WHETHER OR NOT THE PROVIDER'S SUBSCRIPTION IS SIGNED IN
         (ticket requirement): an API-key account is an ordinary account, not a

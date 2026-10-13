@@ -15,6 +15,7 @@ type ToastFn = (lines: string[]) => void
 
 const PROVIDERS: [string, string][] = [
   ['claude', 'Claude'], ['openai', 'Codex'], ['google', 'Antigravity'],
+  ['muse', 'Muse'],
   ['openrouter', 'OpenRouter'], ['langserver', 'Language servers'],
 ]
 

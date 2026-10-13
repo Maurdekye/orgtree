@@ -51,7 +51,7 @@ interface Door {
    *  is "google", never "codex"/"antigravity"; kept as an internal mapping so
    *  the REST of this module and the bridge's own vocabulary can stay in the
    *  user-facing name. */
-  apiId: 'claude' | 'openai' | 'google'
+  apiId: 'claude' | 'openai' | 'google' | 'muse'
   supportsCode: boolean
   extraArgs: string[]
 }
@@ -61,6 +61,10 @@ const DOORS: Record<LoginProvider, Door> = {
   // extraArgs is unused for antigravity — it never goes through LoginSession
   // (see launchAntigravityTerminal below) — kept empty for the Door shape.
   antigravity: { apiId: 'google', supportsCode: false, extraArgs: [] },
+  // Muse's own `muse login` (Muse Code 1.4.6 help: "approve a code in your
+  // browser"), in a visible terminal like Antigravity's — see
+  // launchMuseTerminal below; it never goes through LoginSession either.
+  muse: { apiId: 'muse', supportsCode: false, extraArgs: ['login'] },
 }
 
 /** Runtime validation for every native sign-in IPC entry point. */
@@ -135,12 +139,40 @@ let taskkillSpawn: typeof spawn = spawn
 export function _setTaskkillSpawnForTests(fn: typeof spawn): void { taskkillSpawn = fn }
 
 function launchAntigravityTerminal(exe: string): { started: boolean; error?: string } {
+  return launchTerminal(exe, [])
+}
+
+/** Muse's sign-in, `muse login`, shows a code the user approves in the
+ *  browser: the person has to SEE that code, and this module could only
+ *  scrape it from output whose shape no app-side test has measured (a real
+ *  `muse login` is a real sign-in). So it runs in a visible terminal the
+ *  same way Antigravity's does, and the user clicks Refresh when done.
+ *
+ *  A PROFILE login (a managed Muse account) points Muse's two roots at the
+ *  account's own folder — `config` (its sign-in) and `data` (its sessions) —
+ *  exactly as the engine starts that account's agents
+ *  (`providers::muse_models::login_env`; keep the two in step). The user's
+ *  own login runs with their environment as it is. Either way the terminal
+ *  never inherits a META_API_KEY (Muse prefers a key over the account login,
+ *  so a stray one would make the sign-in moot), and MUSE_NO_AUTO_UPDATE
+ *  keeps the CLI from updating itself in the middle of it. */
+function launchMuseTerminal(exe: string, profileDir?: string): { started: boolean; error?: string } {
+  const env: NodeJS.ProcessEnv = { ...process.env, MUSE_NO_AUTO_UPDATE: '1' }
+  delete env.META_API_KEY
+  if (profileDir) {
+    env.XDG_CONFIG_HOME = path.join(profileDir, 'config')
+    env.XDG_DATA_HOME = path.join(profileDir, 'data')
+  }
+  return launchTerminal(exe, DOORS.muse.extraArgs, env)
+}
+
+function launchTerminal(exe: string, args: string[], env?: NodeJS.ProcessEnv): { started: boolean; error?: string } {
   if (process.platform !== 'win32') {
     return { started: false, error: 'opening a terminal is only supported on Windows' }
   }
   try {
-    const child = terminalSpawn('cmd', ['/c', 'start', '""', exe], {
-      detached: true, stdio: 'ignore', windowsHide: false,
+    const child = terminalSpawn('cmd', ['/c', 'start', '""', exe, ...args], {
+      detached: true, stdio: 'ignore', windowsHide: false, ...(env ? { env } : {}),
     })
     child.unref()
     return { started: true }
@@ -458,8 +490,9 @@ export async function startProviderLogin(
     if (!row?.status.installed || !exe) {
       return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false, error: 'not-installed' })
     }
-    if (provider === 'antigravity') {
-      const launch = launchAntigravityTerminal(exe)
+    if (provider === 'antigravity' || provider === 'muse') {
+      const launch = provider === 'muse'
+        ? launchMuseTerminal(exe, opts?.profileDir) : launchAntigravityTerminal(exe)
       if (!launch.started) {
         return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false, error: launch.error })
       }

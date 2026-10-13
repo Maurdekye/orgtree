@@ -115,6 +115,9 @@ const CLAUDE_CMD_FIXTURE = path.join(REPO, 'fake_claude_auth_login.cmd')
 // antigravity spawn seam below is always substituted before this runs, so
 // nothing ever actually execs this string.
 const ANTIGRAVITY_FIXTURE = 'C:\\fake\\agy.exe'
+// the same for Muse: its door opens a visible terminal too, through the
+// same substituted seam, so this string is never executed either
+const MUSE_FIXTURE = 'C:\\fake\\muse-bin.exe'
 
 // Antigravity opens a VISIBLE terminal window by design (user-approved UX,
 // 2026-09-09) — the one path in this module the automated suite must never
@@ -171,6 +174,7 @@ function providersServer(state, { forceDelayMs = 0 } = {}) {
             { id: 'claude', status: state.claude },
             { id: 'openai', status: state.codex },
             { id: 'google', status: state.antigravity },
+            { id: 'muse', status: state.muse },
           ],
         }))
       }
@@ -198,6 +202,7 @@ function freshState() {
     claude: { installed: true, path: CLAUDE_FIXTURE, connected: false },
     codex: { installed: true, path: CODEX_FIXTURE, connected: false },
     antigravity: { installed: true, path: ANTIGRAVITY_FIXTURE, connected: false },
+    muse: { installed: true, path: MUSE_FIXTURE, connected: false },
   }
 }
 
@@ -627,6 +632,65 @@ test('antigravity: cancel with nothing tracked is a harmless no-op, before or af
   assert.equal(providerlogin.cancelProviderLogin('antigravity').phase, 'idle')
 })
 
+test('antigravity: its terminal still opens with the inherited environment and no arguments', async () => {
+  await providerlogin.startProviderLogin(handle.origin, TOKEN, 'antigravity')
+  assert.equal(antigravitySpawnCalls[0].opts.env, undefined)
+})
+
+// ── Muse: `muse login` shows a code to approve in the browser, so it opens
+// a visible terminal like Antigravity's and resolves unverified (ok:null).
+// A managed account's login points Muse's config and data roots at the
+// account's own folder, as the engine starts that account's agents. ──
+
+test('muse: sign-in opens `muse login` in a detached terminal and resolves with ok:null', async () => {
+  const oldKey = process.env.META_API_KEY
+  process.env.META_API_KEY = 'fixture-key-never-forwarded'
+  try {
+    const r = await providerlogin.startProviderLogin(handle.origin, TOKEN, 'muse')
+    assert.equal(r.started, true)
+    assert.equal(r.phase, 'done')
+    assert.equal(r.ok, null, 'opening a terminal verifies nothing')
+    assert.equal(antigravitySpawnCalls.length, 1)
+    const call = antigravitySpawnCalls[0]
+    assert.equal(call.cmd, 'cmd')
+    assert.deepEqual(call.args, ['/c', 'start', '""', MUSE_FIXTURE, 'login'])
+    assert.equal(call.opts.detached, true)
+    assert.equal(call.opts.windowsHide, false)
+    assert.equal(call.opts.env.MUSE_NO_AUTO_UPDATE, '1')
+    assert.equal(call.opts.env.META_API_KEY, undefined, 'a key would outrank the account login')
+    // the user's own login keeps their own Muse roots
+    assert.equal(call.opts.env.XDG_CONFIG_HOME, process.env.XDG_CONFIG_HOME)
+    assert.equal(call.opts.env.XDG_DATA_HOME, process.env.XDG_DATA_HOME)
+    assert.equal(providerlogin.getProviderLoginStatus('muse').phase, 'idle')
+  } finally {
+    if (oldKey === undefined) delete process.env.META_API_KEY
+    else process.env.META_API_KEY = oldKey
+  }
+})
+
+test('muse: a managed account signs in under its own config and data roots', async () => {
+  const profile = fs.mkdtempSync(path.join(temp, 'muse-profile-'))
+  const r = await providerlogin.startProviderLogin(handle.origin, TOKEN, 'muse',
+    { profileDir: profile, accountId: 'muse-1' })
+  assert.equal(r.started, true)
+  assert.equal(r.ok, null)
+  const env = antigravitySpawnCalls[0].opts.env
+  assert.equal(env.XDG_CONFIG_HOME, path.join(profile, 'config'))
+  assert.equal(env.XDG_DATA_HOME, path.join(profile, 'data'))
+  assert.equal(env.MUSE_NO_AUTO_UPDATE, '1')
+})
+
+test('muse: missing CLI is refused and has no code door', async () => {
+  const state = freshState(); state.muse.installed = false; state.muse.path = null
+  await new Promise(resolve => handle.server.close(resolve))
+  handle = await providersServer(state)
+  const r = await providerlogin.startProviderLogin(handle.origin, TOKEN, 'muse')
+  assert.equal(r.phase, 'error')
+  assert.equal(r.error, 'not-installed')
+  assert.equal(antigravitySpawnCalls.length, 0)
+  assert.throws(() => providerlogin.submitProviderLoginCode('muse', '123456'))
+})
+
 
 for (const provider of ['claude', 'codex']) {
   for (const profileOk of [true, false]) {
@@ -706,7 +770,7 @@ test('default Claude account login strips inherited selector and verifies select
 
 
 test('native login validation accepts every implemented provider and rejects unknown inputs', () => {
-  for (const provider of ['claude', 'codex', 'antigravity']) {
+  for (const provider of ['claude', 'codex', 'antigravity', 'muse']) {
     assert.equal(providerlogin.asLoginProvider(provider), provider)
   }
   for (const unknown of ['google', 'openai', 'constructor', '__proto__', '', null, {}, 1]) {

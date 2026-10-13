@@ -51,6 +51,7 @@ const MIN_TREND_MS = 15 * 60_000
 
 const PROVIDERS: Record<string, string> = {
   claude: 'Claude', openai: 'Codex', google: 'Antigravity', openrouter: 'OpenRouter',
+  muse: 'Muse',
 }
 export const providerName = (p: string): string => PROVIDERS[p] ?? p
 

@@ -1151,6 +1151,13 @@ export const getAntigravityUsage = (force = false): Promise<AccountUsage> =>
   req(`/api/antigravity/usage${force ? '?force=true' : ''}`)
 export const getAntigravityUsagePeek = (): Promise<UsagePeek> =>
   req('/api/antigravity/usage/peek')
+// Muse: the latest standing Muse itself dated (`usage/read` or a turn's
+// `usage/changed`); `force` asks Muse again now — a metadata read, never a
+// model turn. The glow stays on the cache-only peek.
+export const getMuseUsage = (force = false): Promise<AccountUsage> =>
+  req(`/api/muse/usage${force ? '?force=true' : ''}`)
+export const getMuseUsagePeek = (): Promise<UsagePeek> =>
+  req('/api/muse/usage/peek')
 // OpenRouter: a prepaid credit balance read off the stored key's
 // `GET /api/v1/key`, cached 60s server-side — the modal costs a fetch, the
 // glow polls the cache-only peek

@@ -25,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museTierOffer, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
@@ -483,7 +483,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
               setBrowseProvider(e.target.value)
               setAccount?.(primaryAccount(e.target.value))
             }}>
-            {['claude', 'openai', 'google'].map((provider) => (
+            {['claude', 'openai', 'google', 'muse'].map((provider) => (
               <option key={provider} value={provider}>{registryProviderName(provider)}</option>
             ))}
           </select>
@@ -919,6 +919,9 @@ interface NodeConfigProps {
   openrouterProvider?: ProviderInfo | null
   /** the Language Server lane's entry (present once a server exists) */
   langserverProvider?: ProviderInfo | null
+  /** Muse Code's entry: its tiers are offered only while the account's own
+   *  catalog lists them (user 2026-10-12 19:57Z) */
+  museProvider?: ProviderInfo | null
   /** D-202: which provider families this machine has at all. Absent = the
    *  optimistic default (everything), so a caller that has not resolved the
    *  payload behaves exactly as this panel did before. */
@@ -927,7 +930,7 @@ interface NodeConfigProps {
 }
 
 export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
-  antigravityProvider, openrouterProvider, langserverProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
+  antigravityProvider, openrouterProvider, langserverProvider, museProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
   const [tab, setTab] = useState<NodeConfigTab>('charter')
   const tabId = useId()
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
@@ -1119,6 +1122,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const antigravityUnavailable = !antigravityProvider?.hire_enabled
     ? antigravityProvider?.reason ?? 'provider state unavailable'
     : null
+  const museUnavailable = !museProvider?.hire_enabled
+    ? museProvider?.reason ?? 'provider state unavailable'
+    : null
   // the OpenRouter lane: a key IS a keyed login, so headless never refuses it
   const openrouterUnavailable = !openrouterProvider?.hire_enabled
     ? openrouterProvider?.reason ?? 'provider state unavailable'
@@ -1129,6 +1135,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     if (t === node.tier) return null
     if (CODEX_TIERS.includes(t) && codexUnavailable) return codexUnavailable
     if (ANTIGRAVITY_TIERS.includes(t) && antigravityUnavailable) return antigravityUnavailable
+    if (MUSE_TIERS.includes(t) && museUnavailable) return museUnavailable
     if (isOpenRouterTier(t)) {
       if (openrouterUnavailable) return openrouterUnavailable
       if (!openrouterTierIds().includes(t)) return 'not among current favorites'
@@ -1154,6 +1161,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // other model. Moving it to luna is the offered way off the token.
   const codexHire = hireOf(codexProvider)
   const antigravityHire = hireOf(antigravityProvider)
+  const museHire = hireOf(museProvider)
   const shownTiers = (fam: readonly string[]) =>
     fam.filter((t) => tierShown(presence, t, node.tier)
       && !(CODEX_TIERS.includes(t) && codexTierOffer(codexHire, t) === 'hide'
@@ -1162,6 +1170,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       // keep rule: a node already on the tier still sees its own value
       && !(ANTIGRAVITY_TIERS.includes(t)
         && antigravityTierOffer(antigravityHire, t) === 'hide' && t !== node.tier)
+      // a Muse tier the account's catalog does not list (Wonder Full on an
+      // account without it), same keep rule
+      && !(MUSE_TIERS.includes(t) && museTierOffer(museHire, t) === 'hide' && t !== node.tier)
       // an opt-in legacy tier of another family, same keep rule
       && !(optInLegacyHidden(t) && t !== node.tier))
   const modelOption = (t: string) => {
@@ -1244,12 +1255,13 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           value={model} onChange={(e) => {
             const next = e.target.value
             if (providerOf(next) !== providerOf(model)) setAcct(
-              acct && ['claude', 'openai', 'google'].includes(providerOf(next))
+              acct && ['claude', 'openai', 'google', 'muse'].includes(providerOf(next))
                 ? primaryAccount(providerOf(next)) : '')
             setModel(next)
           }}>
           {([['Claude', TIERS], ['Codex', CODEX_TIERS],
              ['Antigravity', ANTIGRAVITY_TIERS],
+             ['Muse', MUSE_TIERS],
              // the OpenRouter favorites, from the registry the payload fills
              // (preserving this node's own tier if it was since deselected — w76fba70b)
              ['OpenRouter', openrouterTierIds(node.tier)],
@@ -1281,7 +1293,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
 
         {/* Primary is selectable even if no registry row exists. */}
-        {['claude', 'openai', 'google'].includes(providerOf(model)) && (
+        {['claude', 'openai', 'google', 'muse'].includes(providerOf(model)) && (
           <>
         <SetRow label="Account" hint={node.account?.startsWith('missing:') ? `The saved account is missing: ${node.account}.` : 'Choose the signed-in account this agent uses.'}><AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
               host={hostIdentity} onChange={setAcct} /></SetRow>

@@ -9,10 +9,10 @@
 // on the level that is already pinned clears it back to inherit.
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
-import { EFFORT_LEVELS } from './effortlevels'
+import { DEFAULT_EFFORT_LEVELS, EFFORT_LEVELS } from './effortlevels'
 
 /** the level nearest `frac` (0 = left end of the bar, 1 = right end) */
-export function nearestLevel(frac: number, count = EFFORT_LEVELS.length): number {
+export function nearestLevel(frac: number, count = DEFAULT_EFFORT_LEVELS.length): number {
   if (!(count > 1)) return 0
   const f = Number.isFinite(frac) ? Math.min(1, Math.max(0, frac)) : 0
   return Math.round(f * (count - 1))
@@ -34,11 +34,12 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
   inheritLabel?: string
   /** one row, no label above (Quick chat's header): the level is in the tooltip and aria-valuetext */
   compact?: boolean
-  /** the levels the model supports (a prefix-ordered subset of EFFORT_LEVELS); [] = no effort setting, the bar is
-   *  disabled; undefined = all of them. A stored level above the top shows clamped to the top. */
+  /** the levels the model supports, in its own harness's names (an ordered subset of EFFORT_LEVELS); [] = no effort
+   *  setting, the bar is disabled; undefined = not known yet, Claude Code's five. A stored level the model does not
+   *  name shows clamped (the highest offered at or below it, else the lowest), as the engine sends it. */
   levels?: readonly string[]
 }) {
-  const LV = levelsProp ? EFFORT_LEVELS.filter((l) => levelsProp.includes(l)) : EFFORT_LEVELS
+  const LV = levelsProp ? EFFORT_LEVELS.filter((l) => levelsProp.includes(l)) : DEFAULT_EFFORT_LEVELS
   const none = LV.length === 0
   const disabled = disabledProp || none
   const clamp = (v: string): number => {

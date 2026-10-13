@@ -31,7 +31,7 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
+  ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
@@ -641,6 +641,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // for the surfaces that carry no HireState of their own
   useEffect(() => { setOfferedConditionalTiers(antigravityProvider?.tiers) },
     [antigravityProvider])
+  // the Muse family: every tier conditional on the account's own catalog rows
+  const museProvider = providerEntries.find(
+    (v) => v.id === 'muse') ?? null
+  useEffect(() => { setMuseProvider(museProvider) }, [museProvider])
+  const museHire = hireOf(museProvider)
   // …and the org doc's own tier→model table, so a node still running on a
   // favorite that was since deselected is named by its model, not its slug
   useEffect(() => { noteTierModels(tree.models) }, [tree.models])
@@ -663,15 +668,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // dropdown). Same verdict the chips use — see `providerShown`.
   const presence = useMemo(() => presenceOf({
     claude: claudeProvider, openai: codexProvider, google: antigravityProvider,
-    openrouter: openrouterProvider, langserver: langserverProvider,
-  }), [claudeProvider, codexProvider, antigravityProvider, openrouterProvider, langserverProvider])
+    openrouter: openrouterProvider, langserver: langserverProvider, muse: museProvider,
+  }), [claudeProvider, codexProvider, antigravityProvider, openrouterProvider, langserverProvider, museProvider])
   const userDisabled = useMemo(() => ({
     claude: claudeProvider?.user_enabled === false,
     openai: codexProvider?.user_enabled === false,
     google: antigravityProvider?.user_enabled === false,
     openrouter: openrouterProvider?.user_enabled === false,
     langserver: langserverProvider?.user_enabled === false,
-  }), [claudeProvider, codexProvider, antigravityProvider, openrouterProvider, langserverProvider])
+    muse: museProvider?.user_enabled === false,
+  }), [claudeProvider, codexProvider, antigravityProvider, openrouterProvider, langserverProvider, museProvider])
   // canonical retired-stack slot (user note 2026-08-06): display-order every
   // parent's children so archived siblings sit CONTIGUOUSLY at the first
   // archived ordinal. Buried members take no layout space, so with a
@@ -4283,7 +4289,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         <NodeConfig node={n} map={map} tree={tree} slug={slug}
           op={op} toast={toast} codexProvider={codexProvider}
           antigravityProvider={antigravityProvider} openrouterProvider={openrouterProvider}
-          langserverProvider={langserverProvider}
+          langserverProvider={langserverProvider} museProvider={museProvider}
           presence={presence}
           close={() => setConfigId(null)} />)}
         </NodeDetailGate></MaybePortal>
@@ -4422,7 +4428,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         <MaybePortal>
           <HireSheet anchor={map.get(sheetId)!} seats={seats} codexHire={codexHire}
             antigravityHire={antigravityHire} claudeHire={claudeHire}
-            openrouterHire={openrouterHire} langserverHire={langserverHire}
+            openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
             checking={!!providerPayload?.checking}
             defaultGrant={!map.get(sheetId)!.parent ? (tree.default_top_grant ?? 50) : 0}
             onClose={() => setHireOpen(false)}
@@ -4543,7 +4549,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 // capability note this sheet draws needs a control that mounts the real
 // component rather than a helper standing in for it.
 export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire,
-  checking, defaultGrant,
+  museHire: museHireProp, checking, defaultGrant,
   onHire, onSettings,
   onClose }: {
   anchor: CanvasNode
@@ -4553,6 +4559,8 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   claudeHire?: HireState | null
   openrouterHire?: HireState | null
   langserverHire?: HireState | null
+  /** the Muse family (default: the payload the canvas adopted) */
+  museHire?: HireState | null
   /** the engine is still checking the sign-ins: say so, never "not set up" */
   checking?: boolean
   defaultGrant: number
@@ -4563,6 +4571,8 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
 }) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
+  const museHireAdopted = useMuseHire()
+  const museHire = museHireProp ?? museHireAdopted
   // D-199: which families this sheet may show, by the one shared rule.
   const famRows = useMemo(() => ([
     { key: 'claude', label: 'model tier — Claude', tiers: TIERS,
@@ -4574,6 +4584,10 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
     { key: 'antigravity', label: 'Antigravity', tiers: ANTIGRAVITY_TIERS,
       letters: ANTIGRAVITY_TIER_LETTER, hire: antigravityHire,
       seatOf: (t: string) => seats[t] ?? ANTIGRAVITY_TIER_SEAT[t] ?? 0 },
+    // the Muse family: each tier only while the account's own catalog lists it
+    { key: 'muse', label: 'Muse', tiers: MUSE_TIERS,
+      letters: MUSE_TIER_LETTER, hire: museHire,
+      seatOf: (t: string) => seats[t] ?? MUSE_TIER_SEAT[t] ?? 0 },
     // the OpenRouter family: the favorites, from the registry the payload
     // fills (their letters already live in TIER_LETTER)
     { key: 'openrouter', label: 'OpenRouter', tiers: openrouterTierIds(),
@@ -4590,7 +4604,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
     .filter((f) => f.offer !== 'hide' && f.tiers.length > 0),
   // the registry is not React state: its ids ride the deps so a favorite
   // added while this sheet is open reaches the rows on the next payload
-  [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, seats,   // eslint-disable-line react-hooks/exhaustive-deps
+  [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire, seats,   // eslint-disable-line react-hooks/exhaustive-deps
    openrouterTierIds().join(','), langserverTierIds().join(',')])
   // ⚠ THE DEFAULT TIER IS THE FIRST OFFERABLE ONE, NOT A CONSTANT. It was the
   // literal 'sonnet', so on a machine with only Codex set up this sheet opened
@@ -4606,7 +4620,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
     hireTierOffer(f.key, f.hire, t)
   const firstOfferable = famRows
     .flatMap((f) => f.tiers.filter((t) => tierOffer(f, t) === 'offer'))[0] ?? ''
-  const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire]
+  const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire]
     .some((h) => h?.userEnabled === false)
   const [tier, setTier] = useState(firstOfferable)
   // the payload arrives after mount, so the first offerable tier can appear a

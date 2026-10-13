@@ -101,7 +101,7 @@ export interface RunAsAdministratorState { available: boolean; enabled: boolean;
  *  (always-interactive) main process, never by the engine, which may be a
  *  boot-host running under a non-interactive Windows S4U session with no
  *  desktop to open a browser into. See apps/desktop/main/providerlogin.ts. */
-export type LoginProvider = 'claude' | 'codex' | 'antigravity'
+export type LoginProvider = 'claude' | 'codex' | 'antigravity' | 'muse'
 /** One provider login attempt's state. `awaiting_code` only ever appears
  *  for a door that supports one (Claude); Codex's own local redirect
  *  server needs nothing typed anywhere and never reaches that phase.
@@ -109,7 +109,9 @@ export type LoginProvider = 'claude' | 'codex' | 'antigravity'
  *  2026-09-09): it opens a visible terminal and resolves immediately with
  *  `ok: null` — never `true`/`false`, since nothing here verifies whether
  *  the user actually signed in. `null` is the renderer's cue to show a
- *  manual Refresh action instead of a pass/fail result. */
+ *  manual Refresh action instead of a pass/fail result. Muse's `muse login`
+ *  shows a code to approve in the browser, so it opens the same kind of
+ *  terminal and resolves the same way. */
 export interface ProviderLoginStatus {
   phase: 'idle' | 'starting' | 'awaiting_code' | 'done' | 'error'
   ok: boolean | null

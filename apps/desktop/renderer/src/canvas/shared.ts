@@ -50,6 +50,7 @@ export const TIER_LETTER: Record<string, string> = {
   // S — the chip class carries the family
   flash: 'F', pro: 'P', argon: 'A', barium: 'B', carbon: 'C',
   'agy-sonnet': 'S', 'agy-opus': 'O',
+  wonder: 'W', 'wonder-full': 'F', spark: 'S',
 }
 export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
@@ -66,7 +67,7 @@ export const TIER_SEAT: Record<string, number> =
  *  version it is merely listing. */
 export const MODEL_VERSIONS: Record<string, string[]> =
   { haiku: ['5.5', '4.5'], opus: ['5.5', '5', '4.8'], sonnet: ['5.5', '5'], fable: ['5.1', '5'],
-    flash: ['3.8', '3.7', '3.6'], sol: ['6.1', '6', '5.6'], luna: ['6', '5.6'] }
+    flash: ['3.8', '3.7', '3.6'], sol: ['6.1', '6', '5.6'], luna: ['6', '5.6'], spark: ['1.3', '1.2'] }
 /** The codex family (FR-15 preview) — ChatGPT/OpenAI tiers. A
  *  SEPARATE list, never merged into TIERS: every existing surface iterates
  *  TIERS, and a family that cannot be hired yet must not grow chips there by
@@ -130,9 +131,19 @@ export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
  *  providers.CONDITIONAL_ANTIGRAVITY_TIERS. */
 // The Claude tiers depend on the Runtime opt-in. They have no version picker.
 export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus']
+/** The Muse Code family (2026-10-12) — Muse Wonder, Muse Wonder Full and
+ *  Muse Spark (1.3, with 1.2 in the version menu). EVERY ONE IS CONDITIONAL:
+ *  offered only while the providers payload's Muse tier rows list it, which
+ *  the backend does only while the signed-in account's own Muse catalog
+ *  lists the tier's model (a bundled catalog row never counts; user
+ *  2026-10-12). Seats approved by the user 2026-10-12: wonder 4, wonder-full
+ *  10, spark 2. Mirrors catalog.rs. */
+export const MUSE_TIERS = ['wonder', 'wonder-full', 'spark']
+export const MUSE_TIER_LETTER: Record<string, string> = { wonder: 'W', 'wonder-full': 'F', spark: 'S' }
+export const MUSE_TIER_SEAT: Record<string, number> = { wonder: 4, 'wonder-full': 10, spark: 2 }
 /** Provider-neutral surfaces (for example the live-agent summary) use this;
  * provider-specific controls keep using their family list. */
-export const ALL_TIERS = [...TIERS, ...CODEX_TIERS, ...ANTIGRAVITY_TIERS]
+export const ALL_TIERS = [...TIERS, ...CODEX_TIERS, ...ANTIGRAVITY_TIERS, ...MUSE_TIERS]
 
 /** Match the backend's Python len(str) character count for user-facing
  * notices. JavaScript String.length counts UTF-16 code units, so it reports
@@ -156,7 +167,7 @@ export const formatCount = (count: number): string => count.toLocaleString('en-U
  *  The OpenRouter half is deliberately NOT here: those tiers are minted at
  *  runtime from the payload, so there is no static price to fall back to. */
 export const ALL_TIER_SEAT: Record<string, number> =
-  { ...TIER_SEAT, ...CODEX_TIER_SEAT, ...ANTIGRAVITY_TIER_SEAT }
+  { ...TIER_SEAT, ...CODEX_TIER_SEAT, ...ANTIGRAVITY_TIER_SEAT, ...MUSE_TIER_SEAT }
 
 /* ── THE OPENROUTER FAMILY (2026-09-02) — TIERS MINTED AT RUNTIME ─────────
  *
@@ -488,7 +499,7 @@ export const modelChoiceTitle = (tier: string, reason?: string | null): string |
   [reason, legacyMark(tier).trim(), tierCapabilityNotes(tier)].filter(Boolean).join(' · ') || undefined
 /** seat for ANY tier the static tables or the registry know */
 export const anyTierSeat = (tier: string): number =>
-  TIER_SEAT[tier] ?? CODEX_TIER_SEAT[tier] ?? ANTIGRAVITY_TIER_SEAT[tier]
+  TIER_SEAT[tier] ?? CODEX_TIER_SEAT[tier] ?? ANTIGRAVITY_TIER_SEAT[tier] ?? MUSE_TIER_SEAT[tier]
     ?? openrouterTier(tier)?.seat ?? langserverTier(tier)?.seat ?? 0
 
 /** Which PROVIDER a tier runs on — the UI mirror of backend
@@ -504,10 +515,11 @@ export const anyTierSeat = (tier: string): number =>
  *  claiming a crossing would offer to destroy a conversation that was never
  *  at risk. The OpenRouter answer is by PREFIX, as on the backend: a favorite
  *  the registry has not seen yet is still an OpenRouter tier. */
-export type ProviderId = 'openai' | 'google' | 'claude' | 'openrouter' | 'langserver'
+export type ProviderId = 'openai' | 'google' | 'claude' | 'openrouter' | 'langserver' | 'muse'
 export const providerOf = (tier: string): ProviderId =>
   (CODEX_TIERS.includes(tier) ? 'openai'
     : ANTIGRAVITY_TIERS.includes(tier) ? 'google'
+    : MUSE_TIERS.includes(tier) ? 'muse'
       : isOpenRouterTier(tier) ? 'openrouter'
         : isLangServerTier(tier) ? 'langserver' : 'claude')
 
@@ -524,7 +536,18 @@ export const procHaloClass = (node: { state: string; proc_live?: boolean }): str
  *  chips and in the accounts panel. */
 export const PROVIDER_LABEL: Record<string, string> = {
   openai: 'Codex', google: 'Antigravity', claude: 'Claude', openrouter: 'OpenRouter',
+  muse: 'Muse',
   langserver: 'Language Server' }
+
+/** Muse's provider color — the value styles.css `--prov-muse` holds too
+ *  (keep the two equal; tests/musecolor.test.tsx compares them): the pale
+ *  cyan sampled from Muse Code's official landing art
+ *  (dev.meta.ai/images/landing/model_api_muse_glimmer.png, pixel 1210,246;
+ *  lead decision 2026-10-13 on the user's "exact baby-blue cyan from official
+ *  Muse marketing"). Too pale for text on the light surfaces (1.36:1 on
+ *  white): there, Muse text and rings use `--prov-muse-text`, the same hue
+ *  at 35 % lightness, #0078b2 (4.85:1). */
+export const MUSE_COLOR = '#afe5ff'
 
 /** One provider's hire state as a hire surface needs it — the `/api/providers`
  *  entry narrowed to the three things any surface asks. `null`/`undefined`
@@ -645,11 +668,18 @@ export const antigravityTierOffer = (
   return familyOffer(h)
 }
 
+/** Offer verdict for one Muse tier: every Muse tier is conditional — no
+ *  evidence (the tier is not among the payload's Muse rows), no offer. */
+export const museTierOffer = (
+  h: HireState | null | undefined, tier: string,
+): FamilyOffer => (!h?.offeredTiers?.includes(tier) ? 'hide' : familyOffer(h))
+
 /** Shared hire-sheet and context-menu eligibility, including per-tier rollout gates. */
 export const hireTierOffer = (provider: string, hire: HireState | null | undefined,
   tier: string): FamilyOffer =>
   provider === 'codex' ? codexTierOffer(hire, tier)
     : provider === 'antigravity' ? antigravityTierOffer(hire, tier)
+    : provider === 'muse' ? museTierOffer(hire, tier)
     : optInLegacyHidden(tier) ? 'hide' : familyOffer(hire)
 
 export interface HireProviders {
@@ -658,6 +688,7 @@ export interface HireProviders {
   antigravityHire?: HireState | null
   openrouterHire?: HireState | null
   langserverHire?: HireState | null
+  museHire?: HireState | null
 }
 
 /** The same family order and tier registry as the hire sheet. */
@@ -665,6 +696,9 @@ export const hireTierChoices = (h: HireProviders) => [
   { provider: 'claude', tiers: TIERS, hire: h.claudeHire },
   { provider: 'codex', tiers: CODEX_TIERS, hire: h.codexHire },
   { provider: 'antigravity', tiers: ANTIGRAVITY_TIERS, hire: h.antigravityHire },
+  // the Muse family's state is the module's own (`setMuseProvider`) when a
+  // caller has none of its own to pass
+  { provider: 'muse', tiers: MUSE_TIERS, hire: h.museHire ?? museHireState },
   { provider: 'openrouter', tiers: openrouterTierIds(), hire: h.openrouterHire },
   { provider: 'langserver', tiers: langserverTierIds(), hire: h.langserverHire },
 ].flatMap(({ provider, tiers, hire }) => tiers.map(tier => ({
@@ -695,9 +729,33 @@ const subscribeConditional = (fn: () => void): (() => void) => {
 const offeredConditionalKey = (): string => offeredConditional.join(',')
 export const useOfferedConditionalTiers = (): string =>
   useSyncExternalStore(subscribeConditional, offeredConditionalKey)
-/** a conditional tier the payload does not (yet) offer */
+/** a conditional tier the payload does not (yet) offer (Muse's included) */
 export const conditionalTierHidden = (tier: string): boolean =>
-  CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier) && !offeredConditional.includes(tier)
+  (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier) && !offeredConditional.includes(tier))
+  || (MUSE_TIERS.includes(tier) && !(museHireState?.offeredTiers ?? []).includes(tier))
+
+/* ---------------- the Muse provider entry, adopted from the canvas's providers poll
+   (like the OpenRouter and Language Server registries): the hire strips, the
+   switch lists and every surface without a HireState of its own read its offer
+   from here, so a tier appears the moment the account's catalog lists it. */
+let museHireState: HireState | null = null
+const museSubs = new Set<() => void>()
+export const setMuseProvider = (p: ProviderInfo | null | undefined): void => {
+  const next = hireOf(p)
+  if (JSON.stringify(next) === JSON.stringify(museHireState)) return
+  museHireState = next
+  for (const fn of [...museSubs]) fn()
+}
+const subscribeMuse = (fn: () => void): (() => void) => {
+  museSubs.add(fn)
+  return () => { museSubs.delete(fn) }
+}
+const museKey = (): string => JSON.stringify(museHireState)
+/** the Muse family's hire state, re-rendering when the payload changes it */
+export const useMuseHire = (): HireState | null => {
+  useSyncExternalStore(subscribeMuse, museKey)
+  return museHireState
+}
 
 /** D-202: is this provider part of the product on this machine AT ALL?
  *
@@ -735,7 +793,7 @@ export type ProviderPresence = Record<ProviderId, boolean>
 /** Optimistic default for a surface whose payload has not arrived (or that
  *  has no access to one): everything shown, matching `providerShown(null)`. */
 export const ALL_PRESENT: ProviderPresence = {
-  claude: true, openai: true, google: true, openrouter: true, langserver: true }
+  claude: true, openai: true, google: true, openrouter: true, langserver: true, muse: true }
 
 export const presenceOf = (p: {
   claude?: ProviderInfo | null
@@ -743,6 +801,7 @@ export const presenceOf = (p: {
   google?: ProviderInfo | null
   openrouter?: ProviderInfo | null
   langserver?: ProviderInfo | null
+  muse?: ProviderInfo | null
 }): ProviderPresence => ({
   claude: providerShown(hireOf(p.claude)),
   openai: providerShown(hireOf(p.openai)),
@@ -753,6 +812,8 @@ export const presenceOf = (p: {
   openrouter: providerShown(hireOf(p.openrouter)),
   // the entry exists once a server does; until then there are no tiers to show
   langserver: providerShown(hireOf(p.langserver)),
+  // the entry exists once Muse Code is installed (no entry: never shown)
+  muse: p.muse != null && providerShown(hireOf(p.muse)),
 })
 
 /** The same, straight off the `/api/providers` payload, for surfaces that
@@ -766,6 +827,7 @@ export const presenceOfPayload = (
   google: p.providers.find((v) => v.id === 'google'),
   openrouter: p.providers.find((v) => v.id === 'openrouter'),
   langserver: p.providers.find((v) => v.id === 'langserver'),
+  muse: p.providers.find((v) => v.id === 'muse'),
 }))
 
 /** Should a TIER appear in a list on this machine?

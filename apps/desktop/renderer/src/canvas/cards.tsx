@@ -25,7 +25,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
+  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
@@ -648,6 +648,8 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
   expanded = false, onToggleExpanded, selected }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
+  // the Muse family's state, adopted from the canvas's providers poll
+  const museHire = useMuseHire()
   const chip = (t: string, letter: string | undefined) => {
     const seat = seats[t] ?? anyTierSeat(t)
     // the tooltip names the tier the way the user reads it everywhere else:
@@ -739,6 +741,8 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
       (key === 'codex' ? codexTierOffer(hire, t)
         // Gemini Pro (legacy toggle) and Argon/Barium (only once agy lists it)
         : key === 'antigravity' ? antigravityTierOffer(hire, t)
+        // a Muse tier only while the account's own catalog lists it
+        : key === 'muse' ? museTierOffer(hire, t)
         // an opt-in legacy tier of another family, toggle off
         : optInLegacyHidden(t) ? 'hide' : offer)
     // ⚠ FILTERED BEFORE `tiers` IS STORED, because the inward-first sort below
@@ -762,6 +766,8 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
       (t) => seats[t] ?? CODEX_TIER_SEAT[t] ?? 0)
   fam('antigravity', ANTIGRAVITY_TIERS, ANTIGRAVITY_TIER_LETTER, 'Antigravity', antigravityHire,
       (t) => seats[t] ?? ANTIGRAVITY_TIER_SEAT[t] ?? 0)
+  fam('muse', MUSE_TIERS, MUSE_TIER_LETTER, 'Muse', museHire,
+      (t) => seats[t] ?? MUSE_TIER_SEAT[t] ?? 0)
   // the OpenRouter family (2026-09-02): its tiers are the user's favorites,
   // read from the shared registry the providers payload fills; the letters
   // were written into TIER_LETTER by the same call.
@@ -772,7 +778,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
   fam('langserver', langserverTierIds(), TIER_LETTER, 'Language Server',
       langserverHire, (t) => seats[t] ?? anyTierSeat(t))
   fams.sort((a, b) => b.tiers.length - a.tiers.length)   // inward-first
-  const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire]
+  const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire]
     .some((h) => h?.userEnabled === false)
   // D-199, the state a brand-new user on a fresh machine hits FIRST: no
   // provider is installed, so every family hid and the strip would render

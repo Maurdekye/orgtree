@@ -473,8 +473,12 @@ function ProviderSwitch({ provider, busy, onChange }: {
  *  "code" support is false the same as Codex's; unlike either of them it
  *  never reaches 'starting'/'awaiting_code' at all — see the `ok === null`
  *  branch below, which is unique to it. */
-const LOGIN_LABELS: Record<LoginProvider, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity' }
-const SUPPORTS_CODE: Record<LoginProvider, boolean> = { claude: true, codex: false, antigravity: false }
+const LOGIN_LABELS: Record<LoginProvider, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity',
+  muse: 'Muse' }
+// Muse's `muse login` shows its code in the terminal it opens (the `ok:
+// null` branch below, shared with Antigravity): nothing is typed here
+const SUPPORTS_CODE: Record<LoginProvider, boolean> = { claude: true, codex: false, antigravity: false,
+  muse: false }
 
 /** One provider's sign-in control — the settings panel's own row AND the
  *  usage panel's 403-triggered button are the SAME component (imported into
@@ -558,7 +562,7 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
     )
   }
   if (phase === 'done' && status?.ok === null) {
-    // Antigravity only: providerlogin.ts resolves this the instant it opens
+    // Antigravity and Muse: providerlogin.ts resolves this the instant it opens
     // a terminal window, without verifying anything — there is nothing to
     // poll (see providerlogin.ts's launchAntigravityTerminal docstring), so
     // this is a manual action, not the auto-refresh the true/false cases
@@ -716,6 +720,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     claude: 'https://code.claude.com/docs/en/setup',
     openai: 'https://developers.openai.com/codex/cli/',
     google: 'https://antigravity.google/download',
+    muse: 'https://dev.meta.ai/docs/muse-code',
   }
   const openrouter = providers?.find(p => p.id === 'openrouter')
   const langserver = providers?.find(p => p.id === 'langserver')
@@ -751,7 +756,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
         </div>
       )}
       {providers && !providers.some(p => !gateway(p.id) && p.status.installed) &&
-        <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
+        <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex, Antigravity or Muse Code to run agents.</p>}
       {providers?.filter(p => !gateway(p.id)).map(p => <div key={p.id} className='set-group acct-provider-group'>
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
           <span>{p.label}<span className='dim'> · {p.cli}</span></span>

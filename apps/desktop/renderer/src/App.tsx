@@ -24,6 +24,7 @@ import {
   getMailById, getOrgMd,
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
+  getMuseUsage, getMuseUsagePeek,
   getCodexUsage, getCodexUsagePeek, getLangServers, getOpenRouterKeysUsage, getOpenRouterUsage, getOpenRouterUsagePeek,
   getProviders, getAppTree, patchedTreeCache,
   getUsage, getUsagePeek, killAll,
@@ -246,7 +247,7 @@ export const applyPatchFrame = (
  *  the one word. The limits are what it SHOWS, not what it is. */
 export const usageTitle = (pres: ProviderPresence): string => {
   const names = [pres.claude && 'Claude', pres.openai && 'Codex',
-    pres.google && 'Antigravity']
+    pres.google && 'Antigravity', pres.muse && 'Muse']
     .filter((s): s is string => !!s)
   if (!names.length) return 'usage'
   const label = names.length === 1 ? names[0]
@@ -373,6 +374,7 @@ const TREE_POLL_MS = 6000
 const bootUsagePeek = afterBootGate(getUsagePeek)
 const bootCodexUsagePeek = afterBootGate(getCodexUsagePeek)
 const bootAntigravityUsagePeek = afterBootGate(getAntigravityUsagePeek)
+const bootMuseUsagePeek = afterBootGate(getMuseUsagePeek)
 const bootOpenRouterUsagePeek = afterBootGate(getOpenRouterUsagePeek)
 const bootProviders = afterBootGate(getProviders)
 const bootHost = afterBootGate(getHost)
@@ -571,9 +573,11 @@ export default function App() {
   // openrouter_limits's module docstring for why a plain key never earns a
   // percentage without a spend cap, which is also why this lane rarely glows
   const orrUsagePeek = useAppRead('openrouter_usage_peek', bootOpenRouterUsagePeek)
+  // Muse: the standing Muse itself last dated, cache-only like the rest
+  const museUsagePeek = useAppRead('muse_usage_peek', bootMuseUsagePeek)
   const usageAlert = useMemo(
-    () => usagePeak(usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek),
-    [usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek])
+    () => usagePeak(usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek, museUsagePeek),
+    [usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek, museUsagePeek])
   // D-202: which providers this machine actually has, for the usage button's
   // label. Polled rather than fetched once so installing a CLI mid-session is
   // picked up; unresolved is ALL_PRESENT, i.e. exactly today's wording.
@@ -2178,6 +2182,10 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   // (`openrouter-N`) gets a card of its own with its spend, cap and the
   // shared account balance. Cache-only: the engine's usage loop reads them.
   const orrKeys = useAppRead('openrouter_keys_usage', getOpenRouterKeysUsage)
+  // Muse: the 5-hour window and the week as Muse itself last dated them —
+  // read by its own metadata host or reported by a turn, never estimated
+  // here; a window Muse has not reported is absent, not zero
+  const muse = useUsageReadout('muse_usage', getMuseUsage)
   // the user's own model servers: nothing to meter, so each shows as local
   // with no usage limit, and the one limit it does have — agents at once
   const langservers = useAppRead('langservers', getLangServers)
@@ -2278,6 +2286,21 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
         : <div className="dim">usage unavailable until refresh succeeds</div>}
     </div> })
   }
+  if (shown.muse && (muse.value || muse.failure || muse.pending)) {
+    cards.push({ provider: 'muse', lane: 'muse/primary', node: <div className="usage-acct" key={'host:muse:' + (muse.value?.account ?? 'muse')}>
+      <UsageAcctHead label={registryProviderName('muse')}
+        parts={[usageIdentity('default', hostEmail('muse', muse.value), multipleAccounts('muse'))]}
+        provider="Muse" state={muse} />
+      {/* Muse's own sign-in (`muse login`, a code approved in the browser)
+          runs in a terminal it opens, like Antigravity's — see
+          providerlogin.ts's launchLoginTerminal */}
+      {muse.value?.reauth_required && <ProviderSignIn provider="muse"
+        connected toast={toast} onRefresh={() => { void muse.refresh(true) }} />}
+      {muse.value
+        ? <UsageBars u={{ ...muse.value, provider: registryPlanName('muse') }} />
+        : <div className="dim">usage unavailable until refresh succeeds</div>}
+    </div> })
+  }
   const addedKeys = Object.entries(orrKeys ?? {}).filter(([lane]) => lane !== 'openrouter')
   if (shown.openrouter && (orr.value || orr.failure || orr.pending)) {
     // beside added keys the original names itself as they do
@@ -2324,6 +2347,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
           && !(shown.openai && (codex.value || codex.failure || codex.pending))
           && !(shown.google && (agy.value || agy.failure || agy.pending))
           && !(shown.openrouter && (orr.value || orr.failure || orr.pending))
+          && !(shown.muse && (muse.value || muse.failure || muse.pending))
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
           {groupByProvider(cards.filter((c) => lanes.used(c.lane))).map((c) => c.node)}

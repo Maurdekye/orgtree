@@ -67,7 +67,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -4314,7 +4314,8 @@ interface LineagePanelProps {
 }
 
 export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
-  userDisabled = { claude: false, openai: false, google: false, openrouter: false, langserver: false },
+  userDisabled = { claude: false, openai: false, google: false, openrouter: false, langserver: false,
+    muse: false },
   map, onFocusAgent, close }: LineagePanelProps) {
   // re-render on the "show legacy models" flip — the tier list reads it
   useShowLegacyModels()
@@ -4396,6 +4397,8 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   // one of the user's language servers (its own config folder and home)
   const famOf = (t: string) => CODEX_TIERS.includes(t) ? 'codex'
     : ANTIGRAVITY_TIERS.includes(t) ? 'antigravity'
+      // a Muse session resumes only under Muse (session/resume)
+      : MUSE_TIERS.includes(t) ? 'muse'
       : isOpenRouterTier(t) ? 'openrouter'
         : isLangServerTier(t) ? 'language server' : 'claude'
   const providerKey = (t: string): keyof ProviderPresence => providerOf(t)

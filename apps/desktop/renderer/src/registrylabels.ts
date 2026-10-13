@@ -15,10 +15,12 @@
 
 export const REGISTRY_PROVIDER_NAME: Record<string, string> = {
   claude: 'Claude Code', openai: 'Codex', google: 'Antigravity',
+  muse: 'Muse Code',
 }
 
 export const REGISTRY_PLAN_NAME: Record<string, string> = {
   claude: 'Claude', openai: 'Codex', google: 'Antigravity',
+  muse: 'Muse',
 }
 
 /** The harness name for a row's heading. Unknown ids fall through to the raw
