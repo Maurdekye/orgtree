@@ -1005,8 +1005,15 @@ pub async fn tooloutput(
         "SELECT tool_inputs -> $3::text -> 'failed_shell_output' FROM ot.convo WHERE agent_id = $1 AND seq = $2",
         &[&a.id, &seq, &tool],
     ).await?;
-    let kept = row.and_then(|r| r.get::<_, Option<Value>>(0))
+    let mut kept = row.and_then(|r| r.get::<_, Option<Value>>(0))
         .ok_or_else(|| ApiError::not_found("The full failed-shell output was not retained for this call."))?;
+    if let Some(encoded) = kept["output_base64"].as_str() {
+        use base64::Engine as _;
+        let output = base64::engine::general_purpose::STANDARD.decode(encoded).ok().and_then(|bytes| String::from_utf8(bytes).ok())
+            .ok_or_else(|| ApiError::not_found("The retained failed-shell output could not be decoded."))?;
+        kept.as_object_mut().unwrap().remove("output_base64");
+        kept["output"] = json!(output);
+    }
     Ok(Json(kept))
 }
 

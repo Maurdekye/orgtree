@@ -127,7 +127,14 @@ pub fn retain_failed_shell_output(chip: &mut Value, text: &str, failed: bool, pr
     const MAX_BYTES: usize = 1024 * 1024;
     let mut end = text.len().min(MAX_BYTES);
     while !text.is_char_boundary(end) { end -= 1; }
-    chip["failed_shell_output"] = json!({ "output": &text[..end], "truncated": end < text.len(), "provider_truncated": provider_truncated });
+    let mut kept = json!({ "truncated": end < text.len(), "provider_truncated": provider_truncated });
+    // PostgreSQL JSON cannot contain NUL. Encode this exceptional output so
+    // the shared JSON sanitizer cannot silently remove its returned bytes.
+    if text[..end].contains('\0') {
+        use base64::Engine as _;
+        kept["output_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(&text.as_bytes()[..end]));
+    } else { kept["output"] = json!(&text[..end]); }
+    chip["failed_shell_output"] = kept;
     // Empty provider output is still a reported failure, never a success.
     if chip["error"].is_null() { chip["error"] = json!(crate::util::gist(text, 500)); }
 }
@@ -163,6 +170,13 @@ mod failed_shell_output_tests {
         retain_failed_shell_output(&mut empty, "", true, false);
         assert!(empty["error"].is_string());
         assert_eq!(empty["failed_shell_output"]["truncated"], false);
+        let mut nul = json!({"id":"nul", "name":"Bash"});
+        retain_failed_shell_output(&mut nul, "before\0after", true, false);
+        let mut row = json!({"tools":[nul]});
+        let retained = take_tool_inputs(&mut row, 8);
+        use base64::Engine as _;
+        let decoded = base64::engine::general_purpose::STANDARD.decode(retained["nul"]["failed_shell_output"]["output_base64"].as_str().unwrap()).unwrap();
+        assert_eq!(decoded, b"before\0after");
     }
 }
 
