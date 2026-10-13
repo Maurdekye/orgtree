@@ -78,7 +78,7 @@ const overlay = () => document.querySelector<HTMLElement>('.overlay')!
 const bar = () => document.querySelector<HTMLElement>('.modalpin-bar')!
 const dialog = () => document.querySelector<HTMLElement>('.add-account-dialog')
 const byText = (root: ParentNode, label: string) =>
-  [...root.querySelectorAll('button')].find(b => b.textContent === label)
+  [...root.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent) === label)
 const lane = (provider: string) =>
   document.querySelector('.prov-' + provider)!.closest('.acct-provider-group')!
 
