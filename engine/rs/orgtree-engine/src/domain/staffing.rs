@@ -125,16 +125,18 @@ fn muse_somewhere(engine: &Engine, tier: &str) -> bool {
             .any(|a| matches!(crate::providers::muse_offer(engine, Some(a), &model), crate::providers::MuseOffer::Offered(_)))
 }
 
-/// A Muse tier's level names: the user's own login's row when it offers the
-/// tier, else the first registered login's that does (a hire is checked
-/// again against the login it lands on).
+/// A Muse tier's level names: every level some login that offers the tier
+/// names for its model (the user's own and each registered one switched on,
+/// each by its own catalog row). Each eligible account carries its own
+/// (`eligible_accounts`), and a hire is checked again against the login it
+/// lands on.
 #[logged]
 fn muse_efforts(engine: &Engine, t: &catalog::Tier) -> Vec<&'static str> {
-    let own = crate::providers::effort_names_on(engine, t.tier, None, None);
-    let names = own.or_else(|| engine.accounts.view().all().into_iter()
-        .filter(|a| a.provider == catalog::MUSE && a.enabled)
-        .find_map(|a| crate::providers::effort_names_on(engine, t.tier, None, Some(a))))
-        .unwrap_or_default();
+    let view = engine.accounts.view();
+    let names: Vec<String> = std::iter::once(crate::providers::effort_names_on(engine, t.tier, None, None))
+        .chain(view.all().into_iter().filter(|a| a.provider == catalog::MUSE && a.enabled)
+            .map(|a| crate::providers::effort_names_on(engine, t.tier, None, Some(a))))
+        .flatten().flatten().collect();
     catalog::EFFORT_ORDER.iter().copied().filter(|e| names.iter().any(|n| n == e)).collect()
 }
 
@@ -185,7 +187,7 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
                 v["label"] = json!(crate::openrouter::display(engine, a));
             }
             // a Muse login's own levels for the tier's model, from its catalog
-            // row (the tier's `efforts` are the levels a hire naming no account gets)
+            // row (the tier's `efforts` are every level some login takes)
             if a.provider == catalog::MUSE {
                 v["efforts"] = json!(crate::providers::effort_names_on(engine, tier, None, Some(a)).unwrap_or_default());
             }
