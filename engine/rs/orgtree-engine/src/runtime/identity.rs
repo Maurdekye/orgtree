@@ -290,7 +290,12 @@ fn scoped_tool_instructions(tools: &Value) -> String {
         text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. Send only to authorized audiences. ");
     }
     if crate::domain::tool_groups::enabled(tools, "team") {
-        text.push_str("On hire state the charter, folders, tool switches, visibility and index explicitly. index is zero-based among live siblings; 0 is first and live_child_count appends. Superior insertion excludes its target from the former sibling set. orgtree_reorder changes only a live descendant's sibling position. orgtree_state_inspect exposes sibling_index, live_sibling_count and live_child_count. Use kickoff to start work; hiring alone starts no turn. Never grant above your own effective scope. orgtree_retool on yourself changes only team_charter; your superior controls your own scope. ");
+        text.push_str("On hire state the charter, folders, tool switches, visibility and index explicitly. index is zero-based among live siblings; 0 is first and live_child_count appends. Superior insertion excludes its target from the former sibling set. orgtree_reorder changes only a live descendant's sibling position. ");
+        // orgtree_state_inspect is an inspection tool, not a team one
+        if crate::domain::tool_groups::enabled(tools, "inspection") {
+            text.push_str("orgtree_state_inspect exposes sibling_index, live_sibling_count and live_child_count. ");
+        }
+        text.push_str("Use kickoff to start work; hiring alone starts no turn. Never grant above your own effective scope. orgtree_retool on yourself changes only team_charter; your superior controls your own scope. ");
     }
     text
 }
@@ -355,6 +360,18 @@ mod group_tests {
                 }
             }
         }
+    }
+
+    /// Team guidance points at orgtree_state_inspect's sibling fields only
+    /// where the inspection group is on; the rest of it stays either way.
+    #[test]
+    fn team_guidance_names_state_inspect_only_with_inspection() {
+        let scope = |inspection: bool| json!({"tools":{"orgtree":{"watchdogs": false, "inspection": inspection}}});
+        let with = render(&scope(true), Lane::Claude, false, None);
+        assert!(with.contains("sibling position. orgtree_state_inspect exposes sibling_index, live_sibling_count and live_child_count. Use kickoff"));
+        let without = render(&scope(false), Lane::Claude, false, None);
+        assert!(!without.contains("orgtree_state_inspect"));
+        assert!(without.contains("orgtree_reorder changes only a live descendant's sibling position. Use kickoff to start work;"));
     }
 
     #[test]
