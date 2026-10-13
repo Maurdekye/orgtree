@@ -127,7 +127,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
     part carries `#credential-N`, so a warm CLI on the old secret is replaced at the next
     turn boundary, and a usage read answered for a replaced key is discarded. Key writes
     lock the OpenRouter rows and refuse a duplicate secret inside the transaction. The
-    usage readers are `#[nolog]` (readings carry provider text).
+    usage readers and `openrouter::doc` are `#[nolog]` (readings carry provider text), and
+    the wire log omits `/api/openrouter` route bodies except `/models`.
   - **Toggles:** every key, the original included, has its own active switch
     (`PUT /api/accounts/{id}/enabled`). Org lanes carry `enabled` and `disabled_reason`;
     an org tick cannot turn on a key switched off app-wide.

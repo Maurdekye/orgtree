@@ -95,12 +95,21 @@ last reading); else "OpenRouter key N".
 - **Spent keys:** any OpenRouter credit row with `is_active` is at its limit, with or without a
   percent (a capped key whose account balance is zero reads under 100% of its cap).
 - **Logging:** the readers (`openrouter`, `openrouter_key_usage`, `openrouter_key_read`),
-  `GET /api/openrouter/keys/usage` and `keys_doc` are `#[nolog]`: a reading can carry the
-  provider's own text. `openrouter_key_usage` logs one safe line (lane, available, whether an
-  error/detail/re-auth is present).
+  `GET /api/openrouter/keys/usage`, `keys_doc` and `openrouter::doc` are `#[nolog]`: a reading
+  can carry the provider's own text. `openrouter_key_usage` logs one safe line (lane, available,
+  whether an error/detail/re-auth is present) and `doc` one (key count, connected). The wire log
+  omits the bodies of every `/api/openrouter` route but the catalog search (`/models`).
 - **Startup:** the stored favorites become provider tiers before the first request on every start
   (`providers::refresh_openrouter` in `main.rs`), not only after the 3.x import.
 
 ## Limits (inferred, not measured)
+
+- The app feed logs every value it pushes (`AppFeed.set_value`, `Actor.broadcast`), so a usage
+  reading's text reaches the engine log there, for every provider, as before this work (measured
+  in the corrections proof, which reports it as a note).
+- Original-key removal locks the key, then its seats, then the orgs whose default names it, like
+  the registry's removal. When it is composed with a writer that locks an org before its agents,
+  the late org query needs `FOR UPDATE NOWAIT` and SQLSTATE 55P03 in the whole-transaction retry,
+  as the folder-grant correction (scratch-open-sol, not yet integrated) does for the registry path.
 
 - The cache forecast treats a key switch as an account change: a new cache namespace.
