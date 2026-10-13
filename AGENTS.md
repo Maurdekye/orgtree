@@ -9,6 +9,11 @@
   radial through the eye in rings. Preserve angular/x drop request semantics;
   marker geometry is visual-only. See [reorder separator](docs/rust-engine/reorder-separator.md).
   [decided: user 2026-10-13 18:58UTC; verified: `canvas/reorderpreview.tsx`, `OrgCanvas.tsx`]
+- Tray primary clicks toggle pending or visible org lists; dismissal invalidates
+  late activity/HTML loads. Windows tray-induced blur consumes one immediate
+  click, while outside dismissals and later clicks remain usable. Preserve the
+  double-click open-app route and sandbox. See [tray toggle](docs/rust-engine/tray-toggle.md).
+  [decided: user 2026-10-13 18:42UTC; verified: desktop `main/index.ts`]
 
 - Ctrl/Cmd+Z runs the newest visible toast Undo in its own window; keep text
   editor undo and the 12-second deadline. Clicks and mirrors consume the same
