@@ -122,7 +122,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   - **Placement** follows the other providers: explicit key, org default, template
     balancing, opt-in fallback; removal is reassign-or-freeze, the original included
     (`account_removal::remove_original`: its seats move to the first other key a
-    continuation accepts, else a live seat freezes; defaults naming it are cleared).
+    continuation accepts, else a live seat freezes; defaults naming it are cleared; its
+    late org scan is `FOR UPDATE NOWAIT` with rollback-then-backoff retry, as `remove`).
   - **Secrets:** a replacement bumps `extra.credential_gen`; the fingerprint's account
     part carries `#credential-N`, so a warm CLI on the old secret is replaced at the next
     turn boundary, and a usage read answered for a replaced key is discarded. Key writes

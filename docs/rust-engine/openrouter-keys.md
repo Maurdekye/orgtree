@@ -113,8 +113,9 @@ last reading); else "OpenRouter key N".
 - The private-text proof injects OpenRouter readings only; the Claude, Codex, Antigravity and
   Muse routes share the same `#[nolog]`/wire rule by source (inferred, not measured per provider).
 - Original-key removal locks the key, then its seats, then the orgs whose default names it, like
-  the registry's removal. When it is composed with a writer that locks an org before its agents,
-  the late org query needs `FOR UPDATE NOWAIT` and SQLSTATE 55P03 in the whole-transaction retry,
-  as the folder-grant correction (scratch-open-sol, not yet integrated) does for the registry path.
+  the registry's removal. Its late org scan is `FOR UPDATE NOWAIT`: an org-first writer (folder
+  grants, settings) makes the attempt roll back whole and retry after 25/50/100 ms (55P03 with
+  40001/40P01, four attempts); sustained contention refuses with nothing changed, never a wait
+  while holding the key and seat rows. Eventual success under contention is not promised.
 
 - The cache forecast treats a key switch as an account change: a new cache namespace.
