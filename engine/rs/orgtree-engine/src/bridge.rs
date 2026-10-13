@@ -460,7 +460,7 @@ mod tests {
     async fn requests_round_trip_and_missing_scope_fails_closed() {
         let root = data_root("rt");
         let cancel = CancellationToken::new();
-        let name = serve(Engine::for_tests(root.clone()), caller(), cancel.clone()).expect("serve");
+        let name = serve(Engine::for_tests(root.clone()), caller(), cancel.clone(), MailShape::Flat).expect("serve");
         let (cli, stdio) = tokio::io::duplex(1 << 20);
         let (stdin, stdout) = tokio::io::split(stdio);
         let relay = tokio::spawn(async move { relay_io(&name, stdin, stdout).await });
@@ -510,7 +510,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let root = data_root("perm");
         let cancel = CancellationToken::new();
-        let path = PathBuf::from(serve(Engine::for_tests(root.clone()), caller(), cancel.clone()).expect("serve"));
+        let path = PathBuf::from(serve(Engine::for_tests(root.clone()), caller(), cancel.clone(), MailShape::Flat).expect("serve"));
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(path.parent().unwrap()), 0o700, "{}", path.display());
         assert_eq!(mode(&path), 0o600, "{}", path.display());
@@ -529,7 +529,7 @@ mod tests {
         let root = top.join("d".repeat(120));
         std::fs::create_dir_all(&root).unwrap();
         let cancel = CancellationToken::new();
-        let path = serve(Engine::for_tests(root.clone()), caller(), cancel.clone()).expect("serve");
+        let path = serve(Engine::for_tests(root.clone()), caller(), cancel.clone(), MailShape::Flat).expect("serve");
         assert!(!path.starts_with(root.to_str().unwrap()) && path.len() < SUN_PATH, "{path}");
         let mut conn = connect(&path).await.expect("the fallback socket answers");
         conn.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n").await.unwrap();

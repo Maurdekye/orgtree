@@ -5,7 +5,7 @@
 pub(crate) mod control;
 pub mod defs;
 mod mailtools;
-pub(crate) use mailtools::{flat_args, typing_peers};
+pub(crate) use mailtools::typing_peers;
 mod orgview;
 mod treetools;
 mod usage;
