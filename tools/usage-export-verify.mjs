@@ -38,7 +38,7 @@ if (process.argv.includes('--bundle')) {
   esbuild.buildSync({ ...common, entryPoints: [path.join(root, 'tests/usage-export.probe.ts')], outfile: path.join(output, 'main.cjs'), platform: 'node', format: 'cjs', external: ['electron'] })
   fs.copyFileSync(path.join(root, 'apps/desktop/renderer/src/styles.css'), path.join(output, 'styles.css'))
 } else {
-  const result = withBuildLock('usage export focused tests/typecheck/native renderer proof', () => {
+  const verify = () => {
     const run = (name, exe, args, env = process.env) => {
       const p = spawnSync(exe, args, { cwd: root, env, windowsHide: true, encoding: 'utf8', timeout: 70000, maxBuffer: 4 * 1024 * 1024 })
       fs.writeFileSync(path.join(output, name + '.log'), (p.stdout || '') + (p.stderr || '') + (p.error ? String(p.error) : ''))
@@ -73,6 +73,8 @@ if (process.argv.includes('--bundle')) {
     results.renderer = run('renderer', electron, [path.join(output, 'main.cjs')], env)
     fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ base: '62f39ad', head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(), results }, null, 2))
     return { results, exit: Object.values(results).some(v => v !== 0) ? 1 : 0 }
-  })
+  }
+  const result = process.argv.includes('--inside') ? { result: verify(), lock: 'outer contained renderer phase owns lock' }
+    : withBuildLock('usage export focused tests/typecheck/native renderer proof', verify)
   console.log(JSON.stringify(result)); process.exitCode = result.result.exit
 }

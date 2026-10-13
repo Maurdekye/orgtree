@@ -18,12 +18,20 @@ async function click(w: BrowserWindow, selector: string, keyboard = false) {
   const hit = await w.webContents.executeJavaScript(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();const x=Math.round(r.left+r.width/2),y=Math.round(r.top+r.height/2);el.focus();return {x,y,hit:document.elementFromPoint(x,y)?.closest('button')===el}})()`)
   check('native control hit ' + selector, hit.hit)
   w.focus(); await pause(40)
-  if (keyboard) { w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' }); w.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' }) }
+  if (keyboard) {
+    w.webContents.focus()
+    await w.webContents.executeJavaScript(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});el.focus();window._usageKeys=[];el.addEventListener('keydown',e=>window._usageKeys.push(e.type+':'+e.key),{once:true});el.addEventListener('click',()=>window._usageKeys.push('click'),{once:true});return true})()`)
+    w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    w.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
+    w.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+  }
   else {
     w.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', x: hit.x, y: hit.y, clickCount: 1 })
     w.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', x: hit.x, y: hit.y, clickCount: 1 })
   }
   await pause(100)
+  if (keyboard) check('keyboard activation ' + selector, await w.webContents.executeJavaScript(`window._usageKeys.includes('click')`),
+    await w.webContents.executeJavaScript(`({active:document.activeElement?.className,focused:document.hasFocus(),events:window._usageKeys})`))
 }
 let server: http.Server | undefined, main: BrowserWindow | undefined
 app.whenReady().then(async () => {
@@ -71,7 +79,9 @@ app.whenReady().then(async () => {
     const image = await w!.webContents.capturePage(); fs.writeFileSync(path.join(build, place + '.png'), image.toPNG())
     for (const format of ['csv', 'jsonl']) {
       const index = downloads.length
-      await click(w!, `.uh-export-btn[aria-label$="${format.toUpperCase()}"]`, format === 'jsonl')
+      // Pointer drives the required saved-byte/download path in both windows;
+      // keyboard activation has a separate native control after downloads.
+      await click(w!, `.uh-export-btn[aria-label$="${format.toUpperCase()}"]`)
       await until(async () => !!downloads[index]?.done, place + ' ' + format + ' native download')
       const d = downloads[index], expected = place === 'main' ? [65, 90, 2, 17.3456789] : [2, 17.3456789]
       check(place + ' ' + format + ' completed in originating window', d.state === 'completed' && d.window === w!.webContents.id, d)
@@ -82,6 +92,12 @@ app.whenReady().then(async () => {
         && rows.every((r: any) => r.provider === 'openai' && r.account === 'openai/primary' && r.window === 'session' && r.group === '5h' && r.model === '' && r.kind === 'percent' && (format === 'csv' ? r.unit === '' : r.unit === null) && r.timestamp.endsWith('Z'))
         && rows.every((r: any, i: number) => !i || r.timestamp >= rows[i - 1].timestamp), rows)
     }
+    const keyboardIndex = downloads.length
+    await click(w!, '.uh-export-btn[aria-label$="JSONL"]', true)
+    // A headless native keyboard limitation must not hide the main/popout
+    // saved-byte checks that have already completed.
+    await pause(200)
+    check(place + ' keyboard JSONL download', !!downloads[keyboardIndex]?.done && downloads[keyboardIndex].state === 'completed')
   }
   const errors = await main.webContents.executeJavaScript('proof.errors')
   check('no renderer errors', errors.length === 0 && consoleErrors.length === 0, { errors, consoleErrors })
