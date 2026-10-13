@@ -137,24 +137,48 @@ pub async fn compacted(engine:&Arc<Engine>,org_id:i64,agent_id:i64,automatic:boo
     Ok(())
 }
 
-/// The user's direct contact is visible to the recipient's superior chain.
+/// Direct contact grants reply access and informs the superior chain atomically.
 #[logged]
 pub async fn deep_reach(engine:&Arc<Engine>,org_id:i64,agent_id:i64,text:&str,command:bool)->Result<()> {
-    let c=engine.db.get().await?;
-    let r=c.query_one("SELECT a.name,a.generation,o.slug FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
+    let mut c=engine.db.get().await?;
+    let tx=c.transaction().await?;
+    let changed=deep_reach_tx(&*tx,org_id,agent_id,text,command).await?;
+    tx.commit().await?;
+    drop(c);
+    crate::changes::notify_id(engine,org_id,changed);
+    Ok(())
+}
+
+/// Caller commits before publishing these changes; mail admission uses this same transaction.
+#[logged]
+pub(super) async fn deep_reach_tx(
+    c:&impl tokio_postgres::GenericClient,org_id:i64,agent_id:i64,text:&str,command:bool,
+)->Result<Vec<crate::changes::Change>> {
+    use crate::changes::Change;
+    // Same per-org serialization as explicit grants, compatible with FK key-share reads.
+    c.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org_id]).await?;
+    let r=c.query_one("SELECT a.name,a.generation,o.slug,a.parent_id FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
+    if r.get::<_,Option<i64>>(3).is_none() { return Ok(Vec::new()); }
     let name:String=r.get(0);
     let org:String=r.get(2);
-    let rows=c.query("WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM ot.agents WHERE id=$1 UNION ALL SELECT a.id,a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.parent_id WHERE u.depth<1024) SELECT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live'", &[&agent_id]).await?;
     let mut changed=Vec::new();
+    let fresh=c.query_opt("SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@user' AND revoked_at IS NULL AND NOT paused LIMIT 1", &[&org_id,&name]).await?.is_none();
+    if fresh {
+        let reason=if command {"user ran a command directly"} else {"user messaged directly"};
+        c.execute("INSERT INTO ot.audiences(org_id,grantee,grantor,reason) VALUES($1,$2,'@user',$3)", &[&org_id,&name,&reason]).await?;
+        c.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'audience_grant','@user',$2,$3)", &[&org_id,&agent_id,&json!({"grantee":name,"grantor":"@user"})]).await?;
+        super::audiences::grant_notice_tx(c,org_id,&org,agent_id,&name,r.get::<_,i32>(1) as i64,"@user","@user").await?;
+        changed.extend([Change::Audiences,Change::Events,Change::Agent(agent_id),Change::Mailbox(agent_id)]);
+        changed.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::NamedAgent(org_id,name.clone()),json!({"agent":name,"grantor":"@user"}))));
+    }
+    let rows=c.query("WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM ot.agents WHERE id=$1 AND org_id=$2 UNION ALL SELECT a.id,a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.parent_id WHERE u.depth<1024 AND a.org_id=$2) SELECT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live'", &[&agent_id,&org_id]).await?;
     for row in rows {
         let id:i64=row.get(0);
         let target:String=row.get(1);
         let ev=crate::events::typed("context.deep_reach","@user",crate::events::node_ref(&org,&name,r.get::<_,i32>(1) as i64),
             json!({"node":name,"gist":crate::util::gist(text,300),"kind":if command{"command"}else{"message"}}));
         c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,ev,state) VALUES($1,$2,'@system','agent',$3,$4,'notice',true,$5,$6,'pending')", &[&crate::util::uid("m"),&org_id,&id,&target,&format!("The user contacted {name} directly."),&crate::util::pg_json(&ev).as_ref()]).await?;
-        changed.push(crate::changes::Change::Mailbox(id));
+        changed.push(Change::Mailbox(id));
     }
-    drop(c);
-    crate::changes::notify_id(engine,org_id,changed);
-    Ok(())
+    Ok(changed)
 }

@@ -212,7 +212,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     if to.starts_with("org:") || to.starts_with("net:") || out.to.starts_with("@org:") || out.to.starts_with("@net:") {
         return Box::pin(crate::domain::orginbox::send_extern(engine, org_id, &out)).await;
     }
-    let client = engine.db.get().await?;
+    let mut client = engine.db.get().await?;
     if !explicit_event {
         if let Some(reply) = &out.reply_to {
             if let Some(ev) = reply_event(&client, org_id, &org.slug, &out.from.name(), &out.body, reply).await? {
@@ -290,7 +290,11 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     if let From::Agent { id, name, .. } = &out.from {
         authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await?;
     }
-    client
+    let tx = client.transaction().await?;
+    let contact_changes = if direct_user_contact(&out.from, out.ev.as_ref()) {
+        super::runtime_notices::deep_reach_tx(&*tx,org_id,target_id,&out.body,false).await?
+    } else { Vec::new() };
+    tx
         .execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                                   recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub)
@@ -302,6 +306,8 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
             ],
         )
         .await?;
+    tx.commit().await?;
+    drop(client);
     let mut ch = vec![Change::Mailbox(target_id), Change::Spark { from: out.from.spark(), to: to.clone() }];
     if !matches!(out.from,From::Watchdog{..}) {ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("mail.waiting",crate::runtime::watchdogs::events::Scope::Agent(org_id,target_id),json!({"agent_id":target_id,"mail_id":mail_uid}))));}
     if let Some(a) = sender_agent {
@@ -309,13 +315,9 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     }
     if matches!(out.from, From::User) {
         ch.push(Change::UserMail);
-        let variant=out.ev.as_ref().and_then(|e|e["variant"].as_str()).unwrap_or("");
-        if variant.starts_with("ordinary.") || variant.starts_with("reply.") {
-            if let Err(e)=super::runtime_notices::deep_reach(engine,org_id,target_id,&out.body,false).await {
-                tracing::warn!(agent=target_id,error=%format!("{e:#}"),"direct-contact notice could not be sent");
-            }
-        }
+
     }
+    ch.extend(contact_changes);
     changes::notify(engine, &org, ch);
     let (delivery, deferred) = if state != "live" {
         (
@@ -525,4 +527,37 @@ pub async fn kickoff_event(engine: &Engine, org_id: i64, org: &str, node: &str, 
     let row=client.query_one("SELECT generation,tier,grant_credits::float8 FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org_id,&node]).await?;
     Ok(crate::events::typed("lifecycle.kickoff",by,crate::events::node_ref(org,node,row.get::<_,i32>(0) as i64),
         json!({"body":body,"hired_by":by,"reason":reason,"tier":row.get::<_,String>(1),"grant":row.get::<_,f64>(2)})))
+}
+
+// Classification only: do not separately log an event's private body.
+#[nolog]
+fn direct_user_contact(from: &From, event: Option<&Value>) -> bool {
+    let variant = event.and_then(|e| e["variant"].as_str()).unwrap_or("");
+    matches!(from, From::User) && (variant.starts_with("ordinary.") || variant.starts_with("reply."))
+}
+
+#[cfg(test)]
+mod direct_contact_tests {
+    use super::*;
+
+    #[test]
+    fn user_message_and_reply_are_contacts() {
+        for variant in ["ordinary.message", "ordinary.notice", "reply.mail", "reply.document"] {
+            assert!(direct_user_contact(&From::User, Some(&json!({"variant":variant}))));
+        }
+    }
+
+    #[test]
+    fn automatic_and_external_senders_cannot_create_user_access() {
+        for from in [From::System, From::Extern("@org:elsewhere".into()),
+            From::Agent{id:1,name:"sender".into(),generation:1}] {
+            assert!(!direct_user_contact(&from, Some(&json!({"variant":"ordinary.message"}))));
+        }
+    }
+
+    #[test]
+    fn user_typed_lifecycle_is_not_direct_contact() {
+        assert!(!direct_user_contact(&From::User, Some(&json!({"variant":"lifecycle.hired"}))));
+        assert!(!direct_user_contact(&From::User, None));
+    }
 }

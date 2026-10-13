@@ -5515,6 +5515,18 @@ impl Actor {
 
     /// A slash command as its own turn (`/compact` compacts the session).
     async fn command(&mut self, text: &str) -> Result<Value> {
+        let result = self.command_inner(text).await?;
+        if result["started"].as_bool().unwrap_or(false) {
+            // All admitted user commands, including compact on any supported harness.
+            // Provider admission cannot join the DB transaction; the grant and notices do.
+            if let Err(e) = crate::domain::runtime_notices::deep_reach(&self.engine,self.org_id,self.id,text,true).await {
+                tracing::warn!(agent=self.id,error=%format!("{e:#}"),"command audience and notice could not be stored");
+            }
+        }
+        Ok(result)
+    }
+
+    async fn command_inner(&mut self, text: &str) -> Result<Value> {
         let admitted_at = Utc::now();
         if self.turn.is_some() {
             return Ok(json!({ "started": false, "reason": "a turn is running; wait for it or interrupt it" }));
@@ -5564,9 +5576,6 @@ impl Actor {
         self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));
         if !compact {
             let client = self.engine.db.get().await?;
-            if let Err(e)=crate::domain::runtime_notices::deep_reach(&self.engine,self.org_id,self.id,&text,true).await {
-                tracing::warn!(agent=self.id,error=%format!("{e:#}"),"command notice could not be sent");
-            }
             let row = json!({ "role": "user", "text": text, "ts": now_iso(), "command": true });
             self.convo.append(&client, row).await?;
         }
