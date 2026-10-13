@@ -26,7 +26,7 @@ import {
 } from '../icons'
 import {
   ago, antigravityTierOffer, anyTierSeat, bySeatDesc, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
-  USER_H, USER_W, useAgentShortcuts, Z_MAX,
+  USER_H, USER_W, useAgentShortcuts, Z_MAX, Z_MINI,
 } from './shared'
 import type {
   AttentionPip, CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
@@ -232,7 +232,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
           (the tip is a sibling — the fade mask would swallow a child).
           It stays rendered at switchboard focus (user ruling): anchored to
           the card's left edge, it glides outward as the square expands. */}
-      <div className="cbar-inf-wrap">
+      {(zoom == null || zoom >= Z_MINI) && <div className="cbar-inf-wrap">
             <div className="cbar-infinite" />
             <div className="cbar-tip">
               {/* fmtCredits: these three are SUMS of per-node holdings, so
@@ -242,7 +242,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
               <div>seats <b className="n-seat">{fmtCredits(stats.seats)}</b></div>
               <div>free <b className="n-free">{fmtCredits(stats.free)}</b></div>
             </div>
-          </div>
+          </div>}
       <svg className="eye" viewBox="0 0 48 26">
         <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
         <circle className="iris" cx="24" cy="13" r="6.5" />
@@ -1954,29 +1954,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           openrouterHire={openrouterHire} langserverHire={langserverHire}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'b'}
           onToggleExpanded={() => toggleCompactHire('b')} />}
-      {/* FR-03: presented documents pop out the card's side as square icon
-          chips — click opens the in-page reader. Not at desk zoom (the desk
-          HEADER carries titled doc badges instead — world-scaled side chips
-          blow up) and not on pile fronts (the side is the stack).
-          ⚠ AND INERT AT MINI (user 2026-09-11: "dont make any cards in
-          agents when zoomed out clickable"). These were the last CARDS still
-          operable on a far-zoom card; the shortcut row and the badge row are
-          unmounted at `mini`, on this threshold and for this reason: a
-          screen-constant control drawn OVER a shrinking card swallows the
-          click that focuses the agent, because `PresentationCard` stops the
-          pointerdown and starves the drag-end → centerOn path.
-          (The hire strips were unmounted here too until 2026-09-11, when the
-          user asked for them back at maximum zoom. They are the one far-zoom
-          control that sits OUTSIDE the card rather than over it, so they cost
-          the card nothing; see the SpawnChips comment above.)
-          They stay VISIBLE rather than going away like those three — the ask
-          was that they not be CLICKABLE — and `inert` removes every route in
-          (see canvas/docs.tsx). Interaction returns whole at `norm`. Pinned
-          desks and the open desk are untouched: neither is a far-zoom
-          surface, and neither receives `lod`. */}
-      {!focused && !pile && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
-        <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc}
-          inert={lod === 'mini'} />
+      {/* Presented documents and file/download chips disappear at mini
+          (user 2026-10-13). Unmount only this side attachment surface:
+          documents remain in the tree and return at normal zoom; desks,
+          pinned readers and the gallery keep their own presentation. */}
+      {lod !== 'mini' && !focused && !pile && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
+        <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc} />
       )}
       {/* F-03: side chips hire a COWORKER — same superior, landing on that
           side. Not on pile/crowd fronts: the card's edges there are the

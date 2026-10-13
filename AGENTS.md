@@ -223,6 +223,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   launch directories are removed at teardown. See [ACP contract and evidence
   limits](docs/rust-engine/opencode-acp.md). [decided: user/coordinator 2026-10-13;
   verified from source: `runtime/{acp,acp_scope,opencode}.rs`, `bridge.rs`]
+- Far overview (`z < Z_MINI`) hides watchdog satellites/wires, presented/file
+  side chips, the switchboard's infinite credit bar, and hidden-retired list
+  tokens when Hide Retired is on. The org-inbox mailbox becomes one icon;
+  agent left-edge accents use tier colour with provider fallback. Zooming in
+  restores retained content. See [far overview](docs/rust-engine/far-overview.md).
+  [decided: user/coordinator 2026-10-13 19:00?19:05Z]
 
 - Model browser list children must not flex-shrink: OpenRouter and Language
   Server rows and sticky vendor headings keep their natural height inside the

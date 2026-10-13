@@ -31,7 +31,7 @@ import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
-  FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
+  FullscreenIcon, OutboxIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
   ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
@@ -3506,7 +3506,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // owner with a wire"); the spark rides it on each fire. Hidden at compact
   // with the chips (D-125 ②). A SPENT wire fades on a CSS keyframe clock of
   // its own, which a style probe cannot reproduce, so it stays in SVG.
-  if (!compact) for (const w of tree.watchdogs ?? []) {
+  if (!compact && lod !== 'mini') for (const w of tree.watchdogs ?? []) {
     const a = posOf('dog:' + w.id), b = posOf(w.owner)
     if (!a || !b) continue
     wires.push({ key: 'w' + w.id, svgOnly: !!w.spent, seg: { kind: 'l', pts: [
@@ -3887,7 +3887,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             retirees surface on the canvas. It sits under the parent card
             that has retired subordinates; clicking lists them (the same
             picker the retired pile uses) and picking one reveals it. */}
-        {[...retiredCounts.entries()].map(([pid, count]) => {
+        {!(hideRetired && lod === 'mini') && [...retiredCounts.entries()].map(([pid, count]) => {
           const p = posOf(pid)
           if (!p) return null
           const size = sizeOf(pid)
@@ -3908,7 +3908,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             D-125 ②: HIDDEN at compact — 7px names are illegible and 50×26
             untappable at any phone-fitting zoom; the owner card carries a
             count-dot and the sheet header carries the list. */}
-        {!compact && (tree.watchdogs ?? []).map((w) => {
+        {!compact && lod !== 'mini' && (tree.watchdogs ?? []).map((w) => {
           const p = posOf('dog:' + w.id)
           if (!p || hidden.has(w.owner) || !intersectsViewport({ ...p, w: DOG_W, h: DOG_H }, visibleRect)) return null
           return (
@@ -3931,17 +3931,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           )
         })}
         {(tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX) && (
-          <div className={'sq orginbox' + (dropId === INBOX ? ' drop' : '')}
+          <div className={'sq orginbox' + (lod === 'mini' ? ' orginbox-far' : '') + (dropId === INBOX ? ' drop' : '')}
             style={{
               transform: `translate(${posOf(INBOX)!.x}px, ${posOf(INBOX)!.y}px)`,
               width: USER_W, height: INBOX_H,
             }}
             title="the org inbox — outside mail addressed to this organization"
+            aria-label="org inbox"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               if (pinnedModalBehind('org-inbox', slug)) { raisePinnedModal('org-inbox', slug); return }
               setOiOpen((v) => isModalPinned('org-inbox', slug) ? !v : true)
             }}>
+            {lod === 'mini' ? <OutboxIcon className="oi-far-icon" fontSize="inherit" /> : <>
             <div className="oi-head">
               {/* the label is its own element so it can ELLIPSIS instead of
                   wrapping. As a bare text node it was an anonymous flex item
@@ -3978,6 +3980,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 return `${e.dir === 'in' ? '⭠' : '⭢'} ${e.peer.replace(/^@/, '')}`
               })()}
             </div>
+            </>}
           </div>
         )}
       </div>

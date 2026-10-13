@@ -1151,7 +1151,7 @@ button.badge.audience-fold.alert {
   content: '';
   position: absolute; inset: 0 auto 0 0; width: 6px;
   border-radius: 6px 0 0 6px;
-  background: var(--provider-accent);
+  background: var(--tier-accent, var(--provider-accent));
   opacity: .9; pointer-events: none;
 }
 .sq.prov-openai.busy {
@@ -5327,6 +5327,12 @@ svg.MuiSvgIcon-root {
   background: linear-gradient(180deg, rgba(169, 194, 216, .07), var(--panel) 75%);
 }
 .sq.orginbox:hover { border-color: #6d8496; }
+.sq.orginbox-far {
+  align-items: center; justify-content: center; padding: 0;
+  color: var(--dim); font-size: 48px;
+  background: var(--panel); border-color: var(--line);
+}
+.sq.orginbox-far:hover { color: var(--fg); border-color: var(--dim); }
 /* ⚠ the head must stay ONE line. The tile's height is fixed (INBOX_H, the
    canvas layout depends on it), so anything that grows the head steals from
    .oi-last below it — and .oi-last clips its own overflow, so the theft is
