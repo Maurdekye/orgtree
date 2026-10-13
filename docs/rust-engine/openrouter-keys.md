@@ -99,14 +99,19 @@ last reading); else "OpenRouter key N".
   can carry the provider's own text. `openrouter_key_usage` logs one safe line (lane, available,
   whether an error/detail/re-auth is present) and `doc` one (key count, connected). The wire log
   omits the bodies of every `/api/openrouter` route but the catalog search (`/models`).
+- **Shared paths:** the app feed (`AppFeed::set_value`, `AppFeed::snapshot`, the actor's
+  `broadcast` and `snapshot`) and every HTTP handler serving a reading (`usage_*`, `peek_*`,
+  `usage_all`/`one`/`registered`/`history`, the OpenRouter document's routes) are `#[nolog]` with
+  safe lines (the value's key; a frame's type, seq and window count; "usage reading served" with
+  the route). The wire log omits `/api/app/records` and every `/api` route with a `usage` segment.
+  What windows receive is unchanged.
 - **Startup:** the stored favorites become provider tiers before the first request on every start
   (`providers::refresh_openrouter` in `main.rs`), not only after the 3.x import.
 
 ## Limits (inferred, not measured)
 
-- The app feed logs every value it pushes (`AppFeed.set_value`, `Actor.broadcast`), so a usage
-  reading's text reaches the engine log there, for every provider, as before this work (measured
-  in the corrections proof, which reports it as a note).
+- The private-text proof injects OpenRouter readings only; the Claude, Codex, Antigravity and
+  Muse routes share the same `#[nolog]`/wire rule by source (inferred, not measured per provider).
 - Original-key removal locks the key, then its seats, then the orgs whose default names it, like
   the registry's removal. When it is composed with a writer that locks an org before its agents,
   the late org query needs `FOR UPDATE NOWAIT` and SQLSTATE 55P03 in the whole-transaction retry,

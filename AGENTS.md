@@ -158,7 +158,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   prevent overlapping readers without slowing automatic cadence. Never re-date
   old observations or serialize raw cached provider documents. Raw readers,
   parsers, profile/history processing and cache peeks omit raw argument/return
-  logging; safe availability/window-count/SQLSTATE diagnostics remain.
+  logging; safe availability/window-count/SQLSTATE diagnostics remain. So do the
+  app feed (`AppFeed::set_value`/`snapshot`, the actor's `broadcast`/`snapshot`)
+  and the HTTP handlers serving readings; the wire log omits `/api/app/records`
+  and `usage`-segment route bodies. [decided: coordinator 2026-10-13]
   Query availability and successful refresh classification also consume the
   latest genuine auth observation across checked physical native aliases;
   signed-out overlay preserves dated quota bars. Imported logins stay separate.
