@@ -8,7 +8,7 @@
 //   KF; b1: Spark 1.2 to PS); the own login is skipped when its subscription
 //   switch is off, the org's list leaves it out, it is signed out, needs a
 //   sign-in or is at its limit (d1..d5: to PW). With no login that can take
-//   it (h1: Full, PF at its limit, only a key offers it) the seat is unbound
+//   it (h1: Full, PF observed full for Full, only a key offers it) the seat is unbound
 //   and waits frozen saying why, its earlier limit freeze replaced and the
 //   request it held kept; it cannot be continued on the own login, and
 //   continuing it on PF once PF has room runs it there with that request.
@@ -30,11 +30,14 @@ const W = 'muse-wonder-1.0', F = 'muse-wonder-full-1.0', S13 = 'muse-spark-1.3',
 const catalogOf = (...rows) => JSON.stringify({ source: 'providerCatalog', models: rows.map(([id, variants = ALL], i) => ({
   modelId: id, profileId: 'tbh', isDefault: i === 0, variants, defaultReasoningEffort: 'high', contextLimit: 1007997, outputLimit: 128000 })) })
 const later = (h) => new Date(Date.now() + h * 3600e3).toISOString()
-const reading = (session, weekly = 20) => ({ available: true, observed_at: new Date().toISOString(), limits: [
-  { kind: 'session', group: 'window', percent: session, resets_at: later(3), is_active: session >= 100, model: null, observed_model: null, label: '5 h' },
-  { kind: 'weekly_all', group: 'weekly', percent: weekly, resets_at: later(72), is_active: weekly >= 100, model: null, observed_model: null, label: 'weekly' }] })
+/** a login's reading; its windows count for `model` only (Muse attributes a window to the model observed running in it) */
+const reading = (session, model = null, weekly = 20) => ({ available: true, observed_at: new Date().toISOString(), limits: [
+  { kind: 'session', group: 'window', percent: session, resets_at: later(3), is_active: session >= 100, model: null, observed_model: model, label: '5 h' },
+  { kind: 'weekly_all', group: 'weekly', percent: weekly, resets_at: later(72), is_active: weekly >= 100, model: null, observed_model: model, label: 'weekly' }] })
 const ROOM = reading(10)
-const FULL = reading(100)
+/** full while Wonder Full ran / while Wonder ran */
+const FULL_F = reading(100, 'muse-wonder-full-1.0')
+const FULL_W = reading(100, 'muse-wonder-1.0')
 const signedOut = () => ({ available: false, error: 'Muse Code is not signed in for this account', reauth_required: true,
   reauth_evidence: 'not_connected', observed_at: new Date().toISOString() })
 const AGENTS = ['a1', 'b1', 'b2', 'c1', 'd1', 'd2', 'd3', 'd4', 'd5', 'h1', 'k1', 'k2', 'k3', 'k4', 'z1', 'z2']
@@ -160,7 +163,7 @@ export default async function (rig) {
       () => rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: [] })],
     ['d3', 'signed out', () => ownLogin({ account: { state: 'loggedOut' } }), () => ownLogin({})],
     ['d4', 'needing a sign-in', () => own(signedOut()), () => own(ROOM)],
-    ['d5', 'at its limit', () => own(FULL), () => own(ROOM)],
+    ['d5', 'at its limit (Wonder observed full)', () => own(FULL_W), () => own(ROOM)],
   ]) {
     const X = await profile([[W]])
     const h = await hire(name, 'wonder', X)
@@ -178,10 +181,10 @@ export default async function (rig) {
   await rig.userMail('h1', 'PROOF-WALL: h1, please do the thing.')
   await rig.waitFor(() => row('h1').frozen, { what: "h1's wall", timeout: 45000 })
   const limitFreeze = row('h1').frozen
-  await readingOf(PF, FULL)
+  await readingOf(PF, FULL_F)
   const d8x = await del(X8)
   const h1r = row('h1')
-  p.check('removal: with no login that can run it (PF at its limit; only a key offers Full) the seat is unbound and waits frozen saying why, its limit freeze replaced and its request kept; never the key',
+  p.check('removal: with no login that can run it (PF observed full for Full; only a key offers Full) the seat is unbound and waits frozen saying why, its limit freeze replaced and its request kept; never the key',
     h1.ok && limitFreeze?.limit === true && held(limitFreeze) && d8x.ok && gone(X8) && h1r.account === null
       && h1r.frozen?.cause === 'account' && h1r.frozen?.limit === false && (h1r.frozen?.error ?? '').includes(X8)
       && /no Muse login this org may use can run muse-wonder-full-1\.0/.test(h1r.frozen?.error ?? '') && held(h1r.frozen)
@@ -227,7 +230,7 @@ export default async function (rig) {
     { queued, k1: row('k1'), k3: row('k3') })
   // every subscription offering Full at its limit (X11 and X13 too: each is
   // the other's candidate)
-  for (const id of [PF, PF3, X11, X13]) await readingOf(id, FULL)
+  for (const id of [PF, PF3, X11, X13]) await readingOf(id, FULL_F)
   const d11 = await del(X11)
   const d13 = await del(X13)
   const k4s = row('k4').pending_switch
