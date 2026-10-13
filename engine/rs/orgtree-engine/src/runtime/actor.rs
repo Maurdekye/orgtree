@@ -287,6 +287,7 @@ struct Turn {
     partial_serial: u64,
     draft_order: Option<u64>,
     thinking_order: Option<u64>,
+    tool_writing: super::toolwriting::ToolWriting,
     compact: bool,
     /// the request this turn's CLI stream is logged under
     span: tracing::Span,
@@ -351,6 +352,7 @@ impl Turn {
             partial_serial: 0,
             draft_order: None,
             thinking_order: None,
+            tool_writing: super::toolwriting::ToolWriting::default(),
             compact,
             cards: HashMap::new(),
             span: tracing::Span::none(),
@@ -2982,6 +2984,7 @@ impl Actor {
 
     fn take_turn(&mut self) -> Option<Turn> {
         let t = self.turn.take();
+        self.stream("tool_writing", json!({}));
         self.pending_effort = None;
         self.steer_since = None;
         self.late_told.clear();
@@ -3315,6 +3318,7 @@ impl Actor {
         }
         if !matches!(kind, "delta" | "thinking") {
             frame["convo_rows"] = json!(self.convo.take_pending());
+            frame["tool_writing"] = json!(self.turn.as_ref().map(|t| t.tool_writing.active(t.id)).unwrap_or_default());
             frame["draft_clear"] = json!(self.turn.as_ref().is_none_or(|t| t.draft.is_empty()));
             frame["thinking_clear"] = json!(kind != "thinking_start" && self.turn.as_ref().is_none_or(|t| t.thinking.is_empty()));
         }
@@ -4404,7 +4408,12 @@ impl Actor {
                     }
                     Some("tool_use") | Some("server_tool_use") => {
                         let name = block["name"].as_str().unwrap_or("tool").to_string();
-                        self.set_activity("tool", Some(name));
+                        if let (Some(t), Some(index), Some(id)) = (self.turn.as_mut(), ev["index"].as_u64(), block["id"].as_str()) {
+                            t.partial_serial += 1;
+                            t.tool_writing.start(index, id, &name, t.partial_serial);
+                        }
+                        self.stream("tool_writing", json!({}));
+                        self.set_activity("tool_writing", Some(name));
                     }
                     Some("text") => {
                         if let Some(t) = self.turn.as_mut() {
@@ -4415,6 +4424,12 @@ impl Actor {
                     }
                     _ => {}
                 }
+            }
+            Some("content_block_stop") => {
+                if let (Some(t), Some(index)) = (self.turn.as_mut(), ev["index"].as_u64()) {
+                    t.tool_writing.stop(index);
+                }
+                self.stream("tool_writing", json!({}));
             }
             Some("content_block_delta") => {
                 let d = &ev["delta"];
@@ -4518,10 +4533,16 @@ impl Actor {
                     Some("tool_use") | Some("server_tool_use") => {
                         let id = block["id"].as_str().unwrap_or("").to_string();
                         let name = block["name"].as_str().unwrap_or("tool").to_string();
+                        if row["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool["id"].as_str() == Some(id.as_str()))) {
+                            continue;
+                        }
                         crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
                         let input = block["input"].clone();
                         let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": now_iso(),
                             "refs": convo::tool_refs(&name, &input, None) });
+                        if let Some(secs) = turn.tool_writing.take(&id) {
+                            chip["writing_secs"] = json!(secs);
+                        }
                         if name == "TodoWrite" {
                             chip["todos"] = input["todos"].clone();
                         }
@@ -5622,6 +5643,7 @@ impl Actor {
     fn live_view(&self) -> LiveView {
         let mut transient = Vec::new();
         if let Some(t) = &self.turn {
+            transient.extend(t.tool_writing.active(t.id));
             if !t.draft.is_empty() {
                 transient.push(json!({ "event_id": format!("draft-{}", t.id), "role": "assistant", "kind": "draft", "text": t.draft, "stream_order": t.draft_order }));
             }
