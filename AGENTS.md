@@ -422,7 +422,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
     uninstalled refuses its launch saying so and is never substituted. "Installed" is
     the discovered file still present, else a launch's lookup: nothing is spawned.
     The staffing offers (templates, Quick chat, hire menus) leave out OpenRouter keys
-    and language-server models whose harness is not installed.
+    and language-server models whose harness is not installed. Every UI harness picker
+    lists ALL supported harnesses: installed first, a separator, the rest greyed out
+    and disabled (`HarnessOptions`, `canvas/harnesses.tsx`; user 2026-10-13 22:20Z).
 
   [decided: user 2026-10-11 22:35Z and 22:50Z, coordinator on ids/lanes; user
   2026-10-13 19:04Z (per key), 19:08Z (pin wins), 19:15Z (installed only, every

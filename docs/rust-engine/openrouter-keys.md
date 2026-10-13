@@ -144,6 +144,12 @@ there by the coordinator).
   API style); the hire/staff `harness` argument (orgtree_hire, orgtree_staff, the hire
   op). The Runtime tab's global row is removed. Each UI selector links to App
   settings › Harnesses.
+- **What a UI picker lists (user 2026-10-13 22:20Z):** every supported harness, not
+  only the installed ones: the installed ones first (registry order), then a disabled
+  separator, then the ones not installed, greyed out and disabled, "(not installed)".
+  One component, `HarnessOptions` in `canvas/harnesses.tsx`, draws every picker. A
+  saved choice since uninstalled stays the select's value (in the second group) and
+  is refused at launch; the engine still refuses a not-installed harness argument.
 - **Model pickers (templates, Quick chat, hire menus, defaults):** they choose a model,
   not a harness; the harness follows the provider, key or server. Their one source,
   the staffing offers (`domain/staffing.rs`), offers an OpenRouter key only while its
