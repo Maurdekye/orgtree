@@ -12,6 +12,7 @@ request selection remains `ringReorderSlot`; tree drop selection, op/animation
 and Undo remain unchanged. The tree preview mirrors the drop's current x rule.
 Source scope is only drag-preview preparation/presentation, not the engine.
 
-Focused geometry/component tests and tree/ring light/dark synthetic rendering
-are prepared; execution is pending the shared proof queue. No installed/native
-acceptance is claimed.
+Typecheck and all 58 focused tests pass across the geometry/component suite,
+existing move/Undo regression and retired display checks. Synthetic light/dark
+rendering remains queued after correcting the harness's nonzero-width visibility
+predicate for vertical SVG lines. No installed/native acceptance is claimed.

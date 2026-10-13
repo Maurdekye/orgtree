@@ -15,5 +15,14 @@ and vertical headroom. The outline therefore predicts the final animation target
 including a crowd member's pile slot. No engine, move, animation or Undo semantics
 change. Escape restores the captured group and prevents a later release committing.
 
-Typecheck passed at implementation. Focused renderer regression and synthetic
-light/dark visual verification are queued; native/installed behavior is untested.
+Typecheck passes. The focused renderer run passes all 58 tests across
+`reorderpreview`, `pendingmove` and `hideretired`, including six actual-canvas
+ghost cases: agent/switchboard landing and invalid/leave/Escape cancellation in
+both layouts. These compare the outline with a separately mounted confirmed
+tree and the subsequent move animation. The jsdom viewport and pointer capture
+are stubbed; native/installed behavior is untested.
+
+Synthetic light/dark visual verification remains queued. The first visual
+harness rejected vertical SVG lines because its generic visibility predicate
+requires nonzero bounding-box width. The harness has been corrected to wait
+for the SVG element itself; product source is unchanged.
