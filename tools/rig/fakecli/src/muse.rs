@@ -25,6 +25,14 @@
 //!   {"tool": "write_file", "args": {"path": "..."}, "native_write": true}   a
 //!       write Muse's own root rules decide: inside one of the session's
 //!       workspace roots it runs unasked, outside it asks (`approval/request`)
+//!   {"tool": ..., "approval": true, "subject": {...}}   a call that asks first.
+//!       It offers real Muse 1.4.6's choices (measured 2026-10-13: `allow_once`,
+//!       for a shell command the persistent `allow_local_prefix`, and `abort`,
+//!       "Reject", the only refusal: it rejects that call, "approval aborted",
+//!       and the turn goes on), or with "schema_choices": true MSP's schema set
+//!       (`allow-once`, `allow-session`, `deny-once`). Like real Muse it waits
+//!       for the decision with no timeout of its own; `task/stop` or an
+//!       interrupt ends the wait (`cancelled`).
 //! A catalog file `{"fail": "..."}` makes that login's model/list fail.
 //! A login's account/read answer: its own `<XDG_CONFIG_HOME>/muse-account.json`
 //! when present (`{"state": "loggedOut"}`, or `{"fail": "..."}` for a read that
@@ -638,18 +646,39 @@ fn tool(srv: &Srv, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
         } else {
             json!({ "kind": "shell", "command": args["command"] })
         });
+        let choices = approval_choices(&subject, step["schema_choices"].as_bool() == Some(true));
         let receipt = srv.request("approval/request", json!({ "sessionId": srv.sid(), "approvalId": aid, "toolName": name,
             "subject": subject, "currentRequirementId": "req-1", "rawArgs": args.to_string(),
-            "availableChoices": [
-                { "choiceId": "allow-once", "decision": "approved", "scope": "once" },
-                { "choiceId": "allow-session", "decision": "approved", "scope": "session" },
-                { "choiceId": "deny-once", "decision": "denied", "scope": "once" } ] }), Duration::from_secs(30));
-        let choice = drx.recv_timeout(Duration::from_secs(30)).unwrap_or_default();
-        srv.log("approval", json!({ "approval": aid, "receipt": receipt.map(|r| r["result"].clone()), "choice": choice }));
-        if choice != "allow-once" && choice != "allow-session" {
-            finish("rejected", "", Some("the approval was denied"));
-            srv.log("tool_result", json!({ "tool": name, "declined": true, "choice": choice }));
-            return;
+            "availableChoices": choices }), Duration::from_secs(30));
+        let asked = Instant::now();
+        let choice = match await_decision(srv, &drx, &id, &name) {
+            Waited::Decided(c) => c,
+            ended => {
+                // stopped (`task/stop`) or interrupted while it waited
+                srv.decisions.lock().unwrap().remove(&aid);
+                let reason = if matches!(ended, Waited::Stopped) { "cancelled by runtime client" } else { "the turn was interrupted" };
+                finish("cancelled", "", Some(reason));
+                let steered = srv.take_steers();
+                for t in &steered {
+                    item(srv, turn, true, json!({ "itemId": srv.uid(), "kind": "userMessage", "text": t, "steered": true }));
+                }
+                srv.log("approval", json!({ "approval": aid, "receipt": receipt.map(|r| r["result"].clone()), "choice": null,
+                                            "ended": reason, "waited_ms": asked.elapsed().as_millis() as u64 }));
+                srv.log("tool_result", json!({ "tool": name, "item": id, "stopped": matches!(ended, Waited::Stopped), "steered": steered }));
+                return;
+            }
+        };
+        srv.log("approval", json!({ "approval": aid, "receipt": receipt.map(|r| r["result"].clone()), "choice": choice,
+                                    "waited_ms": asked.elapsed().as_millis() as u64 }));
+        match choice.as_str() {
+            "allow_once" | "allow-once" | "allow-session" => {}
+            "allow_local_prefix" => srv.log("persistent_rule", json!({ "tool": name, "approval": aid })),
+            other => {
+                let reason = if other == "abort" { "approval aborted" } else { "the approval was denied" };
+                finish("rejected", "", Some(reason));
+                srv.log("tool_result", json!({ "tool": name, "declined": true, "choice": choice, "reason": reason }));
+                return;
+            }
         }
     }
     if let Some(limit) = step["silent_ms"].as_u64() {
@@ -681,6 +710,59 @@ fn tool(srv: &Srv, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
         check["ok"] = json!(check["ok"].as_bool().unwrap_or(true) && want == failed);
     }
     srv.log("tool_result", check);
+}
+
+/// What an approval offers. Real Muse 1.4.6 (measured 2026-10-13 on a shell
+/// approval): allow once, a persistent "always allow in this workspace"
+/// prefix rule, and `abort` ("Reject", once), its only refusal. Other
+/// subjects offer allow once and `abort` here (their set was not measured).
+/// With `schema_choices`, the set MSP's schema names: allow once, allow for
+/// the session, deny once.
+fn approval_choices(subject: &Value, schema: bool) -> Value {
+    if schema {
+        return json!([
+            { "choiceId": "allow-once", "decision": "approved", "scope": "once" },
+            { "choiceId": "allow-session", "decision": "approved", "scope": "session" },
+            { "choiceId": "deny-once", "decision": "denied", "scope": "once" } ]);
+    }
+    let mut out = vec![json!({ "choiceId": "allow_once", "label": "Allow once", "decision": "approved", "scope": "once" })];
+    if subject["kind"] == "shell" {
+        let first = subject["command"].as_str().and_then(|c| c.split_whitespace().next()).unwrap_or("command");
+        let rule = format!("Always allow in this workspace: {first} ...");
+        out.push(json!({ "choiceId": "allow_local_prefix", "label": rule, "decision": "approvedPolicyAmendment",
+                         "scope": "localPersistent", "rulePreview": rule }));
+    }
+    out.push(json!({ "choiceId": "abort", "label": "Reject", "decision": "abort", "scope": "once", "acceptsFeedback": true }));
+    Value::Array(out)
+}
+
+/// How a call's wait for an approval decision ended.
+enum Waited {
+    Decided(String),
+    Stopped,
+    Interrupted,
+}
+
+/// Wait for the engine's decision as real Muse does, with no timeout of its
+/// own (measured: still pending after 240 s). Meanwhile the call is a task,
+/// so `task/stop` ends it, as an interrupt does.
+fn await_decision(srv: &Srv, rx: &mpsc::Receiver<String>, id: &str, name: &str) -> Waited {
+    srv.tasks.lock().unwrap().push((id.to_string(), name.to_string()));
+    let out = loop {
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(c) => break Waited::Decided(c),
+            Err(mpsc::RecvTimeoutError::Disconnected) => break Waited::Interrupted,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        if srv.task_stops.lock().unwrap().iter().any(|t| t == id) {
+            break Waited::Stopped;
+        }
+        if srv.interrupted.load(Ordering::SeqCst) {
+            break Waited::Interrupted;
+        }
+    };
+    srv.tasks.lock().unwrap().retain(|(t, _)| t != id);
+    out
 }
 
 /// A tool call that produces nothing until it is stopped, times out, or Muse

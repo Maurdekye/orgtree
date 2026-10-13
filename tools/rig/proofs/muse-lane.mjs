@@ -155,7 +155,7 @@ export default async function (rig) {
   const tr = log('dana', 'tool_result').find(l => /orgtree_chart/.test(l.tool))
   p.check('dana: the host got the engine\'s answer over MCP', tr?.ok === true && !tr.is_error, tr && { ok: tr.ok, text: String(tr.text).slice(0, 80) })
   const approval = log('dana', 'approval')[0]
-  p.check('dana: the command approval was answered once (never for the session)', approval?.choice === 'allow-once' && row1.denials === 0, approval)
+  p.check('dana: the command approval was answered once (never for the session)', approval?.choice === 'allow_once' && row1.denials === 0, approval)
   const usage = await rig.api('GET', '/api/muse/usage')
   p.check('usage: the lane holds Muse\'s own dated observation (5 h window and weekly)', usage?.available === true
     && usage.limits?.some(l => l.kind === 'session' && l.label === '5 h') && usage.limits?.some(l => l.kind === 'weekly_all')
@@ -221,7 +221,7 @@ export default async function (rig) {
     rstart?.args?.includes('--disable-shell') && rstart.args.includes('--disable-write') && rsess?.profile === ':read-only' && rsess.approval === 'denyUnmatched',
     { args: rstart?.args, sess: rsess })
   const rap = log('rita', 'approval')[0]
-  p.check('rita: a write outside her folders is denied once and booked as a denial', rap?.choice === 'deny-once'
+  p.check('rita: a write outside her folders is denied once and booked as a denial', rap?.choice === 'abort'
     && rig.one(`SELECT denials FROM ot.turns WHERE id = ${rt.id}`)?.denials === 1, rap)
 
   // ---------------------------------------------------------------- Full once the account offers it
