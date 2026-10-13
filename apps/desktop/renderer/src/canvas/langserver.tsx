@@ -77,7 +77,7 @@ export { fmtTokens, variantName, wantsVariant } from './lsmodels'
 
 type ToastFn = (lines: string[]) => void
 
-const HARNESS_LABEL: Record<string, string> = { 'claude-code': 'Claude Code', 'codex-cli': 'Codex' }
+const HARNESS_LABEL: Record<string, string> = { 'claude-code': 'Claude Code', 'codex-cli': 'Codex', 'opencode': 'OpenCode (ACP)' }
 
 /** "Create a 64K version of this model": says what it adds to the user's
  *  Ollama before the click, and does nothing without one */
@@ -366,13 +366,13 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
       </SetRow>
       {custom
         ? <SetRow label="API style"
-            hint="Anthropic-compatible servers are driven by Claude Code; OpenAI-compatible ones (the Responses API) by Codex.">
+            hint="Claude Code uses Anthropic Messages; Codex uses OpenAI Responses; OpenCode uses OpenAI Chat Completions.">
             <select aria-label="API style" value={harness} disabled={busy}
               onChange={(e) => setHarness(e.target.value)}>
               {/* only installed harnesses are offered (user 2026-10-13) */}
               {preset?.harnesses.filter((h) => h.installed).map((h) => (
                 <option key={h.id} value={h.id} disabled={!h.available}>
-                  {h.id === 'codex-cli' ? 'OpenAI-compatible (Codex)' : 'Anthropic-compatible (Claude Code)'}
+                  {h.id === 'opencode' ? 'OpenAI Chat Completions (OpenCode)' : h.id === 'codex-cli' ? 'OpenAI Responses (Codex)' : 'Anthropic Messages (Claude Code)'}
                   {h.available ? '' : ` — ${h.why}`}
                 </option>
               ))}

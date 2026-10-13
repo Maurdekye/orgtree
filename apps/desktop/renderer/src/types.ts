@@ -1494,7 +1494,7 @@ export interface LangServerDoc {
   user_enabled: boolean
 }
 export interface LangServerHarness {
-  id: 'claude-code' | 'codex-cli'
+  id: 'claude-code' | 'codex-cli' | 'opencode'
   label: string
   available: boolean
   /** not installed: never offered (user 2026-10-13), only named on a
@@ -1532,8 +1532,8 @@ export interface LangServer {
   preset: LangServerPreset['id']
   label: string
   address: string
-  harness: 'claude-code' | 'codex-cli'
-  api: 'anthropic' | 'responses'
+  harness: 'claude-code' | 'codex-cli' | 'opencode'
+  api: 'anthropic' | 'responses' | 'chat_completions'
   base_path: string
   /** what the harness is pointed at */
   base_url: string
