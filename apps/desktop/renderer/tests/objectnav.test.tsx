@@ -145,6 +145,7 @@ test('agent links keep their existing menu and editing, ordinary links and selec
   for (const selector of ['input', 'a']) assert.equal(await right(view.el.querySelector(selector)!), false)
   const target = view.el.querySelector('[data-object-nav]')!
   const range = document.createRange(); range.selectNodeContents(target)
-  window.getSelection()?.addRange(range)
+  window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range)
+  assert.equal(window.getSelection()?.isCollapsed, false, 'fixture has a live selection')
   assert.equal(await right(target), false)
 })
