@@ -36,6 +36,15 @@ provider display label; Language servers Gold theme. Engine display metadata and
 error navigation pointers match the renamed Providers category. Org Accounts
 already used Language servers.
 
+Audit correction (rig-opus, 2026-10-13): the engine's `catalog::provider_label`
+names the provider of one agent, so it stays "Language Server". Making it plural
+had produced "the Language servers process exited during the turn" and
+"Language servers is turned off in App settings". The switch in App settings ›
+Providers belongs to the whole class, so refusing work because it is off says
+"Language servers are turned off in App settings" (`catalog::turned_off`: hire
+and move refusals, the Providers payload's reason, and the runtime's route
+check). The lineage panel's note likewise reads "Language servers are off".
+
 Singular text remains where it names one server: Add language server/configure/
 remove actions, one server's model-selection dialog, per-server Usage cards,
 session explanations and individual-server errors. External CLI configuration

@@ -2,10 +2,13 @@
 
 - Provider/category/collection labels use **Language servers**, including tier
   families, navigation and theme names. Wording about one server stays singular;
-  protocol/API/storage IDs remain `langserver`. See the terminology audit in
+  protocol/API/storage IDs remain `langserver`. The engine's
+  `catalog::provider_label` names one agent's provider in messages, so it stays
+  "Language Server"; the switched-off refusal comes from `catalog::turned_off`
+  ("Language servers are turned off…"). See the terminology audit in
   [compact Providers](docs/rust-engine/provider-compact.md).
   [decided: user 2026-10-12 21:22Z; verified from source: renderer labels and
-  `providers/{catalog,mod}.rs`, 2026-10-12]
+  `providers/{catalog,mod}.rs`, `domain/ops.rs`, 2026-10-13]
 
 - Providers presentation keeps provider enablement in each header and account
   activation beside identity, with short visible labels and full accessible names.
