@@ -20,5 +20,12 @@ select, contenteditable (including shadow descendants), textbox roles and
 editor containers retain text undo. Already-handled keys, repeated keys,
 composition, Alt+Z and Shift+Ctrl/Cmd+Z are left alone.
 
-Focused verification is `toastundo.test.tsx`; typecheck and measured evidence
-are pending at the initial source commit. No engine/provider behavior changes.
+Measured 2026-10-13: `toastundo.test.tsx` passes 19/19, no failures or skips;
+typecheck exits 0. Both ran under a 4096 MB / 150 s kernel Job; the focused
+renderer bundle/test phase also held the shared machine build lock. Checks use
+the actual `ToastStack` and `createToast`, including separate portal documents
+and simultaneous mirror events, with explicit visible/invisible rectangles.
+jsdom does not implement layout or native text undo: these checks prove keys
+are left unhandled inside editors, not that an OS editor restores its text.
+Real OS shortcuts, native popout focus, installed behavior and backend reverse
+operations were not exercised. No engine/provider behavior changes.
