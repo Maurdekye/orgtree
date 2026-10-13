@@ -34,7 +34,8 @@ export default async function (rig) {
     await rig.waitTurns('acp', n + 1)
     return rig.turns('acp').at(-1)
   }
-  const chat = () => rig.api('GET', `/api/orgs/${rig.org}/nodes/${agent.id}/chat`)
+  const nodePath = `/api/orgs/${rig.org}/nodes/${encodeURIComponent(agent.name)}`
+  const chat = () => rig.api('GET', `${nodePath}/chat`)
   const rows = async () => JSON.stringify(await chat())
   const permissions = [
     { name: 'execute', rawInput: { code: 'nested shell/fetch' } },
@@ -99,7 +100,7 @@ export default async function (rig) {
   set({ text: 'CANCELLED_OUTPUT', delayMs: 30000 })
   await rig.userMail('acp', 'ACP cancellation control')
   await rig.waitFor(() => observed().length > starts, { what: 'cancellable ACP request begins', timeout: 30000 })
-  await rig.api('POST', `/api/orgs/${rig.org}/nodes/${agent.id}/interrupt`, {})
+  await rig.api('POST', `${nodePath}/interrupt`, {})
   await rig.waitTurns('acp', turns + 1)
   p.check('cancel settles the prompt without post-cancel output', !(await rows()).includes('ACP_FIXTURE CANCELLED_OUTPUT'))
   set({ text: 'AFTER_CANCEL' })

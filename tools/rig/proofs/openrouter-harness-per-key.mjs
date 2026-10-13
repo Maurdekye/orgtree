@@ -61,11 +61,11 @@ export default async function (rig) {
   const reg = (await rig.api('GET', '/api/harnesses')).harnesses ?? []
   const byId = Object.fromEntries(reg.map((h) => [h.id, h]))
   p.check('the registry lists every harness with what it is, its providers and how to install it',
-    ['claude-code', 'codex-cli', 'antigravity', 'muse'].every((id) => byId[id]?.name && byId[id]?.what && byId[id]?.install && byId[id]?.providers?.length),
+    ['claude-code', 'codex-cli', 'antigravity', 'muse', 'opencode'].every((id) => byId[id]?.name && byId[id]?.what && byId[id]?.install && byId[id]?.providers?.length),
     reg.map((h) => ({ id: h.id, installed: h.installed, providers: h.providers?.map((x) => x.id) })))
   p.check('control: Claude Code and Codex are installed in this rig (its fake CLI)', byId['claude-code']?.installed && byId['codex-cli']?.installed)
-  p.check('the OpenRouter rows of the registry are Claude Code and Codex',
-    reg.filter((h) => h.selectable && h.providers.some((x) => x.id === 'openrouter')).map((h) => h.id).join() === 'claude-code,codex-cli')
+  p.check('the OpenRouter registry supports Claude Code, Codex and OpenCode independently of installation',
+    reg.filter((h) => h.selectable && h.providers.some((x) => x.id === 'openrouter')).map((h) => h.id).join() === 'claude-code,codex-cli,opencode')
   p.check('the original key carries its own harness, seeded Claude Code', (await keyDoc('openrouter-key'))?.harness === 'claude-code',
     await keyDoc('openrouter-key'))
   p.check('the global harness endpoint is gone', (await refused(rig.api('PUT', '/api/openrouter/harness', { harness: 'codex-cli' }))) !== null)
