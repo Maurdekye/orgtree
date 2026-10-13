@@ -4,6 +4,8 @@ module.exports=async page=>{
   const dismiss=async(target,name)=>{
     await page.click(target)
     await page.waitFor('.provider-dialog')
+    await page.click('.provider-dialog input')
+    await page.type('synthetic-unsaved-draft')
     const box=await page.eval(()=>{
       const d=document.querySelector('.provider-dialog'),i=d.querySelector('input')||d
       const r=i.getBoundingClientRect()
@@ -19,7 +21,13 @@ module.exports=async page=>{
     await page.mouse('mousePressed',3,3)
     await page.mouse('mouseReleased',3,3)
     if(await dialog())throw new Error(name+' outside click did not dismiss')
-    results.push({name,insideRetained:true,dragRetained:true,outsideClosed:true})
+    await page.click(target)
+    const discarded=await page.eval(()=>![...document.querySelectorAll('.provider-dialog input')]
+      .some(i=>i.value.includes('synthetic-unsaved-draft')))
+    if(!discarded)throw new Error(name+' unsaved draft retained')
+    await page.press('Escape')
+    if(await dialog())throw new Error(name+' Escape did not dismiss')
+    results.push({name,insideRetained:true,dragRetained:true,outsideClosed:true,draftDiscarded:true,escapeClosed:true})
   }
   for(const theme of ['dark','light'])for(const size of ['1366x768','390x844']){
     await page.resize(size);await page.goto('/')

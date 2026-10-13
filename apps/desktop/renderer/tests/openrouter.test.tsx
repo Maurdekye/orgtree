@@ -159,16 +159,17 @@ test('§1 no key: the section offers key entry and nothing else; setting it '
       assert.equal(b.textContent?.trim(), '', `no text in an icon button (${b.getAttribute('title')})`)
       assert.ok(b.querySelector('svg'), 'an icon button carries an icon')
     }
-    // replace → the entry row comes back with a ✕ that keeps the current key
+    // Replace opens the shared settings form; Cancel keeps the stored key.
     await inAct(async () => { btns[1]!.click(); await flush(4) })
     assert.ok(document.querySelector('input[aria-label="OpenRouter API key"]'),
       'replace opens the key dialog')
-    const keep = document.querySelector<HTMLButtonElement>('button[title="keep the current key"]')!
-    assert.ok(keep, 'a ✕ keeps the current key')
+    const keep = [...document.querySelectorAll<HTMLButtonElement>('.provider-dialog button')]
+      .find(b => b.textContent === 'Cancel')!
+    assert.ok(keep, 'Cancel keeps the current key')
     await inAct(async () => { keep.click(); await flush(4) })
     assert.ok(view.el.querySelector('.orr-keyrow .orr-standing'), 'the key row is back')
-    assert.equal(seen.filter((r) => r.path === '/api/openrouter/key').length, 1,
-      'replace/keep touched the key endpoint no further')
+    assert.equal(seen.filter((r) => r.method !== 'GET').length, 1,
+      'opening settings and cancelling causes no additional key/name write')
   } finally { await view.unmount(); delete g.fetch }
 })
 
