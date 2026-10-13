@@ -56,6 +56,69 @@ fn rebound_queue(queue: &Value, id: &str, primary: &str, model_switch: bool) -> 
     next
 }
 
+/// A queued intent that named the removed login, naming `to` instead, or no
+/// account at all.
+#[logged]
+fn requeue(queue: &Value, to: Option<String>) -> Value {
+    let mut next = queue.clone();
+    match (to, next.as_object_mut()) {
+        (Some(a), Some(_)) => next["account"] = json!(a),
+        (None, Some(o)) => {
+            o.remove("account");
+        }
+        _ => {}
+    }
+    next
+}
+
+/// Where a Muse seat of `org_slug` running `tier` (pinned `version`) goes
+/// when the login it names, `removed`, is removed (independent review R3
+/// 2026-10-13, under the coordinator's reassign-or-freeze ruling): the user's
+/// own login first, as every provider's removal rebinds to it, then the other
+/// registered subscriptions in registry order. Each only where it passes
+/// every continuation gate (the org's account list, provider and login
+/// activation, sign-in, re-authentication, marks, a full window) and its own
+/// catalog offers the exact model. Never an API key: a removal makes no paid
+/// move. Ok(None) is the own login; Err says why no login can take it.
+/// Published snapshots and catalog reads only (read before the transaction).
+#[logged]
+fn muse_target(engine: &Engine, org_slug: &str, tier: &str, version: Option<&str>, removed: &str)
+    -> std::result::Result<Option<String>, String> {
+    let own = match crate::runtime::freeze::admits(engine, org_slug, tier, version, &crate::org_accounts::primary(catalog::MUSE)) {
+        Ok(()) => return Ok(None),
+        Err(e) => e.to_string(),
+    };
+    let view = engine.accounts.view();
+    for to in view.continue_candidates(tier, Some(removed), org_slug) {
+        if view.get(&to).is_some_and(|a| !a.is_apikey())
+            && crate::runtime::freeze::admits(engine, org_slug, tier, version, &to).is_ok()
+        {
+            return Ok(Some(to));
+        }
+    }
+    Err(format!(
+        "no Muse login this org may use can run {} now: the user's own login cannot ({}), no other subscription login \
+         offers it and passes every check, and a removal never moves an agent onto an API key",
+        catalog::model_for(tier, version),
+        own.trim_end_matches("; nothing changed")
+    ))
+}
+
+/// Before a Muse login's removal: every other registered Muse subscription
+/// login whose last read is not recent, and the user's own login when
+/// discovery holds no catalog, are read at once (each bounded to 10 s), so
+/// the transaction judges current catalogs and waits on no provider.
+#[logged]
+async fn muse_read_logins(engine: &Arc<Engine>, removed: &str) {
+    let logins: Vec<crate::accounts::AccountInfo> = engine.accounts.view().all().into_iter()
+        .filter(|a| a.provider == catalog::MUSE && a.id != removed && a.enabled && !a.is_apikey())
+        .cloned()
+        .collect();
+    // a profile is read in its own roots: no org is needed (only a key's is)
+    let reads = futures::future::join_all(logins.iter().map(|a| crate::providers::muse_login_refresh(engine, a, "")));
+    tokio::join!(reads, crate::providers::muse_own_refresh(engine));
+}
+
 #[logged]
 fn retryable(error: &anyhow::Error) -> bool {
     error.chain().any(|e| e.downcast_ref::<tokio_postgres::Error>().and_then(|e| e.code())
@@ -76,9 +139,12 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
         refuse!(Conflict, "{id} is a primary account and cannot be removed");
     }
     // an added OpenRouter key's agents move to the original key (its primary);
-    // a Muse login's to the user's own login where that offers their model
+    // a Muse login's to a login whose own catalog offers their model (`muse_target`)
     if !matches!(provider.as_str(), "claude" | "openai" | "google" | "openrouter" | "muse") {
         refuse!(Conflict, "{id} has no provider primary to move its bindings to");
+    }
+    if provider == catalog::MUSE {
+        muse_read_logins(engine, id).await;
     }
     let mut out = None;
     for attempt in 0..4 {
@@ -142,6 +208,8 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
     }
     let primary = format!("{provider}/primary");
     let mut out = Outcome::default();
+    // per (org, tier, pinned version): where a removed Muse login's seat goes
+    let mut muse_targets: BTreeMap<(String, String, Option<String>), std::result::Result<Option<String>, String>> = BTreeMap::new();
     let mut after = 0i64;
     loop {
         let rows = tx.query(
@@ -178,54 +246,97 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
                     refuse!(Conflict, "{name} is running a turn and requires a session boundary; removal succeeds once that turn ends");
                 }
             }
-            let next_pa = rebound_queue(&pa, id, &primary, false);
-            let next_ps = rebound_queue(&ps, id, &primary, true);
-            // a live Muse seat goes to the user's own login only where that
-            // login's own catalog offers its exact model (pin included), as
-            // every Muse placement; otherwise it is unbound and waits frozen,
-            // saying so, until it is continued on a login that offers it
-            // (in-memory catalogs only: no provider request in this transaction)
-            let unoffered = (live && bound && catalog::is_muse(&tier)).then(|| {
-                let pin = crate::domain::scope::normalize(&r.get::<_, Value>(13))
-                    .get("model_version").and_then(Value::as_str).map(str::to_string);
-                let model = catalog::model_for(&tier, pin.as_deref());
-                match crate::providers::muse_offer(engine, None, &model) {
-                    crate::providers::MuseOffer::Offered(_) => None,
-                    crate::providers::MuseOffer::NotOffered(why) | crate::providers::MuseOffer::Unknown(why) => Some(why),
+            // every provider's references go to its own login; a Muse login's
+            // to a login whose own catalog offers the model each one runs
+            let (binding, next_pa, next_ps, stranded) = if provider == catalog::MUSE {
+                let pin = crate::domain::scope::normalize(&r.get::<_, Value>(13)).get("model_version").and_then(Value::as_str)
+                    .filter(|v| !v.is_empty()).map(str::to_string);
+                let mut to = |t: &str| muse_targets.entry((slug.clone(), t.to_string(), pin.clone()))
+                    .or_insert_with(|| muse_target(engine, &slug, t, pin.as_deref(), id)).clone();
+                // a live seat's binding: the first login that can take it, else
+                // none and it waits frozen, saying why; a seat that is not live
+                // goes to the own login as for every provider, and is judged
+                // on the login it lands on when it is rehired
+                let (binding, stranded) = match live && bound {
+                    true => match to(&tier) {
+                        Ok(login) => (login, None),
+                        Err(why) => (None, Some(why)),
+                    },
+                    false => (None, None),
+                };
+                // a queued account move runs the tier the seat will run when
+                // it lands (a queued switch's, as the account op judges it);
+                // with no login to take it, it is dropped
+                let lands = ps["tier"].as_str().filter(|t| catalog::is_muse(t)).unwrap_or(&tier).to_string();
+                let next_pa = match pa["account"].as_str() == Some(id) {
+                    true => match to(&lands) {
+                        Ok(login) => requeue(&pa, Some(login.unwrap_or_else(|| primary.clone()))),
+                        Err(_) => Value::Null,
+                    },
+                    false => pa.clone(),
+                };
+                // a queued switch naming it names the first login that offers
+                // its model, else none: it lands where the seat is, judged
+                // there as any switch is
+                let next_ps = match (ps["account"].as_str() == Some(id), ps["tier"].as_str().filter(|t| catalog::is_muse(t))) {
+                    (true, Some(t)) => requeue(&ps, to(t).ok().map(|login| login.unwrap_or_else(|| primary.clone()))),
+                    _ => rebound_queue(&ps, id, &primary, true),
+                };
+                (binding, next_pa, next_ps, stranded)
+            } else {
+                (None, rebound_queue(&pa, id, &primary, false), rebound_queue(&ps, id, &primary, true), None)
+            };
+            // no login can run a live seat: its freeze says why and replaces
+            // any it had (keeping the request that one held), since waiting
+            // for a reset or a list change could not make it run
+            let wait = stranded.as_ref().map(|why| {
+                let mut rec = json!({
+                    "at": crate::util::now_iso(), "until": null, "limit": false, "cause": "account", "account": primary,
+                    "error": format!("the Muse account {id} was removed and {why}; continue the agent on a Muse login that offers it \
+                                      (App settings › Providers › Muse lists what each login offers)"),
+                    "wake_text": "You now run on a Muse login that offers your model. Continue where you left off." });
+                if let Some(held) = frozen.get("resume_texts").filter(|t| t.is_array()) {
+                    rec["resume_texts"] = held.clone();
                 }
-            }).flatten();
-            let wait = unoffered.as_ref().filter(|_| frozen.is_null() || thaw_on_rebind(&frozen)).map(|why| json!({
-                "at": crate::util::now_iso(), "until": null, "limit": false, "cause": "account", "account": primary,
-                "error": format!("the Muse account {id} was removed and {why}; continue the agent on a Muse login that offers                                   {tier} (App settings › Providers › Muse lists what each login offers)"),
-                "wake_text": "You now run on a Muse login that offers your model. Continue where you left off." }));
+                rec
+            });
             let thaw = live && bound && thaw_on_rebind(&frozen) && wait.is_none();
+            let lands_on = binding.clone().unwrap_or_else(|| primary.clone());
+            let handoff = match (provider == catalog::MUSE, &binding, wait.is_some()) {
+                (true, _, true) => format!("your Muse account {id} was removed; you continue on a Muse login that offers your model"),
+                (true, Some(login), false) => format!("your Muse account {id} was removed; you continue on the Muse account {login}"),
+                (true, None, false) => format!("your Muse account {id} was removed; you continue on the user's own Muse login"),
+                _ => "your provider account was removed; continue on its primary account".to_string(),
+            };
             tx.execute(
-                "UPDATE ot.agents SET account = CASE WHEN $2 THEN NULL ELSE account END,
+                "UPDATE ot.agents SET account = CASE WHEN $2 THEN $8 ELSE account END,
                   pending_account = $3, pending_switch = $4,
                   frozen = CASE WHEN $7::jsonb IS NOT NULL THEN $7::jsonb WHEN $5 THEN NULL ELSE frozen END,
                   limit_locked = CASE WHEN $5 THEN false ELSE limit_locked END,
                   session_id = CASE WHEN $6 THEN NULL ELSE session_id END,
                   occupancy = CASE WHEN $6 THEN NULL ELSE occupancy END,
                   occupancy_est = CASE WHEN $6 THEN true ELSE occupancy_est END,
-                  extra = CASE WHEN $6 THEN jsonb_set(extra - 'cache_receipt', '{handoff_due}', to_jsonb('your provider account was removed; continue on its primary account'::text)) ELSE extra END,
+                  extra = CASE WHEN $6 THEN jsonb_set(extra - 'cache_receipt', '{handoff_due}', to_jsonb($9::text)) ELSE extra END,
                   row_version = row_version + 1 WHERE id = $1",
-                &[&aid, &bound, &Some(next_pa).filter(|v| !v.is_null()), &Some(next_ps).filter(|v| !v.is_null()), &thaw, &boundary, &wait]).await?;
+                &[&aid, &bound, &Some(next_pa.clone()).filter(|v| !v.is_null()), &Some(next_ps.clone()).filter(|v| !v.is_null()),
+                  &thaw, &boundary, &wait, &binding, &handoff]).await?;
             if boundary {
                 tx.execute("UPDATE ot.agent_sessions SET ended_at = coalesce(ended_at, now()), end_reason = coalesce(end_reason, 'account removed') WHERE agent_id = $1 AND ended_at IS NULL", &[&aid]).await?;
                 crate::domain::asks::moot_for_fresh_session(&tx, aid,
                     "the asking session was replaced when its account was removed; the fresh session never posed it").await?;
             }
-            let detail = json!({"node": name, "removed_account": id, "account": primary,
+            let detail = json!({"node": name, "removed_account": id, "account": lands_on,
                 "binding_rebound": bound, "session_boundary": boundary, "thawed": thaw, "frozen": wait.is_some(),
                 "pending_account_rebound": pa["account"].as_str() == Some(id),
-                "pending_switch_rebound": ps["account"].as_str() == Some(id)});
+                "pending_switch_rebound": ps["account"].as_str() == Some(id),
+                "pending_account": next_pa["account"], "pending_switch_account": next_ps["account"]});
             tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'account_removed', '@user', $2, $3)", &[&org_id, &aid, &detail]).await?;
             out.agents.entry(org_id).or_default().push(aid);
             out.orgs.insert(slug.clone());
             if bound {
-                out.rebound.push(json!({"org": slug, "node": name, "state": state,
+                out.rebound.push(json!({"org": slug, "node": name, "state": state, "account": lands_on,
                     "session_boundary": boundary, "in_flight_turn": live && r.get::<_, bool>(9),
-                    "frozen": wait.is_some(), "reason": unoffered}));
+                    "frozen": wait.is_some(), "reason": stranded}));
             }
             if live { out.live.push((org_id, aid)); }
         }
@@ -451,4 +562,24 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
     tx.execute("DELETE FROM ot.accounts WHERE id = $1", &[&ACCOUNT_ID]).await?;
     tx.commit().await?;
     Ok((out, frozen_out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rebound_queue, requeue};
+    use serde_json::json;
+
+    /// A queued intent naming a removed Muse login names the login chosen for
+    /// it, or no account (a queued switch then lands where the seat is); every
+    /// other provider's names its own login, as before.
+    #[test]
+    fn account_removal_requeues_intents_naming_the_login() {
+        let switch = json!({ "tier": "wonder-full", "account": "muse-7", "seq": 4, "by": "@user" });
+        assert_eq!(requeue(&switch, Some("muse-2".into())), json!({ "tier": "wonder-full", "account": "muse-2", "seq": 4, "by": "@user" }));
+        assert_eq!(requeue(&switch, None), json!({ "tier": "wonder-full", "seq": 4, "by": "@user" }));
+        let moved = json!({ "account": "muse-7", "from": "muse-1" });
+        assert_eq!(requeue(&moved, Some("muse/primary".into()))["account"], "muse/primary");
+        assert_eq!(rebound_queue(&json!({ "account": "claude-2" }), "claude-2", "claude/primary", false), json!({ "account": "claude/primary" }));
+        assert_eq!(rebound_queue(&json!({ "account": "claude-3" }), "claude-2", "claude/primary", false), json!({ "account": "claude-3" }));
+    }
 }
