@@ -46,6 +46,15 @@ directly), **untested**.
 - 2026-10-13 18:32Z: a tool call that runs past the silence limit ends by
   itself and the agent's turn goes on ("it shouldnt stop the turn, just end
   the tool call and allow the agent to continue").
+- 2026-10-13 18:53Z, kept 20:16Z: Muse's shell works while the engine runs in
+  Windows Session 0. There, write seats run without Muse's OS sandbox;
+  read-only seats have no shell; bypass seats are unchanged; the posture is
+  logged ("Yes, do the fix"). That first answer assumed Orgtree would still
+  be asked about each command. Measured the same day, without the sandbox
+  Muse asks about none, and its file tools also write outside the folders.
+  Told that, the user kept the posture ("ship as built", over no shell in
+  Session 0) and asked for it to be stated plainly on the Harnesses page, in
+  this document and in AGENTS.md.
 
 ## How the lane runs
 
@@ -65,7 +74,8 @@ landing).
 agent, warm between turns like the other lanes, in a kill-on-close job, shut
 down gracefully before any force. Launch switches: `--trust-workspace`;
 `--disable-shell` / `--disable-write` from the seat's scope;
-`-c run.developer_prompt=<identity>` (by file past 26,000 characters);
+`--disable-sandbox` on a write seat while the engine runs in Session 0 (see
+**Session 0** below); `-c run.developer_prompt=<identity>` (by file past 26,000 characters);
 `-c runtime_capabilities=...` turning Muse's six background observer agents
 off; workflows off; web search and fetch off unless the scope allows web. The
 environment is the agent's (Orgtree names, the credential bridge) with every
@@ -94,6 +104,41 @@ replacement): a resume admits none, so without them a resumed session would
 keep the set it started with, a folder revoked or made read-only since staying
 a native writable root and a new grant never becoming one (independent review
 R1, 2026-10-13).
+
+**Session 0** (`muse.rs` `os_sandbox`, `codex.rs` `session0`). The installed
+app's engine runs as a boot task in Windows Session 0, where Muse's
+`windows_elevated` OS sandbox cannot start a command. Measured on Muse 1.4.6
+from a Session 0 shell: a sandboxed shell call fails at once ("failed to send
+runner spawn_request ... The pipe has been ended. (os error 109)"), while the
+same call with `--disable-sandbox` returns in about half a second. In the
+installed app the reported calls produced nothing until the silence limit
+instead; why it hangs there rather than failing is not determined. So while
+the engine runs in Session 0 (`codex::session0`, read once from the engine's
+own session; a rig run may force it with `ORGTREE_RIG_SESSION0`), a write seat
+(`acceptEdits`, `default`) starts its host with `--disable-sandbox`.
+
+What that means, measured 2026-10-13 (synthetic Spark turns in scratch
+folders): **Orgtree is not asked about anything such a seat does with its
+shell or its file tools.** Muse asked about no shell command (a visible write
+outside the workspace and a script writing outside both ran, Muse's policy
+decision `allow:policy`), and Muse's own `write_file` wrote outside the
+workspace roots without asking as well, although Muse's help says the flag
+disables "shell filesystem/network sandboxing". With the sandbox on, Muse
+refuses that write itself ("absolute path is outside the workspace"). Muse's
+stricter approval mode (`promptUnmatched`) makes the shell ask but leaves the
+file tools writing outside unasked, so no setting keeps them inside the
+folders without the sandbox. Commands run with the rights of the account the
+engine runs as, with no network proxy. The Harnesses page (App settings ›
+Providers, the Muse card) says this while it applies (`/api/providers` ›
+`muse.session0`).
+
+A read-only seat has no shell (`--disable-shell`, as everywhere) and keeps
+the sandbox flag; a `bypassPermissions` seat is unchanged (its `:unrestricted`
+profile ran a command in Session 0 in 509 ms with the sandbox flag on).
+Outside Session 0 nothing changes. Each host's launch line logs the posture
+(`profile`, `shell`, `write`, `sandbox`). Hosting Muse in the user's own
+session, as the sign-in helper hosts Codex, would keep the sandbox; that is
+not built (it needs a measurement from that session first).
 
 **Turns.** `turn/start` with the text, image parts (base64, capped as for
 Claude) and the effort; mail that arrives mid-turn goes into the exact running
@@ -402,6 +447,10 @@ status and the exact HEAD it ran on.
 | Rig `muse-tool-silence.mjs` (4 s limit), the tool-call stop. One silent call: the note first, then the call alone; the turn ends well, the host untouched, the chip says why. A silent model: the turn stops as before. Two silent calls: each stopped in its turn. A stop that does not take: asked once, the turn stops a limit later. Backgrounded work: not stopped. A 10 s total ceiling: still ends the turn | 13 checks passed; `turn-failures.mjs` (15) and `muse-lane.mjs` (48) pass on the same engine |
 | Engine unit test `runtime::muse::tests::a_refusal_is_real_muses_once_only_abort` (real Muse 1.4.6's measured choice set: refuse with `abort`, approve with `allow_once`, never the persistent prefix rule; `denied` preferred when offered) | 1 passed |
 | Rig `muse-refusal.mjs` (6 s limit), on a fake offering real Muse's choice set and, like it, waiting with no timeout. A read outside the folders: refused with `abort` at once, the call rejected, a denial booked, the turn goes on. A shell command on a seat without the shell: refused, never the prefix rule. An allowed command: `allow_once`. No approval left without an answer | 9 checks passed; `muse-lane.mjs` (48) on the same engine |
+| Engine unit test `runtime::muse::tests::session0_turns_the_sandbox_off_for_write_seats_only` (off only for write seats in Session 0; read-only and bypass seats and every seat outside Session 0 keep it; the host switch follows) | 1 passed |
+| Renderer test `musesession0` (the Muse card's Session 0 note: its plain words, shown only on the Muse card and only while `muse.session0` is true) | 5 passed |
+| Rig `muse-session0.mjs` (Session 0 forced, then a restart outside it): the three seats' host switches and profiles, the posture on each launch line, the write seat's command and outside write unasked (the fake modelling the measured `--disable-sandbox`), `muse.session0` true; after the restart the sandbox kept, the outside write asked about and refused (`abort`), `muse.session0` false | 10 checks passed |
+| Rig `muse-session0-real.mjs` on the REAL Muse Code 1.4.6, from a Session 0 engine (one synthetic Spark turn at its lowest effort): the host without the sandbox, its powershell call returning, its write outside its folders going through unasked, the turn ending well | 6 checks passed |
 
 **Red controls** (the same proof, run against an engine without the change):
 without the Muse fallback five checks fail (the move to the profile, its
@@ -436,7 +485,13 @@ retry happens there too), its setup and no-request control passing. The
 tool-call stop, against an engine compiled from a clean checkout of its base:
 `muse-tool-silence.mjs` fails 10 of its 13 checks (every silent call ends its
 whole turn at the limit, nothing is stopped alone), its setup, silent-model and
-backgrounded-work controls passing. The approval refusal, against an engine compiled from
+backgrounded-work controls passing. The Session 0 posture, against an engine compiled from its base (the
+approval refusal): `muse-session0.mjs` fails 6 of its 10 checks (no
+`--disable-sandbox`; no posture fields on the launch line; the Session 0
+outside write asked about and refused, which also leaves the restarted half
+two refusals where it expects one; no `muse.session0` either way), its hires,
+read-only, bypass and sandbox-kept controls passing; the real proof's
+counterpart is the measured sandboxed failure above. The approval refusal, against an engine compiled from
 its base (the tool-call stop): `muse-refusal.mjs` fails 6 of its 9 checks (no
 decision is sent, each refused call waits until the silence limit stops it, no
 denial is booked), its setup, offered-choices and approval controls passing.
@@ -502,6 +557,7 @@ be paid).
 | UI parity (hire, settings, Providers, Usage, colours) | yes | same | same | measured (rendered) |
 | App theme preset | Muse Cyan; `#0077b0` accent on light surfaces | Claude Terracotta | Codex Teal | measured (rendered in four contrast themes; unit tests) |
 | Granted folders' instructions (AGENTS.md, CLAUDE.md) | own folder's rules loaded by Muse; every granted folder's in the identity | same identity injection | same identity injection | measured (unit test) |
+| Shell in Windows Session 0 | write seats without Muse's sandbox: any command, and file tools writing outside the folders, Orgtree not asked (Harnesses page says so) | Bash pre-allowed (`--allowedTools`), no OS sandbox, on every session | `danger-full-access` unless the sign-in helper hosts it | Muse measured (real 1.4.6); others source |
 | Network for shell commands | Muse's own default (`proxy-only`); Orgtree sets no mode | Claude Code's own default | Codex's own default for the seat's sandbox | source: no lane gets a network mode; Muse's modes undocumented, untested |
 | Effort names in tools (`orgtree_hire`, `orgtree_retool`) | all harness names, checked per tier | same | same | measured (unit tests) |
 
@@ -551,6 +607,17 @@ be paid).
 8. **Wonder Full shares the F letter with Flash and Fable** in the header's
    agent summary, told apart there by colour (as Fable and Flash already
    are). Class: existing design. Cards also carry the family rail.
+9. **In Session 0 a write seat's file tools are not confined to its folders.**
+   Muse's sandbox cannot start a command in Session 0, and turning it off
+   also lifts its file tools' workspace boundary (measured). Impact: such an
+   agent can write any file the engine's account can, without Orgtree being
+   asked. Compared (from source): Codex write seats there run
+   `danger-full-access` unless the sign-in helper hosts them, so their edits
+   are unconfined too; Claude Code's file tools keep its own directory rules
+   (Orgtree passes no permission-prompt tool), while its shell, pre-allowed,
+   is unconfined on every session. Class: upstream limitation plus a user
+   ruling (2026-10-13 20:16Z, keep the shell). Closes by hosting Muse in the
+   user's session with its sandbox on.
 
 ## Files
 
@@ -575,4 +642,8 @@ renderer's `canvas/{shared,OrgCanvas,cards,modals,desk,accounts,accountsregistry
 `proofs/muse-{lane,visual,real,r1,routes,placement,r2,ui-logins,r4-removal,r4-routes,held-replay,tool-silence}.mjs`,
 `desktop/muse-{visual,effort,theme,logins}.cjs`, `up --real-muse`, `up --quiet-log`.
 The tool-call stop: `runtime/{actor,muse}.rs`; the fake host's `task/stop`,
-`task/list` and silent tool steps.
+`task/list` and silent tool steps. Approval refusals: `runtime/muse.rs`
+(`choice`), the fake's measured choice set, `proofs/muse-refusal.mjs`.
+Session 0: `runtime/{muse,actor}.rs`, `providers/mod.rs` (`muse.session0`),
+the renderer's `canvas/accounts.tsx` and `types.ts` with test `musesession0`,
+the fake's `--disable-sandbox`, `proofs/muse-session0{,-real}.mjs`.

@@ -1,5 +1,16 @@
 # AGENTS.md — working on Orgtree
 
+- Muse in Windows Session 0 (the installed app's boot-task engine): Muse's
+  OS sandbox cannot start a command there, so a write seat's host starts with
+  `--disable-sandbox`; read-only seats have no shell; bypass seats, and every
+  seat outside Session 0, are unchanged. Without the sandbox Muse asks Orgtree
+  about no command and its file tools write outside the agent's folders
+  (measured). The user kept this knowingly; the Harnesses page (App settings ›
+  Providers, the Muse card) states it from `/api/providers` › `muse.session0`.
+  See [Muse Session 0](docs/rust-engine/muse-code.md). [decided: user
+  2026-10-13 18:53Z, kept 20:16Z; verified: `muse.rs` `os_sandbox`, real Muse
+  1.4.6 probes 2026-10-13]
+
 - Muse approvals: Orgtree refuses with MSP's `denied` choice when offered, else
   Muse's once-only `abort` ("Reject"): real Muse 1.4.6 offers no `denied`, and
   `abort` rejects that one call while the turn goes on. Never take a choice that
