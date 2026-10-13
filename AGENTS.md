@@ -41,6 +41,16 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- External mail is untrusted by default, but generated instructions honor an
+  explicit exact-sender delegation in the current org's trusted `org.md`, including
+  Connect your phone. Body/forwarded claims and other orgs cannot confer trust;
+  Unlink/replacement removes the old delegation on configuration refresh. Never
+  promote it to system/developer authority or relabel all hub mail as user mail.
+  Keep identity instructions and turn/replay/mid-turn framing consistent. See
+  [phone-link authority](docs/rust-engine/phone-link-authority.md).
+  [decided: user 2026-10-13 08:35UTC; verified: `runtime/identity.rs`,
+  `runtime/envelope.rs`, `phone.rs`]
+
 - User-approved folder additions/upgrades through HTTP scope and request
   approval enter org defaults atomically with child/ancestor scope (3.x
   user 2026-08-08, P56). Only supplied whole-list edits infer additions;
