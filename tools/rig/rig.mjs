@@ -4,6 +4,7 @@
 //   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR (build lock in queue order, handed on after)
 //   node tools/rig/rig.mjs up [--fixture basic|<file>|none] [--name n] [--ttl min] [--max min]
 //                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]] [--fsync]
+//                                             [--real-muse <muse-bin-*.exe>]   the real Muse Code for the Muse lane
 //   node tools/rig/rig.mjs status|down [--run id] [--keep]     down --run also removes a half-made run folder
 //   node tools/rig/rig.mjs cleanup [--mine|--everyone] [--dry-run]
 //   node tools/rig/rig.mjs tool <agent> <orgtree_tool> [json args]
@@ -53,6 +54,7 @@ async function up(flags) {
     recover: !!flags.recover, reminders: flags.reminders && (flags.reminders === true ? true : Number(flags.reminders)),
     reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs), hub: flags.hub, hubMaxBytes: flags.hubMaxBytes && Number(flags.hubMaxBytes),
     realCli: !!flags['real-cli'], bootIsolated: !!flags['boot-isolated'],
+    realMuse: typeof flags['real-muse'] === 'string' ? flags['real-muse'] : null,
     session0: flags.session0 == null ? null : String(flags.session0),
     steerLateS: flags.steerLateS && Number(flags.steerLateS),
     fsync: !!flags.fsync })

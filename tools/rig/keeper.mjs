@@ -34,8 +34,9 @@ const env = {
   ORGTREE_CLAUDE_BIN: path.join(dir, 'bin', 'claude.exe'),
   ORGTREE_CODEX_BIN: path.join(dir, 'bin', 'codex.exe'),
   ORGTREE_AGY_BIN: path.join(dir, 'bin', 'agy.exe'),
-  // the fake `muse serve` (the engine runs Muse's binary, never its updater launcher)
-  ORGTREE_MUSE_BIN: path.join(dir, 'bin', 'muse-bin-9.9.9-R0.exe'),
+  // the fake `muse serve` (the engine runs Muse's binary, never its updater launcher),
+  // or with `up --real-muse` the installed one's copy
+  ORGTREE_MUSE_BIN: run.realMuse || path.join(dir, 'bin', 'muse-bin-9.9.9-R0.exe'),
   ORGTREE_TAILSCALE_BIN: path.join(dir, 'bin', 'tailscale.cmd'),
   ORGTREE_FAKECLI_DIR: path.join(dir, 'fakecli'),
   ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),

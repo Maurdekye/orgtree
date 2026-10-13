@@ -213,7 +213,9 @@ export default async function (rig) {
     && rig.one(`SELECT denials FROM ot.turns WHERE id = ${rt.id}`)?.denials === 1, rap)
 
   // ---------------------------------------------------------------- Full once the account offers it
-  fs.writeFileSync(path.join(rig.fakeDir, 'muse-catalog.json'), JSON.stringify({ source: 'providerCatalog', models: [
+  // (the catalog answers 3 s late from here on: after the restart below, dana's
+  // turn arrives while discovery is still reading it, and must wait for it)
+  fs.writeFileSync(path.join(rig.fakeDir, 'muse-catalog.json'), JSON.stringify({ source: 'providerCatalog', delayMs: 3000, models: [
     { modelId: 'muse-wonder-1.0', profileId: 'tbh', isDefault: true, variants: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'], defaultReasoningEffort: 'high', contextLimit: 1007997, outputLimit: 128000 },
     { modelId: 'muse-wonder-full-1.0', profileId: 'tbh', isDefault: false, variants: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'], defaultReasoningEffort: 'high', contextLimit: 1007997, outputLimit: 128000 },
   ] }))
@@ -229,7 +231,9 @@ export default async function (rig) {
   // ---------------------------------------------------------------- dana: resume after a restart, then /compact
   await rig.restart()
   await rig.userMail('dana', 'PROOF-AGAIN: still there?')
-  await rig.waitTurns('dana', 2, { timeout: 60000 })
+  const again = await rig.waitTurns('dana', 2, { timeout: 60000 }).catch(e => ({ error: e.message }))
+  p.check('dana: a turn that arrives while discovery is still reading the catalog waits for it (never "not offered")',
+    Array.isArray(again) && !/catalog/.test(rig.agentRow('dana')?.last_error ?? ''), { wait: again?.error, last_error: rig.agentRow('dana')?.last_error })
   const resumed = log('dana', 'session').filter(l => l.action === 'resume')
   const posture = log('dana', 'posture').map(l => l.set)
   p.check('dana: after a restart the same session is resumed and takes this seat\'s posture again',

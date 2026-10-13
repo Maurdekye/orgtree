@@ -708,6 +708,21 @@ export async function startRun(opts = {}) {
     }
     fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
     fs.copyFileSync(fake, path.join(dir, 'bin', 'muse-bin-9.9.9-R0.exe'))
+    // --real-muse <muse-bin-*.exe>: the Muse lane runs the installed Muse Code
+    // binary (copied, so a running copy never locks the user's install, and
+    // its command lines name this run). Only Muse: the other lanes keep their
+    // fakes. Muse reads its own sign-in from the user's own Muse roots (the
+    // user-authorized synthetic subscription tests, 2026-10-12 20:21Z); the
+    // engine passes --contributor-mode off and never an API key.
+    let realMuse = null
+    if (opts.realMuse) {
+      const src = path.resolve(opts.realMuse)
+      if (!/^muse-bin-[\w.-]+\.exe$/i.test(path.basename(src)) || !fs.existsSync(src)) {
+        throw new Error(`--real-muse: ${src} is not a Muse Code binary (muse-bin-<version>.exe, never its updater launcher)`)
+      }
+      realMuse = path.join(dir, 'bin', path.basename(src))
+      fs.copyFileSync(src, realMuse)
+    }
     // the fake Tailscale CLI (ORGTREE_TAILSCALE_BIN), scripted through rig-home\rig-tailscale
     fs.copyFileSync(path.join(RIG_DIR, 'fake-tailscale.cmd'), path.join(dir, 'bin', 'tailscale.cmd'))
     // --hub: the engine hosts this mail hub inside the run (its own role and
@@ -736,6 +751,8 @@ export async function startRun(opts = {}) {
       hub, hubPort,
       // the agents' CLIs are the installed Claude Code and Codex (`up --real-cli`)
       realCli: !!opts.realCli,
+      // the Muse lane's binary is the installed Muse Code, copied (`up --real-muse`)
+      realMuse,
       // the engine believes it runs under the boot task's S4U logon (`up --boot-isolated`)
       bootIsolated: !!opts.bootIsolated,
       // the engine's Session 0 answer, forced ('1' | '0'); null: measured

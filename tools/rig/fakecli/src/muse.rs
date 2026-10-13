@@ -27,7 +27,9 @@
 //!   {"hang": true}, {"exit": N}
 //! The catalog `model/list` answers is `<fakecli dir>/muse-catalog.json` when
 //! present, else three account rows (Wonder, Spark 1.3, Spark 1.2) and a
-//! bundled Wonder Full row (no profile: never an entitlement).
+//! bundled Wonder Full row (no profile: never an entitlement). The file's
+//! optional `delayMs` holds the answer back that long (a turn that arrives
+//! while discovery is still reading the catalog) and is not part of it.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
@@ -219,7 +221,13 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
                                     "experimentalApi": true, "sessionDurability": "durable" }));
         }
         "account/read" => srv.respond(id, json!({ "state": "accountLogin", "label": "rig@example.invalid", "credentialRequired": true })),
-        "model/list" => srv.respond(id, catalog(srv.dir.as_deref())),
+        "model/list" => {
+            let mut c = catalog(srv.dir.as_deref());
+            if let Some(ms) = c.as_object_mut().and_then(|o| o.remove("delayMs")).and_then(|v| v.as_u64()) {
+                std::thread::sleep(Duration::from_millis(ms));
+            }
+            srv.respond(id, c)
+        }
         "usage/read" => srv.respond(id, json!({ "usage": usage_doc(10.0, 20.0) })),
         "session/start" => {
             let root = p["workspaceRoot"].as_str().unwrap_or("");
