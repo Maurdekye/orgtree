@@ -79,17 +79,18 @@ export default async function (rig) {
     !JSON.stringify(rig.sql("SELECT extra::text AS e FROM ot.agents WHERE name = 'keytwo'")).includes('not-a-real-key'))
 
   // ------------------------------------------------ 1b. replacement, Codex harness
-  // The harness is stamped at hire (an existing seat keeps its own), so a seat
-  // hired after choosing Codex runs on `codex app-server`: the fake logs every
-  // line of that process with mode "codex" and its pid.
+  // A seat hired with an explicit harness is pinned to it (user ruling
+  // 2026-10-13; the key keeps Claude Code for keytwo), so codextwo runs on
+  // `codex app-server`: the fake logs every line of that process with mode
+  // "codex" and its pid.
   const h = await rig.api('GET', '/api/openrouter')
   const codexOpt = (h.harness?.harnesses ?? []).find((o) => o.id === 'codex-cli')
   p.check('control: the Codex harness is available in this rig', codexOpt?.available === true, codexOpt)
-  await rig.api('PUT', '/api/openrouter/harness', { harness: 'codex-cli' })
-  p.check('control: Codex is the selected OpenRouter harness', (await rig.api('GET', '/api/openrouter')).harness?.selected === 'codex-cli')
-  await rig.op({ op: 'hire', name: 'codextwo', parent: 'boss', tier: TIER, grant: 1, title: 'on key two, Codex', account: 'openrouter-2' })
+  await rig.op({ op: 'hire', name: 'codextwo', parent: 'boss', tier: TIER, grant: 1, title: 'on key two, Codex', account: 'openrouter-2',
+                 harness: 'codex-cli' })
   await idle()
-  p.check('control: codextwo is stamped with the Codex harness', rig.agentRow('codextwo')?.extra?.harness === 'codex-cli', rig.agentRow('codextwo')?.extra)
+  p.check('control: codextwo is stamped with the Codex harness and pinned to it',
+    rig.agentRow('codextwo')?.extra?.harness === 'codex-cli' && rig.agentRow('codextwo')?.extra?.harness_pin === true, rig.agentRow('codextwo')?.extra)
   const cLog = () => rig.fakeLog('codextwo')
   const cStarts = () => cLog().filter((l) => l.kind === 'start')
   const lastTurn = (marker) => {
@@ -126,7 +127,6 @@ export default async function (rig) {
   const t4 = lastTurn('PROOF-CODEX: steady again.')
   p.check('after it, a Codex turn with nothing changed reuses the new app-server', cStarts().length === c0 + 1 && t4.pid === second.pid && ok(t4),
     { starts: cStarts().length, turn: t4 })
-  await rig.api('PUT', '/api/openrouter/harness', { harness: 'claude-code' })
 
   // ------------------------------------------------ 1c. a late answer for the old key
   // the canned answer is read before its 1.5 s wait, as a request is sent
