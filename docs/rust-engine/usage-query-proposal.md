@@ -311,3 +311,80 @@ Structured results: D:\orgtree-work\rig\usage-query-sol\evidence\
 usage-query-secrecy-20261012T001837\result.json (red), and
 usage-query-secrecy-20261012T001904\result.json (first green), and
 usage-query-secrecy-20261012T002217\result.json (final green).
+
+## Checked OpenRouter composition (2026-10-13)
+
+Coordinator mb7fbc4456f25 supplies the awaited integration notice: OpenRouter
+`d3de2dd`, Muse `c8a4b02`, then Providers `417083c`. The OpenRouter final review
+was user-waived; this is checked coordinator integration, not a claimed new
+independent OpenRouter security pass. The remaining original usage-query
+composition is now complete; no takeover of paused owner work was needed.
+
+The original owner already supplied the agreed source plumbing. The original
+query ID/cache/history/reservation lane is `openrouter`, with storage ID
+`openrouter-key`; added keys use their registry IDs as distinct lanes. The
+original registry row replaces the synthetic entry and supplies its real active
+flag. Org allowlist and registry origin still constrain cached visibility;
+global/account active flags additionally constrain refresh. Storage IDs are not
+accepted as extra aliases for the original query lane.
+
+`openrouter_key_usage` reserves its canonical lane and calls the private
+`openrouter_key_read`. Legacy `openrouter` and registered/HTTP/scheduled readers
+use that public wrapper. `refresh_permitted` receives the tool's held permit
+and dispatches directly to the private reader via `id_of_lane`, with OpenRouter
+excluded from generic API-key local-spend dispatch. This avoids reacquiring its
+own permit, preserves independent per-key floors/cache/history and retains the
+original reader's ordinary cache/cooldown rules. Inspection, runtime, inactive
+and post-await scope checks remain in the existing tool handler.
+
+Existing owner proofs were reused for per-key HTTP readings/history and
+replacement/secrecy behavior: current composed Muse receipts
+`openrouter-keys-20261013T092055`29/29 and
+`openrouter-keys-corrections-20261013T092151`50/50. They are earlier inspected
+measurements, not rerun claims. The auth helpers `record_auth`, `claude_result`,
+`claude_cooldown`, `cached_reauth_required` and its aggregate compare unchanged
+against approved `9a2fdd9`; `usage/query.rs` has the identical Git blob
+`a66e9edb2b42a4701b14901f9b2ebd82c64b1559`.
+
+New focused proof `tools/rig/proofs/usage-query-openrouter.mjs` uses the real
+tool route, two dummy stored keys, canned metadata and fake CLIs only. It proves
+distinct dated21%/73% rows; cache-only no-read/no-history; original-ID uniqueness;
+original active-switch and org exclusion enforcement; same-key manual/public
+contention returning dated data; other-key admission while that permit is held;
+private-reader completion; independent manual floors; no inference/account
+switch; and response/log secrecy. A61-second deadline wait expires the ordinary
+reader insertion cache; no force flag or cache bypass is added to the agent tool.
+The first key deliberately retains a stale provider observation even after an
+attempt, demonstrating that attempted is not a claim of fresh data.
+
+The focused red run at `7d559cd` passes13/14 and exposes one private marker line
+from the rig-only `rig::openrouter_key` raw return. Commit `bbffbc4` makes that
+canned-document hook `#[nolog]`; it returns None outside rig mode and changes
+neither production reader behavior nor authentication controls. Earlier fixture
+failures (using the original endpoint to seed the added cache, and requiring a
+public-wrapper diagnostic in a private-reader interval) are retained and are not
+production-defect evidence.
+
+Final proof at clean `3535af8` passes14/14, exit0 in70.111s, with zero marker lines
+and safe `refresh_permitted` diagnostics. Evidence:
+`D:\orgtree-work\rig\usage-query-sol\evidence\usage-query-openrouter-20261013T134554\result.json`,
+SHA256 `4d23061db99fa853a81dd232e246fe1ecf78d7c3d34c395fc11f16335b3a1a30`;
+the sibling `tool-interval.log` has SHA256
+`ee91d87a603a05ed67d2f9170ee9948b90ee88bfe845c229811345d0e6924d4a`.
+
+Builds used the granted C target/tmp, separate machine lock acquisitions,
+cargo-j2 and kernel Job containment. Current integrated engine built at
+`1ed7e32` in93.743s; the corrected engine at `bbffbc4` built in28.328s, both exit0.
+Fake CLI at `ca1c79f` built in5.682s, exit0. Corrected engine SHA256
+`9a7f6b67966fe3c0beb710b947f6b711f305e87a122260578a1aa1f14d3dcea3`;
+fake CLI SHA256
+`94c9163b5bc97b8b9fc4eb9340d367532111b3542e3006ba2f4b91fd224bf150`.
+Final proof engine sources match the corrected build exactly; fake sources match
+their build exactly. Logs are `compose-{engine,fake,proof}-*.log` under
+`D:\orgtree-work\evidence\usage-query-sol`; auth correspondence is recorded in
+`auth-helper-provenance-20261013.json`.
+
+Supported cleanup reports runs=[]/strays=[]; no owned jobs or queue remain.
+Prior standalone29/auth14/secrecy24 and focused19-test measurements retain
+their source-specific limits. No new live/provider/paid call, broad suite,
+installed UI/app package, release or stopped-review retry was performed.
