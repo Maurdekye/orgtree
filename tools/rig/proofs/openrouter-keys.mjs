@@ -123,7 +123,7 @@ export default async function (rig) {
   const prompt = String(turn?.prompt ?? turn?.data?.prompt ?? '')
   const roster = (prompt.match(/\[ACCOUNTS\][^\n]*/) ?? [''])[0]
   p.check('the PROVIDER USAGE board lists each key once under its lane, keytwo starred on openrouter-2',
-    /openrouter-2\*/.test(prompt) && /· openrouter( |$|·)/.test(roster + ' ') && roster.includes('openrouter-2')
+    /openrouter-2\*/.test(prompt) && /(\] |· )openrouter( |$|·)/.test(roster + ' ') && roster.includes('openrouter-2')
     && !roster.includes('openrouter-key (API key, metered)'), roster)
 
   // ---------------------------------------------------------------- per-key app-wide switch
