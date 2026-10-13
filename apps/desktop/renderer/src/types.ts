@@ -1643,7 +1643,9 @@ export interface ProviderInfo {
   /** "muse" only: the provider card's Muse facts and every Muse login as the
    *  hire and settings surfaces read it (`logins`, the user's own first).
    *  OMITTED on an old backend and on every other provider. */
-  muse?: { logins?: MuseLoginDoc[] } | null
+  /** `session0`: the engine runs in Windows Session 0, where Muse's write
+   *  seats run without its OS sandbox (user 2026-10-13 20:16Z) */
+  muse?: { logins?: MuseLoginDoc[]; session0?: boolean } | null
 }
 /** One Muse model's levels on one login: its catalog row's `variants` in
  *  Muse's own names, lowest first, and its default. */
