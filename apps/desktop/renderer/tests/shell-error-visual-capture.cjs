@@ -8,23 +8,51 @@ app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 const receipts = []
 const darkFrames = new Map()
+const diagnostics = []
+let currentCapture = 'startup'
+function record(stage, details = {}) {
+  const event = { at: new Date().toISOString(), capture: currentCapture, stage, ...details }
+  diagnostics.push(event)
+  fs.appendFileSync(path.join(evidence, 'diagnostics.jsonl'), JSON.stringify(event) + '\n')
+  fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ passed: false, receipts, currentCapture, diagnostics }, null, 2))
+}
+record('starting')
 const waitFor = condition => `new Promise((resolve,reject) => {
   const deadline=Date.now()+8000;
   const id=setInterval(() => { if(${condition}) {clearInterval(id);resolve()} else if(Date.now()>deadline) {clearInterval(id);reject(new Error('visual fixture timeout'))} },20);
 })`
-const paint = `new Promise((resolve,reject) => {
-  const deadline=setTimeout(() => reject(new Error('visual paint timeout')),2000);
-  requestAnimationFrame(() => requestAnimationFrame(() => {clearTimeout(deadline);resolve()}));
-})`
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1100, height: 650, show: false,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } })
+  const win = new BrowserWindow({ width: 1100, height: 650, show: false, useContentSize: true, paintWhenInitiallyHidden: true,
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, offscreen: true } })
+  win.webContents.setFrameRate(30)
+  win.webContents.startPainting()
+  const repaint = () => new Promise((resolve, reject) => {
+    const onPaint = (_event, dirty, image) => {
+      clearTimeout(deadline)
+      record('paint-ready', { dirty, frameSize: image.getSize() })
+      resolve()
+    }
+    const deadline = setTimeout(() => {
+      win.webContents.removeListener('paint', onPaint)
+      record('paint-timeout', { offscreen: win.webContents.isOffscreen(), painting: win.webContents.isPainting() })
+      reject(new Error('offscreen frame did not paint'))
+    }, 3000)
+    win.webContents.once('paint', onPaint)
+    record('paint-requested')
+    // Explicit invalidation drives a frame; hidden idle windows need not run
+    // two successive requestAnimationFrame callbacks on their own.
+    win.webContents.invalidate()
+  })
   try {
     for (const version of ['before', 'after']) for (const theme of ['dark', 'light']) {
+      currentCapture = `${version}-${theme}-load`
+      record('loading')
       await win.loadFile(path.join(root, version + '.html'))
       await win.webContents.executeJavaScript(waitFor("document.querySelectorAll('.tline').length===2"))
       await win.webContents.executeJavaScript(`document.documentElement.classList.toggle('contrast-light', ${theme === 'light'})`)
       for (const expanded of [false, true]) {
+        currentCapture = `${version}-${theme}-${expanded ? 'expanded' : 'collapsed'}`
+        record('capture-start')
         if (expanded) {
           await win.webContents.executeJavaScript("document.querySelector('.tline').click();document.querySelectorAll('.tline')[1].click()")
           await win.webContents.executeJavaScript(waitFor("document.querySelectorAll('pre.respre').length===2"))
@@ -35,6 +63,7 @@ app.whenReady().then(async () => {
           colorScheme:getComputedStyle(document.documentElement).colorScheme,
           background:getComputedStyle(document.body).backgroundColor,
           timings:[...document.querySelectorAll('.tchip')].map(el => ({writing:el.querySelectorAll('.tool-writing-time').length,execution:el.querySelectorAll('.tool-exec-time').length}))})`)
+        record('dom-state', { light: state.light, colorScheme: state.colorScheme, background: state.background, expanded: state.expanded, timings: state.timings })
         if (state.light !== (theme === 'light') || state.colorScheme !== theme) throw new Error('theme class/color-scheme mismatch')
         const expectedRGB = state.background.match(/\d+/g).slice(0, 3).map(Number)
         if (theme === 'light' ? expectedRGB.some(x => x < 180) : expectedRGB.some(x => x > 80)) throw new Error('computed background has wrong theme')
@@ -47,14 +76,18 @@ app.whenReady().then(async () => {
         let screenshot, capturedRGB, attempts = 0
         const captureDeadline = Date.now() + 5000
         do {
-          await win.webContents.executeJavaScript(paint)
+          await repaint()
           screenshot = await win.webContents.capturePage()
           const size = screenshot.getSize(), bitmap = screenshot.toBitmap()
           const offset = ((size.height - 24) * size.width + size.width - 24) * 4
           capturedRGB = [bitmap[offset + 2], bitmap[offset + 1], bitmap[offset]]
           attempts++
+          record('capture-attempt', { attempts, expectedRGB, capturedRGB, size, bitmapBytes: bitmap.length })
           if (capturedRGB.every((x, i) => Math.abs(x - expectedRGB[i]) <= 2)) break
-          if (Date.now() > captureDeadline) throw new Error(`captured theme mismatch: expected ${expectedRGB}, got ${capturedRGB}`)
+          if (Date.now() > captureDeadline) {
+            fs.writeFileSync(path.join(evidence, name + '-mismatch.png'), screenshot.toPNG())
+            throw new Error(`captured theme mismatch: expected ${expectedRGB}, got ${capturedRGB}`)
+          }
         } while (true)
         const png = screenshot.toPNG(), key = `${version}-${expanded}`
         if (theme === 'dark') darkFrames.set(key, png)
@@ -76,8 +109,12 @@ app.whenReady().then(async () => {
           state.copyAndSelectFull = true
         }
         receipts.push({ name, ...state })
+        record('capture-passed')
       }
     }
-    fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ passed: true, receipts }, null, 2))
+    fs.writeFileSync(path.join(evidence, 'result.json'), JSON.stringify({ passed: true, receipts, diagnostics }, null, 2))
   } finally { win.destroy() }
-}).then(() => app.exit(0), e => { console.error(e); app.exit(1) })
+}).then(() => app.exit(0), e => {
+  record('failed', { error: String(e?.stack ?? e) })
+  console.error(e); app.exit(1)
+})
