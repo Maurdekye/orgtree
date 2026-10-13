@@ -5,6 +5,8 @@
 //! through the snapshot it publishes.
 
 pub mod actor;
+pub mod acp;
+pub mod acp_scope;
 pub mod agy;
 pub mod claude;
 pub mod codex;
@@ -16,6 +18,7 @@ pub mod history;
 pub mod identity;
 pub mod keepalive;
 pub mod muse;
+pub mod opencode;
 pub mod prompt;
 pub mod recovery;
 pub mod reminders;
