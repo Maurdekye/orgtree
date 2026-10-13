@@ -12,7 +12,7 @@ saveView(slug,{x:window.innerWidth/2-(EYE_ANCHOR_X+NODE_W/2)*W.proofZoom,y:160,z
 // No real transport: the fixture supplies immutable HTTP snapshots only.
 window.WebSocket=class {onmessage=null;onclose=null;onerror=null;close(){}};
 window.fetch=async(url)=>{W.proofRequests.push(String(url));let body={ok:true};const s=String(url);
-if(s.includes('/transfers?'))body={transfers:[],next_cursor:null};else if(s.includes('/providers'))body={providers:[]};else if(s.includes('/org_inbox'))body={entries:[],total:0,unread:0,holders:['model-blue'],visible:true,enabled:true};
+if(s.includes('/transfers'))body={transfers:[],next_cursor:null};else if(s.includes('/providers'))body={providers:[]};else if(s.includes('/org_inbox'))body={entries:[],total:0,unread:0,holders:['model-blue'],visible:true,enabled:true};
 else if(s.includes('/inbox'))body={pending:[],delivered:[],sent:[]};
 else if(s.includes('/work-items'))body={items:[],archived:[],backlogged:[],counts:{attention:0,active:0}};
 else if(s.includes('/document/'))body={title:'Plan',node:'model-blue',body:'Retained document'};
