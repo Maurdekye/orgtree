@@ -573,6 +573,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   visually hidden. Tests and probes pin the class names, ids (`#docket-group`,
   `#docket-sort`, `#docket-view-options`) and labels; keep them. [user 2026-10-13:
   "keep it minimal and small but streamlined and clean"; verified from source]
+  Every docket view also shares one list/ticket split: the base `.mailer-list`
+  width (36%, 140-340px); the desk and team tabs have no override. [user
+  2026-10-13; coordinator ruling on team tab; verified from source]
 
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls, in each harness's own names (user

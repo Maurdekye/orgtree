@@ -3001,7 +3001,7 @@ textarea.ask-free-response-input { resize: vertical; }
 
    ⚠ `display: contents` IS THE WHOLE TRICK. Wide, the wrapper is not a box at
    all: `.mailer-list` stays the flex item it has always been, so every rule
-   written against it — the docket's 52%, the gallery's third, the mobile
+   written against it — the base width, the gallery's third, the mobile
    sheet — still lands exactly where it did. The list element is therefore
    never re-parented and never unmounted, which is what carries its scroll
    position, its selection and how far it has paged through the collapse. */
@@ -4725,14 +4725,12 @@ span.ref-chip.ref-chip {
 .msgs.docket-agent {
   overflow: hidden; gap: 0; padding: 6px;
 }
-/* the desk column is much narrower than the modal, where 36% is a comfortable
-   list. Here that leaves a list too narrow for a slug, so the split favours
-   the list and the cap that suited a full-width modal is lifted. 52% is not a
-   taste: measured in a real browser at the desk's own width (430px), 36–48%
-   cut this org's real item names to under half, and 52% is the first split
-   that keeps every one of them past 55% while leaving the detail pane 200px
-   (tests/deskdocket_layout_probe.py). */
-.docket-agent .mailer-list { width: 52%; max-width: none; }
+/* ⚠ NO SPLIT OF ITS OWN (user 2026-10-13: "the list is too wide and the ticket
+   view is too narrow. should be the same as every other docket view"). The
+   desk and team docket tabs inherit the base `.mailer-list` width, the Work
+   docket's, so every docket shares one rule. Their 52% override was measured
+   for a 430px desk, but at that width the `docket` container query shows the
+   list alone, so the override only ever applied above 640px. */
 .docket-agent .mailer-read { padding: 8px 10px; }
 /* THE REPLY LABEL WRAPS INSTEAD OF EATING THE NAME. The label is one flex line
    in the modal, where it fits; in a 200px pane the same line truncated the
@@ -4753,12 +4751,11 @@ span.ref-chip.ref-chip {
 
    ⚠ IT NO LONGER SHARES THE DOCKET'S 52% SPLIT (user report 2026-09-16: "the
    left side list panel is too wide and the right side content panel is too
-   narrow"). That number was borrowed from `.docket-agent` above, where it is
-   measured and load-bearing — a docket row is an item NAME that has to be read
-   IN THE LIST, so the list is the wide half on purpose. A presentation row is a
-   title you click to open a DOCUMENT, and the document is the half that has to
-   be readable. Borrowing the docket's proportion put a 200px column of prose
-   next to a 230px column of titles.
+   narrow"). That number was borrowed from the docket tab's own 52% split
+   (itself removed 2026-10-13, when the docket tabs took the Work docket's
+   split). A presentation row is a title you click to open a DOCUMENT, and the
+   document is the half that has to be readable. Borrowing that proportion put
+   a 200px column of prose next to a 230px column of titles.
 
    The proportion is now the one this view's own popped-out/pinned panel already
    uses — see `.settings.gallery-modal .mailer-list` near the end of this file,
