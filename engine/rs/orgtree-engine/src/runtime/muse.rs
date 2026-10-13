@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Map, Value};
@@ -144,6 +144,11 @@ pub struct MuseProc {
     /// own; a managed login's root; `metered` an API key (no usage windows)
     pub login_root: Option<String>,
     pub metered: bool,
+    /// the session's workspace roots, canonical, the agent's folder first,
+    /// as this host was opened with them: every turn sends them (MSP's
+    /// sticky replacement), so a resumed session runs on the current grants
+    /// and never keeps a root that was revoked or made read-only since
+    pub roots: Vec<String>,
 }
 
 /// A JSON-RPC error answered by the host, with its MSP kind.
@@ -458,6 +463,7 @@ impl MuseProc {
             schema_fingerprint: None,
             login_root: None,
             metered: false,
+            roots: Vec::new(),
         };
         // a host that fails to open still ends gracefully, not by drop
         if let Err(e) = proc.open(&spec, &pipe_name).await {
@@ -501,6 +507,9 @@ impl MuseProc {
                 }
             }
         }
+        // session/resume admits no roots: the stored session keeps the set it
+        // last had until a turn replaces it, which every turn now does
+        self.roots = roots.clone();
         let mut session: Option<String> = None;
         if let Some(sid) = &spec.resume {
             match self
@@ -581,8 +590,25 @@ impl MuseProc {
         self.send(&f)
     }
 
-    /// A request and its result, or the host's error (as `MspError`), or a timeout.
+    /// A request and its result, or the host's error (as `MspError`), or a
+    /// timeout. Not logged: its params carry the session's configuration,
+    /// granted MCP servers' environment, headers and arguments included, and
+    /// its result the host's own data. One line names the method, how long it
+    /// took and how it ended (its MSP error kind), never a value.
+    #[nolog]
     pub async fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
+        let t0 = Instant::now();
+        let r = self.exchange(method, params, timeout).await;
+        let outcome = match &r {
+            Ok(_) => "ok",
+            Err(e) => e.downcast_ref::<MspError>().and_then(|m| m.kind.as_deref()).unwrap_or("failed"),
+        };
+        tracing::info!(method, ms = t0.elapsed().as_millis() as u64, outcome, "MSP request");
+        r
+    }
+
+    #[nolog]
+    async fn exchange(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         if self.waiters.send((id, tx)).is_err() {
@@ -613,11 +639,16 @@ impl MuseProc {
 
     /// Start a turn on the session: (turn id, disposition). A host that is
     /// busy with work Orgtree did not start queues it (`ifBusy: queue`, set
-    /// explicitly); the turn is the one the ack names.
+    /// explicitly); the turn is the one the ack names. Every turn carries the
+    /// workspace roots (see `roots`). Not logged: the prompt and image bytes;
+    /// one line counts them.
+    #[nolog]
     pub async fn start_turn(&self, text: &str, images: Vec<Value>) -> Result<(String, String)> {
+        tracing::info!(chars = text.chars().count(), images = images.len(), roots = self.roots.len(), "MSP turn start");
         let mut input = vec![json!({ "type": "text", "text": text })];
         input.extend(images);
-        let mut params = json!({ "commandId": uuid7(), "sessionId": self.session_id, "input": input, "ifBusy": "queue" });
+        let mut params = json!({ "commandId": uuid7(), "sessionId": self.session_id, "input": input, "ifBusy": "queue",
+                                 "workspaceRoots": self.roots });
         if let Some(e) = &self.effort {
             params["reasoningEffort"] = json!(e);
         }
@@ -662,7 +693,9 @@ impl MuseProc {
     }
 
     /// Compact the session (the `/compact` command): admission only, the
-    /// compaction item reports its end.
+    /// compaction item reports its end. Not logged: the host's raw answer
+    /// (`request` names the method and how it ended).
+    #[nolog]
     pub async fn compact(&self) -> Result<Value> {
         self.request("session/compact", json!({ "commandId": uuid7(), "sessionId": self.session_id }), Duration::from_secs(60)).await
     }

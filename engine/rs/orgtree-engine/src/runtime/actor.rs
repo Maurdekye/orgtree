@@ -184,7 +184,6 @@ impl std::fmt::Debug for Ctx {
 }
 
 /// The launch of a CLI process for an agent, before anything is written.
-#[derive(Debug)]
 struct Plan {
     identity: String,
     settings: Value,
@@ -194,6 +193,25 @@ struct Plan {
     add_dirs: Vec<String>,
     external: Vec<String>,
     print: Fingerprint,
+}
+
+/// A plan as the log shows it: granted MCP servers by name only (their
+/// configuration can hold environment, headers and arguments that are
+/// credentials), never their values.
+impl std::fmt::Debug for Plan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let servers: Vec<&String> = self.mcp["mcpServers"].as_object().map(|m| m.keys().collect()).unwrap_or_default();
+        f.debug_struct("Plan")
+            .field("identity", &self.identity.len())
+            .field("settings", &self.settings)
+            .field("mcp_servers", &servers)
+            .field("disallowed", &self.disallowed)
+            .field("allowed", &self.allowed)
+            .field("add_dirs", &self.add_dirs)
+            .field("external", &self.external)
+            .field("print", &self.print)
+            .finish()
+    }
 }
 
 /// A running prompt-cache keepalive (`keepalive.rs`): a forked CLI making one
