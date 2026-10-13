@@ -545,8 +545,8 @@ export const PROVIDER_LABEL: Record<string, string> = {
  *  (dev.meta.ai/images/landing/model_api_muse_glimmer.png, pixel 1210,246;
  *  lead decision 2026-10-13 on the user's "exact baby-blue cyan from official
  *  Muse marketing"). Too pale for text on the light surfaces (1.36:1 on
- *  white): there, Muse text and rings use `--prov-muse-text`, the same hue
- *  at 35 % lightness, #0078b2 (4.85:1). */
+ *  white): there the stylesheet rebinds `--prov-muse` to the same hue at
+ *  34.6 % lightness, #0077b0 (4.56:1 or more on every light surface). */
 export const MUSE_COLOR = '#afe5ff'
 
 /** One provider's hire state as a hire surface needs it — the `/api/providers`

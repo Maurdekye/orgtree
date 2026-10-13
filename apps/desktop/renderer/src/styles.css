@@ -8242,21 +8242,22 @@ main:has(> .orgbar.native-header) > .error {
      dev.meta.ai/images/landing/model_api_muse_glimmer.png (sha256
      9680c092536b...). 11.28:1 on --panel, 12.15:1 on --bg, 9.59:1 on
      --input, 14.02:1 on obsidian --panel. On the light surfaces it is
-     1.36:1, so there the accent is the same hue (199.5 deg) at 35 %
-     lightness, #0078b2: 4.85:1 on --panel #fff, 4.52:1 on --bg #f6f7f9,
-     4.69:1 / 4.50:1 on the solarized --panel / --bg (3.7-4.2:1 on the
-     --panel-2 and --side greys).
+     1.36:1, so there the accent is the same hue (199.5 deg) at 34.6 %
+     lightness, #0077b0: 4.92:1 on --panel #fff, 4.59:1 on --bg #f6f7f9,
+     4.76:1 / 4.56:1 on the solarized --panel / --bg (3.8-4.3:1 on the
+     --panel-2 and --side greys). (#0078b2, at 35 %, was 4.497:1 on the
+     solarized --bg.)
    - KNOWN COLLISIONS, KEPT BY DECISION (CIE76, normal vision): #afe5ff is
      1.9 from --tier-flash #aee2f9 and 6.5 from the frozen --ice #a8d4ea;
-     #0078b2 is 8.1 from the light --work #23679e. Every one is carried by
+     #0077b0 is 7.8 from the light --work #23679e. Every one is carried by
      more than colour: a Muse card has the Muse rail and its own W/F/S tier
      letter and colour, a Flash card the Antigravity blue rail and its F, a
      frozen agent the snowflake icon and its freeze label, a working task
      the word "working".
    - --prov-muse-ink is the text on an accent fill: dark on the cyan
-     (12.97:1; white would be 1.36:1), white on the deep cyan (4.85:1). */
+     (12.97:1; white would be 1.36:1), white on the deep cyan (4.92:1). */
 :root { --prov-muse: #afe5ff; --prov-muse-ink: #17191d; }
-:root:is(.contrast-light, .contrast-solarized-light) { --prov-muse: #0078b2; --prov-muse-ink: #ffffff; }
+:root:is(.contrast-light, .contrast-solarized-light) { --prov-muse: #0077b0; --prov-muse-ink: #ffffff; }
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
   .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
   .tab-count, .badge, .mailbtn .count).prov-muse {
@@ -8326,17 +8327,19 @@ main:has(> .orgbar.native-header) > .error {
    a model, not a measurement of anyone's vision).
    - wonder #97edd0, mint teal: 11.19:1 / 9.50:1; nearest --tip-seat 21.0,
      --tier-haiku 21.1 (13.2 simulated).
-   - wonder-full #f07582, rose coral: 5.52:1 / 4.69:1; nearest --prov-claude
-     23.3, --bad 26.5 (12.6 simulated, from --tier-terra). A magenta was
-     tried first and sat 4.9 from --review in simulated protanopia.
+   - wonder-full #da8181, dusty rose: 5.42:1 / 4.61:1; nearest --prov-claude
+     19.8, --danger-ink 21.3 (12.2 simulated, from --tier-haiku); 126 from
+     Argon in the RGB distance argon.test holds above 120. Magentas sat 4.9
+     from --review in simulated protanopia, rose corals within that 120 of
+     Argon, salmons 11-13 from --danger-ink.
    - spark #ffff7a, electric yellow: 14.47:1 / 12.29:1; nearest --tier-fable
      35.8, --warn 36.3 (21.3 simulated).
-   The three are 59.6-87.4 apart (25.7+ simulated). The W, F and S letters
+   The three are 59.6-78.0 apart (25.5+ simulated). The W, F and S letters
    stay the redundant glyph (F and S are shared with Fable/Flash and
    Sonnet/Sol, told apart by family row and colour, as A is for Astra and
    Argon); on the light surfaces every tier chip is drawn grey on a dark
    backing (the rule near the top of this file). */
-:root { --tier-wonder: #97edd0; --tier-wonder-full: #f07582; --tier-spark: #ffff7a; }
+:root { --tier-wonder: #97edd0; --tier-wonder-full: #da8181; --tier-spark: #ffff7a; }
 .chip.agents b.t-wonder { color: var(--tier-wonder); }
 .chip.agents b.t-wonder-full { color: var(--tier-wonder-full); }
 .chip.agents b.t-spark { color: var(--tier-spark); }
