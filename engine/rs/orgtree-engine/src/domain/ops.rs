@@ -355,7 +355,7 @@ async fn langserver_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, t
 /// A harness as people name it.
 #[logged]
 fn harness_label(harness: &str) -> &'static str {
-    if harness == "codex-cli" { "Codex" } else { "Claude Code" }
+    crate::harnesses::get(harness).map(|h| h.name).unwrap_or("Claude Code")
 }
 
 /// Validate a selector before storing it; qualified primary selectors also name a provider.
@@ -1087,9 +1087,8 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     stamp_harness(engine, tx, id, &tier, true).await?;
     if let Some(h) = str_arg(req, "harness") {
         if catalog::is_openrouter(&tier) {
-            if !crate::openrouter::HARNESSES.contains(&h) {
-                refuse!(BadRequest, "harness is one of {} for an OpenRouter hire", crate::openrouter::HARNESSES.join(", "));
-            }
+            // only a harness installed here (user 2026-10-13)
+            crate::harnesses::require_choice(engine, catalog::OPENROUTER, h)?;
             // an explicit harness pins the seat: it wins over its key's
             // harness, now and after the key changes (user ruling 2026-10-13)
             tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text, 'harness_pin', true) WHERE id = $1",

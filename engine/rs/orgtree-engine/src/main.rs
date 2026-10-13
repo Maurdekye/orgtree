@@ -32,6 +32,7 @@ mod events;
 mod feed;
 mod host;
 mod http;
+mod harnesses;
 mod import2x;
 mod import30;
 mod import_dogmemo;

@@ -260,7 +260,7 @@ pub async fn add_key(engine: &Engine, key: &str, label: Option<&str>, harness: O
         crate::refuse!(BadRequest, "paste an OpenRouter API key");
     }
     let label = clean_label(label)?.unwrap_or_default();
-    let harness = clean_harness(harness)?.unwrap_or_else(|| seed_harness(engine));
+    let harness = clean_harness(engine, harness)?.unwrap_or_else(|| seed_harness(engine));
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     admit_secret(&tx, key, None).await?;
@@ -309,7 +309,7 @@ pub async fn add_key(engine: &Engine, key: &str, label: Option<&str>, harness: O
 pub async fn update_key(engine: &Engine, id: &str, key: Option<&str>, label: Option<&str>, harness: Option<&str>) -> Result<()> {
     let key = key.map(str::trim).filter(|k| !k.is_empty());
     let label = clean_label(label)?;
-    let harness = clean_harness(harness)?;
+    let harness = clean_harness(engine, harness)?;
     let mut client = engine.db.get().await?;
     if client.query_opt("SELECT 1 FROM ot.accounts WHERE id = $1 AND provider = 'openrouter'", &[&id]).await?.is_none() {
         crate::refuse!(NotFound, "no OpenRouter key {id}");
@@ -863,66 +863,31 @@ pub fn codex_overrides(model: &str) -> Vec<String> {
     out
 }
 
-/// The harnesses that can drive an OpenRouter seat, by id. A key stores
-/// one of these ids (`extra.harness`), so another harness is a new entry
-/// here, not a schema change.
-pub const HARNESSES: [&str; 2] = ["claude-code", "codex-cli"];
-
 /// The harness a key carries before it says otherwise: the old global
 /// setting (`openrouter.harness`, which only seeds keys now), else Claude Code.
 #[logged]
 fn global_seed(engine: &Engine) -> String {
-    engine
-        .settings
-        .get()
-        .pointer("/openrouter/harness")
-        .and_then(Value::as_str)
-        .filter(|h| HARNESSES.contains(h))
-        .unwrap_or("claude-code")
-        .to_string()
+    let known = |h: &&str| crate::harnesses::selectable_for(crate::providers::catalog::OPENROUTER).iter().any(|x| x.id == *h);
+    engine.settings.get().pointer("/openrouter/harness").and_then(Value::as_str).filter(known).unwrap_or("claude-code").to_string()
 }
 
 /// The harness a newly added key gets when none is named: the original
-/// key's, else the seed (per-key harness ruling 2026-10-13).
+/// key's, else the seed (per-key harness ruling 2026-10-13); one that is not
+/// installed here gives way to the first installed one (a default, not a
+/// saved choice).
 #[logged]
 pub fn seed_harness(engine: &Engine) -> String {
-    engine
-        .accounts
-        .view()
-        .get(ACCOUNT_ID)
-        .and_then(|a| a.harness.clone())
-        .filter(|h| HARNESSES.contains(&h.as_str()))
-        .unwrap_or_else(|| global_seed(engine))
+    let seed = engine.accounts.view().get(ACCOUNT_ID).and_then(|a| a.harness.clone()).unwrap_or_else(|| global_seed(engine));
+    let choices = crate::harnesses::choices(engine, crate::providers::catalog::OPENROUTER);
+    if choices.iter().any(|h| *h == seed) { seed } else { choices.first().map(|h| h.to_string()).unwrap_or(seed) }
 }
 
-/// The harness ids installed on this machine, in `HARNESSES` order.
-#[logged]
-fn available(engine: &Engine) -> Vec<&'static str> {
-    let claude = engine.providers.claude_path().is_some();
-    let codex = engine.providers.codex_path().is_some();
-    HARNESSES.into_iter().filter(|h| if *h == "codex-cli" { codex } else { claude }).collect()
-}
-
-/// A key's own harness as stored (the seed for a key stored before keys
-/// had their own).
-#[logged]
-pub fn stored_harness(engine: &Engine, id: &str) -> String {
-    engine
-        .accounts
-        .view()
-        .get(id)
-        .and_then(|a| a.harness.clone())
-        .filter(|h| HARNESSES.contains(&h.as_str()))
-        .unwrap_or_else(|| global_seed(engine))
-}
-
-/// The harness a key's seats launch on: its own, else (not installed here)
-/// the one that is, as the global setting fell back before.
+/// The harness a key's seats launch on: its own (the seed for a key stored
+/// before keys had their own). Not substituted when it is not installed:
+/// the launch refuses, saying so (user 2026-10-13).
 #[logged]
 pub fn key_harness(engine: &Engine, id: &str) -> String {
-    let stored = stored_harness(engine, id);
-    let avail = available(engine);
-    if avail.contains(&stored.as_str()) { stored } else { avail.first().map(|h| h.to_string()).unwrap_or(stored) }
+    engine.accounts.view().get(id).and_then(|a| a.harness.clone()).unwrap_or_else(|| global_seed(engine))
 }
 
 /// THE PRECEDENCE POINT (user ruling 2026-10-13, "Agent's choice wins"):
@@ -938,42 +903,28 @@ pub fn seat_harness(engine: &Engine, account: Option<&str>, stamp: Option<&str>,
     }
 }
 
-/// A harness as people name it.
-#[nolog]
-pub fn harness_label(harness: &str) -> &'static str {
-    if harness == "codex-cli" { "Codex" } else { "Claude Code" }
-}
-
-/// A requested harness id, checked (None: not asked to change).
+/// A requested key harness, checked: one OpenRouter agents can run on, and
+/// installed here (None: not asked to change).
 #[logged]
-pub fn clean_harness(h: Option<&str>) -> Result<Option<String>> {
-    match h.map(str::trim) {
-        None => Ok(None),
-        Some(h) if HARNESSES.contains(&h) => Ok(Some(h.to_string())),
-        Some(_) => crate::refuse!(BadRequest, "an OpenRouter harness is one of {}", HARNESSES.join(", ")),
-    }
+pub fn clean_harness(engine: &Engine, h: Option<&str>) -> Result<Option<String>> {
+    let Some(h) = h.map(str::trim) else { return Ok(None) };
+    crate::harnesses::require_choice(engine, crate::providers::catalog::OPENROUTER, h)?;
+    Ok(Some(h.to_string()))
 }
 
-/// Which CLIs can drive an OpenRouter agent on this machine, and the one a
-/// newly added key gets (`selected`, from `seed_harness`). Each key's own
-/// harness is in `keys[].harness`.
+/// Which CLIs can drive an OpenRouter agent on this machine (the shared
+/// registry's options, installed or not), and the one a newly added key
+/// gets (`selected`, from `seed_harness`). Each key's own harness is in
+/// `keys[].harness`.
 #[logged]
 pub fn harness(engine: &Engine) -> Value {
-    let claude = engine.providers.claude_path();
-    let codex = engine.providers.codex_path();
-    let opt = |id: &str, label: &str, path: Option<std::path::PathBuf>| {
-        let available = path.is_some();
-        json!({ "id": id, "label": label, "state": if available { "available" } else { "missing" }, "available": available,
-                "why": if available { "installed".to_string() } else { format!("{label} is not installed on this machine") },
-                "path": path.map(|p| p.to_string_lossy().to_string()) })
-    };
-    let options = vec![opt("claude-code", "Claude Code", claude.clone()), opt("codex-cli", "Codex", codex.clone())];
+    let options = crate::harnesses::options(engine, crate::providers::catalog::OPENROUTER);
+    let avail = crate::harnesses::choices(engine, crate::providers::catalog::OPENROUTER);
     let stored = seed_harness(engine);
-    let avail = available(engine);
-    let selected = if avail.contains(&stored.as_str()) { Some(stored.clone()) } else { avail.first().map(|s| s.to_string()) };
+    let selected = avail.iter().any(|h| *h == stored).then(|| stored.clone());
     let explain = match avail.len() {
         0 => "Neither Claude Code nor Codex is installed, so no CLI can drive OpenRouter agents.".to_string(),
-        1 => format!("Only {} is installed, so it drives OpenRouter agents.", harness_label(avail[0])),
+        1 => format!("Only {} is installed, so it drives OpenRouter agents.", crate::harnesses::label(avail[0])),
         _ => String::new(),
     };
     json!({ "harnesses": options, "stored": stored, "default": "claude-code", "enabled": avail.len() > 1,
@@ -1091,10 +1042,10 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
         })
         .collect();
     let mut keys = keys_doc(engine, connected, &reason);
-    let pinned = pinned_elsewhere(engine).await;
+    let pinned = pinned_seats(engine).await;
     for k in keys.iter_mut() {
         let id = k["id"].as_str().unwrap_or_default().to_string();
-        k["pinned_elsewhere"] = json!(pinned.get(&id).copied().unwrap_or(0));
+        k["pinned_seats"] = json!(pinned.get(&id).copied().unwrap_or(0));
     }
     let any = !keys.is_empty();
     tracing::info!(force, key_set, connected, keys = keys.len(), favorites = favs.len(), "OpenRouter document");
@@ -1131,9 +1082,10 @@ fn keys_doc(engine: &Engine, original_connected: bool, original_reason: &Value) 
                 "id": a.id, "lane": lane, "original": a.id == ACCOUNT_ID, "label": user_label(a), "name": display(engine, a),
                 "key_label": reading.as_ref().map(|v| v["key_label"].clone()).unwrap_or(Value::Null),
                 "enabled": a.enabled, "connected": connected, "reason": reason,
-                // the harness its unpinned seats launch on, and the one stored
-                // (they differ only while the stored one is not installed)
-                "harness": key_harness(engine, &a.id), "harness_stored": stored_harness(engine, &a.id),
+                // the harness its unpinned seats launch on, and whether it is
+                // installed here (not: they refuse to launch, saying so)
+                "harness": key_harness(engine, &a.id),
+                "harness_installed": crate::harnesses::installed(engine, &key_harness(engine, &a.id)),
                 "limits": reading.as_ref().map(|v| v["limits"].clone()).unwrap_or(json!([])),
                 "observed_at": reading.as_ref().map(|v| v["observed_at"].clone()).unwrap_or(Value::Null),
             })
@@ -1141,16 +1093,16 @@ fn keys_doc(engine: &Engine, original_connected: bool, original_reason: &Value) 
         .collect()
 }
 
-/// Per key, how many live seats billing it are pinned to a harness other
-/// than its own: a change of the key's harness skips them (user ruling
-/// 2026-10-13), so its dialog says so. Unreadable: none counted.
+/// Per key, how many live seats billing it are pinned to their harness (an
+/// explicit hire choice): a change of the key's harness skips them (user
+/// ruling 2026-10-13), so its dialog says so. Unreadable: none counted.
 #[logged]
-async fn pinned_elsewhere(engine: &Engine) -> std::collections::HashMap<String, i64> {
+async fn pinned_seats(engine: &Engine) -> std::collections::HashMap<String, i64> {
     let mut out = std::collections::HashMap::new();
     let Ok(client) = engine.db.get().await else { return out };
     let Ok(rows) = client
         .query(
-            "SELECT account, extra->>'harness' FROM ot.agents
+            "SELECT account FROM ot.agents
               WHERE provider = 'openrouter' AND state = 'live' AND coalesce((extra->>'harness_pin')::boolean, false)",
             &[],
         )
@@ -1159,11 +1111,7 @@ async fn pinned_elsewhere(engine: &Engine) -> std::collections::HashMap<String, 
         return out;
     };
     for r in rows {
-        let (account, stamp): (Option<String>, Option<String>) = (r.get(0), r.get(1));
-        let key = seat_key(engine, account.as_deref());
-        if stamp.as_deref() != Some(key_harness(engine, &key).as_str()) {
-            *out.entry(key).or_insert(0) += 1;
-        }
+        *out.entry(seat_key(engine, r.get::<_, Option<String>>(0).as_deref())).or_insert(0) += 1;
     }
     out
 }

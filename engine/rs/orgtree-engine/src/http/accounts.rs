@@ -626,6 +626,13 @@ pub async fn openrouter_key_clear(State(e): State<Arc<Engine>>) -> ApiResult<Jso
     Ok(Json(crate::openrouter::doc(&e, false).await))
 }
 
+/// `GET /api/harnesses`: every harness in the shared registry, with whether
+/// it is installed here (presence only: nothing is spawned).
+#[logged]
+pub async fn harnesses(State(e): State<Arc<Engine>>) -> Json<Value> {
+    Json(crate::harnesses::doc(&e))
+}
+
 /// `GET /api/openrouter/keys/usage`: every stored key's last reading by its
 /// lane, as the `openrouter_keys_usage` value pushes it. Cache-only: the
 /// usage loop reads the keys, a window never makes it fetch. Not logged:

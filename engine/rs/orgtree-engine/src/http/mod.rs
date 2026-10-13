@@ -141,6 +141,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/openrouter/models", get(accounts::openrouter_models))
         .route("/api/openrouter/favorites", axum::routing::put(accounts::openrouter_favorite))
         // the user's own model servers (App settings › Providers › Language Server)
+        .route("/api/harnesses", get(accounts::harnesses))
         .route("/api/langservers", get(langserver::list).post(langserver::add))
         .route("/api/langservers/probe", post(langserver::probe))
         .route("/api/langservers/ollama-variant", post(langserver::ollama_variant))

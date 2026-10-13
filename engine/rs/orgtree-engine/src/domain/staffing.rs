@@ -61,7 +61,7 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
     if engine.settings.provider_enabled(catalog::LANGSERVER) {
         for (tier, seat, _, _, _) in crate::langserver::tiers(engine) {
             let harness_ok = crate::langserver::route_of(engine, &tier)
-                .map(|(s, _)| if s["harness"].as_str() == Some("codex-cli") { st.codex.installed } else { st.claude.installed })
+                .map(|(s, _)| crate::harnesses::installed(engine, s["harness"].as_str().unwrap_or("claude-code")))
                 .unwrap_or(false);
             if harness_ok {
                 out.push(Offer { tier, seat, provider: catalog::LANGSERVER, efforts: Vec::new() });
@@ -85,9 +85,12 @@ fn accountless(provider: &str) -> bool {
 #[logged]
 fn host_for(engine: &Engine, org_slug: &str, tier: &str, provider: &str) -> bool {
     let lane = crate::org_accounts::tier_lane(engine, tier).unwrap_or_else(|| crate::org_accounts::primary(provider));
-    // an unbound OpenRouter seat needs the original key stored and active
+    // an unbound OpenRouter seat needs the original key stored and active,
+    // and the harness that key runs on installed (installed-only ruling
+    // 2026-10-13: every staffing surface offers only what can launch)
     let original = provider != catalog::OPENROUTER
-        || engine.accounts.view().get(crate::openrouter::ACCOUNT_ID).is_some_and(|a| a.enabled);
+        || (engine.accounts.view().get(crate::openrouter::ACCOUNT_ID).is_some_and(|a| a.enabled)
+            && crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, crate::openrouter::ACCOUNT_ID)));
     original && host_ready(engine, provider) && crate::org_accounts::allowed(Some(org_slug), &lane)
 }
 
@@ -171,6 +174,9 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
             a.provider == provider
                 // the original OpenRouter key is the default (`default_ok`), not a pick
                 && a.id != crate::openrouter::ACCOUNT_ID
+                // a key whose harness is not installed cannot launch its seats
+                && (a.provider != catalog::OPENROUTER
+                    || crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, &a.id)))
                 && a.available_to(Some(org_slug))
                 && crate::accounts::active(engine, provider, Some(a))
                 && a.auth != "signed_out"

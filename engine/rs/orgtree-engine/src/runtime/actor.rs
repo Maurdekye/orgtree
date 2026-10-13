@@ -1608,6 +1608,14 @@ impl Actor {
                 anyhow!("this agent's OpenRouter key {lane} is no longer stored; move it to another OpenRouter key (App settings › Providers › OpenRouter)")
             }
         })?;
+        // a harness no longer installed refuses, saying so: never a silent
+        // switch to another (user 2026-10-13)
+        for h in [ctx.harness_want.as_deref(), ctx.harness.as_deref()].into_iter().flatten() {
+            if !crate::harnesses::installed(&self.engine, h) {
+                return Err(anyhow!("{} (this agent's OpenRouter harness; the key's is chosen in App settings › Providers › OpenRouter)",
+                    crate::harnesses::not_installed(h)));
+            }
+        }
         let codex = ctx.harness.as_deref() == Some("codex-cli");
         Ok(OrRoute { key, codex, reasoning: fav["reasoning"].as_bool().unwrap_or(false), local: None })
     }
@@ -1923,7 +1931,7 @@ impl Actor {
             return Ok(());
         };
         let why = format!("its OpenRouter key now runs on {} (it ran on {})",
-            crate::openrouter::harness_label(want), crate::openrouter::harness_label(&was));
+            crate::harnesses::label(want), crate::harnesses::label(&was));
         let session = ctx.session_id.clone();
         tx.execute(
             "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true,
@@ -3114,7 +3122,9 @@ impl Actor {
         // changed, or it moved to a key on another harness) moves across here,
         // at the boundary, never mid-turn: neither CLI resumes the other's
         // session, so it goes on in a fresh one that starts with a summary
-        if let Some(want) = ctx.harness_want.clone().filter(|w| ctx.harness_stamp.as_deref() != Some(w.as_str())) {
+        // (a harness not installed here is not crossed to: the launch refuses, saying so)
+        if let Some(want) = ctx.harness_want.clone().filter(|w| ctx.harness_stamp.as_deref() != Some(w.as_str()))
+            .filter(|w| ctx.harness_stamp.is_none() || crate::harnesses::installed(&self.engine, w)) {
             self.cross_harness(tx, &ctx, &want).await?;
             drop(client);
             self.retry_admission();

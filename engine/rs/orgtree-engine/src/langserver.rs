@@ -293,10 +293,10 @@ async fn set_key(engine: &Engine, server: &str, key: Option<&str>) -> Result<()>
 #[logged]
 pub fn harnesses(engine: &Engine, preset_id: &str) -> Vec<Value> {
     let p = preset(preset_id);
-    // discovery runs in the background after start: before it has, look
-    // for the CLI the way a launch does
-    let claude = engine.providers.claude_path().is_some() || crate::providers::locate_claude().is_some();
-    let codex = engine.providers.codex_path().is_some() || crate::providers::locate_codex().is_some();
+    // the shared registry: discovery, else the file lookup a launch makes
+    // (installed-only harness choices, user 2026-10-13)
+    let claude = crate::harnesses::installed(engine, "claude-code");
+    let codex = crate::harnesses::installed(engine, "codex-cli");
     let opt = |id: &str, label: &str, installed: bool, served: bool| {
         let why = if !installed {
             format!("{label} is not installed on this machine")
@@ -977,6 +977,12 @@ pub async fn route(engine: &Engine, tier: &str) -> Result<Route> {
     let id = s["id"].as_str().unwrap_or("").to_string();
     if s["enabled"].as_bool() == Some(false) {
         anyhow::bail!("the language server {} is turned off in App settings › Providers", s["label"].as_str().unwrap_or(&id));
+    }
+    // a server's harness no longer installed refuses, saying so: never a
+    // silent switch to the other (user 2026-10-13)
+    let harness = s["harness"].as_str().unwrap_or("claude-code");
+    if !crate::harnesses::installed(engine, harness) {
+        anyhow::bail!("{} (the harness of the language server {})", crate::harnesses::not_installed(harness), s["label"].as_str().unwrap_or(&id));
     }
     Ok(Route {
         base_url: crate::lsproxy::base(engine, &id),
