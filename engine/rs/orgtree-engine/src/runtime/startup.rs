@@ -355,4 +355,32 @@ mod tests {
         // Only this test's verified unique temporary root is removed.
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    /// Muse reads only its workspace root's rules file (measured 2026-10-12):
+    /// the agent's own AGENTS.md is native, and every granted folder's notes
+    /// travel in the identity the way they do for the other lanes.
+    #[test]
+    fn muse_reads_its_own_rules_natively_and_gets_granted_folders_in_the_prompt() {
+        let root = std::env::temp_dir().join(format!("standing-notes-muse-{}", uuid::Uuid::new_v4()));
+        let own = root.join("own");
+        let grant = root.join("grant");
+        for dir in [&own, &grant] { std::fs::create_dir_all(dir).unwrap(); }
+        std::fs::write(own.join("AGENTS.md"), "own rules").unwrap();
+        std::fs::write(grant.join("AGENTS.md"), "granted rules").unwrap();
+        std::fs::write(grant.join("CLAUDE.md"), "granted legacy").unwrap();
+        let muse = Inputs::Muse { cwd: own.clone() };
+        let (o, g) = standing_notes(&muse, &own, &[grant.clone()]);
+        assert!(o.is_empty(), "the workspace root's AGENTS.md is Muse's own project rule");
+        assert_eq!(g.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>(), ["granted rules", "granted legacy"]);
+        // an edit to the native file is a startup-file change (a changed prefix)
+        let before = digest(&muse);
+        std::fs::write(own.join("AGENTS.md"), "own rules edited").unwrap();
+        assert_ne!(before, digest(&muse));
+        // with no AGENTS.md Muse falls back to CLAUDE.md, which is then native
+        std::fs::remove_file(own.join("AGENTS.md")).unwrap();
+        std::fs::write(own.join("CLAUDE.md"), "own legacy").unwrap();
+        assert!(standing_notes(&muse, &own, &[grant.clone()]).0.is_empty());
+        // Only this test's verified unique temporary root is removed.
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
