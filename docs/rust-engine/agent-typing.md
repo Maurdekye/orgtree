@@ -92,6 +92,29 @@ push and no notification. Codex, Muse, Antigravity and language-server lanes
 get the same tool shape and validation, but no indicator: only the Claude
 stream is probed.
 
+## Every harness takes the nested shape (measured 2026-10-14, no spend)
+
+Each installed CLI ran against a local fake model with the engine's two
+message tools in both shapes. The fake made each call the way a model would,
+so these runs show the schema the CLI sent, the arguments the tool handler
+received, and whether the result went back.
+
+| Harness | Schema the model sees | Arguments at the handler |
+|---|---|---|
+| Claude Code 2.1.292 | byte-identical, key order kept | identical |
+| Codex 0.160.0 (`dynamicTools`) | Codex re-encodes every dynamic tool: properties sorted alphabetically (so `body` before `metadata`), `maxItems` dropped, `strict: false`; the nested object, `required`, `anyOf`, `enum`, `minItems` and descriptions kept. The flat shape gets the same treatment today. | identical |
+| Muse Code 1.4.6 (session MCP) | byte-identical, inside a Responses `namespace` tool `mcp__orgtree` | identical |
+| opencode 2.0.28 (pre-check: its lane had not landed) | Code Mode: MCP tools are called from JavaScript via `execute`, listed in a TypeScript catalog that renders `metadata` as a nested object type with every field, union and optional mark | identical |
+| Antigravity `agy` 1.3.3 | not run: even with its LLM gateway the CLI needs a Google sign-in and an eligibility check before any model call | — |
+
+Antigravity is covered only by inference. It gets the same MCP `tools/list`
+as Claude Code and Muse. The structure the new shape uses, an object-typed
+property with nested properties, `anyOf` and `enum`, is already in tool cards
+agents load today: `scope_props` gives `orgtree_hire`, `orgtree_staff`,
+`orgtree_rehire` and `orgtree_retool` an object-typed `tools` property, and
+`orgtree_ask` and `orgtree_request_scope` take arrays of objects.
+Evidence: `D:\orgtree-work\rig\hubchat-opus\typing\harness\results.md`.
+
 ## The other two parts
 
 - **Mail hub** (`orgtree-mailhub`, feature `typing`): `POST /api/typing`,
