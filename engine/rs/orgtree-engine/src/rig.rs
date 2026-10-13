@@ -231,7 +231,7 @@ pub fn codex_usage_url() -> Option<String> {
 /// — `{"status": 200, "data": {...}}` (the key is accepted) or
 /// `{"status": 401}` (refused) — and no network when there is no such file.
 /// None outside rig mode (the real check).
-#[logged]
+#[nolog] // canned provider documents can contain arbitrary private fields
 pub fn openrouter_key(lane: &str) -> Option<std::result::Result<serde_json::Map<String, serde_json::Value>, (bool, String)>> {
     let home = RIG.get().cloned().flatten()?;
     let dir = home.join("rig-usage");
