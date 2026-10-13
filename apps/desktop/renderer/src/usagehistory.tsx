@@ -36,6 +36,8 @@ import { PinFrame } from './canvas/modalpin'
 import { ShowChartIcon } from './icons'
 import { useOrgLaneFilter } from './orgaccounts'
 import { fmtDay, fmtHm, fmtStamp, fmtWhen } from './timefmt'
+import { downloadUsageHistory } from './usagehistoryexport'
+import type { UsageExportFormat } from './usagehistoryexport'
 
 const RANGES: { id: UsageHistoryRange; label: string }[] = [
   { id: '24h', label: '24 hours' }, { id: '7d', label: '7 days' },
@@ -318,7 +320,6 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
           ))}
           <rect className="uh-future" x={x(now)} y={PAD.t} width={Math.max(0, x(to) - x(now))}
             height={H_CHART - PAD.t - PAD.b} />
-          <line className="uh-now" x1={x(now)} x2={x(now)} y1={PAD.t} y2={H_CHART - PAD.b} />
           {resetMarks.map((r) => (
             <g key={r.t}>
               <line className="uh-reset" x1={x(r.t)} x2={x(r.t)} y1={PAD.t} y2={H_CHART - PAD.b} />
@@ -357,7 +358,12 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 function SeriesCard({ m, from, to, now }: { m: SeriesModel; from: number; to: number; now: number }) {
   const s = m.series
   const st = m.stats
-  const [table, setTable] = useState(false)
+  const [exportError, setExportError] = useState('')
+  const exportReadings = (owner: Document, format: UsageExportFormat) => {
+    setExportError('')
+    try { downloadUsageHistory(owner, s, m.segments.flat(), from, now, format) }
+    catch (e) { setExportError(e instanceof Error ? e.message : 'Export failed. Try again.') }
+  }
   const nextResetNote = m.nextReset != null && m.nextReset > to ? `next reset ${fmtWhen(new Date(m.nextReset).toISOString())} ›` : null
   let proj = m.noProjection ? `projection: ${m.noProjection}` : null
   if (m.projection) {
@@ -393,16 +399,13 @@ function SeriesCard({ m, from, to, now }: { m: SeriesModel; from: number; to: nu
             {proj && <span>{proj}</span>}
             {nextResetNote && <span>{nextResetNote}</span>}
             {st.readings < 2 && <span>one reading so far — not enough for a trend</span>}
-            <button type="button" className="uh-table-btn" onClick={() => setTable((v) => !v)}>
-              {table ? 'hide table' : 'table'}</button>
+            <span className="uh-exports">
+              {(['csv', 'jsonl'] as const).map(format => <button key={format} type="button" className="uh-export-btn"
+                aria-label={`Export ${seriesTitle(s)} as ${format.toUpperCase()}`}
+                onClick={e => exportReadings(e.currentTarget.ownerDocument, format)}>{format.toUpperCase()}</button>)}
+            </span>
           </div>
-          {table && (
-            <table className="uh-table">
-              <thead><tr><th>time</th><th>value</th></tr></thead>
-              <tbody>{m.segments.flat().map((p) => (
-                <tr key={p.t}><td>{fmtStamp(p.t)}</td><td>{fmtValue(s, p.v)}</td></tr>))}</tbody>
-            </table>
-          )}
+          {exportError && <div role="alert" className="uh-error">{exportError}</div>}
         </>}
     </section>
   )
