@@ -1268,12 +1268,12 @@ export const setAccountKeyOrder = (keys: string[]): Promise<AccountsPayload> =>
 export const getAccountRegistry = (): Promise<AccountRegistryPayload> =>
   req('/api/accounts')
 // a registry account's OWN usage (its lane, never the ambient one). The
-// endpoint has no force-read variant; the flag exists so useUsageReadout's
-// manual-refresh path can hand it to any fetcher uniformly.
+// force bypasses the reader's ordinary cache; server cooldown/scope rules stay
+// authoritative, as for the native provider readers.
 export const getRegisteredAccountUsage = (
-  id: string, _force = false,
+  id: string, force = false,
 ): Promise<RegisteredAccountUsage> =>
-  req(`/api/accounts/${encodeURIComponent(id)}/usage`)
+  req(`/api/accounts/${encodeURIComponent(id)}/usage${force ? '?force=true' : ''}`)
 // one account's usage bars — "primary" or a key row id
 export const getAccountUsage = (account: string): Promise<AccountUsage> =>
   req(`/api/accounts/usage/${encodeURIComponent(account)}`)

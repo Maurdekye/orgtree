@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Registered usage Refresh forwards `force=true` to the existing boolean query;
+  normal reads remain cached. Available last-good bars carrying a provider error
+  display that refresh failure without changing the dated observation; later clean
+  data clears it. Preserve unavailable/unsupported/spend/standing branches and
+  existing cooldown/scope rules. See [usage Refresh](docs/rust-engine/usage-refresh.md).
+  [decided: coordinator 2026-10-13 18:57/21:21UTC; verified: renderer `api.ts`,
+  `canvas/accounts.tsx`, Rust `http/accounts.rs` `Force`/`usage_registered`]
+
 - Failed shell errors show a compact indicator; expansion reads retained output
   via authenticated org/node/seq/tool `tooloutput`, with a UTF-8-safe 1 MiB cap
   and explicit truncation note. Keep raw output out of chat/feed and wire logs;

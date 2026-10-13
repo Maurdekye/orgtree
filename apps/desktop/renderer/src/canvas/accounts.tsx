@@ -226,6 +226,11 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   }
   return (
     <>
+      {/* A failed provider read can retain last-good bars as available data.
+          Keep those numbers, but never hide the failure behind them. */}
+      {u.error && <div className="usage-refresh-error" role="alert">
+        refresh failed: {u.error}
+      </div>}
       {isGemini
         ? (tierLine ? <div className="dim">{tierLine}</div> : null)
         : (u.plan ? <div className="dim">{u.provider ?? 'Claude'} {u.plan}</div> : null)}
