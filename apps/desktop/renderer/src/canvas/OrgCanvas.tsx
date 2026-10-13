@@ -1,3 +1,5 @@
+import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
+import { MoveGhost, moveGhostPosition } from './moveghost'
 import { QueuedModelBadge } from './nextturn'
 import { toggleAgentHalt } from './haltcontrol'
 import { withPendingOrder, type PendingOrder, type ReorderSlot } from './pendingorder'
@@ -274,43 +276,7 @@ interface DraftOrigin {
 /** tests only: put the module back in the fresh-session state */
 export const resetCanvasSessionForTests = (): void => { firstCanvasSlug = null; leftFirstOrg = false }
 
-/** hide-retired's DISPLAY prune of the layout tree (pure — the canvas memos
- *  it; tests call it directly). Removes archived subtrees from the children
- *  lists, EXCEPT: a knowledge bearer (its floating card is an active
- *  consultation surface), an archived node with a LIVE descendant (hiding it
- *  would hide live agents), and anything the session has revealed. Returns
- *  the pruned root, the hidden retirees grouped by their visible parent (the
- *  retired-list token's data), and the full id set of everything pruned
- *  (centerOn's reveal hook). */
-export function pruneRetiredView(root: CanvasNode, hideRetired: boolean,
-  shownRetired: ReadonlySet<string>): {
-  root: CanvasNode
-  retiredByParent: Map<string, CanvasNode[]>
-  prunedIds: Set<string>
-} {
-  const retiredByParent = new Map<string, CanvasNode[]>()
-  const prunedIds = new Set<string>()
-  if (!hideRetired) return { root, retiredByParent, prunedIds }
-  const hasLive = (n: CanvasNode): boolean => n.state === 'live'
-    || (n.children ?? []).some(hasLive)
-  const collect = (n: CanvasNode) => {
-    prunedIds.add(n.id)
-    ;(n.children ?? []).forEach(collect)
-  }
-  const walk = (n: CanvasNode): CanvasNode => {
-    const keep: CanvasNode[] = []
-    const gone: CanvasNode[] = []
-    for (const c of n.children ?? []) {
-      if (c.state === 'archived' && !c.isBearerOf && !shownRetired.has(c.id)
-          && !hasLive(c)) { gone.push(c); collect(c) }
-      else keep.push(walk(c))
-    }
-    if (gone.length) retiredByParent.set(n.id, gone)
-    return gone.length || keep.some((c, i) => c !== (n.children ?? [])[i])
-      ? { ...n, children: keep } : n
-  }
-  return { root: walk(root), retiredByParent, prunedIds }
-}
+export { pruneRetiredView } from './canvaslayout'
 
 /**
  * The Agents List's context-menu host (user request 2026-09-12).
@@ -687,15 +653,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // neighbors no matter which member fronts it — switching fronts can no
   // longer make the stack jump columns. Pure display transform: the doc's
   // child order is untouched (a drag commits the block order for real).
-  const canonPiles = (n: CanvasNode): CanvasNode => {
-    const kids = (n.children ?? []).map(canonPiles)
-    const arch = kids.filter((c) => c.state === 'archived')
-    if (arch.length < 2) return { ...n, children: kids }
-    const at = kids.findIndex((c) => c.state === 'archived')
-    const before = kids.slice(0, at).filter((c) => c.state !== 'archived')
-    const after = kids.slice(at).filter((c) => c.state !== 'archived')
-    return { ...n, children: [...before, ...arch, ...after] }
-  }
   // hand re-parents shown before the server confirms them (see PendingMoves).
   // An entry leaves when the op is refused (the card glides back), or once the
   // op has SUCCEEDED and either the tree agrees or a few seconds pass — so a
@@ -903,59 +860,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // Read as state (not by calling crowdPilesOn() inline) so flipping the switch
   // re-piles the canvas under live agents instead of waiting for a reload.
   const crowdPiles = useCrowdPiles()
-  const piles = useMemo(() => {   // pile key ("<parent>|a"/"<parent>|c") → pile
-    const out = new Map<string, Pile>()
-    const walk = (n: CanvasNode) => {
-      const kids = n.children ?? []
-      // When hide-retired is active, an explicitly revealed retiree is a
-      // real card again, not a member of the retired pile. Keeping several
-      // revealed cards in the pile would silently hide all but its front and
-      // make independent reveal/dismiss impossible.
-      const arch = kids.filter((c) => c.state === 'archived'
-        && !(hideRetired && shownRetired.has(c.id)))
-      const retiredTotal = arch.length + (hideRetired ? 0 : n.hidden_retired_children ?? 0)
-      if (retiredTotal >= 2 && arch.length > 0) {
-        const key = n.id + '|a'
-        const want = pileFront[key]
-        out.set(key, {
-          key, parent: n.id, kind: 'a',
-          list: arch.map((c) => c.id),
-          total: retiredTotal,
-          front: arch.some((c) => c.id === want) ? want! : arch[arch.length - 1]!.id, // nUIA: some() hit ⇒ want defined; length>=2 checked
-        })
-      }
-      // CROWD pile (user spec 2026-07-31): a WIDE team — more than 8 active
-      // reports under one agent — stacks its LEAF reports (no subtree of
-      // their own) into one pile, same front/picker mechanics as the retired
-      // pile. Non-leaf reports keep their own columns; the draft card never
-      // stacks (hiring stays visible at any width).
-      // ⚠ OPT-IN since D-198 (user ruling 2026-08-29): OFF unless the reader
-      // has turned it on, so a wide team shows every one of its agents by
-      // default. Gated HERE, at the one place a crowd pile is constructed,
-      // rather than at each consumer: `hidden`, `layout`, `pileByFront`,
-      // `pileOfRef`, the picker and the `.pile-stack` render all derive from
-      // this map, so an empty map is exactly the shape they already handle for
-      // every org with eight reports or fewer. The RETIRED pile above is a
-      // separate behaviour and is deliberately untouched.
-      const active = kids.filter((c) => c.state !== 'archived' && c.id !== DRAFT)
-      if (crowdPiles && active.length > 8) {
-        const leaves = active.filter((c) => !(c.children ?? []).length)
-        if (leaves.length >= 2) {
-          const key = n.id + '|c'
-          const want = pileFront[key]
-          out.set(key, {
-            key, parent: n.id, kind: 'c',
-            list: leaves.map((c) => c.id),
-            front: leaves.some((c) => c.id === want) ? want! // nUIA: some() hit ⇒ want defined
-              : leaves[leaves.length - 1]!.id,               // nUIA: leaves.length >= 2 checked
-          })
-        }
-      }
-      kids.forEach(walk)
-    }
-    walk(vroot)
-    return out
-  }, [vroot, pileFront, crowdPiles, hideRetired, shownRetired])
+  const piles = useMemo(() => viewPiles(vroot, pileFront, crowdPiles, hideRetired, shownRetired),
+    [vroot, pileFront, crowdPiles, hideRetired, shownRetired])
   const pileByFront = useMemo(() => {
     const out = new Map<string, Pile>()
     for (const p of piles.values()) out.set(p.front, p)
@@ -969,26 +875,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     for (const p of piles.values()) for (const m of p.list) out.set(m, p)
     pileOfRef.current = out
   }, [piles])
-  const hiddenMemo = useMemo(() => {     // piled-away id → its pile's front id
-    const out = new Map<string, string>()
-    const bury = (n: CanvasNode, front: string) => {
-      out.set(n.id, front)
-      ;(n.children ?? []).forEach((c) => bury(c, front))
-    }
-    const walk = (n: CanvasNode) => {
-      const pa = piles.get(n.id + '|a')
-      const pc = piles.get(n.id + '|c')
-      const crowd = pc ? new Set(pc.list) : null
-      ;(n.children ?? []).forEach((c) => {
-        if (pa && c.state === 'archived' && c.id !== pa.front) bury(c, pa.front)
-        else if (crowd && crowd.has(c.id) && c.id !== pc!.front) {
-          out.set(c.id, pc!.front)   // leaves by definition: nothing beneath
-        } else walk(c)
-      })
-    }
-    walk(vroot)
-    return out
-  }, [vroot, piles])
+  const hiddenMemo = useMemo(() => viewHidden(vroot, piles), [vroot, piles])
   const hidden = hiddenMemo
   const chartLayout = useChartLayout()
   // the credit bars' scale, for the org inbox's clearance (= pxPerCredit below)
@@ -1001,78 +888,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     ? (seats[draft.tier] ?? 0) + (draftGrant
       ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50))
     : undefined
-  const target = useMemo(() => {
-    const t = layout(vroot, hidden, chartLayout)
-    for (const n of map.values()) {           // live bearers float ABOVE the successor
-      // (clear of its card — overlap made both unclickable)
-      if (n.isBearerOf && t.has(n.isBearerOf)) {
-        const p = t.get(n.isBearerOf)!
-        t.set(n.id, {
-          x: p.x + 42 + 18 * n.bearerIndex!,
-          y: p.y - (NODE_H + 26) - 20 * n.bearerIndex!,
-        })
-      }
-    }
-    // FR-18: watchdogs fan out BELOW their owner like a miniature subtree,
-    // in the corridor between the agent and its reports (user revision
-    // 2026-08-14 — the old left-side column crossed into an adjacent card
-    // by 14px). Rows of 3 centered on the owner: a full row is 162px
-    // against the 186px sibling pitch, so it never reaches a neighboring
-    // card and clears even a maxed-out sibling's own chips by 24px. Only
-    // dogs 7–8 open a third row, which can brush the children's row 200px
-    // down — the 8-per-agent cap keeps that the rare case. Having a target
-    // position is ALL a spark needs, so launchSpark(dog → owner) works
-    // with zero animation code.
-    {
-      const byOwner: Record<string, number> = {}
-      for (const w of tree.watchdogs ?? [])
-        if (t.has(w.owner)) byOwner[w.owner] = (byOwner[w.owner] ?? 0) + 1
-      const seen: Record<string, number> = {}
-      const PER_ROW = 3, GX = 6, GY = 4
-      for (const w of tree.watchdogs ?? []) {
-        if (!t.has(w.owner)) continue
-        const p = t.get(w.owner)!
-        const i = seen[w.owner] ?? 0
-        seen[w.owner] = i + 1
-        const row = Math.floor(i / PER_ROW), col = i % PER_ROW
-        const inRow = Math.min(PER_ROW, byOwner[w.owner]! - row * PER_ROW)
-        const rowW = inRow * DOG_W + (inRow - 1) * GX
-        t.set('dog:' + w.id, {
-          x: p.x + NODE_W / 2 - rowW / 2 + col * (DOG_W + GX),
-          y: p.y + NODE_H + 8 + row * (DOG_H + GY),
-        })
-      }
-    }
-    // the ORG INBOX panel (user spec): up and to the RIGHT of the overseer —
-    // "out of the way" of the org structure, not stacked on its axis — and it
-    // only exists once the org has received outside mail or granted an inbox
-    // audience; until then the canvas is unchanged. Placed LAST of the cards,
-    // so it can step clear of every one of them (placeOrgInbox: the circle
-    // view's rings can grow round to its usual place) and of what they always
-    // draw beside them: credit bars (as tall as the holding) and document chips
-    if ((tree.org_inbox?.enabled !== false && tree.org_inbox?.visible)) {
-      const at = placeOrgInbox(t, (id, p) => {
-        const n = map.get(id)
-        return cardFurniture(id, p, inboxPxc, {
-          credits: id === DRAFT ? draftCredits
-            : n && n.state === 'live' && !n.isBearerOf ? n.seat! + n.grant! : undefined,
-          docs: n?.documents?.length ?? 0,
-        })
-      })
-      if (at) t.set(INBOX, at)
-    }
-    let minY = Infinity
-    for (const p of t.values()) minY = Math.min(minY, p.y)
-    // headroom for the eye's infinite bar (2× the eye card, fading upward)
-    if (minY < 140) for (const p of t.values()) p.y += 140 - minY
-    // piled-away retirees sit exactly under their pile's front card (they
-    // aren't rendered, but wires/sparks/centerOn need a sane position)
-    for (const [hid, front] of hidden) {
-      const fp = t.get(front)
-      if (fp) t.set(hid, { x: fp.x, y: fp.y })
-    }
-    return t
-  }, [vroot, map, (tree.org_inbox?.enabled !== false && tree.org_inbox?.visible), hidden, chartLayout, inboxPxc, draftCredits])
+  const target = useMemo(() => canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits),
+    [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits])
   const [view, setView] = useState<View>(() => {
     // fit-on-load: center the initial tree in a typical viewport (re-fit against
     // the REAL viewport once mounted — see the mount effect below)
@@ -1248,6 +1065,30 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     bases: Map<string, Pt>; moved: boolean
     reorder?: RingReorderSlot
   } | null>(null)     // {id, sx, sy, ox, oy, moved}
+  const draggingId = nodeDrag.current?.moved ? nodeDrag.current.id : undefined
+  const moveGhost = useMemo(() => draggingId ? moveGhostPosition(tree, pendingTargets,
+    pendingOrders, draggingId, dropId, { draft, seats, pileFront, crowdPiles,
+      hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits }) : undefined,
+  [draggingId, dropId, tree, pendingTargets, pendingOrders, draft, seats, pileFront,
+    crowdPiles, hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits])
+  // Escape cancels the captured drag before any release can commit it.
+  useEffect(() => {
+    const cancel = (event: KeyboardEvent) => {
+      const d = nodeDrag.current
+      if (event.key !== 'Escape' || !d) return
+      event.preventDefault()
+      nodeDrag.current = null
+      setDropId(null)
+      for (const [id, base] of d.bases) {
+        const spring = springs.current.get(id)
+        if (spring) Object.assign(spring, base, { vx: 0, vy: 0 })
+      }
+      setFrame(f => f + 1)
+    }
+    const doc = viewportRef.current?.ownerDocument ?? document
+    doc.addEventListener('keydown', cancel, true)
+    return () => doc.removeEventListener('keydown', cancel, true)
+  }, [])
   // mobile pointer bookkeeping (spec §2-⑥): a real per-pointerId map — the
   // desktop path keeps its single panRef untouched. Two pointers = pinch;
   // during a pinch panRef holds a moved:true sentinel so the spring-follow
@@ -3802,6 +3643,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         '--invzf': Math.max(1 / Z_MAX, 1 / view.z).toFixed(3),
       }}>
         <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
+          {moveGhost && <MoveGhost point={moveGhost} zoom={view.z} />}
           {nodeDrag.current?.reorder && <ReorderMarker slot={nodeDrag.current.reorder}
             eye={chartLayout === 'circular' ? targetRef.current.get(USER) : undefined} zoom={view.z} />}
           {/* the wire list (built above). Under WebGL2 only `svgOnly` wires

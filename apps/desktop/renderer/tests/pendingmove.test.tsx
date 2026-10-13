@@ -234,6 +234,68 @@ async function settledAt(t: TestContext, payload: TreePayload, id: string) {
   return p
 }
 
+for (const mode of ['row', 'circular'] as const) for (const onto of ['b', USER]) {
+  test(`${mode}: reparent hover ghost matches final landing on ${onto}`, async t => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    const initial = before()
+    const destination = onto === USER ? null : onto
+    const confirmed = withPendingMoves(initial, new Map([['x', destination]]))
+    const want = await settledAt(t, confirmed, 'x')
+    const m = await mountCanvas(t, initial, () => new Promise(() => {}))
+    const from = at(m.el, 'x'), to = at(m.el, onto)
+    const start = client(m.el, { x: from.x + NODE_W / 2, y: from.y + NODE_H / 2 })
+    const end = client(m.el, { x: to.x + NODE_W / 2, y: to.y + NODE_H / 2 })
+    const c = card(m.el, 'x')!
+    const fire = (type: string, point: typeof start) => inAct(() => {
+      c.dispatchEvent(new W.PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, ...point }))
+    })
+    await fire('pointerdown', start)
+    await fire('pointermove', end)
+    await flush(2)
+    const ghost = m.el.querySelector('[data-move-ghost]')!
+    assert.ok(ghost, 'valid new-parent hover shows an outline')
+    assert.equal(ghost.getAttribute('fill'), 'none')
+    assert.equal(ghost.getAttribute('width'), String(NODE_W))
+    assert.equal(ghost.getAttribute('height'), String(NODE_H))
+    assert.equal(ghost.getAttribute('pointer-events'), 'none')
+    const preview = { x: Number(ghost.getAttribute('x')), y: Number(ghost.getAttribute('y')) }
+    assertAt(preview, want, 'hover predicts the confirmed tree, before any request')
+    assert.equal(m.ops.length, 0)
+    await fire('pointerup', end)
+    await flush(2)
+    assert.equal(m.el.querySelector('[data-move-ghost]'), null, 'drop removes outline')
+    await advance(3000, 50)
+    assertAt(at(m.el, 'x'), preview, 'animation ends at the ghost')
+  })
+}
+
+for (const mode of ['row', 'circular'] as const) test(`${mode}: invalid hover, leave and Escape clear the ghost without a move`, async t => {
+  useFakeClock(); t.after(realClock)
+  setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+  const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+  const from = at(m.el, 'x'), child = at(m.el, 'xk'), target = at(m.el, 'b')
+  const point = (p: typeof from) => client(m.el, { x: p.x + NODE_W / 2, y: p.y + NODE_H / 2 })
+  const c = card(m.el, 'x')!
+  const fire = (type: string, p: ReturnType<typeof point>) => inAct(() => {
+    c.dispatchEvent(new W.PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, ...p }))
+  })
+  await fire('pointerdown', point(from))
+  await fire('pointermove', point(child)); await flush(2)
+  assert.equal(m.el.querySelector('[data-move-ghost]'), null, 'descendant is invalid')
+  await fire('pointermove', point(target)); await flush(2)
+  assert.ok(m.el.querySelector('[data-move-ghost]'))
+  await fire('pointermove', { clientX: 800, clientY: 850 }); await flush(2)
+  assert.equal(m.el.querySelector('[data-move-ghost]'), null, 'leaving the target clears it')
+  await fire('pointermove', point(target)); await flush(2)
+  assert.ok(m.el.querySelector('[data-move-ghost]'))
+  await inAct(() => m.el.ownerDocument.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  assert.equal(m.el.querySelector('[data-move-ghost]'), null, 'Escape clears it')
+  await fire('pointerup', point(target)); await flush(2)
+  assert.deepEqual(m.ops, [], 'cancelled capture cannot commit on release')
+  assertAt(at(m.el, 'x'), from, 'cancel restores the drag group')
+})
+
 for (const mode of ['row', 'circular'] as const) {
   for (const success of [true, false]) test(`${mode}: move ${success ? 'keeps its confirmed position (last, fresh order)' : 'rolls back on refusal'}`, async (t) => {
     useFakeClock(); t.after(realClock)

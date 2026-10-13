@@ -1,5 +1,10 @@
 # AGENTS.md — working on Orgtree
 
+- Reparent drag ghosts use the same display projection and final targets as
+  the move animation, including piles and inbox clearance. Keep sibling drags
+  as separators and inbox drops as audience actions. See [landing ghost](docs/rust-engine/reparent-ghost.md).
+  [decided: user 2026-10-13 18:58UTC; verified: `canvas/moveghost.tsx`, `canvas/canvaslayout.ts`, `OrgCanvas.tsx`]
+
 - Sibling drag preview is a node-height accent separator: vertical in tree rows,
   radial through the eye in rings. Preserve angular/x drop request semantics;
   marker geometry is visual-only. See [reorder separator](docs/rust-engine/reorder-separator.md).
