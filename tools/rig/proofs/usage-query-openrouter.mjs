@@ -86,7 +86,7 @@ export default async function (rig) {
     && second.json.accounts[0].freshness === 'fresh' && calls('openrouter-2') === before.two + 1, second)
   const after = { one: calls('openrouter'), two: calls('openrouter-2') }
   const floors = await Promise.all(['openrouter', 'openrouter-2'].map(l => read(l, true)))
-  p.check('each key has its own failure-inclusive manual floor after its attempt, no extra reads', floors.every(r => r.ok
+  p.check('each key has its own manual floor after its attempt, no extra reads', floors.every(r => r.ok
     && r.json.refresh.status === 'rate_limited' && r.json.refresh.retry_after_seconds > 0)
     && calls('openrouter') === after.one && calls('openrouter-2') === after.two, floors)
   p.check('tool operations launch no inference turns and do not switch the caller account',
