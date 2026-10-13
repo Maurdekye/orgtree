@@ -33,7 +33,7 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
             }
             if !matches!(
                 provider,
-                catalog::CLAUDE | catalog::OPENAI | catalog::GOOGLE
+                catalog::CLAUDE | catalog::OPENAI | catalog::GOOGLE | catalog::MUSE
             ) {
                 crate::refuse!(BadRequest, "{provider} has no native primary account");
             }
@@ -90,6 +90,8 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
             catalog::CLAUDE => &state.claude,
             catalog::OPENAI => &state.codex,
             catalog::GOOGLE => &state.agy,
+            // Muse's own login, as its last metadata read saw it
+            catalog::MUSE => &state.muse,
             _ => crate::refuse!(BadRequest, "{provider} has no native primary account"),
         };
         if !status.installed || !status.connected {
@@ -101,6 +103,7 @@ pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Resu
         let auth_key = |folder| match provider {
             catalog::CLAUDE => crate::usage::claude_key(folder),
             catalog::OPENAI => crate::usage::codex_key(folder),
+            catalog::MUSE => crate::usage::muse_key(folder),
             _ => "agy".to_string(),
         };
         let auth_keys: Vec<String> = std::iter::once(auth_key(None))

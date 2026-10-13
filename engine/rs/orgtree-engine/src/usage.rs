@@ -249,11 +249,24 @@ pub fn balance_reading(engine: &Engine, account: Option<&crate::accounts::Accoun
 /// the standard weekly, and Fable's own weekly for fable).
 #[logged]
 pub fn has_room(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> bool {
-    use crate::providers::catalog;
-    let provider = catalog::provider_of(tier);
+    let provider = crate::providers::catalog::provider_of(tier);
     let Some(v) = reading_of(engine, provider, account) else { return false };
     let Some(limits) = v["limits"].as_array() else { return false };
-    let spent: Vec<&Value> = limits.iter().filter(|w| spends(provider, tier, w)).collect();
+    room_in(provider, tier, limits, Utc::now())
+}
+
+/// `has_room` over one reading's windows. Muse reports one account-wide
+/// document: a window a metadata host read names no model and is that
+/// account's own evidence, while a window observed under ANOTHER model is
+/// never proof for this tier (user 2026-10-12: no shared pool is assumed).
+/// If the tier's pool refuses anyway, its typed quota marks that pool and
+/// the fallback moves on.
+#[nolog]
+fn room_in(provider: &str, tier: &str, limits: &[Value], now: DateTime<Utc>) -> bool {
+    use crate::providers::catalog;
+    let spent: Vec<&Value> = limits.iter()
+        .filter(|w| spends(provider, tier, w) || (provider == catalog::MUSE && w["observed_model"].is_null()))
+        .collect();
     let needed: &[&str] = match (provider, tier) {
         (catalog::CLAUDE, "fable") => &["session", "weekly_all", "weekly_scoped"],
         (catalog::CLAUDE, _) => &["session", "weekly_all"],
@@ -270,7 +283,6 @@ pub fn has_room(engine: &Engine, account: Option<&crate::accounts::AccountInfo>,
             !w["is_active"].as_bool().unwrap_or(false) && w["percent"].as_f64().is_none_or(|p| p.is_finite() && p < 100.0)
         });
     }
-    let now = Utc::now();
     spent.iter().all(|w| {
         w["percent"].as_f64().is_some_and(|p| p.is_finite() && (0.0..100.0).contains(&p))
             && !w["is_active"].as_bool().unwrap_or(false)
@@ -2009,5 +2021,28 @@ mod query_gate_tests {
         assert_eq!(snapshot["reason"], "no_cache");
         assert!(usage.manual.pin().get("key").is_none());
         assert!(usage.probing.pin().get("key").is_none());
+    }
+}
+
+#[cfg(test)]
+mod room_tests {
+    use super::*;
+
+    /// Muse's room proof: its account-wide (model-less) windows count for any
+    /// tier the account offers; a window observed under another model never
+    /// does; a full window or a missing one is no proof.
+    #[test]
+    fn muse_room_reads_account_wide_windows_but_never_another_models() {
+        let now = Utc::now();
+        let ahead = iso(now + chrono::Duration::hours(1));
+        let w = |kind: &str, pct: f64, model: Option<&str>| json!({ "kind": kind, "percent": pct, "is_active": false,
+            "resets_at": ahead, "observed_model": model });
+        let meta = vec![w("session", 10.0, None), w("weekly_all", 20.0, None)];
+        assert!(room_in("muse", "wonder", &meta, now) && room_in("muse", "wonder-full", &meta, now));
+        let wonder = vec![w("session", 10.0, Some("muse-wonder-1.0")), w("weekly_all", 20.0, Some("muse-wonder-1.0"))];
+        assert!(room_in("muse", "wonder", &wonder, now));
+        assert!(!room_in("muse", "wonder-full", &wonder, now), "Wonder's windows prove nothing for Full");
+        assert!(!room_in("muse", "wonder", &[w("session", 100.0, None), w("weekly_all", 20.0, None)], now));
+        assert!(!room_in("muse", "wonder", &[w("session", 10.0, None)], now), "no weekly reading, no proof");
     }
 }

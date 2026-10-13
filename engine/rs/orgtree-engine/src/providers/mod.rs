@@ -397,6 +397,53 @@ async fn muse_probe_with(engine: &Engine, exe: &std::path::Path, root: Option<&s
     muse_models::probe(exe, &env, &dir).await
 }
 
+/// An API-key Muse login's own roots (`config`, `data`): never the user's own
+/// Muse roots, where the subscription sign-in and its sessions live, so a key
+/// seat neither sees that sign-in nor resumes its sessions (Codex keys get
+/// their own home the same way).
+#[nolog]
+pub fn muse_key_root(engine: &Engine, account: &str) -> std::path::PathBuf {
+    engine.cfg.path("profiles").join(format!("muse-key-{account}"))
+}
+
+/// The environment a registered Muse login runs with: a profile's own roots,
+/// or an API key in its own roots. Not logged: it carries the key.
+#[nolog]
+pub fn muse_account_env(engine: &Engine, a: &crate::accounts::AccountInfo, key: Option<&str>) -> anyhow::Result<Vec<(String, String)>> {
+    if a.is_apikey() {
+        let key = key.ok_or_else(|| anyhow::anyhow!("the API-key account has no key stored"))?;
+        let root = muse_key_root(engine, &a.id);
+        for sub in ["config", "data"] {
+            std::fs::create_dir_all(root.join(sub))?;
+        }
+        let mut env = muse_models::login_env(Some(&root));
+        env.push(("META_API_KEY".into(), key.to_string()));
+        Ok(env)
+    } else {
+        Ok(muse_models::login_env(a.config_dir.as_deref().map(std::path::Path::new)))
+    }
+}
+
+/// The catalog row a Muse seat on `account` may run (None: the user's own
+/// login, as discovery read it). A registered login is asked with its own
+/// metadata read, a profile in its roots and a key with itself: entitlement
+/// is never borrowed from another login (user 2026-10-12 19:57Z), so an API
+/// key is not assumed to offer what the subscription offers.
+#[nolog] // the key
+pub async fn muse_model_for(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, key: Option<&str>, model: &str)
+    -> anyhow::Result<Option<muse_models::MuseModel>> {
+    let Some(a) = account else { return Ok(engine.providers.muse_model(model)) };
+    let exe = engine.providers.muse_path().ok_or_else(|| anyhow::anyhow!("Muse Code is not installed"))?;
+    let dir = engine.cfg.path("profiles").join("muse-discovery");
+    std::fs::create_dir_all(&dir)?;
+    let env = muse_models::clean_env(&muse_account_env(engine, a, key)?);
+    let probe = muse_models::probe(&exe, &env, &dir).await?;
+    if probe.account_state.as_deref() == Some("loggedOut") {
+        anyhow::bail!("the Muse account {} is not signed in", a.id);
+    }
+    Ok(probe.catalog.as_ref().and_then(|c| c.offered(model)).cloned())
+}
+
 /// Read the user's own Muse login again now (a manual refresh) and publish
 /// what changed: its catalog, sign-in and usage.
 #[logged]

@@ -2378,20 +2378,34 @@ impl Actor {
         while !self.engine.providers.state.load().probed && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        if self.engine.providers.state.load().muse_probe.as_ref().is_none_or(|d| d.probe.catalog.is_none()) {
-            crate::providers::refresh_muse(&self.engine).await;
-        }
-        let row = self.engine.providers.muse_model(&ctx.model).ok_or_else(|| {
-            let st = self.engine.providers.state.load();
-            match (st.muse_probe.as_ref().and_then(|d| d.probe.catalog.as_ref()), st.muse_error.as_deref()) {
-                (Some(_), _) => anyhow!(
-                    "the signed-in Muse account's catalog does not offer {} ({}); move this agent to a Muse tier it offers",
-                    ctx.tier, ctx.model
-                ),
-                (None, Some(e)) => anyhow!("Muse's model catalog could not be read ({e}); the mail waits in the mailbox for the next turn"),
-                (None, None) => anyhow!("Muse's model catalog has not been read yet; the mail waits in the mailbox for the next turn"),
+        // A registered login (a profile, or an API key) is asked for its own
+        // catalog: entitlement is never borrowed from the user's own login.
+        let account = ctx.account.as_deref().and_then(|a| self.engine.accounts.view().get(a).cloned()).filter(|a| a.provider == catalog::MUSE);
+        let row = match &account {
+            Some(a) => crate::providers::muse_model_for(&self.engine, Some(a), ctx.api_key.as_deref(), &ctx.model)
+                .await
+                .map_err(|e| anyhow!("the Muse account {} could not be read ({e:#}); the mail waits in the mailbox for the next turn", a.id))?
+                .ok_or_else(|| anyhow!(
+                    "the Muse account {} does not offer {} ({}); move this agent to a Muse tier or account that offers it",
+                    a.id, ctx.tier, ctx.model
+                ))?,
+            None => {
+                if self.engine.providers.state.load().muse_probe.as_ref().is_none_or(|d| d.probe.catalog.is_none()) {
+                    crate::providers::refresh_muse(&self.engine).await;
+                }
+                self.engine.providers.muse_model(&ctx.model).ok_or_else(|| {
+                    let st = self.engine.providers.state.load();
+                    match (st.muse_probe.as_ref().and_then(|d| d.probe.catalog.as_ref()), st.muse_error.as_deref()) {
+                        (Some(_), _) => anyhow!(
+                            "the signed-in Muse account's catalog does not offer {} ({}); move this agent to a Muse tier it offers",
+                            ctx.tier, ctx.model
+                        ),
+                        (None, Some(e)) => anyhow!("Muse's model catalog could not be read ({e}); the mail waits in the mailbox for the next turn"),
+                        (None, None) => anyhow!("Muse's model catalog has not been read yet; the mail waits in the mailbox for the next turn"),
+                    }
+                })?
             }
-        })?;
+        };
         let (effort, mapped) = catalog::muse_effort(&ctx.effort, Some(&row.variants), row.default_effort.as_deref());
         if mapped {
             tracing::info!(agent = %self.name, model = %ctx.model, saved = %ctx.effort, sent = %effort,
@@ -2439,18 +2453,14 @@ impl Actor {
             }
         }
         let resume = ctx.session_id.clone().filter(|_| ctx.session_provider.as_deref() == Some(catalog::MUSE));
-        let account = ctx.account.as_deref().and_then(|a| self.engine.accounts.view().get(a).cloned()).filter(|a| a.provider == catalog::MUSE);
         let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_NODE".into(), ctx.name.clone()),
                            ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
         env.extend(self.engine.credential_bridge.environment(&self.engine, self.id, self.org_id, ctx.generation));
-        match &account {
-            // a key account bills its own key: Muse reads it from META_API_KEY
-            Some(a) if a.is_apikey() => {
-                let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
-                env.push(("META_API_KEY".into(), key));
-            }
-            Some(a) => env.extend(crate::providers::muse_models::login_env(a.config_dir.as_deref().map(std::path::Path::new))),
-            None => {}
+        // a registered login runs in its own roots: a profile's, or a key
+        // account's own (Muse reads the key from META_API_KEY there and never
+        // sees the user's own sign-in or sessions)
+        if let Some(a) = &account {
+            env.extend(crate::providers::muse_account_env(&self.engine, a, ctx.api_key.as_deref())?);
         }
         let spec = MuseSpec {
             exe,

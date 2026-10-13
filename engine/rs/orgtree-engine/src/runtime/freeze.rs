@@ -296,7 +296,13 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
             tracing::info!(account = %a.id, tier, "account fallback: the usage read timed out; no proven room");
             continue;
         }
-        if crate::usage::has_room(engine, Some(&a), tier)
+        // a Muse login must itself offer the tier's model (its own catalog,
+        // never the user's own login's: user 2026-10-12 19:57Z)
+        let offers = provider != crate::providers::catalog::MUSE || matches!(
+            tokio::time::timeout(FALLBACK_READ, crate::providers::muse_model_for(
+                engine, Some(&a), None, &crate::providers::catalog::model_for(tier, None))).await,
+            Ok(Ok(Some(_))));
+        if offers && crate::usage::has_room(engine, Some(&a), tier)
             && continuation::resolve(engine, org_slug, tier, &a.id).is_ok() {
             return Some(a.id);
         }
