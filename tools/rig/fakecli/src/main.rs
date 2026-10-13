@@ -24,6 +24,7 @@ use serde_json::{json, Map, Value};
 
 mod agy;
 mod codex;
+mod muse;
 
 const VERSION: &str = "2.1.999 (Claude Code fake)";
 
@@ -867,6 +868,9 @@ fn main() {
     let version = matches!(raw.first().map(String::as_str), Some("--version") | Some("-v"));
     let code = if raw.iter().any(|a| a == "app-server") {
         codex::run(&raw)
+    } else if stem.starts_with("muse") && raw.first().map(String::as_str) == Some("serve") {
+        // `muse serve`: the engine's Muse host (an MSP session or a metadata probe)
+        muse::run(&raw)
     } else if version {
         // a proof can hold the engine's start-up sign-in check open: a
         // `version-delay-ms` file in the fake CLI's folder delays the answer
@@ -876,7 +880,7 @@ fn main() {
         if let Some(ms) = delay {
             std::thread::sleep(Duration::from_millis(ms));
         }
-        println!("{}", match stem.as_str() { "codex" => codex::VERSION, "agy" => agy::VERSION, _ => VERSION });
+        println!("{}", match stem.as_str() { "codex" => codex::VERSION, "agy" => agy::VERSION, s if s.starts_with("muse") => muse::VERSION, _ => VERSION });
         0
     } else if stem == "agy" {
         agy::run(&raw)
