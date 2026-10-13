@@ -1,5 +1,10 @@
 # AGENTS.md — working on Orgtree
 
+- Muse Wonder Full uses shared tier blue `#80b8ff`, replacing dusty rose;
+  light/solarized icons and hire buttons keep blue on a dark backing. Preserve
+  the Muse provider cyan and other tiers. See [Muse colours](docs/rust-engine/muse-code.md).
+  [decided: user 2026-10-13 17:52UTC; verified: renderer `styles.css`, 2026-10-13]
+
 - Provider/category/collection labels use **Language servers**, including tier
   families, navigation and theme names. Wording about one server stays singular;
   protocol/API/storage IDs remain `langserver`. The engine's

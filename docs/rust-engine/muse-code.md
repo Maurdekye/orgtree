@@ -278,8 +278,13 @@ Colours:
 `--prov-muse` `#afe5ff` (11.28:1 on `--panel`), rebound on the light surfaces
 to the same hue at 34.6 % lightness, `#0077b0` (4.56:1 or more on every light
 and solarized panel and background), with `--prov-muse-ink` for text on accent
-fills. Tier colours: Wonder `#97edd0`, Wonder Full `#da8181`, Spark `#ffff7a`
-(measured; see the stylesheet). Kept collisions, by decision: `#afe5ff` is
+fills. Tier colours: Wonder `#97edd0`, Wonder Full `#80b8ff`, Spark `#ffff7a`
+(measured; see the stylesheet). Wonder Full uses a deeper blue per the user's
+2026-10-13 request, replacing dusty rose `#da8181`; its shared F icon and hire
+button retain blue text on a dark backing on light/solarized surfaces. The
+same tier token paints cards, miniature cards and summary letters; provider
+cyan, the other Muse tiers, letters and runtime behavior are unchanged.
+Kept collisions, by decision: `#afe5ff` is
 CIE76 1.9 from `--tier-flash` and 6.5 from the frozen `--ice`; `#0077b0` is
 7.8 from the light `--work`. Each state also has its own rail, letter, icon
 or label (rendered proof below).
