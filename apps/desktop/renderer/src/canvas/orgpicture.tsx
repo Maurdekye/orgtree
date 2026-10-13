@@ -7,7 +7,7 @@ import './orglogo.css'
 /** Hubchat lib/format.ts initials rule, shared by its org fallback Avatar. */
 export function orgLogoInitials(name: string): string {
   const words = String(name || '?').replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/)
-  return ((words[0] || '?')[0] + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase()
+  return (((words[0] || '?')[0] || '?') + (words.length > 1 ? words.at(-1)?.[0] || '' : '')).toUpperCase()
 }
 const logoError = (error: unknown) => String(error).replace(/\bprofile\s+picture\b/gi, 'logo').replace(/\bpicture\b/gi, 'logo')
 

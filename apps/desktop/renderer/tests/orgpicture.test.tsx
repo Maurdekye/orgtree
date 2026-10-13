@@ -1,12 +1,12 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { OrgPictureEditor } from '../src/canvas/orgpicture'
+import { OrgPictureEditor, orgLogoInitials } from '../src/canvas/orgpicture'
 
 const picture = { revision: 'r1', sha256: 'hash', data: 'AA==', width: 1, height: 1, bytes: 1 }
 const response = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } })
 const settle = () => inAct(() => flush())
-const button = (el: HTMLElement, label: string) => [...el.querySelectorAll('button')].find(b => b.textContent === label)!
+const button = (el: HTMLElement, label: string) => [...el.querySelectorAll('button')].find(b => b.textContent === label || b.getAttribute('aria-label') === label)!
 async function select(el: HTMLElement, file: { size: number; arrayBuffer(): Promise<ArrayBuffer> }) {
   const input = el.querySelector('input[type=file]')!
   Object.defineProperty(input, 'files', { configurable: true, value: [file] })
@@ -27,7 +27,7 @@ test('editor remains disabled until the owning organization is loaded; removal c
   assert.equal(view.el.querySelector<HTMLInputElement>('input[type=file]')!.disabled, true)
   await inAct(() => { resolve(response({ owner: 17, picture })) }); await settle()
   assert.equal(view.el.querySelector<HTMLInputElement>('input[type=file]')!.disabled, false)
-  await inAct(() => { button(view.el, 'Remove picture').click() }); await settle()
+  await inAct(() => { button(view.el, 'Remove logo').click() }); await settle()
   assert.equal((sent[0] as { owner: number }).owner, 17)
   assert.equal((sent[0] as { data: unknown }).data, null)
   assert.equal(view.el.querySelector('img'), null)
@@ -46,7 +46,7 @@ test('late previous-organization load cannot replace the current picture or edit
   await view.render(<OrgPictureEditor slug="two" />); await settle()
   await inAct(() => { resolve(response({ owner: 11, picture })) }); await settle()
   assert.equal(view.el.querySelector('img')!.getAttribute('src'), 'data:image/png;base64,Ag==')
-  await inAct(() => { button(view.el, 'Remove picture').click() }); await settle()
+  await inAct(() => { button(view.el, 'Remove logo').click() }); await settle()
   assert.equal((sent[0] as { owner: number }).owner, 22)
 })
 
@@ -71,7 +71,7 @@ test('native preview is displayed and the selected original plus square crop rea
   await select(view.el, { size: 3, async arrayBuffer() { return Uint8Array.from([7, 8, 9]).buffer } })
   assert.equal(view.el.querySelector('img')!.getAttribute('src'), 'data:image/png;base64,AQ==')
   assert.equal(view.el.querySelector('img')!.style.width, '384px')
-  await inAct(() => { button(view.el, 'Save picture').click() }); await settle()
+  await inAct(() => { button(view.el, 'Save logo').click() }); await settle()
   assert.equal(sent.length, 2); assert.match(sent[0].url, /\/preview$/)
   assert.deepEqual(sent[1].body, { owner: 31, data: 'BwgJ', crop: { x: .5, y: .5, size: 1 } })
 })
@@ -83,7 +83,57 @@ test('a failed owner refresh disables editing until retry succeeds', async t => 
   const view = await mountView(<OrgPictureEditor slug="one" revision="r1" />, el => el.textContent); t.after(() => view.unmount()); await settle()
   fail = true; await view.render(<OrgPictureEditor slug="one" revision="r2" />); await settle()
   assert.equal(view.el.querySelector<HTMLInputElement>('input[type=file]')!.disabled, true)
-  assert.equal(button(view.el, 'Remove picture'), undefined)
+  assert.equal(button(view.el, 'Remove logo'), undefined)
   fail = false; await inAct(() => { button(view.el, 'Retry').click() }); await settle()
   assert.equal(view.el.querySelector<HTMLInputElement>('input[type=file]')!.disabled, false)
+})
+
+test('logo fallback uses Hubchat org initials for names, punctuation and Unicode', () => {
+  assert.equal(orgLogoInitials('Orgtree'), 'O')
+  assert.equal(orgLogoInitials('One two Last'), 'OL')
+  assert.equal(orgLogoInitials('one-team'), 'OT')
+  assert.equal(orgLogoInitials('équipe 東京'), 'É東')
+  assert.equal(orgLogoInitials(''), '?')
+})
+
+test('avatar opens hidden chooser; conditional X removes without opening it', async t => {
+  const old = globalThis.fetch; t.after(() => { globalThis.fetch = old })
+  const sent: unknown[] = []
+  globalThis.fetch = async (_url, init) => {
+    if (init?.method === 'POST') { sent.push(JSON.parse(String(init.body))); return response({ ...picture, data: null, sha256: null }) }
+    return response({ owner: 42, picture })
+  }
+  const view = await mountView(<OrgPictureEditor slug="one" name="One Team" />, el => el.textContent); t.after(() => view.unmount()); await settle()
+  const input = view.el.querySelector<HTMLInputElement>('input[type=file]')!
+  let chooser = 0; input.click = () => { chooser++ }
+  assert.equal(input.hidden, true)
+  assert.equal(view.el.querySelectorAll('.org-logo-pencil').length, 1)
+  assert.match(view.last()!, /Logo/)
+  assert.match(view.last()!, /org's account picture in Hubchat/)
+  const avatar = button(view.el, 'Change organization logo')
+  assert.equal(avatar.tagName, 'BUTTON'); assert.equal(avatar.getAttribute('type'), 'button')
+  await inAct(() => avatar.click()); assert.equal(chooser, 1)
+  await inAct(() => button(view.el, 'Remove logo').click()); await settle()
+  assert.equal(chooser, 1)
+  assert.deepEqual(sent[0], { owner: 42, data: null, crop: { x: .5, y: .5, size: 1 } })
+  assert.equal(button(view.el, 'Remove logo'), undefined)
+  assert.equal(view.el.querySelector('.org-logo-avatar')!.textContent, 'OT')
+  assert.equal(view.el.querySelectorAll('.org-logo-pencil').length, 1)
+})
+
+test('picture wording in native errors is presented as logo and crop remains retryable', async t => {
+  const old = globalThis.fetch; t.after(() => { globalThis.fetch = old })
+  let fail = true
+  globalThis.fetch = async (_url, init) => {
+    if (init?.method === 'POST') return fail ? response({ detail: 'Unsupported profile picture' }, 400) : response({ data: 'AQ==', width: 2, height: 1 })
+    return response({ owner: 1, picture: null })
+  }
+  const view = await mountView(<OrgPictureEditor slug="one" />, el => el.textContent); t.after(() => view.unmount()); await settle()
+  const file = { size: 3, async arrayBuffer() { return Uint8Array.from([7, 8, 9]).buffer } }
+  await select(view.el, file)
+  assert.match(view.el.querySelector('[role=alert]')!.textContent!, /Unsupported logo/)
+  assert.doesNotMatch(view.el.querySelector('[role=alert]')!.textContent!, /picture/i)
+  fail = false; await select(view.el, file)
+  assert.ok(view.el.querySelector('img[alt="Selected organization logo crop"]'))
+  assert.equal(view.el.querySelector('[role=alert]'), null)
 })
