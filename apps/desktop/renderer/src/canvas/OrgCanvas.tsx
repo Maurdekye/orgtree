@@ -26,6 +26,7 @@ import type { ReactNode } from 'react'
 import type { AudienceGrant, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
+import { ReorderMarker, rowReorderSlot } from './reorderpreview'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
@@ -2758,13 +2759,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     setDropId(drop)
     d.reorder = undefined
     const parent = mapRef.current.get(id)?.parent
-    if (chartLayout === 'circular' && (!drop || drop === parent)) {
+    if (!drop || drop === parent) {
       const pile = pileOfRef.current.get(id)
       const members = new Set(pile?.kind === 'a' && pile.front === id ? pile.list : [id])
       const sibs = (mapRef.current.get(parent!)?.children ?? []).map(c => c.id)
-        .filter(k => k !== DRAFT && !members.has(k) && !hiddenRef.current.has(k))
+        .filter(k => k !== DRAFT && !members.has(k)
+          && (chartLayout !== 'circular' || !hiddenRef.current.has(k)))
       const eye = targetRef.current.get(USER), point = springs.current.get(id)
-      if (eye && point) d.reorder = ringReorderSlot(sibs, targetRef.current, eye, point)
+      if (point) d.reorder = chartLayout === 'circular'
+        ? eye ? ringReorderSlot(sibs, targetRef.current, eye, point) : undefined
+        : rowReorderSlot(sibs, targetRef.current, point)
     }
   }
   const abortNodeDrag = (_e: React.PointerEvent<HTMLDivElement>, id: string) => {
@@ -3798,15 +3802,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         '--invzf': Math.max(1 / Z_MAX, 1 / view.z).toFixed(3),
       }}>
         <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
-          {nodeDrag.current?.reorder && <circle
-            data-reorder-before={'before' in nodeDrag.current.reorder.request
-              ? nodeDrag.current.reorder.request.before : undefined}
-            data-reorder-after={'after' in nodeDrag.current.reorder.request
-              ? nodeDrag.current.reorder.request.after : undefined}
-            cx={nodeDrag.current.reorder.point.x + NODE_W / 2}
-            cy={nodeDrag.current.reorder.point.y + NODE_H / 2}
-            r={8 / view.z} fill="none" stroke="var(--accent)" strokeWidth={2 / view.z}
-            pointerEvents="none" />}
+          {nodeDrag.current?.reorder && <ReorderMarker slot={nodeDrag.current.reorder}
+            eye={chartLayout === 'circular' ? targetRef.current.get(USER) : undefined} zoom={view.z} />}
           {/* the wire list (built above). Under WebGL2 only `svgOnly` wires
               stay here; otherwise this is the whole layer, as it always was */}
           {wires.map((w) => (glWires.active && !w.svgOnly) ? null
