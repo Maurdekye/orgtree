@@ -4,6 +4,7 @@ import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
+import { isFailedShellCall } from './shellerror'
 import { executionTime, RunningTimer, TurnActiveContext } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
@@ -4734,6 +4735,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
   // canvas/foldstate.tsx for why a component-local `useState` could not
   // survive the row being re-keyed mid-stream
   const [open, toggleOpen] = useFold(toolFoldKey(t))
+  const shellError = isFailedShellCall(t)
   const expandable = true
   const execTime = executionTime(t.started_at, t.ended_at)
   if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
@@ -4772,10 +4774,15 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
     )
   }
   return (
-    <div className={'tools tchip' + (t.error ? ' terr' : '')}>
+    <div className={'tools tchip' + (t.error || shellError ? ' terr' : '')}>
       <span data-reply-event={t.event_id ?? ''} data-reply-quote={String(t.reply_quote ?? `${t.name} ${t.arg ?? ''}`)} className={'tline' + (expandable ? ' click' : '')}
         onClick={expandable ? toggleOpen : undefined}
-        title={expandable ? (open ? 'collapse' : 'expand') : undefined}>
+        title={expandable ? (open ? 'collapse' : 'expand') : undefined}
+        {...(shellError ? { role: 'button', tabIndex: 0, 'aria-expanded': open,
+          'aria-label': `${shortTool(t.name)}: an error occurred; ${open ? 'collapse' : 'expand'} output`,
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleOpen() }
+          } } : {})}>
         <DotIcon fontSize="inherit" className="tooldot" />
         {' '}{shortTool(t.name)}
         {t.arg ? <span className="targ"> {t.arg}</span> : null}
@@ -4787,7 +4794,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             {t.task.ms ? ` · ${Math.round(t.task.ms / 1000)}s` : ''}
             {t.task.tokens ? ` · ${Math.round(t.task.tokens / 1000)}k tok` : ''}</span>)}
         {(t.images ?? 0) > 0 && <span className="dim"> · {t.images} image{t.images === 1 ? '' : 's'}</span>}
-        {t.error && <span className="terrtxt"> ⊘ {t.error}</span>}
+        {(t.error || shellError) && <span className="terrtxt"> ⊘ {shellError ? 'an error occurred' : t.error}</span>}
         {/* how long the call took, or — while it still waits for its result and
             the turn is running — a live count once it passes ten seconds */}
         {execTime
@@ -4820,6 +4827,8 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
       {open && <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
+      {open && shellError && t.error && (!t.result || !t.result.includes(t.error)) &&
+        <CopyablePre><pre className="filepre respre">{t.error}</pre></CopyablePre>}
       {open && execTime && <div className="dim tool-exec-line">Execution time {execTime}</div>}
       {open && t.diff && (
         <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
