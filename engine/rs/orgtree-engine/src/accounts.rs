@@ -427,4 +427,6 @@ pub fn publish(engine: &Engine) {
     // lane's `default`, never a row (as before several keys)
     let rows: Vec<Value> = view.all().into_iter().filter(|a| a.id != crate::openrouter::ACCOUNT_ID).map(|a| row(a, Vec::new(), now)).collect();
     engine.app.set_value("accounts", json!({ "accounts": rows }));
+    // the providers payload lists what each registered Muse login offers
+    crate::providers::publish(engine);
 }

@@ -502,6 +502,8 @@ async fn muse_login_probe(engine: &Engine, a: &crate::accounts::AccountInfo, key
 #[nolog]
 pub fn muse_login_seen(engine: &Engine, account: &str, read: Result<&muse_models::MuseProbe, String>) {
     let now = chrono::Utc::now();
+    let offer = |e: &Engine| e.providers.muse_logins.load().get(account).map(|r| (r.catalog.clone(), r.signed_in, r.error.is_some()));
+    let before = offer(engine);
     engine.providers.muse_logins.rcu(|cur| {
         let mut next = (**cur).clone();
         let entry = match &read {
@@ -524,6 +526,11 @@ pub fn muse_login_seen(engine: &Engine, account: &str, read: Result<&muse_models
         next.insert(account.to_string(), entry);
         next
     });
+    // the hire and settings surfaces read every login's offer from the
+    // providers payload: a changed one is pushed to the windows at once
+    if offer(engine) != before {
+        publish(engine);
+    }
 }
 
 /// How long a registered login's read stands for a placement check before
