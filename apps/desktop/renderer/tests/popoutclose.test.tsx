@@ -151,3 +151,26 @@ test('a modal hosted in another child retains parent-lifecycle recovery', async 
     assert.ok(v.el.contains(input)); assert.equal(closes, 0); noWindows()
   } finally { await v.unmount(); s.tidy() }
 })
+
+test('a child lost during adoption keeps failed-open recovery instead of dismissing its modal', async () => {
+  const s = stage(); let closes = 0
+  const create = s.w.document.createElement.bind(s.w.document)
+  s.w.document.createElement = ((...args: Parameters<Document['createElement']>) => {
+    const el = create(...args)
+    const append = el.appendChild.bind(el)
+    el.appendChild = ((node: Node) => {
+      const result = append(node)
+      if (el.className === 'popout-mount') s.nativeClose()
+      return result
+    }) as typeof el.appendChild
+    return el
+  }) as typeof s.w.document.createElement
+  const v = await mountView(<CurrentOrg.Provider value="org"><PinFrame kind="close-fixture" title="Fixture" panel="settings"
+    close={() => closes++}><input defaultValue="setup draft" /></PinFrame></CurrentOrg.Provider>, el => el)
+  try {
+    const input = v.el.querySelector('input')!
+    await click(button(v.el, 'Open in new window'))
+    assert.equal(closes, 0); assert.ok(v.el.contains(input)); noWindows()
+    assert.match(v.el.querySelector('[role="alert"]')?.textContent ?? '', /surface could not enter|closed before/)
+  } finally { await v.unmount(); s.tidy() }
+})

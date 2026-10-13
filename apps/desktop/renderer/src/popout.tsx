@@ -523,6 +523,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     const transaction = ++epoch.current
     const restore = preservePosition(parts.container)
     let w: Window | null = null
+    let committed = false
     try {
       // Opening MUST be inside the initiating click, before any await.
       // NAMED, not '_blank': the main process pairs this name to the native
@@ -544,7 +545,13 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       d.open()
       d.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')
       d.close()
-      const onGone = () => { if (epoch.current === transaction) dismissWindow() }
+      const onGone = () => {
+        if (epoch.current !== transaction) return
+        // A window lost during setup is still the established failed-open
+        // recovery, not a Close of a successfully detached modal.
+        if (committed) dismissWindow()
+        else redock()
+      }
       w.addEventListener('pagehide', onGone)
       cleanups.current.push(() => w?.removeEventListener('pagehide', onGone))
       const poll = window.setInterval(() => { if (w?.closed) onGone(); else if (w) captureWindow(layoutKey, kind, org, w, true, latest.current.restore) }, 250)
@@ -645,6 +652,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         flush: () => { captureWindow(layoutKey, kind, org, w!, true, latest.current.restore); latest.current.flush?.() } }))
       captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
       setOwner(d); setDetached(true); setError(''); latest.current.onDetached?.(true)
+      committed = true
       restore(); w.focus()
       pendingRestore.current = restore
       cleanups.current.push(restoreWhenStyled(w, () => epoch.current === transaction && !w!.closed, restore, () => { pendingRestore.current = null },
