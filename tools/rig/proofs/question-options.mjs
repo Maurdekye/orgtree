@@ -72,6 +72,14 @@ export default async function (rig) {
   const plain = await payload('question', 'Anything else for the release notes?')
   const notQuestion = await payload('message', list)
   p.check('a question without a list, or a list in an ordinary message, has no meta', !('meta' in plain) && !('meta' in notQuestion), { plain, notQuestion })
+  // review R1: an agent's own question ending in a list the tool would
+  // refuse (the same label twice) carries no meta, so Hubchat keeps it whole
+  const dupList = 'Which one?\n\nPick one:\n1. Same\n2. same'
+  const dupPayload = await payload('question', dupList)
+  const dupSent = await send({ body: dupList })
+  const dupGot = await received(dupList, 'Pat to receive the question ending in a refused list')
+  p.check('a question ending in a list the tool would refuse (Same, same) has no meta, in the payload or over the hub, and arrives whole',
+    !('meta' in dupPayload) && dupPayload.body === dupList && dupSent.ok && dupGot.kind === 'question' && !('meta' in dupGot), { dupPayload, dupGot })
   const free = await send({ body: 'Anything else for the release notes?' })
   const freeGot = await received('Anything else for the release notes?', 'Pat to receive the free-response question')
   p.check('over the hub, a question without options arrives as kind question with no meta', free.ok && freeGot.kind === 'question' && !('meta' in freeGot), freeGot)
