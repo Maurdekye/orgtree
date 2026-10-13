@@ -1,6 +1,6 @@
 import { req } from '../api'
 import type { MenuItem } from './contextmenu'
-import { tierLabel } from './shared'
+import { MUSE_TIERS, museEffortLevels, tierLabel } from './shared'
 import type { StaffingAccount } from './staffingoptions'
 
 export interface QuickStaffModel {
@@ -70,8 +70,10 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
     if (preview.mode === 'request') return accounts
     return accounts.length && !(accounts.length === 1 && m.default_ok !== false) ? accounts : []
   }
+  // a Muse login is listed under a level only when its own row of the model
+  // takes it (`efforts` per account; absent: every level, as before)
   const accountRows = (m: QuickStaffModel, effort?: string): MenuItem[] =>
-    choosableAccounts(m).map(a => ({
+    choosableAccounts(m).filter(a => !effort || !a.efforts || a.efforts.includes(effort)).map(a => ({
       label: accountLabel(a),
       // a request carries the account as a suggestion; the assignee decides
       title: preview.mode === 'request' ? `suggest ${a.value}` : `staff on ${a.value}`,
@@ -86,6 +88,9 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
     // thing chosen, never the layer directly under the model. Where a tier has
     // no effort to choose at all the accounts sit under it directly, because
     // dropping them would remove the choice rather than move it.
+    // a Muse tier's levels differ by login: one taken without naming an
+    // account must be one the signed-in login's row of the model takes
+    const ownLevels = MUSE_TIERS.includes(m.tier) ? museEffortLevels(m.tier, null, null) : undefined
     const children: MenuItem[] = m.efforts.length
       ? m.efforts.map(e => {
           const accounts = accountRows(m, e)
@@ -94,7 +99,7 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
             // Same rule as the tier row below: an effort taken without naming an
             // account means the account a plain hire would pick, so it closes
             // exactly when that account cannot run the tier.
-            actionDisabled: m.default_ok === false,
+            actionDisabled: m.default_ok === false || (ownLevels !== undefined && !ownLevels.includes(e)),
             onSelect: () => { void select(m.tier, e) },
             ...(accounts.length ? { children: accounts } : {}),
           }

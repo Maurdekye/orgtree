@@ -21,6 +21,7 @@ import { copyToClipboard, useContextMenu } from './contextmenu'
 import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge } from './effort'
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
+import { museEffortLevels } from './shared'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -4159,7 +4160,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             if (enterKey.sends(e)) { e.preventDefault(); send() }
           }} />
         <EffortButton value={node.scope?.effort ?? ''}
-          effective={node.effort_effective ?? ''} levels={tierEffortLevels(slug, node.tier)}
+          effective={node.effort_effective ?? ''}
+          // a Muse seat's levels are its model's row on the login it runs on
+          // (an account change queued behind a turn: the next turn's), its pin's
+          levels={MUSE_TIERS.includes(node.tier ?? '')
+            ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.pending_account?.account ?? node.account ?? null)
+            : tierEffortLevels(slug, node.tier)}
           onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
             // Quick chat's effort follows the last level selected by hand
             .then((r) => { rememberEffort(slug, lvl); toast([effortChangeToast(node.id, lvl, r)]) })

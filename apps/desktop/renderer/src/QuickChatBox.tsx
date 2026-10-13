@@ -24,6 +24,8 @@ import { SpawnChips } from './canvas/cards'
 import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
 import { tierEffortLevels } from './canvas/staffingoptions'
+import { museHireAccount, museLandingAccount } from './canvas/musehire'
+import { MUSE_TIERS, museEffortLevels } from './canvas/shared'
 import {
   ALL_TIER_SEAT, hireOf, hireTierChoices, TIER_LETTER, tierLabel, type CanvasNode,
 } from './canvas/shared'
@@ -86,6 +88,11 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const effort = quickChatEffort(memo.effort)
   const superior = quickChatSuperior(memo.superior, id => live.includes(id))
   const orgDefault = resolveOrgDefault(tree.default_effort, tree.effort_default)
+  // a Muse hire's levels are its model's row on the login it lands on
+  // (`museHireAccount` names one when the default login cannot run it)
+  const levelsFor = (t: string | null | undefined) => t && MUSE_TIERS.includes(t)
+    ? museEffortLevels(t, null, museHireAccount(slug, t, tree.default_account) ?? museLandingAccount(tree.default_account))
+    : tierEffortLevels(slug, t)
   const seats = tree.tiers ?? ALL_TIER_SEAT
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -144,8 +151,9 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         const name = quickChatName(message, n => taken.has(n))
         let born: string
         try {
-          const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = tierEffortLevels(slug, tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant })
-          const r = await op(carry.length ? bare : { ...bare, kickoff, kickoff_kind }, { quiet: true })
+          const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = levelsFor(tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant })
+          const account = museHireAccount(slug, tier, tree.default_account)
+          const r = await op({ ...(carry.length ? bare : { ...bare, kickoff, kickoff_kind }), ...(account ? { account } : {}) }, { quiet: true })
           born = typeof r?.node === 'string' && r.node ? r.node : name
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
@@ -205,7 +213,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         {supNode?.tier && <TierIcon tier={supNode.tier} />}
         <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
       </button>
-      <EffortBar compact value={effort} level={effort || orgDefault} levels={tierEffortLevels(slug, tier)}
+      <EffortBar compact value={effort} level={effort || orgDefault} levels={levelsFor(tier)}
         title={`effort for the new agent: ${effort || `org default${orgDefault ? ` (${orgDefault})` : ''}`}`
           + ' — click the chosen level again for the org default'}
         onSet={(lvl) => rememberEffort(slug, lvl)} disabled={busy} />

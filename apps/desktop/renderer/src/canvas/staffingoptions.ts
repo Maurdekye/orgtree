@@ -44,7 +44,7 @@ export interface StaffingAccount {
    *  backend) */
   kind?: 'subscription' | 'apikey'
   /** a Muse login only: the levels the tier's model takes on THIS login, by
-   *  its own catalog row (the tier's `efforts` are a no-account hire's) */
+   *  its own catalog row (the tier's `efforts` are every level some login takes) */
   efforts?: string[]
 }
 export interface StaffingTier {
