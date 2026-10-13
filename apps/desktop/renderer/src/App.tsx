@@ -2135,10 +2135,10 @@ function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; 
  * bulk feed. Only this card's explicit Refresh asks its own registered lane
  * to force a provider read; pending/error/age state belongs to that key. */
 function OpenRouterKeyUsageSection({ lane, name }: { lane: string; name?: string }) {
-  const state = useUsageReadout('openrouter_keys_usage', async (force) => {
+  const state = useUsageReadout<AccountUsage>('openrouter_keys_usage', async (force) => {
     if (force) return getRegisteredAccountUsage(lane, true)
     const readings = await getOpenRouterKeysUsage()
-    return readings[lane] ?? { account: lane, provider: 'OpenRouter', available: false,
+    return readings[lane] ?? { account: lane, label: name ?? lane, provider: 'OpenRouter', available: false,
       limits: [], error: 'usage unavailable until the next reading' }
   }, lane)
   return <div className="usage-acct" data-account={lane}>

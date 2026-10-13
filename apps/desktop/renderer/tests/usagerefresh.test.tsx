@@ -127,8 +127,9 @@ test('every OpenRouter key has independent Refresh; only the clicked key forces 
   try{
     view=await mountView(<UsageModal close={()=>{}} toast={()=>{}}/>,el=>el)
     await inAct(async()=>{await flush(12)})
-    const two=view.el.querySelector<HTMLElement>('[data-account="openrouter-2"]')!
-    const three=view.el.querySelector<HTMLElement>('[data-account="openrouter-3"]')!
+    const cards=[...view.el.querySelectorAll<HTMLElement>('.usage-acct')]
+    const two=cards.find(card=>card.textContent?.includes('Team budget (openrouter-2)'))!
+    const three=cards.find(card=>card.textContent?.includes('Other budget (openrouter-3)'))!
     assert.ok(two);assert.ok(three)
     const button=two.querySelector<HTMLButtonElement>('[aria-label="refresh openrouter-2 usage"]')
     const other=three.querySelector<HTMLButtonElement>('[aria-label="refresh openrouter-3 usage"]')
@@ -158,7 +159,7 @@ test('every OpenRouter key has independent Refresh; only the clicked key forces 
     await inAct(async()=>{button.click();await flush(4)})
     await inAct(async()=>{settle!(new Response(JSON.stringify({detail:'key endpoint down'}),{status:500,
       headers:{'Content-Type':'application/json'}}));await flush(12)})
-    assert.match(two.querySelector('[role="alert"]')?.textContent??'',/refresh failed: key endpoint down/)
+    assert.match(two.querySelector('[role="alert"]')?.textContent??'',/refresh failed: .*key endpoint down/)
     assert.match(two.textContent??'',/23%/)
     assert.equal(other.getAttribute('aria-busy'),'false')
   }finally{await view?.unmount();globalThis.fetch=before}
