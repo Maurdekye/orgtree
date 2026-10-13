@@ -7544,13 +7544,12 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-runtime_recovery { --event-color: var(--bad); }
 .event-reminder { --event-color: var(--warn); }
 .event-context_change { --event-color: var(--dim); }
-/* An interrupted restart reads as red, like the backend-restarted notice; both
-   get a reddish border (the left edge stays the solid family colour). */
+/* An interrupted restart reads as red, like the backend-restarted notice
+   (runtime_recovery family). Their RED IS THE LEFT EDGE ONLY: the other three
+   sides keep the neutral card border (user 2026-10-13: "the left edge be
+   styled with a red hue instead of the grey one ... not the borders"). The
+   edge rule itself sits after `.event-notice` below. */
 .event-surface[data-event-variant="context.drive_restart_interrupted"] { --event-color: var(--bad); }
-.event-surface[data-event-variant="context.drive_restart_interrupted"],
-.event-surface[data-event-variant="runtime.restart_notice"] {
-  border-color: color-mix(in srgb, var(--bad) 55%, var(--line-soft));
-  border-left-color: var(--bad); }
 .event-head { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px;
   padding: 7px 9px; border-bottom: 1px solid var(--line-soft); font-size: 11px; }
 .event-family { color: var(--event-color); font-family: var(--mono);
@@ -7574,6 +7573,13 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-notice, .event-surface.event-notice, .msg.user.event-surface.event-notice {
   border-left: 3px var(--notice-edge-style) var(--notice-edge-color);
 }
+/* ⚠ AFTER THE NOTICE EDGE, AND AS SPECIFIC AS ITS STRONGEST SELECTOR. Both
+   restart cards usually arrive as notices, and the notice edge above repaints
+   any left edge in its neutral grey; this keeps its dashed passive style and
+   only takes the colour back. */
+:is(.event-surface, .msg.user.event-surface.event-notice):is(
+  [data-event-variant="context.drive_restart_interrupted"],
+  [data-event-variant="runtime.restart_notice"]) { border-left-color: var(--bad); }
 .mailer-read > .event-head { padding-left: 0; padding-right: 0; }
 .mailer-read .mailer-body .event-body { padding-left: 0; padding-right: 0; }
 .event-member { margin: 4px 0; min-width: 0; }

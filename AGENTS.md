@@ -630,6 +630,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Every docket view also shares one list/ticket split: the base `.mailer-list`
   width (36%, 140-340px); the desk and team tabs have no override. [user
   2026-10-13; coordinator ruling on team tab; verified from source]
+- Passive notices repaint an event card's left edge (`.event-notice`, after the
+  family rules). A variant that needs its own edge colour, like the two restart
+  cards (red edge, neutral other sides), needs a rule after it that is at least as
+  specific as `.msg.user.event-surface.event-notice`. [user 2026-10-13; verified
+  from source, `tests/restartedge.test.tsx`]
 
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls, in each harness's own names (user
