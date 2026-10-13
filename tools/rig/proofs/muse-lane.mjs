@@ -34,6 +34,12 @@ export default async function (rig) {
   const resetMs = Date.now() + 2 * 3600 * 1000
   rig.scenario({
     agents: {
+      // nina: opted into account fallback; her quota wall moves her to the managed Muse profile
+      nina: { turns: [
+        { name: 'moved', match: 'You now run on the account', steps: [{ text: 'Continuing on the other account.' }] },
+        { name: 'wall', match: 'PROOF-FALLBACK', once: true, steps: [{ text: 'Trying.' }, { quota: { resetsAtMs: resetMs } }] },
+      ] },
+      kara: { turns: [{ name: 'key', match: 'PROOF-KEY', steps: [{ text: 'On the key account.' }] }] },
       dana: { turns: [
         { name: 'again', match: 'PROOF-AGAIN', steps: [{ text: 'Back after the restart.' }] },
         { name: 'hello', match: 'PROOF-HELLO', steps: [
@@ -244,5 +250,38 @@ export default async function (rig) {
   const cmd = await rig.api('POST', `/api/orgs/${rig.org}/nodes/dana/compact`).catch(e => ({ error: e.message }))
   const compacted = await rig.waitFor(() => convo('dana').some(b => b.kind === 'compact'), { what: 'dana\'s compaction row', timeout: 20000 }).catch(() => false)
   p.check('dana: /compact runs Muse\'s own session/compact and the conversation says so', !!compacted && log('dana', 'compact').length >= 1, cmd)
+
+  // ---------------------------------------------------------------- accounts: fallback, key isolation, primary
+  // (fixtures only: the fake answers every login; the key is not a real one)
+  fs.writeFileSync(path.join(rig.fakeDir, 'muse-catalog.json'), JSON.stringify({ source: 'providerCatalog', models: [
+    { modelId: 'muse-wonder-1.0', profileId: 'tbh', isDefault: true, variants: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'], defaultReasoningEffort: 'high', contextLimit: 1007997, outputLimit: 128000 },
+  ] }))
+  const M = (await rig.api('POST', '/api/accounts', { provider: 'muse', kind: 'managed' })).id
+  const mid = await rig.api('GET', `/api/accounts/${M}/identity`)
+  const profile = rig.one(`SELECT config_dir FROM ot.accounts WHERE id = '${M}'`)?.config_dir ?? ''
+  await rig.op({ op: 'hire', name: 'nina', parent: 'boss', tier: 'wonder', title: 'fallback agent', account_fallback: true })
+  await rig.userMail('nina', 'PROOF-FALLBACK: please do the thing.')
+  const moved = await rig.waitTurns('nina', 2, { timeout: 60000 }).catch(e => ({ error: e.message }))
+  const nina = rig.agentRow('nina')
+  const ninaStart = log('nina', 'start').at(-1)
+  p.check('fallback: a managed Muse profile signs in through its own metadata read', mid?.auth === 'authenticated', mid)
+  p.check('fallback: an opted-in agent at its Muse limit moves to the profile with room and continues there',
+    Array.isArray(moved) && !nina?.frozen && rig.one(`SELECT account FROM ot.agents WHERE id = ${nina?.id}`)?.account === M,
+    { wait: moved?.error, frozen: nina?.frozen, account: rig.one(`SELECT account FROM ot.agents WHERE id = ${nina?.id}`)?.account })
+  p.check('fallback: the moved host runs in the profile\'s own roots, never with an API key',
+    !!profile && (ninaStart?.xdg_config ?? '').toLowerCase().startsWith(profile.toLowerCase()) && ninaStart?.meta_api_key_set === false
+      && ninaStart?.contributor_off === true, { profile, start: { xdg_config: ninaStart?.xdg_config, key: ninaStart?.meta_api_key_set } })
+  const K = (await rig.api('POST', '/api/accounts', { provider: 'muse', kind: 'apikey', key: 'muse-rig-not-a-real-key' })).id
+  await rig.op({ op: 'hire', name: 'kara', parent: 'boss', tier: 'wonder', title: 'key agent', account: K })
+  await rig.userMail('kara', 'PROOF-KEY: hello.')
+  await rig.waitTurns('kara', 1, { timeout: 60000 }).catch(() => null)
+  const karaStart = log('kara', 'start').at(-1)
+  p.check('key: an API-key seat runs with its key in its own roots, never the user\'s own Muse roots',
+    karaStart?.meta_api_key_set === true && /muse-key-/i.test(karaStart?.xdg_config ?? '') && /muse-key-/i.test(karaStart?.xdg_data ?? ''),
+    { xdg_config: karaStart?.xdg_config, xdg_data: karaStart?.xdg_data, key: karaStart?.meta_api_key_set })
+  p.check('key: the API-key login is never an automatic fallback while its switch is off', rig.one(`SELECT account FROM ot.agents WHERE id = ${nina?.id}`)?.account !== K)
+  const back = await rig.tool('boss', 'orgtree_continue_on', { node: 'nina', account: 'muse/primary' })
+  p.check('continue on: Muse\'s own login is a native primary to continue on (muse/primary)',
+    back.ok && rig.one(`SELECT account FROM ot.agents WHERE id = ${nina?.id}`)?.account == null, back.text?.slice(0, 200))
   return p.summary()
 }

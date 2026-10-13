@@ -736,6 +736,8 @@ pub fn run(raw: &[String]) -> i32 {
         "agents_md": std::fs::read_to_string(cwd.join("AGENTS.md")).ok().map(|s| s.chars().count()),
         "meta_api_key_set": env_set("META_API_KEY"), "xdg_config_set": env_set("XDG_CONFIG_HOME"),
         "xdg_data_set": env_set("XDG_DATA_HOME"), "no_auto_update": std::env::var("MUSE_NO_AUTO_UPDATE").ok(),
+        // the login's roots (folders, not secrets): which sign-in and session store it uses
+        "xdg_config": std::env::var("XDG_CONFIG_HOME").ok(), "xdg_data": std::env::var("XDG_DATA_HOME").ok(),
         "anthropic_key_set": env_set("ANTHROPIC_API_KEY"), "openai_key_set": env_set("OPENAI_API_KEY"),
         "org": std::env::var("ORGTREE_ORG").ok() }));
     let (tx, rx) = mpsc::channel();
