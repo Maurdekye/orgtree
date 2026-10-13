@@ -16,7 +16,12 @@ export default async function (rig) {
   const roots = L => Object.values(L).filter(a=>a.state==='live'&&a.parent_id===null).reduce((n,a)=>n+stake(a),0)
   const valid = () => Object.values(ledger()).filter(a=>a.state==='live').every(a=>a.free>=-1e-6)
   const hire = (name,grant,parent) => rig.op({op:'hire',name,tier:'haiku',grant,...(parent?{parent}:{}),charter:'Isolated proof agent.'})
-  const parent = (caller,name,extra={}) => rig.tool(caller,'orgtree_hire',{name,tier:'haiku',grant:0,charter:'An isolated superior.',hire_type:'superior',...extra})
+  const slot = (name,L=ledger()) => {
+    const target=L[name]
+    return Object.values(L).filter(a=>a.state==='live'&&a.parent_id===target.parent_id)
+      .sort((a,b)=>a.ord-b.ord||a.id-b.id).findIndex(a=>a.id===target.id)
+  }
+  const parent = (caller,name,extra={}) => rig.tool(caller,'orgtree_hire',{name,tier:'haiku',grant:0,charter:'An isolated superior.',hire_type:'superior',index:slot(extra.target||extra.parent||caller),...extra})
   const has = name => !!ledger()[name]
   const unchanged = (a,b) => JSON.stringify(a)===JSON.stringify(b)
 
@@ -30,7 +35,8 @@ export default async function (rig) {
   let after=ledger()
   p.check('top-level self hire succeeds through the agent tool',first.ok,first)
   if(!first.ok) { p.keep(rig,{grep:/hire|credit|subjugat/i}); return p.summary() }
-  p.check('external stake and original sibling position are conserved',near(roots(before),roots(after))&&near(stake(before['root-self']),stake(after['first-parent']))&&after['first-parent'].parent_id===null&&near(before['root-self'].ord,after['first-parent'].ord),{before:before['root-self'],after:after['first-parent']})
+  p.check('external stake and original sibling position are conserved',near(roots(before),roots(after))&&near(stake(before['root-self']),stake(after['first-parent']))&&after['first-parent'].parent_id===null&&slot('root-self',before)===slot('first-parent',after),{before:before['root-self'],after:after['first-parent']})
+  p.check('root placement result describes final siblings rather than temporary caller children',first.json.parent===null&&first.json.index===slot('first-parent',after)&&near(first.json.sibling_order,after['first-parent'].ord)&&first.json.live_sibling_count===Object.values(after).filter(a=>a.state==='live'&&a.parent_id===null).length,first)
   p.check('caller pays new seat plus free grant; child allocation stays unchanged',near(after['root-self'].grant,before['root-self'].grant-after['first-parent'].seat-2)&&near(after['first-parent'].free,2)&&unchanged(before['kept-child'],after['kept-child'])&&valid())
   p.check('kickoff committed once',rig.one(`SELECT count(*)::int AS n FROM ot.mail WHERE org_id=${ORG} AND recipient_name='first-parent' AND body='Proof kickoff.'`).n===1)
 
@@ -72,13 +78,13 @@ export default async function (rig) {
 
   await hire('staff-caller',8)
   before=ledger()
-  const staffed=await rig.tool('staff-caller','orgtree_staff',{name:'staff-parent',tier:'haiku',grant:1,charter:'Own this proof item.',hire_type:'superior',title:'Parent hire proof item',objective:'Test atomic parent staffing.',kind:'non-code',audiences:['user']})
+  const staffed=await rig.tool('staff-caller','orgtree_staff',{name:'staff-parent',tier:'haiku',grant:1,charter:'Own this proof item.',hire_type:'superior',index:slot('staff-caller'),title:'Parent hire proof item',objective:'Test atomic parent staffing.',kind:'non-code',audiences:['user']})
   after=ledger()
   p.check('staff alias validates item and audience before atomic promotion',staffed.ok&&after['staff-caller'].parent_id===after['staff-parent']?.id&&near(roots(before),roots(after))&&near(after['staff-parent'].free,1),staffed)
   p.check('staffed item belongs to final parent',rig.one(`SELECT count(*)::int AS n FROM ot.work_items WHERE org_id=${ORG} AND owner_agent_id=(SELECT id FROM ot.agents WHERE org_id=${ORG} AND name='staff-parent')`).n===1)
 
   before=ledger()
-  const failedStaff=await rig.tool('root-self','orgtree_staff',{name:'failed-staff-parent',tier:'haiku',grant:0,charter:'Must roll back.',hire_type:'superior',title:'Must not persist',objective:'Atomic failure proof.',parent:'missing-work-item'})
+  const failedStaff=await rig.tool('root-self','orgtree_staff',{name:'failed-staff-parent',tier:'haiku',grant:0,charter:'Must roll back.',hire_type:'superior',index:slot('root-self'),title:'Must not persist',objective:'Atomic failure proof.',parent:'missing-work-item'})
   p.check('late staff validation failure rolls back the temporary parent and item',!failedStaff.ok&&unchanged(before,ledger())&&rig.one(`SELECT count(*)::int AS n FROM ot.work_items WHERE org_id=${ORG} AND title='Must not persist'`).n===0,failedStaff)
 
   // Two overlapping reservations contend for the same final seat. No ancestor
@@ -122,7 +128,7 @@ export default async function (rig) {
   p.check('retire/rehire cycle mints no external credits',retire.ok&&rehire.ok&&near(roots(before),roots(ledger()))&&valid(),{retire,rehire})
 
   await hire('ordinary-caller',3)
-  const ordinary=await rig.tool('ordinary-caller','orgtree_hire',{name:'ordinary-child',tier:'haiku',grant:0,charter:'Ordinary report.',add_dirs:[],org_visibility:'self',tools:{bash:false,web:false,edit:false,subagents:false,mcp:[]}})
+  const ordinary=await rig.tool('ordinary-caller','orgtree_hire',{name:'ordinary-child',tier:'haiku',grant:0,charter:'Ordinary report.',index:0,add_dirs:[],org_visibility:'self',tools:{bash:false,web:false,edit:false,subagents:false,mcp:[]}})
   p.check('subordinate remains the default',ordinary.ok&&ledger()['ordinary-child']?.parent_id===ledger()['ordinary-caller'].id,ordinary)
   before=ledger()
   const otherTarget=await parent('ordinary-caller','child-superior',{target:'ordinary-child',grant:1})
@@ -137,6 +143,16 @@ export default async function (rig) {
   const archived=await hire('archived-caller',2).then(()=>rig.op({op:'retire',node:'archived-caller'})).then(()=>parent('archived-caller','stale-parent')).catch(e=>({ok:false,text:e.message}))
   p.check('retired caller cannot insert a parent',!archived.ok&&!has('stale-parent'),archived)
   p.check('no final overdraft',valid())
+  await hire('placed-caller',3)
+  await hire('placed-child',0,'placed-caller')
+  before=ledger()
+  const placed=await parent('placed-caller','placed-parent',{index:0})
+  after=ledger()
+  p.check('explicit root index survives temporary-report promotion and preserves existing children',placed.ok&&slot('placed-parent',after)===0&&near(roots(before),roots(after))&&unchanged(before['placed-child'],after['placed-child'])&&valid(),placed)
+  before=ledger()
+  const missingIndex=await rig.tool('placed-caller','orgtree_hire',{name:'missing-index-parent',tier:'haiku',grant:0,charter:'Must refuse.',hire_type:'superior'})
+  const outsideIndex=await parent('placed-caller','outside-index-parent',{index:100000})
+  p.check('missing and out-of-range parent placement refuse without changing credits or topology',!missingIndex.ok&&!outsideIndex.ok&&/index/.test(missingIndex.text)&&/index/.test(outsideIndex.text)&&unchanged(before,ledger()),{missingIndex,outsideIndex})
   p.keep(rig,{grep:/hire|credit|subjugat|conflicted/i})
   return p.summary()
 }

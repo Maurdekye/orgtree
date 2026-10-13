@@ -10,7 +10,12 @@ For this self-insertion, `grant` means free capacity reserved for the new
 parent, in addition to the caller's remaining subtree. The new seat and this
 free capacity must fit the caller's existing free credits. No ancestor grant
 is raised, no top-level default is applied, and existing reports keep their
-allocations and parent. The old sibling position is retained.
+allocations and parent. Agent hires require an explicit zero-based `index`,
+chosen among the caller's former live siblings with the caller excluded,
+as for other superior insertions. Choosing the caller's former index retains
+its position; another valid index places the new parent there instead.
+The result's parent, index, order and live sibling count describe the final
+position, rather than the temporary report used for atomic funding.
 
 With caller seat C, grant G, reports' held allocation H, new seat P, and
 requested free allocation R, require G-H >= P+R. The result is:
