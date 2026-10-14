@@ -106,6 +106,8 @@ fn parse_args(raw: &[String]) -> Args {
 enum Msg {
     Init,
     Prompt(String),
+    /// a background task ended while no turn ran: hand it over (a turn of the CLI's own)
+    Background,
     Eof,
 }
 
@@ -123,6 +125,16 @@ struct Cli {
     model: String,
     cwd: PathBuf,
     dir: Option<PathBuf>,
+    /// the main loop's inbox, for background tasks ending while no turn runs
+    wake: Mutex<Option<mpsc::Sender<Msg>>>,
+    /// a turn (the client's or the CLI's own) is running
+    turn_running: AtomicBool,
+    /// background tasks running: their `background_tasks_changed` rows
+    bg_live: Mutex<Vec<Value>>,
+    /// background tasks ended whose notification no turn has taken yet:
+    /// {task, tool, miss}; `miss` ones are not taken by the turn running when
+    /// they ended (its last model step had begun)
+    bg_pending: Mutex<Vec<Value>>,
 }
 
 impl Cli {
@@ -440,6 +452,10 @@ fn tool_use(cli: &Cli, turn: &mut Turn, step: &Value) -> Option<String> {
             context = Some(t);
         }
     }
+    // what the CLI prints between a call and its result (a background task's start)
+    for line in step["before_result"].as_array().into_iter().flatten() {
+        cli.emit(line.clone());
+    }
     cli.emit(json!({ "type": "user", "parent_tool_use_id": null,
                      "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tid,
                                                                   "content": [{ "type": "text", "text": text }],
@@ -561,8 +577,169 @@ pub fn spawn_shell(command: &str) -> Value {
     }
 }
 
-fn run_turn(cli: &Cli, prompt: &str, tools: &[String], native: &[String], first: &mut bool, cost: &mut f64) {
+// ------------------------------------------------------------ background tasks
+
+/// Where the CLI writes a background task's output (Claude Code 2.1.292):
+/// `<temp>/claude/<project>/<session>/tasks/<task>.output`.
+fn task_file(cli: &Cli, task: &str) -> PathBuf {
+    std::env::temp_dir().join("claude").join(project_dir(&cli.cwd)).join(&cli.session).join("tasks").join(format!("{task}.output"))
+}
+
+/// A `{"bg": {...}}` step: a call run in the background as Claude Code
+/// 2.1.292 reports one (measured 2026-10-14): the call, the live set
+/// (`background_tasks_changed`) and `task_started` (`is_backgrounded`), then
+/// the call's result naming the task and its output file. The task ends
+/// `finish_ms` later on a thread of its own (`bg_finish`).
+fn bg_step(cli: &Arc<Cli>, turn: &mut Turn, step: &Value) {
+    let bg = &step["bg"];
+    let task = bg["task"].as_str().map(str::to_string).unwrap_or_else(|| format!("bfake{}", cli.next()));
+    let tool = bg["id"].as_str().map(str::to_string).unwrap_or_else(|| format!("toolu_fake_{}", cli.next()));
+    let agent = bg["agent"].as_bool() == Some(true);
+    let command = bg["command"].as_str().unwrap_or("sleep 5").to_string();
+    let file = task_file(cli, &task);
+    let row = json!({ "task_id": task, "task_type": if agent { "local_agent" } else { "local_bash" }, "description": command });
+    let live = {
+        let mut l = cli.bg_live.lock().unwrap();
+        l.push(row.clone());
+        l.clone()
+    };
+    let (name, mut args, text) = if agent {
+        ("Agent", json!({ "description": command, "prompt": command, "run_in_background": true }),
+         format!("Async agent launched successfully. agentId: {task}"))
+    } else {
+        if let Some(parent) = file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&file, "");
+        ("Bash", json!({ "command": command, "run_in_background": true }),
+         format!("Command running in background with ID: {task}. Output is being written to: {}. You will be notified when it \
+                  completes. To check interim output, use Read on that file path.", file.display()))
+    };
+    if let Some(d) = bg["description"].as_str() {
+        args["description"] = json!(d);
+    }
+    let call = json!({ "tool": name, "id": tool, "args": args, "result": text, "before_result": [
+        { "type": "system", "subtype": "background_tasks_changed", "tasks": live },
+        { "type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": tool, "description": command,
+          "is_backgrounded": true, "task_type": row["task_type"] },
+    ] });
+    tool_use(cli, turn, &call);
+    cli.log("bg_started", json!({ "task": task, "tool": tool, "file": file, "agent": agent }));
+    let finish_ms = bg["finish_ms"].as_u64().unwrap_or(3000);
+    let (cli, spec) = (cli.clone(), bg.clone());
+    std::thread::spawn(move || bg_finish(&cli, &task, &tool, &command, &file, agent, &spec, finish_ms));
+}
+
+/// A background task's end, `finish_ms` after it started: its output file,
+/// then `task_updated`, `task_notification` and the live set (the order
+/// measured on 2.1.292), then the hand-over: a turn running takes it at its
+/// next step (unless `miss_running_turn`: it ended during that turn's last
+/// model step), else the CLI starts a turn of its own (`own_turn`).
+#[allow(clippy::too_many_arguments)]
+fn bg_finish(cli: &Arc<Cli>, task: &str, tool: &str, command: &str, file: &Path, agent: bool, spec: &Value, finish_ms: u64) {
+    std::thread::sleep(Duration::from_millis(finish_ms));
+    let status = spec["status"].as_str().unwrap_or("completed").to_string();
+    let code = spec["exit_code"].as_i64().unwrap_or(if status == "completed" { 0 } else { 1 });
+    if !agent {
+        let _ = std::fs::write(file, spec["output"].as_str().unwrap_or("done"));
+    }
+    let summary = match (agent, status.as_str()) {
+        (true, s) => format!("Agent \"{command}\" {s}"),
+        (false, "completed") => format!("Background command \"{command}\" completed (exit code {code})"),
+        (false, "failed") => format!("Background command \"{command}\" failed with exit code {code}"),
+        (false, s) => format!("Background command \"{command}\" was {s}"),
+    };
+    let live = {
+        let mut l = cli.bg_live.lock().unwrap();
+        l.retain(|r| r["task_id"].as_str() != Some(task));
+        l.clone()
+    };
+    cli.emit(json!({ "type": "system", "subtype": "task_updated", "task_id": task,
+                     "patch": { "status": status, "end_time": now_ms() as u64 } }));
+    cli.emit(json!({ "type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool, "status": status,
+                     "output_file": if agent { String::new() } else { file.to_string_lossy().to_string() }, "summary": summary }));
+    cli.emit(json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": live }));
+    let miss = spec["miss_running_turn"].as_bool() == Some(true);
+    let running = {
+        // queued and checked under one lock: a turn starting now takes it
+        let mut pending = cli.bg_pending.lock().unwrap();
+        pending.push(json!({ "task": task, "tool": tool, "miss": miss }));
+        cli.turn_running.load(Ordering::SeqCst)
+    };
+    cli.log("bg_finished", json!({ "task": task, "status": status, "running": running, "miss": miss }));
+    if !running {
+        if let Some(tx) = cli.wake.lock().unwrap().as_ref() {
+            let _ = tx.send(Msg::Background);
+        }
+    }
+}
+
+/// Mark a turn running (or not), in step with `bg_finish`'s check.
+fn set_turn_running(cli: &Cli, on: bool) {
+    let _pending = cli.bg_pending.lock().unwrap();
+    cli.turn_running.store(on, Ordering::SeqCst);
+}
+
+/// The running turn takes the background notifications waiting: all of them
+/// at its start, else all but those that ended during a last model step.
+fn take_bg(cli: &Cli, how: &str, all: bool) {
+    let taken: Vec<Value> = {
+        let mut p = cli.bg_pending.lock().unwrap();
+        let (take, keep): (Vec<Value>, Vec<Value>) = p.drain(..).partition(|n| all || n["miss"] != true);
+        *p = keep;
+        take
+    };
+    for n in taken {
+        cli.log("bg_delivered", json!({ "task": n["task"], "into": "turn", "how": how }));
+    }
+}
+
+/// A turn the CLI starts by itself to hand the model the background
+/// notifications no turn took (measured on 2.1.292: 40-110 ms after the
+/// notification, or right after the turn that missed it). Interrupted at its
+/// `system init`, as the engine does, it ends with `[Request interrupted by
+/// user]` and `error_during_execution` with no usage, and the notification
+/// stays in the session (taken once). Not interrupted within 400 ms, it makes
+/// a model step and answers.
+fn own_turn(cli: &Arc<Cli>, tools: &[String], native: &[String]) {
+    let taken: Vec<Value> = std::mem::take(&mut *cli.bg_pending.lock().unwrap());
+    if taken.is_empty() {
+        return;
+    }
+    set_turn_running(cli, true);
     cli.interrupted.store(false, Ordering::SeqCst);
+    let tasks: Vec<Value> = taken.iter().map(|n| n["task"].clone()).collect();
+    cli.log("own_turn", json!({ "tasks": tasks }));
+    let mut tool_names: Vec<Value> = native.iter().map(|t| json!(t)).collect();
+    tool_names.extend(tools.iter().map(|t| json!(format!("mcp__orgtree__{t}"))));
+    cli.emit(json!({ "type": "system", "subtype": "init", "cwd": cli.cwd, "tools": tool_names,
+                     "mcp_servers": [{ "name": "orgtree", "status": "connected" }], "model": cli.model,
+                     "permissionMode": "default", "slash_commands": ["compact"], "apiKeySource": "none",
+                     "claude_code_version": VERSION, "output_style": "default", "agents": [], "skills": [], "plugins": [] }));
+    let how = if cli.pause(400) {
+        let mut turn = Turn { started: Instant::now(), texts: vec![], calls: 0, usage: default_usage(false, 40), cost: 0.004, result: None };
+        emit_text(cli, &mut turn, "text", "Background task completed.", 24, 0);
+        finish(cli, &mut turn, &mut 0.0);
+        "the CLI's own turn ran"
+    } else {
+        cli.emit(json!({ "type": "user", "parent_tool_use_id": null,
+                         "message": { "role": "user", "content": [{ "type": "text", "text": "[Request interrupted by user]" }] } }));
+        cli.emit(json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "duration_ms": 10,
+                         "duration_api_ms": 0, "num_turns": 2, "result": "", "stop_reason": null, "session_id": cli.session,
+                         "total_cost_usd": 0, "permission_denials": [],
+                         "usage": { "input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0 } }));
+        "into an interrupted turn of the CLI's own"
+    };
+    for t in tasks {
+        cli.log("bg_delivered", json!({ "task": t, "into": "own", "how": how }));
+    }
+    set_turn_running(cli, false);
+}
+
+fn run_turn(cli: &Arc<Cli>, prompt: &str, tools: &[String], native: &[String], first: &mut bool, cost: &mut f64) {
+    cli.interrupted.store(false, Ordering::SeqCst);
+    set_turn_running(cli, true);
+    take_bg(cli, "into the client's turn", true);
     let (script, steps) = pick(cli, prompt);
     cli.log("turn", json!({ "script": script, "prompt": prompt, "steps": steps.len() }));
     transcript(cli, "user", prompt);
@@ -578,6 +755,8 @@ fn run_turn(cli: &Cli, prompt: &str, tools: &[String], native: &[String], first:
         if cli.interrupted.load(Ordering::SeqCst) {
             break;
         }
+        // a model step begins: it takes the background notifications waiting
+        take_bg(cli, "into the running turn", false);
         cli.log("step", json!({ "step": step }));
         if let Some(t) = step["text"].as_str() {
             let delay = step["delay_ms"].as_u64().unwrap_or(0);
@@ -591,6 +770,8 @@ fn run_turn(cli: &Cli, prompt: &str, tools: &[String], native: &[String], first:
             }
         } else if step.get("tool").is_some() {
             tool_use(cli, &mut turn, step);
+        } else if step.get("bg").is_some() {
+            bg_step(cli, &mut turn, step);
         } else if let Some(p) = step.get("poll_mail") {
             // tool boundaries until the engine hands mail over (or time runs out)
             let every = p["every_ms"].as_u64().unwrap_or(2000);
@@ -656,6 +837,7 @@ fn run_turn(cli: &Cli, prompt: &str, tools: &[String], native: &[String], first:
         transcript(cli, "assistant", t);
     }
     finish(cli, &mut turn, cost);
+    set_turn_running(cli, false);
     cli.log("turn_end", json!({ "script": script, "ms": turn.started.elapsed().as_millis() as u64 }));
 }
 
@@ -759,6 +941,10 @@ fn claude(raw: &[String]) -> i32 {
         model: args.model.clone(),
         cwd: cwd.clone(),
         dir,
+        wake: Mutex::new(None),
+        turn_running: AtomicBool::new(false),
+        bg_live: Mutex::new(Vec::new()),
+        bg_pending: Mutex::new(Vec::new()),
     });
     // the CLI's own tools, as its init event lists them
     let native: Vec<String> = ["Task", "Bash", "PowerShell", "Glob", "Grep", "Read", "Edit", "Write", "TodoWrite"]
@@ -806,6 +992,7 @@ fn claude(raw: &[String]) -> i32 {
         }
     }
     let (tx, rx) = mpsc::channel();
+    *cli.wake.lock().unwrap() = Some(tx.clone());
     {
         let cli = cli.clone();
         std::thread::spawn(move || reader(cli, tx));
@@ -850,8 +1037,24 @@ fn claude(raw: &[String]) -> i32 {
                     s["cost"][&session] = json!(cost);
                     save_json(p, &s);
                 }
+                // notifications that ended during the turn's last model step
+                own_turn(&cli, &tools, &native);
             }
-            Msg::Eof => break,
+            Msg::Background => own_turn(&cli, &tools, &native),
+            Msg::Eof => {
+                // like the real CLI (2.1.292): background tasks still running when
+                // its input ends are waited for and handed over before it exits
+                let running = cli.bg_live.lock().unwrap().len();
+                if running > 0 {
+                    cli.log("drain", json!({ "running": running }));
+                    while !cli.bg_live.lock().unwrap().is_empty() {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                    own_turn(&cli, &tools, &native);
+                }
+                break;
+            }
         }
     }
     cli.log("exit", json!({ "code": 0, "why": "stdin closed" }));

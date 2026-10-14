@@ -68,7 +68,10 @@
 //!       however briefly it runs) or one cancelled turn takes it
 //!       ("drain_after" such turns here, default 400). A wake turn not
 //!       cancelled within 40 ms runs a model step and answers. A host that
-//!       ends meanwhile says nothing of the command.
+//!       ends meanwhile says nothing of the command. With "miss_running_turn":
+//!       true a result that settles while a turn runs is not taken by it (as
+//!       when that turn's last model step has begun): Muse holds it and starts
+//!       its own turns once that turn has ended.
 //! The catalog `model/list` answers is the login's own
 //! `<XDG_CONFIG_HOME>/muse-catalog.json` when present (one login's
 //! entitlement, as a fixture), else `<fakecli dir>/muse-catalog.json`, else
@@ -891,8 +894,17 @@ fn finish_background(srv: &Arc<Srv>, turn: &str, id: &str, base: &Value, step: &
     };
     srv.log("tool_finished", json!({ "item": id, "turn": turn, "status": status, "running": running }));
     if let Some(running) = running {
-        srv.log("bg_delivered", json!({ "item": id, "into": running, "how": "into the running turn", "wakes": 0 }));
-        return;
+        if step["miss_running_turn"].as_bool() != Some(true) {
+            srv.log("bg_delivered", json!({ "item": id, "into": running, "how": "into the running turn", "wakes": 0 }));
+            return;
+        }
+        // the running turn's last model step had begun: Muse holds the result
+        // and starts turns of its own once that turn has ended
+        while srv.turn.lock().unwrap().is_some() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        srv.held.lock().unwrap().insert(id.to_string(), 0);
+        srv.log("bg_missed_turn", json!({ "item": id, "turn": running }));
     }
     let drain_after = step["drain_after"].as_u64().unwrap_or(400);
     loop {

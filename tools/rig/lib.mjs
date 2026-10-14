@@ -762,6 +762,8 @@ export async function startRun(opts = {}) {
       session0: opts.session0 ?? null,
       // the "still unread" notice's threshold in seconds (the engine's is 10 min)
       steerLateS: opts.steerLateS || null,
+      // the cap on idle CLI processes (the engine's is 64)
+      maxParked: opts.maxParked || null,
     })
     touch(dir)
     await launchKeeper(dir, opts.timeout)
