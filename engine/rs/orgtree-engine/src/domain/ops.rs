@@ -454,6 +454,24 @@ async fn muse_op(engine: &Engine, org: &OrgHandle, req: &Value) -> bool {
         .await.ok().flatten().is_some_and(|r| catalog::is_muse(&r.get::<_, String>(0)))
 }
 
+/// A conditional Antigravity tier (Argon, Barium, Carbon) is placed only
+/// while the account's `agy models` lists it (3.x `provider_hire_gate`):
+/// a hire, a model switch, or a rehire NAMING the tier. A plain rehire on the
+/// stored tier is the recovery door and is not gated (3.x D-197), and seats
+/// already running on the tier are never touched.
+#[logged]
+async fn agy_admit(engine: &Engine, op: &str, req: &Value) -> Result<()> {
+    if !matches!(op, "hire" | "rehire" | "switch_model") {
+        return Ok(());
+    }
+    let Some(tier) = str_arg(req, "tier") else { return Ok(()) };
+    let Some(t) = catalog::tier(tier).filter(|t| t.conditional && t.provider == catalog::GOOGLE) else { return Ok(()) };
+    if crate::providers::agy_admits(engine, tier).await {
+        return Ok(());
+    }
+    refuse!(Conflict, "{tier} is a conditional Antigravity tier and is not available to this account right now: model '{}' is not in the model list the Antigravity CLI returns for this account yet", t.model)
+}
+
 /// The seat price of a tier (catalog, an OpenRouter favorite, or a language server's model).
 #[logged]
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
@@ -501,6 +519,7 @@ pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: 
     if muse_op(engine, org, req).await {
         crate::providers::muse_logins_refresh(engine, &org.slug).await;
     }
+    agy_admit(engine, &op, req).await?;
     let mut attempt = 0;
     loop {
         attempt += 1;

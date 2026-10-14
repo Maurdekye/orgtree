@@ -9,6 +9,10 @@
 //     Carbon stay hidden (each tier judged on its own id)
 //   - exact id: `gemini-4-argonite` / `gemini-4-argon-preview` are no evidence
 //   - signed out (no rows): Argon disappears, Antigravity stays installed
+//   - admission (3.x provider_hire_gate, coordinator ruling 2026-10-14): a
+//     hire, a model switch or a rehire NAMING Argon while agy does not list
+//     it is refused with the reason; a plain rehire on the stored tier (the
+//     recovery door) is not, and a seat already on Argon is never touched
 //   - the bare id counts; the engine ran `agy --log-file <f> models` and kept
 //     its log as diagnostics/agy-probe/models-probe.log, no per-probe leftovers
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/agy-conditional-tiers.mjs
@@ -27,6 +31,8 @@ const MEASURED = [
   'gemini-3.1-pro-high\tGemini 3.1 Pro (High)', 'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
 ]
 const CONDITIONAL = ['argon', 'barium', 'carbon']
+const refusal = (pr) => pr.then(() => null, (e) => ({ status: e.status ?? -1, message: String(e.message ?? e) }))
+const NOT_LISTED = /not in the model list the Antigravity CLI returns/
 
 export default async function (rig) {
   const p = new Proof('agy-conditional-tiers')
@@ -51,6 +57,12 @@ export default async function (rig) {
   p.check('control: Antigravity is installed in this rig (its fake CLI) and offers flash', g?.status?.installed !== false && (await offered()).includes('flash'), g?.status)
   p.check('without Argon in the registry no conditional tier is offered', !(await offered()).some((t) => CONDITIONAL.includes(t)), await offered())
   p.check('staffing offers no conditional tier either', !(await staffed()).some((t) => CONDITIONAL.includes(t)), await staffed())
+  let r = await refusal(rig.op({ op: 'hire', name: 'arg0', parent: 'boss', tier: 'argon', title: 'Argon seat' }))
+  p.check('a hire naming Argon while agy does not list it is refused, saying why', r?.status === 409 && NOT_LISTED.test(r.message), r)
+  p.check('control: the refused hire created no agent', rig.sql("SELECT 1 FROM ot.agents WHERE name = 'arg0'").length === 0)
+  await rig.op({ op: 'hire', name: 'fla', parent: 'boss', tier: 'flash', title: 'Flash seat' })
+  r = await refusal(rig.op({ op: 'switch_model', node: 'fla', tier: 'argon' }))
+  p.check('a model switch to Argon is refused the same way', r?.status === 409 && NOT_LISTED.test(r.message), r)
 
   registry(['gemini-4-argon-high\tGemini 4 Argon (High)', 'gemini-4-argon-low\tGemini 4 Argon (Low)', ...MEASURED])
   await rig.waitFor(async () => (await offered()).includes('argon'), { what: 'Argon to be offered', timeout: 30000 })
@@ -60,6 +72,12 @@ export default async function (rig) {
   p.check('staffing offers Argon too', (await staffed()).includes('argon'), await staffed())
   const row = ((await google())?.tiers ?? []).find((t) => t.tier === 'argon')
   p.check('the Argon row is the catalog row (gemini-4-argon, letter A, seat 2)', row?.model === 'gemini-4-argon' && row?.letter === 'A' && row?.seat === 2, row)
+  r = await refusal(rig.op({ op: 'hire', name: 'arg1', parent: 'boss', tier: 'argon', title: 'Argon seat' }))
+  p.check('a hire naming Argon is accepted while agy lists it', r === null, r)
+  await rig.op({ op: 'hire', name: 'arg2', parent: 'boss', tier: 'argon', title: 'Argon seat to retire' })
+  await rig.op({ op: 'retire', node: 'arg2' })
+  await rig.op({ op: 'hire', name: 'fl2', parent: 'boss', tier: 'flash', title: 'Flash seat to retire' })
+  await rig.op({ op: 'retire', node: 'fl2' })
 
   registry(['gemini-4-argonite\tGemini 4 Argonite', 'gemini-4-argon-preview\tGemini 4 Argon Preview', 'Gemini 4 Argon (Medium)\tGemini 4 Argon (Medium)', ...MEASURED])
   await rig.waitFor(async () => !(await offered()).includes('argon'), { what: 'Argon to be withdrawn', timeout: 30000 })
@@ -73,6 +91,14 @@ export default async function (rig) {
   await rig.waitFor(async () => !(await offered()).includes('argon'), { what: 'Argon to be withdrawn when signed out', timeout: 30000 })
   p.check('signed out (no rows): Argon disappears, with no restart', !(await offered()).includes('argon') && !(await staffed()).includes('argon'))
   p.check('control: Antigravity is still listed and still offers flash', (await offered()).includes('flash'))
+  const seat = (name) => rig.sql(`SELECT state, tier FROM ot.agents WHERE name = '${name}'`)[0]
+  p.check('the seat already on Argon is untouched: still live, still Argon', seat('arg1')?.state === 'live' && seat('arg1')?.tier === 'argon', seat('arg1'))
+  r = await refusal(rig.op({ op: 'hire', name: 'arg3', parent: 'boss', tier: 'argon', title: 'Argon seat' }))
+  p.check('signed out: a hire naming Argon is refused again (after a fresh read)', r?.status === 409 && NOT_LISTED.test(r.message), r)
+  r = await refusal(rig.op({ op: 'rehire', node: 'fl2', tier: 'argon' }))
+  p.check('a rehire naming Argon is refused', r?.status === 409 && NOT_LISTED.test(r.message), r)
+  r = await refusal(rig.op({ op: 'rehire', node: 'arg2' }))
+  p.check('a plain rehire on the stored Argon tier is the recovery door: not refused by this gate', !(r && NOT_LISTED.test(r.message)), r)
 
   const last = calls().at(-1)
   p.check('the engine ran `agy --log-file <file> models`', last?.args?.includes('models') && last?.args?.includes('--log-file'), last)

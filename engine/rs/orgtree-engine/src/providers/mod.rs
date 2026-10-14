@@ -336,15 +336,7 @@ pub async fn discover(engine: &Engine) {
     if let Some((p, src)) = locate_agy() {
         // the account's registry, the evidence for the conditional tiers: a
         // failed read is no evidence, so they hide until a read lists them
-        st.agy_models = match agy_models::read(engine, &p).await {
-            Ok(ids) => ids,
-            Err(e) => {
-                tracing::warn!(error = %e, "Antigravity model list unavailable");
-                Vec::new()
-            }
-        };
-        tracing::info!(conditional = ?catalog::TIERS.iter().filter(|t| t.provider == catalog::GOOGLE && t.conditional && agy_models::listed(t.model, &st.agy_models)).map(|t| t.tier).collect::<Vec<_>>(),
-                       listed = st.agy_models.len(), "Antigravity model list");
+        st.agy_models = read_agy_models(engine, &p).await;
         // the email comes from the usage probe's own CLI log (set_agy_email)
         let prev = engine.providers.state.load().agy.clone();
         let connected = agy_auth::preflight(engine, &p).await.is_ok();
@@ -1122,6 +1114,43 @@ fn agy_offers(tier: &str, listed: &[String]) -> bool {
 #[nolog]
 pub fn agy_offered(engine: &Engine, tier: &str) -> bool {
     agy_offers(tier, &engine.providers.state.load().agy_models)
+}
+
+/// One `agy models` read, logged with the conditional tiers it offers. A
+/// failed read is no evidence: an empty list.
+#[logged]
+async fn read_agy_models(engine: &Engine, exe: &std::path::Path) -> Vec<String> {
+    let ids = match agy_models::read(engine, exe).await {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::warn!(error = %e, "Antigravity model list unavailable");
+            Vec::new()
+        }
+    };
+    tracing::info!(conditional = ?catalog::TIERS.iter().filter(|t| t.provider == catalog::GOOGLE && t.conditional && agy_models::listed(t.model, &ids)).map(|t| t.tier).collect::<Vec<_>>(),
+                   listed = ids.len(), "Antigravity model list");
+    ids
+}
+
+/// Whether a conditional Antigravity tier may be placed now (3.x
+/// `conditional_antigravity_availability`): the last read lists it, or a
+/// FRESH read does, so a model Google switched on a minute ago is not
+/// refused on a stale list. The fresh read is published like discovery's.
+/// Run before an op's transaction, never inside it.
+#[logged]
+pub async fn agy_admits(engine: &Engine, tier: &str) -> bool {
+    if agy_offered(engine, tier) {
+        return true;
+    }
+    let Some(exe) = engine.providers.agy_path() else { return false };
+    let ids = read_agy_models(engine, &exe).await;
+    engine.providers.state.rcu(|cur| {
+        let mut st = State::clone(cur);
+        st.agy_models = ids.clone();
+        st
+    });
+    publish(engine);
+    agy_offered(engine, tier)
 }
 
 #[logged]

@@ -1987,7 +1987,10 @@ rulings go here and on their ticket.
   4.x reads the registry on every provider discovery (start, then every 5 minutes):
   `agy --log-file diagnostics/agy-probe/models-probe.log models`, rows `<id>	<label>`.
   A failed or empty read (signed out) offers none of the three; the hire strips,
-  staffing and `orgtree_list_tiers` all follow `providers::agy_offered`. Until
+  staffing and `orgtree_list_tiers` all follow `providers::agy_offered`. A hire, a model
+  switch or a rehire naming one that is not listed is refused (409) after one fresh read
+  (`ops::agy_admit`, 3.x `provider_hire_gate`); a plain rehire on the stored tier is not
+  gated and running seats are never touched. [decided: coordinator 2026-10-14, 3.x parity] Until
   2026-10-14 the port never filled `agy_models`, so none was ever offered. Rig:
   `fakecli/agy-models.txt`, `up --discoveryS N`. [verified: `providers/agy_models.rs`,
   `tools/rig/proofs/agy-conditional-tiers.mjs`]
