@@ -4846,7 +4846,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
       </span>
       {open && (t.result_lines ?? 0) > 0 && <div className="dim tool-line-count">{t.result_lines} line{t.result_lines === 1 ? '' : 's'}</div>}
       {open && (writing
-        ? t.preview_input && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
+        ? t.preview_input !== null && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
           ? <div className="toolinput"><StructuredJson value={t.preview_input} /></div> : null
         : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />)}
       {open && shellError && <ToolOutputDetails slug={slug} nid={nid} seq={t.output_seq} tool={t.id}
