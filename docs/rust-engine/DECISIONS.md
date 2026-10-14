@@ -695,7 +695,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
     missing helpers and slow startup must not cascade to healthy processes.
     Only manual Orgtree Quit stops the whole application, cancelling recovery
     before graceful Codex drain. Normal sign-out retains background behavior;
-    intentional install/restart retains its bounded allowance. This supersedes
+    an intentional restart retains its bounded allowance. A desktop closed for
+    an install is not recovered: its observer stands down, and the installer
+    ends an older one and owns the relaunch (coordinator 2026-10-14, docket
+    installer-can-t-replace-a-running-orgtree-an-ins; this replaced
+    "intentional install/restart retains its bounded allowance", under which
+    the observer held the installation's files). This supersedes
     the October11 coupled-stop rule and the short-lived October12 09:04
     teardown/relaunch proposal. Native identity, bounded retries/resource
     guards and diagnostics are required. Implementation and proof limits:

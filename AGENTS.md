@@ -753,6 +753,19 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   restart still authenticates its transition, and Quit cancels both paths.
   [verified: 2026-10-12 `engine.ts`, `core-lifecycle.ts`; regression
   `tests/core-recovery-review.test.mjs`]
+- Anything running from the installation folder blocks an upgrade, including
+  the desktop's core-recovery observer (`resources\engine\orgtree-engine.exe
+  core-recovery watch`, started outside every job). A desktop closed for an
+  install (installing transition) is not recovered: the observer stands down at
+  once. The installer ends an older observer (4.3.0-alpha.0/alpha.1, which
+  waited out 180 s and failed two real upgrades in Prepare's 150 s budget) only
+  with this installation's engine image, that command line and its desktop
+  verifiably gone; nothing else is killed. A boot-step timeout names what is
+  still running (dialog: five; `%TEMP%\orgtree-installer-upgrade.log`: all).
+  [decided: coordinator 2026-10-14; verified: `core_recovery.rs` stands_down,
+  `tools/boot-engine-task.ps1`, `tools/installer-upgrade.ps1`; boundary test
+  `tools/test-installer-recovery-observer.mjs`; details
+  `docs/rust-engine/core-recovery.md`]
 
 - Cold-turn admission and forecasts share the measured-context threshold gate.
   Compatible receipts carry an expiry verdict for the composer's shared clock;

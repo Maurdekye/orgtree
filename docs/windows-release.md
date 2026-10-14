@@ -384,15 +384,37 @@ same 150 s, before a single file is copied. When the engine truly cannot be
 stopped, the message names it and says what to do: open Orgtree, choose
 `Quit Orgtree` from its tray menu, then `Retry`.
 
+One process runs from that folder without being the background engine, and a
+4.3.0 alpha upgrade is why it gets its own rule. The desktop starts a
+core-recovery observer, `resources\engine\orgtree-engine.exe core-recovery
+watch`, outside every job, so that a crashed desktop is relaunched (decision 72).
+When Setup or the in-app updater closes the desktop, the desktop first enters a
+180-second installing transition, and the observer of 4.3.0-alpha.0 and alpha.1
+waits that allowance out after the desktop has gone, then relaunches the old
+application. The boot step waited for it with its 150 s budget, so both real
+upgrades to alpha.1 failed (2026-10-14). Later engines stand down as soon as
+their desktop closes for an install. An older observer is ended by the helper
+and by the boot step, and nothing else is: only this installation's engine
+image, only the `core-recovery watch` command line, only once the desktop it
+watches is verifiably gone (no process holds its id, or the one holding it is
+younger than the observer or runs an image from outside the installation; an
+unreadable answer leaves it running), after three seconds in which a newer
+observer stands down by itself, and through a handle taken before its identity
+is checked once more (coordinator ruling 2026-10-14). The log records each one.
+When the boot step still times out, it names what is running: the dialog shows
+five processes (pid, name, path, parent, and the engine binary's mode),
+`%TEMP%\orgtree-installer-upgrade.log` lists every one.
+
 An update keeps the user's "Run on startup" (decision 70). Prepare records it
 as `RunOnStartup` in `HKLM\SOFTWARE\Orgtree\BootEngine` when the desktop's
 switch has not already done so, taking it from the user's own
 `desktop-settings.json`, else on. Register then writes both tasks enabled or
 disabled to match, and starts them only when it is on.
 
-The installer still does not force-kill a process. A timeout, a
-path-verification failure, a tree that cannot be enumerated, or a tree that does
-not go quiet leaves the installation untouched and offers `Retry` or `Cancel`.
+Apart from that observer, the installer still does not force-kill a process. A
+timeout, a path-verification failure, a tree that cannot be enumerated, or a
+tree that does not go quiet leaves the installation untouched and offers
+`Retry` or `Cancel`.
 
 Elevation for an all-users upgrade happens when the install mode is selected,
 which is where electron-builder elevates for every other all-users install, and

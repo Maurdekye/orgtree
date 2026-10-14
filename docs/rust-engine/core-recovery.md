@@ -28,7 +28,9 @@ failure identities in ten minutes, with five-second initial delay and
 15/45-second inter-attempt backoff. It requires at least 3 GiB available physical
 memory and 4 GiB commit headroom. Engine admission waits at most 120 seconds per
 observed failed generation; desktop observation waits at most 300 seconds,
-including any original 180-second installer/restart allowance. Exhaustion
+including a restart's original 180-second allowance. A desktop that exits
+inside its own installing transition is not recovered: the observer stands
+down at once (see Installer transitions below). Exhaustion
 leaves healthy survivors alive. Intent deadlines are never extended by retries.
 Startup/conversion retains existing phase deadlines. A failed initial startup
 leaves the desktop tray available; native recovery or explicit Restart engine
@@ -142,3 +144,64 @@ the stopped generation and showed the same message; with every member gone both
 released it and recorded nothing (11/11 checks). The new desktop tests fail on
 the unchanged module (5 of 18) and pass with it. This does not establish what
 refused the laptop's launch: it makes the next refusal say.
+
+## Installer transitions (2026-10-14)
+
+Two real upgrades from 4.3.0-alpha.0 to alpha.1 failed in the installer's
+Prepare step with "did not stop within 150 seconds" (docket
+installer-can-t-replace-a-running-orgtree-an-ins). When Setup closed the
+desktop, the desktop entered an installing transition (`transition_until` 180 s
+ahead, `installing`). This observer runs from `resources\engine`, outside every
+job. It waited the allowance out after the desktop exited, then relaunched the
+old application with `--core-recovered`. The boot step waits for every process
+of the engine folder, so it gave up first. Alpha.0 came back 180 s after each
+close. Measured from the user's installer logs: within 1.3 s of the engine's
+stop, every agent descendant had gone (the engine's root job is kill-on-close
+without breakaway); only the observer and its console host were left.
+
+Coordinator rulings, 2026-10-14:
+
+- **D2:** the observer stands down as soon as its desktop exits inside that
+  desktop's own installing transition, and records
+  `desktop-recovery-stood-down-for-install`. The installer's relaunch path
+  covers a failed install. Restart transitions and crashes keep their recovery.
+  This narrows decision 72.
+- **D1:** an older observer (alpha.0, alpha.1) is ended by the installer
+  itself, only under exact checks (`tools/boot-engine-task.ps1`,
+  `tools/installer-upgrade.ps1`; see `docs/windows-release.md`).
+
+Measured with `tools/test-installer-recovery-observer.mjs` at ceca38b: real
+observers of an alpha.1-equivalent engine (b8a00b5; its core files are
+identical to 63095f4 and 2e3d287) and of the fixed engine, the real installer
+scripts, and a scratch installation and data root. The task is a test double,
+and a 30 s allowance against a 20 s budget stands in for 180 s against 150 s.
+All 11 scenarios passed (71 checks):
+
+- **Red, alpha.1 boot step:** times out at 21.3 s. The observer relaunches the
+  desktop 31 s after it closed.
+- **Red, alpha.1 close helper (per-user):** times out at 21.2 s.
+- **Fixed boot step:** ends that observer and completes in 4.4 s.
+- **Fixed close helper:** completes in 6.1 s, per-user and all-users.
+- **Fixed observer:** gone within 3 s of the close, so even the unchanged boot
+  step completes in 0.9 s.
+- **After either fix,** the engine binary opens for writing within 53 ms.
+- **Regressions:** a crashed desktop is still relaunched (6 s). A restart
+  transition keeps its allowance (relaunch at 30 s). An observer whose desktop
+  runs is never ended; the step refuses and names it.
+
+The coordinator's other lead was an agent's tool commands outliving the
+engine. Rig proof `tools/rig/proofs/agent-tree-stop.mjs` checks it with a fake
+Claude CLI that leaves two long tool commands: one running under its shell,
+and one orphaned in the background (invisible to the installer's parent-id
+walk). After the installer's own shutdown request, the engine stopped in
+504 ms and both commands were gone by 2.2 s. The rig's keeper had nothing to
+reap, so the engine's kill-on-close root job had ended them. No engine change
+was needed for that part.
+
+Limits:
+
+- No packaged installer, real scheduled task, UAC elevation or live
+  installation was used.
+- The test's process reading is not elevated, so it leaves out unreadable
+  processes that do not name the scratch installation.
+- The boot step's own refusal of unverifiable processes remains.
