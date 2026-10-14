@@ -13,7 +13,9 @@
   human org-inbox composer or fan-out. Hub shape stays first `reply_to` plus
   bounded `meta.replies` with fallback context; migration0021 indexes new links,
   old rows normalize without backfill. Event/card identity is qualified and new
-  event quotes omit machine-context segments. See [multi-replies](docs/rust-engine/multi-replies.md).
+  event quotes omit machine-context segments, including empty visible user turns;
+  other events retain authoritative immutable reply quotes when text grows.
+  See [multi-replies](docs/rust-engine/multi-replies.md).
   [decided: user/coordinator 2026-10-14; verified from source: `domain/replies.rs`,
   `tools/mailtools.rs`, `http/nodes.rs`, `net.rs`, renderer `eventReply.ts`]
 

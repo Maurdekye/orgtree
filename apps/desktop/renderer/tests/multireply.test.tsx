@@ -8,11 +8,12 @@ import { readReplies, readReply, storeReply } from '../src/eventReply'
 import { draftKey } from '../src/draftstore'
 import { refreshConvo, resetConvos } from '../src/convo'
 import type { CanvasNode } from '../src/canvas/shared'
+import type { ToastFn } from '../src/types'
 
 const writer: CanvasNode = { id:'writer', generation:2, state:'live', tier:'haiku', children:[], seat:1, grant:0, free:0, scope:{tools:{},add_dirs:[]} }
-const desk = (toast=(lines:string[])=>{}) => <DeskChat node={writer} map={new Map([[writer.id,writer]])} slug="org" op={async()=>({})} toast={toast} bare />
+const desk = (toast:ToastFn=()=>{}) => <DeskChat node={writer} map={new Map([[writer.id,writer]])} slug="org" op={async()=>({})} toast={toast} bare />
 async function replyOn(element: Element) {
-  await inAct(()=>element.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true})))
+  await inAct(()=>{element.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))})
   const button=[...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(e=>e.textContent==='Reply')
   assert.ok(button,'public Reply menu opens')
   await inAct(()=>button.click())
@@ -48,7 +49,7 @@ test('desk append then one send carries both durable targets after reload',async
 test('desk blocks adding a different sender without losing the first target',async()=>{
   localStorage.clear();resetConvos()
   const server=new FakeServer();server.messages=[{role:'assistant',text:'Agent source',seq:1,event_id:'e1'},{role:'user',text:'User source',seq:2,event_id:'e2'}]
-  installFetch(server);const notices:string[][]=[];const view=await mountView(desk(lines=>notices.push(lines)),el=>el)
+  installFetch(server);const notices:string[][]=[];const view=await mountView(desk(lines=>notices.push(lines??[])),el=>el)
   try {
     await inAct(async()=>{await refreshConvo('org','writer');await flush(5)})
     await replyOn(view.el.querySelector('[data-reply-event="e1"]')!)
@@ -78,7 +79,7 @@ test('individual delivered mail cards retain their sender and separate target id
   localStorage.clear();resetConvos();const server=new FakeServer()
   const mail=(id:string,from:string,body:string)=>({id,from,body,kind:'message',at:'2026-10-14T10:00:00Z'})
   server.messages=[{role:'user',text:'HIDDEN envelope',seq:20,event_id:'e20',segments:[{kind:'mail',rows:[mail('m1','sender','Card one'),mail('m2','sender','Card two'),mail('m3','other','Other card')]}]}]
-  installFetch(server);const notices:string[][]=[];const view=await mountView(desk(lines=>notices.push(lines)),el=>el)
+  installFetch(server);const notices:string[][]=[];const view=await mountView(desk(lines=>notices.push(lines??[])),el=>el)
   try{
     await inAct(async()=>{await refreshConvo('org','writer');await flush(5)})
     await replyOn(view.el.querySelector('[data-reply-mail="m1"]')!)

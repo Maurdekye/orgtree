@@ -19,6 +19,9 @@ history is not rewritten. Event references are qualified by org, agent,
 generation and event ID, with a card ID for individual mail in a delivered turn.
 The server verifies source existence and derives sender/visible prose from the
 durable row. Machine state/drive segments never enter new event reply quotes.
+The desktop collector projects typed user turns through their visible segments,
+even when that leaves an empty quote; it never falls back to a raw envelope.
+Other event targets retain the server's immutable quote when streamed text grows.
 
 Local @org publication, hub @net publication, inbox fetch/conversation, holder
 copies, transcript/event rows and harness IN REPLY TO blocks carry every quote.

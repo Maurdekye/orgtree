@@ -9,7 +9,7 @@ import { indexReplySources, ReplySourceContent } from '../src/canvas/replysource
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { refreshConvo, resetConvos } from '../src/convo'
 import { draftKey } from '../src/draftstore'
-import { replyWire, storeReply } from '../src/eventReply'
+import { readReplies, replyWire, storeReply } from '../src/eventReply'
 import type { ReplyContext } from '../src/eventReply'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { ChatMessage } from '../src/types'
@@ -113,7 +113,7 @@ test('a nested tool result keeps its diff and error; selecting the call or thoug
   const view = await mountView(desk(), el => el)
   try {
     await refresh()
-    const preview = () => view.el.querySelector('.reply-preview-composing')!
+    const preview = () => [...view.el.querySelectorAll('.reply-preview-composing')].at(-1)!
     assert.match(preview().textContent!, /Tool result.*Edit.*Patch rejected/s)
     assert.equal(preview().querySelector('.dplus')!.textContent, '+new')
     assert.equal(preview().querySelector('.dminus')!.textContent, '-old')
@@ -125,6 +125,8 @@ test('a nested tool result keeps its diff and error; selecting the call or thoug
     ] as const) {
       await inAct(() => view.el.querySelector(`[data-reply-event="${id}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
       await inAct(() => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click())
+      assert.deepEqual(readReplies(draftKey('org', 'writer', 2)).map(r => r.eventId),
+        id === 'call' ? ['result', 'call'] : ['result', 'call', 'thought'])
       assert.match(preview().textContent!, wanted)
       assert.doesNotMatch(preview().textContent!, absent)
     }

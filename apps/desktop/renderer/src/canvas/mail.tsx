@@ -578,7 +578,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               ? async (text, attachments, notice) => {
                 const targets = replyTargets.length ? replyTargets : [cur]
                 if (targets.some(m => m.from !== cur.from)) { setReplyError('Open a message from the reply targets\' sender before sending.'); throw Error('Mixed senders in a multi-reply') }
-                await onReply!(targets[0], text, attachments, notice, targets)
+                await onReply!(targets[0]!, text, attachments, notice, targets)
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}

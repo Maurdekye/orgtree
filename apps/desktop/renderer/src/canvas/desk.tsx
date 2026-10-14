@@ -104,7 +104,7 @@ import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { RefMdBody } from './refmd'
 import { EventCard, eventSurface } from '../events/card'
-import { MailMessage, isSegments } from '../events/segments'
+import { MailMessage } from '../events/segments'
 import { decodeEventRow } from '../events/decode'
 import { askHidden, markAnswerSeen, queuedAnswerRow, queuedAnswers, useSubmittedAsks } from '../asksubmitted'
 import { eventDedup } from '../events/dedup'
@@ -2082,10 +2082,19 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const openReply = (e: ReplyMouseEvent, row: { event_id?: string }, local?: string) => {
     const target = (e.target as Element).closest?.<HTMLElement>('[data-reply-mail],[data-reply-event]')
     const exact = target && e.currentTarget.contains(target) ? target : e.currentTarget
-    const event_id = exact.closest('[data-reply-event]')?.getAttribute('data-reply-event') || row.event_id
+    const sourceElement = exact.closest('[data-reply-event]')
+    // An explicitly empty nested identity is unavailable, never its parent.
+    const event_id = sourceElement ? sourceElement.getAttribute('data-reply-event') || undefined : row.event_id
     const mailId = exact.getAttribute('data-reply-mail') || undefined
+    const messageSource = chat?.messages?.find(m => m.event_id === event_id)
+    // Typed user turns may carry a raw model envelope in their legacy quote.
+    // Project those through the visible segments, including an empty result;
+    // other events retain the exact server snapshot rather than growing text.
+    const typedTurn = messageSource?.role === 'user' && isSegments(messageSource.segments, 'operator')
+    const visibleQuote = event_id ? copyTextOf.get(event_id) : undefined
     const quote = mailId ? exact.getAttribute('data-reply-quote') ?? ''
-      : (event_id ? copyTextOf.get(event_id) : undefined) ?? exact.getAttribute('data-reply-quote') ?? ''
+      : typedTurn ? visibleQuote ?? ''
+      : exact.getAttribute('data-reply-quote') ?? visibleQuote ?? ''
     const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id }, quote)
     // copy-transcript-messages-from-the-context-menu. The text comes from the
     // ROW MODEL, keyed by the same event id the reply target resolves to — so
@@ -2109,7 +2118,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
       onSelect: () => { if (source) {
         const mailSource = chat?.pending_mail?.find(m => m.event_id === event_id)?.from
-        const messageSource = chat?.messages?.find(m => m.event_id === event_id)
         const segments = messageSource?.segments
         const mailRows = isSegments(segments, 'operator') ? segments.flatMap(s => s.kind === 'mail' ? s.rows : []) : []
         const senders = new Set(mailRows.map(m => m.from))

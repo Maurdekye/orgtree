@@ -9,7 +9,7 @@ import type { CanvasNode } from '../src/canvas/shared'
 import { ingestStream, refreshConvo, resetConvos } from '../src/convo'
 import { draftKey, preserveRemovedDrafts, renameDrafts, storeAttachments } from '../src/draftstore'
 import { absorbStrandedDrafts, readHistory } from '../src/composerhistory'
-import { MAX_REPLY_QUOTE, readReply, replyFromRow, replyWire, storeReply } from '../src/eventReply'
+import { MAX_REPLY_QUOTE, readReplies, readReply, replyFromRow, replyWire, storeReply } from '../src/eventReply'
 import type { ReplyContext } from '../src/eventReply'
 
 declare const __SRC_DIR__: string
@@ -207,16 +207,19 @@ test('tool call, result and thought select distinct nested sources instead of th
     const result = v.el.querySelector('[data-reply-event="result"]')!
     assert.equal(result.textContent, 'same text')
     item = await replyOn(result); await inAct(() => { item.click() })
-    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'result')
-    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'same text')
+    const replies = () => readReplies(draftKey('org', 'writer', 2))
+    assert.deepEqual(replies().map(r => r.eventId), ['call', 'result'])
+    assert.equal(replies().find(r => r.eventId === 'result')?.quote, 'same text')
     item = await replyOn(v.el.querySelector('[data-reply-event="thought"]')!)
     await inAct(() => { item.click() })
-    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'thought')
-    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Visible thought', 'collapsed label is not the source quote')
+    assert.deepEqual(replies().map(r => r.eventId), ['call', 'result', 'thought'])
+    assert.equal(replies().find(r => r.eventId === 'thought')?.quote, 'Visible thought', 'collapsed label is not the source quote')
     assert.doesNotMatch(v.el.querySelector('.reply-preview')!.textContent!, /unavailable/)
     item = await replyOn(v.el.querySelector('[data-reply-event="assistant"]')!)
     await inAct(() => { item.click() })
-    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Finished', 'assistant quote excludes nested thought/tool/result content')
+    assert.deepEqual(replies().map(r => r.eventId), ['call', 'result', 'thought', 'assistant'])
+    assert.equal(replies().find(r => r.eventId === 'assistant')?.quote, 'Finished', 'assistant quote excludes nested thought/tool/result content')
+    assert.equal(replies()[0]?.quote, 'Read a.txt', 'appending leaves the first selected source unchanged')
     item = await replyOn(v.el.querySelectorAll('.tline')[1]!)
     assert.equal(item.disabled, true, 'legacy nested tool never aliases its assistant parent')
   } finally { await v.unmount(); resetConvos() }
@@ -241,12 +244,14 @@ test('server transient events survive refresh and streamed draft IDs survive dur
     await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: ' again', event_id: 'streamed', t: Date.now() }) })
     await settleLive()
     assert.equal(v.el.querySelector('[data-reply-event="streamed"]')!.textContent!.trim(), 'Hello again')
-    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'streamed')
+    const replies = () => readReplies(draftKey('org', 'writer', 2))
+    assert.deepEqual(replies().map(r => r.eventId), ['transient-error', 'streamed'])
     server.busy = false; server.messages = [{ role: 'assistant', seq: 1, text: 'Hello again', event_id: 'streamed' }]
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
     assert.equal(v.el.querySelectorAll('[data-reply-event="streamed"]').length, 1)
     assert.doesNotMatch(v.el.querySelector('.reply-preview')!.textContent!, /unavailable/)
-    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Hello', 'saved quote stays the selected context while identity survives growth')
+    assert.equal(replies().find(r => r.eventId === 'streamed')?.quote, 'Hello', 'saved quote stays the selected context while identity survives growth')
+    assert.equal(replies()[0]?.quote, 'Temporary problem', 'the earlier transient target remains intact')
   } finally { await v.unmount(); resetConvos() }
 })
 
@@ -266,6 +271,32 @@ test('new immutable stream snapshot IDs do not discard preceding text or rewrite
     assert.equal(v.el.querySelector('[data-reply-event="revision-two"]')!.textContent!.trim(), 'First second')
     assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'revision-one')
     assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Exact first snapshot')
+  } finally { await v.unmount(); resetConvos() }
+})
+
+test('typed user reply quotes exclude the raw envelope even when no visible text remains', async () => {
+  localStorage.clear(); resetConvos()
+  const hidden = JSON.parse(readFileSync(path.join(__SRC_DIR__, '../tests/fixtures/events/context.org_state.json'), 'utf8')).private
+  const server = new FakeServer(); installFetch(server)
+  server.messages = [
+    { role: 'user', seq: 1, event_id: 'visible-turn', text: 'RAW MACHINE ENVELOPE', reply_quote: 'RAW MACHINE ENVELOPE', segments: [
+      { kind: 'state', event: hidden, text: 'HIDDEN ORG STATE' }, { kind: 'text', text: 'Visible request' },
+    ] },
+    { role: 'user', seq: 2, event_id: 'hidden-turn', text: 'RAW HIDDEN ENVELOPE', reply_quote: 'RAW HIDDEN ENVELOPE', segments: [
+      { kind: 'state', event: hidden, text: 'HIDDEN ORG STATE' },
+    ] },
+  ]
+  const v = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    for (const id of ['visible-turn', 'hidden-turn']) {
+      const item = await replyOn(v.el.querySelector(`[data-reply-event="${id}"]`)!)
+      await inAct(() => { item.click() })
+    }
+    const replies = readReplies(draftKey('org', 'writer', 2))
+    assert.deepEqual(replies.map(r => r.eventId), ['visible-turn', 'hidden-turn'])
+    assert.deepEqual(replies.map(r => r.quote), ['Visible request', ''])
+    assert.ok(replies.every(r => !/RAW|HIDDEN/.test(r.quote)))
   } finally { await v.unmount(); resetConvos() }
 })
 
