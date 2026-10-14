@@ -37,6 +37,20 @@
 //!       (`allow-once`, `allow-session`, `deny-once`). Like real Muse it waits
 //!       for the decision with no timeout of its own; `task/stop` or an
 //!       interrupt ends the wait (`cancelled`).
+//!   {"tool": "powershell", "args": {"command": ...}, "approval": true,
+//!    "stages": [["$d=x"], ["Write-Host", "$d"], {"argv": [...], "policy": true}]}
+//!       a compound command asked about in stages, as real Muse 1.4.6 asks
+//!       (measured 2026-10-14): one requirement per statement, a "policy"
+//!       one settled by Muse itself; `approval/request` names the first open
+//!       stage and `approval/updated` each next one ("dup_updates": true sends
+//!       each twice); `approval/decide` must name the current stage, else
+//!       `approvalRequirementStale` (logged `decide_stale`). The call has no
+//!       item until every stage is approved; a refusal, an interrupt or a
+//!       `task/stop` aborts the approval and the call settles rejected
+//!       ("approval aborted").
+//!   {"tool": "write_todos", "args": {"todos": [{"status": ..., "text": ...}]}}
+//!       Muse's checklist tool: `session/todoListChanged` (`sourceTool`
+//!       write_todos) while it runs, as measured.
 //! A catalog file `{"fail": "..."}` makes that login's model/list fail.
 //! A login's account/read answer: its own `<XDG_CONFIG_HOME>/muse-account.json`
 //! when present (`{"state": "loggedOut"}`, or `{"fail": "..."}` for a read that
@@ -102,6 +116,9 @@ struct Srv {
     waiters: Mutex<HashMap<i64, mpsc::Sender<Value>>>,
     /// approval id → the choice the engine decided (`approval/decide`)
     decisions: Mutex<HashMap<String, mpsc::Sender<String>>>,
+    /// an approval asked about in stages → its current requirement and the
+    /// stages still open with it (`approval/decide` must name that one)
+    staged: Mutex<HashMap<String, (Value, usize)>>,
     interrupted: AtomicBool,
     seq: AtomicU64,
     agent: String,
@@ -485,11 +502,24 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
         "approval/decide" => {
             let aid = p["approvalId"].as_str().unwrap_or("").to_string();
             let choice = p["choiceId"].as_str().unwrap_or("").to_string();
-            srv.log("decide", json!({ "approval": aid, "choice": choice }));
-            if let Some(w) = srv.decisions.lock().unwrap().remove(&aid) {
-                let _ = w.send(choice);
+            // an approval asked about in stages: the decision must name its
+            // current stage (MSP's guard against the multi-stage race)
+            let staged = srv.staged.lock().unwrap().get(&aid).cloned();
+            if let Some((current, _)) = staged.as_ref().filter(|(current, _)| p["requirementId"] != *current) {
+                srv.log("decide_stale", json!({ "approval": aid, "choice": choice, "requirement": p["requirementId"], "current": current }));
+                srv.fail(id, -32602, "the decision names a stage that is not the approval's current one", "approvalRequirementStale");
+                return;
             }
-            srv.respond(id, json!({ "status": "accepted" }));
+            srv.log("decide", json!({ "approval": aid, "choice": choice, "requirement": p["requirementId"] }));
+            let waiting = if staged.is_some() { srv.decisions.lock().unwrap().get(&aid).cloned() } else { srv.decisions.lock().unwrap().remove(&aid) };
+            if let Some(w) = waiting {
+                let _ = w.send(choice.clone());
+            }
+            match staged {
+                Some((_, open)) => srv.respond(id, json!({ "commandId": p["commandId"], "status": "accepted", "approvalId": aid,
+                    "terminal": open <= 1 || !matches!(choice.as_str(), "allow_once" | "allow-once") })),
+                None => srv.respond(id, json!({ "status": "accepted" })),
+            }
         }
         "userInput/cancel" => srv.respond(id, json!({ "status": "accepted" })),
         other => {
@@ -650,7 +680,12 @@ fn tool(srv: &Arc<Srv>, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
     let id = srv.uid();
     let call = format!("call_{}", srv.next());
     let base = json!({ "itemId": id, "kind": "toolCall", "tool": name, "callId": call, "args": args.to_string() });
-    item(srv, turn, false, base.clone());
+    // a call asked about in stages has no item until it is approved (real
+    // Muse 1.4.6, measured 2026-10-14); any other starts at once
+    let staged = step["approval"].as_bool() == Some(true) && step["stages"].as_array().is_some_and(|s| !s.is_empty());
+    if !staged {
+        item(srv, turn, false, base.clone());
+    }
     let finish = |status: &str, output: &str, reason: Option<&str>| {
         let mut done = base.clone();
         done["status"] = json!(status);
@@ -668,7 +703,42 @@ fn tool(srv: &Arc<Srv>, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
         srv.log("native_write", json!({ "path": args["path"], "in_root": in_root, "sandbox": !srv.no_sandbox,
                                         "roots": srv.roots.lock().unwrap().clone() }));
     }
-    if step["approval"].as_bool() == Some(true) || (native && !in_root && !srv.no_sandbox) {
+    if staged {
+        let (dtx, drx) = mpsc::channel();
+        srv.decisions.lock().unwrap().insert(id.clone(), dtx);
+        let asked = Instant::now();
+        let outcome = ask_in_stages(srv, turn, step, &id, &name, &call, &args, &drx);
+        srv.decisions.lock().unwrap().remove(&id);
+        srv.staged.lock().unwrap().remove(&id);
+        let waited_ms = asked.elapsed().as_millis() as u64;
+        let (choice, decided, ended) = match outcome {
+            Staged::Approved { decided } => {
+                srv.log("approval", json!({ "approval": id, "stages": true, "decided": decided, "choice": "allow_once", "waited_ms": waited_ms }));
+                (None, decided, None)
+            }
+            Staged::Refused { choice, decided } => (Some(choice), decided, None),
+            Staged::Ended { how, decided } => (None, decided, Some(how)),
+        };
+        if choice.is_some() || ended.is_some() {
+            // refused, or interrupted or stopped while a stage waited: Muse
+            // aborts the approval and the call settles rejected without
+            // having started (measured on an interrupt, 2026-10-14)
+            let mut done = base.clone();
+            done["status"] = json!("rejected");
+            done["failureKind"] = json!("approval_denied");
+            done["failureReason"] = json!("approval aborted");
+            item(srv, turn, true, done);
+            let steered = srv.take_steers();
+            for t in &steered {
+                item(srv, turn, true, json!({ "itemId": srv.uid(), "kind": "userMessage", "text": t, "steered": true }));
+            }
+            let how = ended.as_ref().map(|h| if matches!(h, Waited::Stopped) { "stopped" } else { "interrupted" });
+            srv.log("approval", json!({ "approval": id, "stages": true, "decided": decided, "choice": choice, "ended": how, "waited_ms": waited_ms }));
+            srv.log("tool_result", json!({ "tool": name, "item": id, "declined": true, "choice": choice, "ended": how, "reason": "approval aborted" }));
+            return;
+        }
+        item(srv, turn, false, base.clone());
+    } else if step["approval"].as_bool() == Some(true) || (native && !in_root && !srv.no_sandbox) {
         let aid = srv.uid();
         let (dtx, drx) = mpsc::channel();
         srv.decisions.lock().unwrap().insert(aid.clone(), dtx);
@@ -711,6 +781,19 @@ fn tool(srv: &Arc<Srv>, turn: &str, step: &Value, mcp: &mut Option<Mcp>) {
                 return;
             }
         }
+    }
+    // Muse's own checklist tool: the session's todo list changes while it
+    // runs, naming it (measured 2026-10-14: item/started, the list, then
+    // item/completed; camelCase statuses in the list)
+    if name == "write_todos" {
+        let items: Vec<Value> = args["todos"].as_array().cloned().unwrap_or_default().iter().map(|t| {
+            let status = match t["status"].as_str().unwrap_or("pending") {
+                "in_progress" => "inProgress",
+                other => other,
+            };
+            json!({ "status": status, "text": t["text"] })
+        }).collect();
+        srv.notify("session/todoListChanged", json!({ "sessionId": srv.sid(), "items": items, "revision": srv.next(), "sourceTool": "write_todos" }));
     }
     if let Some(limit) = step["silent_ms"].as_u64() {
         silent_tool(srv, turn, step, &id, &name, &base, limit);
@@ -794,6 +877,78 @@ fn await_decision(srv: &Srv, rx: &mpsc::Receiver<String>, id: &str, name: &str) 
     };
     srv.tasks.lock().unwrap().retain(|(t, _)| t != id);
     out
+}
+
+/// How a call asked about in stages came out of its approval.
+enum Staged {
+    Approved { decided: usize },
+    Refused { choice: String, decided: usize },
+    Ended { how: Waited, decided: usize },
+}
+
+/// A compound shell command asked about as real Muse 1.4.6 asks (measured
+/// 2026-10-14): one stage per statement in "stages" (an argv, or
+/// `{"argv": [...], "policy": true}` for one Muse's own policy settles, which
+/// is never asked), each its own requirement `{approvalId, sourceIndex}`.
+/// `approval/request` names the first open stage; each approving decision
+/// that leaves one open is followed by `approval/updated` naming the next
+/// (sent twice with "dup_updates"). The call waits for every stage with no
+/// timeout of its own; a refusal at any stage ends the approval, as an
+/// interrupt or `task/stop` does. The approval, the call's item and its task
+/// share one id, as Muse's do.
+#[allow(clippy::too_many_arguments)]
+fn ask_in_stages(srv: &Srv, turn: &str, step: &Value, aid: &str, name: &str, call: &str, args: &Value, drx: &mpsc::Receiver<String>) -> Staged {
+    let req = |i: usize| json!({ "approvalId": aid, "sourceIndex": i });
+    let defs = step["stages"].as_array().cloned().unwrap_or_default();
+    let total = defs.len();
+    let mut stages: Vec<Value> = defs.iter().enumerate().map(|(i, d)| {
+        let policy = d["policy"].as_bool() == Some(true);
+        let argv = if d.is_array() { d.clone() } else { d["argv"].clone() };
+        let resolution = if policy { json!({ "kind": "policyAllow", "diagnostic": "mode:on_request" }) } else { json!({ "kind": "unresolved" }) };
+        json!({ "argv": argv, "argvComplete": policy, "position": i + 1, "requirementId": req(i), "totalStages": total, "resolution": resolution })
+    }).collect();
+    let open: Vec<usize> = (0..total).filter(|&i| stages[i]["resolution"]["kind"] == "unresolved").collect();
+    let root = srv.roots.lock().unwrap().first().cloned().unwrap_or_default();
+    let subject = |stages: &[Value]| json!({ "kind": "shell", "command": args["command"], "stages": stages, "workspaceRoot": root });
+    // what real Muse offered for such a command: no prefix rule
+    let choices = json!([
+        { "choiceId": "allow_once", "decision": "approved", "label": "Allow once", "scope": "once" },
+        { "acceptsFeedback": true, "choiceId": "abort", "decision": "abort", "label": "Reject", "scope": "once" } ]);
+    let resolved = |stages: &[Value], decision: &str| srv.notify("approval/resolved", json!({ "sessionId": srv.sid(), "approvalId": aid,
+        "itemId": aid, "turnId": turn, "decision": decision, "resolvedBy": "user", "stageEvidence": stages }));
+    let Some(&first) = open.first() else { return Staged::Approved { decided: 0 } };
+    srv.staged.lock().unwrap().insert(aid.to_string(), (req(first), open.len()));
+    srv.request("approval/request", json!({ "sessionId": srv.sid(), "approvalId": aid, "itemId": aid, "taskId": aid, "toolCallId": call,
+        "toolName": name, "turnId": turn, "rawArgs": args.to_string(), "subject": subject(&stages), "currentRequirementId": req(first),
+        "availableChoices": choices, "judgeEscalated": false, "protectedWrite": false }), Duration::from_secs(30));
+    let mut decided = 0;
+    for (k, &i) in open.iter().enumerate() {
+        let choice = match await_decision(srv, drx, aid, name) {
+            Waited::Decided(c) => c,
+            how => {
+                resolved(&stages, "abort");
+                return Staged::Ended { how, decided };
+            }
+        };
+        decided += 1;
+        srv.log("stage", json!({ "approval": aid, "stage": i, "choice": choice }));
+        if !matches!(choice.as_str(), "allow_once" | "allow-once") {
+            resolved(&stages, "abort");
+            return Staged::Refused { choice, decided };
+        }
+        stages[i]["resolution"] = json!({ "kind": "allowOnce" });
+        let Some(&next) = open.get(k + 1) else { break };
+        srv.staged.lock().unwrap().insert(aid.to_string(), (req(next), open.len() - k - 1));
+        let update = json!({ "sessionId": srv.sid(), "approvalId": aid, "availableChoices": choices,
+            "change": { "kind": "stageResolved", "choiceId": choice, "decision": "approved", "requirementId": req(i) },
+            "currentRequirementId": req(next), "subject": subject(&stages) });
+        srv.notify("approval/updated", update.clone());
+        if step["dup_updates"].as_bool() == Some(true) {
+            srv.notify("approval/updated", update);
+        }
+    }
+    resolved(&stages, "approved");
+    Staged::Approved { decided }
 }
 
 /// A tool call that produces nothing until it is stopped, times out, or Muse
@@ -1099,6 +1254,7 @@ pub fn run(raw: &[String]) -> i32 {
         log: Mutex::new(log),
         waiters: Mutex::new(HashMap::new()),
         decisions: Mutex::new(HashMap::new()),
+        staged: Mutex::new(HashMap::new()),
         interrupted: AtomicBool::new(false),
         seq: AtomicU64::new(0),
         agent: agent.clone(),
