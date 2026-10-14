@@ -536,7 +536,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   documents in `rig.rs` are also unlogged, while safe refresh diagnostics remain.
   [verified: `usage.rs`, `tools/usage.rs`, `rig.rs`, 2026-10-13]
 
-- The local 4.3 alpha bundles hub **2.2.0-alpha.0** at `1dcd3c7`, retaining
+- The local 4.3 alpha bundles hub **2.2.0-alpha.0** at `959ed37` (2026-10-14:
+  `1dcd3c7` plus in-memory typing heartbeats, `/api/typing`), retaining
   released 2.1.1 recovery plus approved pictures and question metadata. This
   supersedes the prior `2c22e3d` pin; it is not a published hub release.
   Packaging must verify the exact pin and rebuilt payload. Existing schema 10
