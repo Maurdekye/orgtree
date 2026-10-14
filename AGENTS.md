@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- App settings Harnesses is a compact registry list: installed state, cached
+  discovery version (unknown when absent), and missing-only install links.
+  OpenRouter / Language server tags use selectable registry provider IDs;
+  listing does not launch CLIs or change authentication. See
+  [compact harness settings](docs/rust-engine/harness-settings.md).
+  [decided: user 2026-10-14 10:59Z; verified: `harnesses.rs`, renderer `canvas/harnesses.tsx`]
+
 - Halted list rows reuse canvas StopIcon and var(--bad), keep the halt clock
   separate from the last/previous status age, and reserve the summary line
   when empty. Completed halt.at wins, with requested_at as legacy fallback;
