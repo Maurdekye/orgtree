@@ -305,6 +305,13 @@ class Desks {
       if (!e.slots.size && !e.detached) {
         for (const [k, entry] of this.entries) if (entry === e) this.entries.delete(k)
       }
+      // Resolve the departed owner's replacement BEFORE notifying slots.
+      // Otherwise RegisteredSlot renders the old owner's placeholder, then
+      // DeskHost changes `last` later in that same render and adopts the live
+      // desk beside it. Nothing publishes that change until the next click.
+      // Defer until this commit ends so slot migration still keeps its host;
+      // pick preserves borrows, detached windows and a registered incumbent.
+      if (e.slots.size && !e.detached) e.last = pick(e)
       this.change()
     })
   }
