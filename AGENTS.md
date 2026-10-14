@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Docket ticket menus match transcript ticket menus through shared
+  ticketReferenceActions/ticketOwnerAction: Open details always opens/keeps,
+  Owner submenu, separator, copy title/slug/reference. Docket-only Fold/Staff
+  follow a final separator under existing gates; row-draw staffing warm-up
+  stays. Explicit copy title owns its position with no automatic duplicate.
+  Transcript behavior stays unchanged. [decided: user 2026-10-14 23:06:53Z;
+  docs/rust-engine/docket-ticket-menu-parity.md]
+
 - Muse usage Refresh stays visible, disabled and dimmed in host/registered
   Usage cards and the reusable account usage panel. The hover text explains
   that Muse usage arrives at the end of a turn. Gate by provider identity,

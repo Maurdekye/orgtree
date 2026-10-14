@@ -146,10 +146,11 @@ no management actions. Tickets are fetched by exact current-org ID when needed;
 missing targets produce no operative menu. Opening a menu does not execute an
 object action. Path/query-shaped ticket IDs are refused before lookup.
 
-Ticket rows and links share `ticketActions`, preserving the existing navigation,
-owner, slug/reference copy and contextual fold actions. Backlogged eligible links
-reuse the existing quick-staff builder and catalog gate. A surface without the
-corresponding route offers no invented action. Watchdog menus and detail buttons
+Ticket rows and links share `ticketReferenceActions` and `ticketOwnerAction`.
+The transcript order stays canonical; docket rows append their contextual fold
+and eligible quick-staff actions after one separator (user 2026-10-14: match +
+keep extras). Row-draw staffing warm-up and catalog gates stay intact. A surface
+without the corresponding route offers no invented action. Watchdog menus and detail buttons
 share `watchdogActions` and the existing pause/resume/remove HTTP route and spent
 gate. Normal left clicks retain their original routes. Inner object links win
 over a containing transcript/row menu, as agent links already do. Late ticket

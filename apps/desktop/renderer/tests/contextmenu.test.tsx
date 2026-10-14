@@ -47,6 +47,7 @@ import { InboxView, MailList } from '../src/canvas/mail'
 import { PresentationCard, presentationMenu } from '../src/canvas/docs'
 import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { DocketModal } from '../src/canvas/docket'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { PinFrame, MODAL_PINS_KEY } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import { PinLayer, addPin, forgetPins, readPins } from '../src/canvas/pins'
@@ -672,7 +673,7 @@ const docketTree = (): TreePayload => ({
   user_inbox_urgent_count: 0, asks: [], asks_open: 0,
 } as unknown as TreePayload)
 
-uiTest('§B4 ticket row: right-click does not select; Copy slug copies the exact slug with the bubble; Copy reference is @item:org/slug; Open owner jumps', async (t) => {
+uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action', async (t) => {
   const clip = stubClipboard(); t.after(clip.restore)
   window.localStorage.removeItem('orgtree.docket.group')
   const had = (globalThis as { fetch?: typeof fetch }).fetch
@@ -685,9 +686,13 @@ uiTest('§B4 ticket row: right-click does not select; Copy slug copies the exact
       manual_attention: { reason: 'look', by: { node: 'agent1', generation: 1 }, set_rev: 3, at: '2026-09-05T09:00:00.000Z' } } as Partial<WorkItem>),
   ])
   const focused: string[] = []; let closed = 0
+  function OwnerRegistry() {
+    useProvideAgentNav(id => [{ label: 'Focus', onSelect: () => { focused.push(id) } }])
+    return null
+  }
   const v = await mountView(
-    <DocketModal slug="org1" toast={noop} close={() => { closed++ }} jumpTo={null}
-      tree={docketTree()} onFocusAgent={(id) => { focused.push(id) }} />, (h) => h)
+    <AgentNavProvider><OwnerRegistry /><DocketModal slug="org1" toast={noop} close={() => { closed++ }} jumpTo={null}
+      tree={docketTree()} onFocusAgent={(id) => { focused.push(id) }} /></AgentNavProvider>, (h) => h)
   t.after(() => v.unmount())
   await flush(); await advance(200, 16); await flush()
   const rowNamed = (s: string) => [...v.el.querySelectorAll('.docket-row')]
@@ -697,19 +702,21 @@ uiTest('§B4 ticket row: right-click does not select; Copy slug copies the exact
   assert.equal(await rightClick(parent), true)
   assert.ok(!parent.classList.contains('on'), 'not selected by the right-click')
   const have = labels()
-  assert.deepEqual(have, ['Copy ticket title', 'Open details', 'Hide 1 sub-item', 'Open owner (agent1)', 'Copy slug', 'Copy reference'])
-  assert.equal(itemNamed('Copy reference')!.title, '@item:org1/parent-item')
+  assert.deepEqual(have, ['Open details', 'Owner… ▸', '· Copy agent name', '· Focus', 'Copy ticket title', 'Copy slug', 'Copy reference', 'Hide 1 sub-item'])
+  await pick('Copy reference'); await flush(3)
+  assert.deepEqual(clip.writes, ['@item:org1/parent-item'])
+  await rightClick(parent)
   await pick('Copy slug')
   await flush(3)
-  assert.deepEqual(clip.writes, ['parent-item'])
+  assert.deepEqual(clip.writes, ['@item:org1/parent-item', 'parent-item'])
   assert.ok(parent.querySelector('.docket-copied'), 'the double-click\'s Copied! bubble')
   await rightClick(parent)
   await pick('Hide 1 sub-item')
-  assert.equal(rowNamed('child-item'), undefined, 'folded away')
+  assert.equal(Boolean(rowNamed('child-item')), false, 'folded away')
   await rightClick(parent)
   assert.ok(labels().includes('Show 1 sub-item'))
-  await pick('Open owner (agent1)')
-  assert.deepEqual(focused, ['agent1']); assert.equal(closed, 1, 'closes first, as the actor line does')
+  await pick('Owner… ▸')
+  assert.deepEqual(focused, ['agent1']); assert.equal(closed, 0, 'the canonical registry owns navigation')
   await rightClick(flagged)
   assert.ok(!labels().includes('Dismiss attention flag'), JSON.stringify(labels()))
   assert.ok(!labels().includes('Hide 1 sub-item'))
