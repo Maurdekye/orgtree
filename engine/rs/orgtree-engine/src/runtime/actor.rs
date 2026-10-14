@@ -3195,6 +3195,9 @@ impl Actor {
         let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, turn_id, &ids).await?;
         crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         drop(client);
+        // New tools belong after this mail. Keep tools/rows intact so a tool
+        // already in flight still completes on its original assistant row.
+        if let Some(t) = self.turn.as_mut() { t.codex_row = None; }
         let mut committed = row;
         committed["seq"] = json!(seq);
         committed["row_id"] = json!(format!("r{seq}"));
