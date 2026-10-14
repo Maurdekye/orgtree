@@ -389,7 +389,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   in `load_ctx`): read-write when the seat may write, else read-only; never another org's.
   The folder is the org's shared scratch space: agents may write any files and subfolders
   there, and the prompt rule (`ORG SHARED FOLDER: …`) says so [user 2026-10-14 13:25Z]. The
-  engine creates the folder when the org opens (`orgs::open`) and at launch, never a file. The prompt carries a rule sentence
+  engine creates the folder when the org opens (`orgs::open`) and at launch, never a file.
+  Team workspaces: each agent also holds `_teams\<id>` of its own subtree and every ancestor's
+  (`domain::teams`, read from the tree at launch, same rw/ro rule, never stored), listed
+  nearest first in a `TEAM WORKSPACES:` sentence, never among granted folders; each one's
+  `AGENTS.md` is delivered like the org's, nearest team first, before the org block, under the
+  same digest. See [team workspaces](docs/rust-engine/team-workspaces.md). [user 2026-10-14] The prompt carries a rule sentence
   and, last, the file's text (12,000-char cap). The copy is read when a CLI starts: another
   agent's edit never respawns a warm CLI. The fingerprint keeps the copy's digest outside
   `system_prompt` and equality, and the forecast counts `org_notes` only when a CLI would
