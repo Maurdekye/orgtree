@@ -272,7 +272,7 @@ impl RuntimeAuth {
 async fn guarded_lines(mut stream: impl tokio::io::AsyncRead + Unpin, auth: &RuntimeAuth,
     mut line: impl FnMut(&[u8]) -> bool) {
     let mut pending = Vec::new();
-    let mut chunk = [0u8; 4096];
+    let mut chunk = vec![0u8; 4096];
     loop {
         let n = match stream.read(&mut chunk).await { Ok(0) | Err(_) => break, Ok(n) => n };
         pending.extend_from_slice(&chunk[..n]);

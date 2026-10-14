@@ -7,6 +7,11 @@
   concurrency risks remain. Non-Windows silently revalidates after a five-minute
   refusal cooldown. See [background auth](docs/rust-engine/antigravity-background-auth.md).
   [verified: `providers/agy_auth.rs`; decided: user/coordinator 2026-10-14]
+  Keep AGY guard futures heap-owned at the public/capture boundaries and pipe
+  buffers heap-allocated; round 434 reproduced debug actor stack overflow on
+  the original inline implementation. Check inline future size and unchanged
+  lane proofs; do not increase stack limits or suppress lints to hide it.
+  [verified: round 434 own-tip failure; `providers/agy_auth.rs`, 2026-10-14]
 
 - Main app menu orders App settings / Usage / Usage history; main ShellHeader
   orders Inbox / Work (Docket) / Presentations / Org settings. `APP_FKEYS` backs

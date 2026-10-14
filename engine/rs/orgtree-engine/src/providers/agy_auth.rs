@@ -5,6 +5,7 @@
 use std::{path::Path, process::{Output, Stdio}, sync::Mutex, time::Duration};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use futures::future::BoxFuture;
 use tokio::{io::AsyncReadExt, process::Command};
 use crate::engine::Engine;
 
@@ -186,7 +187,12 @@ pub fn configure(cmd: &mut Command) {
 }
 
 #[nolog]
-async fn capture(mut cmd: Command, timeout: Duration) -> Result<Output, Failure> {
+fn capture(cmd: Command, timeout: Duration) -> BoxFuture<'static, Result<Output, Failure>> {
+    Box::pin(capture_inner(cmd, timeout))
+}
+
+#[nolog]
+async fn capture_inner(mut cmd: Command, timeout: Duration) -> Result<Output, Failure> {
     let mut child = cmd.spawn().map_err(|_| Failure::Unavailable)?;
     let job = crate::winproc::child_job(&child);
     drop(child.stdin.take());
@@ -194,7 +200,7 @@ async fn capture(mut cmd: Command, timeout: Duration) -> Result<Output, Failure>
     let stderr = child.stderr.take().ok_or(Failure::Unavailable)?;
     async fn read(mut stream: impl tokio::io::AsyncRead + Unpin) -> Result<Vec<u8>, Failure> {
         let mut all = Vec::new();
-        let mut buf = [0u8; 4096];
+        let mut buf = vec![0u8; 4096];
         loop {
             let n = stream.read(&mut buf).await.map_err(|_| Failure::Unavailable)?;
             if n == 0 { return Ok(all); }
@@ -219,7 +225,15 @@ async fn capture(mut cmd: Command, timeout: Duration) -> Result<Output, Failure>
 }
 
 #[nolog]
-pub async fn preflight(engine: &Engine, exe: &Path) -> Result<Stamp, Failure> {
+pub fn preflight<'a>(engine: &'a Engine, exe: &'a Path) -> BoxFuture<'a, Result<Stamp, Failure>> {
+    // A concrete async state propagates through ensure_agy/start_turn and the
+    // actor's select branches. Keep this boundary heap-owned and type-erased:
+    // otherwise its nested pipe readers multiply the debug actor stack frame.
+    Box::pin(preflight_inner(engine, exe))
+}
+
+#[nolog]
+async fn preflight_inner(engine: &Engine, exe: &Path) -> Result<Stamp, Failure> {
     let _check = engine.providers.agy_auth.check.lock().await;
     let stamp = match metadata(engine) {
         Ok(Some(s)) => s,
@@ -249,7 +263,12 @@ pub async fn preflight(engine: &Engine, exe: &Path) -> Result<Stamp, Failure> {
 }
 
 #[nolog]
-pub async fn checked_output(engine: &Engine, exe: &Path, mut cmd: Command, timeout: Duration) -> Result<Output, Failure> {
+pub fn checked_output<'a>(engine: &'a Engine, exe: &'a Path, cmd: Command, timeout: Duration) -> BoxFuture<'a, Result<Output, Failure>> {
+    Box::pin(checked_output_inner(engine, exe, cmd, timeout))
+}
+
+#[nolog]
+async fn checked_output_inner(engine: &Engine, exe: &Path, mut cmd: Command, timeout: Duration) -> Result<Output, Failure> {
     let stamp = preflight(engine, exe).await?;
     configure(&mut cmd);
     // Recheck the latch/metadata at the launch edge as another caller may have
@@ -264,6 +283,15 @@ pub async fn checked_output(engine: &Engine, exe: &Path, mut cmd: Command, timeo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agy_auth_capture_future_has_bounded_inline_size() {
+        // Construct only: never poll or spawn this deliberately invalid CLI.
+        // This same assertion on the unboxed predecessor is the red control.
+        let future = capture(Command::new("not-a-real-agy-executable"), Duration::from_secs(1));
+        let bytes = std::mem::size_of_val(&future);
+        eprintln!("AGY capture inline future bytes: {bytes}");
+        assert!(bytes <= 64, "capture leaked {bytes} bytes into its caller's async state");
+    }
     #[test]
     fn agy_auth_prompt_detects_split_plain_prompt_and_error_only() {
         assert!(auth_prompt(b"Starting OAuth process"));

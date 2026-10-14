@@ -71,6 +71,13 @@ that a token is valid or that OAuth is impossible.
 
 ## Verification contract
 
+The guard's public async boundaries and subprocess capture are heap-owned,
+type-erased futures; pipe buffers live on the heap too. Keep these boundaries:
+round 434 reproduced a stack overflow on the original debug actor launch path.
+The inline-size regression constructs (never polls) capture and caps its inline
+state at 64 bytes. The original unchanged lane and auth proofs must also pass;
+increasing thread stack sizes or relaxing compiler lints is not the fix.
+
 `cargo test --locked -j 2 -p orgtree-engine agy_auth_ -- --test-threads=1`
 checks output classification, signed-out/unknown reporting and command options.
 Build the engine and fake CLI in the shared batch, then run:
