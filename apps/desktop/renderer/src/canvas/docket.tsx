@@ -41,7 +41,7 @@ import {
   req, agentReferences,
 } from '../api'
 import { AttachIcon, CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
-import { agentNavProps } from './agentnav'
+import { agentNavProps, useAgentNavRegistry } from './agentnav'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
 import { DocReader } from './docs'
@@ -57,7 +57,7 @@ import type { MentionIndex } from './workrefs'
 import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
-import { ticketActions } from './objectactions'
+import { ticketOwnerAction, ticketReferenceActions } from './objectactions'
 import { quickStaffEntry, quickStaffPath } from './quickstaff'
 import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffingoptions'
 import type { QuickStaffPreview } from './quickstaff'
@@ -2131,14 +2131,11 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     e.currentTarget.ownerDocument.defaultView?.getSelection()?.removeAllRanges()
     copySlugAt(e.currentTarget, e.clientX, e.clientY)
   }
-  // THE ROW'S CONTEXT MENU (contextmenu.tsx, 2026-09-07). Every entry is a
-  // thing this row or its pane already does: select (the click), copy the
-  // slug (the double-click), fold (the arrow), open the owner (the actor
-  // line), dismiss the manual flag (the Dismiss chip). Assigning, changing
-  // status, raising the flag and adding a sub-item are agents' own acts
-  // through the work tool and have no user-facing control here; the menu
-  // does not invent them.
+  // Transcript ticket actions first, unchanged; row-only Fold and Staff follow
+  // a separator (user 2026-10-14: match + keep extras). Click still toggles the
+  // selection, while the menu's Open details always opens or keeps it open.
   const menu = useContextMenu()
+  const agents = useAgentNavRegistry()
   const [staffFeedback, setStaffFeedback] = useState('')
   // Quick staff is offered for a backlogged, unarchived ticket in a real org —
   // the same condition the backend enforces, so a row that cannot be staffed
@@ -2161,20 +2158,31 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     if (!selected && org) beginOpen('ticket',`${org}/${item.slug}`)
     onClick(item.slug)
   }
-  const rowMenu = (e: React.MouseEvent<HTMLDivElement>): MenuEntry[] => {
+  const openDetails = useRef<() => void>(() => {})
+  openDetails.current = () => { if (!selected) pickTimed() }
+  const rowMenu = (e: React.MouseEvent<HTMLDivElement>, staff?: MenuEntry): MenuEntry[] => {
     const row = e.currentTarget
     const { clientX, clientY } = e
-    return ticketActions({ item, selected, open: pickTimed,
-      fold: kids > 0 && onFold && !foldLocked ? { kids, folded, toggle: () => onFold(item.slug) } : undefined,
-      owner: item.owner?.node && onFocusAgent ? {
-        why: FIT_WHY[actorFit(item.owner, facts).fit] ?? undefined,
-        open: () => { close?.(); onFocusAgent(item.owner!.node) },
-      } : undefined,
+    const name = item.owner?.node
+    const entries = name ? agents?.current?.(name) ?? [] : []
+    const extras: MenuEntry[] = []
+    if (kids > 0 && onFold && !foldLocked) extras.push({
+      label: `${folded ? 'Show' : 'Hide'} ${kids} sub-item${kids === 1 ? '' : 's'}`,
+      onSelect: () => onFold(item.slug),
+    })
+    if (staff) extras.push(staff)
+    const copy = (text: string) => {
+      void copyToClipboard(row, text).then(ok => toast?.([ok ? 'Copied!' : 'Clipboard unavailable']))
+    }
+    return ticketReferenceActions({ open: () => openDetails.current(),
+      owner: ticketOwnerAction(row, name, entries, toast),
+      copyTitle: () => copy(item.title),
       copySlug: () => copySlugAt(row, clientX, clientY),
       copyReference: org ? () => {
         const ref = refToken({ kind: 'item', org, id: item.slug })
         void copyToClipboard(row, ref).then(ok => toast?.([ok ? `copied the reference ${ref}` : 'could not copy — clipboard unavailable']))
       } : undefined,
+      extras,
     })
   }
   return (
@@ -2203,10 +2211,10 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
         // loading. An aged answer is still drawn — a refresh is the hover's
         // job, and the staffing door re-checks before it creates anything.
         const held = staffable ? peekQuickStaff<QuickStaffPreview>(staffPath) : undefined
-        const opening = menu.open(e, () => [...rowMenu(e), ...(staffable ? [
+        const opening = menu.open(e, () => rowMenu(e, staffable ? (
           held ? quickStaffEntry(org!, item.slug, held, announce)
-            : { label: 'Staff…', disabled: true, title: 'Loading current staffing choices…', onSelect: () => {} },
-        ] : [])])
+            : { label: 'Staff…', disabled: true, title: 'Loading current staffing choices…', onSelect: () => {} }
+        ) : undefined))
         if (opening === undefined || !staffable || held) return
         // Nothing held yet (the warm-up has not landed, or it failed): fall
         // back to the awaited path, which is what the placeholder above says.

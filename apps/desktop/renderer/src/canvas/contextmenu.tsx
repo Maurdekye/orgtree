@@ -383,10 +383,14 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // their existing copy/action separator.
     const agentCopy = object?.hasAttribute('data-copy-agent-name') || (!object && navEl && navId)
     const copyGap: MenuEntry[] = agentCopy ? [] : ['sep']
+    // An explicit ticket menu owns its copy-title position, just as an async
+    // resolved object menu does below. Keep other objects' automatic prefix.
+    const suppliedTicketCopy = object?.hasAttribute('data-copy-ticket-title')
+      && surfaceEntries.some(entry => entry !== 'sep' && entry.label === 'Copy ticket title')
     const list: MenuEntry[] = object
-      ? [objectCopyEntry(object, feedback),
+      ? [...(suppliedTicketCopy ? [] : [objectCopyEntry(object, feedback)]),
          ...(navEntries.length ? [...copyGap, ...navEntries] : []),
-         ...(surfaceEntries.length ? [...copyGap, ...surfaceEntries] : [])]
+         ...(surfaceEntries.length ? [...(suppliedTicketCopy ? [] : copyGap), ...surfaceEntries] : [])]
       : (navEl && navId
           ? [agentCopyEntry(navEl, navId, feedback),
              ...navEntries, ...surfaceEntries]

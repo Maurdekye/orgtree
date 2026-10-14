@@ -1,7 +1,7 @@
 import { getWorkItem, watchdogAction } from '../api'
 import type { ToastFn, Watchdog } from '../types'
-import { agentCopyEntry, copyToClipboard } from './contextmenu'
-import { ticketReferenceActions, watchdogActions } from './objectactions'
+import { copyToClipboard } from './contextmenu'
+import { ticketOwnerAction, ticketReferenceActions, watchdogActions } from './objectactions'
 import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
 
@@ -28,13 +28,8 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toas
     return getWorkItem(org, id).then(({ item }) => {
       const name = item.owner?.node
       const entries = name ? agents?.current?.(name) ?? [] : []
-      const focus = entries.find(entry => entry !== 'sep' && entry.label === 'Focus')
       return ticketReferenceActions({ open: () => openTicket(item.slug),
-        owner: name ? { label: 'Owner…',
-          children: [agentCopyEntry(anchor, name, toast), ...(entries.length ? ['sep' as const, ...entries] : [])],
-          actionDisabled: !focus || focus === 'sep' || focus.disabled || focus.actionDisabled,
-          onSelect: () => { if (focus && focus !== 'sep' && !focus.disabled && !focus.actionDisabled) focus.onSelect() },
-        } : undefined,
+        owner: ticketOwnerAction(anchor, name, entries, toast),
         copyTitle: () => copy(item.title), copySlug: () => copy(item.slug),
         copyReference: () => copy('@item:' + org + '/' + item.slug) })
     })

@@ -1,28 +1,28 @@
 import type { MenuEntry } from './contextmenu'
-import type { Watchdog, WorkItem } from '../types'
+import { agentCopyEntry } from './contextmenu'
+import type { ToastFn, Watchdog } from '../types'
 
-/** Canonical ticket actions. Surfaces supply their existing navigation/fold/copy routes. */
-export function ticketActions({ item, selected, open, fold, owner, copySlug, copyReference }:
-  { item: WorkItem; selected?: boolean; open: () => void;
-    fold?: { kids: number; folded: boolean; toggle: () => void };
-    owner?: { open: () => void; why?: string }; copySlug: () => void; copyReference?: () => void }): MenuEntry[] {
-  const entries: MenuEntry[] = [{ label: selected ? 'Close details' : 'Open details', onSelect: open }]
-  if (fold && fold.kids > 0) entries.push({
-    label: `${fold.folded ? 'Show' : 'Hide'} ${fold.kids} sub-item${fold.kids === 1 ? '' : 's'}`, onSelect: fold.toggle })
-  if (item.owner?.node && owner) entries.push({ label: `Open owner (${item.owner.node})`, title: owner.why, onSelect: owner.open })
-  entries.push('sep', { label: 'Copy slug', onSelect: copySlug })
-  if (copyReference) entries.push({ label: 'Copy reference', onSelect: copyReference })
-  return entries
+/** Identical owner submenu and Focus gate for ticket rows and transcript cards. */
+export function ticketOwnerAction(anchor: Element, name: string | undefined,
+  entries: MenuEntry[], toast?: ToastFn): Exclude<MenuEntry, 'sep'> | undefined {
+  if (!name) return undefined
+  const focus = entries.find(entry => entry !== 'sep' && entry.label === 'Focus')
+  return { label: 'Owner…',
+    children: [agentCopyEntry(anchor, name, toast), ...(entries.length ? ['sep' as const, ...entries] : [])],
+    actionDisabled: !focus || focus === 'sep' || focus.disabled || focus.actionDisabled,
+    onSelect: () => { if (focus && focus !== 'sep' && !focus.disabled && !focus.actionDisabled) focus.onSelect() },
+  }
 }
 
-/** Ticket reference order; direct docket rows retain their contextual actions. */
-export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference }: {
+/** Transcript order is canonical; docket-only extras follow its own separator. */
+export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference, extras = [] }: {
   open: () => void; owner?: Exclude<MenuEntry, 'sep'>;
-  copyTitle: () => void; copySlug: () => void; copyReference: () => void
+  copyTitle: () => void; copySlug: () => void; copyReference?: () => void; extras?: MenuEntry[]
 }): MenuEntry[] {
   return [{ label: 'Open details', onSelect: open }, ...(owner ? [owner] : []), 'sep',
     { label: 'Copy ticket title', onSelect: copyTitle }, { label: 'Copy slug', onSelect: copySlug },
-    { label: 'Copy reference', onSelect: copyReference }]
+    ...(copyReference ? [{ label: 'Copy reference', onSelect: copyReference }] : []),
+    ...(extras.length ? ['sep' as const, ...extras] : [])]
 }
 
 /** The same state gates and commands used by the watchdog detail buttons. */
