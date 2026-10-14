@@ -18,10 +18,11 @@ app.whenReady().then(async () => {
         const limit=performance.now()+5000;
         const id=setInterval(()=>{if(document.querySelectorAll('[data-clock]').length===3){clearInterval(id);
           document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
-          resolve({writing:document.querySelector('[data-clock="writing"]').textContent,
+          // Allow the changed theme to reach the compositor before requesting a paint.
+          requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({writing:document.querySelector('[data-clock="writing"]').textContent,
             execution:document.querySelector('[data-clock="execution"]').textContent,
             final:document.querySelector('[data-clock="final"]').textContent,
-            background:getComputedStyle(document.body).backgroundColor})
+            background:getComputedStyle(document.body).backgroundColor})))
         }else if(performance.now()>limit){clearInterval(id);reject(new Error('fixture timeout'))}},20)})`)
       if (version === 'after' ? !/\b1s\b/.test(state.writing) || !/\b1s\b/.test(state.execution)
         : !/1\.2s/.test(state.writing) || !/1\.2s/.test(state.execution)) throw new Error('live before/after mismatch')
