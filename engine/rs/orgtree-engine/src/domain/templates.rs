@@ -18,6 +18,7 @@ const BUNDLED: &[(&str, &str)] = &[
     ("devteam-claude.json", include_str!("../../../../docs/templates/devteam-claude.json")),
     ("devteam-codex.json", include_str!("../../../../docs/templates/devteam-codex.json")),
     ("devteam-muse.json", include_str!("../../../../docs/templates/devteam-muse.json")),
+    ("devteam-antigravity.json", include_str!("../../../../docs/templates/devteam-antigravity.json")),
 ];
 const MAX_AGENTS: usize = 24;
 const MAX_DEPTH: usize = 4;
@@ -836,9 +837,10 @@ mod tests {
     fn a_fresh_folder_is_seeded_and_lists_only_its_files() {
         let d = scratch("fresh");
         let made = seed_into(&d).unwrap();
-        assert_eq!(made, vec!["devteam-claude.json", "devteam-codex.json", "devteam-muse.json"]);
-        let ids: Vec<String> = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok().map(|t| t.id)).collect();
-        assert_eq!(ids, vec!["devteam-claude", "devteam-codex", "devteam-muse"]);
+        assert_eq!(made, vec!["devteam-claude.json", "devteam-codex.json", "devteam-muse.json", "devteam-antigravity.json"]);
+        let mut ids: Vec<String> = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok().map(|t| t.id)).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["devteam-antigravity", "devteam-claude", "devteam-codex", "devteam-muse"]);
         std::fs::write(d.join("mine.json"), r#"{"id":"mine","name":"Mine","agents":[{"name":"a","tier":"opus"}]}"#).unwrap();
         let mine = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok()).find(|t| t.id == "mine").unwrap();
         assert_eq!(mine.description, "");
@@ -866,8 +868,8 @@ mod tests {
         std::fs::write(d.join(SEEDED), format!("{}
 ", BUNDLED[0].0)).unwrap();
         std::fs::write(d.join(BUNDLED[1].0), "{}").unwrap();
-        // only the third, which neither the note nor a file has, is written
-        assert_eq!(seed_into(&d).unwrap(), vec![BUNDLED[2].0.to_string()]);
+        // only the later ones, which neither the note nor a file has, are written
+        assert_eq!(seed_into(&d).unwrap(), vec![BUNDLED[2].0.to_string(), BUNDLED[3].0.to_string()]);
         assert_eq!(std::fs::read_to_string(d.join(BUNDLED[1].0)).unwrap(), "{}");
         assert!(!d.join(BUNDLED[0].0).exists());
         let note = std::fs::read_to_string(d.join(SEEDED)).unwrap();
@@ -886,7 +888,7 @@ mod tests {
 {}
 ", BUNDLED[0].0, BUNDLED[1].0)).unwrap();
         std::fs::write(d.join(BUNDLED[0].0), BUNDLED[0].1).unwrap();
-        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-muse.json".to_string()]);
+        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-muse.json".to_string(), "devteam-antigravity.json".to_string()]);
         assert_eq!(std::fs::read_to_string(d.join("devteam-muse.json")).unwrap(), BUNDLED[2].1);
         assert!(!d.join(BUNDLED[1].0).exists());
         assert!(std::fs::read_to_string(d.join(SEEDED)).unwrap().contains("devteam-muse.json"));
@@ -994,10 +996,26 @@ mod tests {
         BUNDLED.iter().map(|(_, b)| parse(b).unwrap()).find(|t| t.id == id).unwrap()
     }
 
+    /// The Antigravity built-in reaches an install seeded with the three
+    /// earlier ones exactly once, and stays deleted once the user deletes it.
+    #[test]
+    fn the_antigravity_built_in_reaches_an_existing_install_once() {
+        let d = scratch("agy-upgrade");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(SEEDED), format!("{}\n{}\n{}\n", BUNDLED[0].0, BUNDLED[1].0, BUNDLED[2].0)).unwrap();
+        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-antigravity.json".to_string()]);
+        assert_eq!(std::fs::read_to_string(d.join("devteam-antigravity.json")).unwrap(), BUNDLED[3].1);
+        assert!(seed_into(&d).unwrap().is_empty());
+        std::fs::remove_file(d.join("devteam-antigravity.json")).unwrap();
+        assert!(seed_into(&d).unwrap().is_empty());
+        assert!(!d.join("devteam-antigravity.json").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn every_built_in_is_valid_and_named_after_its_file() {
         let ids: Vec<String> = BUNDLED.iter().map(|(_, b)| parse(b).unwrap().id).collect();
-        assert_eq!(ids, ["devteam-claude", "devteam-codex", "devteam-muse"]);
+        assert_eq!(ids, ["devteam-claude", "devteam-codex", "devteam-muse", "devteam-antigravity"]);
         for (file, body) in BUNDLED {
             let t = parse(body).unwrap();
             assert_eq!(*file, format!("{}.json", t.id));
@@ -1020,6 +1038,39 @@ mod tests {
         let tiers: Vec<_> = std::iter::once(&m.agents[0]).chain(&m.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "wonder"), ("implementer", "wonder-full"), ("redteam", "wonder"), ("curator", "spark")]);
         assert!(std::iter::once(&m.agents[0]).chain(&m.agents[0].reports).all(|s| catalog::is_muse(&s.tier) && s.fallback.is_empty()));
+        // user 2026-10-14 17:55Z: Argon for everything except the curator, which runs Flash
+        let g = bundled("devteam-antigravity");
+        assert_eq!(g.name, "devteam (antigravity)");
+        let tiers: Vec<_> = std::iter::once(&g.agents[0]).chain(&g.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
+        assert_eq!(tiers, [("coordinator", "argon"), ("implementer", "argon"), ("redteam", "argon"), ("curator", "flash")]);
+        assert!(std::iter::once(&g.agents[0]).chain(&g.agents[0].reports)
+            .all(|s| catalog::tier(&s.tier).is_some_and(|t| t.provider == catalog::GOOGLE) && s.fallback.is_empty()));
+    }
+
+    /// A machine whose Antigravity lists Argon, plus Flash.
+    fn agy_only() -> Avail {
+        let mut tiers = HashMap::new();
+        tiers.insert("argon".into(), offer(2.0, "google"));
+        tiers.insert("flash".into(), offer(1.0, "google"));
+        Avail { tiers, ..Avail::default() }
+    }
+
+    #[test]
+    fn the_antigravity_built_in_is_planned_on_argon_and_flash() {
+        let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &agy_only(), &[]).unwrap();
+        assert!(blocked.is_empty());
+        let got: Vec<_> = p.iter().map(|x| (x.name.as_str(), x.tier.as_deref(), x.seat)).collect();
+        assert_eq!(got, [("coordinator", Some("argon"), 2.0), ("implementer", Some("argon"), 2.0),
+                         ("redteam", Some("argon"), 2.0), ("curator", Some("flash"), 1.0)]);
+        assert_eq!(p[0].grant, 10.0 + 2.0 + 2.0 + 1.0);
+        assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator") && x.note.is_none()));
+        assert_eq!(quick_chat_for(&bundled("devteam-antigravity"), &p), Some(json!({ "superior": "coordinator", "tier": "argon" })));
+        // Argon is conditional on Antigravity listing it: unlisted, its slots block until another tier is picked
+        let mut av = agy_only();
+        av.tiers.remove("argon");
+        let (p, blocked) = plan(&bundled("devteam-antigravity"), &Choices::default(), &av, &[]).unwrap();
+        assert_eq!(blocked, vec!["coordinator".to_string(), "implementer".to_string(), "redteam".to_string()]);
+        assert_eq!(p[3].tier.as_deref(), Some("flash"));
     }
 
     #[test]
