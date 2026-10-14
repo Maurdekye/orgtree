@@ -64,7 +64,7 @@ import { AttachThumb, fmtBytes, ImgCardCaption, isImg } from './img'
 import { openLightbox } from './lightbox'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
-  ArrowDownIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
+  ArrowDownIcon, ArrowRightIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
   DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
   DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, NotificationsActiveIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
@@ -4856,7 +4856,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
             if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleOpen() }
           } } : {})}>
         {writing ? <span title="Writing tool call" aria-label="writing tool call"><EditIcon fontSize="inherit" className="tooldot tool-writing-status" /></span>
-          : running ? <span title="Executing tool call" aria-label="executing tool call"><PlayIcon fontSize="inherit" className="tooldot tool-running-status" /></span>
+          : running ? <span title="Executing tool call" aria-label="executing tool call"><ArrowRightIcon fontSize="inherit" className="tooldot tool-running-status" /></span>
             : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
         {t.arg ? <span className="targ"> {t.arg}</span> : null}

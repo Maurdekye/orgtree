@@ -53,7 +53,7 @@ test('a writing chip shows its pencil and streamed fields in the shared chip lay
   assert.equal(view.el.querySelector('.tool-exec-time,.tool-running'), null)
 })
 
-test('executing chips use a play arrow and an immediate icon-only clock, then keep the finished dot', async t => {
+test('executing chips use the execution-time arrow and an immediate icon-only clock, then keep the finished dot', async t => {
   useFakeClock()
   const start = new Date(Date.now()).toISOString()
   const chip = { id: 'running', name: 'Bash', arg: 'echo hi', writing_secs: 3.1, started_at: start }
@@ -64,7 +64,9 @@ test('executing chips use a play arrow and an immediate icon-only clock, then ke
   t.after(async () => { await view.unmount(); realClock() })
   // Icon spans leave adjacent text-node spaces; the browser collapses them.
   const clockText = (selector: string) => view.el.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim()
-  assert.ok(view.el.querySelector('.tline .tool-running-status'))
+  assert.ok(view.el.querySelector('.tline .tool-running-status[data-testid="ArrowForwardIcon"]'))
+  assert.equal(view.el.querySelector('.tline .tool-running-status[data-testid="PlayArrowIcon"]'), null)
+  assert.ok(view.el.querySelector('[aria-label="executing tool call"][title="Executing tool call"]'))
   assert.equal(clockText('.tool-running'), '· 0s')
   await advance(1000)
   assert.equal(clockText('.tool-running'), '· 1s')
