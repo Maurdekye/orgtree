@@ -432,7 +432,7 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   any other provider's. The planner's "checking the sign-in" wording covers only Claude
   and Codex. [decided: user 2026-10-13 18:23Z; verified: `domain/templates.rs` tests]
 
-- Models are LISTED dearest seat first within each provider, every provider (Claude fable,
+- Models are LISTED most expensive (highest seat) first within each provider, every provider (Claude fable,
   opus, sonnet, haiku; Muse wonder-full, wonder, spark; Antigravity agy-opus, agy-sonnet,
   flash, with pro/argon/barium/carbon tying agy-sonnet at 2). Provider groups keep their
   order and equal seats keep catalog/array order. One rule in two places: the engine's
@@ -446,8 +446,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   chosen OpenRouter models list by output price descending, then input price, then name,
   free ones after the priced and unknown prices last, never as $0 (`openrouter::by_price_desc`,
   `byOpenrouterPriceDesc`); the OpenRouter model browser and language-server lists keep their own
-  order. [decided: user 2026-10-13 19:14-19:15Z; verified: `catalog.rs`, `openrouter.rs`,
-  `shared.ts` and their tests]
+  order. User-visible text says "most expensive first" / "cheapest first", never "dearest"
+  (the OpenRouter picker's price-sort toggle; "dearest" read as odd wording, user
+  2026-10-14). [decided: user 2026-10-13 19:14-19:15Z, 2026-10-14 10:57Z; verified:
+  `catalog.rs`, `openrouter.rs`, `shared.ts` and their tests, `pricesortlabel.test.tsx`]
 
 - Hire tokens sort cheapest seat first WITHIN each provider row/column, with
   stable equal-price order and the existing inward family-count ordering.
