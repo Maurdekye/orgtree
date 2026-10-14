@@ -74,7 +74,9 @@ test('halt status overrides stale working indicators in every view', async () =>
   (el) => el.textContent)
   try {
     assert.equal(view.el.querySelectorAll('[role="status"]').length, 4)
-    assert.equal(view.last(), 'HaltedHaltedHaltedHalted')
+    assert.ok([...view.el.querySelectorAll('[role="status"]')].every(el => el.textContent?.startsWith('Halted')))
+    assert.equal(view.el.querySelector('.tray-status-label')?.textContent, 'Halted')
+    assert.ok(view.el.querySelector('.tray-halted'), 'tray uses the shared stop icon')
     await view.render(<HaltStatus halt={{ ...halt, phase: 'halting' }} />)
     assert.equal(view.last(), 'Halting…')
     assert.match(view.el.querySelector('[role="status"]')!.getAttribute('title')!, /still ending/)

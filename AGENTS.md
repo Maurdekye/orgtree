@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Halted list rows reuse canvas StopIcon and var(--bad), keep the halt clock
+  separate from the last/previous status age, and reserve the summary line
+  when empty. Completed halt.at wins, with requested_at as legacy fallback;
+  halting uses requested_at. Durable halt still precedes usage freeze. All
+  AgentTray hosts share this. [decided: user/coordinator 2026-10-14;
+  docs/rust-engine/halted-list-rows.md]
+
 - Transfers starts collapsed in every new mail view. Keep expansion while that
   view stays open, including transfer polls; reset on mailbox org/agent changes.
   Org inbox and user/agent/desk inboxes share TransferPanel. Preserve unfinished
