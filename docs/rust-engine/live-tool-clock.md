@@ -89,9 +89,27 @@ they restore only the old writing span, running icon or card early return from
 `8508043`, `f2bc651`, `1713b74`, and `dd0b354`, leaving turn ownership intact.
 The source-only `audit-controls` mode checks all four independent transformations
 and their combination without compiling or starting processes beyond Git reads.
-Its ten file transformations and syntax/diff checks pass. Corrected renderer
-tests, root typecheck and four captures still await the assigned rig batch;
-the earlier 10/12 result is not acceptance of the corrected fixtures.
+Its ten file transformations and syntax/diff checks pass. Rig picked the fixture
+correction patch-identically as `bc737c0`: renderer41/41 and root typecheck exit0
+are measured. Running, presentation and file reds fail their named assertions
+with 6/2/1 passing controls. Writing red reports2 failures/1 passing known-duration
+control, but its second failure is an array-allocation error while formatting a
+DOM-versus-null assertion, so that case is not accepted as semantic evidence.
+Slot-absence assertions now compare booleans; writing red must be rerun.
+
+Canonical visuals still return stale dark paint events after the theme becomes
+light. Rig's one-change `capturePage()` diagnostic passes all four themed frames,
+and both rig and author inspected those PNGs. The canonical driver adopts that
+capture method and preserves the background/semantic checks. A two-column
+fixture at1000x760 makes all eight cases, including the full image caption,
+fit Session0's1024x768 display; it now rejects out-of-viewport case bounds.
+The old PNGs clip the image bottom despite successful decoding, so they do not
+prove full image visibility. New committed captures still await rig receipt.
+
+The diagnostic light presentation card has a dark background with dark text
+in both before and after, a shared pre-existing style observation outside these
+four display changes. It is reported to the coordinator without changing CSS;
+no claim about its installed-app appearance is made.
 
 Rig round 437 measured five fake-timer cases: actual alpha.3 `ae0b5fd`
 toolclock red has four target failures and one completed-precision passing

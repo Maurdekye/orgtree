@@ -10,7 +10,7 @@ app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 const receipts = []
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1100, height: 1100, show: false, useContentSize: true, paintWhenInitiallyHidden: true,
+  const win = new BrowserWindow({ width: 1000, height: 760, show: false, useContentSize: true, paintWhenInitiallyHidden: true,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } })
   win.webContents.startPainting()
   try {
@@ -34,14 +34,17 @@ app.whenReady().then(async () => {
               statusIcon:row.querySelector('.tool-running-status')?.getAttribute('data-testid') ?? null,
               statusTitle:row.querySelector('[aria-label="executing tool call"]')?.title ?? null,
               writingStatus:!!row.querySelector('.tool-writing-status'),
+              bounds:(()=>{const r=row.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}})(),
               finishedDot:!!row.querySelector('.tooldot[data-testid="FiberManualRecordIcon"]')})),
+            viewport:{width:innerWidth,height:innerHeight},
             background:getComputedStyle(document.body).backgroundColor})}))
         };ready()})`)
       const row = id => state.rows.find(r => r.id === id)
       const expectedIcon = version === 'before' ? 'PlayArrowIcon' : 'ArrowForwardIcon'
       const unknown = ['unknown-muse', 'unknown-codex'].every(id => version === 'before'
         ? /—/.test(row(id).writing || '') : row(id).writing === null && !/—/.test(row(id).text))
-      const semantics = unknown && /784 ms/.test(row('unknown-muse').text) && /200 ms/.test(row('unknown-codex').text)
+      const fullyVisible = state.rows.every(({bounds:r})=>r.left>=0 && r.top>=0 && r.right<=state.viewport.width && r.bottom<=state.viewport.height)
+      const semantics = fullyVisible && unknown && /784 ms/.test(row('unknown-muse').text) && /200 ms/.test(row('unknown-codex').text)
         && /1\.2s/.test(row('known').writing || '') && /200 ms/.test(row('known').text) && row('known').finishedDot
         && row('running').statusIcon === expectedIcon && row('running').statusTitle === 'Executing tool call'
         && row('running').writing === null && /1s/.test(row('running').text)
@@ -57,18 +60,17 @@ app.whenReady().then(async () => {
       const attempts = []
       let frame, captured, matched = false
       for (let attempt=0;attempt<3;attempt++) {
-        frame = await new Promise((resolve,reject) => {
-          const timeout=setTimeout(()=>reject(new Error('paint timeout')),3000)
-          win.webContents.once('paint',(_event,_dirty,image)=>{clearTimeout(timeout);resolve(image)})
-          win.webContents.invalidate()
-        })
+        // Offscreen paint events can repeat the first page's pixels on this
+        // loopback fixture. capturePage measured fresh themed pixels in round439.
+        if (attempt) await new Promise(resolve => setTimeout(resolve, 100))
+        frame = await win.webContents.capturePage()
         const bitmap = frame.toBitmap()
         captured = [bitmap[2],bitmap[1],bitmap[0]]
         attempts.push(captured)
         if (captured.every((value,i)=>Math.abs(value-expected[i])<=6)) { matched=true;break }
       }
       fs.writeFileSync(path.join(evidence, `${version}-${theme}.png`), frame.toPNG())
-      receipts.push({version,theme,...state,expected,captured,attempts,matched,semantics})
+      receipts.push({version,theme,...state,expected,captured,attempts,matched,semantics,fullyVisible})
       fs.writeFileSync(path.join(evidence,'result.json'),JSON.stringify({passed:false,receipts},null,2))
       if (!semantics || !matched) throw new Error('tool chip semantics or painted theme mismatch')
     }

@@ -26,14 +26,16 @@ const rows: [string, string, ToolChipData][] = [
     started_at: start, ended_at: '2026-10-14T16:00:00.031Z', result: 'Delivered image',
     file: { path: 'shot.png', name: 'shot.png', bytes: 194560, note: 'Synthetic preview' } }],
 ]
-createRoot(document.getElementById('root')!).render(<main style={{ padding: 32, maxWidth: 950 }}>
+createRoot(document.getElementById('root')!).render(<main style={{ padding: 20, maxWidth: 950 }}>
   <h2>Tool call timing and status</h2>
   <TurnActiveContext.Provider value={true}>
     <RunningTurnContext.Provider value={start}>
-    {rows.map(([id, label, tool]) => <section key={id} data-case={id} style={{ marginTop: 20 }}>
-      <div className="dim" style={{ marginBottom: 6 }}>{label}</div>
-      <ToolChip t={tool} slug="fixture" nid="worker" onOpenDoc={() => {}} />
-    </section>)}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px 24px' }}>
+        {rows.map(([id, label, tool]) => <section key={id} data-case={id}>
+          <div className="dim" style={{ marginBottom: 6 }}>{label}</div>
+          <ToolChip t={tool} slug="fixture" nid="worker" onOpenDoc={() => {}} />
+        </section>)}
+      </div>
     </RunningTurnContext.Provider>
   </TurnActiveContext.Provider>
 </main>)
