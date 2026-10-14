@@ -54,5 +54,23 @@ bubbled body key, pending state and a second consumed key. The tests-config
 diagnostic count returned from 832 to its 830 baseline after constructor reuse
 through the harness; that is not a globally clean tests typecheck.
 
-Final combined typechecks, broader renderer comparison and engine inverse,
-scope-cascade and restart receipts remain pending. No installation is claimed.
+The final composed batch `55433a0` passes the impacted undo/shortcut union
+49/49 and focused shortcuts 8/8, with zero skipped or cancelled. Registry and
+scanner updates follow the normalized classifier and both consumers, while
+the transient consumer remains undo-only. Full renderer results are from the
+earlier `5c5e363`: 3,564 tests, 3,469 passed, 91 failed, 4 skipped, against the
+base's 3,543/3,450/89/4. Its two new shortcut failures are resolved by the final
+focused checks; the full suite was not rerun at the final tip. A known baseline
+allocation failure appeared under a different test name. Typecheck diagnostic
+counts are root 0, strict renderer 29, tests 830, matching baseline; root/tests
+were rechecked after the registry fix, before the glyph-only test correction.
+
+Inherited engine receipts at `5e84973` include 9/9 unit tests and two 57/57
+undo proof runs. The author inspected their raw logs, including exact raised
+ancestor/org grant restoration, clamped descendant restoration, refusal after
+a side row changes, and undo after scratch-engine restart. The base red reached
+the scratch database and stopped on the missing `ot.undo_entries` table before
+assertions; it is an expected pre-journal failure, not a completed red proof.
+The over-2,000-member retire boundary has no runtime fixture. Earlier Android
+and unrelated regression receipts precede the final refusal-only engine fix;
+their continued validity is inferred. No installed or live behavior is claimed.
