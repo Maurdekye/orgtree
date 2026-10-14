@@ -26,6 +26,12 @@
   `muse_lost`, `end_turn`'s `close_proc`, real Muse 1.4.6 probes 2026-10-13
   and proof 2026-10-14]
 
+- Transcript bundles include unsent, delivering and recorded passive system
+  notices in one ordered presentation pass; delivery carriers alone are not
+  boundaries. Stable mail IDs retain disclosure state across delivery. Authored
+  queued mail keeps the six-row pending fold; live output breaks notice runs.
+  [decided: user 2026-10-14 10:26Z; verified from source:
+  `canvas/transcriptflow.tsx`, `events/systemruns.tsx`]
 - Transcript bundles are display-only runs of passive system notices (the
   inbox's `isSystemNotice` predicate), at two or more. User/agent notices,
   waking requests, tools and lifecycle rows break runs; unproven legacy

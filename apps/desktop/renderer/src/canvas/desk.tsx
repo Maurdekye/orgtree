@@ -1,6 +1,7 @@
 import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/systemruns'
 import { livePartials } from '../livePartials'
-import { PendingRun, revealPendingRun } from './pendingrun'
+import { revealPendingRun } from './pendingrun'
+import { TranscriptFlow } from './transcriptflow'
 import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
@@ -3264,6 +3265,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     return source ? <ReplySourceContent key={r.eventId} source={source} slug={slug} nid={node.id}
       profile={'operator'} refs={deskRefs} actor={id => <MailFrom from={id} />} /> : null
   }, [sameReplyIdentity, replySources, slug, node.id, deskRefs])
+  const showTurnStarting = !transient.some(r => r.kind === 'starting') && !!chat?.busy
+    && !chat.turn_activity && !live_feed.length && thinkSecs === null && !draft && !pending.length
   const content = (
     <AgentDirectoryProvider value={agentDir}>
     <FoldProvider value={folds.store}>
@@ -3726,9 +3729,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 <b className="mono" data-copy-agent-name={prior.id}>{prior.id}</b> (read it from the lineage panel)
               </div>) : null
           })()}
-          <SystemRuns entries={transcriptEntries(viewMessages)}
+          <TranscriptFlow key={`${slug}/${node.id}/${node.generation ?? 0}`} messages={viewMessages}
+            now={viewPendNow} later={viewPendLater} renderPending={pendBubble}
+            divider={pendingDivider(pendWaiting)}
+            hasLive={viewLive.length > 0 || viewTransient.length > 0 || showTurnStarting}
             onToggle={() => { if (stickRef.current) pin(); calcPin() }}
-            render={({ message: m, sourceIndex: i, first, key }) => {
+            renderMessage={({ message: m, sourceIndex: i, first, key }) => {
             // №15: one dim divider per idle gap — never per-message timestamps
             const prev = viewMessages[i - 1]
             const gapMs = first && prev?.ts && m.ts
@@ -3763,7 +3769,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                   replyAvailable={replyAvailable} onLocateReply={locateReply} />
               </div>
             )
-          }} />
+          }} live={<>
           {/* ⭐ THE QUESTION, ABOVE ITS OWN ANSWER (user report 2026-09-01:
               "the message appears to still be mid-transit, but the streamed
               response begins appearing before it enters the transcript").
@@ -3778,11 +3784,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               app-server's start otherwise.
               The remaining pending mail is genuinely still waiting and stays
               at the bottom, after the live tail, where it is true. */}
-          {viewPendNow.length > 0 && pendingDivider(pendWaiting)}
-          {viewPendNow.length > 0 && <PendingRun key={`${slug}/${node.id}/now`} count={viewPendNow.length}
-            onToggle={() => { if (stickRef.current) pin(); calcPin() }}>
-            {viewPendNow.map(pendBubble)}
-          </PendingRun>}
           {/* keyed on the server's row id (`n`), never the index: rows retire
               from the MIDDLE of this list as the transcript catches up, and an
               index key would rename every row below the one that left */}
@@ -3855,9 +3856,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               The latch matters after the first event: the live row is swept
               when its transcript twin lands, and that ordinary caught-up gap
               is NOT the CLI starting again. */}
-          {!transient.some(r => r.kind === 'starting') && chat?.busy && !chat.turn_activity && !live_feed.length
-            && thinkSecs === null && !draft
-            && !pending.length && (
+          {showTurnStarting && (
             <div className="reply-event" data-reply-event="" onContextMenu={e => openReply(e, {})}><TurnStartingMark mcpWaiting={mcpReadinessWaiting}
               reason={mcpReadinessReason} /></div>)}
           {/* №11: pending bubbles render from the DURABLE server copy, each
@@ -3865,11 +3864,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               ⚠ Only the ones that are still WAITING render here, at the
               bottom. The one being delivered INTO the running turn was hoisted
               above the live tail — see pendNow. */}
-          {viewPendNow.length === 0 && viewPendLater.length > 0 && pendingDivider(pendWaiting)}
-          {viewPendLater.length > 0 && <PendingRun key={`${slug}/${node.id}/later`} count={viewPendLater.length}
-            onToggle={() => { if (stickRef.current) pin(); calcPin() }}>
-            {viewPendLater.map(pendBubble)}
-          </PendingRun>}
+          </>} />
           {/* №17 for GHOSTS (user bug 2026-09-03: "i sent an invalid command
               and it got stuck as a permanently undelivered message that i
               cant cancel"). The durable pending bubbles above have carried a

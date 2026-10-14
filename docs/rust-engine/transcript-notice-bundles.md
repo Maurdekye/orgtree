@@ -19,8 +19,19 @@ without treating the envelope's `user` role as user authorship. Individual rows,
 their timestamps, inner cards/actions and reply identity survive. Envelope reply
 annotations and turn-jump anchors occur once; truncation/steering receipts stay
 at the end. Hidden machine context remains hidden as before. Archives and shared
-live segment rendering use the same component. Pending mail keeps its separately
-approved six-row folding and never joins a settled bundle.
+live segment rendering use the same component.
+
+User feedback on installed alpha.1 (2026-10-14 10:26Z) extends this to unsent
+notices. `TranscriptFlow` groups the desk's already-deduplicated settled rows,
+current-turn pending rows, live tail and waiting rows in their existing order.
+Pending passive system notices join adjacent delivered notices; delivery state
+alone does not split a run. The same stable mail ID keys both carriers, so a
+partial or complete delivery preserves the bundle and its disclosure state.
+Actual live output/starting indicators, authored mail and waking requests still
+break runs. No delivery, wake or backend ordering is changed. Pending authored
+mail keeps its six-row disclosure within each uninterrupted non-system run.
+The existing queue divider stays at the first pending entry, inside a notice
+bundle if that entry belongs to one; opening it retains delivery labels/actions.
 
 Two notices show a native keyboard-accessible details/summary, collapsed by
 default. The first member keys the run. Single-to-multiple transitions and tail
@@ -61,3 +72,17 @@ expresses each run as a nonempty tuple, scopes the Desk assertion to `.msgs`
 (also checking the separate preview), and matches the visual count element.
 These corrections await rig-opus verification; the strict renderer baseline is
 29 existing errors, with no new errors permitted. Root typecheck must remain 0.
+
+## Unsent-notice regression handoff (2026-10-14)
+
+Five `systemruns-pending.test.tsx` cases mount the actual DeskChat with synthetic
+pending and delivered mail: singleton/threshold/append, partial/full delivery
+with stable disclosure, authored/waking exclusions and six-row positive control,
+live tool/agent boundaries, and reply reveal before scroll. Run this test file
+unchanged against base `2e3d287` for the red control (four expected failures,
+authored-mail control passes), then against the correction alongside
+`systemruns`, `pendingrun`, `eventtranscript`, `transcriptviewport`,
+`transcriptprepend`, `sysnotice`, `noticeborder` and `restorenotice`.
+Typecheck expectations remain root 0 and no new strict renderer errors. Rig-opus
+owns execution; no author pass, native/device acceptance or installed correction
+is claimed at this source handoff.

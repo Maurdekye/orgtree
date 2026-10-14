@@ -35,12 +35,18 @@ export function systemEntry(row: unknown, passiveContainer = false): Omit<System
   }
 }
 
-export interface SegmentEntry extends SystemEntry { segment: Segment }
+/** Mail id survives pending -> delivering -> transcript carrier changes. */
+export function noticeMailKey(row: unknown): string | undefined {
+  return record(row) && typeof row.id === 'string' && row.id ? `notice-mail/${row.id}` : undefined
+}
+
+export interface SegmentEntry extends SystemEntry { segment: Segment; mailKey?: string }
 /** Flatten presentation only, retaining row order and each original wire row. */
 export function segmentEntries(segments: Segment[]): SegmentEntry[] {
   return segments.flatMap((segment, i): SegmentEntry[] => {
     if (segment.kind === 'mail' || segment.kind === 'notices') return segment.rows.map((row, j) => ({
       key: `${i}/${'id' in row && row.id ? row.id : j}`,
+      mailKey: segment.kind === 'mail' ? noticeMailKey(row) : undefined,
       ...systemEntry(row, segment.kind === 'notices'),
       segment: { ...segment, rows: [row] } as Segment,
     }))
@@ -61,7 +67,7 @@ export function transcriptEntries(messages: ChatMessage[]): TranscriptEntry[] {
       const parts = segmentEntries(message.segments)
       if (!parts.length && (message.truncated || (message.steered && message.receipt)))
         return [{ key, sourceIndex, first: true, message, system: false, label: '' }]
-      return parts.map((part, i) => ({ ...part, key: `${key}/${part.key}`, sourceIndex, first: i === 0,
+      return parts.map((part, i) => ({ ...part, key: part.system && part.mailKey ? part.mailKey : `${key}/${part.key}`, sourceIndex, first: i === 0,
         message: { ...message, segments: [part.segment],
           truncated: i === parts.length - 1 && message.truncated,
           steered: i === parts.length - 1 && message.steered },
