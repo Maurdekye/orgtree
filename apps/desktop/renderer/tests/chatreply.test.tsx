@@ -274,7 +274,7 @@ test('new immutable stream snapshot IDs do not discard preceding text or rewrite
   } finally { await v.unmount(); resetConvos() }
 })
 
-test('typed user reply quotes exclude the raw envelope even when no visible text remains', async () => {
+test('typed user reply quotes exclude raw envelopes and hidden-only turns have no reply affordance', async () => {
   localStorage.clear(); resetConvos()
   const hidden = JSON.parse(readFileSync(path.join(__SRC_DIR__, '../tests/fixtures/events/context.org_state.json'), 'utf8')).private
   const server = new FakeServer(); installFetch(server)
@@ -289,13 +289,13 @@ test('typed user reply quotes exclude the raw envelope even when no visible text
   const v = await mountView(desk(), el => el)
   try {
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
-    for (const id of ['visible-turn', 'hidden-turn']) {
-      const item = await replyOn(v.el.querySelector(`[data-reply-event="${id}"]`)!)
-      await inAct(() => { item.click() })
-    }
+    assert.equal(v.el.querySelector('[data-reply-event="hidden-turn"]'), null, 'hidden-only turns expose no Reply source')
+    assert.doesNotMatch(v.el.textContent!, /RAW MACHINE ENVELOPE|RAW HIDDEN ENVELOPE|HIDDEN ORG STATE/)
+    const item = await replyOn(v.el.querySelector('[data-reply-event="visible-turn"]')!)
+    await inAct(() => { item.click() })
     const replies = readReplies(draftKey('org', 'writer', 2))
-    assert.deepEqual(replies.map(r => r.eventId), ['visible-turn', 'hidden-turn'])
-    assert.deepEqual(replies.map(r => r.quote), ['Visible request', ''])
+    assert.deepEqual(replies.map(r => r.eventId), ['visible-turn'])
+    assert.deepEqual(replies.map(r => r.quote), ['Visible request'])
     assert.ok(replies.every(r => !/RAW|HIDDEN/.test(r.quote)))
   } finally { await v.unmount(); resetConvos() }
 })
