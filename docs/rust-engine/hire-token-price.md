@@ -19,5 +19,14 @@ Icons, colours, tooltips, click/drag dispatch, family placement and availability
 are unchanged. Focused tests exercise changed catalog prices, equal-price ties,
 all four strip orientations, action/tooltip identity, price refresh, disabled
 far-zoom strips, conditional/legacy gates and registry rows. Existing descending
-selector/default tests remain controls. Typecheck passes. Red/green controls
-will run in one rig-opus batch; no renderer runtime or installed proof is yet claimed.
+selector/default tests remain controls.
+
+Measured in rig-opus round434 on 2026-10-14: the same 16 renderer cases run
+against the exact base `cards.tsx` produce nine passes and exactly seven
+token-order failures; the changed component passes 16/16 with no skips or
+cancellations. Typecheck exits 0 under a 4096 MB/150 s kernel Job. The existing
+far-zoom test's stale descending expectation was corrected separately in
+`91a49c9`, and its collapse test passes in the combined renderer batch.
+Receipts are `o5-red-green.log`, `o5-typecheck.log` and `r-union-434c.log` under
+the batch434 evidence folder. The wider batch has three failures in other
+cases and is not claimed clean. No installed or native visual proof was run.
