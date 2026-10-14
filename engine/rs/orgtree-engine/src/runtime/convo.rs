@@ -655,7 +655,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
             args(&["to"], &mut agent);
             // the split shape (2026-10-13): `to` inside `metadata`
             match &input["metadata"]["to"] {
-                Value::Array(a) => a.iter().for_each(|v| agent(v)),
+                Value::Array(a) => a.iter().for_each(&mut agent),
                 v => agent(v),
             }
         }
