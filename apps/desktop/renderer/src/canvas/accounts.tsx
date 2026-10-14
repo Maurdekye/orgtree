@@ -35,6 +35,7 @@ import type { SettingsTab } from './settingskit'
 import { OpenRouterSection } from './openrouter'
 import { HarnessesSection } from './harnesses'
 import { LanguageServerSection } from './langserver'
+import { ShortcutsSettings } from './shortcutsettings'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
@@ -266,7 +267,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
 }
 
 type AppSettingsTab = 'about' | 'providers' | 'harnesses' | 'runtime' | 'mailhub'
-  | 'display' | 'defaults' | 'developer'
+  | 'display' | 'defaults' | 'developer' | 'shortcuts'
 // Strip order is the user's own list (2026-09-29): Providers, Runtime,
 // Display, Default org settings, Mail hub, Developer, About. The panel OPENS
 // on Providers, the first tab (user 2026-09-30), unless the caller asks for a
@@ -292,6 +293,10 @@ const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'mailhub', label: 'Mail hub' },
   // tools for looking inside the running engine; nothing here changes behaviour
   { id: 'developer', label: 'Developer' },
+  // a read-only list of every key Orgtree binds (user 2026-10-14: in Settings
+  // only). Placed after the user's own list, before About, so that order is
+  // unchanged.
+  { id: 'shortcuts', label: 'Keyboard shortcuts' },
   // About: what is actually running. The v3 shell removes the sidebar that
   // used to carry the version badge and the repository link, so this is their
   // home. It was "General" until 2026-09-29, when its one setting (the startup
@@ -925,6 +930,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
               } finally { setOpeningLogs(false) }
             }}>{openingLogs ? 'Opening…' : 'Open logs folder'}</button>} />}
       </SetGroup>
+    </SettingsTabPanel>
+    <SettingsTabPanel id="shortcuts" idBase="app-settings" active={tab === 'shortcuts'}>
+      <ShortcutsSettings />
     </SettingsTabPanel>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
 }

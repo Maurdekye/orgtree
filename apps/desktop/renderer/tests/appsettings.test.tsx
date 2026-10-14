@@ -172,10 +172,11 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       // v3: the strip follows the user's own list (2026-09-29), and the
       // panel opens on its first tab, Providers (user 2026-09-30). Harnesses
-      // follows Providers (coordinator ruling 2026-10-13).
+      // follows Providers (coordinator ruling 2026-10-13); Keyboard shortcuts
+      // (2026-10-14) sits before About.
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
         ['Providers', 'Harnesses', 'Runtime', 'Display', 'Default org settings',
-          'Mail hub', 'Developer', 'About'])
+          'Mail hub', 'Developer', 'Keyboard shortcuts', 'About'])
       assert.equal(tabs[3]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true',

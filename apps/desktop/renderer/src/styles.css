@@ -6947,6 +6947,16 @@ label.set-row { cursor: pointer; }
 .set-hint { grid-area: hint; font-size: 11.5px; line-height: 1.45;
   color: var(--dim); margin-top: 3px; }
 .set-hint code { font-size: 11px; }
+/* App settings → Keyboard shortcuts: keycaps in the control column. Small and
+   quiet, so a long list reads as a reference rather than a wall of buttons. */
+.kbd-combos { display: flex; flex-wrap: wrap; justify-content: flex-end;
+  align-items: center; gap: 4px; }
+.kbd-combo { display: inline-flex; gap: 2px; }
+.kbd-or { color: var(--dim); font-size: 11px; }
+.kbd-combo kbd { font: inherit; font-size: 11.5px; line-height: 1; min-width: 1.6em;
+  text-align: center; padding: 3px 5px; border-radius: 4px; color: var(--ink-strong);
+  background: var(--input); border: 1px solid var(--line);
+  border-bottom-width: 2px; }
 /* a row's own sub-controls (a dependent number field revealed by a toggle)
    sit under the hint, still on the label rail */
 .set-sub { grid-area: hint; display: flex; align-items: center;

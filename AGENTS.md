@@ -918,6 +918,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `.lb-overlay`/`.picker-overlay` and IME composition; with no reply Escape is
   untouched. [user 2026-10-13; verified: `tests/escapereply.test.tsx`]
 
+- Every keyboard shortcut is listed in `renderer/src/shortcuts.ts`, which App
+  settings → Keyboard shortcuts renders read-only (user 2026-10-14: Settings only,
+  no overlay or menu entry). `tests/shortcuts.test.tsx` scans `renderer/src` and
+  `main` for key literals (`.key === 'X'`, `[...].includes(e.key)`, `accelerator:`)
+  and fails both ways, so a new binding lands with its entry, or in `BUILTIN` with
+  the reason it is not shown. [user 2026-10-14; verified: `tests/shortcuts.test.tsx`]
+
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls, in each harness's own names (user
   2026-10-12 20:01Z): Claude/OpenRouter Claude Code's five `--effort` levels,

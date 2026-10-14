@@ -105,8 +105,9 @@ test('§1 no footer close button renders under ANY App settings tab', async (t) 
   // v3 added General (the startup choice and About) and Default org settings,
   // the latter absorbing the standalone window the removed sidebar opened;
   // Developer (the engine debug view) followed on 2026-09-26, and Harnesses
-  // (the supported-harness list) on 2026-10-13.
-  assert.equal(tabs.length, 8, 'every App settings tab renders')
+  // (the supported-harness list) on 2026-10-13, and Keyboard shortcuts on
+  // 2026-10-14.
+  assert.equal(tabs.length, 9, 'every App settings tab renders')
   for (const tab of tabs) {
     await inAct(async () => { tab.click(); await flush(6) })
     assert.deepEqual(footerCloses().map(b => b.className), [],

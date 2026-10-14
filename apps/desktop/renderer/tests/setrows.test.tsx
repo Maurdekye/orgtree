@@ -227,7 +227,7 @@ test('§9 the tab strip is ONE keyboard control: roving tabindex, arrows that '
     // settings (last, having absorbed the standalone window the removed
     // sidebar opened). The property under test is the STRIP, not its length —
     // the wrap assertions below name the ends rather than counting to them.
-    assert.equal(tabs.length, 7)   // + Developer (2026-09-26), - Import (v1 import removed, 2026-09-29)
+    assert.equal(tabs.length, 9)   // + Developer (2026-09-26), - Import (v1 import removed, 2026-09-29), + Harnesses (2026-10-13), + Keyboard shortcuts (2026-10-14)
     for (const t of tabs) {
       const panel = view.el.querySelector(`#${t.getAttribute('aria-controls')}`)
       assert.ok(panel, `tab ${t.textContent} controls a panel that is absent`)
