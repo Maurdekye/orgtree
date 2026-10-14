@@ -35,3 +35,12 @@ actual empty-transfer schema. A local WebSocket stub prevents real DNS or
 transport attempts. These changes affect proof data only; no product API
 or rendering semantics were changed. The baseline reverses only this item's
 rendering hunks in current combined source, preserving other batch work.
+
+Round 431 passed 14/14 focused tests and 12/16 browser cases. The four
+remaining failures were the proof's rapid zoom clicks: each HUD click starts
+a 220 ms animation, and the next click cancels it from its intermediate zoom.
+The proof now waits for each intended scale in the real `.space` transform,
+records every step and both restored/far measurements, and explicitly checks
+that the round trip crosses Z_MINI. Acceptance still requires the full 16-case
+rerun by rig-opus. The Python proof is committed in renderer/tests; the shared
+D:/orgtree-work/far-overview-proof.py copy is identical. No product change.
