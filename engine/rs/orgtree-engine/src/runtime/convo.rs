@@ -719,6 +719,25 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
         }
         _ => {}
     }
+    // A successful docket mutation records its actual locked before-state.
+    // Every provider already calls this with the uncut result before storing
+    // the row, so the small transition survives clipping and chat reloads.
+    if base == "orgtree_work" && !matches!(input["action"].as_str(), Some("get" | "list")) {
+        if let Some(v) = result.and_then(|r| serde_json::from_str::<Value>(r.trim()).ok()) {
+            let slug = ["updated", "superseded", "assigned"].iter().find_map(|k| v[*k].as_str());
+            if let (Some(slug), Some(from), Some(to)) = (slug, v["previous_status"].as_str(), v["status"].as_str()) {
+                let statuses = crate::domain::docket::STATUSES;
+                if v["isError"] != true && v["error"].is_null() && from != to && statuses.contains(&from) && statuses.contains(&to) {
+                    // Use the result's identity, never a later docket lookup.
+                    if let Some(r) = refs.iter_mut().find(|r| r["kind"] == "ticket" && r["id"] == slug) {
+                        r["status_change"] = json!({ "from": from, "to": to });
+                    } else if !slug.is_empty() {
+                        refs.push(json!({ "kind": "ticket", "id": slug, "status_change": { "from": from, "to": to } }));
+                    }
+                }
+            }
+        }
+    }
     Value::Array(refs)
 }
 
@@ -941,5 +960,47 @@ mod tool_refs_tests {
     fn other_tools_have_no_refs() {
         assert_eq!(tool_refs("Bash", &json!({ "command": "ls" }), None), json!([]));
         assert_eq!(tool_refs("orgtree_work", &json!({ "action": "update" }), None), json!([]));
+    }
+
+    #[test]
+    fn work_status_change_uses_the_successful_result_and_survives_serialization() {
+        for (action, key, from, to) in [
+            ("update", "updated", "in_progress", "blocked"),
+            ("accept", "updated", "blocked", "done"),
+            ("update", "updated", "done", "in_progress"),
+            ("update", "updated", "in_progress", "dropped"),
+            ("supersede", "superseded", "open", "superseded"),
+        ] {
+            let mut out = json!({ "previous_status": from, "status": to });
+            out[key] = json!("fix-x");
+            let refs = tool_refs("mcp__orgtree__orgtree_work", &json!({ "action": action, "slug": "fix-x" }), Some(&out.to_string()));
+            let stored: serde_json::Value = serde_json::from_str(&refs.to_string()).unwrap();
+            assert_eq!(stored, json!([{ "kind": "ticket", "id": "fix-x", "status_change": { "from": from, "to": to } }]));
+        }
+    }
+
+    #[test]
+    fn work_status_change_excludes_unproven_noop_malformed_and_refused_results() {
+        let input = json!({ "action": "update", "slug": "fix-x", "status": "done", "previous_status": "blocked" });
+        for out in [
+            None, Some("orgtree_work: refused"), Some("{}"),
+            Some(r#"{"updated":"fix-x","status":"done"}"#),
+            Some(r#"{"updated":"fix-x","previous_status":"done","status":"done"}"#),
+            Some(r#"{"updated":"fix-x","previous_status":"bogus","status":"done"}"#),
+            Some(r#"{"updated":"fix-x","previous_status":"blocked","status":"bogus"}"#),
+            Some(r#"{"updated":"fix-x","previous_status":"blocked","status":"done","isError":true}"#),
+            Some(r#"{"updated":"fix-x","previous_status":"blocked","status":"done","error":"refused"}"#),
+            Some(r#"{"archived":"fix-x"}"#),
+        ] {
+            assert_eq!(tool_refs("orgtree_work", &input, out), json!([{ "kind": "ticket", "id": "fix-x" }]));
+        }
+    }
+
+    #[test]
+    fn work_status_change_does_not_leak_to_reads_or_other_tools() {
+        let out = r#"{"updated":"fix-x","previous_status":"blocked","status":"done"}"#;
+        assert_eq!(tool_refs("orgtree_work", &json!({ "action": "get", "slug": "fix-x" }), Some(out)), json!([{ "kind": "ticket", "id": "fix-x" }]));
+        assert_eq!(tool_refs("orgtree_work", &json!({ "action": "list" }), Some(out)), json!([]));
+        assert_eq!(tool_refs("orgtree_staff", &json!({ "action": "update", "slug": "fix-x" }), Some(out)), json!([{ "kind": "ticket", "id": "fix-x" }]));
     }
 }

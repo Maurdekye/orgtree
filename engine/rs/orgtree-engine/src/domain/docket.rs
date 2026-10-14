@@ -1647,6 +1647,11 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     }
     let mut out = json!({ "updated": it.slug, "rev": it.rev, "status": it.status, "owner": it.owner_name(),
                           "manual_attention": it.attention.is_some() });
+    // The locked row is the authority for the before-state. No-op writes
+    // intentionally omit this, as do creation and archival-only actions.
+    if from_status != it.status {
+        out["previous_status"] = json!(from_status);
+    }
     if !notes.is_empty() {
         out["notes"] = json!(notes);
     }
@@ -1923,9 +1928,10 @@ pub async fn arrange(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, acti
     // Predicate reads protect link checks against concurrent move/supersede/delete.
     let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
     let (mut it, ctx, under) = managed(&*tx, org, who, slug, action).await?;
+    let from_status = it.status.clone();
     let now = Utc::now();
     let mut audit = json!({});
-    let out = match action {
+    let mut out = match action {
         "archive" => {
             if !attention_sources(&it, &ctx).is_empty() {
                 refuse!(Conflict, "{} still holds attention (a pending question or a manual flag)", it.slug);
@@ -1997,6 +2003,10 @@ pub async fn arrange(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, acti
         }
         other => refuse!(BadRequest, "unknown action {other}"),
     };
+    if from_status != it.status {
+        out["previous_status"] = json!(from_status);
+        out["status"] = json!(it.status);
+    }
     it.rev += 1;
     it.updated_at = now;
     save(&*tx, &it).await?;
