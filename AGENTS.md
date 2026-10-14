@@ -1,5 +1,15 @@
 # AGENTS.md — working on Orgtree
 
+- Main app menu orders App settings / Usage / Usage history; main ShellHeader
+  orders Inbox / Work (Docket) / Presentations / Org settings. `APP_FKEYS` backs
+  main-window function-key actions and the Settings explainer; typing fields
+  keep these keys active. F1 is app Settings, F9 org Settings. F10 arms only,
+  never releases a persistent halt; Shift+F10 immediately uses killAll. Local
+  arming expires after five seconds; keep mouse's 500 ms safety delay and other
+  modifier chords. See [function keys](docs/rust-engine/app-menu-shortcuts.md).
+  [decided: user/coordinator 2026-10-14; verified from source: `App.tsx`,
+  `shell/{menu,appshortcuts}.ts*`, `KillSwitch.tsx`]
+
 - App settings Harnesses is a compact registry list: installed state, cached
   discovery version (unknown when absent), and missing-only install links.
   OpenRouter / Language server tags use selectable registry provider IDs;

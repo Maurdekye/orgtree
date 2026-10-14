@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { killAll, releaseKillswitch } from './api'
 import { LockIcon, LockOpenIcon, StopIcon } from './icons'
 import type { ToastFn } from './types'
+
+export interface KillSwitchActions {
+  unlatch: () => void
+  haltNow: () => void
+}
 
 export interface KillSwitchProps {
   slug: string
@@ -23,6 +29,8 @@ export interface KillSwitchProps {
   releaseFn?: (slug: string) => Promise<{ released: boolean; status?: string }>
   enableDelayMs?: number
   autoRelatchMs?: number
+  /** Main-header shortcut custody; other copies never receive this ref. */
+  shortcutRef?: RefObject<KillSwitchActions | null>
 }
 
 /**
@@ -41,7 +49,7 @@ export interface KillSwitchProps {
  *    only after 500ms. Clicks during this window are discarded.
  * 4. Cancellation on re-latch: re-latching collapses the button and cancels any
  *    pending enable timer immediately, preventing stale/early enablement.
- * 5. Auto-relatch: if left unlatched, automatically re-latches after 6s.
+ * 5. Auto-relatch: if left unlatched, automatically re-latches after 5s.
  * Release gets no arming dance: it makes agents ELIGIBLE again but starts
  * nothing, so a stray click costs far less than a stray STOP ALL.
  */
@@ -55,13 +63,15 @@ export function KillSwitch({
   killFn = killAll,
   releaseFn = releaseKillswitch,
   enableDelayMs = 500,
-  autoRelatchMs = 6000,
+  autoRelatchMs = 5000,
+  shortcutRef,
 }: KillSwitchProps) {
   const [armed, setArmed] = useState(false)
   const [enabled, setEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
 
-  // 1. Auto-re-latch after 6s of being armed
+  // 1. Auto-re-latch after 5s of being armed
   useEffect(() => {
     if (!armed) return
     const t = setTimeout(() => {
@@ -91,8 +101,11 @@ export function KillSwitch({
     setArmed((a) => !a)
   }, [])
 
-  const handleKill = useCallback(() => {
-    if (!armed || !enabled || busy) return
+  // Same request/toast/repaint for mouse and emergency key. Only the mouse
+  // path checks the arming delay; Shift+F10 explicitly bypasses it.
+  const haltNow = useCallback(() => {
+    if (busyRef.current) return
+    busyRef.current = true
     setArmed(false)
     setEnabled(false)
     setBusy(true)
@@ -107,11 +120,29 @@ export function KillSwitch({
         if (onKilled) onKilled()
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
-      .finally(() => setBusy(false))
-  }, [armed, enabled, busy, killFn, slug, toast, refreshTree, onKilled])
+      .finally(() => { busyRef.current = false; setBusy(false) })
+  }, [killFn, slug, toast, refreshTree, onKilled])
+
+  const handleKill = useCallback(() => {
+    if (!armed || !enabled || busy) return
+    haltNow()
+  }, [armed, enabled, busy, haltNow])
+
+  useLayoutEffect(() => {
+    if (!shortcutRef) return
+    const actions = {
+      // F10 is arming only: never release the persistent org halt, never
+      // flip an already-open arming latch, and never reset its deadline.
+      unlatch: () => { if (!latched && !busyRef.current) setArmed(true) },
+      haltNow,
+    }
+    shortcutRef.current = actions
+    return () => { if (shortcutRef.current === actions) shortcutRef.current = null }
+  }, [shortcutRef, latched, haltNow])
 
   const handleRelease = useCallback(() => {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     releaseFn(slug)
       .then((r) => {
@@ -121,8 +152,8 @@ export function KillSwitch({
         if (refreshTree) refreshTree(slug)
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
-      .finally(() => setBusy(false))
-  }, [busy, releaseFn, slug, toast, refreshTree])
+      .finally(() => { busyRef.current = false; setBusy(false) })
+  }, [releaseFn, slug, toast, refreshTree])
 
   if (latched) {
     return (

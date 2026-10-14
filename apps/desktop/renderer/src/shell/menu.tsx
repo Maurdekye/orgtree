@@ -291,6 +291,11 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
           </button>
           <div className="shell-menu-sep" role="separator" />
           <button type="button" role="menuitem" className="shell-menu-item"
+            onClick={() => run(onAppSettings)}>
+            <SettingsIcon fontSize="inherit" />
+            <span className="shell-menu-label">App settings…</span>
+          </button>
+          <button type="button" role="menuitem" className="shell-menu-item"
             onClick={() => run(onUsage)}>
             <DataUsageIcon fontSize="inherit" />
             <span className="shell-menu-label">Usage…</span>
@@ -302,11 +307,6 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
               <span className="shell-menu-label">Usage history…</span>
             </button>
           )}
-          <button type="button" role="menuitem" className="shell-menu-item"
-            onClick={() => run(onAppSettings)}>
-            <SettingsIcon fontSize="inherit" />
-            <span className="shell-menu-label">App settings…</span>
-          </button>
           {/* NO "About Orgtree" ENTRY (user 2026-09-29): it only opened App
               settings, which the entry above already does. The running
               version is shown without any click instead — in an organization

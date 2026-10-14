@@ -199,7 +199,7 @@ test('§4 Re-latching collapses button and cancels pending enable timer (no stal
   }
 })
 
-test('§5 Auto-relatch collapses after 6s of inactivity', async () => {
+test('§5 Auto-relatch collapses after 5s of inactivity', async () => {
   useFakeClock()
   try {
     const view = await mountView(
@@ -216,11 +216,11 @@ test('§5 Auto-relatch collapses after 6s of inactivity', async () => {
     assert.equal(btn.disabled, false)
     assert.ok(latch.classList.contains('open'))
 
-    // Advance 5500ms (total 6000ms)
-    await advance(5500)
+    // Advance 4500ms (total 5000ms)
+    await advance(4500)
 
     // Auto-relatched
-    assert.ok(!latch.classList.contains('open'), 'latch auto-closed after 6s')
+    assert.ok(!latch.classList.contains('open'), 'latch auto-closed after 5s')
     assert.ok(btn.classList.contains('collapsed'), 'button collapsed after auto-relatch')
     assert.equal(btn.disabled, true)
 

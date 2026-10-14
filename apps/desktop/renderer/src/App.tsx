@@ -46,6 +46,7 @@ import { OrgRows } from './shell/orgrows'
 export { AdvancedOrgModal, OrgRows }
 import { ShellAction, ShellHeader } from './shell/header'
 import { OrgtreeMenu } from './shell/menu'
+import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
 import { OrgStatusBar } from './shell/statusbar'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
@@ -100,6 +101,7 @@ import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
 import { ObjectNavProvider } from './canvas/objectnav'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
+import type { KillSwitchActions } from './KillSwitch'
 import {
   AutorenewIcon, BlockIcon, CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, EyeIcon, LanIcon,
   DataUsageIcon, ShowChartIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HearingIcon, HomeIcon, LockIcon,
@@ -1275,6 +1277,44 @@ export default function App() {
   const buttonColours = useButtonColours(v3 ? slug : null, buttonNodes)
   const setViewMode = useCallback((m: OrgView) => setOrgView(v3 ? slug : null, m),
     [v3, slug])
+  const mainKillswitch = useRef<KillSwitchActions | null>(null)
+  const openAccounts = () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)
+  const openInbox = () => {
+    setInboxJump(null)
+    toggleSurface('inbox', showInbox, setShowInbox)
+  }
+  const openDocket = () => toggleSurface('docket', showDocket, setShowDocket)
+  const openPresentations = () => toggleSurface('gallery', showGallery, setShowGallery)
+  const openOrgSettings = () => toggleSurface('org-settings', showSettings, setShowSettings)
+  useAppShortcuts({
+    settings: openAccounts, usage: toggleUsage, usageHistory: toggleUsageHistory,
+    refresh: () => refreshFromHeader(document),
+    ...(slug && tree ? {
+      inbox: openInbox, docket: openDocket, presentations: openPresentations,
+      orgSettings: openOrgSettings,
+      view: () => {
+        // Centred app/org panels are another view; return to the canvas.
+        // Existing pinned/detached surfaces keep their placement and content.
+        const panels = [
+          { kind: 'app-settings', open: showAccounts, close: () => { setShowAccounts(false); setAppSettingsTab(undefined) }, org: null },
+          { kind: 'defaults', open: showDefaults, close: () => setShowDefaults(false), org: null },
+          { kind: 'usage', open: showUsage, close: () => setShowUsage(false), org: slug },
+          { kind: 'usage-history', open: showUsageHistory, close: () => setShowUsageHistory(false), org: slug },
+          { kind: 'inbox', open: showInbox, close: () => setShowInbox(false), org: slug },
+          { kind: 'docket', open: showDocket, close: () => setShowDocket(false), org: slug },
+          { kind: 'gallery', open: showGallery, close: () => setShowGallery(false), org: slug },
+          { kind: 'org-settings', open: showSettings, close: () => setShowSettings(false), org: slug },
+        ]
+        let panelOpen = false
+        for (const panel of panels) if (panel.open) closeIfCentred(panel.kind, () => {
+          panelOpen = true; panel.close()
+        }, panel.org)
+        setViewMode(nextMainView(viewMode, panelOpen))
+      },
+      unlatch: () => mainKillswitch.current?.unlatch(),
+      halt: () => mainKillswitch.current?.haltNow(),
+    } : {}),
+  })
   // The freshness of the tree Attention reads its question rows out of. Owned
   // here because the fetch is owned here, and handed to the view through the
   // canvas owner's slot closure below. Absent means unknown on their side,
@@ -1316,7 +1356,7 @@ export default function App() {
       onUsageHistory={toggleUsageHistory}
       isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
-      onAppSettings={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)} />
+      onAppSettings={openAccounts} />
   )
 
   const pick = (s: string) => { setSlug(s); setDrawer(false) }
@@ -1478,13 +1518,9 @@ export default function App() {
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — icons only, named by aria-label */}
+                    <AskBell tree={tree} label="Inbox" onOpen={openInbox} />
                     <DocketToolbarButton label="Work" org={tree.slug}
-                      summary={tree.work_items_summary}
-                      onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
-                    <AskBell tree={tree} label="Inbox" onOpen={() => {
-                      setInboxJump(null)
-                      toggleSurface('inbox', showInbox, setShowInbox)
-                    }} />
+                      summary={tree.work_items_summary} onClick={openDocket} />
                     <ShellAction label="Presentations"
                       title={activeDocCount(tree.roots) > 0
                         ? `presented documents — ${activeDocCount(tree.roots)} from currently-hired agents`
@@ -1492,19 +1528,19 @@ export default function App() {
                       icon={<DocIcon fontSize="inherit" />}
                       badge={activeDocCount(tree.roots) > 0
                         ? <b className="eye-count">{activeDocCount(tree.roots)}</b> : undefined}
-                      onClick={() => toggleSurface('gallery', showGallery, setShowGallery)} />
+                      onClick={openPresentations} />
                     {/* no Usage button here (user 2026-09-28): usage covers
                         the whole app, not this organization, so it opens only
                         from the Orgtree menu's "Usage…", with no near-limit
                         warning anywhere ("we can do without the warning") */}
                     <ShellAction label="Org settings"
                       icon={<SettingsIcon fontSize="inherit" />}
-                      onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)} />
+                      onClick={openOrgSettings} />
                   </>}
                   /* LEFT of the action row (user 2026-09-29): arming STOP ALL
                      grows into the gap and never moves the buttons above */
                   guard={<KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
-                    latched={!!tree.killswitch} />} />
+                    latched={!!tree.killswitch} shortcutRef={mainKillswitch} />} />
               ) : (
               <header className={'orgbar' + (desktop() ? ' native-header' : '')}>
                 <div className="native-header-main">
@@ -1636,7 +1672,7 @@ export default function App() {
                     every agent stops and STAYS stopped until the explicit
                     release this same control offers while latched */}
                 <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
-                  latched={!!tree.killswitch} />
+                  latched={!!tree.killswitch} shortcutRef={mainKillswitch} />
                 {/* the SECOND inbox icon (user ruling 2026-08-04): it glows
                     iff an un-nulled ask (question or credit request) is
                     waiting on the user. It was the only glowing control in
