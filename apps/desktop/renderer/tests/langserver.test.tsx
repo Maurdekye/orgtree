@@ -457,26 +457,63 @@ test('save lifecycle: a pending save cannot be dismissed; a rejected save keeps 
 
 test('direct server switch changes only that server enabled flag and preserves configuration', async () => {
   const seen: Seen[] = []
+  const toasts: string[][] = []
   stubFetch(seen, { second: true, keySet: true })
-  const view = await mountSection([])
+  const view = await mountSection(toasts)
   try {
-    const toggle = () => view.el.querySelector<HTMLInputElement>('input[aria-label="Use Ollama"]')!
-    const other = () => view.el.querySelector<HTMLInputElement>('input[aria-label="Use Other server"]')!
+    // the switch is each server's "Active" (user 2026-10-14), named `<server> active`
+    const toggle = () => view.el.querySelector<HTMLInputElement>('input[aria-label="Ollama active"]')!
+    const other = () => view.el.querySelector<HTMLInputElement>('input[aria-label="Other server active"]')!
     assert.equal(toggle().checked, true)
     await click(toggle())
     assert.equal(toggle().checked, false)
+    assert.deepEqual(toasts.at(-1), ['Ollama inactive'])
     assert.equal(other().checked, true)
     assert.equal(document.querySelector('.provider-dialog'), null, 'direct switch needs no configuration dialog')
     assert.ok(view.el.querySelector('.ls-server .ls-digest')!.textContent?.includes('key: set'))
     assert.ok(view.el.textContent?.includes(LATEST), 'offered model configuration retained')
     await click(toggle())
     assert.equal(toggle().checked, true)
+    assert.deepEqual(toasts.at(-1), ['Ollama active'])
     assert.equal(other().checked, true)
     assert.deepEqual(seen.filter(r => r.method === 'PATCH').map(r => ({ path: r.path, body: r.body })), [
       { path: '/api/langservers/ollama', body: { enabled: false } },
       { path: '/api/langservers/ollama', body: { enabled: true } },
     ])
     assert.equal(seen.filter(r => r.method === 'DELETE' || r.path.endsWith('/key')).length, 0)
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+// user 2026-10-14: "this enabled checkbox should be inline in the panel, like
+// the other providers, and it should say active". An OpenRouter key's switch
+// (KeyActive) and an account's sit INSIDE the row's panel and read "Active";
+// a language server's sat below its card and read "Enabled".
+test('a server\'s switch reads "Active" and sits inside its panel, like an OpenRouter key\'s', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen, { second: true, keySet: true })
+  const view = await mountSection([])
+  try {
+    for (const name of ['Ollama', 'Other server']) {
+      const box = view.el.querySelector<HTMLInputElement>(`input[aria-label="${name} active"]`)!
+      assert.ok(box, `${name} has its Active switch`)
+      const row = box.closest('.set-row')!
+      assert.equal(row.querySelector('.set-label')?.textContent, 'Active', 'the visible label is "Active"')
+      const panel = box.closest('.acct-row.ls-server-row')
+      assert.ok(panel, `${name}'s switch is inside its server panel`)
+      assert.equal(row.parentElement, panel, 'a direct child of the panel, as KeyActive is of the key row')
+      const server = box.closest('.ls-server')!
+      assert.equal(server.querySelector('.ls-server-toggle'), null, 'no standalone row under the card')
+      assert.doesNotMatch(server.textContent ?? '', /Enabled/, 'nothing on the server says "Enabled"')
+      assert.match(row.getAttribute('title') ?? '', /^Active: /)
+    }
+    // inactive: the title and a note in the panel use the same vocabulary
+    await click(view.el.querySelector('input[aria-label="Ollama active"]'))
+    const panel = view.el.querySelector('input[aria-label="Ollama active"]')!.closest('.acct-row.ls-server-row')!
+    assert.match(panel.querySelector('.set-row')!.getAttribute('title') ?? '', /^Inactive: /)
+    const note = [...panel.children].find((c) => c.classList.contains('account-note'))
+    assert.ok(note, 'the inactive note is a direct child of the panel')
+    assert.match(note.textContent ?? '', /^Inactive: no new hires; existing agents wait for this server to be active again\./)
+    assert.doesNotMatch(panel.textContent ?? '', /\benabled\b|\bdisabled\b/i)
   } finally { await view.unmount(); delete g.fetch }
 })
 
