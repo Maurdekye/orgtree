@@ -55,6 +55,8 @@ export default async function (rig) {
         && changes[0].kind === 'ticket' && changes[0].id === slug
         && changes[0].status_change.from === c.from && changes[0].status_change.to === c.to, changes)
       p.check(`${id}: fresh chat retains the same captured transition`, !!reload && !!chip
+        && reload.refs?.some(r => r.kind === 'ticket' && r.id === slug
+          && r.status_change?.from === c.from && r.status_change?.to === c.to)
         && JSON.stringify(reload.refs) === JSON.stringify(chip.refs), reload?.refs)
     } else {
       p.check(`${id}: ${c.failed ? 'refused' : 'non-status'} call adds no transition`, !!chip && !!reload
