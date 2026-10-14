@@ -5,8 +5,11 @@ ordering-sol); engine foundation `undo-history-engine-foundation-durable-journal
 (openrouter-keys-opus). Design input: ordering-sol's packet
 `D:/orgtree-work/ordering-sol/undo-history-design.md`.
 
-Status: **contract v1, 2026-10-14.** The renderer builds against this document. A
-change to anything below is announced to the renderer owner before it lands.
+Status: **contract v1.1, 2026-10-14** (implemented; v1.1 answered the renderer's
+questions: step back-references, duplicate results, 100 steps, and the route
+rename forced by the existing `/history` browser). The renderer builds against
+this document. A change to anything below is announced to the renderer owner
+before it lands.
 
 ## Rulings this implements
 
@@ -21,7 +24,8 @@ change to anything below is announced to the renderer owner before it lands.
 
 ## Model
 
-One table, `ot.undo_entries` (migration `0023_undo_history`), per org:
+Two tables (migration `0023_undo_history`): `ot.undo_heads` (one row per org:
+the history lock and the feed revision `rev`) and `ot.undo_entries`, per org:
 
 | column | meaning |
 |---|---|
@@ -73,7 +77,11 @@ compact, org settings, chat.
    `POST /api/orgs/{slug}/nodes/{nid}/reorder`, `POST /api/orgs/{slug}/nodes/{nid}/account`
    and `POST /api/orgs/{slug}/nodes/{nid}/scope` record one entry per
    successful, non-no-op request of a covered op. Each also accepts the
-   optional `history_label` (≤ 120 chars) and `request_id` (≤ 64 chars).
+   optional `history_label` (≤ 120 chars) and `request_id` (≤ 64 chars). A
+   single request runs exactly as a one-step gesture (below), so these routes
+   now run in one serializable transaction, retried on a serialization
+   conflict as `/ops` always was. A move that leaves an agent with the same
+   parent, live neighbours and state (a reorder onto its own place) is a no-op.
 2. **Several requests in one gesture** (settings Save; side or superior hire
    plus its placement; a multi-member pile reorder) use the new gesture route,
    which runs every step in **one transaction** and records **one entry**:
@@ -87,30 +95,52 @@ POST /api/orgs/{slug}/gesture
              { "op": "scope", "node": "alice", "effort": "high", "tools": {"web": true} } ] }
 ```
 
-- `steps`: 1–20 items. Each item is an ordinary op request; `op` is one of
+- `steps`: 1–100 items (more: **400 `gesture_too_large`**). Each item is an ordinary op request; `op` is one of
   `move`, `moves`, `reorder`, `hire`, `retire`, `retool`, `switch_model`,
   `account`, `scope`. `scope` takes the same body as
   `POST /api/orgs/{slug}/nodes/{nid}/scope` plus `node`; `account` the same
   body as `POST /api/orgs/{slug}/nodes/{nid}/account` plus `node`.
+- **Back-references** (v1.1): a string value that is exactly `"$<i>.node"`,
+  where `i` is an EARLIER step's zero-based index, is replaced by that step's
+  answered `node` before the step runs, in the fields `node`, `target`,
+  `parent`, `new_parent`, `above`, `before`, `after` and `moves[].node` /
+  `moves[].new_parent`. A reference to the step itself or a later one, any
+  other `$…` form, or a step that answered no `node`: **400 `gesture_ref`**.
+  Example (a side hire placed first): `[{"op":"hire","name":"dana","parent":"bob","tier":"sonnet"},
+  {"op":"reorder","node":"$0.node","index":0}]`. A superior hire needs no
+  extra step: the `hire` op itself moves its `above` anchor.
 - Every step runs through the same code and permission checks as its own
   route, in order, in one serializable transaction; effects are published only
   after commit. Any step refusing refuses the whole gesture (nothing applied).
 - The gesture's kind: `hire` when a step is `hire`; `retire` when a step is
   `retire`; else `move` when every step is `move`/`moves`/`reorder`; else
   `retool` when every step is `retool`/`switch_model`/`account`/`scope`.
-  Any other mix is refused **400 `gesture_mixed`**.
+  A `hire` gesture may hold only `hire`, `move`, `moves` and `reorder` steps,
+  a `retire` gesture only `retire` steps. Any other mix is refused **400
+  `gesture_mixed`**, and an op outside the list **400 `gesture_op`**; both
+  before anything runs.
 - Answer: `{ "results": [ <each step's own answer> ], "history_entry": {…} }`.
 
 Every recording answer (single op or gesture) carries
 `"history_entry": { "id": 41, "kind": "move", "label": "Move alice under bob" }`.
 A request whose `request_id` this org already recorded is **not applied
-again**: the answer is `{ "duplicate": true, "history_entry": {…} }` (200).
+again**: the answer is `{ "duplicate": true, "history_entry": {…}, "results": [ { "node": … } ] }`
+(200): one item per original step, `node` the CURRENT name of the agent that
+step touched (followed by numeric id, so a later rename shows), or null. The
+original step answers are not replayed. A request id is remembered as long as
+its entry is (the bound prunes it, and a new action deletes an undone one).
+A refused request (any step refusing) records nothing, so it may be retried
+with the same id.
 
 ## Endpoints
 
 All are user routes (the windows); there is no MCP tool.
 
-### `GET /api/orgs/{slug}/history`
+**Route rename (v1.1):** `/api/orgs/{slug}/history` and `/history/{section}`
+are the existing Settings › History browser, so the undo routes live under
+`/undo-history`.
+
+### `GET /api/orgs/{slug}/undo-history`
 
 ```json
 { "bound": 100,
@@ -127,7 +157,7 @@ only) says the target is a hire whose agent has started at least one turn.
 No before/after values, charter text, scope payloads or account records are
 ever in a response.
 
-### `POST /api/orgs/{slug}/history/undo` and `/history/redo`
+### `POST /api/orgs/{slug}/undo-history/undo` and `/undo-history/redo`
 
 Body: `{ "id": 41, "confirm": "<token>" }`; `id` is required (the entry the
 window shows), `confirm` only for a confirmed hire undo.
@@ -149,16 +179,26 @@ window shows), `confirm` only for a confirmed hire undo.
 
 ### Feed
 
-Each org's feed carries a record **`undo`**: `{ "rev": 17, "undo": <target or
-null>, "redo": <target or null> }` (the GET shape's `undo`/`redo`). `rev`
-changes on every record, undo, redo, refusal or pruning; a window refetches
-`GET …/history` when it needs the list.
+Each org's feed carries the org header group **`undo`** (record `org`/`undo`)
+with one field, `undo_history`: `{ "rev": 17, "undo": <target or null>,
+"redo": <target or null> }` (the GET shape's `undo`/`redo`). `rev` changes on
+every record, undo, redo, refusal or pruning; a window refetches
+`GET …/undo-history` when it needs the list. The renderer adds `'undo'` to its
+`treeOrgGroups`; a renderer that does not ignores the group.
 
 ## Inverses and guards
 
 Every inverse runs in one serializable transaction through the same code paths
-and permission checks as the forward operation (`Actor::User`), with the
-org/history row locked first, then agent rows. Guards compare **only the
+and permission checks as the forward operation (`Actor::User`): `move`,
+`reorder` (placing after the recorded previous live sibling, else before the
+recorded next one), `retire`, `rehire` (with an explicit `target`, never the
+nearest-ancestor fallback), `switch_model`, `account` and the user scope save.
+The history head is locked first, then the org row, then agent rows. Any
+refusal from a guard or from the forward code (a parent no longer live, no
+room for a stake, a model or login no longer allowed) is the entry's reason;
+the transaction rolls back to before the inverse and only the entry's state
+changes. After an undo or redo the entry keeps the positions that now stand,
+so the next redo or undo guards against them. Guards compare **only the
 facts the entry touched**, never an agent's whole `row_version`: turns, mail,
 status and unrelated settings changes never invalidate an entry.
 
@@ -175,17 +215,38 @@ inside the undo transaction.
 ## Entry data allowlist (internal; never in a response or a log)
 
 - Identities are numeric agent ids; names are only in labels.
-- `move`: per moved agent `{agent, before: {parent, order, prev, next, state}, after: {parent, order}}`
+- Every entry: `steps`, the numeric agent id each step touched (or null),
+  for the duplicate answer.
+- `move`: `{moved: [{agent, live, before: {parent, order, prev, next}, after: {parent, order, prev, next}}]}`
   where `prev`/`next` are the neighbouring live siblings' ids.
-- `hire`: `{agent, after: {parent, order}, anchor?: <move facts of the superior-hire anchor>}`.
-- `retire`: `{root, members: [{agent, parent, order, prev, next}], seat, grant}`.
-- `retool`: `{agent, fields: {<name>: {before, after}}}`; names from the
-  retool list above; values are the field's stored value or the marker
-  `{"absent": true}`; `account` stores only the account id.
+- `hire`: `{hires: [{agent, after: {parent, order, prev, next}}], moved: [<move facts>]}`;
+  `moved` holds the superior hire's `above` anchor and any other agent a
+  placement step moved.
+- `retire`: `{retires: [{root, before: {parent, order, prev, next}, members: [{agent, parent, order}]}]}`;
+  members top-down, siblings in order; a team retired inside another team of
+  the same gesture belongs to the first step that retired it. A retire whose
+  team exceeds 2000 members is applied but not recorded.
+- `retool`: `{agents: [{agent, fields: {<name>: {before, after}}}]}`; names
+  `add_dirs`, `tools`, `org_visibility`, `permission_mode`, `effort`,
+  `model_version`, `account_fallback`, `auto_cheap_compact`, `charter`,
+  `team_charter`, `tier`, `account`; values are the configured value (a queued
+  switch or account counts) or the marker `{"absent": true}` (an empty charter
+  is absent); `account` stores only the account id. Only fields whose value
+  differs before and after are recorded.
 - Never: request bodies, settings objects, account records, credentials,
   tokens, transcript or mail text.
 
 ## Limits
+
+- A retool's undo restores the agent's own fields only: a grant the forward
+  change raised on its ancestors or into the org's folders stays raised (a
+  user grant is never withdrawn behind the user's back), and a folder a
+  forward narrowing clamped from agents beneath is not handed back.
+- A Muse seat's catalog is refreshed before an undo or redo that switches its
+  model, as before the forward op; a scope save's effort or version check on a
+  Muse seat reads the logins as last refreshed.
+- The confirmation token binds the entry, each hired agent and its turn count
+  (`ot.turns` rows, a started turn counts); it is not a secret.
 
 - The forward routes stay as they are; the renderer moves composite gestures
   onto `/gesture` to get one entry per gesture.

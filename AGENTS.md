@@ -684,6 +684,19 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   newer pending drag. [verified: renderer `canvas/pendingorder.ts`,
   `canvas/OrgCanvas.tsx`, 2026-10-11; proof: `docs/rust-engine/move-preview.md`]
 
+- **The user's undo history** (migration 0023, `domain/undo.rs`): the user's own move,
+  hire, retire and retool gestures record one typed entry each (numeric ids, positions,
+  configured values; never request bodies, credentials or text), 100 per org, durable.
+  `/ops` (covered ops), `nodes/{nid}/reorder|account|scope` and `POST /gesture` run as
+  one-step or multi-step gestures in ONE serializable transaction; undo/redo replay the
+  forward ops as `Actor::User` behind guards on the touched facts only, and any refusal
+  marks that entry refused (refuse-then-older). Lock order: `ot.undo_heads` row, org row,
+  agent rows. Agent tools, approvals and replays never record. Routes are under
+  `/undo-history` (`/history` is the Settings browser); the feed's org group `undo`
+  carries `undo_history`. A new recorded op must add its kind or stay out of
+  `RECORDED_OPS`. See [undo history](docs/rust-engine/undo-history.md).
+  [decided: user 2026-10-14 18:27Z, coordinator 18:34Z; verified: `domain/undo.rs`]
+
 - **Several OpenRouter keys at once, every key alike.** Each key is its own hidden registry
   row (provider `openrouter`, kind `apikey`, secret in `ot.account_secrets`), id
   `openrouter-N` (N from 1, never reused); a key's lane is its id. **No key is special**
