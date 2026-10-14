@@ -17,6 +17,8 @@
 //     desk uses, so subscription-gated liveness is exercised rather than faked
 
 import { JSDOM } from 'jsdom'
+// Reuse the harness dependency for additional native-document fixtures.
+export { JSDOM }
 import { compatibilityWorkFixture } from './workcompat.fixture'
 import { mock } from 'node:test'
 import type { ChatMessage, ChatPayload, LiveRowPayload, PendingMail } from '../src/types'

@@ -1,7 +1,6 @@
-import './harness'
+import { JSDOM } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { JSDOM } from 'jsdom'
 import { historyShortcut } from '../src/undokeys'
 
 test('history recognizes undo and both requested redo chords without consuming events', () => {
