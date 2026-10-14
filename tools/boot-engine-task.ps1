@@ -154,6 +154,28 @@ function Request-BootEngineShutdown($Record, [string]$InstallDir) {
     } catch { return $false }
 }
 function Get-BootProcessKey($Process) { return "$($Process.ProcessId):$($Process.CreationDate)" }
+# The installer's lifecycle log, the file the close helper (installer-upgrade.ps1)
+# appends to, so one file tells a whole upgrade. Best effort: a log that cannot be
+# written never fails a step. An I/O boundary; the tests replace it.
+function Get-BootLogPath { return (Join-Path ([IO.Path]::GetTempPath()) 'orgtree-installer-upgrade.log') }
+function Write-BootLog([string]$Message) {
+    try { Add-Content -LiteralPath (Get-BootLogPath) -Value ('{0} pid={1} boot: {2}' -f [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'), $PID, $Message) -Encoding UTF8 }
+    catch { }
+}
+# One process as a failure names it: image, pid, parent, path and, for the
+# engine binary only, the mode it runs in (host, core-recovery watch, ...). No
+# other command line is repeated: an agent's tool command may carry anything.
+function Get-BootProcessLabel($Process) {
+    $field = { param($Name) $value = $Process.PSObject.Properties[$Name]; if ($null -ne $value) { $value.Value } }
+    $name = [string](& $field 'Name'); if (-not $name) { $name = '<unnamed>' }
+    $path = [string](& $field 'ExecutablePath'); if (-not $path) { $path = '<path unreadable>' }
+    $parent = & $field 'ParentProcessId'; if ($null -eq $parent) { $parent = '?' }
+    $mode = ''
+    if ($name -ieq 'orgtree-engine.exe' -and [string](& $field 'CommandLine') -cmatch '^\s*(?:"[^"]*"|\S+)\s+"?([a-z][a-z-]*)"?(?=\s|$)(?:\s+([a-z][a-z-]*)(?=\s|$))?') {
+        $mode = ((@($Matches[1], $Matches[2]) | Where-Object { $_ }) -join ' ') + ', '
+    }
+    return "$name pid $(& $field 'ProcessId') (${mode}parent $parent) at $path"
+}
 function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
     foreach ($p in $Processes) {
         if ($null -eq $p -or $p.ExecutablePath -or [int]$p.ProcessId -in @(0,4)) { continue }
@@ -166,7 +188,10 @@ function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
         if ($null -ne $command -and $command.Value -and
             $command.Value.IndexOf($InstallDir+'\',[StringComparison]::OrdinalIgnoreCase) -ge 0) { $candidate=$true }
         if ($candidate) {
-            throw "Cannot verify executable path for process $($p.ProcessId). Installation files must not be replaced."
+            $label = '<unnamed>'; if ($null -ne $name -and $name.Value) { $label = $name.Value }
+            $parent = $p.PSObject.Properties['ParentProcessId']; $parentText = '?'; if ($null -ne $parent -and $null -ne $parent.Value) { $parentText = $parent.Value }
+            Write-BootLog "stop: cannot verify the executable path of process $($p.ProcessId) ($label, parent $parentText)"
+            throw "Cannot verify executable path for process $($p.ProcessId) ($label, parent $parentText). Installation files must not be replaced."
         }
     }
 }
@@ -354,6 +379,7 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
     $task = Find-BootTask $Folder
     $known = @{}
     $running = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
+    Write-BootLog "stop: $($running.Count) process(es) in the boot tree$(if ($running.Count) { ': ' + ((@($running | Select-Object -First 10 | ForEach-Object { Get-BootProcessLabel $_ })) -join '; ') })"
     $disabledByUs = $false
     $wasEnabled = $false
     try {
@@ -372,6 +398,7 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
             $asked = $false
             if ($running.Count -ne 0) { $asked = [bool](Request-BootEngineShutdown $Record $InstallDir) }
             if (-not $asked) { $task.Stop(0) }
+            Write-BootLog $(if ($asked) { 'stop: the engine took the shutdown request' } else { 'stop: ended the boot task' })
         } elseif ($known.Count -ne 0) { throw 'Engine running without an owned boot task. Close Orgtree before continuing.' }
         $clock = [Diagnostics.Stopwatch]::StartNew()
         do {
@@ -384,8 +411,19 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
                 if ($task.State -in @(2,4)) { $instances++ } # QUEUED or RUNNING also prevents copy
             }
             $remaining = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
-            if ($instances -eq 0 -and $remaining.Count -eq 0) { return }
-            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw "The Orgtree background engine or a process it started did not stop within $TimeoutSeconds seconds, so its files were not replaced. Open Orgtree, choose Quit Orgtree from its tray menu, then run Setup again." }
+            if ($instances -eq 0 -and $remaining.Count -eq 0) { Write-BootLog "stop: the boot tree is quiet after $([int]$clock.Elapsed.TotalSeconds) s"; return }
+            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                # Name what is still running (docket installer-can-t-replace-a-running-
+                # orgtree-an-ins, 2026-10-14: the dialog of two failed real upgrades
+                # named nothing). The dialog shows the first few; the log has all.
+                $held = @($remaining | ForEach-Object { Get-BootProcessLabel $_ })
+                if ($instances -gt 0) { $held = @("the $script:BootTaskName task ($instances instance(s) running)") + $held }
+                foreach ($line in $held) { Write-BootLog "stop: still running after $TimeoutSeconds s: $line" }
+                $shown = @($held | Select-Object -First 5)
+                $more = ''
+                if ($held.Count -gt $shown.Count) { $more = " and $($held.Count - $shown.Count) more (all are listed in $(Get-BootLogPath))" }
+                throw "The Orgtree background engine or a process it started did not stop within $TimeoutSeconds seconds, so its files were not replaced. Still running: $($shown -join '; ')$more. Open Orgtree, choose Quit Orgtree from its tray menu, then run Setup again."
+            }
             Start-Sleep -Milliseconds 200
         } while ($true)
     } catch {

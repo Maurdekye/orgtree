@@ -66,6 +66,10 @@ function Get-OperatorDataRoot([string]$Sid) { throw 'The operator data folder mu
 # The operator's own "Run on startup" from desktop-settings.json: none unless a test sets one.
 $script:operatorChoice=$null
 function Get-OperatorStartupChoice([string]$Sid) { return $script:operatorChoice }
+# The installer log is an I/O boundary too: these tests never append to the
+# real %TEMP%\orgtree-installer-upgrade.log.
+$script:bootLog=[Collections.Generic.List[string]]::new()
+function Write-BootLog([string]$Message) { $script:bootLog.Add($Message) }
 
 # Per-user positive path: no machine lookup at all, even with a foreign task.
 Invoke-BootLifecycle Prepare -InstallMode CurrentUser
@@ -116,7 +120,7 @@ Refuses { Invoke-BootLifecycle Remove ($dir+'-other') $sid } 'installation path'
 # Unreadable seed paths must fail before Stop or copy, even without a task.
 $script:processes=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate='A'; Name='python.exe'; ExecutablePath=$null})
 $script:events.Clear()
-Refuses { Invoke-BootLifecycle Prepare $dir $sid } 'Cannot verify executable path'
+Refuses { Invoke-BootLifecycle Prepare $dir $sid } 'Cannot verify executable path for process 101 \(python\.exe, parent 1\)\.'
 Assert (-not ($script:events -contains 'stop')) 'Unknown process was ignored before stop'
 $script:task=$null
 Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'Cannot verify executable path'
@@ -326,4 +330,27 @@ $script:folder | Add-Member -Force ScriptMethod RegisterTask $registerMethod
 $script:folder | Add-Member -Force ScriptMethod DeleteTask { throw 'deletion refused by scheduler' }
 Refuses { Invoke-BootLifecycle Remove $dir } 'deletion refused'
 Assert ($null -ne $script:record) 'Failed delete erased ownership record'
+
+# A timeout names what is still running (docket installer-can-t-replace-a-
+# running-orgtree-an-ins, 2026-10-14: two failed real upgrades named nothing):
+# image, pid, parent, path and the engine binary's mode, the first five in the
+# dialog and every one in the log; never another process's command line.
+$engineExe=Join-Path $paths.Engine 'orgtree-engine.exe'
+$desktopExe=Join-Path $dir 'Orgtree.exe'
+$watchLine='"'+$engineExe+'" core-recovery watch "C:\Users\op\AppData\Roaming\Orgtree v2\data" 4321 133999999999999999'
+$script:task=New-FakeTask $xml; $script:task.KeepProcesses=$true
+$script:processes=@([pscustomobject]@{ProcessId=4321; ParentProcessId=1; CreationDate='D'; Name='Orgtree.exe'; ExecutablePath=$desktopExe; CommandLine=('"'+$desktopExe+'"')},
+    [pscustomobject]@{ProcessId=501; ParentProcessId=4321; CreationDate='W'; Name='orgtree-engine.exe'; ExecutablePath=$engineExe; CommandLine=$watchLine},
+    [pscustomobject]@{ProcessId=502; ParentProcessId=501; CreationDate='C'; Name='conhost.exe'; ExecutablePath='C:\Windows\System32\conhost.exe'; CommandLine='\??\C:\Windows\system32\conhost.exe 0xffffffff -ForceV1'})
+$script:bootLog.Clear()
+Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } ([regex]::Escape("did not stop within 0 seconds, so its files were not replaced. Still running: orgtree-engine.exe pid 501 (core-recovery watch, parent 4321) at $engineExe; conhost.exe pid 502 (parent 501) at C:\Windows\System32\conhost.exe. Open Orgtree"))
+Assert (@($script:bootLog | Where-Object { $_ -like 'stop: still running after 0 s: *' }).Count -eq 2) "The log must name every process still running: $($script:bootLog -join ' | ')"
+Assert (-not (@($script:bootLog) -match 'ForceV1|Roaming|133999999999999999')) 'A command line beyond the engine''s mode was repeated'
+$script:processes=@(1..7 | ForEach-Object { [pscustomobject]@{ProcessId=600+$_; ParentProcessId=1; CreationDate="P$_"; Name='orgtree-engine.exe'; ExecutablePath=$engineExe; CommandLine=('"'+$engineExe+'" "host"')} })
+$script:bootLog.Clear()
+Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } ('Still running: (orgtree-engine\.exe pid 60[1-4] \(host, parent 1\) at [^;]+; ){4}orgtree-engine\.exe pid 605 \(host, parent 1\) at [^;]+ and 2 more \(all are listed in [^)]*orgtree-installer-upgrade\.log\)\. Open Orgtree')
+Assert (@($script:bootLog | Where-Object { $_ -like 'stop: still running after 0 s: *' }).Count -eq 7) 'The log must list all seven, not only the five shown'
+$script:processes=@(); $script:task.Instances=1
+Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'Still running: the Orgtree Background Engine task \(1 instance\(s\) running\)\. Open Orgtree'
+$script:task.Instances=0
 Write-Output "PASS $script:checks installer assertions; synthetic fixture: $root"
