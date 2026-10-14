@@ -648,7 +648,31 @@ pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value
     json!({ "id": t.id, "name": t.name, "agents": rows, "org_md": t.org_md.is_some(), "blocked": blocked, "ok": blocked.is_empty(), "top_grant": round2(top) })
 }
 
-/// The list the picker reads.
+/// A nonempty preset is unavailable only after checking, with no offered slot.
+#[nolog]
+pub fn unusable_here(planned: &[Planned], checking: bool) -> bool {
+    !checking && !planned.is_empty() && planned.iter().all(|p| p.tier.is_none())
+}
+
+/// Add machine availability without changing file validation or ordering.
+#[logged]
+pub fn summary_with_availability(t: &Result<Template, String>, source: &str, path: &str, av: &Avail) -> Value {
+    let mut out = summary(t, source, path);
+    if let Ok(t) = t {
+        if validate(t).is_empty() {
+            if let Ok((planned, _)) = plan(t, &Choices::default(), av, &[]) {
+                let unusable = unusable_here(&planned, av.checking);
+                let providers: BTreeMap<String, ()> = planned.iter().flat_map(|p|
+                    std::iter::once(&p.slot.tier).chain(&p.slot.fallback))
+                    .map(|tier| (catalog::provider_label(catalog::provider_of(tier)).to_string(), ())).collect();
+                let reason = unusable.then(|| format!("needs {}", providers.keys().cloned().collect::<Vec<_>>().join(" or ")));
+                out["availability"] = json!({ "unusable": unusable, "checking": av.checking, "reason": reason });
+            }
+        }
+    }
+    out
+}
+
 #[logged]
 pub fn summary(t: &Result<Template, String>, source: &str, path: &str) -> Value {
     match t {
@@ -825,6 +849,30 @@ pub fn write(id: &str, body: &str, replace: bool) -> Result<PathBuf, (u16, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn availability_summary_handles_none_partial_fallback_checking_and_empty() {
+        let codex = bundled("devteam-codex");
+        let av = claude_only();
+        let summary = |t: Template, av: &Avail| summary_with_availability(&Ok(t), "folder", "fixture.json", av);
+        let missing = summary(codex.clone(), &av);
+        assert_eq!(missing["availability"]["unusable"], true);
+        assert!(missing["availability"]["reason"].as_str().unwrap().starts_with("needs "));
+        let mut partial = codex.clone();
+        partial.agents[0].tier = "opus".into();
+        assert_eq!(summary(partial, &av)["availability"]["unusable"], false);
+        let mut fallback = codex.clone();
+        fallback.agents[0].fallback = vec!["opus".into()];
+        assert_eq!(summary(fallback, &av)["availability"]["unusable"], false);
+        let checking = Avail { checking: true, ..Avail::default() };
+        let pending = summary(codex.clone(), &checking);
+        assert_eq!(pending["availability"]["unusable"], false);
+        assert_eq!(pending["availability"]["checking"], true);
+        let mut empty = codex;
+        empty.agents.clear();
+        assert!(!unusable_here(&[], false));
+        assert!(summary(empty, &av)["availability"].is_null()); // validation remains separate
+    }
 
     /// A fresh folder of its own under the system temp folder.
     fn scratch(tag: &str) -> PathBuf {

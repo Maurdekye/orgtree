@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
@@ -14,12 +14,19 @@ use crate::engine::Engine;
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 
+#[derive(Deserialize, Default, Debug)]
+pub struct ListQuery {
+    #[serde(default)]
+    name: String,
+}
+
 #[logged]
-pub async fn list() -> ApiResult<Json<Value>> {
+pub async fn list(State(e): State<Arc<Engine>>, Query(q): Query<ListQuery>) -> ApiResult<Json<Value>> {
     // read afresh on every call: a file dropped into the folder shows at once
     let (list, problem) = tokio::task::spawn_blocking(templates::listing).await.map_err(|e| ApiError::internal(e.to_string()))?;
-    let all: Vec<Value> = list.iter().map(|(t, src, path)| templates::summary(t, src, path)).collect();
-    Ok(Json(json!({ "templates": all, "dir": templates::folder().to_string_lossy(), "folder_error": problem })))
+    let av = templates::avail(&e, &crate::util::slugify(&q.name, 200));
+    let all: Vec<Value> = list.iter().map(|(t, src, path)| templates::summary_with_availability(t, src, path, &av)).collect();
+    Ok(Json(json!({ "templates": all, "dir": templates::folder().to_string_lossy(), "folder_error": problem, "loading": av.checking })))
 }
 
 #[logged]
@@ -89,6 +96,7 @@ pub async fn resolve(State(e): State<Arc<Engine>>, Json(b): Json<ResolveBody>) -
         .map(|(k, o)| json!({ "tier": k, "seat": o.seat, "provider": o.provider })).collect::<Vec<_>>());
     // the first sign-in check has not landed: the picker asks again shortly
     out["loading"] = json!(av.checking);
+    out["unusable_here"] = json!(templates::unusable_here(&planned, av.checking));
     Ok(Json(out))
 }
 
