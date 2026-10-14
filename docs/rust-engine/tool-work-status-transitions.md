@@ -36,29 +36,36 @@ identical or missing states show no transition. Legacy transcripts without a
 recorded previous status show **nothing extra**, keeping their old ticket
 presentation. No guessed single new-state label is added.
 
-## Prepared verification and measured limits
+## Round 435 measured verification and limits
 
-Source/diff checks and JavaScript syntax checks passed. The following checks
-are prepared for rig-opus's queued batch and **have not run yet**:
+Source/diff and syntax checks passed. Rig-opus's source-exact batch
+`f2707c6` on `c8f4577` passed the focused gates; actual logs and durable
+result were inspected after delivery:
 
-- Three new `runtime::convo::tool_refs_tests` cases (nine total) cover real
+- Three new `runtime::convo::tool_refs_tests` cases (nine total, all passed) cover real
   changed results, serialization, no-op/unobserved/malformed/refused data,
   input poisoning, reads and other tools.
-- Six mounted `workstatus.test.tsx` cases cover docket wording/colour classes,
+- Six mounted `workstatus.test.tsx` cases passed 6/6 and cover docket wording/colour classes,
   legacy/no-op/unknown/failed rows, writing/running input, ticket identity and
   navigation/fold preservation, and shared message serialize/reload.
 - The renderer red control substitutes only the prior `830f0e2` ToolRefs
-  implementation with the new tests. Expected: three transition cases fail,
-  three omission controls pass. Green must pass all six.
-- `tools/rig/proofs/work-status-transition.mjs` prepares 33 checks of actual
+  implementation with the new tests. Actual: three transition cases failed,
+  three omission controls passed, exactly as predicted.
+- `tools/rig/proofs/work-status-transition.mjs` passed 33/33 checks of actual
   synthetic MCP results, SQL-stored chips and fresh chat capture: seven
   transitions (including implicit/explicit reopen, drop, accept, supersede),
   eight non-status/refused controls, final archive semantics, and concurrent
   updates whose returned before/after pairs must form the serialized chain.
-  It retains `persisted-and-reloaded.json` and fake CLI logs.
-- Root typecheck and existing tool-writing/menu/shell renderer suites remain
-  part of the batch regression gate.
+  It retains `persisted-and-reloaded.json` and fake CLI logs. The base-engine
+  red passed 11 controls and failed the 22 target checks, exactly as predicted.
+- Root typecheck exited 0; writing/menu/shell regressions passed 16/16.
 
-No native/renderer/proof/visual pass, installed-app behaviour, real-provider
-behaviour, device check, build, install or integration is claimed here.
-Update this section with exact-source receipts after the batch returns.
+Logs: `D:/orgtree-work/tmp/rig-opus/batch-435/logs/{b-test-union-f27,
+s1-green,s1-red,s1-typecheck,s1-tool-regression,proof-f27-work-status-transition,
+proof-red-work-status-transition}.log`. Durable proof:
+`D:/orgtree-work/rig/rig-opus/evidence/work-status-transition-20261014T152326`.
+Final union500/502 retains the two base-identical contextmenu B4/B4b failures;
+they are not counted as passing. Coordinator marked the item done and integrated
+batch f2707c6 into local rust-engine6a299ee, subsequently included in alpha.3
+source ae0b5fd. No fresh visual, installed-app, real-provider or device
+verification is inferred from that integration or restart.
