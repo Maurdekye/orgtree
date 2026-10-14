@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Live tool writing/execution clocks floor actual elapsed seconds and schedule
+  at boundaries relative to the observed start; completed formatting remains
+  precise. Codex tool generation requires a genuine pre-execution observation,
+  never the execution span or unrelated preceding/turn time. See
+  [live clocks and probe status](docs/rust-engine/live-tool-clock.md).
+  [decided: user/coordinator 2026-10-14; verified from source: `toolclock.tsx`]
+
 - Transcript `orgtree_work` ticket refs carry `status_change` only from a
   committed mutation result's locked `previous_status` and final status.
   Shared tool rows reuse docket wording/colours; failures, no-ops and legacy
