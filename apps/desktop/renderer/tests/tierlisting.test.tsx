@@ -15,18 +15,18 @@
 //   §5 every chooser: the canvas hire chips, the hire sheet (and what it opens on), the
 //      agent settings model switch and the rehire list
 
-import { FakeServer, flush, installFetch, mountView } from './harness'
+import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   ALL_TIERS, ANTIGRAVITY_TIERS, ANTIGRAVITY_TIERS_LISTED, bySeatDesc, byOpenrouterPriceDesc, CODEX_TIERS,
   CODEX_TIERS_LISTED, hireTierChoices, MUSE_TIERS, MUSE_TIERS_LISTED, openrouterPriceClass,
-  setMuseProvider, setOfferedConditionalTiers, TIERS, TIERS_LISTED, USER,
+  setMuseProvider, setOfferedConditionalTiers, setOpenRouterTiers, setLangServerTiers, TIERS, TIERS_LISTED, USER,
 } from '../src/canvas/shared'
 import type { CanvasNode, HireState } from '../src/canvas/shared'
 import { quickChatTier } from '../src/quickchat'
-import { NodeSquare } from '../src/canvas/cards'
+import { NodeSquare, SpawnChips } from '../src/canvas/cards'
 import { HireSheet } from '../src/canvas/OrgCanvas'
 import { NodeConfig } from '../src/canvas/modals'
 import { LineagePanel } from '../src/canvas/desk'
@@ -172,15 +172,77 @@ function card(node: CanvasNode) {
     (el) => el)
 }
 
-test('§5 canvas hire chips: each family dearest first', async (t: TestContext) => {
+test('§5 canvas hire chips: each family cheapest first', async (t: TestContext) => {
   fresh(t)
   const v = await card(agent())
   t.after(() => v.unmount())
   const seen = [...v.el.querySelectorAll<HTMLButtonElement>('.hsof:not(.side) button')].map(tierOf)
-  assert.deepEqual(within(seen, TIERS), ['fable', 'opus', 'sonnet', 'haiku'])
-  assert.deepEqual(within(seen, CODEX_TIERS), ['astra', 'sol', 'luna'])
-  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['agy-opus', 'agy-sonnet', 'flash'])
-  assert.deepEqual(within(seen, MUSE_TIERS), ['wonder-full', 'wonder', 'spark'])
+  assert.deepEqual(within(seen, TIERS), ['haiku', 'sonnet', 'opus', 'fable'])
+  assert.deepEqual(within(seen, CODEX_TIERS), ['luna', 'sol', 'astra'])
+  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['flash', 'agy-sonnet', 'agy-opus'])
+  assert.deepEqual(within(seen, MUSE_TIERS), ['spark', 'wonder', 'wonder-full'])
+})
+
+for (const side of [undefined, 'left', 'right', 'top'] as const) {
+  test(`hire price ${side ?? 'bottom'}: payload seats, stable ties, family order and actions stay truthful`, async t => {
+    fresh(t)
+    const custom = { ...SEATS, haiku: 8, sonnet: 1, opus: 1, fable: .25,
+      luna: 6, sol: 2, astra: .5, spark: 11, wonder: 4, 'wonder-full': .75 }
+    const hired: string[] = []
+    const v = await mountView(<SpawnChips side={side} seats={custom} onSpawn={tier => hired.push(tier)}
+      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['flash', 'carbon', 'agy-sonnet', 'agy-opus'] }} />, el => el)
+    t.after(() => v.unmount())
+    const rows = [...v.el.querySelectorAll('.hs-fam')].map(row => [...row.querySelectorAll('button')].map(tierOf))
+    const expected = [
+      ['fable', 'sonnet', 'opus', 'haiku'], ['flash', 'carbon', 'agy-sonnet', 'agy-opus'],
+      ['astra', 'sol', 'luna'], ['wonder-full', 'wonder', 'spark'],
+    ]
+    assert.deepEqual(rows, side === 'top' || side === 'left' ? [...expected].reverse() : expected)
+    const sonnet = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(button => tierOf(button) === 'sonnet')!
+    assert.ok(sonnet.title.endsWith('(-1)'))
+    await inAct(() => sonnet.click()); assert.deepEqual(hired, ['sonnet'])
+    // A price refresh reorders the existing strip without changing groups.
+    await v.render(<SpawnChips side={side} seats={{ ...custom, haiku: .1 }} onSpawn={tier => hired.push(tier)}
+      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['flash', 'carbon', 'agy-sonnet', 'agy-opus'] }} />)
+    const claude = [...v.el.querySelectorAll('.hs-fam')].find(row => row.querySelector('.t-haiku'))!
+    assert.deepEqual([...claude.querySelectorAll('button')].map(tierOf), ['haiku', 'fable', 'sonnet', 'opus'])
+    assert.equal(v.el.querySelector('.t-pro'), null, 'legacy hidden remains hidden')
+    assert.equal(v.el.querySelector('.t-argon'), null, 'conditional unoffered remains hidden')
+  })
+}
+
+test('hire price: disabled and far-expanded rows retain ascending order and conditional price slots', async t => {
+  fresh(t)
+  const disabled = { ...ON, enabled: false, reason: 'signed out' }
+  const v = await mountView(<SpawnChips seats={SEATS} onSpawn={noop} zoom={.1} expanded
+    claudeHire={disabled} codexHire={disabled} antigravityHire={{ ...disabled, offeredTiers: ['flash', 'argon', 'barium', 'agy-sonnet', 'agy-opus'] }} />, el => el)
+  t.after(() => v.unmount())
+  assert.ok(v.el.querySelector('.hire-compact.is-expanded'))
+  const rows = [...v.el.querySelectorAll('.hs-fam')]
+  const google = rows.find(row => row.querySelector('.t-argon'))!
+  assert.deepEqual([...google.querySelectorAll('button')].map(tierOf), ['flash', 'argon', 'barium', 'agy-sonnet', 'agy-opus'])
+  assert.ok([...google.querySelectorAll<HTMLButtonElement>('button')].every(button => button.disabled))
+  const claude = rows.find(row => row.querySelector('.t-haiku'))!
+  assert.deepEqual([...claude.querySelectorAll('button')].map(tierOf), ['haiku', 'sonnet', 'opus', 'fable'])
+})
+
+test('hire price: registry rows sort by seat credits and keep ties in incoming order', async t => {
+  fresh(t)
+  const rows = (provider: string, prefix: string) => [
+    { tier: `${prefix}-high`, provider, seat: 7, model: 'high', letter: 'H' },
+    { tier: `${prefix}-low`, provider, seat: 1, model: 'low', letter: 'L' },
+    { tier: `${prefix}-tie`, provider, seat: 1, model: 'tie', letter: 'T' },
+  ] as ProviderTier[]
+  setOpenRouterTiers(rows('openrouter', 'or'))
+  setLangServerTiers(rows('langserver', 'ls'))
+  t.after(() => { setOpenRouterTiers([]); setLangServerTiers([]) })
+  const v = await mountView(<SpawnChips seats={{}} onSpawn={noop} claudeHire={ABSENT} codexHire={ABSENT}
+    antigravityHire={ABSENT} openrouterHire={ON} langserverHire={ON} />, el => el)
+  t.after(() => v.unmount())
+  for (const prefix of ['or', 'ls']) {
+    const row = [...v.el.querySelectorAll('.hs-fam')].find(row => row.querySelector(`.t-${prefix}-low`))!
+    assert.deepEqual([...row.querySelectorAll('button')].map(tierOf), [`${prefix}-low`, `${prefix}-tie`, `${prefix}-high`])
+  }
 })
 
 test('§5 hire sheet: each family dearest first, and it still opens on the first model of the default order', async (t: TestContext) => {

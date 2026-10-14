@@ -748,10 +748,12 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // ⚠ FILTERED BEFORE `tiers` IS STORED, because the inward-first sort below
     // orders families by "number of available model tiers" — a hidden chip
     // that still counted would push Codex inward for a row it does not render.
-    // the dearest seat first (the one listing rule); the OpenRouter and
-    // language-server registries arrive in their own order
-    const vis = (key === 'openrouter' || key === 'langserver' ? tiers : bySeatDesc(tiers, seatOf))
-      .filter((t) => offerOf(t) !== 'hide')
+    // User 2026-10-14: cheapest token first WITHIN each provider row/column.
+    // Sort the filtered copy by the same seat lookup used by these tokens;
+    // stable ties retain the incoming catalog order, including OR/LS rows.
+    // Provider grouping/count order and dearest-first selectors are separate.
+    const vis = tiers.filter((t) => offerOf(t) !== 'hide')
+      .sort((a, b) => seatOf(a) - seatOf(b))
     // every tier hid: the same nothing-to-offer case as an empty family above
     if (!vis.length) return
     fams.push({
