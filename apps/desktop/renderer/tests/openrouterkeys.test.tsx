@@ -99,7 +99,7 @@ for (const [state, keys, label] of [
     assert.ok(document.querySelector(`[role="dialog"][aria-label="${label}"]`))
     const overlay = document.querySelector('.provider-dialog')!.parentElement!
     await inAct(async () => { overlay.click(); await flush(4) })
-    assert.equal(document.querySelector('.provider-dialog'), null)
+    assert.equal(document.querySelector('.provider-dialog') === null, true, 'the dialog closed')
     assert.equal(seen.filter(r => r.method !== 'GET').length, 0)
   } finally { await view.unmount(); delete g.fetch }
 })
@@ -175,8 +175,8 @@ test('a key\'s settings rename and optionally replace in one dialog, with no sep
   stubFetch(seen)
   const view = await mount()
   try {
-    assert.equal(view.el.querySelector('button[title="name this key"]'), null)
-    assert.equal(view.el.querySelector('button[title^="replace the key"]'), null, 'no first-key-only button')
+    assert.equal(view.el.querySelector('button[title="name this key"]') === null, true, 'no separate name button')
+    assert.equal(view.el.querySelector('button[title^="replace the key"]') === null, true, 'no first-key-only button')
     const open = view.el.querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
     await inAct(async () => { open.click(); await flush(4) })
     let dialog = document.querySelector('[aria-label="Edit personal"]')!
