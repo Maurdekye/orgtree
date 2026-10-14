@@ -16,6 +16,7 @@ export class HistoryController {
   private listeners = new Set<() => void>()
   private epoch = 0
   private alive = true
+  private refreshPending = false
   constructor(private io: HistoryIO) {}
   getSnapshot = (): HistoryView => this.value
   subscribe = (fn: () => void): (() => void) => { this.listeners.add(fn); return () => this.listeners.delete(fn) }
@@ -25,7 +26,8 @@ export class HistoryController {
   }
   dispose() { this.alive = false; this.epoch++; this.listeners.clear() }
   async refresh(): Promise<void> {
-    if (!this.alive || this.value.pending) return
+    if (!this.alive) return
+    if (this.value.pending) { this.refreshPending = true; return }
     const epoch = ++this.epoch
     try {
       const history = await this.io.read()
@@ -65,7 +67,10 @@ export class HistoryController {
     } catch (error) {
       if (this.alive && epoch === this.epoch) this.io.report([`Could not ${direction}: ${(error as Error).message}`])
     } finally {
-      if (this.alive && epoch === this.epoch) this.set({ pending: false })
+      if (this.alive && epoch === this.epoch) {
+        this.set({ pending: false })
+        if (this.refreshPending) { this.refreshPending = false; await this.refresh() }
+      }
     }
   }
 }

@@ -16,8 +16,13 @@ Inputs, editable text, select controls and embedded editors keep native undo
 and redo in their own document. Classification does not consume the event;
 the caller must first establish that its action can be handled.
 
-The durable engine API, grouped user gestures, toast journal-entry targeting,
-worked-hire confirmation and per-kind restart/red-control proofs are not yet
-implemented here. This commit does not enable durable history or redo.
-Focused helper and existing toast regression cases are prepared; runtime and
-typecheck evidence are pending the combined rig phase.
+`historyapi.ts` consumes the engine's published v1 history and gesture shapes.
+Expected history404/409 replies preserve their structured state; unrelated
+requests retain the existing transport failure behavior. `historycontroller.ts`
+guards concurrent commands, stale reads, disposed-org completions and in-flight
+feed refreshes, with worked-hire confirmation and refusal states.
+
+Grouped user gestures, actual app shortcut/listener wiring, toast journal-entry
+targeting and the confirmation dialog are not yet connected. The preparation
+does not enable durable history or redo. Per-kind restart/red controls remain
+pending the engine implementation. No runtime or typecheck pass is claimed.
