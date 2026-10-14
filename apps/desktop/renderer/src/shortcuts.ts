@@ -122,6 +122,12 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
       { keys: ['Escape'], action: 'Close the tray pop-up', sources: ['main/index.ts'] },
     ] },
     { title: 'Controls', items: [
+      { keys: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'], action: 'Move the logo crop square',
+        note: 'with the crop square or a corner handle focused', sources: [R('canvas/SquareCrop.tsx')] },
+      { keys: ['Shift+ArrowLeft', 'Shift+ArrowUp'], action: 'Shrink the logo crop square',
+        note: 'with the crop square or a corner handle focused', sources: [R('canvas/SquareCrop.tsx')] },
+      { keys: ['Shift+ArrowRight', 'Shift+ArrowDown'], action: 'Enlarge the logo crop square',
+        note: 'with the crop square or a corner handle focused', sources: [R('canvas/SquareCrop.tsx')] },
       { keys: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'],
         action: 'Switch settings tabs', sources: [R('canvas/settingskit.tsx')] },
       { keys: ['ArrowLeft', 'ArrowRight', 'Home', 'End'], action: 'Change the effort level',
