@@ -27,9 +27,11 @@ the shared ToolChip; other PlayIcon usages are resume/rehire actions.
 
 The separate source commits for these requests have three new observation
 cases and an explicit running `ArrowForwardIcon` assertion prepared for the
-next rig batch. Independent red substitutions use the actual integrated
-`0f8638f` toolclock (2 failures/1 known-duration control) and desk (1 running-icon
-failure/6 controls); with presentation/file splits, green union expects 41 tests, plus root typecheck and four
+next rig batch. Independent red controls restore only the historical behavior
+from the named product commits, within the current composed source: writing
+(2 failures/1 known-duration control) and running icon (1 failure/6 controls).
+They preserve the separate running-turn clock fix. With presentation/file splits,
+green union expects 41 tests, plus root typecheck and four
 before/after dark/light captures of real ToolChip rows. These new checks have
 not run. Their fixture checks preserved writing/completed states and execution
 durations as well as omission and the running icon; PNGs require inspection.
@@ -48,7 +50,7 @@ ordinary row is now retained instead of the old early return.
 
 Four prepared presentation tests cover split/fold/open, unknown-writing omission,
 markdown/HTML menu parity with desk badges, and error fallback. Red substitutes
-only actual0f8638f desk: two split-row failures and two existing-behavior controls.
+only the old presentation early return: two split-row failures and two existing-behavior controls.
 Combined four themed captures include the presentation before/after, with timing
 placement checks. This new request is unverified until rig receipt/PNG review.
 
@@ -65,11 +67,31 @@ current source. Coordinator explicitly corrected that extrapolated requirement:
 preserve existing browser link and containing transcript-row menus, build no
 new file menu. Five prepared tests include normal/image split and links,
 expanded details, unknown-writing omission, error fallback, and a native-link
-passing control. The eaf28b6 desk-only red expects four failures plus that
+passing control. Restoring only the old file early returns expects four failures plus that
 control; green union41/rootTS and four themed captures remain unrun. The visual
 runner serves only generated assets and one synthetic SVG image over loopback,
 awaits Electron exit, and closes the server before returning. Actual decode is
 checked so image captures cannot silently show a broken image.
+
+## Round 439 fixture correction (2026-10-14)
+
+Rig measured two failures on the original display stack alone: the presentation
+and file fold tests supplied inline `input` but the real completed row fetches
+`toolinput/{input_seq}/{tool_id}`. The fixtures now carry that identity and mock
+the exact GET response, asserting no read before expansion and one read after.
+The product row already uses that contract; no runtime change was needed.
+
+The composed batch additionally rejected the executing fixture as stale because
+it supplied only the busy flag. Both the new slot test and the visual fixture
+now supply their real synthetic turn start through `RunningTurnContext`, like
+the existing clock tests. Red/visual controls no longer replace whole old files:
+they restore only the old writing span, running icon or card early return from
+`8508043`, `f2bc651`, `1713b74`, and `dd0b354`, leaving turn ownership intact.
+The source-only `audit-controls` mode checks all four independent transformations
+and their combination without compiling or starting processes beyond Git reads.
+Its ten file transformations and syntax/diff checks pass. Corrected renderer
+tests, root typecheck and four captures still await the assigned rig batch;
+the earlier 10/12 result is not acceptance of the corrected fixtures.
 
 Rig round 437 measured five fake-timer cases: actual alpha.3 `ae0b5fd`
 toolclock red has four target failures and one completed-precision passing

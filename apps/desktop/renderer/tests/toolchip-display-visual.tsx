@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { ToolChip } from '../src/canvas/desk'
-import { TurnActiveContext } from '../src/canvas/toolclock'
+import { RunningTurnContext, TurnActiveContext } from '../src/canvas/toolclock'
 import type { ToolChip as ToolChipData } from '../src/types'
 import '../src/styles.css'
 
@@ -29,9 +29,11 @@ const rows: [string, string, ToolChipData][] = [
 createRoot(document.getElementById('root')!).render(<main style={{ padding: 32, maxWidth: 950 }}>
   <h2>Tool call timing and status</h2>
   <TurnActiveContext.Provider value={true}>
+    <RunningTurnContext.Provider value={start}>
     {rows.map(([id, label, tool]) => <section key={id} data-case={id} style={{ marginTop: 20 }}>
       <div className="dim" style={{ marginBottom: 6 }}>{label}</div>
       <ToolChip t={tool} slug="fixture" nid="worker" onOpenDoc={() => {}} />
     </section>)}
+    </RunningTurnContext.Provider>
   </TurnActiveContext.Provider>
 </main>)

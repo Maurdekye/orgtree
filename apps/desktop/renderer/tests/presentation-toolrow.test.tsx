@@ -5,7 +5,8 @@ import { ToolChip } from '../src/canvas/desk'
 import { PresentationCard } from '../src/canvas/docs'
 
 const doc = { id: 'report', title: 'Verification report' }
-const chip = { id: 'present-report', name: 'orgtree_present', arg: doc.title, input: { title: doc.title, body: 'Plan body' },
+const retainedInput = { title: doc.title, body: 'Plan body' }
+const chip = { id: 'present-report', name: 'orgtree_present', arg: doc.title, input_seq: 17,
   presentation: doc, writing_secs: 1.2, started_at: '2026-10-14T16:00:00Z', ended_at: '2026-10-14T16:00:00.031Z', result: 'Presented report' }
 const labels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(el => el.textContent)
 async function right(el: Element) {
@@ -14,6 +15,17 @@ async function right(el: Element) {
 }
 
 test('presentation has an ordinary timed tool row then a separate title-only card with normal fold behavior', async t => {
+  const originalFetch = globalThis.fetch
+  const reads: string[] = []
+  const inputPath = '/api/orgs/org/nodes/worker/toolinput/17/present-report'
+  globalThis.fetch = async (url, init) => {
+    const pathname = new URL(String(url), 'http://localhost').pathname
+    assert.equal(pathname, inputPath)
+    assert.equal(init?.method ?? 'GET', 'GET')
+    reads.push(pathname)
+    return new Response(JSON.stringify({ input: retainedInput }), { headers: { 'Content-Type': 'application/json' } })
+  }
+  t.after(() => { globalThis.fetch = originalFetch })
   const opened: string[] = []
   const view = await mountView(<ToolChip t={chip} slug="org" nid="worker" onOpenDoc={id => opened.push(id)} />, el => el)
   t.after(() => view.unmount())
@@ -27,11 +39,14 @@ test('presentation has an ordinary timed tool row then a separate title-only car
   assert.equal(card.textContent, doc.title)
   assert.equal(card.querySelector('.tool-writing-time,.tool-exec-time,.tool-running'), null)
   assert.equal(view.el.querySelector('.toolinput'), null)
+  assert.deepEqual(reads, [], 'retained input is fetched only after expansion')
   await inAct(() => (row as HTMLElement).click()); await flush()
   assert.match(view.el.querySelector('.toolinput')?.textContent ?? '', /Plan body/)
+  assert.deepEqual(reads, [inputPath])
   assert.deepEqual(opened, [])
   await inAct(() => (card as HTMLElement).click())
   assert.deepEqual(opened, [doc.id])
+  assert.deepEqual(reads, [inputPath], 'opening the separate card does not refetch call details')
 })
 
 test('presentation without a writing observation keeps only the execution time in its tool line', async t => {

@@ -1,7 +1,7 @@
 import { advance, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ToolTimes, TurnActiveContext } from '../src/canvas/toolclock'
+import { RunningTurnContext, ToolTimes, TurnActiveContext } from '../src/canvas/toolclock'
 import { Msg } from '../src/canvas/desk'
 import type { ToolChip } from '../src/types'
 
@@ -35,7 +35,9 @@ test('unknown writing stays absent during execution and after transcript reload'
   useFakeClock()
   const liveStart = new Date(Date.now()).toISOString()
   const view = await mountView(<TurnActiveContext.Provider value={true}>
-    <ToolTimes tool={{ name: 'powershell', started_at: liveStart }} />
+    <RunningTurnContext.Provider value={liveStart}>
+      <ToolTimes tool={{ name: 'powershell', started_at: liveStart }} />
+    </RunningTurnContext.Provider>
   </TurnActiveContext.Provider>, text)
   t.after(async () => { await view.unmount(); realClock() })
   assert.equal(view.last(), '· 0s')

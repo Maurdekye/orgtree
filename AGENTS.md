@@ -58,6 +58,11 @@
   new file menu. Failed calls remain tool rows. [decided: user/coordinator 2026-10-14;
   verified: `desk.tsx`, `docs.tsx`, `img.tsx`]
 
+- Completed tool-input fixtures use `input_seq` and the on-demand `toolinput`
+  response, never an inline `input` property. Display red controls reverse only
+  the named behavior in current composed source, preserving running-turn ownership.
+  [verified: `toolinput.tsx`, `tools/rig/toolchip-display-check.mjs`, 2026-10-14]
+
 - Transcript `orgtree_work` ticket refs carry `status_change` only from a
   committed mutation result's locked `previous_status` and final status.
   Shared tool rows reuse docket wording/colours; failures, no-ops and legacy
