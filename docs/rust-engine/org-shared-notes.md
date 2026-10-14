@@ -1,4 +1,4 @@
-# The org's shared AGENTS.md
+# The org's shared folder and its AGENTS.md
 
 Agents of one org had no common notebook: `org.md` is the user's instructions and agents
 don't edit it, each agent's scratch `AGENTS.md` is its own, and a shared notes folder only
@@ -9,6 +9,15 @@ that all agents have implicit access to and can read & write", "all agents in an
 it now" 18:12Z; coordinator rulings 18:19Z; docket
 `shared-org-wide-agents-md-every-agent-in-the-org`]
 
+The folder that holds it is the org's shared scratch space: any agent of the org that may write
+files can create, change and delete any files and subfolders there, to hand files to other
+agents or keep org-wide material, and every agent of the org can read them. [decided: user
+2026-10-14 13:25Z ("expand that to a full org-wide shared scratch space that any agent can read
+or write files to / from, including AGENTS.md, which is read by every agent in the org"); docket
+`org-wide-shared-scratch-folder-any-agent-reads-w`] Nothing about who holds the folder changed:
+it was already granted as a folder, so the change is what agents are told, and that the folder
+exists from the start.
+
 ## Where it is
 
 `<data>\scratch\<org-slug>\_shared\AGENTS.md` (`Config::org_notes_dir`, `ORG_NOTES_FILE`).
@@ -16,9 +25,11 @@ An agent's name starts with a letter or digit (`ops::valid_name`), so `_shared` 
 agent's folder. The folder holds nothing else of the org: `org.md` and the workspace
 (`workspaces\<slug>`) stay out of reach, and so do the other agents' folders beside it.
 
-The engine creates the folder before it starts a CLI (`ensure_proc`) and never creates, edits or
-deletes the file: the first agent to write it creates it. Deleting an org moves the folder to
-the trash with the rest of its scratch folder.
+The engine creates the folder when the org opens (`orgs::open`: at engine start for every
+active org, and when an org is created) and again before it starts a CLI (`ensure_proc`). It
+never creates, edits or deletes anything inside it: the first agent to write `AGENTS.md`
+creates it, and every other file there is the agents'. Deleting an org moves the folder to the
+trash with the rest of its scratch folder.
 
 ## Who holds it
 
@@ -40,11 +51,16 @@ watchdogs, so an agent may attach the file or watch it for changes.
 
 ## What the agent is told
 
-Right after the sentence about its own scratch `AGENTS.md`, the prompt says where the file is,
-that every agent of the org gets it at session start and may edit it, that other orgs never
-see it, what belongs there, and how to edit it: re-read the file first, make small in-place
-edits, never write the copy back over it. A read-only seat is told it may read the file but
-not edit it. The folder is not listed with the agent's granted folders, and its `AGENTS.md`
+Right after the sentence about its own scratch `AGENTS.md`, the prompt (`org_notes_rule`, the
+same on every lane) starts `ORG SHARED FOLDER: <folder> is <org>'s shared scratch folder`. It
+says every agent of the org may use it and other orgs never see it; that its `AGENTS.md` is the
+org's shared notes, given to every agent at session start, and what belongs there; and that the
+copy at the end of the prompt may be older than the file. A writable seat is told it may
+create, change and delete files and subfolders there with no grant, to hand files over or keep
+org-wide material, and how: descriptive names or a subfolder per topic or agent, re-read a file
+right before changing it (`AGENTS.md` too: small in-place edits, never the copy written back),
+no secrets, tokens or credentials, and nothing there reaches the user unless the agent sends
+it. A read-only seat is told it may read the folder but not write there. The folder is not listed with the agent's granted folders, and its `AGENTS.md`
 isn't delivered as a granted folder's notes. A `CLAUDE.md` an agent drops there is never
 delivered.
 
@@ -98,6 +114,17 @@ to write their session-start copy back over it.
 - First launch after the update: every agent's prompt gains the rule (and the copy once there
   is a file) and its folders gain one entry, so each agent's first turn on the new engine is a
   changed prefix (one cold turn each).
+- The shared-scratch wording (2026-10-14) changed the rule's text again, so every agent's
+  startup prefix changes once more from its next session: a new cache namespace, one cold turn
+  each. Nothing else in the prompt or the folders changed.
+- Files there are plain files: there is no locking or ownership, and an agent may overwrite or
+  delete another agent's file. The prompt asks agents to re-read before changing and to use
+  their own names or subfolders; nothing enforces it.
+- Write access to any file in the folder follows the folder grant on every lane (Claude Code
+  `--add-dir`; Codex approval accepted on a writable seat whatever the path; Muse and OpenCode
+  check the path against their write roots, which include it; Antigravity by path). Only the
+  installed Claude Code was measured writing a new file in a new subfolder there; the other
+  lanes are inferred from the source.
 
 ## Verification (2026-10-13, on `rust-engine` `fa3a5f3`)
 

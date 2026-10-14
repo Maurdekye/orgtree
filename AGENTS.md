@@ -387,7 +387,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 - Every org has ONE shared `AGENTS.md`, `<data>\scratch\<slug>\_shared\AGENTS.md`. Every
   launch of that org's agents holds the folder without a stored grant (`scope::with_org_notes`
   in `load_ctx`): read-write when the seat may write, else read-only; never another org's.
-  The engine creates the folder at launch, never the file. The prompt carries a rule sentence
+  The folder is the org's shared scratch space: agents may write any files and subfolders
+  there, and the prompt rule (`ORG SHARED FOLDER: …`) says so [user 2026-10-14 13:25Z]. The
+  engine creates the folder when the org opens (`orgs::open`) and at launch, never a file. The prompt carries a rule sentence
   and, last, the file's text (12,000-char cap). The copy is read when a CLI starts: another
   agent's edit never respawns a warm CLI. The fingerprint keeps the copy's digest outside
   `system_prompt` and equality, and the forecast counts `org_notes` only when a CLI would
