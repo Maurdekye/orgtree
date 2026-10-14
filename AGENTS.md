@@ -162,9 +162,15 @@
 - Tool writing is an observed per-call stream phase, separate from execution.
   Claude-compatible tool block start/stop clocks persist as `writing_secs` in
   the admitted chip; unobserved/history clocks remain unavailable. Active
-  snapshots use tool IDs and retire with committed rows. Pencil/arrow labels
-  distinguish writing/execution. Ticket/watchdog link menus share direct-object
-  action builders and the current-org per-window registry. See
+  snapshots use tool IDs and retire with committed rows. Shared live chips use
+  pencil/play status icons, immediate icon-only clocks, and bounded ephemeral
+  streamed-input previews; finished dots remain, counts only expand. Full time
+  wording stays in aria/tooltips; unsupported observations are never invented.
+  Ticket references use Open details / Owner… / separator / three copy actions;
+  Owner uses the canonical agent menu, click/Enter focuses, hover/Right expands.
+  Ticket/watchdog link menus share direct-object
+  action builders and the current-org per-window registry. Updated per user
+  2026-10-14 10:29–10:46UTC, relayed by coordinator-opus. See
   [timing, menu contract and verification status](docs/rust-engine/tool-writing-and-link-menus.md).
   [decided: user 2026-10-13 17:47–17:50UTC; verified from source:
   `runtime/toolwriting.rs`, renderer `toolclock.tsx`, `objectactions.ts`, `objectnav.tsx`]

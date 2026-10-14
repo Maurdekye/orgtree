@@ -15,7 +15,7 @@ export function ticketActions({ item, selected, open, fold, owner, copySlug, cop
   return entries
 }
 
-/** The same state gates and commands used by the watchdog detail buttons. */
+/** Ticket reference order; direct docket rows retain their contextual actions. */
 export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference }: {
   open: () => void; owner?: Exclude<MenuEntry, 'sep'>;
   copyTitle: () => void; copySlug: () => void; copyReference: () => void

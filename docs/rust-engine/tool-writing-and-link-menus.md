@@ -4,7 +4,48 @@ User requested these transcript improvements on 2026-10-13 at 17:47UTC, then
 specified immediate tool-name display, two final durations (not two events),
 and pencil/arrow icons. Docket: show-tool-call-writing-time-and-context-menus-on.
 
-## Timing
+## 2026-10-14 refinements
+
+The shared tool-chip layout now renders in-progress calls. Writing uses a
+pencil in the status position and shows the name and summary derived from the
+input already streamed. The transient preview holds at most 64,000 UTF-8 bytes
+per call, tolerates unfinished strings, omits incomplete keys/unknown values,
+and updates expanded structured input in place. Preview helpers and transport
+are unlogged, and preview input never enters conversation storage.
+
+Executing calls use a play icon in the status position. Finished dots and
+colours remain. Writing and execution durations display only their icons and
+numbers, with full wording kept in accessible labels/tooltips. Both observed
+live clocks start immediately; the former ten-second execution threshold is
+removed. Interrupted inactive calls stop counting. Missing finished observations
+remain explicitly unavailable through the icon's accessible label/tooltip and
+a dash, never a fabricated zero. Unknown fields are absent from active chips.
+Line counts are shown only when a chip is expanded.
+
+Muse/ACP and Antigravity updates refresh the known input summary/references on
+the existing chip without resetting identity or execution start. Complete-input
+events from any harness use the shared execution chip. The existing provider
+signal limitation remains: no fabricated generation phase or writing duration
+where the harness does not expose that observation.
+
+Ticket reference menus now contain Open details, Owner…, one separator, then
+Copy ticket title / Copy slug / Copy reference. The Owner submenu obtains its
+full entries from the same current agent-menu registry and renders through the
+same context-menu component as direct agent targets. Click or Enter on Owner
+executes that menu's actual Focus action and closes; hover/Right opens the
+submenu without acting. Missing/unavailable Focus stays disabled, and current
+agent permission/availability gates remain. Contextual fold/staff actions on
+direct docket rows retain their existing routes.
+
+Verification for these refinements is prepared, not executed at source hand-in:
+seven tool-writing renderer cases, six object-menu cases and three shell-error
+regressions; four native tracker cases; two added stream-to-chat preview checks
+in the eleven-check tool-writing proof. Rig-opus runs the requested red/green
+controls and root typecheck in one batch. The old checkpoint below is historical
+and does not describe these refinements' acceptance. No app build, installation,
+real-provider turn or device check is claimed.
+
+## Earlier timing contract (historical wording; refinements above supersede it)
 
 Claude-compatible `content_block_start` tool-use events begin an observed clock
 keyed by the actual tool-use ID. The active transcript line immediately reads

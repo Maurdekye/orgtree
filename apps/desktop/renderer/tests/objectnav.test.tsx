@@ -9,7 +9,7 @@ import { RefChip, resolveRef } from '../src/canvas/reflinks'
 import { RefMdBody } from '../src/canvas/refmd'
 import { WorkRefText } from '../src/canvas/workrefs'
 import { DogChip, DeskDogsProvider } from '../src/canvas/deskdogs'
-import { ticketActions, watchdogActions } from '../src/canvas/objectactions'
+import { watchdogActions } from '../src/canvas/objectactions'
 import { AgentNavProvider, agentNavProps, useProvideAgentNav } from '../src/canvas/agentnav'
 import type { Watchdog, WorkItem } from '../src/types'
 
