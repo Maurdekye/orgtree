@@ -2081,6 +2081,13 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
 - **jsdom does no layout.** Geometry, drag regions and native window behaviour need the
   Electron probes (`tools/test-*.mjs`), not renderer unit tests. [verified:
   [`docs/verification-recipes.md`](docs/verification-recipes.md)]
+- **Never hand a jsdom element to an assertion** (`assert.equal(el.querySelector(s), null)`).
+  When it fails, node's reporter serialises the element with its whole document and dies
+  out of memory (`Array buffer allocation failed`, `Worklist::Segment::Create`) before
+  any result, so a red control reports nothing. Reduce it first: `=== null`, `!!`, a
+  `textContent` or an attribute. 2026-10-14 [verified: renderer
+  `tests/attentionaudit.test.tsx` §5; measured again in batch round 439 on
+  `toolclock-turn.test.tsx`]
 
 ## Product rulings
 
