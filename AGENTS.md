@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Antigravity committed mid-turn mail clears only the next-tool row pointer
+  (`Turn.codex_row`); keep existing tool-to-row mappings so in-flight results
+  finish on their original rows. Invocation-hook injection does not restart or
+  interrupt the turn. CLI trajectory receipt is not evidence of model obedience.
+  See [mail order](docs/rust-engine/antigravity-mail-order.md).
+  [decided: coordinator 2026-10-14 22:43Z; verified: `runtime/actor.rs`]
+
 - User-history undo/redo and transient toast Undo share `undokeys.ts` chord
   classification; preserve native editing in the event's own document.
   Classification alone never consumes a key. See
