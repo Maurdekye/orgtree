@@ -311,6 +311,96 @@ test('the superior picker is the Agents List: its rows, its order, filter, arrow
   } finally { await bare.unmount(); localStorage.clear() }
 })
 
+async function openSuperiorPicker(selected: string | null = null) {
+  localStorage.clear(); providers(['claude'])
+  rememberSuperior('org', selected)
+  const t = { ...tree, roots: [node('zed', 'live', [node('amy')]), node('boss')] } as unknown as TreePayload
+  const view = await mountView(<QuickChat slug="org" tree={t} op={(async () => ({})) as never}
+    toast={noop} onHired={noop} />, el => el)
+  await inAct(async () => { await flush(8) })
+  await click(view.el.querySelector('.quickchat-superior'))
+  return view
+}
+const pickerKey = (key: string) => inAct(async () => {
+  document.querySelector('.quickchat-pop .tray-filter')!
+    .dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }))
+  await flush(4)
+})
+
+test('superior root is the first list row under the filter; all agent depths shift one level', async () => {
+  const view = await openSuperiorPicker('zed')
+  try {
+    const list = document.querySelector('.quickchat-pop .tray')!
+    const root = document.querySelector<HTMLElement>('.quickchat-top')!
+    const filter = list.querySelector('.tray-filter')!
+    assert.equal(root.parentElement, list, 'root belongs to the same list as the agents')
+    assert.equal(filter.nextElementSibling, root, 'filter is above the root row')
+    assert.ok(root.querySelector('.eye'), 'root keeps the eye icon')
+    assert.equal(root.style.paddingLeft, '8px')
+    assert.deepEqual([...list.querySelectorAll<HTMLElement>('[data-copy-agent-name]')]
+      .map(r => [r.dataset.copyAgentName, r.style.paddingLeft]),
+      [['zed', '22px'], ['amy', '36px'], ['boss', '22px']])
+    assert.ok(list.querySelector('[data-copy-agent-name="zed"].sel'), 'current agent stays highlighted')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('superior root matches a case-insensitive filter and is selectable without agent results', async () => {
+  const view = await openSuperiorPicker('zed')
+  try {
+    await type(document.querySelector<HTMLInputElement>('.quickchat-pop .tray-filter')!, ' TOP LEVEL ')
+    assert.deepEqual(pickerItems(), ['top level'])
+    assert.equal(document.querySelector('.quickchat-empty'), null, 'the matching root is a result')
+    await pickerKey('Enter')
+    assert.equal(shown(view.el).superior, 'top level')
+    assert.equal(document.querySelector('.quickchat-pop'), null)
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('superior filtered agents keep the root and ancestor chain as ghosts; keys skip those ghosts', async () => {
+  const view = await openSuperiorPicker()
+  try {
+    await type(document.querySelector<HTMLInputElement>('.quickchat-pop .tray-filter')!, 'amy')
+    assert.deepEqual(pickerItems(), ['top level', 'zed', 'amy'])
+    assert.ok(document.querySelector('.quickchat-top.ghost'), 'root remains as the matching agent\'s context')
+    assert.ok(document.querySelector('[data-copy-agent-name="zed"].ghost'))
+    assert.equal(document.querySelector<HTMLElement>('[data-copy-agent-name="amy"]')!.style.paddingLeft, '36px')
+    await pickerKey('ArrowUp')
+    await pickerKey('Enter')
+    assert.equal(shown(view.el).superior, 'amy', 'only the matching live agent is in the key cycle')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('superior filter with no matches has no root choice and Enter cannot select a hidden root', async () => {
+  const view = await openSuperiorPicker('zed')
+  try {
+    await type(document.querySelector<HTMLInputElement>('.quickchat-pop .tray-filter')!, 'no-such-superior')
+    assert.deepEqual(pickerItems(), [])
+    assert.ok(document.querySelector('.quickchat-empty'))
+    await pickerKey('ArrowDown')
+    await pickerKey('Enter')
+    assert.ok(document.querySelector('.quickchat-pop'), 'empty keyboard selection cannot close the picker')
+    assert.equal(shown(view.el).superior, 'zed', 'the saved selection remains unchanged')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('superior keyboard cycle includes the root and mouse can still select it', async () => {
+  const view = await openSuperiorPicker()
+  try {
+    assert.equal(document.querySelector('.quickchat-top')!.getAttribute('aria-current'), 'true')
+    await pickerKey('ArrowDown')
+    assert.ok(document.querySelector('[data-copy-agent-name="zed"].sel'))
+    await pickerKey('ArrowUp')
+    assert.ok(document.querySelector('.quickchat-top.sel'))
+    await pickerKey('Enter')
+    assert.equal(shown(view.el).superior, 'top level')
+    await click(view.el.querySelector('.quickchat-superior'))
+    await click(document.querySelector('[data-copy-agent-name="boss"]'))
+    await click(view.el.querySelector('.quickchat-superior'))
+    await click(document.querySelector('.quickchat-top'))
+    assert.equal(shown(view.el).superior, 'top level')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
 test('the model chips close once the pointer strays ~70px away, not before it has come near', async () => {
   localStorage.clear(); providers(['claude'])
   const view = await mount([], [])
