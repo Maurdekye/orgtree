@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Antigravity background launches share `providers::agy_auth`: Windows exact
+  credential metadata → silent zero-argument auth check → guarded command;
+  refusal latches until credential metadata changes. No Sign in UI. Headless
+  flags/closed stdin alone are not an OAuth guard; the check/use and in-flight
+  concurrency risks remain. Non-Windows silently revalidates after a five-minute
+  refusal cooldown. See [background auth](docs/rust-engine/antigravity-background-auth.md).
+  [verified: `providers/agy_auth.rs`; decided: user/coordinator 2026-10-14]
+
 - Main app menu orders App settings / Usage / Usage history; main ShellHeader
   orders Inbox / Work (Docket) / Presentations / Org settings. `APP_FKEYS` backs
   main-window function-key actions and the Settings explainer; typing fields
