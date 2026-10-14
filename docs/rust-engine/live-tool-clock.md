@@ -14,13 +14,16 @@ observed 1.2s and 200ms clocks still use the unchanged precise formatter.
 Changing the start cancels the old timer; inactive execution stops ticking;
 missing/invalid observations add no clock. No persisted duration is changed.
 
-Five focused fake-timer cases and before/after dark/light synthetic captures are
-prepared for rig-opus's batch, not executed yet. The red uses actual alpha.3
-`ae0b5fd` toolclock code: four target failures, one completed-precision control.
-Green expects 5/5, then the existing writing/menu/shell regression 16/16 and
-root typecheck. Capture fixture fixes the observed elapsed value at 1.2s:
-before live clocks show 1.2s, after live clocks show 1s, completed clocks remain
-1.2s / 200ms. Captures must be inspected by eye before final acceptance.
+Rig round 437 measured five fake-timer cases: actual alpha.3 `ae0b5fd`
+toolclock red has four target failures and one completed-precision passing
+control; green 5/5, writing/menu/shell regression 16/16, timing union 29/29,
+and root typecheck exit 0. Test-suite typecheck retains the same 825 baseline
+errors, with none new. Four committed-driver before/after dark/light captures
+pass the painted-theme checks and were inspected by both rig and author.
+At the fixed observed elapsed value of 1.2s, live writing/executing clocks
+change from 1.2s to 1s; completed clocks remain 1.2s / 200ms. The capture driver
+waits two animation frames after a theme toggle to avoid stale offscreen pixels.
+This is synthetic renderer evidence, not installed-app or real-model acceptance.
 
 ## Codex tool-call writing timing investigation
 
@@ -57,8 +60,29 @@ no real tool, model or live profile is used. Shutdown closes stdin gracefully
 first; any required forced tree kill records the owned PID/reason durably
 before termination. The process must stop before the proof returns.
 
-The probe is **not run yet**. If it records no per-call generation notification
-before the completed arguments arrive, report "not truthfully available" to
-the coordinator, with actual names/order/timestamps, and add no product timer.
-If it exposes a reliable signal, inspect it and implement only that observed
-span. Update this document and the docket description with the actual outcome.
+### Measured installed-Codex outcome (2026-10-14)
+
+The approved real Codex 0.160.0 app-server probe passed 8/8 in rig round 437.
+Retained `codex-generation-signal-20261014T170701/{result.json,timeline.json,
+timestamps.jsonl}` records the following sequence, relative to probe start:
+
+| Side | Event | Elapsed ms |
+| --- | --- | ---: |
+| Synthetic SSE | function_call `response.output_item.added` | 1045.333 |
+| Synthetic SSE | `response.function_call_arguments.delta` | 1845.466 |
+| Synthetic SSE | `response.function_call_arguments.delta` | 2746.514 |
+| Synthetic SSE | `response.function_call_arguments.done` | 3546.646 |
+| App-server | `item/started`, dynamicToolCall, complete arguments | 3560.200 |
+| App-server | `item/tool/call`, complete arguments | 3560.382 |
+
+The app-server emitted no event during the controlled argument-generation
+span. It made two loopback requests. Graceful stdin close at 4772.707ms ended
+the process at 4793.522ms (exit 0); no forced kill was required, and rig cleanup
+reported no runs or strays. The fixture included an unrelated 700ms gap before
+argument generation, so the preceding text item's end cannot substitute.
+
+The coordinator closed the product request as **not truthfully available**
+with this installed version. No Codex writing time was added or backfilled.
+The probe is integrated for rechecking if a later app-server exposes an honest
+argument-generation signal. This measures the installed CLI against synthetic
+SSE, not a real account/model or every future protocol version.
