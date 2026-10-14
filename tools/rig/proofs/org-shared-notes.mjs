@@ -1,10 +1,14 @@
-// Proof: the org's shared AGENTS.md (docket
+// Proof: the org's shared folder and its AGENTS.md (docket
 // shared-org-wide-agents-md-every-agent-in-the-org; user 2026-10-13 18:10Z,
 // "Build it now" 18:12Z; coordinator rulings 18:19Z: session-start copy,
-// <data>\scratch\<org>\_shared\AGENTS.md, read-write when the seat may write).
-//   nia (Claude): her launch creates the org's _shared folder (never the
-//     file); her CLI holds it read-write (--add-dir, no deny rule) and her
-//     prompt names the file apart from her granted folders. An edit of the
+// <data>\scratch\<org>\_shared\AGENTS.md, read-write when the seat may write;
+// docket org-wide-shared-scratch-folder-any-agent-reads-w, user 2026-10-14
+// 13:25Z: the folder is the org's shared scratch space for any file).
+//   a new org has its _shared folder as soon as it exists, before any launch.
+//   nia (Claude): the folder holds no file until an agent writes one; her CLI
+//     holds it read-write (--add-dir, no deny rule) and her prompt names it as
+//     the org's shared scratch folder with its AGENTS.md, apart from her
+//     granted folders. An edit of the
 //     file (written here as an agent's write lands) never respawns her warm
 //     CLI: same process, same prompt, and her forecast does not list it.
 //     Once her CLI is stopped the forecast lists org_notes, and her next CLI
@@ -37,11 +41,16 @@ export default async function (rig) {
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
   const ORG = rig.org
   const other = (await rig.api('POST', '/api/orgs', { name: 'Other Org', dirs: [], net_autoconnect: false })).slug
+  const freshDir = path.join(rig.data, 'scratch', other, '_shared')
+  p.check('0 a new org has its empty _shared folder as soon as it exists, before any agent launches',
+    fs.existsSync(freshDir) && fs.statSync(freshDir).isDirectory() && fs.readdirSync(freshDir).length === 0,
+    { dir: freshDir, exists: fs.existsSync(freshDir) })
   const scratch = (org, name) => path.join(rig.data, 'scratch', org, name)
   const notesDir = org => path.join(rig.data, 'scratch', org, '_shared')
   const notesFile = org => path.join(notesDir(org), 'AGENTS.md')
   const FILE = notesFile(ORG)
-  const rule = (orgName, org) => `ORG SHARED NOTES: ${orgName} keeps ONE shared AGENTS.md for all its agents, ${notesFile(org)} `
+  const rule = (orgName, org) => `ORG SHARED FOLDER: ${notesDir(org)} is ${orgName}'s shared scratch folder. `
+  const fileRule = org => `Its AGENTS.md, ${notesFile(org)} (it exists once an agent writes it), is the org's shared notes`
   const copy = org => `[ORG SHARED NOTES - ${notesFile(org)}, your organization's shared AGENTS.md as it was when your CLI started.`
   const starts = name => rig.fakeLog(name).filter(l => l.kind === 'start')
   const turnsOf = (name, org) => rig.sql(`SELECT t.id, t.ended_at FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id
@@ -70,13 +79,14 @@ export default async function (rig) {
   await turn('nia', 'PROOF-A: hello nia.')
   const a = starts('nia').at(-1)
   const promptA = prompt('nia')
-  p.check('A nia: her launch created the org\'s _shared folder and no file in it (the engine never writes the notes)',
+  p.check('A nia: the org\'s _shared folder exists and holds no file (the engine never writes into it)',
     fs.existsSync(notesDir(ORG)) && fs.statSync(notesDir(ORG)).isDirectory() && fs.readdirSync(notesDir(ORG)).length === 0,
     { dir: notesDir(ORG), exists: fs.existsSync(notesDir(ORG)), entries: fs.existsSync(notesDir(ORG)) ? fs.readdirSync(notesDir(ORG)) : null })
   p.check('A nia: her CLI holds the folder (--add-dir) with no Edit/Write deny rule, read-write',
     holds(a, ORG) && !deny('nia').some(d => has(d, '_shared')), { add_dirs: a?.add_dirs, deny: deny('nia') })
-  p.check('A nia: her prompt names the shared file and her right to edit it, apart from her granted folders, and carries no copy while there is no file',
-    has(promptA, rule('Rig Org', ORG)) && promptA.includes('You may edit it with no grant') && !promptA.includes('[ORG SHARED NOTES -')
+  p.check('A nia: her prompt names the shared folder, its AGENTS.md and her right to write any file there, apart from her granted folders, and carries no copy while there is no file',
+    has(promptA, rule('Rig Org', ORG)) && has(promptA, fileRule(ORG)) && promptA.includes('You may create, change and delete files and subfolders there with no grant')
+      && !promptA.includes('[ORG SHARED NOTES -')
       && folders(promptA) !== null && !has(folders(promptA), '_shared'),
     { folders: folders(promptA), rule: has(promptA, rule('Rig Org', ORG)) })
 
@@ -119,7 +129,7 @@ export default async function (rig) {
   const rodDeny = deny('rod')
   p.check('C rod: a read-only seat holds the folder read-only (Edit and Write denied there) and still gets the text',
     holds(starts('rod').at(-1), ORG) && rodDeny.some(d => norm(d) === norm(`Edit(//${fwd}/**)`)) && rodDeny.some(d => norm(d) === norm(`Write(//${fwd}/**)`))
-      && prompt('rod').includes('Your scope lets you read it, not edit it.') && prompt('rod').includes('PROOF-NOTES-V1'),
+      && prompt('rod').includes('Your scope lets you read it, not write there.') && prompt('rod').includes('PROOF-NOTES-V1'),
     { deny: rodDeny })
 
   // ------------------------------------------------- D: the other lanes

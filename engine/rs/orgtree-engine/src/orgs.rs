@@ -78,6 +78,12 @@ impl OrgDirectory {
 
 #[logged]
 pub fn open(engine: &Arc<Engine>, id: i64, uuid: String, slug: String, name: String) -> Arc<OrgHandle> {
+    // the org's shared scratch folder exists from the start, so agents can
+    // hand files over before any of them has run (user 2026-10-14 13:25Z);
+    // a CLI launch makes it too (`ensure_proc`), so a failure here only warns
+    if let Err(e) = std::fs::create_dir_all(engine.cfg.org_notes_dir(&slug)) {
+        tracing::warn!(org = %slug, error = %e, "the org's shared folder could not be created");
+    }
     let feed = feed::spawn(engine.clone(), id, uuid.clone());
     let h = Arc::new(OrgHandle { id, uuid, slug, name: ArcSwap::from_pointee(name), feed, rooms: Rooms::default(), working: AtomicI64::new(0),
                              docket: AtomicU64::new(0) });

@@ -417,23 +417,27 @@ mod group_tests {
         assert!(claude.contains(".claude/skills") && !claude.contains(MUSE_SKILLS_AND_PROTECTED));
     }
 
-    /// The org's shared notes folder is told apart from granted folders on
-    /// every lane, writable only where the seat may write its own folder.
+    /// The org's shared folder is told apart from granted folders on every
+    /// lane as the org's shared scratch space holding its AGENTS.md, writable
+    /// (any file) only where the seat may write its own folder.
     #[test]
-    fn org_notes_rule_names_the_file_apart_from_granted_folders() {
+    fn org_notes_rule_names_the_shared_folder_apart_from_granted_folders() {
         let dir = "D:/proof/_shared";
         let file = std::path::Path::new(dir).join("AGENTS.md").display().to_string();
         let rw = crate::domain::scope::with_org_notes(&json!({ "add_dirs": [{ "path": "E:/repo", "mode": "rw" }] }), dir);
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             let s = render(&rw, lane, false, None);
             assert!(s.contains("Folders you may work in: E:/repo. "), "{lane:?}");
-            assert!(s.contains(&format!("ORG SHARED NOTES: Proof keeps ONE shared AGENTS.md for all its agents, {file} ")));
-            assert!(s.contains("You may edit it with no grant") && !s.contains("Your scope lets you read it, not edit it."));
+            assert!(s.contains(&format!("ORG SHARED FOLDER: {dir} is Proof's shared scratch folder. ")), "{lane:?}");
+            assert!(s.contains(&format!("Its AGENTS.md, {file} (it exists once an agent writes it), is the org's shared notes")));
+            assert!(s.contains("You may create, change and delete files and subfolders there with no grant"));
+            assert!(s.contains("never put secrets, tokens or credentials there") && s.contains("nothing there reaches the user unless you send it"));
+            assert!(!s.contains("Your scope lets you read it, not write there."));
         }
         let ro = render(&crate::domain::scope::with_org_notes(&json!({ "tools": { "edit": false } }), dir), Lane::Claude, false, None);
         assert!(ro.contains("Folders you may work in: only your own scratch folder. ") && !ro.contains("Read-only:"));
-        assert!(ro.contains("Your scope lets you read it, not edit it.") && !ro.contains("You may edit it with no grant"));
-        assert!(!render(&json!({}), Lane::Claude, false, None).contains("ORG SHARED NOTES"));
+        assert!(ro.contains("Your scope lets you read it, not write there.") && !ro.contains("with no grant"));
+        assert!(!render(&json!({}), Lane::Claude, false, None).contains("ORG SHARED FOLDER"));
     }
 
     #[test]
@@ -546,25 +550,31 @@ fn own_notes(path: &str, text: &str) -> String {
     )
 }
 
-/// What every agent of an org is told about the org's shared notes (user
-/// 2026-10-13 18:10Z): where the file is, who reads and edits it, and that
-/// the copy at the end of the prompt is the file as its CLI started with it.
+/// What every agent of an org is told about the org's shared folder: where
+/// it is, who uses it, how to share files there (user 2026-10-14 13:25Z: "a
+/// full org-wide shared scratch space that any agent can read or write files
+/// to / from, including AGENTS.md"), and that the copy of its AGENTS.md at
+/// the end of the prompt is the file as the CLI started with it (user
+/// 2026-10-13 18:10Z).
 #[logged]
 fn org_notes_rule(org: &str, dir: &str, writable: bool) -> String {
     let file = std::path::Path::new(dir).join(crate::config::ORG_NOTES_FILE);
     let edit = if writable {
-        "You may edit it with no grant: re-read the file right before you change it, change it in place with small \
-         edits, and never write that copy back over it."
+        "You may create, change and delete files and subfolders there with no grant, to hand files to other agents \
+         or keep org-wide material. Use descriptive names or a subfolder per topic or agent, re-read a file right \
+         before you change it (AGENTS.md too: small in-place edits, and never write that copy back over it), and \
+         never put secrets, tokens or credentials there; nothing there reaches the user unless you send it."
     } else {
-        "Your scope lets you read it, not edit it."
+        "Your scope lets you read it, not write there."
     };
     format!(
-        "ORG SHARED NOTES: {org} keeps ONE shared AGENTS.md for all its agents, {} (it exists once an agent writes \
-         it). Every agent of this organization, including agents hired later, gets it at session start, and every \
-         agent that may write files may edit it; agents of other organizations never see it. Put there what the \
-         whole org should know (conventions, decisions, where things live); your own memories stay in your scratch \
-         AGENTS.md. When it has content, the copy at the end of this prompt is the file as it was when your CLI \
-         started: others may have edited it since, so read the file before relying on a recent entry. {edit} ",
+        "ORG SHARED FOLDER: {dir} is {org}'s shared scratch folder. Every agent of this organization, including \
+         agents hired later, may use it; agents of other organizations never see it. Its AGENTS.md, {} (it exists \
+         once an agent writes it), is the org's shared notes, which every agent gets at session start: put there \
+         what the whole org should know (conventions, decisions, where things live); your own memories stay in \
+         your scratch AGENTS.md. When it has content, the copy at the end of this prompt is the file as it was \
+         when your CLI started: others may have edited it since, so read the file before relying on a recent \
+         entry. {edit} ",
         file.display()
     )
 }
