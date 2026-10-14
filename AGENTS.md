@@ -1990,7 +1990,8 @@ rulings go here and on their ticket.
   Quick chat's model pop-up, the Providers tab: `useAgyModelsRefresh`/`refreshAgyModels`).
   One read in flight, a result under 30 s reused; a changed list is republished live
   (`providers::refresh_agy_models`). [decided: user 2026-10-14] The read is
-  `agy --log-file diagnostics/agy-probe/models-probe.log models`, rows `<id>	<label>`.
+  `agy --log-file diagnostics/agy-probe/models-probe.log models`, rows `<id>	<label>`,
+  started only through `agy_auth::checked_output` (never bare).
   A failed or empty read (signed out) offers none of the three; the hire strips,
   staffing and `orgtree_list_tiers` all follow `providers::agy_offered`. A hire, a model
   switch or a rehire naming one that is not listed is refused (409) after one fresh read

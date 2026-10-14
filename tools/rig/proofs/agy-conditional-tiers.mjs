@@ -15,6 +15,8 @@
 //     hire, a model switch or a rehire NAMING Argon while agy does not list
 //     it is refused with the reason; a plain rehire on the stored tier (the
 //     recovery door) is not, and a seat already on Argon is never touched
+//   - the auth guard (agy-astra's agy_auth): when the silent check refuses,
+//     `agy models` never starts and nothing conditional is offered
 //   - the engine ran `agy --log-file <f> models` and kept its log as
 //     diagnostics/agy-probe/models-probe.log, with no per-probe leftovers
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/agy-conditional-tiers.mjs
@@ -115,8 +117,15 @@ export default async function (rig) {
   r = await refusal(rig.op({ op: 'rehire', node: 'arg2' }))
   p.check('a plain rehire on the stored Argon tier is the recovery door: not refused by this gate', !(r && NOT_LISTED.test(r.message)), r)
 
-  // 6. how it was read
+  // 6. the auth guard: a refused silent check starts no `agy models`
   const lastCall = calls().at(-1)
+  registry(['gemini-4-argon-high	Gemini 4 Argon (High)', ...MEASURED])
+  fs.writeFileSync(path.join(rig.fakeDir, 'agy-auth.json'), JSON.stringify({ check: 'reject' }))
+  const guarded = await openFresh()
+  p.check('signed out per the auth guard: `agy models` is not started', guarded === 0, guarded)
+  p.check('…and no conditional tier is offered', !(await offered()).includes('argon'), await offered())
+
+  // 7. how it was read
   p.check('the engine ran `agy --log-file <file> models`', lastCall?.args?.includes('models') && lastCall?.args?.includes('--log-file'), lastCall)
   const probeDir = path.join(rig.data, 'diagnostics', 'agy-probe')
   const files = fs.existsSync(probeDir) ? fs.readdirSync(probeDir) : []

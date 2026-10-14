@@ -5,7 +5,6 @@
 //! tier was ever offered (docket gemini-4-argon-is-selectable-in-agy-but-orgtree-d).
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
 use crate::engine::Engine;
@@ -43,20 +42,13 @@ pub fn listed(model: &str, registry: &[String]) -> bool {
         })
 }
 
-/// `agy --log-file <log> models`, run from the probe folder with the
-/// updater off, no window and none of orgtree's or other providers' keys.
+/// `agy --log-file <log> models`, run from the probe folder without
+/// orgtree's or other providers' keys (the auth guard sets the updater off,
+/// the pipes and no window).
 #[nolog]
 fn command(exe: &Path, dir: &Path, log: &Path) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(exe);
-    cmd.arg("--log-file")
-        .arg(log)
-        .arg("models")
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .env("AGY_CLI_DISABLE_AUTO_UPDATE", "true");
+    cmd.arg("--log-file").arg(log).arg("models").current_dir(dir);
     for (k, _) in std::env::vars() {
         if k.starts_with("ANTHROPIC_")
             || ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ORGTREE_V2_TOKEN", "ELECTRON_RUN_AS_NODE"].contains(&k.as_str())
@@ -64,12 +56,13 @@ fn command(exe: &Path, dir: &Path, log: &Path) -> tokio::process::Command {
             cmd.env_remove(&k);
         }
     }
-    crate::winproc::no_window(&mut cmd);
     cmd
 }
 
 /// One read of the registry. `Err` is no evidence (signed out, refused,
-/// timed out), and no evidence offers no conditional tier. Each probe writes
+/// timed out), and no evidence offers no conditional tier. Nothing about
+/// `agy models` signed out was measured, so it runs only behind the auth
+/// guard: a silent check first, and a sign-in prompt kills it and latches. Each probe writes
 /// its own log, then moves it onto `models-probe.log` for anyone reading it
 /// by hand (3.x: concurrent probes sharing one log lost lines).
 #[nolog]
@@ -88,13 +81,10 @@ pub async fn read(engine: &Engine, exe: &Path) -> Result<Vec<String>, String> {
     Ok(parse(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// The one place `agy models` is started.
+/// The one place `agy models` is started: through the auth guard.
 #[nolog]
-async fn run(_engine: &Engine, _exe: &Path, mut cmd: tokio::process::Command) -> Result<std::process::Output, String> {
-    tokio::time::timeout(TIMEOUT, cmd.output())
-        .await
-        .map_err(|_| "agy models timed out".to_string())?
-        .map_err(|e| e.to_string())
+async fn run(engine: &Engine, exe: &Path, cmd: tokio::process::Command) -> Result<std::process::Output, String> {
+    super::agy_auth::checked_output(engine, exe, cmd, TIMEOUT).await.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
