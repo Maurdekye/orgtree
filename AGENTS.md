@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Transcript `orgtree_work` ticket refs carry `status_change` only from a
+  committed mutation result's locked `previous_status` and final status.
+  Shared tool rows reuse docket wording/colours; failures, no-ops and legacy
+  missing before-states show nothing extra. Archive preserves status. See
+  [status transitions](docs/rust-engine/tool-work-status-transitions.md).
+  [decided: user 2026-10-14 12:44UTC; verified from source: `domain/docket.rs`,
+  `runtime/convo.rs`, renderer `docketstatus.tsx`, `toolrefs.tsx`]
+
 - Background work keeps an agent's process open (user 2026-10-14, "keep open",
   Muse and Claude Code; decision 77). A turn's end with warming off, warming
   switched off, and the idle cap `hold` the process (`proc_held`, unparked:

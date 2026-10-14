@@ -1,5 +1,13 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Transcript docket transitions, user 2026-10-14 12:44:47UTC:** an
+`orgtree_work` call that actually changes ticket status shows `old → new`
+inline, each in the docket's own colour and wording. Capture the real
+previous status in the mutation transaction; failed/no-op calls add none.
+Historical rows without before-state metadata keep their previous display.
+Not required for the next alpha. See
+[`tool-work-status-transitions.md`](tool-work-status-transitions.md).
+
 **Popout Close versus Pop in, user 2026-10-13 08:22Z:** closing a popped-out
 modal dismisses it; explicit Pop in returns it to the main window. Preserve
 drafts/content, saved-row closure, cleanup and separately defined borrowing,
