@@ -579,11 +579,20 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   composite actions before promotion and commit both atomically; publish no
   intermediate topology or effects. Its explicit index is chosen in the final
   sibling set excluding the caller, and survives temporary-report promotion;
-  returned placement describes that final set. [verified from source:
-  `domain/ops.rs`, 2026-10-13; rebased rig verification pending]
+  returned placement describes that final set. Self-parent fallback inherits
+  the caller's effective preference (org default when unset); explicit true
+  is clamped to it, explicit false remains allowed. Hire/staff kickoff metadata
+  reports the final parent grant after promotion in the same transaction.
+  [verified from source: `domain/ops.rs`, 2026-10-14]
+  The new parent's ordinary superior powers over its caller (org-allowed
+  account/model/effort changes, rename, halt, retire) are inherent; its account
+  is not pinned to the caller's. The transferred root grant C+G-P can exceed
+  the user-hire top-level cap when C>P; stake C+G stays conserved and no cap
+  check is added to promotion. [decided: coordinator 2026-10-14,
+  parent-hire docket review rulings B/C]
   See [parent-hire accounting and authority](docs/rust-engine/parent-hire.md).
-  [verified: `engine/rs/orgtree-engine/src/domain/ops.rs`; isolated parent-hire
-  rig 26/26, 2026-10-11]
+  [verified: isolated parent-hire rig 29/29 and neighboring credits20/scope12/
+  ordering64/alias7, rig-opus batch 2026-10-13; A/D fix checks pending]
 
 - Native tray refresh must resynchronize the **Run on startup** checkbox from
   committed preferences even while its menu is open, and when that menu is

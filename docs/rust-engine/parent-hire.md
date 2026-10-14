@@ -24,6 +24,12 @@ requested free allocation R, require G-H >= P+R. The result is:
 - Caller grant: G-P-R, still holding H for its reports.
 - External seat-plus-grant allocation: C+G, unchanged.
 
+At the top level, C+G-P can exceed the organization's user-hire grant cap
+when the caller's seat costs more than the new parent's. This is a transfer
+of existing stake, with no new external allocation, so the cap is not applied
+to this promotion (coordinator ruling, 2026-10-14). Ordinary user root hires
+retain their cap.
+
 ## Authority and transaction
 
 `tools/treetools.rs` and `domain/staffing.rs` stamp the admitted generation,
@@ -40,14 +46,29 @@ are checked while the new seat is still a report. Then `self_subjugate`
 promotes it within that same transaction; failure rolls everything back.
 No CLI warming, mail delivery or topology publication runs before commit.
 Serialization/deadlock conflicts use the existing bounded four-attempt retry.
+The kickoff is authorized while the hire is a report; its event's `grant`
+is updated to the final parent grant C+G-P before the same transaction commits,
+for both hire and staff. The hire event followed by the promotion event
+continues to describe the operation's history.
 
 The final parent receives the caller's captured **effective** folders, tools
 (including Orgtree groups), visibility and permission mode, rather than a
 broader configured scope or org defaults. Explicit overrides of these fields
 are refused, as for existing superior insertion. Omitted account fallback
-preserves the caller's effective preference. Account selection otherwise uses
-ordinary hire rules, including org account exclusions and provider checks;
-promotion grants no additional account authority.
+preserves the caller's effective preference (the org default when unset).
+An explicit `account_fallback: true` is clamped to that same preference;
+an explicit false remains allowed. This also applies to the staff alias.
+Account selection uses ordinary hire rules, including org account exclusions
+and provider checks.
+
+Creating a superior accepts its ordinary powers over the caller: it may
+rebind the caller to an org-allowed account, change its model or effort,
+rename, halt or retire it. The new parent's account is not pinned to the
+caller's. This indirect self-reconfiguration is inherent to the feature,
+as ruled by the coordinator on 2026-10-14; it does not remove the existing
+org/provider admission checks or inherited scope ceilings. The fallback
+admission clamp above prevents a caller with fallback off from enabling it
+through an explicit parent-hire override.
 
 Other-target superior hires retain their existing funding rules. Rehire does
 not gain a new root/self-insertion permission in this change. An ordinary
@@ -61,6 +82,12 @@ insertion, repeated insertion, free/held accounting, sibling position, scope
 ceilings and enforced group denial, account exclusions, composite staff and
 audiences, rollback after late validation errors, concurrent spending,
 generation/scope changes while a request waits on a row lock, and a
-hire/promote/retire/rehire cycle. Existing `tree-credits` and `hire-scope`
+hire/promote/retire/rehire cycle. The single review fix round adds explicit
+fallback on/off checks through hire and staff, and final kickoff-grant checks
+for both aliases (35 checks in total). The focused Rust test
+`domain::ops::parent_hire_tests::self_parent_fallback_respects_caller_and_explicit_opt_out`
+covers omitted/true/false requests against explicit caller preferences and
+org defaults. These added checks await rig-opus execution; the prior batch's
+29-check proof passed. Existing `tree-credits` and `hire-scope`
 proofs cover the neighboring operations. Test identities and simulated CLI
 turns only; no live organization hierarchy or credits are changed.
