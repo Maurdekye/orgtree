@@ -149,7 +149,7 @@ export const BUILTIN: (Shortcut & { why: string })[] = [
       R('canvas/pins.tsx'), R('canvas/desk.tsx'), R('shell/menu.tsx')] },
   { keys: ['Enter'], action: 'Save a single-line field',
     why: 'Enter submits a one-line form field',
-    sources: [R('canvas/accounts.tsx'), R('canvas/chartersettings.tsx'), R('canvas/openrouter.tsx'),
+    sources: [R('canvas/accounts.tsx'), R('canvas/chartersettings.tsx'),
       R('canvas/openrouterkeys.tsx'), R('canvas/templates.tsx'), R('canvas/turnlimitssetting.tsx'),
       R('canvas/lsbrowser.tsx')] },
   { keys: ['Tab'], action: 'Move focus',

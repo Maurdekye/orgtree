@@ -1,4 +1,6 @@
-// openrouterusage.test.tsx — the shared header usage modal shows OpenRouter limits too.
+// openrouterusage.test.tsx — the shared header usage modal shows OpenRouter limits too:
+// one card per key, by its name and numbered id (every key alike, user 2026-10-14),
+// from the cache-only `GET /api/openrouter/keys/usage`.
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -21,8 +23,8 @@ const CODEX: AccountUsage = {
   ],
 }
 
-const ORR_UNCAPPED: AccountUsage = {
-  account: 'openrouter', provider: 'OpenRouter', label: 'sk-or-v1-d3e...22c',
+const ORR_UNCAPPED: AccountUsage & { name?: string } = {
+  account: 'openrouter-1', name: 'sk-or-v1-d3e...22c', provider: 'OpenRouter', label: 'sk-or-v1-d3e...22c',
   available: true, limits: [
     { kind: 'usage', group: 'credits', percent: null, severity: 'normal',
       resets_at: null, is_active: false, model: null,
@@ -30,8 +32,8 @@ const ORR_UNCAPPED: AccountUsage = {
   ],
 }
 
-const ORR_CAPPED: AccountUsage = {
-  account: 'openrouter', provider: 'OpenRouter', label: 'capped-key',
+const ORR_CAPPED: AccountUsage & { name?: string } = {
+  account: 'openrouter-1', name: 'capped-key', provider: 'OpenRouter', label: 'capped-key',
   available: true, limits: [
     { kind: 'usage', group: 'credits', percent: 80, severity: 'warning',
       resets_at: null, is_active: false, model: null,
@@ -45,7 +47,7 @@ const stubFetch = (orr: AccountUsage) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX
-      : /\/openrouter\/usage$/.test(path) ? orr : null
+      : path === '/api/openrouter/keys/usage' ? { 'openrouter-1': orr } : null
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
@@ -62,7 +64,7 @@ test('usage modal renders OpenRouter uncapped credits honestly without fake bar'
     assert.match(text, /Usage/)
     assert.doesNotMatch(text, /Usage limits/)
     assert.match(text, /Claude Code/)
-    assert.match(text, /OpenRouter · sk-or-v1-d3e\.\.\.22c/)
+    assert.match(text, /OpenRouter · sk-or-v1-d3e\.\.\.22c \(openrouter-1\)/)
     assert.match(text, /\$0\.16 spent · no spend cap/)
     // Claude has 1 track, Codex has 1 track; OpenRouter uncapped has NO track and NO 0% badge
     assert.equal(view.el.querySelectorAll('.usage-track').length, 2)
@@ -78,7 +80,7 @@ test('usage modal renders OpenRouter capped credits with percentage bar', async 
     const view = await mountView(<UsageModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })
     const text = view.el.textContent ?? ''
-    assert.match(text, /OpenRouter · capped-key/)
+    assert.match(text, /OpenRouter · capped-key \(openrouter-1\)/)
     assert.match(text, /\$40\.00 of \$50\.00 spend cap/)
     assert.match(text, /80%/)
     // Claude (1) + Codex (1) + OpenRouter capped (1) = 3 tracks
