@@ -794,7 +794,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     team's fallback-off is staffing, not product scope): opt-in per agent,
     Muse logins only, each asked for the seat's exact model and its room; an
     API key only while "fall back to Muse API-key accounts" is on, and only if
-    its own catalog offers the model. The Muse Cyan theme preset follows the
+    its own catalog offers the model. The Muse Eggshell theme preset follows the
     existing provider-theme rule, after Antigravity in initial detection.
     The user's own Muse login, which can never be a registry row, is a limit
     fallback target after the registered subscriptions, with the same gates

@@ -45,7 +45,7 @@ unchanged by these repair commits.
   wrapper. `turnpend` now recognizes that content marker without changing its
   assertion that a turn's incoming question precedes the streamed answer.
 - The Gold theme merge added a sixth theme; the complete label inventory in
-  `apptitle` now includes `langserver: Language Server Gold`.
+  `apptitle` now includes `langserver: LS Gold`.
 
 ## Measured verification
 

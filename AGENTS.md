@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Appearance presets are LS Gold, Muse Eggshell and Antigravity Navy. Shared
+  provider/preset order keeps Orgtree first, then Claude/Codex/Antigravity/Muse/
+  OpenRouter/LS, with Custom last; preset IDs, accent colours and saved values
+  are unchanged. [decided: user 2026-10-14 23:01–23:02UTC; verified:
+  `themes.tsx`, `canvas/accounts.tsx`, `packages/contracts/visual-theme.ts`]
+
 - Antigravity committed mid-turn mail clears only the next-tool row pointer
   (`Turn.codex_row`); keep existing tool-to-row mappings so in-flight results
   finish on their original rows. Invocation-hook injection does not restart or

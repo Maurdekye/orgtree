@@ -35,7 +35,7 @@ compact like an account's: "Active" on the key's identity line (its own line bel
 The provider class and collection are named Language servers. Updated category
 surfaces: Providers heading; tier-family menus/cards; agent settings model-family
 choice; canvas hire model-family list; template picker provider label; shared
-provider display label; Language servers Gold theme. Engine display metadata and
+provider display label; LS Gold theme. Engine display metadata and
 error navigation pointers match the renamed Providers category. Org Accounts
 already used Language servers.
 

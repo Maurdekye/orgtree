@@ -516,10 +516,10 @@ CIE76 1.9 from `--tier-flash` and 6.5 from the frozen `--ice`; `#0077b0` is
 7.8 from the light `--work`. Each state also has its own rail, letter, icon
 or label (rendered proof below).
 
-**App theme.** Settings › Display offers **Muse Cyan**, the provider cyan, as
+**App theme.** Settings › Display offers **Muse Eggshell**, the provider cyan, as
 Claude Terracotta and Codex Teal are their providers' colours: the existing
 provider-theme rule ([`v2-visual-themes.md`](../v2-visual-themes.md), with
-Language Server Gold as the precedent in
+LS Gold as the precedent in
 [`langserver-theme.md`](langserver-theme.md)). `THEME_ACCENTS.muse` is the one
 source for `#afe5ff`; the tray and window eye has a Muse variant
 (`orgtree-eye-tray-muse.ico`). It is CIE76 20.0 from Orgtree Grey, its nearest
@@ -554,7 +554,7 @@ status and the exact HEAD it ran on.
 | Rig `muse-held-replay.mjs`: the independent R4 schedule on the routes (quota walls hold requests; the logins removed with none left freeze the seats keeping them; the account operation binds them to B, keeping the freezes; B removed while C offers Full, through a first attempt rolled back at the NOWAIT org scan and a retry): one given-back wake mail per held request, run on C; a halted seat stays halted with its mail waiting and runs it once unhalted; a freeze holding no request gets no mail | 5 passed |
 | Rig `muse-r4-routes.mjs`: an effort-only retool after a queued move (route and agent tool, the inverse with nothing changed, a named account overriding, a queued `default`, no queue); continue-on refused on the own login, a Wonder-only login, an unreadable login and a Spark-1.3-only login for a 1.2 pin with nothing changed; the frozen seats' choices; continue-on positives | 10 passed |
 | Rig `muse-ui-logins.mjs`, the real renderer: Full in "Hire a subordinate" only a profile offers and the draft landing there; a signed-out own login; a seat's settings switched to Full leaving out its profile and saying why; pinned and profile levels in settings and on the desk | 7 checks passed; screenshots inspected |
-| Rig `muse-visual.mjs`, the real renderer: cards in charcoal and light, Providers, Usage, the Muse Cyan theme in all four contrast themes, effort names | 24 checks passed; screenshots inspected |
+| Rig `muse-visual.mjs`, the real renderer: cards in charcoal and light, Providers, Usage, the Muse Eggshell theme in all four contrast themes, effort names | 24 checks passed; screenshots inspected |
 | Rig `effort-selects.mjs` (existing effort UI) | 12 checks passed |
 | Other providers' account paths, unchanged: `continue-primary.mjs`, `claude-accounts.mjs`, `codex-accounts.mjs`, `fallback-slow-read.mjs` | 46, 19, 22 and 2 passed |
 | The integrated base's own proofs where its source overlaps this lane: `openrouter-keys.mjs`, `openrouter-keys-corrections.mjs`, `openrouter-lane.mjs`, `folder-grants-account-removal.mjs`, `approved-folder-grants.mjs` | 29, 50, 13, 23 and 24 passed |
@@ -702,7 +702,7 @@ be paid).
 | Credentials in the engine log | no raw MSP request or answer; safe method lines | not audited here | not audited here | measured (sentinels, verbose and quiet, with red control) |
 | Continue on another login, `muse/primary` | only onto a login whose own catalog offers the seat's exact model (unknown refused, nothing changed); host restarts in that login's roots; session resumed if that login has it, else a new one with a handoff note; the choices list only such logins | same | same (new conversation) | measured (fake, with red controls); the real session store per login inferred |
 | UI parity (hire, settings, Providers, Usage, colours) | yes | same | same | measured (rendered) |
-| App theme preset | Muse Cyan; `#0077b0` accent on light surfaces | Claude Terracotta | Codex Teal | measured (rendered in four contrast themes; unit tests) |
+| App theme preset | Muse Eggshell; `#0077b0` accent on light surfaces | Claude Terracotta | Codex Teal | measured (rendered in four contrast themes; unit tests) |
 | Granted folders' instructions (AGENTS.md, CLAUDE.md) | own folder's rules loaded by Muse; every granted folder's in the identity | same identity injection | same identity injection | measured (unit test) |
 | Shell in Windows Session 0 | write seats without Muse's sandbox: any command, and file tools writing outside the folders, Orgtree not asked | Bash pre-allowed (`--allowedTools`), no OS sandbox, on every session | `danger-full-access` unless the sign-in helper hosts it | Muse measured (real 1.4.6); others source |
 | Network for shell commands | Muse's own default (`proxy-only`); Orgtree sets no mode | Claude Code's own default | Codex's own default for the seat's sandbox | source: no lane gets a network mode; Muse's modes undocumented, untested |

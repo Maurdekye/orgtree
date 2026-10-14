@@ -1,8 +1,8 @@
-# Language Server Gold
+# LS Gold
 
 The Language Server provider already used gold in its chats and tier badges, but
 Appearance had no matching preset. The new `langserver` preset is labelled
-**Language Server Gold** and reuses that existing `#cda206` accent. The user's
+**LS Gold** and reuses that existing `#cda206` accent. The user's
 2026-10-11 10:49Z ruling was to keep the existing colour, not choose a new hue.
 
 `THEME_ACCENTS.langserver` in `packages/contracts/visual-theme.ts` is the single
@@ -28,7 +28,7 @@ CIE76 Lab distance, using `deployreadycolor.test.tsx`'s measure and its floor of
 | Orgtree Grey | 78.16 |
 | Claude Terracotta | 49.10 |
 | Codex Teal | 90.47 |
-| Antigravity Blue | 120.97 |
+| Antigravity Navy | 120.97 |
 | OpenRouter Lavender | 118.43 |
 
 | Gold versus status | Dark ΔE | Light ΔE |
