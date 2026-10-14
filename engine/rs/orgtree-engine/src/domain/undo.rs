@@ -911,16 +911,32 @@ pub async fn step(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64,
     }
 }
 
+/// Why a step request no longer names the target: `history_moved` when another entry is the target or
+/// the requested entry still exists (another window consumed it), `history_empty` otherwise.
+#[nolog]
+fn stale(current: Option<i64>, id: i64, known: bool) -> Option<&'static str> {
+    match current {
+        Some(t) if t == id => None,
+        Some(_) => Some("history_moved"),
+        None if known => Some("history_moved"),
+        None => Some("history_empty"),
+    }
+}
+
 #[logged]
 async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64, confirm: Option<&str>) -> Result<(Value, Option<Pending>)> {
     let mut client = engine.db.get().await?;
     let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
     lock_head(&tx, org.id).await?;
-    let Some(t) = target(&*tx, org.id, dir).await? else {
-        return Err(coded(404, "history_empty", if dir == Dir::Undo { "nothing to undo" } else { "nothing to redo" }, json!({})));
-    };
-    if t["id"].as_i64() != Some(id) {
-        return Err(coded(409, "history_moved", "the history changed; this is no longer the entry to step", json!({})));
+    let current = target(&*tx, org.id, dir).await?.and_then(|t| t["id"].as_i64());
+    // A second window stepping the entry another window just consumed gets history_moved even
+    // when that was the last one, so only an id this org never had (or one trimmed away) is empty.
+    let known = current.is_none() && tx.query_opt("SELECT 1 FROM ot.undo_entries WHERE org_id = $1 AND id = $2", &[&org.id, &id]).await?.is_some();
+    if let Some(code) = stale(current, id, known) {
+        return Err(match code {
+            "history_empty" => coded(404, code, if dir == Dir::Undo { "nothing to undo" } else { "nothing to redo" }, json!({})),
+            _ => coded(409, code, "the history changed; this is no longer the entry to step", json!({})),
+        });
     }
     let r = tx.query_one("SELECT kind, label, data FROM ot.undo_entries WHERE id = $1", &[&id]).await?;
     let kind: String = r.get(0);
@@ -1342,6 +1358,14 @@ async fn apply_retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_consumed_last_entry_answers_moved_not_empty() {
+        assert_eq!(stale(Some(7), 7, false), None);
+        assert_eq!(stale(Some(6), 7, true), Some("history_moved"));
+        assert_eq!(stale(None, 7, true), Some("history_moved"), "the second window after the last entry was consumed");
+        assert_eq!(stale(None, 7, false), Some("history_empty"));
+    }
 
     #[test]
     fn kinds_follow_the_contract() {
