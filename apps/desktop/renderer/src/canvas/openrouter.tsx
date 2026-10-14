@@ -113,8 +113,8 @@ const SORT_LABEL: Record<OpenRouterSort, string> = {
 }
 const DIR_LABEL: Record<OpenRouterSort, Record<'asc' | 'desc', string>> = {
   relevance: { asc: 'best match', desc: 'best match' },
-  input: { asc: 'cheapest first', desc: 'dearest first' },
-  output: { asc: 'cheapest first', desc: 'dearest first' },
+  input: { asc: 'cheapest first', desc: 'most expensive first' },
+  output: { asc: 'cheapest first', desc: 'most expensive first' },
   recency: { asc: 'oldest first', desc: 'newest first' },
 }
 /** "checked 01:20" — when the key was last verified, on the local clock */
@@ -466,7 +466,7 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
                 setSort(s); setOffset(0)
                 // each sort has a useful end: cheapest first for a price,
                 // newest first for a date. Carrying the previous direction
-                // across would land the user on "the dearest models".
+                // across would land the user on "the most expensive models".
                 setOrder(s === 'recency' ? 'desc' : 'asc')
               }}>
               <option value="relevance">best match</option>
