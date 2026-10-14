@@ -339,13 +339,11 @@ pub async fn discover(engine: &Engine) {
     if let Some((p, src)) = locate_agy() {
         // the email comes from the usage probe's own CLI log (set_agy_email)
         let prev = engine.providers.state.load().agy.clone();
+        // The version never depends on sign-in (Settings → Harnesses showed
+        // "unknown" for every signed-out or latched install).
+        let version = agy_auth::version(&p).await
+            .or_else(|| prev.version.clone().filter(|_| prev.path.as_deref() == Some(p.as_path())));
         let connected = agy_auth::preflight(engine, &p).await.is_ok();
-        let version = if connected {
-            let mut cmd = tokio::process::Command::new(&p);
-            cmd.arg("--version");
-            agy_auth::checked_output(engine, &p, cmd, Duration::from_secs(20)).await.ok()
-                .filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        } else { prev.version.clone() };
         st.agy = CliStatus {
             installed: true,
             version,

@@ -295,6 +295,35 @@ async fn capture_inner(mut cmd: Command, timeout: Duration) -> Result<Output, Fa
     result
 }
 
+/// The installed version for Settings → Harnesses: `agy --version`, the one
+/// AGY launch that is NOT preceded by the silent check, so a signed-out or
+/// latched install still shows its version. Measured on AGY 1.3.5
+/// (2026-10-14): exit 0 in 94 ms, stdout `1.3.5`, no CLI log written (no
+/// language server or auth stack started), credential untouched. It is still
+/// bounded, windowless, updater-disabled and watched for an auth prompt.
+#[nolog]
+pub fn version(exe: &Path) -> BoxFuture<'static, Option<String>> {
+    let mut cmd = Command::new(exe);
+    cmd.arg("--version");
+    configure(&mut cmd);
+    Box::pin(async move {
+        capture(cmd, Duration::from_secs(8)).await.ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| version_line(&o.stdout))
+    })
+}
+
+/// One short line starting with a digit, as AGY prints it; anything else is
+/// not a version and is never shown as one.
+#[nolog]
+fn version_line(stdout: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(stdout);
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let line = lines.next()?;
+    (lines.next().is_none() && line.len() <= 80 && line.starts_with(|c: char| c.is_ascii_digit()))
+        .then(|| line.to_string())
+}
+
 #[nolog]
 pub fn preflight<'a>(engine: &'a Engine, exe: &'a Path) -> BoxFuture<'a, Result<Stamp, Failure>> {
     // A concrete async state propagates through ensure_agy/start_turn and the
@@ -403,6 +432,16 @@ mod tests {
         assert!(matches!(kind, LatchFile::Kind { stamp: Stamp(11), kind: Refusal::Untrusted }));
         assert_eq!(serde_json::to_string(&LatchFile::Kind { stamp: Stamp(11), kind: Refusal::Refused }).unwrap(),
             r#"{"stamp":11,"kind":"refused"}"#);
+    }
+    #[test]
+    fn agy_auth_version_line_accepts_measured_output_only() {
+        assert_eq!(version_line(b"1.3.5\n").as_deref(), Some("1.3.5"));
+        assert_eq!(version_line(b"1.3.5\r\n").as_deref(), Some("1.3.5"));
+        assert_eq!(version_line(b"1.99.0 (Antigravity fake)\n").as_deref(), Some("1.99.0 (Antigravity fake)"));
+        assert_eq!(version_line(b""), None);
+        assert_eq!(version_line(b"Already authenticated as someone@example.invalid\n"), None);
+        assert_eq!(version_line(b"1.3.5\nupdate available\n"), None);
+        assert_eq!(version_line(b"Enter the authorization code:"), None);
     }
     #[test]
     fn agy_auth_failure_is_signed_out_not_zero_usage() {
