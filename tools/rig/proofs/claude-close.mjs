@@ -14,7 +14,7 @@ export default async function (rig) {
   await rig.userMail('cleo', 'Say OK.')
   await rig.waitTurns('cleo', 1)
   const lines = re => rig.engineLog().split(/\r?\n/).filter(l => re.test(l) && l.includes('/cleo '))
-  const started = lines(/CLI started/).at(-1)
+  const started = lines(/runtime\.claude: CLI started /).at(-1)
   const pid = Number((started?.match(/ pid=(\d+)/) ?? [])[1] ?? 0)
   p.check('cleo has a running Claude CLI', pid > 0, started)
   const t0 = Date.now()
