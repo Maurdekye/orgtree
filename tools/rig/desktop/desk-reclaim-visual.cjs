@@ -31,6 +31,8 @@ app.whenReady().then(async () => {
       await wait('[data-switchboard] textarea')
       await wait('.attn-panel-desk .popout-placeholder')
       await new Promise(resolve => setTimeout(resolve, 100))
+      // DOM readiness can precede the compositor frame used by capturePage.
+      await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
       fs.writeFileSync(path.join(out, `${theme}-open.png`), (await win.webContents.capturePage()).toPNG())
       await win.webContents.executeJavaScript('window.deskReclaimVisual.close()')
       await wait('.attn-panel-desk textarea')
@@ -44,6 +46,7 @@ app.whenReady().then(async () => {
           composers:document.querySelectorAll('textarea').length,desk:box(desk),live:box(live),
           pin:box(panel.closest('.modalpin-win')),background:getComputedStyle(document.body).backgroundColor};
       })()`)
+      await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
       fs.writeFileSync(path.join(out, `${theme}-closed.png`), (await win.webContents.capturePage()).toPNG())
       checks.push({ theme, closed })
     }
