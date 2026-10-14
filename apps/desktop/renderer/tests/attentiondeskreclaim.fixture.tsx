@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react'
 import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
-import type { CanvasNode } from '../src/canvas/shared'
+import type { CanvasNode, OpFn } from '../src/canvas/shared'
 import { USER } from '../src/canvas/shared'
 import { AttentionView, DESK_KIND } from '../src/attention/AttentionView'
 import { setAttentionLayout, setOrgView } from '../src/attention/mode'
 import { pinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
-import type { OpFn, TreePayload } from '../src/types'
+import type { TreePayload } from '../src/types'
 
 export const SLUG = 'desk-reclaim-fixture'
 const noop = () => {}

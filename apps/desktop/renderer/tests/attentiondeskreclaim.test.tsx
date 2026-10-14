@@ -19,7 +19,7 @@ test('closing the switchboard returns the SAME live desk to pinned Attention wit
   const v = await mountView(scene.wrap(false), el => el)
   t.after(() => v.unmount())
   await settle()
-  const panel = v.el.querySelector('.attn-panel-desk')!
+  const panel = document.querySelector('.attn-panel-desk')!
   assert.ok(panel?.closest('.pinwin'), 'the real attention panel is pinned')
   const composer = panel.querySelector('textarea') as HTMLTextAreaElement
   assert.ok(composer)
@@ -36,7 +36,7 @@ test('closing the switchboard returns the SAME live desk to pinned Attention wit
     assert.equal(panel.querySelector('textarea') === composer, true, 'close returns the existing composer')
     assert.equal(composer.value, 'unfinished draft')
     assert.equal(panel.querySelectorAll('.popout-placeholder').length, 0, 'the returned desk cannot share width with a stale placeholder')
-    assert.equal(v.el.querySelectorAll('textarea').length, 1)
+    assert.equal(document.querySelectorAll('textarea').length, 1)
   }
 })
 
