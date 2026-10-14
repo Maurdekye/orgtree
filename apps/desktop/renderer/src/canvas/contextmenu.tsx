@@ -146,7 +146,7 @@ function copyObjectAt(target: EventTarget | null, within?: Element): Element | n
 /** `Copy agent name`, built from a navigation marker instead of a copy object,
  *  for the targets that carry no copy object of their own. Kept beside
  *  `objectCopyEntry` so the two labels and the two toasts cannot drift. */
-function agentCopyEntry(el: Element, name: string, toast?: ToastFn): MenuItem {
+export function agentCopyEntry(el: Element, name: string, toast?: ToastFn): MenuItem {
   return { label: 'Copy agent name', onSelect: () => {
     void copyToClipboard(el, name).then(ok => toast?.([
       ok ? 'copied agent name' : 'could not copy — clipboard unavailable',
@@ -417,7 +417,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
         if (!s || opening.current !== id) return s
         if (objectNav?.org !== objectOrg || !objectEl?.isConnected) return null
         const copy = object ? objectCopyEntry(object, feedback) : null
-        return { ...s, entries: copy ? [copy, 'sep', ...resolved.filter(r => r === 'sep' || r.label !== copy.label)] : resolved }
+        return { ...s, entries: copy && !resolved.some(r => r !== 'sep' && r.label === copy.label) ? [copy, 'sep', ...resolved] : resolved }
       })).catch(() => setState(s => {
         if (!s || opening.current !== id) return s
         if (objectNav?.org !== objectOrg || !objectEl?.isConnected) return null
@@ -624,6 +624,11 @@ function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
       aria-expanded={entry.children ? expanded : undefined} title={entry.title}
       onFocus={() => { if (!expanded) collapse() }}
       onKeyDown={e => {
+        if (e.key === 'Enter' && entry.children && !entry.submenuOnly) {
+          e.preventDefault(); e.stopPropagation()
+          if (!entry.actionDisabled && !entry.disabled) { close(); entry.onSelect() }
+          return
+        }
         if (e.key === 'ArrowRight' && entry.children) {
           e.preventDefault(); e.stopPropagation(); keyboardOpen.current = true
           if (expanded) { submenu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus(); keyboardOpen.current = false }

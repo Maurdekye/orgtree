@@ -16,6 +16,16 @@ export function ticketActions({ item, selected, open, fold, owner, copySlug, cop
 }
 
 /** The same state gates and commands used by the watchdog detail buttons. */
+export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference }: {
+  open: () => void; owner?: Exclude<MenuEntry, 'sep'>;
+  copyTitle: () => void; copySlug: () => void; copyReference: () => void
+}): MenuEntry[] {
+  return [{ label: 'Open details', onSelect: open }, ...(owner ? [owner] : []), 'sep',
+    { label: 'Copy ticket title', onSelect: copyTitle }, { label: 'Copy slug', onSelect: copySlug },
+    { label: 'Copy reference', onSelect: copyReference }]
+}
+
+/** The same state gates and commands used by the watchdog detail buttons. */
 export function watchdogActions(dog: Watchdog, act: (action: 'pause' | 'resume' | 'remove') => void): MenuEntry[] {
   if (dog.spent) return []
   return [dog.state === 'armed' ? { label: 'Pause', onSelect: () => act('pause') }

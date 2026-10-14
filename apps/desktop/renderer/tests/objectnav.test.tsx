@@ -41,8 +41,7 @@ test('React, Markdown and bare ticket links use the canonical menu without navig
       <DogChip dog={dog} onOpen={id => opened.push(id)} />
     </ObjectMenuBoundary></DeskDogsProvider></ObjectNavProvider></CurrentOrg.Provider>, el => el.textContent)
   t.after(view.unmount)
-  const expected = ['Copy ticket title', ...ticketActions({ item, open: () => {}, owner: { open: () => {} }, copySlug: () => {}, copyReference: () => {} })
-    .filter(e => e !== 'sep').map(e => e === 'sep' ? '' : e.label)]
+  const expected = ['Open details', 'Owner… ▸', 'Copy ticket title', 'Copy slug', 'Copy reference']
   const tickets = [...view.el.querySelectorAll('[data-object-nav="ticket"]')]
   assert.equal(tickets.length, 3)
   for (const link of tickets) {
@@ -57,6 +56,54 @@ test('React, Markdown and bare ticket links use the canonical menu without navig
   assert.deepEqual(opened, ['worker/check'])
   await inAct(() => { (tickets[0] as HTMLElement).click() })
   assert.deepEqual(opened, ['worker/check', 'react'])
+})
+
+test('ticket Owner reuses the canonical agent menu; click and Enter focus while hover and Right open its submenu', async t => {
+  const prior = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({ item }), { status: 200 })) as typeof fetch
+  t.after(() => { globalThis.fetch = prior })
+  let focused = 0, other = 0
+  function Register() {
+    useProvideAgentNav(id => id === 'worker' ? [
+      { label: 'Focus', onSelect: () => { focused++ } },
+      { label: 'Canonical action', onSelect: () => { other++ } },
+    ] : [])
+    return null
+  }
+  const view = await mountView(<AgentNavProvider><ObjectNavProvider><Register />
+    <ObjectNavHost org="org" dogs={[]} openDog={() => {}} openTicket={() => {}} toast={() => {}} />
+    <ObjectMenuBoundary>
+      <RefChip r={resolveRef({ kind: 'item', org: 'org', id: 'task' }, world)} onOpen={() => {}} />
+      <button {...agentNavProps('worker')}>agent</button>
+    </ObjectMenuBoundary></ObjectNavProvider></AgentNavProvider>, el => el.textContent)
+  t.after(view.unmount)
+  const ticket = view.el.querySelector('[data-object-nav="ticket"]')!
+  const owner = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(b => b.textContent === 'Owner… ▸')!
+  await right(ticket)
+  assert.deepEqual(labels(), ['Open details', 'Owner… ▸', 'Copy ticket title', 'Copy slug', 'Copy reference'])
+  assert.equal(document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) [role="separator"]').length, 1)
+  await inAct(() => owner().click()); await flush()
+  assert.equal(focused, 1)
+  assert.equal(document.querySelector('[role="menu"]'), null)
+  await right(ticket)
+  await inAct(() => owner().closest('.ctxmenu-branch')!.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }))); await flush()
+  const child = document.querySelector('.ctxmenu-submenu')!
+  assert.deepEqual([...child.querySelectorAll('[role="menuitem"]')].map(b => b.textContent), ['Copy agent name', 'Focus', 'Canonical action'])
+  assert.equal(focused, 1, 'hover opens without focusing the owner')
+  await inAct(() => [...child.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(b => b.textContent === 'Canonical action')!.click()); await flush()
+  assert.equal(other, 1)
+  assert.equal(document.querySelector('[role="menu"]'), null)
+  await right(ticket)
+  await inAct(() => { owner().focus(); owner().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })) }); await flush()
+  assert.ok(document.querySelector('.ctxmenu-submenu'))
+  assert.equal(document.activeElement?.textContent, 'Copy agent name')
+  await inAct(() => document.activeElement!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))); await flush()
+  assert.equal(document.querySelector('.ctxmenu-submenu'), null)
+  await inAct(() => owner().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))); await flush()
+  assert.equal(focused, 2)
+  assert.equal(document.querySelector('[role="menu"]'), null)
+  await right(view.el.querySelector('[data-agent-nav]')!)
+  assert.deepEqual(labels(), ['Copy agent name', 'Focus', 'Canonical action'], 'the owner submenu and direct agent target use the same entries')
 })
 
 test('inner object wins over row actions; invalid/foreign ids and removed watchdogs gain no actions', async t => {
