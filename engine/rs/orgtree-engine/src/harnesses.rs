@@ -72,7 +72,7 @@ pub const ALL: &[Harness] = &[
         what: "Meta's Muse coding agent CLI.",
         providers: &[catalog::MUSE],
         selectable: false,
-        install_url: "",
+        install_url: "https://dev.meta.ai/docs/muse-code#install",
         install: "Install Muse Code (the `muse` command) and sign in once in a terminal.",
     },
 ];
@@ -141,6 +141,20 @@ pub fn not_installed(id: &str) -> String {
     format!("{} is not installed on this computer; install it, or choose an installed harness", label(id))
 }
 
+/// Reuse discovery's version; listing harnesses must never launch a CLI.
+#[nolog]
+fn discovered_version<'a>(state: &'a crate::providers::State, id: &str) -> Option<&'a str> {
+    let cli = match id {
+        "claude-code" => &state.claude,
+        "codex-cli" => &state.codex,
+        "opencode" => &state.opencode,
+        "antigravity" => &state.agy,
+        "muse" => &state.muse,
+        _ => return None,
+    };
+    cli.version.as_deref().map(str::trim).filter(|s| !s.is_empty())
+}
+
 /// One selector's options for a provider's agents: each selectable harness
 /// with whether it is installed. A saved choice that is no longer installed
 /// stays listed (`installed` false) so it can say so; the others are offered
@@ -162,8 +176,10 @@ pub fn options(engine: &Engine, provider: &str) -> Vec<Value> {
 /// installed here, the providers that use it and how to install it.
 #[logged]
 pub fn doc(engine: &Engine) -> Value {
+    let state = engine.providers.state.load();
     json!({ "harnesses": ALL.iter().map(|h| json!({
         "id": h.id, "name": h.name, "what": h.what, "installed": installed(engine, h.id), "selectable": h.selectable,
+        "version": discovered_version(&state, h.id),
         "providers": h.providers.iter().map(|p| json!({ "id": p, "label": catalog::provider_label(p) })).collect::<Vec<_>>(),
         "install_url": if h.install_url.is_empty() { Value::Null } else { json!(h.install_url) }, "install": h.install,
     })).collect::<Vec<_>>() })
@@ -172,6 +188,25 @@ pub fn doc(engine: &Engine) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn harness_versions_reuse_discovery() {
+        let mut state = crate::providers::State::default();
+        state.claude.version = Some(" 2.1.0 ".into());
+        state.codex.version = Some("codex-cli 1.2.3".into());
+        state.opencode.version = Some("2.0.0".into());
+        state.agy.version = Some("agy 3.0".into());
+        state.muse.version = Some("1.4.6".into());
+        for (id, expected) in [("claude-code", "2.1.0"), ("codex-cli", "codex-cli 1.2.3"),
+            ("opencode", "2.0.0"), ("antigravity", "agy 3.0"), ("muse", "1.4.6")] {
+            assert_eq!(discovered_version(&state, id), Some(expected));
+        }
+        assert_eq!(discovered_version(&state, "future"), None);
+        state.muse.version = Some("  ".into());
+        assert_eq!(discovered_version(&state, "muse"), None);
+        state.codex.version = None;
+        assert_eq!(discovered_version(&state, "codex-cli"), None);
+    }
 
     #[test]
     fn every_selectable_harness_names_its_providers() {
