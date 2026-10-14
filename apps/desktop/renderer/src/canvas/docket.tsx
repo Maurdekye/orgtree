@@ -64,25 +64,10 @@ import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
 import type { RefKind, TypedRef } from './workrefs'
+import { statusLabel } from './docketstatus'
 
 // `review` is the AGENT check, not the user's (user ruling 2026-09-05)
 const REVIEW_HELP ='Review by agents — a request for you rides the attention flag or a question'
-const STATUS_LABEL: Record<string, string> = {
-  backlogged: 'Backlogged',
-  open: 'Open',
-  in_progress: 'In progress',
-  blocked: 'Blocked',
-  // `waiting` was REMOVED as a state (user 2026-09-07): the backend serves a
-  // row recorded as waiting as `blocked` with `legacy_status: "waiting"`, so
-  // no label is needed for it; an older backend that still serves the word
-  // falls through to the raw status
-  review: 'Agent review',
-  approved: 'Approved — not landed',
-  deploy_ready: 'Deploy Ready',
-  done: 'Done',
-  superseded: 'Superseded',
-  dropped: 'Dropped',
-}
 // `blocked` names what it is stuck on and how the agent will hear of the
 // answer or event; it is never nudged by the idle reminder (user 2026-09-07)
 const BLOCKED_HELP = 'Cannot move until something outside the item happens — an answer, an event, another agent\'s work. It says what and how the agent will hear of it; it stays active and is never nudged by the idle reminder'
@@ -95,7 +80,6 @@ const DEPLOY_READY_HELP = 'Implementation is complete and awaiting deployment or
 // the word "approved" on its own reads like "finished and signed off"; it means
 // the opposite of Done, so the help says what is still owed and by whom
 const APPROVED_HELP = 'A reviewer approved one exact commit and it is NOT on main yet — the item is still with its owner and the outstanding action is the landing. Completion happens after the push is recorded, never before it'
-const statusLabel = (status: string): string => STATUS_LABEL[status] ?? status
 /** hover help, only where the status word can be read two ways */
 const statusHelp = (status: string): string | undefined =>
   (status === 'review' ? REVIEW_HELP

@@ -925,7 +925,9 @@ export interface ToolChip {
   preview_input?: unknown
   /** the agents, the watchdog and the docket tickets the call concerns (engine `tool_refs`); the
    *  transcript draws a link or card for each beside the call */
-  refs?: Array<{ kind: 'agent' | 'watchdog' | 'ticket'; id: string }>
+  refs?: Array<{ kind: 'agent' | 'watchdog' | 'ticket'; id: string;
+    /** Successful docket mutation's real before/after states, not inferred from input. */
+    status_change?: { from: string; to: string } }>
   id?: string | null
   result?: string
   result_lines?: number
