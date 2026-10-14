@@ -15,7 +15,7 @@
 //
 // Run:  cd frontend && node tests/run.mjs gallery
 
-import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { fireResize, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -23,6 +23,7 @@ import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { activeDocCount } from '../src/canvas/shared'
 import type { DocCountNode } from '../src/canvas/shared'
 import type { DocRow } from '../src/api'
+import { CollapsibleMailer } from '../src/canvas/narrowlist'
 
 interface Call { method: string; url: string }
 
@@ -89,6 +90,38 @@ const gallery = (extra?: Partial<{
   <DocGalleryModal slug="org1" toast={noop} close={extra?.close ?? noop}
     onFocusAgent={extra?.onFocusAgent} onReply={extra?.onReply} />
 )
+
+// Actual gallery callers must select the documents threshold, while mail
+// still uses the shared default. Width is supplied to jsdom's layout stub.
+for (const home of ['org', 'agent-modal', 'agent-inline', 'mail'] as const) {
+  test(`docs width: ${home} keeps its own collapse boundary`, async t => {
+    const original = HTMLElement.prototype.getBoundingClientRect
+    let width = 700
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('mailer')) return { ...original.call(this), width } as DOMRect
+      return original.call(this)
+    }
+    t.after(() => { HTMLElement.prototype.getBoundingClientRect = original })
+    const oldFetch = globalThis.fetch
+    t.after(() => { globalThis.fetch = oldFetch })
+    mockDocs([row({ id: 'width-doc' })], { 'width-doc': 'A document body' })
+    const body = home === 'org' ? gallery()
+      : home === 'mail' ? <CollapsibleMailer collapsible listLabel="message list"
+          list={<div className="mailer-list">Messages</div>}><div className="mailer-read">Message</div></CollapsibleMailer>
+        : <AgentGalleryView slug="org1" nid="agent1" toast={noop} collapsible={home === 'agent-modal'} />
+    const view = await mountView(body, el => el)
+    t.after(() => view.unmount())
+    await inAct(async () => { await flush(10) })
+    const box = view.el.querySelector('.mailer') as HTMLElement
+    assert.ok(box, 'the actual reading surface rendered')
+    for (const next of [700, 895, 896, 897, 1000, 559, 560, 561]) {
+      width = next
+      await inAct(() => fireResize(box))
+      const collapse = home === 'agent-inline' ? false : next <= (home === 'mail' ? 560 : 896)
+      assert.equal(box.classList.contains('narrow-list'), collapse, `${home} at ${next}px`)
+    }
+  })
+}
 
 uiTest('§1 an empty org says so rather than rendering a blank panel', async (mount) => {
   mockDocs([])

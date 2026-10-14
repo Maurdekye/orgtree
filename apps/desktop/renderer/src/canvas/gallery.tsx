@@ -34,7 +34,7 @@ import type { LoadedDoc } from './docs'
 import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from './docs'
 import { useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
-import { CollapsibleMailer } from './narrowlist'
+import { CollapsibleMailer, NARROW_DOCS_WIDTH } from './narrowlist'
 import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { resolveRef } from './reflinks'
@@ -482,7 +482,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                     : 'no cards have been presented yet'}
               </DocListEmpty>
             : (
-                <CollapsibleMailer collapsible listLabel="document list"
+                <CollapsibleMailer collapsible threshold={NARROW_DOCS_WIDTH} listLabel="document list"
                   list={
                   <LazyDocList w={w} label="Presented documents">
                     {menu.node}
@@ -797,7 +797,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
         <DocListEmpty w={w} className="desk-presented-empty">
           {w.busy ? 'Loading…' : 'No presented documents.'}</DocListEmpty>
       ) : (
-        <CollapsibleMailer collapsible={collapsible} listLabel="document list"
+        <CollapsibleMailer collapsible={collapsible} threshold={NARROW_DOCS_WIDTH} listLabel="document list"
           list={
           <LazyDocList w={w} label={`Presented documents from ${nid}`}>
             {menu.node}

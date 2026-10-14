@@ -7,6 +7,12 @@
   remain in `pick`. See [desk owner close](docs/rust-engine/desk-owner-close.md).
   [decided: user 2026-10-14 18:36UTC; verified from source: `canvas/deskhosts.tsx`]
 
+- Presented-document modals collapse their list at 896 CSS px of their own
+  reading box; mail keeps 560 and inline desk galleries stay persistent.
+  Both organization and agent gallery callers use `NARROW_DOCS_WIDTH`.
+  [decided: user 2026-10-14 17:51UTC; verified from source:
+  `canvas/gallery.tsx`, `canvas/narrowlist.tsx`]
+
 - Live tool writing/execution clocks floor actual elapsed seconds and schedule
   at boundaries relative to the observed start; completed formatting remains
   precise. Omit an unobserved writing-time slot entirely; measured zero remains

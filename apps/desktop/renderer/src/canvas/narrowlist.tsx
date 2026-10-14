@@ -33,6 +33,10 @@ import { useEsc } from './shared'
  *  stops laying out as prose and starts wrapping every few words. */
 export const NARROW_MAILER_WIDTH = 560
 
+/** Presented-document modals collapse their list at a 60% wider width.
+ *  Mail keeps the default above; inline desk galleries never opt in. */
+export const NARROW_DOCS_WIDTH = 896
+
 /** Watches one element's own width. Returns null until it has been measured,
  *  so nothing flashes the wrong layout on the first paint. */
 function useNarrow(threshold: number, enabled: boolean) {
