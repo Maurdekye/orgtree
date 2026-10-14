@@ -4069,11 +4069,16 @@ impl Actor {
                 }
             }
             "session/todoListChanged" => {
-                // the same plan chip Codex's plan updates draw
                 let plan: Vec<Value> = p["items"].as_array().cloned().unwrap_or_default().iter().map(|i| {
                     json!({ "step": i["text"], "status": i["status"] })
                 }).collect();
-                self.on_codex_plan(&json!({ "plan": plan })).await?;
+                // a list a tool call wrote (`sourceTool`: write_todos) goes onto
+                // that call's chip; any other onto the plan chip Codex's plan
+                // updates draw
+                let source = p["sourceTool"].as_str().unwrap_or("");
+                if source.is_empty() || !self.muse_todos_on_call(source, &plan).await? {
+                    self.on_codex_plan(&json!({ "plan": plan })).await?;
+                }
             }
             "session/modelChanged" => {
                 let pinned = match &self.proc {
@@ -4946,10 +4951,14 @@ impl Actor {
             let Some(key) = t.tools.get(id) else { return Ok(()) };
             let Some((seq, row)) = t.rows.get_mut(key) else { return Ok(()) };
             let Some(chip) = row["tools"].as_array_mut().and_then(|a| a.iter_mut().find(|c| c["id"] == id)) else { return Ok(()) };
-            if chip["input"] == *input && chip["name"] == name { return Ok(()); }
-            chip["name"] = json!(name);
+            // a call shown as the checklist chip keeps that name (`muse_todo_chip`)
+            let checklist = chip["native_tool"] == name;
+            if chip["input"] == *input && (chip["name"] == name || checklist) { return Ok(()); }
+            if !checklist {
+                chip["name"] = json!(name);
+                chip["arg"] = json!(convo::tool_arg(name, input));
+            }
             chip["input"] = input.clone();
-            chip["arg"] = json!(convo::tool_arg(name, input));
             chip["refs"] = convo::tool_refs(name, input, None);
             (*seq, row.clone())
         };
@@ -5191,18 +5200,7 @@ impl Actor {
     /// Codex's checklist (`turn/plan/updated`) as the desk's progress list.
     async fn on_codex_plan(&mut self, p: &Value) -> Result<()> {
         let Some(steps) = p["plan"].as_array() else { return Ok(()) };
-        let todos: Vec<Value> = steps
-            .iter()
-            .filter_map(|s| {
-                let step = s["step"].as_str()?;
-                let status = match s["status"].as_str().unwrap_or("pending") {
-                    "inProgress" => "in_progress",
-                    "completed" => "completed",
-                    _ => "pending",
-                };
-                Some(json!({ "content": step, "status": status, "activeForm": step }))
-            })
-            .collect();
+        let todos = plan_todos(steps);
         let chip_id = format!("plan-{}", self.turn.as_ref().and_then(|t| t.codex_turn.clone()).unwrap_or_default());
         let client = self.engine.db.get().await?;
         let key = match self.turn.as_ref().and_then(|t| t.tools.get(&chip_id).cloned()) {
@@ -5229,6 +5227,29 @@ impl Actor {
         drop(client);
         self.stream("tool", json!({ "id": chip_id }));
         Ok(())
+    }
+
+    /// A todo list one of the running turn's calls wrote (Muse's
+    /// `write_todos`, which `session/todoListChanged` names as `sourceTool`)
+    /// goes onto that call's own chip, the newest of that tool, rather than
+    /// onto a second chip beside it (measured 2026-10-14: the call's
+    /// item/started, then the list, then its item/completed; two chips for one
+    /// call before). False when the turn has no call of that tool.
+    async fn muse_todos_on_call(&mut self, tool: &str, plan: &[Value]) -> Result<bool> {
+        let todos = plan_todos(plan);
+        let update = {
+            let Some(t) = self.turn.as_mut() else { return Ok(false) };
+            let Some((key, id)) = newest_call(&t.rows, &t.tools, tool) else { return Ok(false) };
+            let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(false) };
+            let Some(chip) = row["tools"].as_array_mut().and_then(|a| a.iter_mut().find(|c| c["id"] == id.as_str())) else { return Ok(false) };
+            muse_todo_chip(chip, tool, &todos);
+            (*seq, row.clone(), id)
+        };
+        let client = self.engine.db.get().await?;
+        self.convo.update(&client, update.0, update.1).await?;
+        drop(client);
+        self.stream("tool", json!({ "id": update.2 }));
+        Ok(true)
     }
 
     fn on_init(&mut self, v: &Value) {
@@ -7061,6 +7082,52 @@ fn muse_result(item: &Value) -> (String, bool) {
     (text, failed)
 }
 
+/// A checklist's steps (Codex's plan, Muse's todo list) as the desk's todo
+/// items.
+#[logged]
+fn plan_todos(steps: &[Value]) -> Vec<Value> {
+    steps
+        .iter()
+        .filter_map(|s| {
+            let step = s["step"].as_str()?;
+            let status = match s["status"].as_str().unwrap_or("pending") {
+                "inProgress" => "in_progress",
+                "completed" => "completed",
+                _ => "pending",
+            };
+            Some(json!({ "content": step, "status": status, "activeForm": step }))
+        })
+        .collect()
+}
+
+/// The turn's newest call of a tool, a chip of that name or shown as the
+/// checklist for it: its row's key and its id. Newest is the latest row, then
+/// the latest place in it.
+#[nolog] // the turn's rows (bulk)
+fn newest_call(rows: &HashMap<String, (i64, Value)>, tools: &HashMap<String, String>, tool: &str) -> Option<(String, String)> {
+    let mut newest: Option<((i64, usize), String, String)> = None;
+    for (id, key) in tools {
+        let Some((seq, row)) = rows.get(key) else { continue };
+        let Some(at) = row["tools"].as_array().and_then(|a| a.iter()
+            .position(|c| c["id"] == id.as_str() && (c["name"] == tool || c["native_tool"] == tool))) else { continue };
+        if newest.as_ref().is_none_or(|(pos, _, _)| (*seq, at) > *pos) {
+            newest = Some(((*seq, at), key.clone(), id.clone()));
+        }
+    }
+    newest.map(|(_, key, id)| (key, id))
+}
+
+/// The todo list a call wrote, on that call's chip: shown as the checklist
+/// chip (`TodoWrite`, the name the transcript and the progress panel read),
+/// with the call's own tool name kept in `native_tool`.
+#[logged]
+fn muse_todo_chip(chip: &mut Value, tool: &str, todos: &[Value]) {
+    chip["native_tool"] = json!(tool);
+    chip["name"] = json!("TodoWrite");
+    chip["arg"] = json!("todos");
+    chip["todos"] = json!(todos);
+}
+
 /// A settled Muse call's result on its chip: the input it ran with, the
 /// output (clipped) and its line count, when it ended, and the error when it
 /// failed.
@@ -7285,6 +7352,36 @@ mod muse_silence_tests {
         muse_track_tool(&mut tools, "y", &json!({ "itemId": "y", "kind": "toolCall", "status": "inProgress", "background": true }), false);
         assert!(tools["y"].background && tools["y"].name == "read_file", "a later update keeps the name and the flag");
         assert_eq!(muse_silent_calls(&tools), None);
+    }
+
+    #[test]
+    fn a_todo_list_lands_on_the_call_that_wrote_it() {
+        // Muse 1.4.6's list (measured 2026-10-14): `text`, camelCase statuses
+        let plan: Vec<Value> = [("inProgress", "Locate the old project"), ("pending", "Design the app"), ("completed", "Read the brief")]
+            .iter().map(|(s, t)| json!({ "step": t, "status": s })).collect();
+        let todos = plan_todos(&plan);
+        assert_eq!(todos.iter().map(|t| t["status"].as_str().unwrap()).collect::<Vec<_>>(), ["in_progress", "pending", "completed"]);
+        assert_eq!(todos[0], json!({ "content": "Locate the old project", "status": "in_progress", "activeForm": "Locate the old project" }));
+        // the turn's newest write_todos call: a later row, then a later place in a row
+        let chip = |id: &str, name: &str| json!({ "id": id, "name": name, "arg": "", "started_at": "2026-10-14T17:31:54Z" });
+        let rows: HashMap<String, (i64, Value)> = HashMap::from([
+            ("r1".to_string(), (5, json!({ "tools": [chip("w1", "write_todos"), chip("p1", "powershell")] }))),
+            ("r2".to_string(), (9, json!({ "tools": [chip("w2", "write_todos"), chip("w3", "write_todos"), chip("p2", "powershell")] }))),
+        ]);
+        let tools: HashMap<String, String> = [("w1", "r1"), ("p1", "r1"), ("w2", "r2"), ("w3", "r2"), ("p2", "r2")]
+            .iter().map(|(i, k)| (i.to_string(), k.to_string())).collect();
+        assert_eq!(newest_call(&rows, &tools, "write_todos"), Some(("r2".to_string(), "w3".to_string())));
+        assert_eq!(newest_call(&rows, &tools, "read_file"), None, "no such call: the plan chip instead");
+        // the call's own chip becomes the checklist, its id and timing kept
+        let mut c = chip("w3", "write_todos");
+        muse_todo_chip(&mut c, "write_todos", &todos);
+        assert_eq!((c["name"].as_str(), c["arg"].as_str(), c["native_tool"].as_str()), (Some("TodoWrite"), Some("todos"), Some("write_todos")));
+        assert_eq!((c["id"].as_str(), c["started_at"].as_str()), (Some("w3"), Some("2026-10-14T17:31:54Z")));
+        assert_eq!(c["todos"], json!(todos));
+        // a second list from the same call finds it again by its own tool name
+        let rows: HashMap<String, (i64, Value)> = HashMap::from([("r2".to_string(), (9, json!({ "tools": [c] })))]);
+        let tools = HashMap::from([("w3".to_string(), "r2".to_string())]);
+        assert_eq!(newest_call(&rows, &tools, "write_todos"), Some(("r2".to_string(), "w3".to_string())));
     }
 
     /// A command Muse moved to the background and that finished after its

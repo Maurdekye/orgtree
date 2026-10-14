@@ -17,7 +17,10 @@
 //!   (`--disable-shell`, `--disable-write`); what remains is bounded by the
 //!   session's permission profile, and approval requests are decided here
 //!   from the scope, once at a time (never a persistent or session-wide
-//!   approval, never the LLM judge).
+//!   approval, never the LLM judge). Muse asks about a compound shell
+//!   command in stages, one per statement its policy cannot settle: the
+//!   request names the first, each `approval/updated` the next, and every
+//!   stage is answered (measured 2026-10-14).
 //! - Mid-turn mail goes in with `turn/steer` on the exact running turn;
 //!   interrupt is `turn/interrupt`; every notification goes to the actor as
 //!   `AgentMsg::Muse`.
@@ -33,9 +36,10 @@
 //!   1.4.6, 2026-10-13).
 //! - While the engine runs in Windows Session 0 (the boot task) Muse's OS
 //!   sandbox cannot start a command, so a write seat's host runs without it
-//!   (`--disable-sandbox`: then Muse asks about no command and its file tools
-//!   can write outside the folders, measured) and a read-only seat has no
-//!   shell (user 2026-10-13 18:53Z; kept knowing that, 20:16Z).
+//!   (`--disable-sandbox`: then Muse asks only about a statement its policy
+//!   cannot settle, such as one whose arguments come from a variable, and its
+//!   file tools can write outside the folders, measured) and a read-only
+//!   seat has no shell (user 2026-10-13 18:53Z; kept knowing that, 20:16Z).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -819,6 +823,8 @@ async fn read_stdout(
     let mut buf: Vec<u8> = Vec::new();
     let mut waiters: HashMap<i64, oneshot::Sender<Value>> = HashMap::new();
     let mut waiters_open = true;
+    // the approvals this host asked about, for their later stages
+    let mut asked: HashMap<String, Asked> = HashMap::new();
     let reason = loop {
         let got = tokio::select! {
             w = waiters_rx.recv(), if waiters_open => {
@@ -849,9 +855,19 @@ async fn read_stdout(
                 // a must-answer request: the answer is only a presentation
                 // receipt; the decision travels as its own command after it
                 let _ = writer.send(json!({ "jsonrpc": "2.0", "id": v["id"], "result": {} }).to_string());
-                answer(method, &v["params"], &policy, &writer, &actor, process);
+                answer(method, &v["params"], &policy, &writer, &actor, process, &mut asked);
             }
-            (false, Some(_)) => {
+            (false, Some(method)) => {
+                match method {
+                    // the next stage of an approval: answered like the request
+                    "approval/updated" => next_stage(&v["params"], &policy, &writer, &actor, process, &mut asked),
+                    "approval/resolved" => {
+                        if let Some(id) = v["params"]["approvalId"].as_str() {
+                            asked.remove(id);
+                        }
+                    }
+                    _ => {}
+                }
                 if !actor.post(AgentMsg::Muse(process, v)) {
                     break "actor closed".to_string();
                 }
@@ -865,32 +881,21 @@ async fn read_stdout(
 /// Decide a server request from the scope: an approval once, a user-input
 /// prompt declined (agents ask the user with orgtree_ask).
 #[logged]
-fn answer(method: &str, p: &Value, policy: &Policy, writer: &mpsc::UnboundedSender<String>, actor: &AgentTx, process: uuid::Uuid) {
+fn answer(method: &str, p: &Value, policy: &Policy, writer: &mpsc::UnboundedSender<String>, actor: &AgentTx, process: uuid::Uuid,
+          asked: &mut HashMap<String, Asked>) {
     let session = p["sessionId"].clone();
     let send = |m: &str, params: Value| {
         let _ = writer.send(json!({ "jsonrpc": "2.0", "id": format!("d-{}", uuid7()), "method": m, "params": params }).to_string());
     };
     match method {
         "approval/request" => {
-            let tool = p["toolName"].as_str().unwrap_or("");
-            let verdict = allowed(policy, &p["subject"], tool);
-            let Some(choice_id) = choice(&p["availableChoices"], verdict.is_ok()) else {
-                // nothing to answer with: Muse keeps the call waiting (no host
-                // timeout was seen) until the silence limit stops it. The
-                // choices' shapes only: a label can quote the command.
-                let offered: Vec<String> = p["availableChoices"].as_array().map(|a| a.iter()
-                    .map(|c| format!("{}:{}:{}", c["choiceId"].as_str().unwrap_or("?"), c["decision"].as_str().unwrap_or("?"), c["scope"].as_str().unwrap_or("?")))
-                    .collect()).unwrap_or_default();
-                tracing::warn!(approval = %p["approvalId"], approve = verdict.is_ok(), offered = ?offered,
-                    "no once-only choice for this approval; the call waits until the silence limit stops it");
-                return;
-            };
-            if let Err(why) = &verdict {
-                let arg = crate::util::gist(p["subject"]["command"].as_str().or(p["subject"]["path"].as_str()).unwrap_or(p["rawArgs"].as_str().unwrap_or("")), 90);
-                let _ = actor.post(AgentMsg::Muse(process, json!({ "method": "orgtree/denied", "params": { "tool": tool, "arg": arg, "why": why } })));
+            let tool = p["toolName"].as_str().unwrap_or("").to_string();
+            let verdict = allowed(policy, &p["subject"], &tool);
+            let mut a = Asked { tool, verdict, decided: Vec::new(), booked: false };
+            decide(p, &mut a, writer, actor, process);
+            if let Some(id) = p["approvalId"].as_str() {
+                remember(asked, id, a);
             }
-            send("approval/decide", json!({ "commandId": uuid7(), "sessionId": session, "approvalId": p["approvalId"],
-                                            "choiceId": choice_id, "requirementId": p["currentRequirementId"] }));
         }
         "userInput/request" => {
             send("userInput/cancel", json!({ "commandId": uuid7(), "sessionId": session, "userInputId": p["userInputId"],
@@ -898,6 +903,141 @@ fn answer(method: &str, p: &Value, policy: &Policy, writer: &mpsc::UnboundedSend
         }
         other => tracing::warn!(method = other, "unexpected Muse server request; answered with a receipt only"),
     }
+}
+
+/// An approval this host asked about, kept for its later stages. Muse 1.4.6
+/// asks about a compound shell command in stages, one per statement its
+/// policy cannot settle (`subject.stages`, each its own requirement):
+/// `approval/request` names the first, and once that is decided an
+/// `approval/updated` names the next as `currentRequirementId`, until every
+/// stage is decided. A call with a stage left open never starts (measured
+/// 2026-10-14: answering only the first stage left a call waiting until the
+/// user interrupted it, 6 min later). Forgotten at `approval/resolved`.
+#[derive(Debug)]
+struct Asked {
+    tool: String,
+    /// the scope's verdict on the whole call, which every stage gets
+    verdict: std::result::Result<(), String>,
+    /// the requirements decided so far, each once
+    decided: Vec<Value>,
+    /// a refusal of this call is booked as a denial (once)
+    booked: bool,
+}
+
+/// What answers an approval's current requirement.
+#[derive(Debug, PartialEq)]
+enum Decision {
+    /// decided already
+    Skip,
+    /// this choice; `why` is a refusal's reason
+    Choose { choice: String, why: Option<String> },
+    /// no once-only choice either way: the call waits until the silence limit stops it
+    Unanswerable,
+}
+
+/// The reason an approval the scope allows is refused all the same.
+const NO_ONCE_APPROVAL: &str =
+    "Muse offered no once-only approval for this call, and Orgtree never approves for the session or permanently";
+
+/// The answer to an approval's current requirement: the scope's verdict on
+/// the call, once. An approval that cannot be given once (Muse offering only a
+/// session-wide or persistent one) is refused once, saying why, rather than
+/// left waiting until the silence limit.
+#[logged]
+fn decision(p: &Value, a: &Asked) -> Decision {
+    if a.decided.contains(&p["currentRequirementId"]) {
+        return Decision::Skip;
+    }
+    let choices = &p["availableChoices"];
+    match (&a.verdict, choice(choices, a.verdict.is_ok())) {
+        (Ok(()), Some(c)) => Decision::Choose { choice: c, why: None },
+        (Err(why), Some(c)) => Decision::Choose { choice: c, why: Some(why.clone()) },
+        (Ok(()), None) => match choice(choices, false) {
+            Some(c) => Decision::Choose { choice: c, why: Some(NO_ONCE_APPROVAL.into()) },
+            None => Decision::Unanswerable,
+        },
+        (Err(_), None) => Decision::Unanswerable,
+    }
+}
+
+/// Answer an approval's current requirement (`decision`), booking a refusal
+/// of the call as a denial the first time.
+#[logged]
+fn decide(p: &Value, a: &mut Asked, writer: &mpsc::UnboundedSender<String>, actor: &AgentTx, process: uuid::Uuid) {
+    match decision(p, a) {
+        Decision::Skip => {}
+        Decision::Unanswerable => {
+            // nothing to answer with: Muse keeps the call waiting (no host
+            // timeout was seen) until the silence limit stops it. The
+            // choices' shapes only: a label can quote the command.
+            let offered: Vec<String> = p["availableChoices"].as_array().map(|list| list.iter()
+                .map(|c| format!("{}:{}:{}", c["choiceId"].as_str().unwrap_or("?"), c["decision"].as_str().unwrap_or("?"), c["scope"].as_str().unwrap_or("?")))
+                .collect()).unwrap_or_default();
+            tracing::warn!(approval = %p["approvalId"], approve = a.verdict.is_ok(), offered = ?offered,
+                "no once-only choice for this approval; the call waits until the silence limit stops it");
+        }
+        Decision::Choose { choice, why } => {
+            if let Some(why) = why.filter(|_| !a.booked) {
+                a.booked = true;
+                if a.verdict.is_ok() {
+                    tracing::warn!(approval = %p["approvalId"], "no once-only approval offered; the call is refused once instead");
+                }
+                let arg = crate::util::gist(p["subject"]["command"].as_str().or(p["subject"]["path"].as_str()).unwrap_or(p["rawArgs"].as_str().unwrap_or("")), 90);
+                let _ = actor.post(AgentMsg::Muse(process, json!({ "method": "orgtree/denied", "params": { "tool": a.tool, "arg": arg, "why": why } })));
+            }
+            let requirement = p["currentRequirementId"].clone();
+            a.decided.push(requirement.clone());
+            let params = json!({ "commandId": uuid7(), "sessionId": p["sessionId"], "approvalId": p["approvalId"],
+                                 "choiceId": choice, "requirementId": requirement });
+            let _ = writer.send(json!({ "jsonrpc": "2.0", "id": format!("d-{}", uuid7()), "method": "approval/decide", "params": params }).to_string());
+        }
+    }
+}
+
+/// The next stage of an approval (`approval/updated`): its current
+/// requirement is decided as the call was, once, unless Muse's own policy has
+/// settled that stage. An approval not asked about on this host is judged
+/// from its subject.
+#[logged]
+fn next_stage(p: &Value, policy: &Policy, writer: &mpsc::UnboundedSender<String>, actor: &AgentTx, process: uuid::Uuid,
+              asked: &mut HashMap<String, Asked>) {
+    let Some(id) = p["approvalId"].as_str() else { return };
+    if !stage_open(p) {
+        return;
+    }
+    if !asked.contains_key(id) {
+        let verdict = allowed(policy, &p["subject"], "");
+        remember(asked, id, Asked { tool: String::new(), verdict, decided: Vec::new(), booked: false });
+    }
+    if let Some(a) = asked.get_mut(id) {
+        decide(p, a, writer, actor, process);
+    }
+}
+
+/// Whether an approval's current requirement waits for a decision: one is
+/// named and, when the subject lists stages, the stage it names is unresolved.
+#[logged]
+fn stage_open(p: &Value) -> bool {
+    let current = &p["currentRequirementId"];
+    if current.is_null() {
+        return false;
+    }
+    match p["subject"]["stages"].as_array().and_then(|s| s.iter().find(|s| s["requirementId"] == *current)) {
+        Some(stage) => stage["resolution"]["kind"].as_str().is_none_or(|k| k == "unresolved"),
+        None => true,
+    }
+}
+
+/// The most approvals kept for their later stages: more than that pending at
+/// once means approvals that never resolve, and the record starts again.
+const ASKED_MAX: usize = 256;
+
+#[logged]
+fn remember(asked: &mut HashMap<String, Asked>, id: &str, a: Asked) {
+    if asked.len() >= ASKED_MAX {
+        asked.clear();
+    }
+    asked.insert(id.to_string(), a);
 }
 
 /// Image attachments as MSP image parts (base64), capped like the Claude lane.
@@ -1035,6 +1175,93 @@ mod tests {
         assert_eq!(choice(&both, false).as_deref(), Some("no"));
         assert_eq!(choice(&json!([{ "choiceId": "abort", "decision": "abort", "scope": "session" }]), false), None);
         assert_eq!(choice(&json!([{ "choiceId": "abort", "decision": "abort", "scope": "once" }]), true), None, "an abort never approves");
+    }
+
+    /// An approval of a four-statement command as Muse 1.4.6 sends it
+    /// (measured 2026-10-14): one stage per statement, those before `current`
+    /// decided, the last settled by Muse's own policy; from the second stage
+    /// on (`approval/updated`) with the change that moved it on.
+    fn staged(current: u64) -> Value {
+        let req = |i: u64| json!({ "approvalId": "ap", "sourceIndex": i });
+        let stages: Vec<Value> = (0..4).map(|i| {
+            let kind = if i == 3 { "policyAllow" } else if i < current { "allowOnce" } else { "unresolved" };
+            json!({ "requirementId": req(i), "position": i + 1, "totalStages": 4, "resolution": { "kind": kind } })
+        }).collect();
+        let mut p = json!({ "approvalId": "ap", "sessionId": "s", "currentRequirementId": req(current),
+            "availableChoices": [
+                { "choiceId": "allow_once", "decision": "approved", "label": "Allow once", "scope": "once" },
+                { "choiceId": "abort", "decision": "abort", "label": "Reject", "scope": "once", "acceptsFeedback": true } ],
+            "subject": { "kind": "shell", "command": "$d=x; Write-Host $d; Get-ChildItem $d; Select-Object -First 80", "stages": stages } });
+        if current > 0 {
+            p["change"] = json!({ "kind": "stageResolved", "choiceId": "allow_once", "decision": "approved", "requirementId": req(current - 1) });
+        }
+        p
+    }
+
+    /// What the host was sent (`approval/decide` lines) and what the actor was told.
+    fn drained(sent: &mut mpsc::UnboundedReceiver<String>, posted: &mut mpsc::UnboundedReceiver<crate::runtime::Envelope>) -> (Vec<Value>, Vec<Value>) {
+        let lines = std::iter::from_fn(|| sent.try_recv().ok()).map(|l| serde_json::from_str::<Value>(&l).unwrap()).collect();
+        let notes = std::iter::from_fn(|| posted.try_recv().ok()).filter_map(|e| match e.msg {
+            AgentMsg::Muse(_, v) => Some(v),
+            _ => None,
+        }).collect();
+        (lines, notes)
+    }
+
+    #[test]
+    fn every_stage_of_an_approval_is_answered_once() {
+        let (writer, mut sent) = mpsc::unbounded_channel::<String>();
+        let (actor, mut posted) = mpsc::unbounded_channel::<crate::runtime::Envelope>();
+        let policy = Policy { may_write: true, may_shell: true, write: vec![], read: vec![], servers: vec![] };
+        let (mut asked, process) = (HashMap::new(), uuid::Uuid::nil());
+        let mut request = staged(0);
+        request["toolName"] = json!("powershell");
+        answer("approval/request", &request, &policy, &writer, &actor, process, &mut asked);
+        next_stage(&staged(1), &policy, &writer, &actor, process, &mut asked);
+        next_stage(&staged(1), &policy, &writer, &actor, process, &mut asked); // delivered twice
+        next_stage(&staged(2), &policy, &writer, &actor, process, &mut asked);
+        next_stage(&staged(3), &policy, &writer, &actor, process, &mut asked); // Muse's own policy settled it
+        let (lines, notes) = drained(&mut sent, &mut posted);
+        let stages: Vec<u64> = lines.iter().map(|l| l["params"]["requirementId"]["sourceIndex"].as_u64().unwrap()).collect();
+        assert_eq!(stages, [0, 1, 2], "each open stage once, in order: {lines:?}");
+        assert!(lines.iter().all(|l| l["method"] == "approval/decide" && l["params"]["choiceId"] == "allow_once" && l["params"]["approvalId"] == "ap"));
+        assert!(notes.is_empty(), "an approved call books no denial");
+        assert_eq!(asked["ap"].decided.len(), 3);
+        // no stage named, or an approval with no stage list: as the host says
+        assert!(!stage_open(&json!({ "approvalId": "ap", "currentRequirementId": null })));
+        assert!(stage_open(&json!({ "approvalId": "ap", "currentRequirementId": "req-2", "subject": { "kind": "shell" } })));
+    }
+
+    #[test]
+    fn a_refused_call_is_refused_at_every_stage_and_booked_once() {
+        let (writer, mut sent) = mpsc::unbounded_channel::<String>();
+        let (actor, mut posted) = mpsc::unbounded_channel::<crate::runtime::Envelope>();
+        let policy = Policy { may_write: true, may_shell: false, write: vec![], read: vec![], servers: vec![] };
+        let (mut asked, process) = (HashMap::new(), uuid::Uuid::nil());
+        let mut request = staged(0);
+        request["toolName"] = json!("powershell");
+        answer("approval/request", &request, &policy, &writer, &actor, process, &mut asked);
+        next_stage(&staged(1), &policy, &writer, &actor, process, &mut asked);
+        let (lines, notes) = drained(&mut sent, &mut posted);
+        assert_eq!(lines.iter().map(|l| l["params"]["choiceId"].as_str().unwrap()).collect::<Vec<_>>(), ["abort", "abort"]);
+        let denials: Vec<&Value> = notes.iter().filter(|n| n["method"] == "orgtree/denied").collect();
+        assert_eq!(denials.len(), 1, "one denial per call: {notes:?}");
+        assert_eq!(denials[0]["params"]["tool"], "powershell");
+    }
+
+    #[test]
+    fn an_approval_that_cannot_be_given_once_is_refused_once_instead() {
+        let ok = Asked { tool: "powershell".into(), verdict: Ok(()), decided: vec![], booked: false };
+        let persistent_only = json!({ "currentRequirementId": "r", "availableChoices": [
+            { "choiceId": "allow_local_prefix", "decision": "approvedPolicyAmendment", "scope": "localPersistent" },
+            { "choiceId": "abort", "decision": "abort", "scope": "once" } ] });
+        assert_eq!(decision(&persistent_only, &ok), Decision::Choose { choice: "abort".into(), why: Some(NO_ONCE_APPROVAL.into()) });
+        // nothing once-only either way: left to the silence limit, as before
+        let session_only = json!({ "currentRequirementId": "r", "availableChoices": [{ "choiceId": "s", "decision": "approved", "scope": "session" }] });
+        assert_eq!(decision(&session_only, &ok), Decision::Unanswerable);
+        // a requirement decided before is not decided again
+        let done = Asked { decided: vec![json!("r")], ..ok };
+        assert_eq!(decision(&persistent_only, &done), Decision::Skip);
     }
 
     #[test]
