@@ -522,6 +522,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   from the planner's offers, so an unsigned or unentitled Muse tier blocks its slot like
   any other provider's. The planner's "checking the sign-in" wording covers only Claude
   and Codex. [decided: user 2026-10-13 18:23Z; verified: `domain/templates.rs` tests]
+  `devteam (antigravity)` (`devteam-antigravity`) has the same shape: `argon` for
+  coordinator (quick chat), implementer and redteam, `flash` for the curator; no
+  fallbacks. Argon is offered only while Antigravity lists it, so its slots block
+  otherwise. [decided: user 2026-10-14 17:55Z; verified: `domain/templates.rs` tests]
 
 - Models are LISTED most expensive (highest seat) first within each provider, every provider (Claude fable,
   opus, sonnet, haiku; Muse wonder-full, wonder, spark; Antigravity agy-opus, agy-sonnet,

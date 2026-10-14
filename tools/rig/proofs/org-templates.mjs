@@ -42,7 +42,7 @@ export default async function (rig) {
   // 1. the list
   const list = await rig.api('GET', '/api/templates')
   const ids = list.templates.map((t) => t.id)
-  p.check('the three bundled templates are listed and usable', ['devteam-claude', 'devteam-codex', 'devteam-muse'].every((id) => ids.includes(id))
+  p.check('the four bundled templates are listed and usable', ['devteam-claude', 'devteam-codex', 'devteam-muse', 'devteam-antigravity'].every((id) => ids.includes(id))
     && list.templates.every((t) => t.problems.length === 0), list.templates.map((t) => ({ id: t.id, source: t.source, problems: t.problems })))
 
   // 2. devteam (claude): preview, then create
