@@ -3,7 +3,7 @@
 - User-history undo/redo and transient toast Undo share `undokeys.ts` chord
   classification; preserve native editing in the event's own document.
   Classification alone never consumes a key. See
-  [history preparation and limits](docs/rust-engine/undo-history.md).
+  [history preparation and limits](docs/rust-engine/undo-history-renderer.md).
   [decided: user/coordinator 2026-10-14; verified from source: `undokeys.ts`, `toasts.tsx`]
 
 - Desk-slot removal resolves the eligible remaining owner after the React

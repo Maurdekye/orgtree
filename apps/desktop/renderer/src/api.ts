@@ -179,14 +179,15 @@ const failure = async (r: Response): Promise<Error> => {
 // endpoint's declared Promise<T> return type is the contract that types it.
 // T infers from that declared return at every call site - no `any` escapes.
 export const req = <T,>(path: string, init?: RequestInit,
-                 timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<T> =>
+                 timeoutMs: number = DEFAULT_TIMEOUT_MS,
+                 expectedStatuses: readonly number[] = []): Promise<T> =>
   fetch(path, init?.signal || !timeoutMs
     ? init
     : { ...init, signal: timeoutSignal(timeoutMs) }).then((r) => {
     // before the ok/not-ok split: a restart is worth noticing even when the
     // call it rode in on failed
     noteInstance(r)
-    if (!r.ok) {
+    if (!r.ok && !expectedStatuses.includes(r.status)) {
       return failure(r).then((e) => { throw e })
     }
     // the client's G2 (see livebus.ts): every successful mutation THIS tab
