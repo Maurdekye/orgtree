@@ -259,7 +259,7 @@ pub fn with_team_workspaces(effective: &Value, teams: &[crate::domain::teams::Te
     let mut dirs = out["add_dirs"].as_array().cloned().unwrap_or_default();
     for t in teams {
         let path = t.dir.to_string_lossy().to_string();
-        dirs.retain(|d| !d["path"].as_str().is_some_and(|p| norm_path(p) == norm_path(&path)));
+        dirs.retain(|d| d["path"].as_str().is_none_or(|p| norm_path(p) != norm_path(&path)));
         dirs.push(json!({ "path": path, "mode": if may_write { "rw" } else { "ro" },
                           "team": t.root, "team_id": t.root_id, "own_team": t.own }));
     }
