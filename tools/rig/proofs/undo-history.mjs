@@ -57,7 +57,7 @@ export default async function (rig) {
 
   // ---- 0. the seed's own hires (POST /ops) recorded; then an empty history
   const seeded = rig.sql(`SELECT kind, label FROM ot.undo_entries WHERE org_id=${orgId} ORDER BY id`)
-  p.check('0. the fixture's user hires through /ops recorded one hire entry each', seeded.length === 4
+  p.check("0. the fixture's user hires through /ops recorded one hire entry each", seeded.length === 4
     && seeded.every(e => e.kind === 'hire') && seeded[0].label === 'Hire boss', seeded)
   rig.exec(`DELETE FROM ot.undo_entries WHERE org_id=${orgId}`)
   let h = await hist()
@@ -237,17 +237,17 @@ export default async function (rig) {
   const grantEntry = r.json?.history_entry
   const g1 = scopesNow()
   const d1 = orgDirs()
-  p.check('7b. RED control: the grant raised boss and the org's folders', r.ok && grantEntry?.kind === 'retool' && g1 !== g0 && d1 !== d0,
+  p.check("7b. RED control: the grant raised boss and the org's folders", r.ok && grantEntry?.kind === 'retool' && g1 !== g0 && d1 !== d0,
     { r: r.json, d0, d1 })
   r = await undo(grantEntry.id)
-  p.check('7b. undo lowers the raised ancestors and the org's folders exactly', r.ok && scopesNow() === g0 && orgDirs() === d0,
+  p.check("7b. undo lowers the raised ancestors and the org's folders exactly", r.ok && scopesNow() === g0 && orgDirs() === d0,
     { r: r.json, d: orgDirs() })
   r = await redo(grantEntry.id)
   p.check('7b. redo raises them again exactly', r.ok && scopesNow() === g1 && orgDirs() === d1, r.json)
   r = await op({ op: 'retool', node: 'boss', remove_dirs: [folder] })
   const clampEntry = r.json?.history_entry
   const g2 = scopesNow()
-  p.check('7b. RED control: removing boss's folder clamped it from carol', r.ok && clampEntry?.kind === 'retool'
+  p.check("7b. RED control: removing boss's folder clamped it from carol", r.ok && clampEntry?.kind === 'retool'
     && !JSON.stringify(row('carol').scope?.add_dirs ?? []).includes('undo-proof'), r.json)
   r = await undo(clampEntry.id)
   p.check('7b. undo hands the clamped folder back beneath, exactly', r.ok && scopesNow() === g1 && orgDirs() === d1, r.json)
