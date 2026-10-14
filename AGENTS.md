@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Desk-slot removal resolves the eligible remaining owner after the React
+  commit and before publishing the registry revision. Publishing first lets
+  a slot draw a stale elsewhere placeholder beside the returned live desk.
+  Ordinary re-renders still do not claim ownership; borrow and detached rules
+  remain in `pick`. See [desk owner close](docs/rust-engine/desk-owner-close.md).
+  [decided: user 2026-10-14 18:36UTC; verified from source: `canvas/deskhosts.tsx`]
+
 - Live tool writing/execution clocks floor actual elapsed seconds and schedule
   at boundaries relative to the observed start; completed formatting remains
   precise. Codex tool generation requires a genuine pre-execution observation,
