@@ -665,6 +665,9 @@ async fn file_contained(engine: &Engine, org_id: i64, owner: i64, scratch: &Path
     if let Some(o) = engine.orgs.by_id(org_id) {
         roots.push(real_path(&engine.cfg.workspace_dir(&o.slug)));
         roots.push(real_path(&engine.cfg.org_notes_dir(&o.slug)));
+        for t in crate::domain::teams::held(engine, &o.slug, owner).await? {
+            roots.push(real_path(&t.dir));
+        }
     }
     for d in eff["add_dirs"].as_array().into_iter().flatten() {
         if let Some(p) = d["path"].as_str() {

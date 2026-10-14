@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::runtime::envelope;
 
-pub use super::identity::{identity, org_notes, Identity, Lane};
+pub use super::identity::{identity, org_notes, team_notes, Identity, Lane};
 
 /// One waiting message, as the agent reads it.
 #[derive(Debug, serde::Serialize)]

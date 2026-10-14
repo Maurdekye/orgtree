@@ -70,6 +70,10 @@ pub async fn presenter(engine: &Engine, org: &OrgHandle, agent_id: i64) -> Resul
     dirs.push(engine.cfg.workspace_dir(&org.slug).to_string_lossy().to_string());
     // every agent of the org holds its shared notes folder
     dirs.push(engine.cfg.org_notes_dir(&org.slug).to_string_lossy().to_string());
+    // and the workspaces of the subtrees it is inside
+    for t in crate::domain::teams::held(engine, &org.slug, agent_id).await? {
+        dirs.push(t.dir.to_string_lossy().to_string());
+    }
     Ok(Presenter { id: agent_id, name, may_present: r.get(4), scratch, dirs })
 }
 

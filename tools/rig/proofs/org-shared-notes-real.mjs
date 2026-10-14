@@ -6,6 +6,9 @@
 //     other file in a new subfolder there (docket
 //     org-wide-shared-scratch-folder-any-agent-reads-w); a Write of org B's
 //     (absent) _shared\AGENTS.md is refused, so only the grant decides.
+//     Team workspaces (docket team-workspaces-a-shared-folder-per-subtree-visi):
+//     his Write creates a file in lead's team workspace (_teams\<lead id>);
+//     a Write into his sibling zoe's own workspace is refused.
 //   yara (org A, hired after): her first request carries wren's text.
 //   xan (org B): his first request carries B's notes, never A's.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-shared-notes-real.mjs
@@ -28,7 +31,9 @@ export default async function (rig) {
   // the paths are known once the orgs exist; the server reads these rules at each request
   const handoff = slug => path.join(rig.data, 'scratch', slug, '_shared', 'handoff', 'wren-report.txt')
   const rules = [{ match: ['PROOF-WRITE-OWN'], tool: 'Write', input: {} }, { match: ['PROOF-WRITE-OTHER'], tool: 'Write', input: {} },
-    { match: ['PROOF-WRITE-FILE'], tool: 'Write', input: {} }]
+    { match: ['PROOF-WRITE-FILE'], tool: 'Write', input: {} },
+    { match: ['PROOF-WRITE-TEAM'], tool: 'Write', input: {} }, { match: ['PROOF-WRITE-SIBLING'], tool: 'Write', input: {} }]
+  const teamFile = (slug, name, file) => path.join(rig.data, 'scratch', slug, '_teams', String(rig.agentRow(name)?.id), file)
   const llm = await startFakeLlm({ bodies: path.join(p.dir, 'bodies'), models: [{ name: 'fake-model:latest', context: 131072, running: 65536 }], rules })
   try {
     const server = await rig.api('POST', '/api/langservers', { preset: 'llamacpp', address: llm.url, harness: 'claude-code', label: 'Notes proof',
@@ -83,6 +88,20 @@ export default async function (rig) {
     const cross = resultOf()
     p.check('wren: a Write of another org\'s (absent) shared AGENTS.md is refused by his CLI', read(notes(other.slug)) === null,
       { file: notes(other.slug), exists: fs.existsSync(notes(other.slug)), tool_result: cross.slice(0, 300) })
+
+    await rig.op({ op: 'hire', name: 'zoe', parent: 'lead', tier, grant: 0, title: 'sibling' })
+    fs.mkdirSync(path.dirname(teamFile(rig.org, 'zoe', 'x')), { recursive: true })
+    rules[3].input = { file_path: teamFile(rig.org, 'lead', 'wren-team.txt'), content: 'WREN-TEAM\n' }
+    rules[4].input = { file_path: teamFile(rig.org, 'zoe', 'wren-sibling.txt'), content: 'WREN-SIBLING\n' }
+    await rig.api('POST', `/api/orgs/${rig.org}/nodes/wren/process`, { action: 'stop' })
+    await turn('wren', 'PROOF-WRITE-TEAM')
+    const team = resultOf()
+    p.check('wren: his Write created a file in lead\'s team workspace', (read(teamFile(rig.org, 'lead', 'wren-team.txt')) ?? '').includes('WREN-TEAM'),
+      { file: teamFile(rig.org, 'lead', 'wren-team.txt'), tool_result: team.slice(0, 300) })
+    await turn('wren', 'PROOF-WRITE-SIBLING')
+    const sib = resultOf()
+    p.check('wren: a Write into his sibling zoe\'s own workspace is refused by his CLI', read(teamFile(rig.org, 'zoe', 'wren-sibling.txt')) === null,
+      { file: teamFile(rig.org, 'zoe', 'wren-sibling.txt'), tool_result: sib.slice(0, 300) })
 
     await rig.op({ op: 'hire', name: 'yara', parent: 'lead', tier, grant: 0, title: 'reader' })
     await turn('yara', 'PROOF-READ-YARA')

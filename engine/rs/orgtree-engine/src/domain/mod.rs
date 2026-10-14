@@ -18,6 +18,7 @@ pub mod scope;
 pub mod tool_groups;
 pub mod staffing;
 pub mod staging;
+pub mod teams;
 pub mod templates;
 pub mod tree;
 pub mod watchdogs;

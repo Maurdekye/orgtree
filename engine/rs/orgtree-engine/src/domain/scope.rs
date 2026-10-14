@@ -247,6 +247,40 @@ pub fn is_org_notes(dir: &Value) -> bool {
     dir["org_notes"].as_bool() == Some(true)
 }
 
+/// `effective` plus the team workspaces the agent holds (`domain::teams`),
+/// nearest first, with the org notes folder's write rule: read-write when the
+/// seat may write its own folder, else read-only. Never stored; each replaces
+/// a stored grant of the same folder and is marked with its subtree's root.
+#[logged]
+pub fn with_team_workspaces(effective: &Value, teams: &[crate::domain::teams::Team]) -> Value {
+    let mut out = effective.clone();
+    let pm = out["permission_mode"].as_str().unwrap_or("acceptEdits");
+    let may_write = out["tools"].get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
+    let mut dirs = out["add_dirs"].as_array().cloned().unwrap_or_default();
+    for t in teams {
+        let path = t.dir.to_string_lossy().to_string();
+        dirs.retain(|d| !d["path"].as_str().is_some_and(|p| norm_path(p) == norm_path(&path)));
+        dirs.push(json!({ "path": path, "mode": if may_write { "rw" } else { "ro" },
+                          "team": t.root, "team_id": t.root_id, "own_team": t.own }));
+    }
+    out["add_dirs"] = Value::Array(dirs);
+    out
+}
+
+/// Is this folder entry a team workspace (`with_team_workspaces`)?
+#[logged]
+pub fn is_team_workspace(dir: &Value) -> bool {
+    dir["team_id"].is_i64()
+}
+
+/// A folder every agent of a subtree or the org holds by position, not by a
+/// grant: the org's shared folder or a team workspace. The prompt describes
+/// these on their own, never among the granted folders.
+#[logged]
+pub fn is_shared(dir: &Value) -> bool {
+    is_org_notes(dir) || is_team_workspace(dir)
+}
+
 /// Refuse a capability grant above the caller, rather than storing a dormant
 /// privilege that could become effective after a move. Only supplied axes count.
 #[logged]
@@ -370,6 +404,23 @@ mod tests {
         let raised = raise(&effective, &json!({"tools":{"orgtree":{"messaging":true}}}));
         assert_eq!(raised["tools"]["orgtree"]["messaging"], true);
         assert_eq!(raised["tools"]["orgtree"]["team"], false);
+    }
+
+    #[test]
+    fn team_workspaces_join_a_launch_scope_marked_nearest_first() {
+        let teams = crate::domain::teams::workspaces(std::path::Path::new("D:/s/_teams"),
+            &[(7, "ivy".into()), (3, "lead".into())]);
+        let stored = json!({ "add_dirs": [{ "path": "D:/s/_teams/3", "mode": "ro" }, { "path": "E:/repo", "mode": "rw" }] });
+        let eff = with_team_workspaces(&stored, &teams);
+        let dirs = eff["add_dirs"].as_array().unwrap();
+        assert_eq!(dirs.len(), 3, "the stored grant of the same folder is replaced");
+        assert!(!is_shared(&dirs[0]) && is_team_workspace(&dirs[1]) && is_shared(&dirs[2]));
+        assert_eq!((dirs[1]["mode"].as_str(), dirs[1]["team"].as_str(), dirs[1]["own_team"].as_bool()), (Some("rw"), Some("ivy"), Some(true)));
+        assert_eq!(dirs[2]["team"], "lead");
+        let ro = with_team_workspaces(&json!({ "tools": { "edit": false } }), &teams);
+        assert_eq!(ro["add_dirs"][0]["mode"], "ro");
+        let plan = with_team_workspaces(&json!({ "permission_mode": "plan" }), &teams);
+        assert_eq!(plan["add_dirs"][0]["mode"], "ro");
     }
 
     #[test]

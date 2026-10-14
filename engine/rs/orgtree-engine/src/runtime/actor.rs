@@ -122,6 +122,8 @@ struct Ctx {
     /// AGENTS.md as read now; a CLI is given the text when it starts
     org_notes_dir: PathBuf,
     org_notes: Option<String>,
+    /// each team workspace's AGENTS.md as read now, nearest first: (file, label, text)
+    team_notes: Vec<(PathBuf, String, Option<String>)>,
     session_id: Option<String>,
     session_provider: Option<String>,
     generation: i32,
@@ -1673,6 +1675,15 @@ impl Actor {
         // every agent of the org holds its shared notes folder, without a stored grant
         let org_notes_dir = self.engine.cfg.org_notes_dir(&slug);
         let eff = scope::with_org_notes(&eff, &org_notes_dir.to_string_lossy());
+        // and the workspace of every subtree it is inside, read from the tree now
+        let teams = crate::domain::teams::held(&self.engine, &slug, self.id).await?;
+        let eff = scope::with_team_workspaces(&eff, &teams);
+        let team_notes: Vec<(PathBuf, String, Option<String>)> = teams.iter().map(|t| {
+            let file = t.dir.join(crate::config::ORG_NOTES_FILE);
+            let label = if t.own { "your own team".to_string() } else { format!("{}'s team", t.root) };
+            let text = std::fs::read_to_string(&file).ok();
+            (file, label, text)
+        }).collect();
         let org_notes = std::fs::read_to_string(org_notes_dir.join(crate::config::ORG_NOTES_FILE)).ok();
         // §15 cascade: every ancestor's team charter binds its subtree, root first
         let cascade: Vec<(String, String)> = chain
@@ -1705,6 +1716,7 @@ impl Actor {
             org_md,
             org_notes_dir,
             org_notes,
+            team_notes,
             effort,
             fallback,
             harness,
@@ -1796,9 +1808,10 @@ impl Actor {
         let sb = if lane == prompt::Lane::Codex { self.codex_seat(may_write, pm).0 } else { codexrt::sandbox(may_write, pm, false) };
         // a read-only seat without the OS sandbox is held by the approval policy instead
         let sandbox = if sb.approval == "untrusted" { "untrusted" } else { sb.mode };
-        // the org's shared notes are delivered on their own (`plan`), not as a granted folder's
+        // the org's shared notes are delivered on their own (`plan`), not as a granted folder's;
+        // a team workspace's files are never delivered (question 2 on its docket item is open)
         let folders: Vec<PathBuf> = ctx.effective["add_dirs"].as_array().into_iter().flatten()
-            .filter(|d| !scope::is_org_notes(d))
+            .filter(|d| !scope::is_shared(d))
             .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
         let (own_notes, folder_notes) = startup::standing_notes(&self.startup_inputs(ctx), &ctx.scratch, &folders);
         let skills = crate::rig::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
@@ -1853,8 +1866,12 @@ impl Actor {
         // the copy it started with: the text stays out of the system prompt
         // part, so another agent's edit never respawns a warm CLI
         // (coordinator ruling (b), 2026-10-13)
+        // each team workspace's notes come first, nearest team first (user
+        // 2026-10-14 13:55Z), and share that delivery and that digest
         let notes_file = ctx.org_notes_dir.join(crate::config::ORG_NOTES_FILE);
-        let notes = prompt::org_notes(&notes_file.to_string_lossy(), ctx.org_notes.as_deref());
+        let team_notes: String = ctx.team_notes.iter()
+            .map(|(file, label, text)| prompt::team_notes(&file.to_string_lossy(), label, text.as_deref())).collect();
+        let notes = format!("{team_notes}{}", prompt::org_notes(&notes_file.to_string_lossy(), ctx.org_notes.as_deref()));
         let identity = format!("{base}{notes}");
         let mcp = json!({ "mcpServers": servers });
         let mut allowed: Vec<String> = servers.keys().map(|k| format!("mcp__{k}")).collect();
@@ -2392,6 +2409,14 @@ impl Actor {
         // file is the agents' to create
         if let Err(e) = std::fs::create_dir_all(&ctx.org_notes_dir) {
             tracing::warn!(agent = %ctx.name, error = %e, "the org's shared notes folder could not be created");
+        }
+        // and so do the team workspaces it holds
+        for dir in ctx.effective["add_dirs"].as_array().into_iter().flatten().filter(|d| scope::is_team_workspace(d)) {
+            if let Some(path) = dir["path"].as_str() {
+                if let Err(e) = std::fs::create_dir_all(path) {
+                    tracing::warn!(agent = %ctx.name, error = %e, path, "a team workspace could not be created");
+                }
+            }
         }
         if ctx.harness.as_deref() == Some("opencode") {
             let route = route.as_ref().ok_or_else(|| anyhow!("OpenCode requires an OpenRouter or language-server lane"))?;

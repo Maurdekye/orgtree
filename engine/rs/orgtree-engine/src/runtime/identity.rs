@@ -118,9 +118,11 @@ pub fn identity(i: &Identity) -> String {
     // the org's shared notes folder is every agent's, described on its own below
     let all_dirs = i.scope["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default();
     let org_notes_dir = all_dirs.iter().find(|d| crate::domain::scope::is_org_notes(d));
+    // and so are the team workspaces it holds, nearest first
+    let teams: Vec<&Value> = all_dirs.iter().filter(|d| crate::domain::scope::is_team_workspace(d)).collect();
     let dirs: Vec<(String, bool)> = all_dirs
         .iter()
-        .filter(|d| !crate::domain::scope::is_org_notes(d))
+        .filter(|d| !crate::domain::scope::is_shared(d))
         .filter_map(|d| d["path"].as_str().map(|p| (p.to_string(), d["mode"].as_str() == Some("ro"))))
         .collect();
     s.push_str("Folders you may work in: ");
@@ -285,6 +287,7 @@ pub fn identity(i: &Identity) -> String {
     if let Some(d) = org_notes_dir.and_then(|d| d["path"].as_str().map(|p| (p, d["mode"].as_str() != Some("ro")))) {
         s.push_str(&org_notes_rule(i.org_name, d.0, d.1));
     }
+    s.push_str(&team_rule(&teams));
     for (path, text) in i.own_notes { s.push_str(&own_notes(path, text)); }
     s.push_str(&folder_notes(i.folder_notes));
     s
@@ -440,6 +443,26 @@ mod group_tests {
         assert!(!render(&json!({}), Lane::Claude, false, None).contains("ORG SHARED FOLDER"));
     }
 
+    /// Team workspaces are listed nearest first on every lane, apart from the
+    /// granted folders, with the seat's write right; none without any.
+    #[test]
+    fn team_rule_lists_workspaces_nearest_first_apart_from_granted_folders() {
+        let root = std::path::Path::new("D:/proof/_teams");
+        let teams = crate::domain::teams::workspaces(root, &[(7, "ivy".into()), (3, "lead".into()), (1, "boss".into())]);
+        let (own, lead, boss) = (root.join("7").display().to_string(), root.join("3").display().to_string(), root.join("1").display().to_string());
+        let rw = crate::domain::scope::with_team_workspaces(&json!({ "add_dirs": [{ "path": "E:/repo", "mode": "rw" }] }), &teams);
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            let s = render(&rw, lane, false, None);
+            assert!(s.contains("Folders you may work in: E:/repo. "), "{lane:?}");
+            assert!(s.contains(&format!("TEAM WORKSPACES: shared folders of the subtrees you are in, nearest first: {own} (your own team's), {lead} (lead's team), {boss} (boss's team). ")), "{lane:?}");
+            assert!(s.contains("You may create, change and delete files and subfolders in them with no grant"));
+        }
+        let ro = render(&crate::domain::scope::with_team_workspaces(&json!({ "tools": { "edit": false } }), &teams), Lane::Claude, false, None);
+        assert!(ro.contains("Folders you may work in: only your own scratch folder. "));
+        assert!(ro.contains("Your scope lets you read them, not write there."));
+        assert!(!render(&json!({}), Lane::Claude, false, None).contains("TEAM WORKSPACES"));
+    }
+
     #[test]
     fn acp_identity_states_queued_mail_and_permission_boundary() {
         for mode in ["default", "acceptEdits", "bypassPermissions"] {
@@ -451,6 +474,33 @@ mod group_tests {
             assert!(text.contains("bypassPermissions approves it including nested tools and fetch"));
             assert!(!text.contains(".claude/skills") && !text.contains(AUTHENTIC_CHANNEL));
             assert!(text.contains(EXTERNAL_AUTHORITY));
+        }
+    }
+
+    /// Team notes take the org notes' form and cap, labelled with the team.
+    #[test]
+    fn team_notes_copy_is_labelled_and_capped() {
+        let path = "D:/proof/_teams/3/AGENTS.md";
+        assert_eq!(team_notes(path, "lead's team", None), "");
+        assert_eq!(team_notes(path, "lead's team", Some(" \n ")), "");
+        let s = team_notes(path, "lead's team", Some("Ship on Fridays.\n"));
+        assert!(s.starts_with(&format!("\n\n[TEAM NOTES - {path}, the shared AGENTS.md of lead's team as it was when your CLI started.")));
+        assert!(s.ends_with("current version.]\nShip on Fridays.\n[END TEAM NOTES]"));
+        let s = team_notes(path, "your own team", Some(&"x".repeat(OWN_NOTES_MAX + 1)));
+        assert!(s.contains("TRUNCATED") && s.ends_with(&format!("]\n{}\n[END TEAM NOTES]", "x".repeat(OWN_NOTES_MAX))));
+    }
+
+    /// Worst case for a deep agent: every file full. Each block is at most the
+    /// cap plus its header, so a depth-d agent (d ancestors) carries d+1 team
+    /// blocks and the org block. Printed for the hand-in.
+    #[test]
+    fn worst_case_shared_notes_growth_is_bounded_per_file() {
+        let full = "x".repeat(OWN_NOTES_MAX + 500);
+        let one = team_notes("D:/data/scratch/org/_teams/123456/AGENTS.md", "someone-long-name's team", Some(&full)).chars().count();
+        let org = org_notes("D:/data/scratch/org/_shared/AGENTS.md", Some(&full)).chars().count();
+        assert!(one <= OWN_NOTES_MAX + 400 && org <= OWN_NOTES_MAX + 400, "{one} {org}");
+        for depth in [0usize, 2, 5, 10] {
+            println!("shared notes worst case, depth {depth}: {} chars", (depth + 1) * one + org);
         }
     }
 
@@ -579,6 +629,38 @@ fn org_notes_rule(org: &str, dir: &str, writable: bool) -> String {
     )
 }
 
+/// What an agent is told about the team workspaces it holds (docket
+/// team-workspaces-a-shared-folder-per-subtree-visi; user 2026-10-14 13:28Z:
+/// "full upward workspace access"): each folder, nearest first, whose subtree
+/// it serves, who sees it, and the org folder's guidance. Empty without any.
+#[logged]
+fn team_rule(teams: &[&Value]) -> String {
+    if teams.is_empty() { return String::new(); }
+    let list: Vec<String> = teams.iter().filter_map(|t| {
+        let path = t["path"].as_str()?;
+        Some(if t["own_team"].as_bool() == Some(true) { format!("{path} (your own team's)") }
+             else { format!("{path} ({}'s team)", t["team"].as_str().unwrap_or("?")) })
+    }).collect();
+    let writable = teams.iter().all(|t| t["mode"].as_str() != Some("ro"));
+    let how = if writable {
+        "You may create, change and delete files and subfolders in them with no grant, by the org folder's rules: \
+         descriptive names or a subfolder per topic or agent, re-read a file right before you change it (an \
+         AGENTS.md too: small in-place edits, never its copy written back), no secrets, tokens or credentials, and \
+         nothing there reaches the user unless you send it."
+    } else {
+        "Your scope lets you read them, not write there."
+    };
+    format!(
+        "TEAM WORKSPACES: shared folders of the subtrees you are in, nearest first: {}. Every agent inside a \
+         subtree holds its workspace and agents outside it never see it, so keep each file in the narrowest one its \
+         readers share; if you move in the tree, the set changes from your next session. Each workspace's \
+         AGENTS.md (it exists once an agent writes it) is that team's shared notes, given at session start to every \
+         agent in the subtree: when it has content, its copy is at the end of this prompt, nearest team first, \
+         as the file was when your CLI started. {how} ",
+        list.join(", ")
+    )
+}
+
 /// The org's shared notes as a CLI gets them when it starts, last in the
 /// prompt, with the cap and truncation notice of the agent's own notes. The
 /// launch fingerprint keeps them apart from the system prompt part, so
@@ -586,15 +668,30 @@ fn org_notes_rule(org: &str, dir: &str, writable: bool) -> String {
 /// 2026-10-13).
 #[logged]
 pub fn org_notes(path: &str, text: Option<&str>) -> String {
+    shared_notes("ORG SHARED NOTES", path, "your organization's shared AGENTS.md",
+                 "Every agent of this organization gets it and may edit it", text)
+}
+
+/// One team workspace's AGENTS.md as a CLI gets it when it starts, before
+/// the org's notes, nearest team first, with the same cap and the same
+/// session-start delivery as the org's (user 2026-10-14 13:55Z). `team` is
+/// "your own team" or "<root>'s team".
+#[logged]
+pub fn team_notes(path: &str, team: &str, text: Option<&str>) -> String {
+    shared_notes("TEAM NOTES", path, &format!("the shared AGENTS.md of {team}"),
+                 "Every agent in that subtree gets it and may edit it", text)
+}
+
+#[logged]
+fn shared_notes(tag: &str, path: &str, what: &str, who: &str, text: Option<&str>) -> String {
     let t = text.unwrap_or_default().trim();
     if t.is_empty() { return String::new(); }
     let full = t.chars().count();
     let cut = full > OWN_NOTES_MAX;
     let body: String = t.chars().take(OWN_NOTES_MAX).collect();
     format!(
-        "\n\n[ORG SHARED NOTES - {path}, your organization's shared AGENTS.md as it was when your CLI started. Every \
-         agent of this organization gets it and may edit it; the file itself is the current version.{}]\n{body}\n\
-         [END ORG SHARED NOTES]",
+        "\n\n[{tag} - {path}, {what} as it was when your CLI started. {who}; the file itself is the current \
+         version.{}]\n{body}\n[END {tag}]",
         if cut { format!(" TRUNCATED: the file is {full} chars and only the first {OWN_NOTES_MAX} are here; read the file for the rest.") } else { String::new() }
     )
 }

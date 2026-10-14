@@ -99,10 +99,19 @@ impl Config {
     pub fn org_notes_dir(&self, org_slug: &str) -> PathBuf {
         self.scratch_root(org_slug).join(ORG_NOTES_DIR)
     }
+
+    /// The org's team workspaces, one folder per subtree named by its root
+    /// agent's id (`domain::teams`). Like `_shared`, a leading `_` is never an
+    /// agent's name.
+    pub fn teams_dir(&self, org_slug: &str) -> PathBuf {
+        self.scratch_root(org_slug).join(TEAMS_DIR)
+    }
 }
 
 /// the org's shared notes folder, under its scratch root (`org_notes_dir`)
 pub const ORG_NOTES_DIR: &str = "_shared";
+/// the org's team workspaces, under its scratch root (`teams_dir`)
+pub const TEAMS_DIR: &str = "_teams";
 /// the one file delivered from that folder
 pub const ORG_NOTES_FILE: &str = "AGENTS.md";
 
