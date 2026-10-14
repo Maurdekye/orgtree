@@ -256,14 +256,15 @@
   `providers/{catalog,mod}.rs`, `domain/ops.rs`, 2026-10-13]
 
 - Providers presentation keeps provider enablement in each header and account
-  (and OpenRouter key) activation beside identity, with short visible labels and
-  full accessible names. New provider or key rows follow the same pattern.
+  (OpenRouter key and language server) activation beside identity, inside the
+  row's panel, with short visible labels ("Active") and full accessible names
+  (`<server> active`). New provider, key or server rows follow the same pattern.
   Scope density CSS to the Providers tab; retain usage/reset/error/inactive states,
   account/key distinctions and separate add/configure dialogs. See
   [compact presentation and proof limits](docs/rust-engine/provider-compact.md).
-  [decided: user 2026-10-12 20:22Z; verified from source: `canvas/accounts.tsx`,
-  `canvas/accountsregistry.tsx`, `canvas/langserver.tsx`, 2026-10-12;
-  `canvas/openrouterkeys.tsx`, 2026-10-13]
+  [decided: user 2026-10-12 20:22Z, 2026-10-14 11:42Z (language server switch);
+  verified from source: `canvas/accounts.tsx`, `canvas/accountsregistry.tsx`,
+  `canvas/langserver.tsx`, 2026-10-12; `canvas/openrouterkeys.tsx`, 2026-10-13]
 
 - Native popout Close dismisses `PinFrame` through its existing close callback;
   explicit Pop in returns the same mounted content. Persistent desk Close keeps

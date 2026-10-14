@@ -161,3 +161,7 @@ so Enter/Space opens the browser and clicking a chip only toggles that chip.
 Pointer/hover and keyboard focus styling use the provider's lane color. Model
 offerings, allowlist operations and browser contents retain their existing paths.
 Synthetic before/after and behavioral proof remain pending the build queue.
+
+### Language server switch (user 2026-10-14)
+
+A language server's own on/off switch sits inside its server panel, on the identity line, as an OpenRouter key's does (`KeyActive`): the visible word is **Active**, the accessible name is `<server> active`, the tooltip, the toast (`<server> active|inactive`) and the note under the row (`Inactive: no new hires; existing agents wait for this server to be active again.`) use the same active/inactive words. It was a standalone "Enabled" row below the card. The key row's grid rules in `styles.css` also cover `.ls-server-row` (two columns, one column under 520px); the shared header switch of the Language servers section is still "Enabled" and unchanged. The call is still `updateLangServer(id, { enabled })`, disabled while busy. Checks: `langserver.test.tsx` (name, placement, label, toast, note) and the server-row measurements in `provider-compact-visual.cjs`, synthetic documents only.
