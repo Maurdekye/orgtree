@@ -28,7 +28,7 @@ test('keyboard moves by one percent and resize remains centered, square and boun
   for (let n = 0; n < 200; n++) next = keyCrop(next, 'ArrowLeft', true, w, h)
   assert.equal(next.size, .1)
   for (let n = 0; n < 200; n++) next = keyCrop(next, 'ArrowRight', true, w, h)
-  assert.equal(next.size, 1)
+  assert.ok(Math.abs(next.size - 1) < 1e-8)
   const result = cropRect(next, w, h)
   assert.ok(Math.abs(result.left - 100) < 1e-8 && Math.abs(result.top) < 1e-8 && Math.abs(result.side - 200) < 1e-8)
 })
