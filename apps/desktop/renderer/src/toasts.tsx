@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { ToastUndo } from './types'
+import { historyShortcut } from './undokeys'
 
 export interface Toast {
   id: number
@@ -25,13 +26,6 @@ export function createToast(lines: string[], undo: ToastUndo | null, remove: (id
   } }
 }
 
-const EDITOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], .monaco-editor, .cm-editor, .CodeMirror'
-const editing = (target: EventTarget | null) => {
-  const node = target as Node | null
-  const element = node?.nodeType === 1 ? node as Element : node?.parentElement
-  return !!element?.closest(EDITOR)
-}
-
 /** Layout is checked in the toast's own document, never in the main window. */
 function visible(button: HTMLButtonElement): boolean {
   const doc = button.ownerDocument, win = doc.defaultView
@@ -53,9 +47,7 @@ export function ToastStack({ toasts }: { toasts: Toast[] }) {
     const win = stack?.ownerDocument.defaultView
     if (!stack || !win) return
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey || event.shiftKey
-        || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return
-      if (event.composedPath().some(editing) || editing(stack.ownerDocument.activeElement)) return
+      if (historyShortcut(event, stack.ownerDocument) !== 'undo') return
       for (let i = toasts.length - 1; i >= 0; i--) {
         const toast = toasts[i]!
         const button = stack.children[i]?.querySelector<HTMLButtonElement>('.toast-undo')

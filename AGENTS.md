@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- User-history undo/redo and transient toast Undo share `undokeys.ts` chord
+  classification; preserve native editing in the event's own document.
+  Classification alone never consumes a key. See
+  [history preparation and limits](docs/rust-engine/undo-history.md).
+  [decided: user/coordinator 2026-10-14; verified from source: `undokeys.ts`, `toasts.tsx`]
+
 - Desk-slot removal resolves the eligible remaining owner after the React
   commit and before publishing the registry revision. Publishing first lets
   a slot draw a stale elsewhere placeholder beside the returned live desk.
