@@ -960,6 +960,15 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
     for a in keys(engine) {
         let _ = crate::usage::openrouter_key_usage(engine, &a.id, force).await;
     }
+    doc_cached(engine).await
+}
+
+/// The same document from the readings already held: no key is read. What
+/// `publish` pushes, so a switch, an org's exclusion or a key edit never
+/// reads a key at openrouter.ai behind the caller's back (rig round 439:
+/// an excluded key was read by the push after a switch).
+#[nolog]
+pub async fn doc_cached(engine: &Engine) -> Value {
     let mut keys = keys_doc(engine);
     let key_set = !keys.is_empty();
     // the lane is connected when any key is; with none connected, the first
@@ -991,7 +1000,7 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
         k["pinned_seats"] = json!(pinned.get(&id).copied().unwrap_or(0));
     }
     let any = !keys.is_empty();
-    tracing::info!(force, key_set, connected, keys = keys.len(), favorites = favs.len(), "OpenRouter document");
+    tracing::info!(key_set, connected, keys = keys.len(), favorites = favs.len(), "OpenRouter document");
     json!({
         "installed": any, "connected": connected, "key_set": key_set, "kind": if key_set { json!("api-key") } else { Value::Null },
         "label": label, "credits": credits, "reason": reason, "favorites": favs.len(), "favorites_max": 0, "tiers": tiers,
@@ -1121,7 +1130,7 @@ pub async fn key_standing(lane: &str, key: &str) -> std::result::Result<Map<Stri
 /// Push the lane's document (the OpenRouter panel reads it).
 #[logged]
 pub async fn publish(engine: &Engine) {
-    let d = doc(engine, false).await;
+    let d = doc_cached(engine).await;
     engine.app.set_value("openrouter", d);
 }
 
