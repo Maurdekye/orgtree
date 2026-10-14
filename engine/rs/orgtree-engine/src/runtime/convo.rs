@@ -722,7 +722,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
     Value::Array(refs)
 }
 
-#[logged]
+#[nolog]
 fn args_of(v: &Value, keys: &[&str], agent: &mut dyn FnMut(&Value)) {
     for k in keys {
         agent(&v[*k]);
