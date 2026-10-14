@@ -1,5 +1,13 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Multi-reply transcript boundary, user 2026-10-14 23:11:17Z:** combine any
+replyable events shown in one transcript, whoever authored them. Reply goes to
+that transcript's agent; Hubchat uses its open conversation's contact. This
+replaces the earlier same-sender interpretation. No fan-out means one recipient
+and no mixing across transcripts or conversations. Picks/text remain exclusive
+per question, and an empty question reply is a skip. See
+[`multi-replies.md`](multi-replies.md).
+
 **Function-key panel toggles, user 2026-10-14 17:58UTC:** F1-F3/F6-F9 and
 Shift+F2 close their exact menu/panel target when it is already open, with
 normal close cleanup and focus return. Different targets keep existing stacking;

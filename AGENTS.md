@@ -73,7 +73,10 @@
 
 - 2026-10-14: Multi-replies retain every authorized immutable snapshot beside
   legacy first `reply_to`; `orgtree_message.metadata.replies` requires matching
-  first and one sender. Desk/user inbox collectors append and dedupe; no external
+  first. USER 23:11Z corrected the earlier same-sender reading: any replyable
+  event within one transcript/conversation may be combined, regardless of author,
+  and the reply has one recipient. Cross-transcript references remain refused.
+  Desk/user inbox collectors append and dedupe; no external
   human org-inbox composer or fan-out. Hub shape stays first `reply_to` plus
   bounded `meta.replies` with fallback context; migration0021 indexes new links,
   old rows normalize without backfill. Event/card identity is qualified and new

@@ -213,7 +213,7 @@ pub async fn message(
         out.attachments.push(json!({ "name": name, "path": p, "bytes": meta.len() }));
     }
     out.reply_to = match (&b.target, &b.reply_to) {
-        (Some(t), _) => resolve_target(&e, &org, t).await?,
+        (Some(t), _) => resolve_target(&e, &org, t, None).await?,
         (None, Some(r)) if r.is_object() => Some(r.clone()),
         _ => None,
     };
@@ -223,19 +223,18 @@ pub async fn message(
     if let Some(targets)=&b.targets {
         if targets.is_empty() || targets.len()>crate::domain::replies::MAX_REPLIES { return Err(ApiError::bad_request("targets needs 1 to 50 qualified messages")); }
         for target in targets {
-            if let Some(q)=resolve_target(&e,&org,target).await? { out.replies.push(q); }
+            if let Some(q)=resolve_target(&e,&org,target,Some(a.id)).await? { out.replies.push(q); }
         }
     } else if let Some(replies)=&b.replies {
         if replies.is_empty() || replies.len()>crate::domain::replies::MAX_REPLIES || replies.iter().any(|q| !q.is_object()) { return Err(ApiError::bad_request("replies needs 1 to 50 qualified messages")); }
         // Durable source identities are revalidated by the existing legacy
         // event-context path; mailbox identities resolve server-side.
         for q in replies {
-            if q.get("source_event_ref").is_some() { out.replies.push(resolve_event_reply(&e,&org,q).await?); }
-            else if let Some(q)=resolve_target(&e,&org,q).await? { out.replies.push(q); }
+            if q.get("source_event_ref").is_some() { out.replies.push(resolve_event_reply(&e,&org,&a.name,q).await?); }
+            else if let Some(q)=resolve_target(&e,&org,q,Some(a.id)).await? { out.replies.push(q); }
         }
         if b.reply_to.as_ref().is_some_and(|q| replies.first().is_none_or(|first| q != first)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
     }
-    crate::domain::replies::same_sender(&out.replies)?;
     let sent = mail::send(&e, org.id, out).await?;
     let halted = sent.delivery.contains("is halted");
     Ok(Json(json!({
@@ -249,10 +248,11 @@ pub async fn message(
 /// Plural event targets carry identity keys; the quoted bytes and sender are
 /// derived from the durable event, not trusted from operator input.
 #[logged]
-async fn resolve_event_reply(e:&Engine,org:&OrgHandle,q:&Value) -> ApiResult<Value> {
+async fn resolve_event_reply(e:&Engine,org:&OrgHandle,recipient:&str,q:&Value) -> ApiResult<Value> {
     let source=&q["source_event_ref"];
     if source["org"].as_str()!=Some(org.slug.as_str()) { return Err(ApiError::bad_request("reply source belongs to another organization")); }
     let name=source["agent"].as_str().ok_or_else(|| ApiError::bad_request("reply source needs its agent"))?;
+    if name!=recipient { return Err(ApiError::bad_request("reply source belongs to another transcript")); }
     let generation=source["generation"].as_i64().and_then(|n| i32::try_from(n).ok()).ok_or_else(|| ApiError::bad_request("reply source needs its generation"))?;
     let client=e.db.get().await?;
     if let Some(id)=source["eventId"].as_str().and_then(|s| s.strip_prefix("mail:")) {
@@ -273,7 +273,7 @@ async fn resolve_event_reply(e:&Engine,org:&OrgHandle,q:&Value) -> ApiResult<Val
 
 /// `{kind, org, box, node?, id}` (object identity only) → the reply snapshot.
 #[logged]
-async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value) -> ApiResult<Option<Value>> {
+async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value, transcript_agent: Option<i64>) -> ApiResult<Option<Value>> {
     if t["org"].as_str().is_some_and(|s| s!=org.slug) { return Err(ApiError::bad_request("reply target belongs to another organization")); }
     let kind = t["kind"].as_str().unwrap_or("");
     let id = t["id"].as_str().unwrap_or("");
@@ -285,7 +285,8 @@ async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value) -> ApiResult<Opt
                         AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable'
                         AND m.extra->>'transfer_failure' IS NULL)
                         OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id
-                            AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb))", &[&org.id, &id])
+                            AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb))
+                        AND ($3::bigint IS NULL OR recipient_agent_id=$3 OR sender_agent_id=$3)", &[&org.id, &id, &transcript_agent])
                 .await?;
             let Some(r) = r else { return Err(ApiError::not_found("the message being answered no longer exists")) };
             let body: String = r.get(3);

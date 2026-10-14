@@ -110,12 +110,12 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
         notice: force_notice || args["notice"].as_bool().unwrap_or(false),
     };
     if args.get("replies").is_some_and(|v| !v.is_null()) {
+        if !single { crate::refuse!(BadRequest,"a multi-reply needs one recipient; nothing was sent"); }
         let ids = crate::domain::replies::ids(arg_str(args,"reply_to"),args.get("replies"))?;
         // Resolve every source before admitting any recipient's delivery.
         for id in ids {
             letter.replies.push(mail::agent_reply_quote(engine,letter.me.org_id,letter.me.id,&letter.me.name,&id).await?);
         }
-        crate::domain::replies::same_sender(&letter.replies)?;
         letter.reply = letter.replies.first().cloned();
     }
     if single {

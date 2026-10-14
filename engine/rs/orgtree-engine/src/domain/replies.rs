@@ -64,17 +64,6 @@ pub fn dedupe(quotes:&mut Vec<Value>) {
     } else { json!([q["org"],q["kind"],q["id"],q["net_id"]]).to_string() }));
 }
 
-#[nolog]
-pub fn same_sender(quotes:&[Value]) -> Result<()> {
-    let sender=|q:&Value| q.get("sender").or_else(|| q.get("from")).and_then(Value::as_str)
-        .or_else(|| q.pointer("/source_event_ref/agent").and_then(Value::as_str)).map(str::to_owned);
-    let first=quotes.first().and_then(sender);
-    if quotes.len()>1 && (first.is_none() || quotes.iter().any(|q| sender(q)!=first)) {
-        crate::refuse!(BadRequest,"a multi-reply can only answer messages from the same sender; nothing was sent");
-    }
-    Ok(())
-}
-
 /// Quote visible event content, never the enveloped model prompt. A delivered
 /// turn may contain mail from several senders; a card id selects its own row.
 #[nolog]
@@ -87,14 +76,13 @@ pub fn event_context(body:&Value,agent:&str,mail_id:Option<&str>) -> Result<(Str
         return Ok((row["from"].as_str().unwrap_or("@system").into(),row["body"].as_str().unwrap_or("").into()));
     }
     if body["role"]=="user" && segments.is_some() {
-        let mut sender:Option<String>=None;
+        let mut senders=std::collections::HashSet::new();
         let mut parts=Vec::new();
         for s in segments.into_iter().flatten() {
             match s["kind"].as_str() {
                 Some("mail") => for row in s["rows"].as_array().into_iter().flatten() {
                     let from=row["from"].as_str().unwrap_or("@system");
-                    if sender.as_deref().is_some_and(|first| first!=from) { crate::refuse!(BadRequest,"this turn includes several senders; reply to an individual mail card instead"); }
-                    sender=Some(from.into()); parts.push(row["body"].as_str().unwrap_or(""));
+                    senders.insert(from); parts.push(row["body"].as_str().unwrap_or(""));
                 },
                 Some("text") => parts.push(s["text"].as_str().unwrap_or("")),
                 Some("notices") => for row in s["rows"].as_array().into_iter().flatten() { parts.push(row["text"].as_str().unwrap_or("")); },
@@ -102,7 +90,10 @@ pub fn event_context(body:&Value,agent:&str,mail_id:Option<&str>) -> Result<(Str
                 _=>{},
             }
         }
-        return Ok((sender.unwrap_or_else(|| "@user".into()),parts.join("\n\n")));
+        // An aggregate user turn has no single author; individual cards above
+        // keep their own sender. Sender metadata never determines routing.
+        let sender=if senders.len()==1 { senders.into_iter().next().unwrap_or("@user") } else { "@user" };
+        return Ok((sender.into(),parts.join("\n\n")));
     }
     let sender=if body["role"]=="user" { "@user" } else { agent };
     let text=body["cmd_out"].as_str().or_else(|| body["text"].as_str()).or_else(|| body["thinking"].as_str()).unwrap_or("Recorded event");
@@ -151,8 +142,7 @@ mod tests {
     fn event_quotes_use_visible_mail_and_authoritative_sender() {
         let event=json!({"role":"user","text":"HIDDEN envelope","segments":[{"kind":"state","text":"HIDDEN state"},{"kind":"mail","rows":[{"id":"a","from":"writer","body":"one"},{"id":"b","from":"other","body":"two"}]}]});
         assert_eq!(event_context(&event,"reader",Some("a")).unwrap(),("writer".into(),"one".into()));
-        assert!(event_context(&event,"reader",None).is_err());
+        assert_eq!(event_context(&event,"reader",None).unwrap(),("@user".into(),"one\n\ntwo".into()));
         assert!(event_context(&event,"reader",Some("missing")).is_err());
-        assert!(same_sender(&[json!({"from":"writer"}),json!({"from":"other"})]).is_err());
     }
 }

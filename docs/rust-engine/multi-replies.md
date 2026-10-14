@@ -1,16 +1,21 @@
 # Multi-replies
 
-The internal desk and user inbox collect several targets from the same sender.
+The internal desk and user inbox collect several targets within one transcript
+or conversation, regardless of author (USER correction 2026-10-14 23:11Z).
 Reply appends and deduplicates; each target can be removed and Cancel All clears
-the set. Mixed senders are explained before sending, with an independent engine
-refusal. There is one recipient and no fan-out. The external org-inbox viewer
+the set. Different authors are allowed; another transcript is refused by both
+the collector and engine. There is one recipient and no fan-out. The external org-inbox viewer
 remains a viewer under the signed October 12 rule.
 
 `orgtree_message` accepts `metadata.replies`, a list of 1–50 message IDs from
 the mail the caller may already read. Optional `reply_to` must match the first.
-All snapshots resolve before admission; inaccessible or mixed-sender targets
+All snapshots resolve before admission; inaccessible or cross-conversation targets
 refuse the send. Recipient filtering retains only references belonging to that
 conversation and reports omitted links. Legacy single `reply_to` stays valid.
+Plural tool replies require one recipient. The global user inbox keys collection
+by its recipient agent; mail from several authors inside one agent's transcript
+is unrestricted. Operator event references must belong to the endpoint's agent;
+plural mailbox references must be mail that agent received or sent.
 
 The engine persists bounded immutable `replies` snapshots beside the first
 legacy `reply_to`. Migration 0021 follows 0020 and adds reverse membership links
@@ -41,7 +46,21 @@ send, superseding alpha.4's per-send separation. No hub schema/runtime/pin
 change is required. Orgtree records linked replies; it does not invent a new
 question-state database or infer answer identities from quote lines.
 
-## Verification — 2026-10-14, Rig round 438
+## Sender correction verification — pending
+
+The corrected source removes author-based checks from the desk/mail collectors,
+tool/domain admission and whole-turn quotes, while retaining source identity,
+visibility, generation, bounds and transcript/conversation membership. New
+focused cases combine agent/user events and mail from several authors, keep
+every reference and one recipient, and refuse another transcript or fan-out.
+The revised renderer predecessor control includes `eventReply.ts` as well as
+desk/mail. Source-only hand-in goes to rig-sol; runtime results are pending.
+
+## Historical verification — 2026-10-14, Rig round 438
+
+These receipts predate the 23:11Z correction. The sender-refusal checks from
+that round verify the superseded interpretation and are replaced in the
+current focused cases; unchanged reference/quote behavior remains covered.
 
 Rig-opus approved Orgtree `d2d56f9` on `0f8638f` and Hubchat `c5cf473` on
 `4f3db23`. Checks ran under the shared build lock and per-step kernel Jobs,

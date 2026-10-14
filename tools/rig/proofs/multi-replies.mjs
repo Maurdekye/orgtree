@@ -18,8 +18,12 @@ export default async function(rig) {
   const invalid=await rig.tool('writer','orgtree_message',{metadata:{to:'user',replies:[ids[0],'missing-id']},body:'REFUSED unavailable'});
   p.check('first mismatch and inaccessible target refuse before any admission',!mismatch.ok&&!invalid.ok&&rig.sql("SELECT id FROM ot.mail WHERE body LIKE 'REFUSED%'").length===0);
   const own=stored?.uid;
-  const mixed=own ? await rig.tool('writer','orgtree_message',{metadata:{to:'user',replies:[ids[0],own]},body:'REFUSED mixed'}) : {ok:true};
-  p.check('mixed senders refuse clearly and admit nothing',!mixed.ok&&/same sender/.test(mixed.text||'')&&rig.sql("SELECT id FROM ot.mail WHERE body='REFUSED mixed'").length===0,mixed.text);
+  const mixedRefs=[ids[0],own];
+  const mixed=own ? await rig.tool('writer','orgtree_message',{metadata:{to:'user',replies:mixedRefs},body:'Mixed direction answer'}) : {ok:false};
+  const mixedRows=rig.sql("SELECT recipient_name,replies FROM ot.mail WHERE body='Mixed direction answer'");
+  p.check('mixed authors in one conversation keep all references and one recipient',mixed.ok&&mixedRows.length===1&&mixedRows[0].recipient_name==='user'&&mixedRows[0].replies.map(q=>q.id).join()===mixedRefs.join(),{mixed:mixed.text,mixedRows});
+  const fanout=await rig.tool('writer','orgtree_message',{metadata:{to:['user','writer'],replies:ids},body:'REFUSED fanout'});
+  p.check('multi-reply never fans out to several recipients',!fanout.ok&&/one recipient/.test(fanout.text||'')&&rig.sql("SELECT id FROM ot.mail WHERE body='REFUSED fanout'").length===0,fanout.text);
   const fetched=own ? await rig.tool('writer','orgtree_inbox',{action:'fetch',message_ids:[own]}) : {};
   p.check('fetch preserves every reply reference',fetched.json?.messages?.[0]?.replies?.length===2,fetched.json);
   const conversation=await rig.tool('writer','orgtree_inbox',{action:'conversation',peer:'user'});
@@ -61,18 +65,36 @@ export default async function(rig) {
   p.check('reverse lookup indexed membership holds each target',count===2,count);
   // Operator plural refs resolve sender and visible quote from immutable data.
   await rig.op({op:'halt',nodes:['writer']});
-  rig.exec(`INSERT INTO ot.convo(agent_id,seq,ver,body) VALUES (${id},90001,90001,'{"role":"assistant","text":"Desk first"}'),(${id},90002,90002,'{"role":"assistant","text":"Desk second"}')`);
+  rig.exec(`INSERT INTO ot.convo(agent_id,seq,ver,body) VALUES (${id},90001,90001,'{"role":"assistant","text":"Desk first"}'),(${id},90002,90002,'{"role":"user","text":"Desk second"}')`);
   const generation=rig.one(`SELECT generation FROM ot.agents WHERE id=${id}`).generation;
   const event=id=>({source_event_ref:{org:rig.org,agent:'writer',generation,eventId:id},quoted_context:'Spoofed text'});
   await rig.op({op:'halt',nodes:['writer']});
   const desk=await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'Desk both',replies:[event('e90001'),event('e90002')]});
-  const deskRow=rig.one("SELECT replies FROM ot.mail WHERE body='Desk both'");
-  p.check('operator append/send resolves both durable event quotes',desk.accepted && deskRow?.replies?.map(q=>q.quoted_context).join()==='Desk first,Desk second',deskRow);
+  const deskRows=rig.sql("SELECT recipient_name,replies FROM ot.mail WHERE body='Desk both'");
+  const deskRow=deskRows[0];
+  p.check('operator mixed authors resolve all quotes and deliver only to the transcript agent',desk.accepted && deskRows.length===1&&deskRow.recipient_name==='writer'&&deskRow.replies.map(q=>q.quoted_context).join()==='Desk first,Desk second',deskRow);
   let refused=false;try {await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'REFUSED foreign event',replies:[event('e90001'),{...event('e90002'),source_event_ref:{...event('e90002').source_event_ref,org:other}}]})}catch(e){refused=true}
   p.check('operator rejects cross-org event before admission',refused && rig.sql("SELECT id FROM ot.mail WHERE body='REFUSED foreign event'").length===0);
+  await rig.op({op:'hire',name:'neighbour',tier:'luna',grant:4});
+  const neighbour=rig.agentRow('neighbour');
+  const neighbourGeneration=rig.one(`SELECT generation FROM ot.agents WHERE id=${neighbour.id}`).generation;
+  rig.exec(`INSERT INTO ot.convo(agent_id,seq,ver,body) VALUES (${neighbour.id},90003,90003,'{"role":"assistant","text":"Other transcript"}')`);
+  let crossTranscript=false;try {await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'REFUSED other transcript',replies:[event('e90001'),{...event('e90003'),source_event_ref:{...event('e90003').source_event_ref,agent:'neighbour',generation:neighbourGeneration}}]})}catch(e){crossTranscript=true}
+  p.check('operator refuses a valid event from a different transcript',crossTranscript&&rig.sql("SELECT id FROM ot.mail WHERE body='REFUSED other transcript'").length===0);
+  await rig.tool('neighbour','orgtree_message',{metadata:{to:'user'},body:'OTHER transcript inbox mail'});
+  const foreignMail=rig.one("SELECT uid FROM ot.mail WHERE body='OTHER transcript inbox mail'").uid;
+  let crossMailbox=false;try {await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'REFUSED other mailbox',targets:[own,foreignMail].map(id=>({kind:'mail',org:rig.org,box:'user',id}))})}catch(e){crossMailbox=true}
+  p.check('mailbox targets cannot import another transcript through the user inbox',crossMailbox&&rig.sql("SELECT id FROM ot.mail WHERE body='REFUSED other mailbox'").length===0);
+  const aggregate={role:'user',text:'HIDDEN envelope',segments:[{kind:'state',text:'HIDDEN state'},{kind:'mail',rows:[{id:'aggregate-a',from:'first',body:'First author'},{id:'aggregate-b',from:'second',body:'Second author'}]}]};
+  rig.exec(`INSERT INTO ot.convo(agent_id,seq,ver,body) VALUES (${id},90004,90004,'${sqlQuote(JSON.stringify(aggregate))}')`);
+  await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'Aggregate reply',replies:[event('e90001'),event('e90004')]});
+  const aggregateReply=rig.one("SELECT recipient_name,replies FROM ot.mail WHERE body='Aggregate reply'");
+  p.check('a multi-author delivered turn can be quoted with other transcript events',aggregateReply?.recipient_name==='writer'&&aggregateReply.replies[1].quoted_context==='First author\n\nSecond author'&&!JSON.stringify(aggregateReply.replies).includes('HIDDEN'),aggregateReply);
+  await rig.tool('neighbour','orgtree_message',{metadata:{to:'writer',notice:true},body:'NEIGHBOUR source'});
+  const neighbourMail=rig.one("SELECT uid FROM ot.mail WHERE body='NEIGHBOUR source'").uid;
   const mailTarget=id=>({source_event_ref:{org:rig.org,agent:'writer',generation,eventId:'mail:'+id},mail_id:id,quoted_context:'Spoofed envelope'});
-  await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'Desk mail cards',replies:ids.map(mailTarget)});
+  await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'Desk mail cards',replies:[ids[0],neighbourMail].map(mailTarget)});
   const mailCards=rig.one("SELECT replies FROM ot.mail WHERE body='Desk mail cards'");
-  p.check('desk individual mail cards resolve before and after transcript delivery',mailCards?.replies?.map(q=>q.quoted_context).join()==='FIRST source,SECOND source' && mailCards.replies.every(q=>q.sender==='@user'),mailCards);
+  p.check('desk mail cards from different authors preserve every sender and quote',mailCards?.replies?.map(q=>q.quoted_context).join()==='FIRST source,NEIGHBOUR source' && mailCards.replies.map(q=>q.sender).join()==='@user,neighbour',mailCards);
   p.keep(rig,{agents:['writer'],grep:/multi|reply/});return p.summary();
 }
