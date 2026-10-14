@@ -7,9 +7,10 @@ changing labels or tab styling.
 
 Documents use896CSSpx (formerly560); mail retains560 and inline galleries keep
 their persistent list. Both org and agent gallery modals pass the new threshold.
-Settings now use783px (formerly660, then726), scoped to `.settings.acct-panel`,
+Settings now use791px (formerly660/726/783), scoped to `.settings.acct-panel`,
 with the94vw cap and pinned-window sizing retained. This follows the user's
-20:15UTC ruling to widen until the whole desktop tab row fits.
+20:15UTC ruling to widen until the whole desktop tab row fits and the coordinator's
+20:21UTC refinement: add8px to the measured minimum for font/scaling variation.
 
 Provider headings: Claude · Claude Code, ChatGPT · Codex, Gemini · Antigravity,
 Muse · Muse Code. Known providers use the same bold/dim slots; unknown-provider
@@ -64,8 +65,14 @@ sections' headings are visible in the inspected screenshots.
 
 This fit has zero slack. The measurements use this harness's fonts and DPR1;
 other font rasterisation or native Windows125%/150%scaling is unmeasured and
-could differ by a pixel. No added safety margin was chosen, following the
-request for the smallest width. Width proof:
+could differ by a pixel. Coordinator20:21UTC therefore directed an8px fixed
+margin, raising the panel to791px without changing font/padding/labels. The new
+1366×768 fit capture is pending. The supported runner cannot set1.25/1.5device
+scale: `tools/rig/desktop/main.cjs` fixes `force-device-scale-factor` to1 and
+`page.resize` fixes CDP `deviceScaleFactor` to1; its page API exposes no scale
+setter. No shared-runner change or substitute native-scaling claim is made.
+The unchanged narrow94vw behavior and earlier wider-fit receipts remain.
+Measured783px minimum proof:
 `D:/orgtree-work/tmp/rig-opus/batch-439/logs/d-panels-783.log` and
 `evidence/d-panels-783/result.json` under that same batch directory.
 

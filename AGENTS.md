@@ -7,14 +7,13 @@
   remain in `pick`. See [desk owner close](docs/rust-engine/desk-owner-close.md).
   [decided: user 2026-10-14 18:36UTC; verified from source: `canvas/deskhosts.tsx`]
 
-- App settings uses a 783px modal width (formerly 660px, then726px), retaining the 94vw
+- App settings uses a 791px modal width (formerly660/726/783px), retaining the94vw
   cap and pinned-window sizing. Scope the override to `.settings.acct-panel`;
   organization/agent settings and other modals keep their own widths.
-  Derived from rig439's719px tab content plus64px panel chrome after726px
-  still overflowed57px; rig439 at1366×768 and1920×1080 measures719/719px
-  tab client/content, versus718/719 at782px. Narrow94vw is unchanged;
-  zero slack at DPR1/fonts tested does not prove125/150% native scaling.
-  Do not change tab labels/style. [measured: rig439; decided: user20:15UTC;
+  Rig439 measured minimum783px (719px tabs +64px chrome); coordinator20:21UTC
+  adds8px margin for font/scaling variation. Narrow94vw is unchanged.
+  The supported offscreen runner fixesDPR1;125/150%scaling is unmeasured.
+  Do not change tab labels/style. [measured: rig439; decided: user/coordinator2026-10-14;
   [panel proof and limits](docs/rust-engine/panel-widths-provider-headings.md)]
   [decided: user 2026-10-14 17:54UTC; verified: renderer `styles.css`]
 
