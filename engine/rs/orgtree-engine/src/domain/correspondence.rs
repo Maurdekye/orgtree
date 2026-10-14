@@ -156,6 +156,7 @@ pub struct Msg {
     pub chars: i64,
     pub attachments: Value,
     pub reply_to: Option<Value>,
+    pub replies: Value,
 }
 
 /// One side of a conversation (one direction, one table), newest first:
@@ -171,9 +172,9 @@ async fn side(
     n: i64,
 ) -> Result<Vec<Msg>> {
     let (cols, table, t) = if src == 0 {
-        ("uid, created_at, sender, recipient_name, kind, notice, state, left(body, $H), length(body)::int8, attachments, reply_to, id", "ot.mail", "created_at")
+        ("uid, created_at, sender, recipient_name, kind, notice, state, left(body, $H), length(body)::int8, attachments, reply_to, id, replies", "ot.mail", "created_at")
     } else {
-        ("uid, at, coalesce(by_name, 'user'), peer, kind, false, state, left(body, $H), length(body)::int8, attachments, reply_to, id", "ot.org_inbox", "at")
+        ("uid, at, coalesce(by_name, 'user'), peer, kind, false, state, left(body, $H), length(body)::int8, attachments, reply_to, id, replies", "ot.org_inbox", "at")
     };
     let mut args: Vec<&(dyn ToSql + Sync)> = params.to_vec();
     let mut sql = format!("SELECT {cols} FROM {table} WHERE {cond}");
@@ -209,6 +210,7 @@ async fn side(
             chars: r.get(8),
             attachments: r.get(9),
             reply_to: r.get(10),
+            replies: r.get(12),
         })
         .collect())
 }
@@ -290,6 +292,11 @@ pub fn shown(m: &Msg) -> (Value, usize) {
         }
         o["reply_to"] = r;
     }
+    let mut replies=super::replies::snapshots(m.reply_to.as_ref(),Some(&m.replies));
+    for q in &mut replies {
+        if let Some(g)=q["gist"].as_str() { let g=gist(g,QUOTE_CHARS); spent+=g.chars().count(); q["gist"]=json!(g); }
+    }
+    if !replies.is_empty() { o["replies"]=json!(replies); }
     let names: Vec<Value> = m
         .attachments
         .as_array()

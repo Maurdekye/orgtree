@@ -658,13 +658,16 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         if m.urgent {
             b.push_str(" · URGENT");
         }
-        if let Some(g) = m.reply_to.get("gist").or_else(|| m.reply_to.get("quoted_context")).and_then(Value::as_str) {
+        for reply in crate::domain::replies::snapshots(Some(&m.reply_to),Some(&m.replies)) {
+        if let Some(g) = reply.get("gist").or_else(|| reply.get("quoted_context")).and_then(Value::as_str) {
             if !g.trim().is_empty() {
-                let who = m.reply_to.get("from").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+                let who = reply.get("from").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
                 let owner = who.map(|w| format!("{w}'s message")).unwrap_or_else(|| "your message".into());
-                let qat = m.reply_to.get("at").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
-                b.push_str(&format!("\n↩ IN REPLY TO {owner}{}: “{g}”", qat.map(|a| format!(" of {a}")).unwrap_or_default()));
+                let qat = reply.get("at").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+                let id=reply.get("id").or_else(|| reply.get("net_id")).and_then(Value::as_str).map(|id| format!(" · id {id}")).unwrap_or_default();
+                b.push_str(&format!("\n↩ IN REPLY TO {owner}{}{id}: “{g}”", qat.map(|a| format!(" of {a}")).unwrap_or_default()));
             }
+        }
         }
         // someone over the mail hub reads only what is sent to them (user 2026-10-09)
         if !m.notice && m.sender.starts_with("@net:") {

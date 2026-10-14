@@ -173,7 +173,9 @@ pub struct MessageBody {
     #[serde(default)]
     attachments: Vec<String>,
     reply_to: Option<Value>,
+    replies: Option<Vec<Value>>,
     target: Option<Value>,
+    targets: Option<Vec<Value>>,
     client_op: Option<String>,
     #[serde(default)]
     notice: bool,
@@ -214,6 +216,25 @@ pub async fn message(
         (None, Some(r)) if r.is_object() => Some(r.clone()),
         _ => None,
     };
+    if b.targets.is_some() && (b.target.is_some() || b.reply_to.is_some() || b.replies.is_some()) {
+        return Err(ApiError::bad_request("use targets or the legacy reply fields, not both"));
+    }
+    if let Some(targets)=&b.targets {
+        if targets.is_empty() || targets.len()>crate::domain::replies::MAX_REPLIES { return Err(ApiError::bad_request("targets needs 1 to 50 qualified messages")); }
+        for target in targets {
+            if let Some(q)=resolve_target(&e,&org,target).await? { out.replies.push(q); }
+        }
+    } else if let Some(replies)=&b.replies {
+        if replies.is_empty() || replies.len()>crate::domain::replies::MAX_REPLIES || replies.iter().any(|q| !q.is_object()) { return Err(ApiError::bad_request("replies needs 1 to 50 qualified messages")); }
+        // Durable source identities are revalidated by the existing legacy
+        // event-context path; mailbox identities resolve server-side.
+        for q in replies {
+            if q.get("source_event_ref").is_some() { out.replies.push(resolve_event_reply(&e,&org,q).await?); }
+            else if let Some(q)=resolve_target(&e,&org,q).await? { out.replies.push(q); }
+        }
+        if b.reply_to.as_ref().is_some_and(|q| out.replies.first()!=Some(q)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
+    }
+    crate::domain::replies::same_sender(&out.replies)?;
     let sent = mail::send(&e, org.id, out).await?;
     let halted = sent.delivery.contains("is halted");
     Ok(Json(json!({
@@ -224,9 +245,27 @@ pub async fn message(
     })))
 }
 
+/// Plural event targets carry identity keys; the quoted bytes and sender are
+/// derived from the durable event, not trusted from operator input.
+#[logged]
+async fn resolve_event_reply(e:&Engine,org:&OrgHandle,q:&Value) -> ApiResult<Value> {
+    let source=&q["source_event_ref"];
+    if source["org"].as_str()!=Some(org.slug.as_str()) { return Err(ApiError::bad_request("reply source belongs to another organization")); }
+    let name=source["agent"].as_str().ok_or_else(|| ApiError::bad_request("reply source needs its agent"))?;
+    let generation=source["generation"].as_i64().and_then(|n| i32::try_from(n).ok()).ok_or_else(|| ApiError::bad_request("reply source needs its generation"))?;
+    let seq=source["eventId"].as_str().and_then(|s| s.strip_prefix('e')).and_then(|s| s.parse::<i64>().ok()).ok_or_else(|| ApiError::bad_request("reply source needs a durable event id"))?;
+    let client=e.db.get().await?;
+    let row=client.query_opt("SELECT c.body FROM ot.convo c JOIN ot.agents a ON a.id=c.agent_id WHERE a.org_id=$1 AND a.name=$2 AND a.generation=$3 AND c.seq=$4",&[&org.id,&name,&generation,&seq]).await?;
+    let Some(row)=row else { return Err(ApiError::not_found("that reply event is no longer available for this generation")); };
+    let body:Value=row.get(0);
+    let sender=if body["role"]=="user" { "@user" } else { name };
+    Ok(json!({"source_event_ref":source,"quoted_context":gist(body["text"].as_str().unwrap_or("Recorded event"),4000),"sender":sender}))
+}
+
 /// `{kind, org, box, node?, id}` (object identity only) → the reply snapshot.
 #[logged]
 async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value) -> ApiResult<Option<Value>> {
+    if t["org"].as_str().is_some_and(|s| s!=org.slug) { return Err(ApiError::bad_request("reply target belongs to another organization")); }
     let kind = t["kind"].as_str().unwrap_or("");
     let id = t["id"].as_str().unwrap_or("");
     let client = e.db.get().await?;

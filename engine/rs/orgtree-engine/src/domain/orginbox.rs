@@ -84,6 +84,8 @@ pub fn entry(r: &Value) -> Value {
     if let Some(q) = r.get("reply_to").filter(|v| v.is_object()) {
         o.insert("reply_to".into(), q.clone());
     }
+    let all = super::replies::value(r.get("reply_to"),r.get("replies"));
+    if all.as_array().is_some_and(|a| !a.is_empty()) { o.insert("replies".into(),all); }
     Value::Object(o)
 }
 
@@ -126,16 +128,16 @@ pub async fn sent_quote(client: &tokio_postgres::Client, org_id: i64, uid: &str,
 /// This org's own record of the message a hub reply names (one it sent or
 /// received), quoted; `None` when the org never saw it.
 #[logged]
-async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str) -> Result<Option<Value>> {
+async fn net_quote(client: &tokio_postgres::Client, org_id: i64, net_id: &str, peer:&str) -> Result<Option<Value>> {
     let r = client
         .query_opt(
             &format!(
-                "(SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE dir = 'out' AND net_id = $2 AND org_id = $1 LIMIT 1)
+                "(SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE dir = 'out' AND net_id = $2 AND org_id = $1 AND peer=$3 LIMIT 1)
                  UNION ALL
-                 (SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE dir = 'in' AND org_id = $1 AND net_id = $2 LIMIT 1)
+                 (SELECT {QUOTE_COLS} FROM ot.org_inbox WHERE dir = 'in' AND org_id = $1 AND net_id = $2 AND peer=$3 LIMIT 1)
                  LIMIT 1"
             ),
-            &[&org_id, &net_id],
+            &[&org_id, &net_id, &peer],
         )
         .await?;
     Ok(r.as_ref().map(inbox_quote))
@@ -157,7 +159,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     }
     if let Some(peer) = to.strip_prefix("net:") {
         let sender = match &out.from { From::Agent { id,generation,.. } => Some((*id,*generation)), _ => None };
-        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref()).await?;
+        let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
         return Ok(Sent {
             transfer_ids,
@@ -189,19 +191,25 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         .as_ref()
         .map(|q| Value::Object(["from", "at", "gist"].iter().filter_map(|k| q.get(*k).filter(|v| !v.is_null()).map(|v| (k.to_string(), v.clone()))).collect()))
         .filter(|q| q.get("gist").is_some());
+    let replies_here = super::replies::snapshots(out.reply_to.as_ref(),Some(&Value::Array(out.replies.clone())));
+    let replies_there: Vec<Value> = replies_here.iter().map(|q| {
+        let mut q=q.clone();
+        if let Some(o)=q.as_object_mut() { o.entry("org").or_insert_with(|| json!(src.slug)); }
+        q
+    }).collect();
     let tx = client.transaction().await?;
     admit(&tx, &[org_id, dst.id]).await?;
     tx
         .execute(
-            "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to)
-                        VALUES ($1, $2, 'out', $3, $4, $5, 'delivered', now(), $6, $10))
-             INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, reply_to) VALUES ($7, $8, 'in', $9, $4, $6, $11)",
-            &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there],
+            "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to, replies)
+                        VALUES ($1, $2, 'out', $3, $4, $5, 'delivered', now(), $6, $10, $12))
+             INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, reply_to, replies) VALUES ($7, $8, 'in', $9, $4, $6, $11, $13)",
+            &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there, &json!(replies_here), &json!(replies_there)],
         )
         .await?;
     let holders = &route.to;
     let delivered = publish_copies(&tx, dst.id, holders, &src_peer, &out.body, &out.kind,
-        &attachments, &reply_there, None, None).await?;
+        &attachments, &replies_there, None, None).await?;
     tx.commit().await?;
     drop(client);
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
@@ -344,33 +352,41 @@ pub async fn deliver_inbound(
     hub: &str,
     reply_to: Option<&str>,
 ) -> Result<bool> {
+    let refs = reply_to.map(|r| vec![r.to_string()]).unwrap_or_default();
+    deliver_inbound_replies(engine,org_id,peer,body,attachments,net_id,hub,&refs).await
+}
+
+#[allow(clippy::too_many_arguments)]
+#[logged]
+pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str, body:&str,
+    attachments:Vec<Value>, net_id:&str, hub:&str, references:&[String]) -> Result<bool> {
     let Some(org) = engine.orgs.by_id(org_id) else { return Ok(false) };
     // Resolve the route first, then commit the inbox row and every holder's
     // mailbox copy together. A retry must never mistake half a fanout for a
     // completed delivery. Wakes happen only after this short transaction.
     let route = ensure_holders(engine, org_id, None).await?;
     let mut client = engine.db.get().await?;
-    let quote = match reply_to {
-        Some(r) => net_quote(&client, org_id, r).await?,
-        None => None,
-    };
-    let stored = quote.clone().or_else(|| reply_to.map(|r| json!({ "net_id": r })));
+    let mut quotes=Vec::new();
+    for id in references.iter().take(super::replies::MAX_REPLIES) {
+        quotes.push(net_quote(&client,org_id,id,peer).await?.unwrap_or_else(|| json!({"net_id":id,"gist":"Original message unavailable"})));
+    }
+    let stored=quotes.first().cloned();
     let tx = client.transaction().await?;
     // Serialize only this org's publication boundary, including the duplicate
     // check; different hubs may concurrently deliver to the same org.
     admit(&tx, &[org_id]).await?;
     let n = tx.execute(
-        "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub, reply_to)
-         SELECT $1, $2, 'in', $3, $4, $5, $6, $7, $8
+        "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub, reply_to, replies)
+         SELECT $1, $2, 'in', $3, $4, $5, $6, $7, $8, $9
           WHERE NOT EXISTS (SELECT 1 FROM ot.org_inbox WHERE org_id=$2 AND dir='in' AND net_id=$6)",
         &[&uid("x"), &org_id, &peer, &crate::util::pg_text(body).as_ref(),
           &crate::util::pg_json(&Value::Array(attachments.clone())).as_ref(), &net_id, &hub,
-          &crate::util::pg_json_option(&stored).as_ref()],
+          &crate::util::pg_json_option(&stored).as_ref(), &json!(quotes)],
     ).await?;
     if n == 0 { return Ok(false); }
     let holders = &route.to;
     let delivered = publish_copies(&tx, org_id, holders, peer, body, "message",
-        &Value::Array(attachments), &quote, Some(net_id), Some(hub)).await?;
+        &Value::Array(attachments), &quotes, Some(net_id), Some(hub)).await?;
     tx.commit().await?;
     drop(client);
     wake_copies(engine, org_id, delivered);
@@ -387,7 +403,7 @@ pub async fn deliver_inbound(
 #[allow(clippy::too_many_arguments)]
 #[logged]
 async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id: i64, holders: &[String],
-    peer: &str, body: &str, kind: &str, attachments: &Value, quote: &Option<Value>,
+    peer: &str, body: &str, kind: &str, attachments: &Value, quotes: &[Value],
     net_id: Option<&str>, hub: Option<&str>) -> Result<Vec<(i64, String, String, bool)>> {
     let mut delivered = Vec::new();
     for h in holders {
@@ -400,19 +416,20 @@ async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id: i64, holde
         anyhow::ensure!(state != "unrecoverable", "outside-mail holder cannot currently receive mail");
         let halted: bool = target.get(2);
         let mail_uid = uid("m");
-        let reply = quote.clone().map(|mut q| {
+        let replies:Vec<Value> = quotes.iter().cloned().map(|mut q| {
             if q["from"].as_str() == Some(h.as_str()) {
                 if let Some(o) = q.as_object_mut() { o.remove("from"); }
             }
             q
-        });
+        }).collect();
+        let reply=replies.first().cloned();
         let ev = crate::events::ordinary(peer, kind, false, body);
         tx.execute(
-            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub)
-             VALUES($1,$2,$3,'agent',$4,$5,$12,$6,$7,$8,$9,'pending',$10,$11)",
+            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub,replies)
+             VALUES($1,$2,$3,'agent',$4,$5,$12,$6,$7,$8,$9,'pending',$10,$11,$13)",
             &[&mail_uid,&org_id,&peer,&target_id,h,&crate::util::pg_text(body).as_ref(),
               &crate::util::pg_json(attachments).as_ref(),
-              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind],
+              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind,&json!(replies)],
         ).await?;
         delivered.push((target_id,h.clone(),mail_uid,state == "live" && !halted));
     }

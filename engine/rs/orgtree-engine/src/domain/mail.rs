@@ -145,6 +145,7 @@ pub struct Outgoing {
     pub urgent_reason: Option<String>,
     pub attachments: Vec<Value>,
     pub reply_to: Option<Value>,
+    pub replies: Vec<Value>,
     pub client_op: Option<String>,
     pub ev: Option<Value>,
     /// Receipt identity supplied only by the inbound hub transport.
@@ -170,6 +171,7 @@ impl Outgoing {
             urgent_reason: None,
             attachments: Vec::new(),
             reply_to: None,
+            replies: Vec::new(),
             client_op: None,
             ev: None,
             net_id: None,
@@ -200,6 +202,12 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     if out.body.contains('\0') { out.body.retain(|c| c != '\0'); }
     if let Some(text) = &mut out.urgent_reason { if text.contains('\0') { text.retain(|c| c != '\0'); } }
     for v in &mut out.attachments { crate::util::pg_json_mut(v); }
+    for v in &mut out.replies { crate::util::pg_json_mut(v); }
+    if !out.replies.is_empty() {
+        if out.replies.len() > super::replies::MAX_REPLIES || out.replies.iter().any(|q| !q.is_object()) { refuse!(BadRequest, "a reply needs at most 50 qualified targets"); }
+        super::replies::same_sender(&out.replies)?;
+        out.reply_to = out.replies.first().cloned();
+    }
     for v in [&mut out.reply_to, &mut out.ev].into_iter().flatten() { crate::util::pg_json_mut(v); }
     let explicit_event = out.ev.is_some();
     if !explicit_event {
@@ -249,12 +257,12 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         client
             .execute(
                 "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_name,
-                                      kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state)
-                 VALUES ($1, $2, $3, $4, $5, 'user', '@user', $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending')",
+                                      kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)
+                 VALUES ($1, $2, $3, $4, $5, 'user', '@user', $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15)",
                 &[
                     &mail_uid, &org_id, &sender_name, &sender_agent, &sender_gen, &out.kind, &out.notice, &out.body,
                     &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent, &out.urgent_reason,
-                    &out.client_op,
+                    &out.client_op, &Value::Array(out.replies.clone()),
                 ],
             )
             .await?;
@@ -297,12 +305,12 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     tx
         .execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
-                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub)
-             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18)",
+                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub, replies)
+             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19)",
             &[
                 &mail_uid, &org_id, &sender_name, &sender_agent, &sender_gen, &target_id, &to, &out.kind, &out.notice,
                 &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent,
-                &out.urgent_reason, &out.client_op, &out.net_id, &out.net_hub,
+                &out.urgent_reason, &out.client_op, &out.net_id, &out.net_hub, &Value::Array(out.replies.clone()),
             ],
         )
         .await?;

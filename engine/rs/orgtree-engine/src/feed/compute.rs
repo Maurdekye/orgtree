@@ -146,6 +146,8 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(rt) = m.get("reply_to").filter(|v| !v.is_null()) {
         o.insert("reply_to".into(), rt.clone());
     }
+    let replies=crate::domain::replies::value(m.get("reply_to"),m.get("replies"));
+    if replies.as_array().is_some_and(|a| !a.is_empty()) { o.insert("replies".into(),replies); }
     if let Some(op) = m.get("client_op").filter(|v| !v.is_null()) {
         o.insert("client_op".into(), op.clone());
     }

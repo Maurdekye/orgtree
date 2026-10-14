@@ -6822,6 +6822,7 @@ fn mail_of(m: &Value) -> Mail {
         notice: m["notice"].as_bool().unwrap_or(false),
         urgent: m["urgent"].as_bool().unwrap_or(false),
         reply_to: m.get("reply_to").cloned().unwrap_or(Value::Null),
+        replies: crate::domain::replies::value(m.get("reply_to"),m.get("replies")),
         ev: m.get("ev").cloned().unwrap_or(Value::Null),
     }
 }

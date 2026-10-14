@@ -791,7 +791,8 @@ async fn publish_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
     // "Chat from your phone": a setup code links the sender before the
     // agents read the message (and their charter already names it)
     crate::phone::on_inbound(engine, p.org_id, from, &body, mid).await;
-    let fresh = crate::domain::orginbox::deliver_inbound(engine, p.org_id, &format!("@net:{from}"), &body, attachments, mid, hub_id, reply_to).await?;
+    let references = crate::domain::replies::incoming(reply_to,m.get("meta"));
+    let fresh = crate::domain::orginbox::deliver_inbound_replies(engine, p.org_id, &format!("@net:{from}"), &body, attachments, mid, hub_id, &references).await?;
     let _ = fresh;
     engine.net.owed.pin().insert((p.org_id, mid.to_string(), "delivered"), addr.to_string());
     Ok(())
@@ -865,7 +866,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         let client = engine.db.get().await?;
         client
             .query(
-                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind, reply_to, hub FROM ot.org_inbox i
+                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind, reply_to, hub, replies FROM ot.org_inbox i
                   WHERE dir = 'out' AND state = 'queued' AND org_id = ANY($1)
                     AND NOT EXISTS (SELECT 1 FROM ot.org_inbox earlier WHERE earlier.org_id=i.org_id AND earlier.peer=i.peer
                         AND earlier.dir='out' AND earlier.state='queued' AND earlier.id<i.id) ORDER BY (id<=$2),id LIMIT 100",
@@ -914,7 +915,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             .post(format!("{addr}/api/send"))
             .timeout(Duration::from_secs(30))
             .header("X-Org-Auth", p.auth())
-            .json(&outgoing_payload(&r, &net_id, &p.net_slug, att_ids))).await;
+            .json(&outgoing_payload(&r, &net_id, &p.net_slug, att_ids)?)).await;
         match res {
             Ok(resp) if resp.status().is_success() => {
                 let client = engine.db.get().await?;
@@ -954,7 +955,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
 
 /// The exact hub wire payload, shared with the isolated engine proof.
 #[logged]
-fn outgoing_payload(row: &tokio_postgres::Row, net_id: &str, from: &str, attachments: Vec<String>) -> Value {
+fn outgoing_payload(row: &tokio_postgres::Row, net_id: &str, from: &str, attachments: Vec<String>) -> Result<Value> {
     let at: chrono::DateTime<chrono::Utc> = row.get(4);
     let mut payload = json!({ "id": net_id, "to": row.get::<_, String>(2).trim_start_matches("@net:"),
         "body": row.get::<_, String>(3), "kind": row.get::<_, String>(8),
@@ -969,7 +970,18 @@ fn outgoing_payload(row: &tokio_postgres::Row, net_id: &str, from: &str, attachm
     if let Some(meta) = cards::meta(&row.get::<_, String>(8), &row.get::<_, String>(3)) {
         payload["meta"] = meta;
     }
-    payload
+    let first=row.get::<_,Option<Value>>(9);
+    let list=row.try_get::<_,Value>("replies").ok();
+    let quotes=crate::domain::replies::snapshots(first.as_ref(),list.as_ref());
+    if quotes.len()>1 {
+        let (body,meta)=crate::domain::replies::wire(&row.get::<_,String>(3),&quotes)?;
+        payload["body"]=json!(body);
+        if let Some(meta)=meta {
+            if payload["meta"].is_object() { for (k,v) in meta.as_object().unwrap() { payload["meta"][k]=v.clone(); } }
+            else { payload["meta"]=meta; }
+        }
+    }
+    Ok(payload)
 }
 
 /// Note why an outgoing row is still queued (a `try` counts an attempt;
@@ -1070,6 +1082,7 @@ pub async fn queue(
     kind: &str,
     attachments: &[Value],
     reply_to: Option<&Value>,
+    replies: &[Value],
 ) -> Result<(String, String, Vec<String>)> {
     crate::domain::orginbox::require_enabled(engine, org_id).await?;
     if offline() {
@@ -1105,7 +1118,10 @@ pub async fn queue(
         for a in attachments { limit.check(a["bytes"].as_u64().unwrap_or(0))?; }
         limit.check_message(body.len() as u64, attachments.iter().map(|a| a["bytes"].as_u64().unwrap_or(0)).sum())?;
     }
-    queue_row(engine, org_id, peer, body, by, sender, kind, attachments, reply_to).await
+    let quotes=crate::domain::replies::snapshots(reply_to,Some(&json!(replies)));
+    // Validate before durable admission; fallback bytes count against limits.
+    let _ = crate::domain::replies::wire(body,&quotes)?;
+    queue_row(engine, org_id, peer, body, by, sender, kind, attachments, reply_to, replies).await
 }
 
 /// Persist only; callers perform the transport/audience checks first.
@@ -1121,6 +1137,7 @@ async fn queue_row(
     kind: &str,
     attachments: &[Value],
     reply_to: Option<&Value>,
+    replies: &[Value],
 ) -> Result<(String, String, Vec<String>)> {
     let uid = crate::util::uid("x");
     let net_id = uuid::Uuid::new_v4().simple().to_string();
@@ -1133,9 +1150,9 @@ async fn queue_row(
     crate::domain::orginbox::admit(&tx, &[org_id]).await?;
     let row = tx
         .query_one(
-            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to, sender_agent_id, sender_generation)
-             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9, $10, $11) RETURNING id",
-            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply, &sender_id, &sender_generation],
+            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to, sender_agent_id, sender_generation, replies)
+             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9, $10, $11, $12) RETURNING id",
+            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply, &sender_id, &sender_generation, &json!(replies)],
         )
         .await?;
     let ids = transfers::plan(&tx, org_id, row.get(0), "", "", attachments).await?;
@@ -1150,12 +1167,12 @@ async fn queue_row(
 #[logged]
 pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str, body: &str) -> Result<Value> {
     anyhow::ensure!(crate::rig::active(), "rig mode required");
-    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", body, "agent", None, kind, &[], None).await?;
+    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", body, "agent", None, kind, &[], None, &[]).await?;
     let client = engine.db.get().await?;
     let row = client.query_one(
         "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to FROM ot.org_inbox WHERE uid=$1", &[&uid],
     ).await?;
-    Ok(outgoing_payload(&row, &row.get::<_, String>(6), "sender.rig", vec![]))
+    outgoing_payload(&row, &row.get::<_, String>(6), "sender.rig", vec![])
 }
 
 #[cfg(debug_assertions)]

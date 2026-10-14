@@ -9,6 +9,7 @@ pub mod docket;
 pub mod docs;
 pub mod html_bundle;
 pub mod mail;
+pub mod replies;
 pub mod lifecycle;
 pub mod notices;
 pub mod runtime_notices;

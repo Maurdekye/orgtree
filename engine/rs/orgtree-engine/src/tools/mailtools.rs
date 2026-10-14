@@ -37,6 +37,7 @@ struct Letter {
     urgent_reason: Option<String>,
     attachments: Vec<Value>,
     reply: Option<Value>,
+    replies: Vec<Value>,
 }
 
 /// One recipient's delivery.
@@ -105,14 +106,23 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     let attachments = args["attachments"].as_array().cloned().unwrap_or_default();
     if attachments.len() > 10 { crate::refuse!(BadRequest, "at most 10 attachments"); }
     let mut letter = Letter {
-        me, body, kind: kind.to_string(), urgent_reason, attachments, reply: None,
+        me, body, kind: kind.to_string(), urgent_reason, attachments, reply: None, replies: Vec::new(),
         notice: force_notice || args["notice"].as_bool().unwrap_or(false),
     };
+    if args.get("replies").is_some_and(|v| !v.is_null()) {
+        let ids = crate::domain::replies::ids(arg_str(args,"reply_to"),args.get("replies"))?;
+        // Resolve every source before admitting any recipient's delivery.
+        for id in ids {
+            letter.replies.push(mail::agent_reply_quote(engine,letter.me.org_id,letter.me.id,&letter.me.name,&id).await?);
+        }
+        crate::domain::replies::same_sender(&letter.replies)?;
+        letter.reply = letter.replies.first().cloned();
+    }
     if single {
-        let d = send_one(engine, &letter, &to, true, arg_str(args, "reply_to")).await?;
+        let d = send_one(engine, &letter, &to, true, if letter.replies.is_empty() { arg_str(args,"reply_to") } else { None }).await?;
         return Ok(Done { text: d.text, card: Some(json!({ "mail": { "id": d.uid, "to": d.box_name, "transfer_ids": d.transfer_ids } })) });
     }
-    if let Some(r) = arg_str(args, "reply_to") {
+    if let Some(r) = arg_str(args, "reply_to").filter(|_| letter.replies.is_empty()) {
         letter.reply = Some(mail::agent_reply_quote(engine, letter.me.org_id, letter.me.id, &letter.me.name, r).await?);
     }
     let list = list.unwrap_or_default();
@@ -158,6 +168,12 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
                 without.join(", ")));
         }
     }
+    if !letter.replies.is_empty() {
+        for to in list {
+            let omitted=letter.replies.iter().filter(|q| !quote_belongs(q,to)).count();
+            if omitted>0 { notes.push(format!("replies: {to} receives no context for {omitted} targets outside that conversation.")); }
+        }
+    }
     let images = relative_images(&letter.body);
     if !images.is_empty() && !others.is_empty() {
         notes.push(format!(
@@ -168,7 +184,7 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
 }
 
 /// What a message tool's `metadata` may hold: every argument but `body`.
-const META_KEYS: &[&str] = &["to", "kind", "notice", "attachments", "urgent", "urgent_reason", "reply_to", "options", "multiple"];
+const META_KEYS: &[&str] = &["to", "kind", "notice", "attachments", "urgent", "urgent_reason", "reply_to", "replies", "options", "multiple"];
 
 /// The message tools' arguments as the handler reads them (user and
 /// coordinator 2026-10-13, docket show-agent-typing-in-hubchat-using-ordered-messa).
@@ -337,6 +353,8 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
         Some(r) => Some(mail::agent_reply_quote(engine, me.org_id, me.id, &me.name, r).await?),
         None => letter.reply.clone().filter(|q| single || quote_belongs(q, to)),
     };
+    out.replies = letter.replies.iter().filter(|q| single || quote_belongs(q,to)).cloned().collect();
+    if !out.replies.is_empty() { out.reply_to = out.replies.first().cloned(); }
     // a reply over the hub links to what it answers only when that came over a hub
     let local_reply = out.reply_to.as_ref().is_some_and(|q| q.get("net_id").is_none());
     let sent = mail::send(engine, me.org_id, out).await?;
@@ -483,10 +501,10 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     };
     // mail you received or sent, and outside mail you sent from the org inbox
     // (what conversation lists; the same mail reply_to accepts)
-    let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments, coalesce(recipient_agent_id = $1, false), recipient_name
+    let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments, coalesce(recipient_agent_id = $1, false), recipient_name, reply_to, replies
           FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND uid = ANY($2) AND (recipient_agent_id = $1 OR sender_agent_id = $1)
         UNION ALL
-        SELECT o.uid, coalesce(o.by_name, 'user'), o.kind, coalesce(o.state, 'queued'), o.at, o.body, o.attachments, false, o.peer
+        SELECT o.uid, coalesce(o.by_name, 'user'), o.kind, coalesce(o.state, 'queued'), o.at, o.body, o.attachments, false, o.peer, o.reply_to, o.replies
           FROM ot.org_inbox o JOIN ot.agents a ON a.id = $1
          WHERE NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=o.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb) AND o.uid = ANY($2) AND o.org_id = a.org_id AND o.dir = 'out' AND o.by_name = a.name AND o.at >= a.created_at
         LIMIT 40", &[&me.id,&ids]).await?;
@@ -509,6 +527,9 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         let state: String = r.get(3);
         item["state"] = json!(state); item["at"] = json!(iso(r.get(4)));
         item["attachments"] = Value::Array(r.get::<_,Value>(6).as_array().into_iter().flatten().filter(|a| a["transfer_removed"] != true).cloned().collect());
+        let first=r.get::<_,Option<Value>>(9);
+        if let Some(q)=first.as_ref() { item["reply_to"]=q.clone(); }
+        item["replies"]=crate::domain::replies::value(first.as_ref(),Some(&r.get::<_,Value>(10)));
         if r.get::<_,bool>(7) {
             item["direction"] = json!("received");
             item["will_redeliver"] = json!(state == "pending" || state == "delivering");
