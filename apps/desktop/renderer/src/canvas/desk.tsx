@@ -4808,10 +4808,10 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   const running = live && !writing && !!t.started_at && !t.ended_at && t.result === undefined && !t.error
   const shellError = isFailedShellCall(t)
   const expandable = true
-  if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
-    doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
-    <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span><ToolTimes tool={t} />
-  </PresentationCard>
+  const presentation = t.presentation && !t.error && onOpenDoc
+    ? <PresentationCard slug={slug} doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
+      <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span>
+    </PresentationCard> : null
   // orgtree_send_file → a DOWNLOAD CARD in place of the chip (user spec
   // 2026-07-31: files flow back — the card sits where the agent sent it).
   // An IMAGE file renders as the picture itself (user spec 2026-08-25:
@@ -4846,7 +4846,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
     )
   }
   return (
-    <div className={'tools tchip' + (t.error || shellError ? ' terr' : '')}>
+    <><div className={'tools tchip' + (t.error || shellError ? ' terr' : '')}>
       <span data-reply-event={t.event_id ?? ''} data-reply-quote={String(t.reply_quote ?? `${t.name} ${t.arg ?? ''}`)} className={'tline' + (expandable ? ' click' : '')}
         onClick={expandable ? toggleOpen : undefined}
         title={expandable ? (open ? 'collapse' : 'expand') : undefined}
@@ -4924,7 +4924,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
       {open && (t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }).map((_, i) => (
         <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} alt="tool result"
           src={`/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
-    </div>
+    </div>{presentation}</>
   )
 }
 
