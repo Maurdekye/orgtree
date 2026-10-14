@@ -1,6 +1,7 @@
 // tierlisting.test.tsx — the one listing rule (user 2026-10-13): wherever the
 // models of a provider are listed together, the dearest comes first and
-// equal seats keep the order they had.
+// equal seats keep the order they had. User 2026-10-14 excepted hire tokens:
+// each provider row/column is cheapest-first; selectors and defaults stay as below.
 //
 //   Claude  fable, opus, sonnet, haiku        Muse  wonder-full, wonder, spark
 //   Codex   astra, [terra], sol, luna         Antigravity  agy-opus, [pro, argon, barium, carbon,]

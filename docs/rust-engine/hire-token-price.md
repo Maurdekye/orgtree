@@ -19,5 +19,5 @@ Icons, colours, tooltips, click/drag dispatch, family placement and availability
 are unchanged. Focused tests exercise changed catalog prices, equal-price ties,
 all four strip orientations, action/tooltip identity, price refresh, disabled
 far-zoom strips, conditional/legacy gates and registry rows. Existing descending
-selector/default tests remain controls. Red/green controls will run in one
-rig-opus batch; no renderer runtime or installed proof is yet claimed.
+selector/default tests remain controls. Typecheck passes. Red/green controls
+will run in one rig-opus batch; no renderer runtime or installed proof is yet claimed.
