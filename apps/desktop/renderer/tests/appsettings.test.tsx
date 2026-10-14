@@ -16,6 +16,9 @@ const ACCOUNTS: AccountsPayload = {
   version: 2,
   primary: { id: 'primary', signed_in: true, email: 'me@example.test' },
   keys: [], assignments: {},
+  // The registry also reads this route. An empty valid list keeps this
+  // provider/usage fixture from raising an unrelated older-backend warning.
+  accounts: [],
 } as unknown as AccountsPayload
 
 const provider = (id: 'claude' | 'openai' | 'google', on = true,
@@ -117,7 +120,11 @@ test('Accounts omits Codex reserve usage but preserves regular usage', async () 
   stubFetch([], { providers: [codex] })
   const settings = await mountSettings()
   try {
-    assert.match(settings.el.textContent ?? '', /Codex CLI/)
+    const header = settings.el.querySelector('.acct-provider-head.prov-openai')!
+    assert.ok(header, 'the Codex provider section is present')
+    assert.match(header.textContent ?? '', /ChatGPT.*Codex/)
+    assert.equal(header.querySelector('.dim')?.textContent?.trim(), '· Codex',
+      'user 2026-10-14: model family above the dim harness name')
     assert.doesNotMatch(settings.el.textContent ?? '', /Reserve capacity|reserve fixture/)
   } finally { await settings.unmount() }
   const payload = { account: 'a1', provider: 'Codex', available: true, limits: [
