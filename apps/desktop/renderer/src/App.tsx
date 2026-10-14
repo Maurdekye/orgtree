@@ -2881,6 +2881,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                         throw e
                       })
                   }}
+                  replyConversation={(m) => m.from}
                   onFocusAgent={onFocusAgent ? (agentId) => { close(); onFocusAgent(agentId) } : undefined}
                   rowSender={(id: string) => <span>{id}</span>}
                   sender={(id: string) => <SenderChip id={id} nodes={nodes}

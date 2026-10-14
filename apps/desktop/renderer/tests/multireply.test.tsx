@@ -4,7 +4,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { DeskChat } from '../src/canvas/desk'
 import { MailList } from '../src/canvas/mail'
 import { MailReplyPreview } from '../src/canvas/mailreply'
-import { readReplies, readReply, storeReply } from '../src/eventReply'
+import { appendReplyTarget, readReplies, readReply, storeReply } from '../src/eventReply'
 import { draftKey } from '../src/draftstore'
 import { refreshConvo, resetConvos } from '../src/convo'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -19,15 +19,15 @@ async function replyOn(element: Element) {
   await inAct(()=>button.click())
 }
 
-test('desk append then one send carries both durable targets after reload',async()=>{
+test('desk mixed senders append and one send carries both durable targets after reload',async()=>{
   localStorage.clear(); resetConvos()
   const server=new FakeServer(); server.messages=[
     {role:'assistant',text:'First source',seq:10,event_id:'e10'},
-    {role:'assistant',text:'Second source',seq:11,event_id:'e11'},
+    {role:'user',text:'Second source',seq:11,event_id:'e11'},
   ]; installFetch(server)
   const original=globalThis.fetch; const sends:any[]=[]
   globalThis.fetch=async(url,init)=>String(url).endsWith('/message')
-    ? (sends.push(JSON.parse(String(init?.body))),new Response(JSON.stringify({accepted:true,id:'accepted',queued:0}),{headers:{'Content-Type':'application/json'}}))
+    ? (sends.push({destination:String(url),...JSON.parse(String(init?.body))}),new Response(JSON.stringify({accepted:true,id:'accepted',queued:0}),{headers:{'Content-Type':'application/json'}}))
     : original(url,init)
   let view=await mountView(desk(),el=>el)
   try {
@@ -41,27 +41,24 @@ test('desk append then one send carries both durable targets after reload',async
     view=await mountView(desk(),el=>el)
     await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.cc-send')!.click();await flush(10)})
     assert.equal(sends.length,1);assert.equal(sends[0].text,'One reply for both')
+    assert.ok(sends[0].destination.endsWith('/nodes/writer/message'))
     assert.deepEqual(sends[0].replies.map((q:any)=>q.source_event_ref.eventId),['e10','e11'])
     assert.equal(readReplies(draftKey('org','writer',2)).length,0)
   } finally {await view.unmount();resetConvos();globalThis.fetch=original}
 })
 
-test('desk blocks adding a different sender without losing the first target',async()=>{
-  localStorage.clear();resetConvos()
-  const server=new FakeServer();server.messages=[{role:'assistant',text:'Agent source',seq:1,event_id:'e1'},{role:'user',text:'User source',seq:2,event_id:'e2'}]
-  installFetch(server);const notices:string[][]=[];const view=await mountView(desk(lines=>notices.push(lines??[])),el=>el)
-  try {
-    await inAct(async()=>{await refreshConvo('org','writer');await flush(5)})
-    await replyOn(view.el.querySelector('[data-reply-event="e1"]')!)
-    await replyOn(view.el.querySelector('[data-reply-event="e2"]')!)
-    assert.deepEqual(readReplies(draftKey('org','writer',2)).map(r=>r.eventId),['e1'])
-    assert.match(notices.flat().join(),/same sender/)
-  }finally{await view.unmount();resetConvos()}
+test('collector accepts different authors only within one transcript identity',()=>{
+  const first={org:'org',agent:'writer',generation:2,eventId:'e1',quote:'first',sender:'writer'}
+  const next={...first,eventId:'e2',sender:'@user'}
+  assert.equal(appendReplyTarget([first],next).length,2)
+  for(const other of [{...next,org:'other'},{...next,agent:'other'},{...next,generation:3}]) {
+    assert.throws(()=>appendReplyTarget([first],other),/this transcript/)
+  }
 })
 
-test('inbox Reply collects several same-sender rows and sends them together',async()=>{
+test('inbox collects different authors within one conversation and sends together',async()=>{
   localStorage.clear();const sends:any[]=[]
-  const rows=[{id:'m1',from:'writer',kind:'message',body:'First mail',at:'2026-10-14T10:00:00Z'},{id:'m2',from:'writer',kind:'message',body:'Second mail',at:'2026-10-14T10:01:00Z'}]
+  const rows=[{id:'m1',from:'writer',kind:'message',body:'First mail',at:'2026-10-14T10:00:00Z'},{id:'m2',from:'other',kind:'message',body:'Second mail',at:'2026-10-14T10:01:00Z'}]
   const view=await mountView(<MailList org="org" pending={rows} onReply={async(m,text,_a,_n,targets)=>{sends.push({m,text,targets})}} />,el=>el)
   try{
     await replyOn([...view.el.querySelectorAll('.mailrow')].find(e=>e.textContent?.includes('First mail'))!)
@@ -86,20 +83,23 @@ test('individual delivered mail cards retain their sender and separate target id
     await replyOn(view.el.querySelector('[data-reply-mail="m2"]')!)
     await replyOn(view.el.querySelector('[data-reply-mail="m3"]')!)
     const targets=readReplies(draftKey('org','writer',2))
-    assert.deepEqual(targets.map(r=>r.mailId),['m1','m2'])
-    assert.deepEqual(targets.map(r=>r.sender),['sender','sender'])
+    await replyOn(view.el.querySelector('[data-reply-event="e20"]')!)
+    const all=readReplies(draftKey('org','writer',2))
+    assert.deepEqual(all.map(r=>r.mailId),['m1','m2','m3',undefined])
+    assert.deepEqual(all.map(r=>r.sender),['sender','sender','other','@user'])
+    assert.equal(all[3]?.quote,'Card one\n\nCard two\n\nOther card')
     assert.ok(targets.every(r=>!r.quote.includes('HIDDEN')))
-    assert.match(notices.flat().join(),/same sender/)
+    assert.deepEqual(notices,[])
   }finally{await view.unmount();resetConvos()}
 })
 
-test('inbox refuses another sender and preserves collected targets on failed send',async()=>{
+test('global inbox keeps one recipient conversation and preserves targets on failed send',async()=>{
   const rows=[{id:'m1',from:'writer',kind:'message',body:'First mail',at:'2026-10-14T10:00:00Z'},{id:'m2',from:'writer',kind:'message',body:'Second mail',at:'2026-10-14T10:01:00Z'},{id:'m3',from:'other',kind:'message',body:'Other mail',at:'2026-10-14T10:02:00Z'}]
-  const view=await mountView(<MailList org="org" pending={rows} onReply={async()=>{throw Error('Controlled refusal')}} />,el=>el)
+  const view=await mountView(<MailList org="org" pending={rows} replyConversation={m=>m.from} onReply={async()=>{throw Error('Controlled refusal')}} />,el=>el)
   try{
     for(const name of ['First mail','Second mail','Other mail']) await replyOn([...view.el.querySelectorAll('.mailrow')].find(e=>e.textContent?.includes(name))!)
     assert.equal(view.el.querySelectorAll('.mail-reply-target').length,2)
-    assert.match(view.el.querySelector('[role=alert]')?.textContent||'',/same sender/)
+    assert.match(view.el.querySelector('[role=alert]')?.textContent||'',/A multi-reply can only answer messages/)
     await inAct(()=>{const ta=view.el.querySelector<HTMLTextAreaElement>('.mail-reply textarea')!;Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(ta,'Keep draft');ta.dispatchEvent(new Event('input',{bubbles:true}))})
     await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.mail-reply-send')!.click();await flush(5)})
     assert.equal(view.el.querySelectorAll('.mail-reply-target').length,2)

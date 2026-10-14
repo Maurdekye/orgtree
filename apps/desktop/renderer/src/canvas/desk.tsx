@@ -2122,8 +2122,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         const segments = messageSource?.segments
         const mailRows = isSegments(segments, 'operator') ? segments.flatMap(s => s.kind === 'mail' ? s.rows : []) : []
         const senders = new Set(mailRows.map(m => m.from))
-        if (!mailId && senders.size > 1) { toast(['This turn includes several senders. Reply to an individual mail card.']); return }
-        const sender = exact.getAttribute('data-reply-sender') ?? mailSource ?? [...senders][0] ?? (messageSource?.role === 'user' ? '@user' : node.id)
+        const sender = exact.getAttribute('data-reply-sender') ?? mailSource ?? (senders.size === 1 ? [...senders][0] : undefined) ?? (messageSource?.role === 'user' ? '@user' : node.id)
         try { setReplyTargets(appendReplyTarget(replyTargets, { ...source, sender, mailId })) }
         catch (e) { toast([String((e as Error).message)]); return }
         setView('chat')

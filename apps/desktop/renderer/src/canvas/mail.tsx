@@ -72,6 +72,9 @@ export interface MailListProps {
   /** `notice` is set only when the reply box's notice toggle was armed at
    *  send; the host forwards it to its own send call. */
   onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean, targets?: MailRow[]) => void
+  /** Fixed-transcript callers omit this. The global user inbox supplies the
+   * recipient agent so a collected reply cannot span several transcripts. */
+  replyConversation?: (m: MailRow) => string
   /** Which rows may be answered from here. Default: incoming mail from a
    *  plain agent id (the @-sentinels route elsewhere). */
   canReply?: (m: MailRow) => boolean
@@ -153,7 +156,7 @@ export interface MailListProps {
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
-  outgoing, onRead, onReply, canReply: canReplyTo, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
+  outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
@@ -181,7 +184,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   useEffect(() => { setReplyTargets([]); setReplyError('') }, [org, outgoing])
   const collectReply = (m: MailRow) => {
     if (!m.id) { setReplyError('This message has no durable reply reference yet.'); return false }
-    if (replyTargets.some(r => r.from !== m.from)) { setReplyError('A multi-reply can only answer messages from the same sender.'); return false }
+    if (replyConversation && replyTargets.some(r => replyConversation(r) !== replyConversation(m))) { setReplyError('A multi-reply can only answer messages in one conversation.'); return false }
     if (replyTargets.some(r => r.id === m.id)) return true
     if (replyTargets.length >= 50) { setReplyError('A multi-reply can answer at most 50 messages.'); return false }
     setReplyTargets([...replyTargets, m]); setReplyError(''); return true
@@ -577,7 +580,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onReply={replyable
               ? async (text, attachments, notice) => {
                 const targets = replyTargets.length ? replyTargets : [cur]
-                if (targets.some(m => m.from !== cur.from)) { setReplyError('Open a message from the reply targets\' sender before sending.'); throw Error('Mixed senders in a multi-reply') }
+                if (replyConversation && targets.some(m => replyConversation(m) !== replyConversation(cur))) { setReplyError('Open a message in the reply targets\' conversation before sending.'); throw Error('A multi-reply needs one conversation') }
                 await onReply!(targets[0]!, text, attachments, notice, targets)
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }

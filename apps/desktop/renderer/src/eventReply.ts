@@ -69,8 +69,7 @@ export function storeReplies(key: string, replies: ReplyContext[]): void {
   storeReply(key, replies[0] ?? null)
 }
 export function appendReplyTarget(current: ReplyContext[], next: ReplyContext): ReplyContext[] {
-  const sender = (r: ReplyContext) => r.sender || r.agent
-  if (current.some(r => r.org !== next.org || sender(r) !== sender(next))) throw Error('A multi-reply can only answer messages from the same sender.')
+  if (current.some(r => r.org !== next.org || r.agent !== next.agent || r.generation !== next.generation)) throw Error('A multi-reply can only answer events in this transcript.')
   if (current.some(r => r.agent === next.agent && r.generation === next.generation && r.eventId === next.eventId && r.mailId === next.mailId)) return current
   if (current.length >= 50) throw Error('A multi-reply can answer at most 50 messages.')
   return [...current, next]
