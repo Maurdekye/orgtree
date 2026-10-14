@@ -1,11 +1,13 @@
-import { inAct, mountView } from './harness'
+import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { NodeSquare, UserNode } from '../src/canvas/cards'
 import type { CanvasNode } from '../src/canvas/shared'
-import { Z_MINI } from '../src/canvas/shared'
-import type { OpResult } from '../src/types'
+import { saveView, setStartView, Z_MINI } from '../src/canvas/shared'
+import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { CurrentOrg } from '../src/popout'
+import type { OpResult, TreePayload } from '../src/types'
 const noop = () => {}
 const op = () => Promise.resolve({} as OpResult)
 const seats = {haiku:1,sonnet:2,opus:5}
@@ -70,4 +72,40 @@ test('switchboard credit bar disappears below the exact shared boundary and retu
   assert.deepEqual([...v.el.querySelector('.cbar-tip')!.children]
     .map(row=>row.textContent?.replace(/\s+/g,' ').trim()),
     ['circulation 8','seats 2','free 6'],'every restored credit label keeps its exact value')
+})
+
+for (const zoom of [0.24, 0.8]) test(`org inbox tile and opened modal use the same globe at zoom ${zoom}`, async () => {
+  const savedFetch = globalThis.fetch
+  const slug = 'inbox-globe-' + zoom
+  const tree = { slug, name: slug, roots: [], dirs: [], max_top_grant: 1000,
+    default_top_grant: 50, compact_at: 0, tiers: {}, audiences: [], credit_requests: [],
+    audience_requests: [], user_inbox_count: 0, asks: [], asks_open: 0, watchdogs: [],
+    audit: { live_nodes: 0, top_level_holds: 0, no_overdraft: true, problems: [] },
+    org_inbox: { entries: [], total: 0, unread: 0, holders: [], enabled: true, visible: true },
+    net: null, epoch: 1, rev: 1, work_items_summary: { attention: 0, active: 0 },
+  } as unknown as TreePayload
+  globalThis.fetch = async input => {
+    const s = String(input)
+    const body = s.includes('/org_inbox') ? { entries: [], total: 0, unread: 0, holders: [], visible: true }
+      : s.includes('/transfers') ? { transfers: [], next_cursor: null } : {}
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  localStorage.clear(); setStartView('remember'); saveView(slug, { x: 0, y: 0, z: zoom })
+  let view: Awaited<ReturnType<typeof mountView>> | undefined
+  try {
+    view = await mountView(<CurrentOrg.Provider value={slug}><OrgCanvas tree={tree}
+      slug={slug} op={op} toast={noop} mailEvt={null} /></CurrentOrg.Provider>, el => el)
+    const tile = view.el.querySelector<HTMLElement>('.sq.orginbox')!
+    assert.ok(tile)
+    assert.equal(tile.getAttribute('aria-label'), 'org inbox')
+    assert.equal(tile.title, 'the org inbox — outside mail addressed to this organization')
+    const icon = tile.querySelector('svg')!
+    assert.equal(icon.getAttribute('data-testid'), 'PublicIcon', 'tile uses globe')
+    assert.equal(icon.classList.contains('oi-far-icon'), zoom < Z_MINI, 'far sizing class preserved')
+    const paths = icon.innerHTML
+    await inAct(async () => { tile.click(); await flush(20) })
+    const heading = view.el.querySelector('h3 [data-testid="PublicIcon"]')!
+    assert.ok(heading, 'existing modal opened with globe header')
+    assert.equal(heading.innerHTML, paths, 'same SVG artwork at both destinations')
+  } finally { await view?.unmount(); globalThis.fetch = savedFetch; localStorage.clear() }
 })

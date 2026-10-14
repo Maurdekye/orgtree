@@ -10,7 +10,9 @@ satellites and their wires, side presentation chips and the user
 credit bar do not mount there. Hidden-retired tokens do not mount when
 Hide Retired is on; the off setting preserves its current behaviour.
 The mailbox keeps its location, hit area and opening callback, displaying
-only an OutboxOutlined tray glyph with an accessible org-inbox label.
+only a Public globe glyph with an accessible org-inbox label. User 2026-10-14
+18:41UTC chose Globe, replacing the original OutboxOutlined glyph to match
+the normal tile and org-inbox modal header. Class/size/title/aria are unchanged.
 Model colour is the existing `--tier-accent`, falling back to
 `--provider-accent` for unknown tiers; normal zoom is unchanged.
 
@@ -44,3 +46,37 @@ records every step and both restored/far measurements, and explicitly checks
 that the round trip crosses Z_MINI. Acceptance still requires the full 16-case
 rerun by rig-opus. The Python proof is committed in renderer/tests; the shared
 D:/orgtree-work/far-overview-proof.py copy is identical. No product change.
+
+## Globe correction hand-in (2026-10-14; verification pending)
+
+Ticket `org-inbox-uses-the-globe-icon-at-far-zoom-too`, source base `0f8638f`.
+Audit: normal OrgCanvas tile and OrgInboxModal heading already use PublicIcon.
+Renderer menus/status bars/shortcut explainer have no additional org-inbox icon
+destination. The main-header Inbox is the user's inbox, a separate control.
+The shared unused OutboxIcon export is retained for the synthetic red fixture;
+it is removed from the production OrgCanvas import.
+
+Rig-opus's next contained batch owns execution and captures. No author build,
+live app/data/provider operation, install or push is claimed.
+
+1. Run root typecheck and focused `faroverview` suite. Two added real-OrgCanvas
+   cases at .24/.8 compare tile SVG paths with the opened modal heading and
+   preserve far class/title/aria. For red, overlay only baseline OrgCanvas from
+   `0f8638f` with current tests retained: far globe case should fail, normal
+   globe and the existing two faroverview controls should pass. Green all four.
+2. Run `node apps/desktop/renderer/tests/inboxglobe-bundle.mjs <sourceRoot>
+   <authorized C-output> <shared node_modules>` to bundle the existing immutable
+   faroverview fixture. `beforeInboxGlobe` reverses only this icon substitution,
+   retaining all other canvas features, unlike the original overview baseline.
+3. Set `INBOX_GLOBE_OUT` to that C-output and `INBOX_GLOBE_EVIDENCE` to the
+   rig's D evidence folder; run `inboxglobe-proof.py` with the rig's Playwright
+   interpreter. Four before/after dark/light far captures include full canvas,
+   tile and modal screenshots plus actual SVG parity/geometry/title/aria and
+   browser-error measurements. Before must show OutboxOutlined and disagree
+   with the globe header; after must show Public and match it, without moving
+   the tile. All transport remains synthetic.
+
+The older `faroverview-baseline.mjs` now recognizes the PublicIcon hunk when
+reversing the original overview work; `faroverview-proof.py` additionally checks
+the after far glyph is Public. No need to re-run its full 16-case matrix for
+this icon-only correction unless the focused proof exposes another issue.

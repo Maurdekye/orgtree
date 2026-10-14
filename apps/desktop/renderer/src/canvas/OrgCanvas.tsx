@@ -32,7 +32,7 @@ import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
-  FullscreenIcon, OutboxIcon, PublicIcon, RemoveIcon, ViewListIcon,
+  FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
   ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
@@ -3944,7 +3944,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               if (pinnedModalBehind('org-inbox', slug)) { raisePinnedModal('org-inbox', slug); return }
               setOiOpen((v) => isModalPinned('org-inbox', slug) ? !v : true)
             }}>
-            {lod === 'mini' ? <OutboxIcon className="oi-far-icon" fontSize="inherit" /> : <>
+            {lod === 'mini' ? <PublicIcon className="oi-far-icon" fontSize="inherit" /> : <>
             <div className="oi-head">
               {/* the label is its own element so it can ELLIPSIS instead of
                   wrapping. As a bare text node it was an anonymous flex item

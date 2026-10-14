@@ -8,7 +8,7 @@ MEASURE=r'''() => {
 const q=s=>document.querySelector(s),n=s=>document.querySelectorAll(s).length;
 const resolved=(el,name)=>{const probe=document.createElement('i');probe.style.color=`var(${name})`;el.appendChild(probe);const c=getComputedStyle(probe).color;probe.remove();return c;};
 const accent=id=>{const el=q(`[data-copy-agent-name="${id}"].sq`);if(!el)return null;return {edge:getComputedStyle(el,'::before').backgroundColor,tier:resolved(el,'--tier-accent'),provider:resolved(el,'--provider-accent')};};
-return {zoom:new DOMMatrixReadOnly(getComputedStyle(q('.space')).transform).a,mini:n('.sq.mini'),dogs:n('.wd-chip'),dogWires:n('.edge.wd'),docs:n('.doc-chips .doc-chip'),bar:n('.cbar-inf-wrap'),retired:n('.retired-token'),mailbox:!!q('.sq.orginbox'),glyph:n('.orginbox-far .oi-far-icon'),mailText:q('.sq.orginbox')?.textContent||'',head:n('.sq.orginbox .oi-head'),last:n('.sq.orginbox .oi-last'),blue:accent('model-blue'),green:accent('model-green'),unknown:accent('no-model-colour')};
+return {zoom:new DOMMatrixReadOnly(getComputedStyle(q('.space')).transform).a,mini:n('.sq.mini'),dogs:n('.wd-chip'),dogWires:n('.edge.wd'),docs:n('.doc-chips .doc-chip'),bar:n('.cbar-inf-wrap'),retired:n('.retired-token'),mailbox:!!q('.sq.orginbox'),glyph:n('.orginbox-far .oi-far-icon'),globe:n('.orginbox-far [data-testid="PublicIcon"]'),mailText:q('.sq.orginbox')?.textContent||'',head:n('.sq.orginbox .oi-head'),last:n('.sq.orginbox .oi-last'),blue:accent('model-blue'),green:accent('model-green'),unknown:accent('no-model-colour')};
 }'''
 try:
  with sync_playwright() as p:
@@ -41,6 +41,7 @@ try:
         check(m['bar']==0,'infinite bar remains')
         check(not hide or m['retired']==0,'hidden-retired marker remains')
         check(m['glyph']==1 and m['head']==0 and m['last']==0 and not m['mailText'].strip(),'mailbox not glyph-only')
+        check(m['globe']==1,'far mailbox must use the modal header globe')
         for key in ['blue','green']:
          check(m[key] is not None and m[key]['edge']==m[key]['tier'],key+' accent is not model colour')
         check(m['unknown'] is not None and m['unknown']['edge']==m['unknown']['provider'],'unknown model has no provider fallback')

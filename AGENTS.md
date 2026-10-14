@@ -468,7 +468,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   verified from source: `runtime/{acp,acp_scope,opencode}.rs`, `bridge.rs`]
 - Far overview (`z < Z_MINI`) hides watchdog satellites/wires, presentation
   side chips, the switchboard's infinite credit bar, and hidden-retired list
-  tokens when Hide Retired is on. The org-inbox mailbox becomes one icon;
+  tokens when Hide Retired is on. The org-inbox mailbox becomes one globe
+  (`PublicIcon`), matching its normal tile and modal header; preserve far sizing
+  and accessibility text. [decided: user 2026-10-14 18:41UTC]
   agent left-edge accents use tier colour with provider fallback. Zooming in
   restores retained content. See [far overview](docs/rust-engine/far-overview.md).
   [decided: user/coordinator 2026-10-13 19:00?19:05Z]

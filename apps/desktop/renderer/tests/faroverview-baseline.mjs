@@ -12,7 +12,7 @@ export function beforeOverview(file, contents) {
     source=once(source,"{!(hideRetired && lod === 'mini') && [...retiredCounts.entries()].map",'{[...retiredCounts.entries()].map');
     source=once(source," + (lod === 'mini' ? ' orginbox-far' : '')",'');
     source=once(source,'            aria-label="org inbox"\n','');
-    source=once(source,'            {lod === \'mini\' ? <OutboxIcon className="oi-far-icon" fontSize="inherit" /> : <>\n','');
+    source=once(source,'            {lod === \'mini\' ? <PublicIcon className="oi-far-icon" fontSize="inherit" /> : <>\n','');
     const closing=/(<div className="oi-last">[\s\S]*?<\/div>)\n            <\/>}/;
     if (!closing.test(source)) throw new Error('Expected mailbox-only fragment closing hunk');
     source=source.replace(closing,'$1');
@@ -29,4 +29,13 @@ export function beforeOverview(file, contents) {
   // Keep the new icon import/export and unused far mailbox CSS. They cannot
   // render in this control, and preserving exports avoids breaking other items.
   return source;
+}
+
+// Separate narrow control for the globe correction; leave all earlier
+// overview rendering and unrelated batch changes intact.
+export function beforeInboxGlobe(contents) {
+  let source=contents.replace(/\r\n/g,'\n');
+  source=once(source,'FullscreenIcon, PublicIcon,','FullscreenIcon, OutboxIcon, PublicIcon,');
+  return once(source,'<PublicIcon className="oi-far-icon" fontSize="inherit" />',
+    '<OutboxIcon className="oi-far-icon" fontSize="inherit" />');
 }

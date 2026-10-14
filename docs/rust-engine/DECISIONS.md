@@ -9,6 +9,11 @@ User 18:02UTC: "No, leave windows" — Shift+F1/F3 keep opening or focusing
 their separate top-level windows and never close them. F4/F5/F10/Shift+F10
 keep their existing non-panel actions. See [`app-menu-shortcuts.md`](app-menu-shortcuts.md).
 
+**Org-inbox icon consistency, user 2026-10-14 18:40–18:41UTC:** use the globe
+(`PublicIcon`) for the far-zoom org-inbox tile, matching its normal tile and
+modal header. This replaces the far OutboxOutlined tray glyph only; preserve
+the class, size, title/aria and existing viewer action. See [`far-overview.md`](far-overview.md).
+
 **Transcript docket transitions, user 2026-10-14 12:44:47UTC:** an
 `orgtree_work` call that actually changes ticket status shows `old → new`
 inline, each in the docket's own colour and wording. Capture the real
