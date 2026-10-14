@@ -12,6 +12,9 @@
   organization/agent settings and other modals keep their own widths.
   Rig439 measured minimum783px (719px tabs +64px chrome); coordinator20:21UTC
   adds8px margin for font/scaling variation. Narrow94vw is unchanged.
+  At1366×768 rig439 verifies791px panel and727/727px tab client/scroll,
+  with allnine tabs visible. scrollWidth-clientWidth measures overflow only,
+  not spare margin;8px remaining is inferred from earlier719px overflowing content.
   The supported offscreen runner fixesDPR1;125/150%scaling is unmeasured.
   Do not change tab labels/style. [measured: rig439; decided: user/coordinator2026-10-14;
   [panel proof and limits](docs/rust-engine/panel-widths-provider-headings.md)]

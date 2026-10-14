@@ -66,8 +66,18 @@ sections' headings are visible in the inspected screenshots.
 This fit has zero slack. The measurements use this harness's fonts and DPR1;
 other font rasterisation or native Windows125%/150%scaling is unmeasured and
 could differ by a pixel. Coordinator20:21UTC therefore directed an8px fixed
-margin, raising the panel to791px without changing font/padding/labels. The new
-1366×768 fit capture is pending. The supported runner cannot set1.25/1.5device
+margin, raising the panel to791px without changing font/padding/labels. Rig439
+at71aed01 (patch-identical7ce15be) passed the targeted1366×768 light/dark fit
+proof:791px panel,727px tab client and727px scroll width, DPR1; both screenshots
+inspected show allnine tabs with visible room after About. The old probe field
+`tabSlack:0` cannot describe spare space: scrollWidth is at least clientWidth
+even when the contents are shorter. The8px margin is inferred from727px client
+minus719px content measured while overflowing, and is explicit in the CSS;
+a direct last-tab edge-gap measurement has not run. Future probe metadata
+uses `tabOverflow` and the last tab's right-edge gap instead. Existing fit
+assertions and791px product are unchanged, so no repeat phase was requested.
+Proof: `logs/d-panels-791.log` and `evidence/d-panels-791/result.json` under
+the rig439 directory. The supported runner cannot set1.25/1.5device
 scale: `tools/rig/desktop/main.cjs` fixes `force-device-scale-factor` to1 and
 `page.resize` fixes CDP `deviceScaleFactor` to1; its page API exposes no scale
 setter. No shared-runner change or substitute native-scaling claim is made.
