@@ -1,4 +1,4 @@
-import { req } from '../api'
+import { refreshAgyModels, req } from '../api'
 import type { MenuItem } from './contextmenu'
 import { MUSE_TIERS, museEffortLevels, tierLabel } from './shared'
 import type { StaffingAccount } from './staffingoptions'
@@ -39,6 +39,8 @@ const accountLabel = (a: StaffingAccount): string =>
 const operations = new Map<string, { id: string; pending: boolean; completed: boolean }>()
 export function quickStaffEntry(org: string, item: string, preview: QuickStaffPreview,
   feedback: (text: string) => void): MenuItem {
+  // quick staffing is opening its model choice: re-read agy's model list
+  refreshAgyModels()
   const select = async (tier?: string, effort?: string, account?: string) => {
     if (preview.mode !== 'request' && !tier) return
     const body = { mode: preview.mode, configured_mode: preview.configured_mode,

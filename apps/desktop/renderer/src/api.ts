@@ -901,6 +901,18 @@ export function getProviders(): Promise<ProvidersPayload> {
   providerRequest = request
   return request
 }
+/** A model choice or the providers page opened: ask the engine to re-read
+ *  the account's `agy models` list (user 2026-10-14: refresh when it matters,
+ *  no polling). The engine debounces (one read in flight, a result under
+ *  30 s reused) and republishes the providers value when the list changed,
+ *  so hire tokens and selectors follow it live. Fire and forget. */
+let agyModelsRequest: Promise<unknown> | null = null
+export function refreshAgyModels(): void {
+  if (agyModelsRequest) return
+  agyModelsRequest = req<ProvidersPayload>('/api/providers/agy-models/refresh', { method: 'POST' })
+    .catch(() => undefined)
+    .finally(() => { agyModelsRequest = null })
+}
 /** The two machine-wide per-provider lane choices (2026-09-12 redesign).
  *  Both answer with the SAME providers document a settings read returns, so
  *  the panel cannot end up disagreeing with what was just written. */

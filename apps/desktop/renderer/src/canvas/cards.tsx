@@ -12,7 +12,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
-import { audienceAction, dissolveAll, getCharters, unstickNode } from '../api'
+import { audienceAction, dissolveAll, getCharters, refreshAgyModels, unstickNode } from '../api'
 // §4.8 — a card is drawn straight from its tree entry and cannot await a
 // fetch, so anything it decides about an ARCHIVED seat reads the summary
 // marker when the full field is not there. Never dereference `lineage` or
@@ -145,6 +145,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   const menuEntries = (): MenuEntry[] => {
     // Same action order and lifecycle separator as agentMenuEntries. The user
     // explicitly keeps this menu's three Open actions flat (2026-10-11).
+    // the menu just opened on a model choice: re-read agy's model list
+    refreshAgyModels()
     const choices = hireTierChoices({ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire })
     const entries: MenuEntry[] = [
       { label: 'Focus', onSelect: () => onFocus?.(), disabled: !onFocus },

@@ -35,6 +35,7 @@ import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel }
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
+import { useAgyModelsRefresh } from './shared'
 import { museHireAccount } from './musehire'
 import { accountProvider, accountValue, primaryAccount, providerAccounts } from '../accountidentity'
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
@@ -334,6 +335,8 @@ export function McpCurrentServers({ servers }: {
 export function HireDefaultsTab({ tree, slug, toast, close,
   tools, setTools, vis, setVis, pm, setPm, dirs, setDirs,
   servers: propServers, account, setAccount, accounts: propAccounts }: HireDefaultsTabProps) {
+  // its default-model choice: re-read agy's model list on opening
+  useAgyModelsRefresh()
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
   const [servers, setServers] = useState<string[]>(propServers ?? [])
   const [newPath, setNewPath] = useState('')
@@ -942,6 +945,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   antigravityProvider, openrouterProvider, langserverProvider, museProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
   const [tab, setTab] = useState<NodeConfigTab>('charter')
   const tabId = useId()
+  // the Model tab is a model choice: re-read agy's model list as it opens
+  useAgyModelsRefresh(tab === 'model')
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
   // Escape belongs to PinFrame now: a CENTRED surface still closes on it, a

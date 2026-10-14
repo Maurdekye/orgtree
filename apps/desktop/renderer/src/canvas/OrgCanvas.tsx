@@ -27,6 +27,7 @@ import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import type { AudienceGrant, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
+import { useAgyModelsRefresh } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
 import {
@@ -4460,6 +4461,8 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
 }) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
+  // opening the sheet re-reads agy's model list (Argon, Barium, Carbon)
+  useAgyModelsRefresh()
   const museHireAdopted = useMuseHire()
   const museHire = museHireProp ?? museHireAdopted
   // D-199: which families this sheet may show, by the one shared rule.

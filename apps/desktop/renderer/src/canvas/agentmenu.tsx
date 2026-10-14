@@ -32,7 +32,7 @@
 // menu was opened from (contextmenu.tsx), so a builder that added its own
 // would double them.
 
-import { continueOnAccount } from '../api'
+import { continueOnAccount, refreshAgyModels } from '../api'
 import type { ToastFn } from '../types'
 import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
@@ -207,6 +207,8 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   })
   const hire = h.onHire
   if (canHire && hire) {
+    // the menu just opened on a model choice: re-read agy's model list
+    refreshAgyModels()
     const choices = hireTierChoices(s)
     // Copy agent name is prepended by useContextMenu: Focus, then Hire.
     entries.splice(1, 0, {

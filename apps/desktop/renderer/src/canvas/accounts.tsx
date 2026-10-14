@@ -645,6 +645,8 @@ export function AccountsPanel({ toast, close, initialTab }: {
   toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
 }) {
   const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'providers')
+  // the providers page lists each provider's tiers: re-read agy's model list
+  useAgyModelsRefresh(tab === 'providers')
   const [openingLogs, setOpeningLogs] = useState(false)
   // the Model tiers list leaves Terra and Gemini Pro out unless "show legacy models" is on
   useShowLegacyModels()

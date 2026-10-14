@@ -27,6 +27,7 @@ import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge } from './effor
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
 import { museEffortLevels } from './shared'
+import { useAgyModelsRefresh } from './shared'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -4361,6 +4362,8 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   useShowLegacyModels()
   // …and when agy starts (or stops) listing a conditional tier (Argon and Barium)
   useOfferedConditionalTiers()
+  // its rehire model choices: re-read agy's model list on opening
+  useAgyModelsRefresh()
   // spitshined (user request): generation cards in the app's current visual
   // language — tier token, per-generation consult-tier picker (№16: a bearer
   // answers from context, so any tier serves), live bearers marked green

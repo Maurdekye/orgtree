@@ -25,7 +25,7 @@ import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
 import { tierEffortLevels } from './canvas/staffingoptions'
 import { museHireAccount, museLandingAccount } from './canvas/musehire'
-import { MUSE_TIERS, museEffortLevels } from './canvas/shared'
+import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
   ALL_TIER_SEAT, hireOf, hireTierChoices, TIER_LETTER, tierLabel, type CanvasNode,
 } from './canvas/shared'
@@ -105,6 +105,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     setPop(p => p?.kind === kind ? null : { kind, anchor })
   }
   const close = () => setPop(null)
+  // choosing the model: re-read agy's model list
+  useAgyModelsRefresh(pop?.kind === 'model')
   // the model pop-out fades out like the canvas hire strip: a non-interactive
   // copy stays for the length of the fade after the picker itself has closed
   const [ghost, setGhost] = useState<HTMLElement | null>(null)

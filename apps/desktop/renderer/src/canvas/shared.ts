@@ -17,6 +17,7 @@ import { renderHtmlResponses } from './htmlresponse'
 import { desktop } from '../desktop'
 import { THEME_ACCENTS } from '../../../../../packages/contracts/visual-theme'
 import { siblingOrder } from '../treeorder'
+import { refreshAgyModels } from '../api'
 import { ringArcCentres } from './ringarcs'
 import { settleRingSprings, type SpringRing } from './ringsprings'
 import { onLiveBump } from '../livebus'
@@ -770,6 +771,12 @@ const subscribeConditional = (fn: () => void): (() => void) => {
 const offeredConditionalKey = (): string => offeredConditional.join(',')
 export const useOfferedConditionalTiers = (): string =>
   useSyncExternalStore(subscribeConditional, offeredConditionalKey)
+/** Re-read the account's `agy models` list each time a model choice opens
+ *  (`open` turns true, or the surface mounts open), so a conditional tier
+ *  agy just started listing shows up while the user is choosing. */
+export const useAgyModelsRefresh = (open = true): void => {
+  useEffect(() => { if (open) refreshAgyModels() }, [open])
+}
 /** a conditional tier the payload does not (yet) offer (Muse's included) */
 export const conditionalTierHidden = (tier: string): boolean =>
   (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier) && !offeredConditional.includes(tier))
