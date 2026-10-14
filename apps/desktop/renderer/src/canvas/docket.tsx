@@ -2054,9 +2054,6 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     depth > 0 ? 'docket-child' : '',
     kids > 0 ? 'docket-parent' : ''].filter(Boolean).join(' ')
   const label = attention ? 'Needs attention' : statusLabel(item.status)
-  // Dismiss clears the MANUAL flag only — a question-only attention item has
-  // nothing to dismiss (answering the question is the only way to clear it).
-  const canDismiss = item.attention_sources.includes('manual')
   // DOUBLE-CLICK COPIES THE SLUG (user 2026-09-07 15:41Z). `Copied!` appears
   // only after the write RESOLVES: a clipboard that is absent, blocked or
   // denied says nothing rather than lying about what is on the clipboard.
