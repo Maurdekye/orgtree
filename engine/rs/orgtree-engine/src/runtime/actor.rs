@@ -4459,7 +4459,7 @@ impl Actor {
             return;
         }
         self.send_held_wakes().await;
-        if self.bg_in_turn.is_empty() || !self.bg_grace.is_some_and(|g| Instant::now() <= g) {
+        if self.bg_in_turn.is_empty() || self.bg_grace.is_none_or(|g| Instant::now() > g) {
             return;
         }
         let notes = std::mem::take(&mut self.bg_in_turn);
