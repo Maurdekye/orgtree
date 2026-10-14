@@ -867,7 +867,11 @@ fn main() {
         .and_then(|a0| Path::new(&a0).file_stem().map(|s| s.to_string_lossy().to_lowercase()))
         .unwrap_or_default();
     let version = matches!(raw.first().map(String::as_str), Some("--version") | Some("-v"));
-    let code = if raw.first().map(String::as_str) == Some("acp") {
+    let code = if stem == "agy" && raw.is_empty() && std::env::var("AGY_CLI_CDE_AUTH_ACTION").as_deref() == Ok("check") {
+        agy::auth_check()
+    } else if stem == "agy" && agy::background_control(&raw) {
+        0
+    } else if raw.first().map(String::as_str) == Some("acp") {
         acp::run()
     } else if raw.iter().any(|a| a == "app-server") {
         codex::run(&raw)

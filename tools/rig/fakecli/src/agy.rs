@@ -28,6 +28,59 @@ use super::{iso_now, now_ms, pick_for};
 
 pub const VERSION: &str = "1.99.0 (Antigravity fake)";
 
+fn auth_fixture() -> (Option<PathBuf>, Value) {
+    let dir = std::env::var("ORGTREE_FAKECLI_DIR").ok().map(PathBuf::from);
+    let value = dir.as_ref().and_then(|d| std::fs::read(d.join("agy-auth.json")).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(json!({}));
+    (dir, value)
+}
+
+fn auth_log(kind: &str) {
+    let (dir, _) = auth_fixture();
+    if let Some(dir) = dir {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("agy-auth-calls.jsonl")) {
+            let _ = writeln!(f, "{}", json!({"kind":kind,"pid":std::process::id()}));
+        }
+    }
+}
+
+pub fn auth_check() -> i32 {
+    auth_log("check");
+    let (_, v) = auth_fixture();
+    match v["check"].as_str().unwrap_or("ok") {
+        "reject" => 1,
+        "prompt" => { eprint!("Enter the authorization code:"); let _ = std::io::stderr().flush(); std::thread::sleep(Duration::from_secs(60)); 1 }
+        "hang" => { std::thread::sleep(Duration::from_secs(60)); 1 }
+        "unsupported" => { println!("unknown environment action"); 0 }
+        _ => 0,
+    }
+}
+
+/// Usage/version fixtures exercise the actual guarded process path, not a
+/// canned engine reading. No real auth, browser or network exists here.
+pub fn background_control(raw: &[String]) -> bool {
+    let usage = raw.iter().any(|a| a == "/usage");
+    let version = raw.first().is_some_and(|s| s == "--version");
+    let (_, v) = auth_fixture();
+    if usage || version { auth_log(if usage { "usage" } else { "version" }); }
+    let runtime = raw.iter().any(|a| a == "-p=");
+    if runtime { auth_log("runtime"); }
+    if (usage && v["usage"] == "prompt") || (runtime && v["runtime"] == "prompt") {
+        // Split and unterminated, to catch line-only prompt watchers.
+        eprint!("Enter the author"); let _ = std::io::stderr().flush();
+        std::thread::sleep(Duration::from_millis(20));
+        eprint!("ization code:"); let _ = std::io::stderr().flush();
+        std::thread::sleep(Duration::from_secs(60));
+        return true;
+    }
+    if !usage { return false; }
+    println!("{}", json!({"event":"result","result":{"status":"SUCCESS","conversation_id":"","num_turns":0,
+        "usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},
+        "command":{"name":"usage","data":{"groups":[{"name":"Gemini","buckets":[
+            {"id":"session","name":"Session","remaining_fraction":0.75,"window":"5h"}]}]}}}}));
+    true
+}
+
 struct Agy {
     out: Mutex<std::io::Stdout>,
     log: Mutex<Option<std::fs::File>>,
