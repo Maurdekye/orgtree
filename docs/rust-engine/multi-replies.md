@@ -41,9 +41,43 @@ send, superseding alpha.4's per-send separation. No hub schema/runtime/pin
 change is required. Orgtree records linked replies; it does not invent a new
 question-state database or infer answer identities from quote lines.
 
-Verification is pending the assigned Rig batch. The native scratch proof is
-`tools/rig/proofs/multi-replies.mjs`; mounted renderer cases are
-`apps/desktop/renderer/tests/multireply.test.tsx`. Red desktop controls override
-only the base desk/mail collectors, keeping the current reference/rendering
-helpers. Source parsing and whitespace inspection are not runtime validation.
-No install, real sends, live data or device acceptance is included.
+## Verification — 2026-10-14, Rig round 438
+
+Rig-opus approved Orgtree `d2d56f9` on `0f8638f` and Hubchat `c5cf473` on
+`4f3db23`. Checks ran under the shared build lock and per-step kernel Jobs,
+using synthetic data. Measured results:
+
+- Engine build and all-targets check pass; clippy retains the base diagnostics
+  with none on changed lines. The focused engine unit union passes 39/39.
+- `tools/rig/proofs/multi-replies.mjs` passes 16/16. Eleven neighbouring rig
+  proofs pass, covering mailbox, hub replies, isolation, user audience, phone
+  linking, question options and conversation recall.
+- Migration 0021 on a copy of a scratch database filled by the old engine passes
+  17/17. Legacy mail/inbox rows remain byte-identical except the new empty
+  `replies` field; old snapshots normalize on read, without history backfill.
+- Mounted desk/inbox multi-reply checks pass 6/6; replacing only desk/mail with
+  the predecessor produces exactly five target failures and a passing legacy
+  control, in both the standard harness and the portable verifier. Focused
+  chatreply/replysource/multireply suites pass 30/30. The later source control
+  reproduces the immutable stream-quote and nested-source identity regressions.
+- Root typecheck has zero errors. Strict renderer and test configurations have
+  the same 29 and 825 errors as their baselines. The full 3,493-test renderer
+  run retains baseline failures: worklifecycle's allocation failure reproduces
+  at base (the tip aborts that file); the other six tests pass separately.
+  A GL-mode failure clears on two isolated 15/15 reruns. No persistent new
+  renderer regression remains in the measured comparisons.
+- Hubchat browser multi-reply checks pass 33/33, with exactly 22 predecessor
+  target failures and all 11 controls passing. The full three-question phone
+  sequence runs in the Android browser layout; desktop mixed sending is also
+  covered by the mounted composer proof, which passes 40/40 with exactly 23
+  predecessor target failures. Full questions pass 84/84, core 229/229,
+  Escape 8/8 and first-send 6/6; typecheck passes with no new clippy issues.
+
+Limits are retained: hosted real-hub transport of `meta.replies` was not
+measured; native payload builders and synthetic delivery seams were exercised.
+There was no native app build, device acceptance, install, live-data write or
+real chat send. Generated-event drift and the stale mailhub-version assertion
+match base. The transfer-upload restart check failed once in four tip runs
+(three base runs passed); timing is suspected, but its cause is unproved.
+Python verification lacks `anyio` in the measured environment, and source
+audits retain the base environment errors. These are not clean-suite claims.
