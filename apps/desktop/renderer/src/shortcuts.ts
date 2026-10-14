@@ -115,6 +115,8 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         sources: [R('shell/menu.tsx'), R('canvas/contextmenu.tsx')] },
       { keys: ['ArrowRight'], action: 'Open a submenu',
         sources: [R('shell/menu.tsx'), R('canvas/contextmenu.tsx')] },
+      { keys: ['Enter'], action: 'Run the item itself, not its submenu',
+        note: 'on an item with a submenu', sources: [R('canvas/contextmenu.tsx')] },
       { keys: ['ArrowLeft', 'Escape'], action: 'Back out of a submenu',
         sources: [R('shell/menu.tsx'), R('canvas/contextmenu.tsx')] },
       { keys: ['Escape'], action: 'Close the tray pop-up', sources: ['main/index.ts'] },
