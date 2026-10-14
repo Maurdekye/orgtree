@@ -660,11 +660,12 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         }
         for reply in crate::domain::replies::snapshots(Some(&m.reply_to),Some(&m.replies)) {
         if let Some(g) = reply.get("gist").or_else(|| reply.get("quoted_context")).and_then(Value::as_str) {
-            if !g.trim().is_empty() {
+            if !g.trim().is_empty() || m.replies.as_array().is_some_and(|a| a.len()>1) {
+                let g=if g.trim().is_empty() { "Original message has no text" } else {g};
                 let who = reply.get("from").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
                 let owner = who.map(|w| format!("{w}'s message")).unwrap_or_else(|| "your message".into());
                 let qat = reply.get("at").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
-                let id=reply.get("id").or_else(|| reply.get("net_id")).and_then(Value::as_str).map(|id| format!(" · id {id}")).unwrap_or_default();
+                let id=if m.replies.as_array().is_some_and(|a| a.len()>1) { reply.get("id").or_else(|| reply.get("net_id")).or_else(|| reply.get("mail_id")).or_else(|| reply.pointer("/source_event_ref/eventId")).and_then(Value::as_str).map(|id| format!(" · id {id}")).unwrap_or_default() } else { String::new() };
                 b.push_str(&format!("\n↩ IN REPLY TO {owner}{}{id}: “{g}”", qat.map(|a| format!(" of {a}")).unwrap_or_default()));
             }
         }

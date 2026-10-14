@@ -22,7 +22,10 @@ BEGIN
   DELETE FROM ot.reply_links WHERE org_id=NEW.org_id AND box=box_name AND message_uid=NEW.uid;
   FOR q IN SELECT value FROM jsonb_array_elements(targets) LOOP
     INSERT INTO ot.reply_links(org_id,box,message_uid,target)
-    SELECT NEW.org_id,box_name,NEW.uid,coalesce(q->>'net_id',q->>'id',q#>>'{source_event_ref,eventId}')
+    SELECT NEW.org_id,box_name,NEW.uid,coalesce(q->>'net_id',q->>'id',
+      CASE WHEN q ? 'source_event_ref' THEN 'event:' || (q#>>'{source_event_ref,org}') || '/' ||
+        (q#>>'{source_event_ref,agent}') || '/' || (q#>>'{source_event_ref,generation}') || '/' ||
+        (q#>>'{source_event_ref,eventId}') || coalesce('/mail:' || (q->>'mail_id'),'') END)
     WHERE coalesce(q->>'net_id',q->>'id',q#>>'{source_event_ref,eventId}') IS NOT NULL
     ON CONFLICT DO NOTHING;
   END LOOP;

@@ -981,6 +981,9 @@ fn outgoing_payload(row: &tokio_postgres::Row, net_id: &str, from: &str, attachm
             else { payload["meta"]=meta; }
         }
     }
+    if payload.get("meta").is_some_and(|m| serde_json::to_vec(m).map_or(true,|b| b.len()>crate::domain::replies::META_MAX)) {
+        crate::refuse!(BadRequest,"combined question/reply metadata exceeds 4096 bytes");
+    }
     Ok(payload)
 }
 
@@ -1113,14 +1116,16 @@ pub async fn queue(
             "no organization @net:{peer} is registered on any hub this organization uses (a new registration appears within a minute; orgtree_list_orgs lists the known ones)"
         );
     }
-    if !attachments.is_empty() {
+    let quotes=crate::domain::replies::snapshots(reply_to,Some(&json!(replies)));
+    let (wire_body,reply_meta)=crate::domain::replies::wire(body,&quotes)?;
+    let mut meta=cards::meta(kind,body).unwrap_or(json!({}));
+    if let Some(reply_meta)=reply_meta { for (k,v) in reply_meta.as_object().unwrap() { meta[k]=v.clone(); } }
+    if serde_json::to_vec(&meta)?.len()>crate::domain::replies::META_MAX { crate::refuse!(BadRequest,"combined question/reply metadata exceeds 4096 bytes"); }
+    if !attachments.is_empty() || quotes.len()>1 {
         let limit = attachment_limit(engine, org_id, peer).await?;
         for a in attachments { limit.check(a["bytes"].as_u64().unwrap_or(0))?; }
-        limit.check_message(body.len() as u64, attachments.iter().map(|a| a["bytes"].as_u64().unwrap_or(0)).sum())?;
+        limit.check_message(wire_body.len() as u64, attachments.iter().map(|a| a["bytes"].as_u64().unwrap_or(0)).sum())?;
     }
-    let quotes=crate::domain::replies::snapshots(reply_to,Some(&json!(replies)));
-    // Validate before durable admission; fallback bytes count against limits.
-    let _ = crate::domain::replies::wire(body,&quotes)?;
     queue_row(engine, org_id, peer, body, by, sender, kind, attachments, reply_to, replies).await
 }
 
@@ -1165,12 +1170,13 @@ async fn queue_row(
 /// Focused rig check: no identity registration, listener or network request.
 #[cfg(debug_assertions)]
 #[logged]
-pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str, body: &str) -> Result<Value> {
+pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str, body: &str, replies:Option<&Value>) -> Result<Value> {
     anyhow::ensure!(crate::rig::active(), "rig mode required");
-    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", body, "agent", None, kind, &[], None, &[]).await?;
+    let quotes=replies.and_then(Value::as_array).cloned().unwrap_or_default();
+    let (uid, _, _) = queue_row(engine, org_id, "peer.rig", body, "agent", None, kind, &[], quotes.first(), &quotes).await?;
     let client = engine.db.get().await?;
     let row = client.query_one(
-        "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to FROM ot.org_inbox WHERE uid=$1", &[&uid],
+        "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to,replies FROM ot.org_inbox WHERE uid=$1", &[&uid],
     ).await?;
     outgoing_payload(&row, &row.get::<_, String>(6), "sender.rig", vec![])
 }

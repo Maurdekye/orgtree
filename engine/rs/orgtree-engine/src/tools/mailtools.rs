@@ -170,7 +170,7 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
     }
     if !letter.replies.is_empty() {
         for to in list {
-            let omitted=letter.replies.iter().filter(|q| !quote_belongs(q,to)).count();
+            let omitted=letter.replies.iter().filter(|q| !plural_quote_belongs(q,to)).count();
             if omitted>0 { notes.push(format!("replies: {to} receives no context for {omitted} targets outside that conversation.")); }
         }
     }
@@ -300,6 +300,12 @@ fn quote_belongs(q: &Value, to: &str) -> bool {
     }
 }
 
+#[nolog]
+fn plural_quote_belongs(q:&Value,to:&str)->bool {
+    if q["box"]=="org" { return q["peer"].as_str()==Some(to.trim()); }
+    quote_belongs(q,to)
+}
+
 /// Markdown image targets in `body` that are relative paths: they resolve
 /// against the reader's own folder, so only the user's desk renders them.
 #[logged]
@@ -321,6 +327,9 @@ fn relative_images(body: &str) -> Vec<String> {
 /// in a list the shared reply quote rides only where it belongs.
 #[logged]
 async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool, reply_to: Option<&str>) -> Result<Delivered> {
+    if single && letter.replies.iter().any(|q| !plural_quote_belongs(q,to)) {
+        crate::refuse!(BadRequest,"the replies targets are outside your conversation with {to}; nothing was sent");
+    }
     let me = &letter.me;
     let mut out = Outgoing::new(From::Agent { id: me.id, name: me.name.clone(), generation: me.generation }, to, &letter.body);
     out.kind = letter.kind.clone();
@@ -353,7 +362,7 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
         Some(r) => Some(mail::agent_reply_quote(engine, me.org_id, me.id, &me.name, r).await?),
         None => letter.reply.clone().filter(|q| single || quote_belongs(q, to)),
     };
-    out.replies = letter.replies.iter().filter(|q| single || quote_belongs(q,to)).cloned().collect();
+    out.replies = letter.replies.iter().filter(|q| plural_quote_belongs(q,to)).cloned().collect();
     if !out.replies.is_empty() { out.reply_to = out.replies.first().cloned(); }
     // a reply over the hub links to what it answers only when that came over a hub
     let local_reply = out.reply_to.as_ref().is_some_and(|q| q.get("net_id").is_none());
@@ -367,6 +376,9 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
     };
     if local_reply && sent.to.starts_with("@net:") {
         text.push_str(" The message it answers did not come over the mail hub, so the recipient gets the reply without a link to it.");
+    }
+    if letter.replies.len()>1 && sent.to.starts_with("@net:") {
+        text.push_str(" Multi-reply links use hub metadata; older hubs/clients show the first link and all quoted context as text.");
     }
     if !sent.transfer_ids.is_empty() {
         text.push_str(&format!(" Transfer IDs: {}. Use orgtree_transfers action=get id=<id> for progress or action=list for all your transfers.", sent.transfer_ids.join(", ")));

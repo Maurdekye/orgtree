@@ -7,6 +7,16 @@
   [live clocks and probe status](docs/rust-engine/live-tool-clock.md).
   [decided: user/coordinator 2026-10-14; verified from source: `toolclock.tsx`]
 
+- 2026-10-14: Multi-replies retain every authorized immutable snapshot beside
+  legacy first `reply_to`; `orgtree_message.metadata.replies` requires matching
+  first and one sender. Desk/user inbox collectors append and dedupe; no external
+  human org-inbox composer or fan-out. Hub shape stays first `reply_to` plus
+  bounded `meta.replies` with fallback context; migration0021 indexes new links,
+  old rows normalize without backfill. Event/card identity is qualified and new
+  event quotes omit machine-context segments. See [multi-replies](docs/rust-engine/multi-replies.md).
+  [decided: user/coordinator 2026-10-14; verified from source: `domain/replies.rs`,
+  `tools/mailtools.rs`, `http/nodes.rs`, `net.rs`, renderer `eventReply.ts`]
+
 - Transcript `orgtree_work` ticket refs carry `status_change` only from a
   committed mutation result's locked `previous_status` and final status.
   Shared tool rows reuse docket wording/colours; failures, no-ops and legacy

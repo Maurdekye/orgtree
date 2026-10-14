@@ -106,6 +106,7 @@ fn inbox_quote(r: &tokio_postgres::Row) -> Value {
         }
     };
     let mut q = json!({ "kind": "mail", "box": "org", "id": r.get::<_, String>(0), "from": from,
+                        "peer": r.get::<_, String>(2),
                         "at": crate::util::iso(r.get(4)), "gist": crate::util::gist(&r.get::<_, String>(5), 600) });
     if let Some(n) = r.get::<_, Option<String>>(6) {
         q["net_id"] = json!(n);

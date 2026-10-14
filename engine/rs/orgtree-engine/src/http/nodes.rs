@@ -232,7 +232,7 @@ pub async fn message(
             if q.get("source_event_ref").is_some() { out.replies.push(resolve_event_reply(&e,&org,q).await?); }
             else if let Some(q)=resolve_target(&e,&org,q).await? { out.replies.push(q); }
         }
-        if b.reply_to.as_ref().is_some_and(|q| out.replies.first()!=Some(q)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
+        if b.reply_to.as_ref().is_some_and(|q| replies.first().is_none_or(|first| q != first)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
     }
     crate::domain::replies::same_sender(&out.replies)?;
     let sent = mail::send(&e, org.id, out).await?;
@@ -253,13 +253,21 @@ async fn resolve_event_reply(e:&Engine,org:&OrgHandle,q:&Value) -> ApiResult<Val
     if source["org"].as_str()!=Some(org.slug.as_str()) { return Err(ApiError::bad_request("reply source belongs to another organization")); }
     let name=source["agent"].as_str().ok_or_else(|| ApiError::bad_request("reply source needs its agent"))?;
     let generation=source["generation"].as_i64().and_then(|n| i32::try_from(n).ok()).ok_or_else(|| ApiError::bad_request("reply source needs its generation"))?;
-    let seq=source["eventId"].as_str().and_then(|s| s.strip_prefix('e')).and_then(|s| s.parse::<i64>().ok()).ok_or_else(|| ApiError::bad_request("reply source needs a durable event id"))?;
     let client=e.db.get().await?;
+    if let Some(id)=source["eventId"].as_str().and_then(|s| s.strip_prefix("mail:")) {
+        if q["mail_id"].as_str()!=Some(id) { return Err(ApiError::bad_request("mail card identity must match its source")); }
+        let row=client.query_opt("SELECT m.sender,m.body FROM ot.mail m JOIN ot.agents a ON a.id=m.recipient_agent_id WHERE a.org_id=$1 AND a.name=$2 AND a.generation=$3 AND m.uid=$4 AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS(SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))",&[&org.id,&name,&generation,&id]).await?;
+        let Some(row)=row else { return Err(ApiError::not_found("that mail card is unavailable for this desk generation")); };
+        return Ok(json!({"source_event_ref":source,"mail_id":id,"sender":row.get::<_,String>(0),"quoted_context":gist(&row.get::<_,String>(1),4000)}));
+    }
+    let seq=source["eventId"].as_str().and_then(|s| s.strip_prefix('e')).and_then(|s| s.parse::<i64>().ok()).ok_or_else(|| ApiError::bad_request("reply source needs a durable event id"))?;
     let row=client.query_opt("SELECT c.body FROM ot.convo c JOIN ot.agents a ON a.id=c.agent_id WHERE a.org_id=$1 AND a.name=$2 AND a.generation=$3 AND c.seq=$4",&[&org.id,&name,&generation,&seq]).await?;
     let Some(row)=row else { return Err(ApiError::not_found("that reply event is no longer available for this generation")); };
     let body:Value=row.get(0);
-    let sender=if body["role"]=="user" { "@user" } else { name };
-    Ok(json!({"source_event_ref":source,"quoted_context":gist(body["text"].as_str().unwrap_or("Recorded event"),4000),"sender":sender}))
+    let (sender,text)=crate::domain::replies::event_context(&body,name,q["mail_id"].as_str())?;
+    let mut snapshot=json!({"source_event_ref":source,"quoted_context":gist(&text,4000),"sender":sender});
+    if let Some(id)=q["mail_id"].as_str() { snapshot["mail_id"]=json!(id); }
+    Ok(snapshot)
 }
 
 /// `{kind, org, box, node?, id}` (object identity only) → the reply snapshot.

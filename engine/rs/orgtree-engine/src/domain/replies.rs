@@ -57,6 +57,14 @@ pub fn value(first: Option<&Value>, list: Option<&Value>) -> Value {
 }
 
 #[nolog]
+pub fn dedupe(quotes:&mut Vec<Value>) {
+    let mut seen=std::collections::HashSet::new();
+    quotes.retain(|q| seen.insert(if q.get("source_event_ref").is_some() {
+        json!([q["source_event_ref"],q["mail_id"]]).to_string()
+    } else { json!([q["org"],q["kind"],q["id"],q["net_id"]]).to_string() }));
+}
+
+#[nolog]
 pub fn same_sender(quotes:&[Value]) -> Result<()> {
     let sender=|q:&Value| q.get("sender").or_else(|| q.get("from")).and_then(Value::as_str)
         .or_else(|| q.pointer("/source_event_ref/agent").and_then(Value::as_str)).map(str::to_owned);
@@ -65,6 +73,40 @@ pub fn same_sender(quotes:&[Value]) -> Result<()> {
         crate::refuse!(BadRequest,"a multi-reply can only answer messages from the same sender; nothing was sent");
     }
     Ok(())
+}
+
+/// Quote visible event content, never the enveloped model prompt. A delivered
+/// turn may contain mail from several senders; a card id selects its own row.
+#[nolog]
+pub fn event_context(body:&Value,agent:&str,mail_id:Option<&str>) -> Result<(String,String)> {
+    let segments=body["segments"].as_array();
+    let rows:Vec<&Value>=segments.into_iter().flatten().filter(|s| s["kind"]=="mail")
+        .flat_map(|s| s["rows"].as_array().into_iter().flatten()).collect();
+    if let Some(id)=mail_id {
+        let Some(row)=rows.iter().find(|r| r["id"].as_str()==Some(id)) else { crate::refuse!(NotFound,"that mail card is not part of this event"); };
+        return Ok((row["from"].as_str().unwrap_or("@system").into(),row["body"].as_str().unwrap_or("").into()));
+    }
+    if body["role"]=="user" && segments.is_some() {
+        let mut sender:Option<String>=None;
+        let mut parts=Vec::new();
+        for s in segments.into_iter().flatten() {
+            match s["kind"].as_str() {
+                Some("mail") => for row in s["rows"].as_array().into_iter().flatten() {
+                    let from=row["from"].as_str().unwrap_or("@system");
+                    if sender.as_deref().is_some_and(|first| first!=from) { crate::refuse!(BadRequest,"this turn includes several senders; reply to an individual mail card instead"); }
+                    sender=Some(from.into()); parts.push(row["body"].as_str().unwrap_or(""));
+                },
+                Some("text") => parts.push(s["text"].as_str().unwrap_or("")),
+                Some("notices") => for row in s["rows"].as_array().into_iter().flatten() { parts.push(row["text"].as_str().unwrap_or("")); },
+                // Machine state/drive context is not reply prose.
+                _=>{},
+            }
+        }
+        return Ok((sender.unwrap_or_else(|| "@user".into()),parts.join("\n\n")));
+    }
+    let sender=if body["role"]=="user" { "@user" } else { agent };
+    let text=body["cmd_out"].as_str().or_else(|| body["text"].as_str()).or_else(|| body["thinking"].as_str()).unwrap_or("Recorded event");
+    Ok((sender.into(),text.into()))
 }
 
 /// Keep the first link and all context on clients/hubs without `meta`.
@@ -104,5 +146,13 @@ mod tests {
         assert_eq!(body,"> one\n> two\nanswer");
         assert_eq!(meta.unwrap(),json!({"replies":["a","b"],"fallback":[0,12]}));
         assert!(wire("answer",&[quotes[0].clone(),json!({"id":"internal"})]).is_err());
+    }
+    #[test]
+    fn event_quotes_use_visible_mail_and_authoritative_sender() {
+        let event=json!({"role":"user","text":"HIDDEN envelope","segments":[{"kind":"state","text":"HIDDEN state"},{"kind":"mail","rows":[{"id":"a","from":"writer","body":"one"},{"id":"b","from":"other","body":"two"}]}]});
+        assert_eq!(event_context(&event,"reader",Some("a")).unwrap(),("writer".into(),"one".into()));
+        assert!(event_context(&event,"reader",None).is_err());
+        assert!(event_context(&event,"reader",Some("missing")).is_err());
+        assert!(same_sender(&[json!({"from":"writer"}),json!({"from":"other"})]).is_err());
     }
 }

@@ -205,6 +205,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     for v in &mut out.replies { crate::util::pg_json_mut(v); }
     if !out.replies.is_empty() {
         if out.replies.len() > super::replies::MAX_REPLIES || out.replies.iter().any(|q| !q.is_object()) { refuse!(BadRequest, "a reply needs at most 50 qualified targets"); }
+        super::replies::dedupe(&mut out.replies);
         super::replies::same_sender(&out.replies)?;
         out.reply_to = out.replies.first().cloned();
     }
