@@ -256,7 +256,7 @@ impl RuntimeAuth {
         if self.rejected.is_cancelled() { return false; }
         if !crate::providers::agy_auth::auth_prompt(bytes) { return true; }
         self.rejected.cancel();
-        crate::providers::agy_auth::refuse(&self.engine, self.stamp);
+        crate::providers::agy_auth::refuse(&self.engine, self.stamp, crate::providers::agy_auth::Refusal::Untrusted);
         let _ = self.actor.post(AgentMsg::Agy(self.process, json!({"event":"result","result":{
             "status":"ERROR","error":"Antigravity sign-in required; background authentication stopped"}})));
         // Queue the specific refusal before killing: otherwise the other pipe

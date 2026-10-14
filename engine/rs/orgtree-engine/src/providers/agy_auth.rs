@@ -1,8 +1,11 @@
 //! Background AGY authentication. Credential metadata is a change detector,
 //! never proof of validity. Only the CLI's silent, zero-argument check validates.
 //! The check/use race remains: a later OAuth attempt is killed and latched.
+//! A clean silent refusal is revalidated silently (check mode only): on a
+//! user's forced read and on a bounded cadence, because a token refreshed in
+//! place by the user's own AGY keeps the credential metadata unchanged.
 
-use std::{path::Path, process::{Output, Stdio}, sync::Mutex, time::Duration};
+use std::{path::Path, process::{Output, Stdio}, sync::Mutex, time::{Duration, SystemTime}};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use futures::future::BoxFuture;
@@ -12,12 +15,34 @@ use crate::engine::Engine;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stamp(pub u64);
 
+/// How a credential came to be latched. `Refused` is the measured clean
+/// signed-out answer of the silent check (non-zero exit, no output): safe to
+/// ask again silently. `Untrusted` is an auth prompt or output the check is
+/// not known to produce: never re-run until the credential itself changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Refusal { Refused, Untrusted }
+
+/// Latch file. Builds up to 4.3.0-alpha.3 wrote the bare stamp; such a latch
+/// counts as `Refused`, so it is revalidated instead of holding forever.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum LatchFile { Kind { stamp: Stamp, kind: Refusal }, Legacy(Stamp) }
+
+/// A forced read revalidates a `Refused` latch at most this often.
+const FORCED_RECHECK: Duration = Duration::from_secs(30);
+/// Without user action a `Refused` latch is revalidated after this long
+/// (the usage loop's own five-minute cadence then performs the check).
+const CADENCE_RECHECK: Duration = Duration::from_secs(300);
+
 #[derive(Default)]
 pub struct AuthGate {
     // Per engine, never a global lock. No database transaction spans a check.
     check: tokio::sync::Mutex<()>,
     observed: Mutex<Option<Option<Stamp>>>,
-    refused: Mutex<Option<Stamp>>,
+    refused: Mutex<Option<(Stamp, Refusal, SystemTime)>>,
+    // Last user-forced read; it may revalidate a `Refused` latch written before it.
+    forced: Mutex<Option<SystemTime>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -96,18 +121,47 @@ fn latch_path(engine: &Engine) -> std::path::PathBuf {
     engine.cfg.path("diagnostics").join("agy-auth-latch.json")
 }
 
+/// The latch for this exact credential: its kind and when it was written.
+/// The persisted file (and its modification time) wins over memory.
+#[nolog]
+fn latch_of(engine: &Engine, stamp: Stamp) -> Option<(Refusal, SystemTime)> {
+    let path = latch_path(engine);
+    let persisted = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<LatchFile>(&b).ok())
+        .and_then(|f| match f {
+            LatchFile::Kind { stamp: s, kind } if s == stamp => Some(kind),
+            LatchFile::Legacy(s) if s == stamp => Some(Refusal::Refused),
+            _ => None,
+        });
+    if let Some(kind) = persisted {
+        let at = std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::now());
+        return Some((kind, at));
+    }
+    match *engine.providers.agy_auth.refused.lock().unwrap_or_else(|p| p.into_inner()) {
+        Some((s, kind, at)) if s == stamp => Some((kind, at)),
+        _ => None,
+    }
+}
+
 #[nolog]
 fn latched(engine: &Engine, stamp: Stamp) -> bool {
-    let in_memory = *engine.providers.agy_auth.refused.lock().unwrap_or_else(|p| p.into_inner()) == Some(stamp);
-    let persisted = std::fs::read(latch_path(engine)).ok().and_then(|b| serde_json::from_slice::<Stamp>(&b).ok()) == Some(stamp);
-    if !in_memory && !persisted { return false; }
+    let Some((kind, at)) = latch_of(engine, stamp) else { return false };
+    let age = at.elapsed().unwrap_or_default();
     if !cfg!(windows) && !crate::rig::active() {
         // No verified metadata detector on this platform. Revalidate silently
         // at most every five minutes; never allow the actual command first.
-        return std::fs::metadata(latch_path(engine)).and_then(|m| m.modified()).ok()
-            .and_then(|t| t.elapsed().ok()).is_none_or(|age| age < Duration::from_secs(300));
+        return age < CADENCE_RECHECK;
     }
-    true
+    if kind == Refusal::Untrusted { return true; }
+    let forced = engine.providers.agy_auth.forced.lock().unwrap_or_else(|p| p.into_inner())
+        .is_some_and(|t| t > at);
+    !(age >= CADENCE_RECHECK || (forced && age >= FORCED_RECHECK))
+}
+
+/// A user asked for a fresh reading: a `Refused` latch at least
+/// `FORCED_RECHECK` old may be revalidated by the next silent check.
+#[nolog]
+pub fn user_recheck(engine: &Engine) {
+    *engine.providers.agy_auth.forced.lock().unwrap_or_else(|p| p.into_inner()) = Some(SystemTime::now());
 }
 
 /// Poll only metadata, not the CLI. Used to invalidate cached usage after an
@@ -146,18 +200,35 @@ fn connected(engine: &Engine, yes: bool) {
 }
 
 #[nolog]
-pub fn refuse(engine: &Engine, stamp: Stamp) {
+pub fn refuse(engine: &Engine, stamp: Stamp, kind: Refusal) {
     // An old process must not latch a different login that just replaced it.
     if metadata(engine).ok().flatten() != Some(stamp) { return; }
-    *engine.providers.agy_auth.refused.lock().unwrap_or_else(|p| p.into_inner()) = Some(stamp);
-    // The file contains only last-write metadata, never a token or prompt.
+    *engine.providers.agy_auth.refused.lock().unwrap_or_else(|p| p.into_inner()) = Some((stamp, kind, SystemTime::now()));
+    // The file contains only last-write metadata and the refusal kind, never
+    // a token, prompt or account name.
     let path = latch_path(engine);
     if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
-    if let Ok(bytes) = serde_json::to_vec(&stamp) {
+    if let Ok(bytes) = serde_json::to_vec(&LatchFile::Kind { stamp, kind }) {
         if std::fs::write(path, bytes).is_err() { tracing::error!("could not persist AGY auth latch"); }
     }
     connected(engine, false);
     crate::usage::record_agy_auth_failure(engine, Failure::SignedOut.reading());
+}
+
+/// The silent check's success reply. Measured on AGY 1.3.5 signed in
+/// (2026-10-14): exit 0, stdout `Already authenticated as <account>` and a
+/// newline, empty stderr. Empty output is accepted too. Any other output is
+/// not a reply this guard knows, so it never authorizes a launch.
+#[nolog]
+fn check_passed(output: &Output) -> bool {
+    if !output.status.success() || !output.stderr.iter().all(u8::is_ascii_whitespace) { return false; }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    match (lines.next(), lines.next()) {
+        (None, _) => true,
+        (Some(line), None) => line.starts_with("Already authenticated as "),
+        _ => false,
+    }
 }
 
 /// Defense in depth only: OAuth may start BEFORE the CLI prints its prompt.
@@ -248,7 +319,7 @@ async fn preflight_inner(engine: &Engine, exe: &Path) -> Result<Stamp, Failure> 
     for key in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "AGY_ADC_AUTH"] { cmd.env_remove(key); }
     let result = capture(cmd, Duration::from_secs(8)).await;
     match result {
-        Ok(output) if output.status.success() && output.stdout.is_empty() && output.stderr.is_empty() => {
+        Ok(output) if check_passed(&output) => {
             // A credential changed while checking: don't authorize the old result.
             if metadata(engine)? != Some(stamp) { return Err(Failure::Unavailable); }
             if cfg!(windows) && latched(engine, stamp) { return Err(Failure::SignedOut); }
@@ -257,7 +328,11 @@ async fn preflight_inner(engine: &Engine, exe: &Path) -> Result<Stamp, Failure> 
             connected(engine, true);
             Ok(stamp)
         }
-        Ok(_) | Err(Failure::SignedOut) => { refuse(engine, stamp); Err(Failure::SignedOut) }
+        // The measured clean signed-out answer: non-zero exit, no output.
+        Ok(output) if !output.status.success() && output.stdout.is_empty() && output.stderr.is_empty() => {
+            refuse(engine, stamp, Refusal::Refused); Err(Failure::SignedOut)
+        }
+        Ok(_) | Err(Failure::SignedOut) => { refuse(engine, stamp, Refusal::Untrusted); Err(Failure::SignedOut) }
         Err(e) => Err(e),
     }
 }
@@ -276,7 +351,7 @@ async fn checked_output_inner(engine: &Engine, exe: &Path, mut cmd: Command, tim
     if metadata(engine)? != Some(stamp) { return Err(Failure::Unavailable); }
     if latched(engine, stamp) { return Err(Failure::SignedOut); }
     let result = capture(cmd, timeout).await;
-    if matches!(result, Err(Failure::SignedOut)) { refuse(engine, stamp); }
+    if matches!(result, Err(Failure::SignedOut)) { refuse(engine, stamp, Refusal::Untrusted); }
     result
 }
 
@@ -299,6 +374,35 @@ mod tests {
         assert!(auth_prompt(br#"{"event":"result","result":{"status":"ERROR","error":"authentication required"}}"#));
         assert!(!auth_prompt(br#"{"event":"step_update","text":"please sign in"}"#));
         assert!(!auth_prompt(b"Tokens used: 0"));
+    }
+    fn output(code: u32, stdout: &[u8], stderr: &[u8]) -> Output {
+        #[cfg(windows)]
+        let status = std::os::windows::process::ExitStatusExt::from_raw(code);
+        #[cfg(not(windows))]
+        let status = std::os::unix::process::ExitStatusExt::from_raw((code as i32) << 8);
+        Output { status, stdout: stdout.to_vec(), stderr: stderr.to_vec() }
+    }
+    #[test]
+    fn agy_auth_check_accepts_measured_signed_in_reply_only() {
+        // The measured AGY 1.3.5 reply (account redacted) and the empty reply.
+        assert!(check_passed(&output(0, b"Already authenticated as someone@example.invalid\n", b"")));
+        assert!(check_passed(&output(0, b"Already authenticated as someone@example.invalid\r\n", b"")));
+        assert!(check_passed(&output(0, b"", b"")));
+        assert!(!check_passed(&output(1, b"", b"")));
+        assert!(!check_passed(&output(1, b"Already authenticated as someone@example.invalid\n", b"")));
+        assert!(!check_passed(&output(0, b"unknown environment action\n", b"")));
+        assert!(!check_passed(&output(0, b"Already authenticated as a\nsecond line\n", b"")));
+        assert!(!check_passed(&output(0, b"Already authenticated as a\n", b"warning\n")));
+    }
+    #[test]
+    fn agy_auth_latch_file_reads_legacy_stamp_as_refused() {
+        let legacy: LatchFile = serde_json::from_slice(b"134364694863512016").unwrap();
+        assert!(matches!(legacy, LatchFile::Legacy(Stamp(134364694863512016))));
+        let kind: LatchFile = serde_json::from_slice(&serde_json::to_vec(
+            &LatchFile::Kind { stamp: Stamp(11), kind: Refusal::Untrusted }).unwrap()).unwrap();
+        assert!(matches!(kind, LatchFile::Kind { stamp: Stamp(11), kind: Refusal::Untrusted }));
+        assert_eq!(serde_json::to_string(&LatchFile::Kind { stamp: Stamp(11), kind: Refusal::Refused }).unwrap(),
+            r#"{"stamp":11,"kind":"refused"}"#);
     }
     #[test]
     fn agy_auth_failure_is_signed_out_not_zero_usage() {

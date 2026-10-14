@@ -989,6 +989,7 @@ async fn antigravity_read(engine: &Engine, force: bool) -> Value {
         }
         return v;
     }
+    if force { crate::providers::agy_auth::user_recheck(engine); }
     if let Some(failure) = crate::providers::agy_auth::blocked(engine) {
         let out = failure.reading();
         record_agy_auth_failure(engine, out.clone());
