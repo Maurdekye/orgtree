@@ -101,8 +101,8 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
   const finished = tool.result !== undefined || !!tool.error || !!tool.ended_at
   return <>
     {tool.writing_started_at ? <span className="dim tool-writing-time">{' · '}<ToolWritingLine name={tool.name} startedAt={tool.writing_started_at} /></span>
-      : (writing || finished) && <span className="dim tool-writing-time" title={writing ? 'writing time' : 'Writing time was not observed for this call'} aria-label={writing ? `written in ${writing}` : 'writing time unavailable'}>
-        {' · '}<EditIcon fontSize="inherit" /> {writing || '—'}</span>}
+      : writing && <span className="dim tool-writing-time" title="writing time" aria-label={`written in ${writing}`}>
+        {' · '}<EditIcon fontSize="inherit" /> {writing}</span>}
     {ran ? <span className="dim tool-exec-time" title="execution time" aria-label={`ran for ${ran}`}>
       {' · '}<ArrowRightIcon fontSize="inherit" /> {ran}</span>
       : !tool.writing_started_at && live && typeof tool.started_at === 'string' && tool.result === undefined && !tool.error

@@ -20,9 +20,9 @@ test('completed and reloaded chips show both icons and durations without timing 
   assert.ok(view.el.querySelector('[aria-label="ran for 200 ms"] [data-testid="ArrowForwardIcon"]'))
   await view.render(<ToolTimes tool={{ name: 'old', started_at: start, ended_at: chip.ended_at }} />)
   assert.doesNotMatch(view.last(), /written/)
-  assert.match(view.last(), /—/)
+  assert.doesNotMatch(view.last(), /—/)
   assert.match(view.last(), /200 ms/)
-  assert.ok(view.el.querySelector('[aria-label="writing time unavailable"]'))
+  assert.equal(view.el.querySelector('.tool-writing-time'), null)
   await view.render(<Msg m={{ role: 'assistant', text: '', tools: [chip] }} slug="org" nid="worker" />)
   await inAct(() => { view.el.querySelector<HTMLElement>('.tline')!.click() }); await flush()
   assert.equal(view.el.querySelectorAll('[aria-label="written in 3.0s"]').length, 1)
@@ -92,11 +92,11 @@ test('line counts are absent inline in every phase and shown only after expansio
   }
 })
 
-test('unknown clocks retain accessible explanations without fabricated durations or inline wording', async t => {
+test('unknown writing clocks are omitted while execution retains its accessible explanation', async t => {
   const view = await mountView(<ToolTimes tool={{ name: 'old', result: 'done' }} />, el => el.textContent ?? '')
   t.after(() => view.unmount())
-  assert.equal(view.last().replace(/\s+/g, ' ').trim(), '· — · —')
-  assert.ok(view.el.querySelector('[aria-label="writing time unavailable"][title]'))
+  assert.equal(view.last().replace(/\s+/g, ' ').trim(), '· —')
+  assert.equal(view.el.querySelector('.tool-writing-time'), null)
   assert.ok(view.el.querySelector('[aria-label="execution time unavailable"][title]'))
   await view.render(<ToolWritingLine name="" />)
   assert.equal(view.last().trim(), '')
