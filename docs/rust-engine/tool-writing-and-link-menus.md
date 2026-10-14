@@ -37,13 +37,14 @@ submenu without acting. Missing/unavailable Focus stays disabled, and current
 agent permission/availability gates remain. Contextual fold/staff actions on
 direct docket rows retain their existing routes.
 
-Verification for these refinements is prepared, not executed at source hand-in:
-seven tool-writing renderer cases, six object-menu cases and three shell-error
-regressions; four native tracker cases; two added stream-to-chat preview checks
-in the eleven-check tool-writing proof. Rig-opus runs the requested red/green
-controls and root typecheck in one batch. The old checkpoint below is historical
-and does not describe these refinements' acceptance. No app build, installation,
-real-provider turn or device check is claimed.
+Round 434 verified these refinements: seven tool-writing renderer cases, six
+object-menu cases and three shell-error regressions passed 16/16; four native
+tracker cases passed; the actual synthetic stream-to-chat proof passed 11/11,
+including both partial-preview checks, persistence/reload and cancellation.
+Root typecheck passed with zero errors. Timing red failed the five expected
+new-behaviour cases with two passing controls; menu red failed the two expected
+cases with four passing controls. The base-engine preview-only control failed
+exactly the two new preview checks. Detailed provenance and limits are below.
 
 ## Earlier timing contract (historical wording; refinements above supersede it)
 
@@ -103,25 +104,38 @@ lookups cannot replace a newer menu or survive a current-org change. Native menu
 deferral for editing, selection and ordinary links stays in the shared mechanism;
 menu position/portal/focus use the clicked element's document.
 
-## Verification status at verification checkpoint
+## Round 434 measured verification (2026-10-14)
 
-Typecheck and diffcheck passed. `runtime::toolwriting` native cases and
-renderer `toolwriting.test.tsx` / `objectnav.test.tsx` synthetic cases cover the
-observed clock and independent ID bookkeeping, immediate name/icon rendering,
-both completed/reloaded durations, interleaved transient retirement, canonical
-link menus, owner scope, invalid/foreign/missing targets and stale completions.
-Native tracker tests passed 2/2; native test compile took 62.10 seconds under a
-4096MB/600s Job. Cargo check passed without warnings in 38.56 seconds. Five
-focused renderer cases passed under a 1536MB/120s Job, after retained runner
-bootstrap/import failures. Those passes refer to source checkpoint c25d9fa.
+Final author source was `e4261a1` on `830f0e2`; the added commit only normalizes
+DOM whitespace in three clock assertions. It was picked as patch-identical
+`ecbb2e2`. Batch `9006950` also includes the shortcut-list composition correction
+`1483fcb`, which documents Enter on an actionable Owner submenu parent. The
+final renderer helper passed 16/16 in 17 seconds at `9006950`. Root typecheck
+checked 301 worktree files, zero errors, in 5 seconds at that same tip. Native
+`runtime::toolwriting::tests` passed all four named cases in the 22-test union;
+compilation/execution took 41 seconds. Stream proof passed 11/11 in 24 seconds
+using the batch's retained `2dc1d56` engine, unchanged by the renderer fixups.
 
-Further source review added a per-request writing version so even fetch/stream
-transitions in the same millisecond cannot remove/resurrect writing state, and
-applied the same org/anchor guard to rejected menu lookups. These renderer
-corrections and a sixth same-millisecond regression are **not verified yet**.
-Prepared `tools/rig/proofs/tool-writing.mjs` covers real scratch-engine stream,
-admission/persistence/chat reload, parallel identity, repeated full admission,
-unobserved calls and cancellation; it has **not executed yet**. Verification
-is queued again after higher-priority phases. Independent review remains. No
-real-provider, live-data, installed-app or publication acceptance is claimed.
-Update this section with final exact-source measured receipts before hand-in.
+The retained evidence is under `D:/orgtree-work/tmp/rig-opus/batch-434/logs`:
+`o6-green-434c.log`, `o6-red-434c.log`, `o6-red-menu.log`, `o-test-union.log`,
+`proof-A-tool-writing.log`, `red-tool-writing-preview.log`, and
+`tc-root-434c.log`. The proof's durable result and captured chips are under
+`D:/orgtree-work/rig/rig-opus/evidence/tool-writing-20261014T123111`.
+Receipt engine SHA256 is
+`1b98eef25efa29315ec69fd1f8f8cff12a9d7ae59b8a132f3017bb84d38ddb32`;
+fake CLI SHA256 is
+`3445ebee8389c762a68ad3f6177eb9dde2973c1e67511d6151d803549df1a775`.
+
+The first 15/16 renderer result was an assertion comparing adjacent DOM text
+spaces; the test-only correction retains the expected icon/clock behaviour.
+The first typecheck exposed another item's missing import; after its fix the
+root check passed. Final renderer union was 439/441, with only contextmenu
+§B4/§B4b failing identically on the base; those failures are recorded separately,
+not counted as passing. The same-millisecond retirement and rejected menu
+lookup regressions now pass in the focused helper.
+
+Coordinator marked the item done and integrated it locally through batch
+`920ebb6` into `rust-engine` tip `601deef`, intended for `4.3.0-alpha.2`.
+This records source integration and synthetic acceptance only. No fresh
+installed-app, screenshot, real-provider turn, device or publication check is
+claimed. Provider generation-signal gaps described above remain.
