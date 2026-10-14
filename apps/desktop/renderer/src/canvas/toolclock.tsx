@@ -28,18 +28,34 @@ export function executionTime(startedAt?: unknown, endedAt?: unknown): string {
   return Number.isNaN(a) || Number.isNaN(b) ? '' : formatDuration(b - a)
 }
 
-/** Generation starts immediately at the observed block start, never after a threshold. */
-export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?: string }) {
+/** Live clocks floor actual elapsed time and schedule at its next second,
+ *  rather than preserving the arbitrary phase when this component mounted.
+ *  Delayed callbacks recompute from the timestamp; completed clocks keep
+ *  formatDuration's original precision. */
+function useLiveDuration(startedAt?: string, active = true): string {
   const start = Date.parse(startedAt ?? '')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    setNow(Date.now())
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [startedAt])
+    if (!active || !Number.isFinite(start)) return
+    let timer: ReturnType<typeof setTimeout>
+    const tick = () => {
+      const current = Date.now()
+      setNow(current)
+      const elapsed = current - start
+      timer = setTimeout(tick, elapsed < 0 ? 1000 - elapsed : 1000 - elapsed % 1000)
+    }
+    tick()
+    return () => clearTimeout(timer)
+  }, [active, start])
+  return active && Number.isFinite(start) ? `${Math.floor(Math.max(0, now - start) / 1000)}s` : ''
+}
+
+/** Generation starts immediately at the observed block start, never after a threshold. */
+export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?: string }) {
+  const elapsed = useLiveDuration(startedAt)
   return <span className="tool-writing" aria-label={`Writing ${name || 'tool call'}`}>
     <EditIcon fontSize="inherit" />
-    {Number.isFinite(start) && <span title={'Writing ' + (name || 'tool call') + ': writing time so far'}> {formatDuration(Math.max(0, now - start))}</span>}
+    {elapsed && <span title={'Writing ' + (name || 'tool call') + ': writing time so far'}> {elapsed}</span>}
   </span>
 }
 
@@ -65,15 +81,7 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
  *  shown immediately, only while the turn is active. */
 export function RunningTimer({ startedAt }: { startedAt: string }) {
   const turnActive = useContext(TurnActiveContext)
-  const start = Date.parse(startedAt)
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!turnActive || Number.isNaN(start)) return
-    setNow(Date.now())
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [turnActive, start])
-  if (!turnActive || Number.isNaN(start)) return null
-  const elapsed = formatDuration(Math.max(0, now - start))
+  const elapsed = useLiveDuration(startedAt, turnActive)
+  if (!elapsed) return null
   return <span className="dim tool-running" title="execution time so far" aria-label={'running for ' + elapsed}> · <ArrowRightIcon fontSize="inherit" /> {elapsed}</span>
 }
