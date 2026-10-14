@@ -14,6 +14,13 @@ keep their existing non-panel actions. See [`app-menu-shortcuts.md`](app-menu-sh
 modal header. This replaces the far OutboxOutlined tray glyph only; preserve
 the class, size, title/aria and existing viewer action. See [`far-overview.md`](far-overview.md).
 
+**Short org Accounts explanation, user 2026-10-14 18:46UTC:** replace the long
+introductory blurb with at most about 40 words in the same place/style.
+Retain accurate ticked-only access, turn-boundary move/stop and new-account
+default meaning. Drop the detailed App settings and language-server explanation
+from this paragraph, preserving existing per-row help. Source evidence:
+[`org-accounts-copy.md`](org-accounts-copy.md).
+
 **Transcript docket transitions, user 2026-10-14 12:44:47UTC:** an
 `orgtree_work` call that actually changes ticket status shows `old → new`
 inline, each in the docket's own colour and wording. Capture the real

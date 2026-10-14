@@ -66,12 +66,9 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
   return (
     <div className="org-accounts">
       <div className="dim hub-hint">
-        This org's agents only ever run on the ticked accounts: hires, account changes, the automatic account
-        fallback and the balancing never pick an unticked one. An agent already on an account you untick finishes its
-        turn, then moves to another ticked account of the same provider, or stops and says so when none is left. A
-        newly signed-in account starts ticked. These switches only control this org's access;
-        they cannot turn on an account or server disabled in App settings. Language-server agents
-        keep their server rather than moving to a different one.
+        This org's agents use only ticked accounts. Unticking takes effect after any running turn:
+        agents move to another ticked account of the same provider when possible, or stop.
+        New accounts start ticked.
       </div>
       {PROVIDERS.map(([p, name]) => {
         const group = lanes.filter((l) => l.provider === p)

@@ -25,6 +25,12 @@
   [decided: user 2026-10-14 17:51UTC; verified from source:
   `canvas/gallery.tsx`, `canvas/narrowlist.tsx`]
 
+- Org settings Accounts uses a short explanation (32 words), preserving the
+  current-turn boundary and conditional same-provider move/stop meaning. Per-row
+  globally-disabled account help stays. [decided: user 2026-10-14 18:46UTC;
+  verified: `orgaccounts.tsx`, `org_accounts.rs`; see
+  [copy evidence](docs/rust-engine/org-accounts-copy.md)]
+
 - Live tool writing/execution clocks floor actual elapsed seconds and schedule
   at boundaries relative to the observed start; completed formatting remains
   precise. Omit an unobserved writing-time slot entirely; measured zero remains
