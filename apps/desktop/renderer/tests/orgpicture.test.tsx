@@ -70,7 +70,7 @@ test('native preview is displayed and the selected original plus square crop rea
   const view = await mountView(<OrgPictureEditor slug="one" />, el => el.textContent); t.after(() => view.unmount()); await settle()
   await select(view.el, { size: 3, async arrayBuffer() { return Uint8Array.from([7, 8, 9]).buffer } })
   assert.equal(view.el.querySelector('img')!.getAttribute('src'), 'data:image/png;base64,AQ==')
-  assert.equal(view.el.querySelector('img')!.style.width, '384px')
+  assert.equal(view.el.querySelector<HTMLImageElement>('img[alt="Selected organization logo crop"]')!.style.width, '384px')
   await inAct(() => { button(view.el, 'Save logo').click() }); await settle()
   assert.equal(sent.length, 2); assert.match(sent[0].url, /\/preview$/)
   assert.deepEqual(sent[1].body, { owner: 31, data: 'BwgJ', crop: { x: .5, y: .5, size: 1 } })

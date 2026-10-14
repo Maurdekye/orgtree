@@ -3,6 +3,7 @@ import { getOrgPicture, previewOrgPicture, setOrgPicture, type OrgPicture, type 
 import { SetBlock, SetGroup } from './settingskit'
 import { CloseIcon, EditIcon } from '../icons'
 import './orglogo.css'
+import { SquareCrop } from './SquareCrop'
 
 /** Hubchat lib/format.ts initials rule, shared by its org fallback Avatar. */
 export function orgLogoInitials(name: string): string {
@@ -71,12 +72,10 @@ export function OrgPictureEditor({ slug, name, revision }: { slug: string; name?
       </span>
       <input ref={input} aria-label="Choose organization logo" type="file" hidden accept="image/png,image/jpeg,image/webp" disabled={busy || !current} onChange={e => { void choose(e.currentTarget.files?.[0]); e.currentTarget.value = '' }} />
       {selected && <>
+        <SquareCrop key={selected.src} src={selected.src} width={selected.width} height={selected.height} value={crop} onChange={setCrop} disabled={busy} />
         <div aria-label="Square logo crop preview" style={{ position: 'relative', width: 192, height: 192, overflow: 'hidden', border: '1px solid var(--line)', margin: '12px 0' }}>
           <img alt="Selected organization logo crop" src={selected.src} style={{ position: 'absolute', maxWidth: 'none', width: selected.width / side * 192, height: selected.height / side * 192, left: -(selected.width - side) * crop.x / side * 192, top: -(selected.height - side) * crop.y / side * 192 }} />
         </div>
-        <label>Crop size<input aria-label="Crop size" type="range" min="0.1" max="1" step="0.01" value={crop.size} disabled={busy} onChange={e => setCrop(c => ({ ...c, size: Number(e.target.value) }))} /></label>
-        <label>Horizontal position<input aria-label="Horizontal crop position" type="range" min="0" max="1" step="0.01" value={crop.x} disabled={busy} onChange={e => setCrop(c => ({ ...c, x: Number(e.target.value) }))} /></label>
-        <label>Vertical position<input aria-label="Vertical crop position" type="range" min="0" max="1" step="0.01" value={crop.y} disabled={busy} onChange={e => setCrop(c => ({ ...c, y: Number(e.target.value) }))} /></label>
         <button disabled={busy} onClick={() => void save(false)}>Save logo</button>
         <button disabled={busy} onClick={() => { intent.current++; setSelected(null) }}>Cancel crop</button>
       </>}

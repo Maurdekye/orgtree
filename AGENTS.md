@@ -2471,3 +2471,5 @@ Cold archived docket projections covered by the existing policy spec use its typ
 - 2026-10-07 (recorded-decision): model choices in settings/hire/rehire share modelChoiceLabel and modelChoiceTitle. Enabled options show only model and seat; known OpenRouter capabilities move to tooltips, unknowns are omitted. Disabled choices retain a visible refusal-reason suffix and tooltip (coordinator clarification18:56Z), without changing provider/login/favorite gates. Shared settings selects cap intrinsic width.
 
 - 2026-10-07 (verified-from-source and mounted renderer): direct children of agent settings (.settings.cfg) must not flex-shrink. Different tab heights otherwise compress the shared Name/Agent actions rows and shift the tab strip; let the panel scroll instead.
+
+- 2026-10-14: Logo cropping uses a pointer/keyboard square over the native preview; x/y remain fractions of available top-left travel. Keep native decoding and original-byte save semantics. Hubchat carries the matching editor. Source-only verification handoff: [crop contract](docs/rust-engine/crop-square.md). [decided: user 2026-10-14; verified from source: canvas/SquareCrop.tsx, cropmath.ts]

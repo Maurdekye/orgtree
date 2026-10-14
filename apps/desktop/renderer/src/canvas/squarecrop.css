@@ -1,0 +1,25 @@
+.square-crop { min-width: 0; width: 100%; margin: 12px 0; padding: 14px; box-sizing: border-box; }
+.square-crop-stage { position: relative; margin: 0 auto; isolation: isolate; }
+.square-crop-image { display: block; width: 100%; height: 100%; object-fit: fill; user-select: none; pointer-events: none; border-radius: 0; }
+.square-crop-shade { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.square-crop-shade > div { position: absolute; box-shadow: 0 0 0 1000px rgb(0 0 0 / 60%); }
+.square-crop-box { position: absolute; outline: 2px solid white; box-shadow: 0 0 0 3px #222; }
+.square-crop .square-crop-move { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 0; padding: 0; background: transparent; cursor: move; touch-action: none; }
+.square-crop .square-crop-handle { position: absolute; width: 28px; height: 28px; min-width: 0; padding: 0; border: 7px solid transparent; border-radius: 50%; background: white; background-clip: padding-box; filter: drop-shadow(0 0 1px #111); touch-action: none; }
+.square-crop-nw { left: -14px; top: -14px; cursor: nwse-resize; }
+.square-crop-ne { right: -14px; top: -14px; cursor: nesw-resize; }
+.square-crop-sw { left: -14px; bottom: -14px; cursor: nesw-resize; }
+.square-crop-se { right: -14px; bottom: -14px; cursor: nwse-resize; }
+.square-crop .square-crop-move:hover, .square-crop .square-crop-move:active { background: transparent; }
+.square-crop button:focus-visible { outline: 3px solid var(--accent, #1689e8); outline-offset: 3px; }
+.square-crop button:disabled { cursor: default; }
+.square-crop-help { margin: 24px 0 6px; font-size: 12px; line-height: 1.5; opacity: .8; }
+.square-crop-value { font-size: 12px; }
+@media (pointer: coarse) {
+  .square-crop { padding: 22px; }
+  .square-crop .square-crop-handle { width: 44px; height: 44px; border-width: 14px; }
+  .square-crop-nw { left: -22px; top: -22px; }
+  .square-crop-ne { right: -22px; top: -22px; }
+  .square-crop-sw { left: -22px; bottom: -22px; }
+  .square-crop-se { right: -22px; bottom: -22px; }
+}
