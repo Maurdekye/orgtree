@@ -7,9 +7,35 @@ import type { ProvidersPayload } from '../src/types'
 
 const payload = (label: string): ProvidersPayload => ({ providers: [{
   id: 'claude', label, cli: 'Claude Code', tiers: [], hire_enabled: true,
-  status: { installed: true, connected: true },
+  status: { installed: true, connected: true, version: label },
 }] } as ProvidersPayload)
 const response = (body: unknown) => ({ ok: true, headers: new Headers(), json: async () => body }) as Response
+
+test('provider headers name the model families with dim harness subtitles', async t => {
+  clearProviderDiscovery()
+  const old = globalThis.fetch
+  t.after(() => { globalThis.fetch = old; clearProviderDiscovery() })
+  const expected = [
+    ['claude', 'Claude', 'claude', 'Claude', 'Claude Code'],
+    ['openai', 'Codex', 'codex', 'ChatGPT', 'Codex'],
+    ['google', 'Antigravity', 'agy', 'Gemini', 'Antigravity'],
+    ['muse', 'Muse', 'muse', 'Muse', 'Muse Code'],
+  ]
+  globalThis.fetch = async url => response(String(url) === '/api/providers'
+    ? { providers: expected.map(([id, label, cli]) => ({id, label, cli, tiers: [], hire_enabled: true,
+        status: { installed: true, connected: true }})) }
+    : String(url).includes('/accounts') ? { accounts: [], aliases: {} } : {})
+  const view = await mountView(<AccountsPanel close={() => {}} toast={() => {}} />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(10) })
+  for (const [id, , , family, harness] of expected) {
+    const title = view.el.querySelector(`.acct-provider-head.prov-${id} > span:first-child`)
+    assert.ok(title, `${id} header renders`)
+    assert.equal(title.firstChild?.textContent, family, `${id} main family`)
+    assert.equal(title.querySelector('.dim')?.textContent, ` · ${harness}`, `${id} dim harness`)
+    assert.match(title.closest('.acct-provider-group')?.querySelector('.acct-provider-status')?.textContent ?? '', /Installed · connected/)
+  }
+})
 
 test('discovery shares an in-flight read, retains its snapshot, and retries errors', async () => {
   clearProviderDiscovery()

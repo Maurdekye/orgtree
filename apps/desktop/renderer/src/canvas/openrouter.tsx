@@ -180,7 +180,6 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   // does not appear for it. The CHOICE is each key's own, in its settings
   // dialog (user 2026-10-13); the head only reports it.
   const harness = doc?.harness
-  const keyHarnesses = [...new Set((doc?.keys ?? []).map((k) => k.harness).filter((h): h is string => !!h))]
   const favorites = doc?.tiers ?? []
   // the chips as shown since the section opened: a model deselected here or in
   // the picker keeps its place, dimmed, and a new favorite joins at the end.
@@ -195,13 +194,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
       <div className={'set-group-head acct-provider-head prov-openrouter'
         + (off ? ' provider-off' : '')}>
         OpenRouter
-        {/* the subtitle used to assert "runs on Claude Code" unconditionally.
-            That was true while there was one harness and became a false
-            claim the moment there were two — the head is exactly where a
-            person looks to learn what this lane is. */}
-        <span className="dim"> · REST API{harness && keyHarnesses.length === 1
-          ? `, runs on ${labelOf(harness, keyHarnesses[0] ?? null)}`
-          : keyHarnesses.length > 1 ? ', each key on its own harness' : ''}</span>
+        <span className="dim"> · REST API</span>
         <span className="set-head-right">
           {doc && <button type="button" className="acct-secondary-btn"
             disabled={busy} aria-haspopup="dialog"

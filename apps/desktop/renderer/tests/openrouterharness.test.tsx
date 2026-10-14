@@ -127,7 +127,7 @@ test('§1 adding a key: both harnesses installed, the default is preselected and
   const view = await mount()
   try {
     assert.equal(view.el.querySelector('select'), null, 'no harness control on the card itself')
-    assert.match(view.el.textContent ?? '', /runs on Claude Code/, 'one harness across the keys: the head names it')
+    assert.equal(view.el.querySelector('.prov-openrouter > .dim')?.textContent, ' · REST API', 'header stays independent of key harnesses')
     await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
     const dialog = document.querySelector('[aria-label="Add another OpenRouter key"]')!
     const sel = harnessSelect(dialog)!
@@ -142,7 +142,7 @@ test('§1 adding a key: both harnesses installed, the default is preselected and
     })
     await inAct(async () => { button(dialog, 'Save').click(); await flush(10) })
     assert.deepEqual(seen.find((r) => r.method === 'POST')?.body, { key: 'sk-or-v1-third-000', harness: 'codex-cli' })
-    assert.match(view.el.textContent ?? '', /each key on its own harness/, 'keys on two harnesses: the head says so')
+    assert.equal(view.el.querySelector('.prov-openrouter > .dim')?.textContent, ' · REST API', 'mixed key harnesses keep the REST header')
   } finally { await view.unmount(); delete g.fetch }
 })
 

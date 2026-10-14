@@ -491,6 +491,17 @@ function ProviderSwitch({ provider, busy, onChange }: {
 const LOGIN_LABELS: Record<LoginProvider, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity',
   muse: 'Muse' }
 
+const PROVIDER_HEADINGS: Record<string, { family: string; harness: string }> = {
+  claude: { family: 'Claude', harness: 'Claude Code' },
+  openai: { family: 'ChatGPT', harness: 'Codex' },
+  google: { family: 'Gemini', harness: 'Antigravity' },
+  muse: { family: 'Muse', harness: 'Muse Code' },
+}
+function ProviderHeaderText({ provider }: { provider: ProviderInfo }) {
+  const { family, harness } = PROVIDER_HEADINGS[provider.id] ?? { family: provider.label, harness: provider.cli }
+  return <span>{family}{harness !== family && <span className="dim"> · {harness}</span>}</span>
+}
+
 // Muse's `muse login` shows its code in the terminal it opens (the `ok:
 // null` branch below, shared with Antigravity): nothing is typed here
 const SUPPORTS_CODE: Record<LoginProvider, boolean> = { claude: true, codex: false, antigravity: false,
@@ -777,7 +788,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex, Antigravity or Muse Code to run agents.</p>}
       {providers?.filter(p => !gateway(p.id)).map(p => <div key={p.id} className='set-group acct-provider-group'>
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
-          <span>{p.label}{p.cli !== p.label && <span className='dim'> · {p.cli}</span>}</span>
+          <ProviderHeaderText provider={p} />
           <span className='set-head-right'>
             <button className="acct-secondary-btn" aria-label="Add secondary account" onClick={() => setAddAccount(p.id as AccountProvider)}>Add account</button>
             {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className='acct-preview-tag'>preview</span>}

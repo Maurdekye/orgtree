@@ -7,6 +7,13 @@
   remain in `pick`. See [desk owner close](docs/rust-engine/desk-owner-close.md).
   [decided: user 2026-10-14 18:36UTC; verified from source: `canvas/deskhosts.tsx`]
 
+- Providers headers use family names Claude/ChatGPT/Gemini/Muse with dim
+  harness names Claude Code/Codex/Antigravity/Muse Code. OpenRouter's dim
+  subtitle is REST API; each key's own harness label remains. IDs, status,
+  controls and Harnesses registry names are unchanged.
+  [decided: user 2026-10-14 17:53–17:54UTC; verified from source:
+  `canvas/accounts.tsx`, `canvas/openrouter.tsx`]
+
 - Presented-document modals collapse their list at 896 CSS px of their own
   reading box; mail keeps 560 and inline desk galleries stay persistent.
   Both organization and agent gallery callers use `NARROW_DOCS_WIDTH`.
