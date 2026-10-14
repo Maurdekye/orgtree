@@ -25,16 +25,17 @@ status class, size, title and aria-label. Writing pencils and finished/error
 icons retain their existing behavior. All desk/popout/list transcript hosts use
 the shared ToolChip; other PlayIcon usages are resume/rehire actions.
 
-The separate source commits for these requests have three new observation
-cases and an explicit running `ArrowForwardIcon` assertion prepared for the
-next rig batch. Independent red controls restore only the historical behavior
+The separate source commits have three observation cases and an explicit
+running `ArrowForwardIcon` assertion, verified in rig round439.
+Independent red controls restore only the historical behavior
 from the named product commits, within the current composed source: writing
 (2 failures/1 known-duration control) and running icon (1 failure/6 controls).
 They preserve the separate running-turn clock fix. With presentation/file splits,
-green union expects 41 tests, plus root typecheck and four
-before/after dark/light captures of real ToolChip rows. These new checks have
-not run. Their fixture checks preserved writing/completed states and execution
-durations as well as omission and the running icon; PNGs require inspection.
+the green union passed41/41, root typecheck exited0, and four
+before/after dark/light captures of real ToolChip rows passed.
+Their fixture checks preserved writing/completed states and execution
+durations as well as omission and the running icon; both rig and author inspected
+all four canonical PNGs. Detailed provenance and visual limits are below.
 
 ## Presented-document row and card (2026-10-14 17:40–17:41UTC)
 
@@ -48,11 +49,11 @@ keep the ordinary error row. Card opening retains its existing document route.
 The title-only body matches the parent of history commit e8e2457; the timed
 ordinary row is now retained instead of the old early return.
 
-Four prepared presentation tests cover split/fold/open, unknown-writing omission,
+Four presentation tests cover split/fold/open, unknown-writing omission,
 markdown/HTML menu parity with desk badges, and error fallback. Red substitutes
 only the old presentation early return: two split-row failures and two existing-behavior controls.
-Combined four themed captures include the presentation before/after, with timing
-placement checks. This new request is unverified until rig receipt/PNG review.
+Allfour passed in the41-test union. Four themed captures include the presentation
+before/after, with timing placement checks, and were inspected by both agents.
 
 ## Sent-file row and card (2026-10-14 18:00–18:03UTC)
 
@@ -65,10 +66,11 @@ e8e2457's parent. Error sends render only the error tool row.
 There is no canonical sent-file context menu or file object-nav kind in the
 current source. Coordinator explicitly corrected that extrapolated requirement:
 preserve existing browser link and containing transcript-row menus, build no
-new file menu. Five prepared tests include normal/image split and links,
+new file menu. Five tests include normal/image split and links,
 expanded details, unknown-writing omission, error fallback, and a native-link
 passing control. Restoring only the old file early returns expects four failures plus that
-control; green union41/rootTS and four themed captures remain unrun. The visual
+control; allfive pass in green41/41, root typecheck exits0, and four canonical
+themed captures pass. The visual
 runner serves only generated assets and one synthetic SVG image over loopback,
 awaits Electron exit, and closes the server before returning. Actual decode is
 checked so image captures cannot silently show a broken image.
@@ -95,7 +97,8 @@ are measured. Running, presentation and file reds fail their named assertions
 with 6/2/1 passing controls. Writing red reports2 failures/1 passing known-duration
 control, but its second failure is an array-allocation error while formatting a
 DOM-versus-null assertion, so that case is not accepted as semantic evidence.
-Slot-absence assertions now compare booleans; writing red must be rerun.
+Slot-absence assertions now compare booleans; the final writing red rerun has
+both expected assertions and its passing known-duration control.
 
 Canonical visuals still return stale dark paint events after the theme becomes
 light. Rig's one-change `capturePage()` diagnostic passes all four themed frames,
@@ -104,12 +107,43 @@ capture method and preserves the background/semantic checks. A two-column
 fixture at1000x760 makes all eight cases, including the full image caption,
 fit Session0's1024x768 display; it now rejects out-of-viewport case bounds.
 The old PNGs clip the image bottom despite successful decoding, so they do not
-prove full image visibility. New committed captures still await rig receipt.
+prove full image visibility. Final canonical captures all show the complete
+image card and caption inside the viewport.
 
-The diagnostic light presentation card has a dark background with dark text
-in both before and after, a shared pre-existing style observation outside these
-four display changes. It is reported to the coordinator without changing CSS;
-no claim about its installed-app appearance is made.
+The light presentation card has a dark background with dark text in both before
+and after captures. Source-only triage finds no hard-coded dark card colour:
+the normal button uses light `--input: #fff` and `--ink: #2d333b`, but its120ms
+background transition is sampled after only two animation frames. A fixture
+transition-timing artifact is inferred, not dynamically proven. The card rule
+originates at5a851d22; no CSS fix or installed-app claim is made. This caveat
+does not alter the measured row/card split or timing placement.
+
+## Final round439 receipt (2026-10-14)
+
+Author verification-onlyff08384 was picked patch-identically as048bfad. Actual
+`D:/orgtree-work/tmp/rig-opus/batch-439/logs/c2-*.log` records:
+
+| Check | Measured result |
+| --- | --- |
+| Writing red | 2 intended assertion failures / 1 known-duration control pass |
+| Running-icon red | 1 intended assertion failure / 6 controls pass |
+| Presentation red | 2 missing-row assertion failures / 2 controls pass |
+| File red | 4 missing-row assertion failures / 1 native-link control pass |
+| Green renderer union | 41/41, exit0,18s |
+| Root typecheck | exit0,6s |
+| Canonical visual | 4 distinct before/after dark/light PNGs, exit0,11s |
+
+Every visual receipt in`evidence/c2-toolchip/result.json` has1000x760viewport,
+fullyVisible/semantics/matched true and passedtrue overall. Before/light required
+the100ms second attempt; the other three matched on their first. Both agents
+inspected allfour frames, including the whole decoded320px image and its
+filename/size/note/download control. Earlier diagnostic frames and allocation
+errors are superseded by these exact committed-driver results, not counted
+as acceptance. ProductionToolChip/ToolTimes and fixture/control source match
+the measured batch; final documentation does not change them.
+
+This is synthetic renderer and source evidence. Coordinator integration,
+installed-app behaviour, real provider turns and devices are separate claims.
 
 Rig round 437 measured five fake-timer cases: actual alpha.3 `ae0b5fd`
 toolclock red has four target failures and one completed-precision passing
