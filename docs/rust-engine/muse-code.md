@@ -55,6 +55,9 @@ directly), **untested**.
   Told that, the user kept the posture ("ship as built", over no shell in
   Session 0) and asked for it to be stated plainly on the Harnesses page, in
   this document and in AGENTS.md.
+- 2026-10-14 16:39Z: the user removed the long warning paragraph next to the
+  Muse provider, superseding the October13 request to show it in Providers.
+  The documented runtime posture and ordinary sign-in/error statuses remain.
 
 ## How the lane runs
 
@@ -128,9 +131,8 @@ refuses that write itself ("absolute path is outside the workspace"). Muse's
 stricter approval mode (`promptUnmatched`) makes the shell ask but leaves the
 file tools writing outside unasked, so no setting keeps them inside the
 folders without the sandbox. Commands run with the rights of the account the
-engine runs as, with no network proxy. The Harnesses page (App settings ›
-Providers, the Muse card) says this while it applies (`/api/providers` ›
-`muse.session0`).
+engine runs as, with no network proxy. Providers omits the long explanatory
+paragraph by user ruling 2026-10-14; normal provider statuses remain.
 
 A read-only seat has no shell (`--disable-shell`, as everywhere) and keeps
 the sandbox flag; a `bypassPermissions` seat is unchanged (its `:unrestricted`
@@ -641,7 +643,7 @@ be paid).
 | UI parity (hire, settings, Providers, Usage, colours) | yes | same | same | measured (rendered) |
 | App theme preset | Muse Cyan; `#0077b0` accent on light surfaces | Claude Terracotta | Codex Teal | measured (rendered in four contrast themes; unit tests) |
 | Granted folders' instructions (AGENTS.md, CLAUDE.md) | own folder's rules loaded by Muse; every granted folder's in the identity | same identity injection | same identity injection | measured (unit test) |
-| Shell in Windows Session 0 | write seats without Muse's sandbox: any command, and file tools writing outside the folders, Orgtree not asked (Harnesses page says so) | Bash pre-allowed (`--allowedTools`), no OS sandbox, on every session | `danger-full-access` unless the sign-in helper hosts it | Muse measured (real 1.4.6); others source |
+| Shell in Windows Session 0 | write seats without Muse's sandbox: any command, and file tools writing outside the folders, Orgtree not asked | Bash pre-allowed (`--allowedTools`), no OS sandbox, on every session | `danger-full-access` unless the sign-in helper hosts it | Muse measured (real 1.4.6); others source |
 | Network for shell commands | Muse's own default (`proxy-only`); Orgtree sets no mode | Claude Code's own default | Codex's own default for the seat's sandbox | source: no lane gets a network mode; Muse's modes undocumented, untested |
 | Effort names in tools (`orgtree_hire`, `orgtree_retool`) | all harness names, checked per tier | same | same | measured (unit tests) |
 

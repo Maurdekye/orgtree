@@ -148,11 +148,12 @@
   `--disable-sandbox`; read-only seats have no shell; bypass seats, and every
   seat outside Session 0, are unchanged. Without the sandbox Muse asks Orgtree
   about no command and its file tools write outside the agent's folders
-  (measured). The user kept this knowingly; the Harnesses page (App settings ›
-  Providers, the Muse card) states it from `/api/providers` › `muse.session0`.
+  (measured). The user kept this knowingly. User 2026-10-14 16:39UTC removed
+  the long Muse paragraph from Providers, superseding the October13 display
+  request; ordinary provider status remains. Runtime posture is unchanged.
   See [Muse Session 0](docs/rust-engine/muse-code.md). [decided: user
   2026-10-13 18:53Z, kept 20:16Z; verified: `muse.rs` `os_sandbox`, real Muse
-  1.4.6 probes 2026-10-13]
+  1.4.6 probes 2026-10-13; display removal verified: `canvas/accounts.tsx`, 2026-10-14]
 
 - Muse approvals: Orgtree refuses with MSP's `denied` choice when offered, else
   Muse's once-only `abort` ("Reject"): real Muse 1.4.6 offers no `denied`, and

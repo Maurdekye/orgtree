@@ -491,13 +491,6 @@ function ProviderSwitch({ provider, busy, onChange }: {
 const LOGIN_LABELS: Record<LoginProvider, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity',
   muse: 'Muse' }
 
-/** The Muse harness card's note while the engine runs in Windows Session 0
- *  (`/api/providers` › `muse.session0`). The user chose this posture knowing
- *  it (2026-10-13 20:16Z) and asked for it to be stated plainly here. */
-export const MUSE_SESSION0_NOTE = 'Orgtree runs in the Windows background session (Session 0), where Muse’s sandbox '
-  + 'cannot start commands. So Muse agents that may edit files run without it here: they can run any command, and '
-  + 'Muse’s file tools can write outside their folders, without Orgtree being asked. Read-only Muse agents have '
-  + 'no shell. Where the sandbox runs (outside Session 0), Muse’s file tools stay inside the agent’s folders.'
 // Muse's `muse login` shows its code in the terminal it opens (the `ok:
 // null` branch below, shared with Antigravity): nothing is typed here
 const SUPPORTS_CODE: Record<LoginProvider, boolean> = { claude: true, codex: false, antigravity: false,
@@ -806,7 +799,6 @@ export function AccountsPanel({ toast, close, initialTab }: {
             settings → Providers" — redundant beside its own switch, so it is
             not shown here. Surfaces outside settings keep that pointer. */}
         {p.reason && p.user_enabled !== false && <p className='dim acct-provider-note'>{p.reason}</p>}
-        {p.id === 'muse' && p.muse?.session0 === true && <p className='ask-warn acct-provider-session0' role='note'>{MUSE_SESSION0_NOTE}</p>}
         {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
           {p.tiers.filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
             <span className={'tier t-' + t.tier} title={tierLabel(t.tier)}>{t.letter}</span>

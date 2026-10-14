@@ -1,13 +1,6 @@
-// musesession0.test.tsx — the Muse harness card says plainly what a Muse
-// agent runs with while the engine is in Windows Session 0.
-//
-// Docket `muse-shell-works-when-the-engine-runs-in-the-win`. The user
-// (2026-10-13 20:16Z) chose to run Muse's write seats without its OS sandbox
-// in Session 0, knowing (measured that day) that Muse then asks Orgtree about
-// no command and its file tools can write outside the agent's folders, and
-// asked for that to be stated plainly on the Harnesses page (App settings ›
-// Providers). The engine says when it applies (`/api/providers` ›
-// `muse.session0`); the card shows the note then and only then.
+// musesession0.test.tsx — user 2026-10-14 removed the long Muse warning
+// from Providers, superseding the October13 request to display it there.
+// Session metadata must not restore it; ordinary provider status stays visible.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs musesession0
 
@@ -15,7 +8,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { AccountsPanel, MUSE_SESSION0_NOTE } from '../src/canvas/accounts'
+import { AccountsPanel } from '../src/canvas/accounts'
 import { clearProviderDiscovery } from '../src/api'
 
 const noop = () => {}
@@ -45,21 +38,15 @@ async function mountWith(t: TestContext, providers: unknown[]) {
   return { panel, notes }
 }
 
-test('the note states the measured trade-off in plain words', () => {
-  for (const part of ['Session 0', 'can run any command', 'write outside their folders',
-    'without Orgtree being asked', 'Read-only Muse agents have no shell', 'stay inside the agent’s folders']) {
-    assert.ok(MUSE_SESSION0_NOTE.includes(part), `the note lacks "${part}"`)
-  }
-})
-
-test('in Session 0 the Muse card carries the note, and only the Muse card', async (t: TestContext) => {
+test('in Session 0 the Muse card stays compact and retains its ordinary status', async (t: TestContext) => {
   const { panel, notes } = await mountWith(t, [provider('openai', 'Codex'),
-    provider('muse', 'Muse', { muse: { session0: true, logins: [] } })])
+    provider('muse', 'Muse', { reason: 'Sign in to use this harness.', muse: { session0: true, logins: [] } })])
   assert.ok(panel()?.textContent?.includes('Codex'), 'positive control: the Codex card rendered')
-  assert.equal(notes().length, 1, 'one Session 0 note')
-  assert.equal(notes()[0]!.textContent, MUSE_SESSION0_NOTE)
-  assert.equal(notes()[0]!.getAttribute('role'), 'note')
-  assert.ok(notes()[0]!.closest('.acct-provider-group')?.querySelector('.prov-muse'), 'the note sits on the Muse card')
+  assert.ok(panel()?.querySelector('.prov-muse'), 'positive control: the Muse card rendered')
+  assert.equal(notes().length, 0, 'the obsolete Session 0 paragraph is absent')
+  assert.doesNotMatch(panel()?.textContent ?? '', /can run any command|write outside their folders|without Orgtree being asked/)
+  assert.equal(panel()?.querySelector('.prov-muse')?.closest('.acct-provider-group')
+    ?.querySelector('.acct-provider-note')?.textContent, 'Sign in to use this harness.', 'ordinary provider status stays')
 })
 
 // one test per case: each mounts its own panel and unmounts it after
