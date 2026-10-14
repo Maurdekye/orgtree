@@ -333,8 +333,10 @@ test('superior root is the first list row under the filter; all agent depths shi
     const list = document.querySelector('.quickchat-pop .tray')!
     const root = document.querySelector<HTMLElement>('.quickchat-top')!
     const filter = list.querySelector('.tray-filter')!
-    assert.equal(root.parentElement, list, 'root belongs to the same list as the agents')
-    assert.equal(filter.nextElementSibling, root, 'filter is above the root row')
+    // A failed DOM-object equality can serialize the entire jsdom graph.
+    // Keep red-control diagnostics scalar so the remaining cases still run.
+    assert.ok(root.parentElement === list, 'root belongs to the same list as the agents')
+    assert.ok(filter.nextElementSibling === root, 'filter is above the root row')
     assert.ok(root.querySelector('.eye'), 'root keeps the eye icon')
     assert.equal(root.style.paddingLeft, '8px')
     assert.deepEqual([...list.querySelectorAll<HTMLElement>('[data-copy-agent-name]')]
@@ -349,10 +351,10 @@ test('superior root matches a case-insensitive filter and is selectable without 
   try {
     await type(document.querySelector<HTMLInputElement>('.quickchat-pop .tray-filter')!, ' TOP LEVEL ')
     assert.deepEqual(pickerItems(), ['top level'])
-    assert.equal(document.querySelector('.quickchat-empty'), null, 'the matching root is a result')
+    assert.ok(document.querySelector('.quickchat-empty') === null, 'the matching root is a result')
     await pickerKey('Enter')
     assert.equal(shown(view.el).superior, 'top level')
-    assert.equal(document.querySelector('.quickchat-pop'), null)
+    assert.ok(document.querySelector('.quickchat-pop') === null)
   } finally { await view.unmount(); localStorage.clear() }
 })
 
