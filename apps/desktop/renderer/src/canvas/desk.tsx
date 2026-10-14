@@ -4812,27 +4812,26 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
     ? <PresentationCard slug={slug} doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
       <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span>
     </PresentationCard> : null
-  // orgtree_send_file → a DOWNLOAD CARD in place of the chip (user spec
-  // 2026-07-31: files flow back — the card sits where the agent sent it).
+  // Sent files retain their original card beneath the ordinary tool row.
+  // Timing and expandable call details belong to that row, not the card.
   // An IMAGE file renders as the picture itself (user spec 2026-08-25:
   // agents present images as a response): bounded inline, click = full-size
   // viewer, the download link rides the caption.
-  if (t.file) {
+  let downloadCard: ReactNode = null
+  if (t.file && !t.error) {
     const file = t.file
     const href = fileUrl(slug, nid, file.path!)
     if (isImg(file.name)) {
-      return (
+      downloadCard = (
         <div className="filecard imgcard" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           <img className="imgcard-img" src={href} alt={file.name}
             loading="lazy" title={`${file.name} — click to view`}
             onClick={() => openLightbox(href, { name: file.name, download: href })} />
             <ImgCardCaption name={file.name} bytes={file.bytes} href={href}
             note={file.note} />
-          <ToolTimes tool={t} />
         </div>
       )
-    }
-    return (
+    } else downloadCard = (
       <a className="filecard" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} href={href}
         download={file.name} title="download">
         <DownloadIcon fontSize="inherit" className="fc-ico" />
@@ -4840,7 +4839,6 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
           <span className="fc-name">{file.name}</span>
           <span className="dim"> · {fmtBytes(file.bytes)}</span>
           {file.note && <span className="fc-note">{file.note}</span>}
-          <ToolTimes tool={t} />
         </span>
       </a>
     )
@@ -4924,7 +4922,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
       {open && (t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }).map((_, i) => (
         <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} alt="tool result"
           src={`/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
-    </div>{presentation}</>
+    </div>{presentation}{downloadCard}</>
   )
 }
 
