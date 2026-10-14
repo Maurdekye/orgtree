@@ -664,6 +664,12 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         // the explicit placement chosen in the final sibling set at admission.
         let order = out["sibling_order"].as_f64().expect("hire returns sibling order");
         tx.execute("UPDATE ot.agents SET scope=$2, sibling_order=$3 WHERE id=$1", &[&parent.id, &inherited_scope, &order]).await?;
+        if let Some(uid) = out["kickoff"].as_str() {
+            // The kickoff was authorized as a report, but describes the final
+            // parent allocation. Keep its mail and metadata in this transaction.
+            tx.execute("UPDATE ot.mail SET ev=jsonb_set(ev,'{grant}',$3::jsonb) WHERE org_id=$1 AND uid=$2",
+                &[&org.id, &uid, &json!(parent.grant)]).await?;
+        }
         out["above_self"] = json!(true);
     }
     if crate::runtime::watchdogs::events::interested(engine,"agents.live") {
@@ -773,6 +779,32 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
         out["account_fallback"] = json!(b);
     }
     scope::normalize(&out)
+}
+
+/// A self-hired parent may narrow fallback, never enable what its caller lacks.
+#[nolog]
+fn self_parent_fallback(requested: Option<bool>, effective: Option<bool>, default: Option<bool>) -> bool {
+    requested.unwrap_or(true) && effective.or(default).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod parent_hire_tests {
+    use super::self_parent_fallback;
+
+    #[test]
+    fn self_parent_fallback_respects_caller_and_explicit_opt_out() {
+        for (effective, default, ceiling) in [
+            (Some(false), Some(true), false),
+            (Some(true), Some(false), true),
+            (None, Some(false), false),
+            (None, Some(true), true),
+            (None, None, false),
+        ] {
+            assert_eq!(self_parent_fallback(None, effective, default), ceiling);
+            assert_eq!(self_parent_fallback(Some(true), effective, default), ceiling);
+            assert!(!self_parent_fallback(Some(false), effective, default));
+        }
+    }
 }
 
 /// 3.x's hire rules for a new hire's scope (PLAN I6, hire defaults kept). An
@@ -1006,9 +1038,10 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
         let mut inherited = hire_scope(&caps, req);
         for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] { inherited[k] = target_scope[k].clone(); }
-        if self_parent && req["account_fallback"].is_null() {
-            inherited["account_fallback"] = json!(target_scope["account_fallback"].as_bool()
-                .or(caps.settings["account_fallback_default"].as_bool()).unwrap_or(false));
+        if self_parent {
+            inherited["account_fallback"] = json!(self_parent_fallback(
+                req["account_fallback"].as_bool(), target_scope["account_fallback"].as_bool(),
+                caps.settings["account_fallback_default"].as_bool()));
         }
         inherited
     } else {
