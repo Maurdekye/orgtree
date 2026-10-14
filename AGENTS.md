@@ -10,6 +10,9 @@
 - App settings uses a 726px modal width (formerly 660px), retaining the 94vw
   cap and pinned-window sizing. Scope the override to `.settings.acct-panel`;
   organization/agent settings and other modals keep their own widths.
+  At1366×768 the719px tab content still overflows the662px viewport by57px;
+  report this without changing tab labels/style. [measured: rig439;
+  [panel proof and limits](docs/rust-engine/panel-widths-provider-headings.md)]
   [decided: user 2026-10-14 17:54UTC; verified: renderer `styles.css`]
 
 - Providers headers use family names Claude/ChatGPT/Gemini/Muse with dim
