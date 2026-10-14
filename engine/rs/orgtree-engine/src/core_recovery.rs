@@ -209,6 +209,10 @@ mod win {
         let began = Instant::now();
         while began.elapsed() < Duration::from_secs(300) {
             let Some(fresh) = current(root, &desktop) else { return; };
+            if stands_down(&fresh, &desktop) {
+                core_diagnostics::record(root, "desktop-recovery-stood-down-for-install", Some(&fresh.generation), desktop.pid, None);
+                return;
+            }
             // Give an intentional installer/relaunch its original allowance;
             // never reset it on retries, and never launch during unknown WTS.
             if !core_state::recovery_deferred(&fresh) && signed_in(root, &fresh) == Some(true)
@@ -233,6 +237,17 @@ mod win {
         }
         record(root, "desktop-recovery-budget-or-resources-exhausted", &s, None);
     }
+    /// The desktop exited inside its own installing transition: an installer
+    /// or the in-app updater closed it to replace the installation this
+    /// observer runs from. Waiting out the allowance would hold those files
+    /// until the installer gave up (two real upgrades to 4.3.0-alpha.1 failed
+    /// so), then relaunch the replaced application over it. The installer owns
+    /// what happens next (docket installer-can-t-replace-a-running-orgtree-an-ins,
+    /// coordinator ruling 2026-10-14). Restart transitions keep their allowance.
+    #[nolog]
+    fn stands_down(state: &Snapshot, desktop: &Identity) -> bool {
+        state.installing && core_state::recovery_deferred(state) && state.transition_desktop.as_ref() == Some(desktop)
+    }
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -255,6 +270,21 @@ mod win {
             assert!(!claim(&dir, "engine", "fourth"));
             assert_eq!(fs::read_dir(&dir).unwrap().count(), 2, "fixed-size journal, no per-crash file growth");
             fs::remove_dir_all(dir).unwrap();
+        }
+        #[test]
+        fn observer_stands_down_only_inside_its_desktops_install_transition() {
+            let desktop = core_process::identity(std::process::id()).unwrap();
+            let other = Identity { pid: desktop.pid, created: "1".into() };
+            let state = |installing: bool, until: i64, owner: Option<&Identity>| Snapshot {
+                generation: "0".repeat(32), engine: other.clone(), host: None, desktop: Some(desktop.clone()), helper: None,
+                sessions: vec![], transition_until: until, transition_desktop: owner.cloned(), installing, completion_requested: false,
+            };
+            let later = core_state::now() + 60_000;
+            assert!(stands_down(&state(true, later, Some(&desktop)), &desktop), "installer closed this desktop");
+            assert!(!stands_down(&state(false, later, Some(&desktop)), &desktop), "a restart transition keeps its allowance");
+            assert!(!stands_down(&state(true, core_state::now() - 1, Some(&desktop)), &desktop), "an expired transition is a crash");
+            assert!(!stands_down(&state(true, later, Some(&other)), &desktop), "another desktop's transition");
+            assert!(!stands_down(&state(true, 0, None), &desktop), "no transition at all");
         }
         #[test]
         fn retained_handle_reports_exit_only_for_exact_identity() {
