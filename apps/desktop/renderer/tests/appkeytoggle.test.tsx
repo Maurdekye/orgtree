@@ -1,4 +1,4 @@
-import { flush, inAct, mountView } from './harness'
+import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
@@ -8,6 +8,7 @@ import { forgetAttentionMode } from '../src/attention/mode'
 import { forgetModalOpenCache, forgetModalPins, pinModal, raisePinnedModal } from '../src/canvas/modalpin'
 import { legacyAppBackend } from './appfeed-fixture'
 import { installBridge, removeBridge } from './shellbridge'
+import { TREE_MIN_GAP_MS } from '../src/treepace'
 
 const routes = [
   ['F1', '.acct-panel', 'app-settings'],
@@ -25,6 +26,9 @@ const press = (key: string, target: EventTarget, extra: KeyboardEventInit = {}) 
 }
 
 async function withApp(run: (el: HTMLElement, editor: HTMLTextAreaElement, reads: string[]) => Promise<void>) {
+  useFakeClock()
+  const hidden = Object.getOwnPropertyDescriptor(document, 'hidden')
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false })
   const globals = globalThis as unknown as Record<string, unknown>
   const saved = { fetch: globals.fetch, WebSocket: globals.WebSocket, history: globals.history,
     CustomEvent: globals.CustomEvent, DocumentFragment: globals.DocumentFragment }
@@ -71,6 +75,9 @@ async function withApp(run: (el: HTMLElement, editor: HTMLTextAreaElement, reads
     await view?.unmount(); editor.remove(); removeBridge(); localStorage.clear()
     forgetAttentionMode(); forgetModalPins(); forgetModalOpenCache()
     Object.assign(globals, saved); window.history.replaceState(null, '', '/')
+    if (hidden) Object.defineProperty(document, 'hidden', hidden)
+    else delete (document as unknown as { hidden?: boolean }).hidden
+    realClock()
   }
 }
 
@@ -83,13 +90,18 @@ for (const [key, selector] of routes) test(`${key} opens, ignores held repeat, c
     await inAct(async () => { press(key, editor, { repeat: true }); await flush(6) })
     assert.equal(el.querySelector(selector), panel, 'holding keeps the mounted panel')
     panel.querySelector<HTMLElement>('input, textarea, button')?.focus()
+    // Drain any opening selection read before measuring the close callback.
+    // A normal close requests a paced read rather than bypassing its gap.
+    if (key === 'F6' || key === 'F9') await advance(TREE_MIN_GAP_MS)
     const before = reads.filter(path => path === '/api/orgs/toggle-org').length
     await inAct(async () => { press(key, document.activeElement!); await flush(20) })
     assert.equal(el.querySelector(selector), null, `${key} second press closes its target`)
     assert.equal(document.activeElement, editor, 'focus returns to the connected shortcut opener')
-    if (key === 'F6' || key === 'F9')
+    if (key === 'F6' || key === 'F9') {
+      await advance(TREE_MIN_GAP_MS)
       assert.ok(reads.filter(path => path === '/api/orgs/toggle-org').length > before,
         'normal inbox/settings close refreshes the tree')
+    }
     await inAct(async () => { press(key, editor); await flush(20) })
     assert.ok(el.querySelector(selector), 'fresh press reopens')
   })

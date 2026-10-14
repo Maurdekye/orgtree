@@ -126,3 +126,10 @@ Run through rig-opus's next shared-lock/contained batch and C output. The existi
 
 Native device keys and detached-panel native-window closure are not newly
 measured by these renderer tests. No engine/provider/live operation is needed.
+
+Round439 fixture correction: F6/F9 close requests use the existing TreeReadPacer,
+so counting an HTTP read after microtask flush alone was premature. Their checks
+now use the fake clock in a visible document, settle opening reads, then advance
+the shared TREE_MIN_GAP_MS after closing. Product source is unchanged. The other
+eight new cases and shortcuts suite passed in the initial standalone run; the
+two corrected cases still require rig-opus's green/red execution.
