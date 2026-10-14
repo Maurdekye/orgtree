@@ -916,7 +916,7 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
     let mut client = engine.db.get().await?;
     let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
     lock_head(&tx, org.id).await?;
-    let Some(t) = target(&tx, org.id, dir).await? else {
+    let Some(t) = target(&*tx, org.id, dir).await? else {
         return Err(coded(404, "history_empty", if dir == Dir::Undo { "nothing to undo" } else { "nothing to redo" }, json!({})));
     };
     if t["id"].as_i64() != Some(id) {
@@ -927,7 +927,7 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
     let label: String = r.get(1);
     let data: Value = r.get(2);
     if dir == Dir::Undo && kind == "hire" {
-        if let Some((agent, turns, binding)) = worked(&tx, org.id, &data).await? {
+        if let Some((agent, turns, binding)) = worked(&*tx, org.id, &data).await? {
             let token = format!("h{id}.{binding}");
             if confirm != Some(token.as_str()) {
                 return Ok((json!({ "status": "confirm", "id": id, "label": label, "agent": agent, "turns": turns, "confirm": token }), None));
