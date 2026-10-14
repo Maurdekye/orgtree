@@ -3611,8 +3611,8 @@ impl Actor {
     #[nolog]
     fn stream(&mut self, kind: &str, extra: Value) {
         // Install completed rows and retire their partials in one renderer
-        // update, before the next phase can appear. Never send raw tool input:
-        // ConvoWriter retains exactly the sanitized, already-committed body.
+        // update, before the next phase can appear. Durable rows carry only the
+        // sanitized committed body; writing previews are bounded and ephemeral.
         let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "" });
         // One ordinal per partial, shared by token frames and HTTP snapshots.
         // Arrival through either transport must not change the display order.
@@ -4108,6 +4108,7 @@ impl Actor {
                     }
                 }
                 if !done {
+                    self.update_active_input(&client, &id, &name, &input).await?;
                     self.follow_muse_background(&id, &name, &input);
                     return Ok(());
                 }
@@ -4469,6 +4470,10 @@ impl Actor {
                     self.set_activity("tool", Some(name.clone()));
                     self.stream("tool", json!({ "id": id }));
                 }
+                if known && state != "DONE" && state != "ERROR" {
+                    self.update_active_input(&client, &id, &name, &info["parameters"]).await?;
+                    self.stream("tool", json!({ "id": id }));
+                }
                 if state == "DONE" || state == "ERROR" {
                     let err = info.pointer("/error/message").and_then(Value::as_str).map(str::to_string);
                     let result = ["result", "output", "response"]
@@ -4520,6 +4525,26 @@ impl Actor {
     }
 
     /// The row Codex tool chips attach to (a fresh one when there is none).
+    #[nolog]
+    async fn update_active_input(&mut self, client: &tokio_postgres::Client, id: &str, name: &str, input: &Value) -> Result<()> {
+        if input.is_null() || input.as_object().is_some_and(|o| o.is_empty()) { return Ok(()); }
+        let update = {
+            let Some(t) = self.turn.as_mut() else { return Ok(()) };
+            let Some(key) = t.tools.get(id) else { return Ok(()) };
+            let Some((seq, row)) = t.rows.get_mut(key) else { return Ok(()) };
+            let Some(chip) = row["tools"].as_array_mut().and_then(|a| a.iter_mut().find(|c| c["id"] == id)) else { return Ok(()) };
+            if chip["input"] == *input && chip["name"] == name { return Ok(()); }
+            chip["name"] = json!(name);
+            chip["input"] = input.clone();
+            chip["arg"] = json!(convo::tool_arg(name, input));
+            chip["refs"] = convo::tool_refs(name, input, None);
+            (*seq, row.clone())
+        };
+        self.convo.update(client, update.0, update.1).await?;
+        self.stream("tool", json!({ "id": id }));
+        Ok(())
+    }
+
     async fn codex_row(&mut self, client: &tokio_postgres::Client, key_hint: &str) -> Result<Option<String>> {
         let existing = self.turn.as_ref().and_then(|t| t.codex_row.clone()).filter(|k| {
             // A following tool must not be inserted above an earlier reply by
