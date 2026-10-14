@@ -919,6 +919,10 @@ export interface ToolChip {
   ended_at?: string
   /** Observed stream generation duration; absent for unsupported/history calls. */
   writing_secs?: number
+  /** Live generation only; never an execution start or a fabricated duration. */
+  writing_started_at?: string
+  /** Bounded ephemeral input already observed while generating the call. */
+  preview_input?: unknown
   /** the agents, the watchdog and the docket tickets the call concerns (engine `tool_refs`); the
    *  transcript draws a link or card for each beside the call */
   refs?: Array<{ kind: 'agent' | 'watchdog' | 'ticket'; id: string }>
@@ -1115,7 +1119,7 @@ export interface LiveRowPayload {
   turnId?: string
 }
 
-export interface ChatTransient { started_at?: string; tool_id?: string; stream_order?: number; reply_quote?: string; event_id: string; role: string; kind: string; text: string }
+export interface ChatTransient { tool?: ToolChip; started_at?: string; tool_id?: string; stream_order?: number; reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
   after?: string

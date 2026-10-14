@@ -8,7 +8,7 @@ import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
-import { ToolTimes, ToolWritingLine, TurnActiveContext } from './toolclock'
+import { ToolTimes, TurnActiveContext } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
@@ -2911,6 +2911,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // keeping a key one poll too long costs nothing — sweeping one that is still
   // on screen cost the operator their desk.
   const liveFoldKeys = foldKeysOf(chat?.messages ?? [], live_feed, rawPendMail, pending)
+  for (const row of chat?.transient ?? []) {
+    if (row.kind === 'tool_writing') {
+      const key = toolFoldKey(row.tool ?? { name: row.text, id: row.tool_id })
+      if (key) liveFoldKeys.add(key)
+    }
+  }
   const pruneFolds = folds.prune
   useEffect(() => {
     // the same lists the census is taken from, or the guard and the sweep
@@ -3831,7 +3837,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           {viewTransient.map(row => <div key={row.event_id || row.kind} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
             onContextMenu={e => openReply(e, row)} className={['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
-            {row.kind === 'tool_writing' ? <ToolWritingLine name={row.text} startedAt={row.started_at} /> : ['thinking', 'thinking_start', 'thought'].includes(row.kind)
+            {row.kind === 'tool_writing' ? <ToolChip t={row.tool ?? { id: row.tool_id, name: row.text, writing_started_at: row.started_at }}
+              slug={slug} nid={node.id} onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc} /> : ['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? (row.text
                 ? <ThoughtBody text={row.text} live />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
@@ -4741,11 +4748,14 @@ interface ToolChipProps {
   onOpenDoc?: (id: string) => void
 }
 
-function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipProps) {
+export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipProps) {
   // the fold lives in the DESK, keyed by this chip's tool_use_id — see
   // canvas/foldstate.tsx for why a component-local `useState` could not
   // survive the row being re-keyed mid-stream
   const [open, toggleOpen] = useFold(toolFoldKey(t))
+  const turnActive = useContext(TurnActiveContext)
+  const writing = !!t.writing_started_at
+  const running = turnActive && !writing && !!t.started_at && !t.ended_at && t.result === undefined && !t.error
   const shellError = isFailedShellCall(t)
   const expandable = true
   if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
@@ -4795,20 +4805,19 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
           onKeyDown: (e: React.KeyboardEvent) => {
             if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleOpen() }
           } } : {})}>
-        <DotIcon fontSize="inherit" className="tooldot" />
+        {writing ? <EditIcon fontSize="inherit" className="tooldot tool-writing-status" titleAccess="Writing tool call" />
+          : running ? <PlayIcon fontSize="inherit" className="tooldot tool-running-status" titleAccess="Executing tool call" />
+            : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
         {t.arg ? <span className="targ"> {t.arg}</span> : null}
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
-        {!t.diff && !t.error && !shellError && (t.result_lines ?? 0) > 0 && (
-          <span className="dim"> · {t.result_lines} line{t.result_lines === 1 ? '' : 's'}</span>)}
         {t.task && (
           <span className="dim"> · {t.task.tools ?? '?'} tools
             {t.task.ms ? ` · ${Math.round(t.task.ms / 1000)}s` : ''}
             {t.task.tokens ? ` · ${Math.round(t.task.tokens / 1000)}k tok` : ''}</span>)}
         {(t.images ?? 0) > 0 && <span className="dim"> · {t.images} image{t.images === 1 ? '' : 's'}</span>}
         {(t.error || shellError) && <span className="terrtxt"> ⊘ {shellError ? 'an error occurred' : t.error}</span>}
-        {/* how long the call took, or — while it still waits for its result and
-            the turn is running — a live count once it passes ten seconds */}
+        {/* Observed writing and execution clocks stay separate. */}
         <ToolTimes tool={t} />
         {/* the agents and the watchdog this call concerns, as the same links
             and cards the rest of the app draws for them */}
@@ -4835,7 +4844,11 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             onClick={(e) => { e.stopPropagation(); onWorkLink!(t.work) }}>
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
-      {open && <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
+      {open && (t.result_lines ?? 0) > 0 && <div className="dim tool-line-count">{t.result_lines} line{t.result_lines === 1 ? '' : 's'}</div>}
+      {open && (writing
+        ? t.preview_input && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
+          ? <div className="toolinput"><StructuredJson value={t.preview_input} /></div> : null
+        : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />)}
       {open && shellError && <ToolOutputDetails slug={slug} nid={nid} seq={t.output_seq} tool={t.id}
         fallback={t.result || t.error || ''} clipped={t.truncated}
         renderOutput={output => <CopyablePre><pre className="filepre respre"
