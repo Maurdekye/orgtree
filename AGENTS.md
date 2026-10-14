@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Transfers starts collapsed in every new mail view. Keep expansion while that
+  view stays open, including transfer polls; reset on mailbox org/agent changes.
+  Org inbox and user/agent/desk inboxes share TransferPanel. Preserve unfinished
+  counts, polling, progress, history, paging and engine jobs; no persisted flag.
+  [decided: user/coordinator 2026-10-14; docs/rust-engine/transfers-default.md]
+
 - Codex and Antigravity tools following reply text use a separate transcript
   row (`actor::codex_row`). Lane proofs inspect the scripted turn's new rows,
   requiring completed results after the greeting, rather than greeting.tools.
