@@ -32,11 +32,11 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
   const [busy, setBusy] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [history, setHistory] = useState(false)
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const [cursors, setCursors] = useState<string[]>([])
   const [next, setNext] = useState<string | null>(null)
   const cursor = cursors.at(-1)
-  useEffect(() => { setCursors([]); setNext(null); setRows([]) }, [slug, agent])
+  useEffect(() => { setCursors([]); setNext(null); setRows([]); setExpanded(false) }, [slug, agent])
   useEffect(() => {
     const stop = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
