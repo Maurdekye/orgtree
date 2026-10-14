@@ -188,6 +188,17 @@ every record, undo, redo, refusal or pruning; a window refetches
 
 ## Inverses and guards
 
+**Retool side effects are restored exactly** (coordinator 2026-10-14 19:07Z):
+an undo lowers the grants the forward change raised on ancestors and in the
+org's settings, and hands back the folders it clamped from agents beneath;
+redo does the reverse. Every recorded `side` row must still hold the value the
+entry left (else 409 `history_conflict` naming it, nothing restored). After
+the forward ops of the inverse ran, every row of the agents, their ancestors
+and descendants and the four org settings is written to exactly the recorded
+value, or back to its value before the undo when the entry did not change it;
+the agents' fields are then checked against the record. Nothing is partially
+restored.
+
 Every inverse runs in one serializable transaction through the same code paths
 and permission checks as the forward operation (`Actor::User`): `move`,
 `reorder` (placing after the recorded previous live sibling, else before the
@@ -225,23 +236,27 @@ inside the undo transaction.
 - `retire`: `{retires: [{root, before: {parent, order, prev, next}, members: [{agent, parent, order}]}]}`;
   members top-down, siblings in order; a team retired inside another team of
   the same gesture belongs to the first step that retired it. A retire whose
-  team exceeds 2000 members is applied but not recorded.
+  team exceeds 2000 members is applied and recorded **not undoable**
+  (`not_undoable` with its reason, no members): reaching it, undo refuses it
+  409 `history_conflict` ("this retire is too large to undo (N agents; at most
+  2000 per team)") and the next undo moves on, so Ctrl+Z never silently skips
+  it (coordinator 2026-10-14 19:07Z).
 - `retool`: `{agents: [{agent, fields: {<name>: {before, after}}}]}`; names
   `add_dirs`, `tools`, `org_visibility`, `permission_mode`, `effort`,
   `model_version`, `account_fallback`, `auto_cheap_compact`, `charter`,
   `team_charter`, `tier`, `account`; values are the configured value (a queued
   switch or account counts) or the marker `{"absent": true}` (an empty charter
   is absent); `account` stores only the account id. Only fields whose value
-  differs before and after are recorded.
+  differs before and after are recorded. Plus `side`: `{scopes: [{agent, before, after}], org: {<key>: {before, after}}}`,
+  the stored scope of every row the gesture changed among the agents
+  themselves, their ancestors and everything beneath them (a grant raised on
+  the way up, a folder clamped beneath), and the org settings `dirs`,
+  `default_tools`, `default_visibility` and `permission_mode` it changed.
 - Never: request bodies, settings objects, account records, credentials,
   tokens, transcript or mail text.
 
 ## Limits
 
-- A retool's undo restores the agent's own fields only: a grant the forward
-  change raised on its ancestors or into the org's folders stays raised (a
-  user grant is never withdrawn behind the user's back), and a folder a
-  forward narrowing clamped from agents beneath is not handed back.
 - A Muse seat's catalog is refreshed before an undo or redo that switches its
   model, as before the forward op; a scope save's effort or version check on a
   Muse seat reads the logins as last refreshed.

@@ -16,10 +16,15 @@
 //      entry with its reason and nothing else; the next undo moves on
 //   7. agent tool actions, no-ops and duplicate request ids never record;
 //      a stale id answers history_moved; two windows consume an entry once
+//   7b. a grant's side effects (ancestors and the org's folders raised, a
+//      folder clamped beneath) are restored exactly, or the undo refuses
 //   8. the bound of 100 per org; the history survives an engine restart;
 //      no entry data in any answer or in the feed record
 // RED controls: the tree differs before each undo (so a restored match is
 // meaningful), and every conflict check is made against a real change.
+import fs from 'node:fs'
+import path from 'node:path'
+
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
@@ -220,6 +225,39 @@ export default async function (rig) {
   p.check('7. a no-op records nothing', r.ok && r.json?.unchanged === true && r.json?.history_entry === null && entries() === nNoop, r.json)
   r = await op({ op: 'rename', node: 'gina', name: 'gina' })
   p.check('7. operations outside the history are not recorded', entries() === nNoop)
+
+  // ---- 7b. side effects of a grant (coordinator 2026-10-14 19:07Z)
+  const folder = path.join(rig.data, 'undo-proof', 'shared')
+  fs.mkdirSync(folder, { recursive: true })
+  const scopesNow = () => JSON.stringify(rig.sql(`SELECT name, scope FROM ot.agents WHERE org_id=${orgId} AND state<>'deleted' ORDER BY id`))
+  const orgDirs = () => JSON.stringify(rig.one(`SELECT settings->'dirs' AS d FROM ot.orgs WHERE id=${orgId}`)?.d ?? null)
+  const g0 = scopesNow()
+  const d0 = orgDirs()
+  r = await scope('carol', { add_dirs: [...(row('carol').scope?.add_dirs ?? []), { path: folder, mode: 'rw' }] })
+  const grantEntry = r.json?.history_entry
+  const g1 = scopesNow()
+  const d1 = orgDirs()
+  p.check('7b. RED control: the grant raised boss and the org's folders', r.ok && grantEntry?.kind === 'retool' && g1 !== g0 && d1 !== d0,
+    { r: r.json, d0, d1 })
+  r = await undo(grantEntry.id)
+  p.check('7b. undo lowers the raised ancestors and the org's folders exactly', r.ok && scopesNow() === g0 && orgDirs() === d0,
+    { r: r.json, d: orgDirs() })
+  r = await redo(grantEntry.id)
+  p.check('7b. redo raises them again exactly', r.ok && scopesNow() === g1 && orgDirs() === d1, r.json)
+  r = await op({ op: 'retool', node: 'boss', remove_dirs: [folder] })
+  const clampEntry = r.json?.history_entry
+  const g2 = scopesNow()
+  p.check('7b. RED control: removing boss's folder clamped it from carol', r.ok && clampEntry?.kind === 'retool'
+    && !JSON.stringify(row('carol').scope?.add_dirs ?? []).includes('undo-proof'), r.json)
+  r = await undo(clampEntry.id)
+  p.check('7b. undo hands the clamped folder back beneath, exactly', r.ok && scopesNow() === g1 && orgDirs() === d1, r.json)
+  r = await redo(clampEntry.id)
+  p.check('7b. redo clamps it again', r.ok && scopesNow() === g2, r.json)
+  const toolChange = await rig.tool('boss', 'orgtree_retool', { node: 'carol', org_visibility: 'team' })
+  const g3 = scopesNow()
+  r = await undo(clampEntry.id)
+  p.check('7b. a clamped row changed since refuses the undo with its reason, restoring nothing', !r.ok && r.json?.code === 'history_conflict'
+    && /carol/.test(r.json?.reason ?? '') && scopesNow() === g3, { tool: toolChange, r: r.json })
 
   // ---- 8. data never leaves; feed record; bound; restart
   h = await hist()

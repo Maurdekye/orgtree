@@ -38,6 +38,9 @@ pub const RECORDED_OPS: &[&str] = &["move", "moves", "reorder", "promote", "demo
 const SCOPE_FIELDS: &[&str] = &["add_dirs", "tools", "org_visibility", "permission_mode", "effort", "model_version", "account_fallback", "auto_cheap_compact"];
 /// Step fields that may name an earlier step's agent (`"$0.node"`).
 const REF_FIELDS: &[&str] = &["node", "target", "parent", "new_parent", "above", "before", "after"];
+/// Org settings a user grant may raise (folders by the scope save; all four
+/// by a retool reaching the top level).
+const ORG_KEYS: &[&str] = &["dirs", "default_tools", "default_visibility", "permission_mode"];
 /// Request metadata, never passed on to an operation.
 const META: &[&str] = &["history_label", "request_id"];
 
@@ -345,6 +348,61 @@ fn opt_id(v: &Value) -> Option<i64> {
     v.as_i64()
 }
 
+/// The agents a retool of `ids` can raise or clamp besides themselves: their
+/// ancestors and everything beneath them (deleted rows excluded).
+#[logged]
+async fn around(tx: &Transaction<'_>, ids: &[i64]) -> Result<Vec<i64>> {
+    let rows = tx.query(
+        "WITH RECURSIVE up(id, parent_id, d) AS (
+             SELECT id, parent_id, 0 FROM ot.agents WHERE id = ANY($1)
+           UNION ALL
+             SELECT a.id, a.parent_id, u.d + 1 FROM ot.agents a JOIN up u ON a.id = u.parent_id WHERE u.d < 1024),
+         down(id, d) AS (
+             SELECT id, 0 FROM ot.agents WHERE id = ANY($1)
+           UNION ALL
+             SELECT c.id, w.d + 1 FROM ot.agents c JOIN down w ON c.parent_id = w.id WHERE c.state <> 'deleted' AND w.d < 1024)
+         SELECT DISTINCT x.id FROM (SELECT id FROM up UNION SELECT id FROM down) x
+           JOIN ot.agents a ON a.id = x.id
+          WHERE a.state <> 'deleted' AND NOT (x.id = ANY($1)) ORDER BY x.id",
+        &[&ids]).await?;
+    Ok(rows.iter().map(|r| r.get(0)).collect())
+}
+
+/// Stored scopes, locked, in id order.
+#[nolog]
+async fn scopes(tx: &Transaction<'_>, ids: &[i64]) -> Result<Vec<(i64, Value)>> {
+    let rows = tx.query("SELECT id, scope FROM ot.agents WHERE id = ANY($1) ORDER BY id FOR UPDATE", &[&ids]).await?;
+    Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
+/// The org settings a grant may raise, as stored (absent marked).
+#[nolog]
+async fn org_keys(tx: &Transaction<'_>, org: i64) -> Result<Map<String, Value>> {
+    let settings: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org]).await?.get(0);
+    Ok(ORG_KEYS.iter().map(|k| ((*k).to_string(), settings.get(*k).cloned().unwrap_or_else(absent))).collect())
+}
+
+/// What a retool did to other rows: `{scopes: [{agent, before, after}], org: {key: {before, after}}}`.
+#[nolog]
+fn side_diff(before: &[(i64, Value)], after: &[(i64, Value)], org_before: &Map<String, Value>, org_after: &Map<String, Value>) -> Value {
+    let mut sc = Vec::new();
+    for (id, b) in before {
+        if let Some((_, a)) = after.iter().find(|(x, _)| x == id) {
+            if a != b {
+                sc.push(json!({ "agent": id, "before": b, "after": a }));
+            }
+        }
+    }
+    let mut o = Map::new();
+    for (k, b) in org_before {
+        let a = org_after.get(k).cloned().unwrap_or_else(absent);
+        if a != *b {
+            o.insert(k.clone(), json!({ "before": b, "after": a }));
+        }
+    }
+    json!({ "scopes": sc, "org": o })
+}
+
 // ------------------------------------------------------------ the head
 
 /// The org's history head: created on first use, locked for the transaction.
@@ -447,6 +505,10 @@ async fn history_now(engine: &Engine, org: i64) -> Result<Value> {
 struct Pending {
     ops: Vec<(usize, Effects)>,
     scopes: Vec<(usize, crate::http::nodes::ScopeEffects)>,
+    /// agents whose scope an inverse wrote back directly
+    rescoped: Vec<i64>,
+    /// the org's settings were written back directly
+    org_settings: bool,
 }
 
 #[logged]
@@ -456,6 +518,19 @@ async fn publish(engine: &Arc<Engine>, org: &Arc<OrgHandle>, pending: Pending, r
     }
     for (i, sfx) in pending.scopes {
         results[i] = crate::http::nodes::apply_scope_effects(engine, org, sfx).await;
+    }
+    let mut ch: Vec<crate::changes::Change> = pending.rescoped.iter().map(|id| crate::changes::Change::Agent(*id)).collect();
+    if pending.org_settings {
+        ch.push(crate::changes::Change::Org);
+    }
+    if !ch.is_empty() {
+        crate::changes::notify(engine, org, ch);
+    }
+    // their effective scope changed: the running CLIs pick it up
+    for id in &pending.rescoped {
+        if let Some(h) = engine.agents.get(*id) {
+            h.send(crate::runtime::AgentMsg::Reconfigured);
+        }
     }
 }
 
@@ -567,6 +642,18 @@ async fn gesture_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value
             }
         }
     }
+    // a retool also raises ancestors and the org's grants and clamps the
+    // agents beneath: their stored values before, to restore exactly
+    let mains: Vec<i64> = retool_before.iter().map(|(id, _)| *id).collect();
+    // the agents' own stored scopes too, so a restore is exact, not only field-equal
+    let side_ids = if kind == "retool" {
+        let mut ids = around(&tx, &mains).await?;
+        ids.extend(&mains);
+        ids.sort_unstable();
+        ids
+    } else { Vec::new() };
+    let side_before = scopes(&tx, &side_ids).await?;
+    let org_before = if kind == "retool" { Some(org_keys(&tx, org.id).await?) } else { None };
     let mut results: Vec<Value> = Vec::new();
     let mut pending = Pending::default();
     let mut step_agents: Vec<Option<i64>> = Vec::new();
@@ -644,7 +731,18 @@ async fn gesture_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value
                 too_large |= members.len() > MAX_MEMBERS;
                 retires.push(json!({ "root": root, "before": place_json(b), "members": members }));
             }
-            if too_large || retires.is_empty() { None } else { Some(json!({ "retires": retires })) }
+            if retires.is_empty() {
+                None
+            } else if too_large {
+                // recorded, so Ctrl+Z never silently skips it, but refused when reached
+                // (coordinator 2026-10-14 19:07Z)
+                let n: usize = retires.iter().map(|r| 1 + r["members"].as_array().map_or(0, Vec::len)).sum();
+                for r in &mut retires { r["members"] = json!([]); }
+                Some(json!({ "retires": retires, "team": true,
+                             "not_undoable": format!("this retire is too large to undo ({n} agents; at most {MAX_MEMBERS} per team)") }))
+            } else {
+                Some(json!({ "retires": retires }))
+            }
         }
         _ => {
             let mut agents = Vec::new();
@@ -661,7 +759,12 @@ async fn gesture_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value
                     agents.push(json!({ "agent": id, "fields": fields }));
                 }
             }
-            if agents.is_empty() { None } else { Some(json!({ "agents": agents })) }
+            let side_after = scopes(&tx, &side_ids).await?;
+            let org_after = org_keys(&tx, org.id).await?;
+            let side = side_diff(&side_before, &side_after, org_before.as_ref().unwrap_or(&Map::new()), &org_after);
+            let side_changed = side["scopes"].as_array().is_some_and(|a| !a.is_empty())
+                || side["org"].as_object().is_some_and(|o| !o.is_empty());
+            if agents.is_empty() && !side_changed { None } else { Some(json!({ "agents": agents, "side": side })) }
         }
     };
     let mut out = json!({ "results": results, "history_entry": Value::Null });
@@ -712,7 +815,7 @@ async fn default_label(tx: &Transaction<'_>, org: i64, kind: &str, data: &Value)
             let r = data["retires"].as_array().cloned().unwrap_or_default();
             match r.len() {
                 1 => {
-                    let team = r[0]["members"].as_array().map_or(0, Vec::len);
+                    let team = r[0]["members"].as_array().map_or(0, Vec::len) + usize::from(data["team"] == true);
                     let root = name(&r[0]["root"]).await;
                     if team > 0 { format!("Retire {root} and its team") } else { format!("Retire {root}") }
                 }
@@ -1040,6 +1143,9 @@ async fn apply_hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction
 
 #[nolog]
 async fn apply_retire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, dir: Dir, data: &Value, pending: &mut Pending) -> Result<Value> {
+    if let Some(why) = data["not_undoable"].as_str() {
+        refuse!(Conflict, "{why}");
+    }
     let retires = data["retires"].as_array().cloned().unwrap_or_default();
     let mut next = data.clone();
     match dir {
@@ -1149,6 +1255,33 @@ async fn apply_retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
             }
         }
     }
+    // every other row the entry touched must stand as it left them
+    let side = &data["side"];
+    let recorded: Vec<(i64, Value)> = side["scopes"].as_array().into_iter().flatten()
+        .filter_map(|x| opt_id(&x["agent"]).map(|id| (id, x.clone()))).collect();
+    for (id, x) in &recorded {
+        let (name, state) = who(tx, org.id, *id).await?;
+        if state == "deleted" { refuse!(Conflict, "{name} was deleted"); }
+        let now: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR UPDATE", &[id]).await?.get(0);
+        if now != x[from] {
+            refuse!(Conflict, "{name}'s folders, tools or permissions were changed since (this entry changed them too)");
+        }
+    }
+    let org_now = org_keys(tx, org.id).await?;
+    let org_rec = side["org"].as_object().cloned().unwrap_or_default();
+    for (k, f) in &org_rec {
+        if org_now.get(k).cloned().unwrap_or_else(absent) != f[from] {
+            refuse!(Conflict, "the organization's {} was changed since (this entry changed it too)", k.replace('_', " "));
+        }
+    }
+    // what the inverse may touch besides the entry's own rows stays as it is now
+    let mains: Vec<i64> = agents.iter().filter_map(|a| opt_id(&a["agent"])).collect();
+    let mut ids = around(tx, &mains).await?;
+    for id in recorded.iter().map(|(id, _)| *id).chain(mains.iter().copied()) {
+        if !ids.contains(&id) { ids.push(id); }
+    }
+    ids.sort_unstable();
+    let keep = scopes(tx, &ids).await?;
     for a in &agents {
         let Some(id) = opt_id(&a["agent"]) else { continue };
         let (name, _) = who(tx, org.id, id).await?;
@@ -1167,7 +1300,35 @@ async fn apply_retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
             let sfx = crate::http::nodes::apply_user_scope_in_tx(engine, org, tx, &name, &body, None).await?;
             pending.scopes.push((pending.scopes.len(), sfx));
         }
-        // every field must now stand as recorded; anything else is not this entry's inverse
+    }
+    // the other rows exactly: the entry's recorded side, everything else as it was
+    // (coordinator 2026-10-14 19:07Z: restore ancestors' and the org's grants and
+    // the folders clamped beneath, or refuse)
+    for (id, was) in &keep {
+        let want = recorded.iter().find(|(x, _)| x == id).map(|(_, x)| x[to].clone()).unwrap_or_else(|| was.clone());
+        let now: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[id]).await?.get(0);
+        if now != want {
+            tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[id, &want]).await?;
+            pending.rescoped.push(*id);
+        }
+    }
+    let mut settings: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org.id]).await?.get(0);
+    let before_settings = settings.clone();
+    for k in ORG_KEYS {
+        let want = org_rec.get(*k).map(|f| f[to].clone()).unwrap_or_else(|| org_now.get(*k).cloned().unwrap_or_else(absent));
+        if let Some(o) = settings.as_object_mut() {
+            if is_absent(&want) { o.remove(*k); } else { o.insert((*k).to_string(), want); }
+        }
+    }
+    if settings != before_settings {
+        tx.execute("UPDATE ot.orgs SET settings = $2, row_version = row_version + 1 WHERE id = $1", &[&org.id, &settings]).await?;
+        pending.org_settings = true;
+    }
+    // every field must now stand as recorded; anything else is not this entry's inverse
+    for a in &agents {
+        let Some(id) = opt_id(&a["agent"]) else { continue };
+        let (name, _) = who(tx, org.id, id).await?;
+        let fields = a["fields"].as_object().cloned().unwrap_or_default();
         let Some(now) = retool_facts(tx, org.id, id).await? else { refuse!(Conflict, "{name} no longer exists") };
         for (k, f) in &fields {
             if now.get(k).cloned().unwrap_or_else(absent) != f[to] {
