@@ -1107,6 +1107,8 @@ export interface CanvasNode {
   read_only?: boolean
   detail_rev?: string | null
   busy?: boolean
+  /** When the running turn was admitted (TreeNode's); null while idle. */
+  turn_started_at?: string | null
   /** D-201 warm-process cache state. Synthetic canvas cards never have one. */
   proc_warm?: boolean
   proc_live?: boolean

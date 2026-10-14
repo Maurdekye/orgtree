@@ -1517,8 +1517,9 @@ export function markBusy(slug: string, nid: string): void {
   const c = entry(k).s.chat
   if (c && !c.busy) {
     // Optimistic send starts a NEW turn. Do not carry the previous turn's
-    // activity latch across the interval before the server's first refresh.
-    patch(k, { chat: { ...c, busy: true, turn_activity: false } })
+    // activity latch, or its start, across the interval before the server's
+    // first refresh: until then no call is this turn's.
+    patch(k, { chat: { ...c, busy: true, turn_activity: false, turn_started_at: null } })
   }
 }
 

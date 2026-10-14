@@ -1,7 +1,7 @@
 import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ToolTimes, ToolWritingLine, TurnActiveContext } from '../src/canvas/toolclock'
+import { RunningTurnContext, ToolTimes, ToolWritingLine, TurnActiveContext } from '../src/canvas/toolclock'
 import { Msg, ToolChip } from '../src/canvas/desk'
 import { ingestStream, refreshConvo, resetConvos, useConvo } from '../src/convo'
 import type { ChatMessage, ChatTransient } from '../src/types'
@@ -57,7 +57,9 @@ test('executing chips use a play arrow and an immediate icon-only clock, then ke
   useFakeClock()
   const start = new Date(Date.now()).toISOString()
   const chip = { id: 'running', name: 'Bash', arg: 'echo hi', writing_secs: 3.1, started_at: start }
-  const render = (tool = chip, active = true) => <TurnActiveContext.Provider value={active}><ToolChip t={tool} slug="org" nid="worker" /></TurnActiveContext.Provider>
+  // the call's own turn, admitted as the call started
+  const render = (tool = chip, active = true) => <TurnActiveContext.Provider value={active}><RunningTurnContext.Provider value={start}>
+    <ToolChip t={tool} slug="org" nid="worker" /></RunningTurnContext.Provider></TurnActiveContext.Provider>
   const view = await mountView(render(), el => el.textContent ?? '')
   t.after(async () => { await view.unmount(); realClock() })
   // Icon spans leave adjacent text-node spaces; the browser collapses them.

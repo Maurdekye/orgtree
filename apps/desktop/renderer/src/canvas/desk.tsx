@@ -8,7 +8,7 @@ import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
-import { ToolTimes, TurnActiveContext } from './toolclock'
+import { newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
@@ -3189,6 +3189,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     busy: Boolean(node.busy || chat?.busy),
   })
   const turnActive = turnBannerState !== 'idle'
+  // when the running turn was admitted, from the newer of the two copies
+  // (the chat payload's and the node's): only that turn's calls are timed
+  // live, never one an earlier turn left open
+  const turnStart = turnActive ? newerStamp(chat?.turn_started_at, node.turn_started_at) : null
   // Waiting for a slot and compacting are desk activity, but neither proves
   // this CLI is claimed. The process cue lights only for an actual busy turn.
   const processActive = node.halt?.phase !== 'halted' && Boolean(node.busy || chat?.busy)
@@ -4243,6 +4247,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // recenter-on-click
   return (
     <TurnActiveContext.Provider value={turnActive}>
+    <RunningTurnContext.Provider value={turnStart}>
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
       // ESCAPE CANCELS A PREPARED REPLY, exactly as its × does (user
       // 2026-10-13). It bubbles, so anything that already took this Escape —
@@ -4292,6 +4297,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       }}>
       <div className={(bare || surface?.detached ? 'desk-body eye-chat' : 'desk-inner desk-body') + providerClass + processClass}>{content}</div>
     </div></fieldset>
+    </RunningTurnContext.Provider>
     </TurnActiveContext.Provider>
   )
 }
@@ -4797,9 +4803,9 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   // canvas/foldstate.tsx for why a component-local `useState` could not
   // survive the row being re-keyed mid-stream
   const [open, toggleOpen] = useFold(toolFoldKey(t))
-  const turnActive = useContext(TurnActiveContext)
+  const live = useLiveCall(t.started_at)
   const writing = !!t.writing_started_at
-  const running = turnActive && !writing && !!t.started_at && !t.ended_at && t.result === undefined && !t.error
+  const running = live && !writing && !!t.started_at && !t.ended_at && t.result === undefined && !t.error
   const shellError = isFailedShellCall(t)
   const expandable = true
   if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}

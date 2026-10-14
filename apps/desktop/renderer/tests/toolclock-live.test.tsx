@@ -1,7 +1,7 @@
 import { advance, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { RunningTimer, ToolTimes, ToolWritingLine, TurnActiveContext } from '../src/canvas/toolclock'
+import { RunningTimer, RunningTurnContext, ToolTimes, ToolWritingLine, TurnActiveContext } from '../src/canvas/toolclock'
 
 const text = (el: Element) => el.textContent?.replace(/\s+/g, ' ').trim()
 test('offset writing timer changes only on the actual whole-second boundaries', async t => {
@@ -19,7 +19,9 @@ test('offset writing timer changes only on the actual whole-second boundaries', 
 test('execution timer shares whole-second boundaries and respects active turn state', async t => {
   useFakeClock()
   const start = new Date(Date.now() - 200).toISOString()
-  const render = (active = true) => <TurnActiveContext.Provider value={active}><RunningTimer startedAt={start} /></TurnActiveContext.Provider>
+  // the call's own turn, admitted as the call started
+  const render = (active = true) => <TurnActiveContext.Provider value={active}><RunningTurnContext.Provider value={start}>
+    <RunningTimer startedAt={start} /></RunningTurnContext.Provider></TurnActiveContext.Provider>
   const view = await mountView(render(), text)
   t.after(async () => { await view.unmount(); realClock() })
   assert.equal(view.last(), '· 0s')

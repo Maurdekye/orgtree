@@ -462,6 +462,10 @@ export interface TreeNode {
   lineage: LineageEntry[]
   // ---- api.py annotate() — live supervisor state layered on the projection
   busy: boolean
+  /** When the running turn was admitted; null while idle. A tool call that
+   *  started before it belongs to an earlier turn and is never timed live.
+   *  Missing on an older backend. */
+  turn_started_at?: string | null
   /** D-201: a parked CLI process is ready with this agent's current prompt.
    * False is a normal cold-cache condition, never a health/error signal. */
   proc_warm: boolean
@@ -1142,6 +1146,9 @@ export interface ChatPayload {
   has_older?: boolean
   transient?: ChatTransient[]
   busy: boolean
+  /** When the running turn was admitted (the node's `turn_started_at`);
+   *  null while idle. Missing on an older backend. */
+  turn_started_at?: string | null
   /** The current busy turn has produced at least one observable event.
    *  Missing on an older backend and therefore treated as false. */
   turn_activity?: boolean

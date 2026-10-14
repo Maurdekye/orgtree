@@ -3,10 +3,42 @@ import { EditIcon, ArrowRightIcon } from '../icons'
 import type { ToolChip } from '../types'
 
 /** Whether the desk this transcript belongs to has a turn running. A tool call
- *  with no result only counts up while it does: a call left open by an
- *  interrupted or restarted turn shows no timer. Histories and other read-only
- *  surfaces leave the default (false). */
+ *  with no result only counts up while its own turn runs (`RunningTurnContext`):
+ *  a call left open by an interrupted, restarted or earlier turn shows no
+ *  timer. Histories and other read-only surfaces leave the default (false). */
 export const TurnActiveContext = createContext(false)
+
+/** When the turn running on this desk was admitted (the engine's
+ *  `turn_started_at`), or null: none runs, or the desk does not know which
+ *  yet (the composer marks a desk busy before its turn exists). Every call of
+ *  that turn started after it. A call that started before it belongs to an
+ *  earlier turn, and one that turn left open is never timed live again
+ *  (user report 2026-10-14: yesterday's call counting "23h 08m"). */
+export const RunningTurnContext = createContext<string | null>(null)
+
+/** Whether a call that started at `startedAt` is the running turn's, by the
+ *  engine's own stamps. */
+export function ofRunningTurn(startedAt: unknown, turnStart: string | null): boolean {
+  if (typeof startedAt !== 'string' || typeof turnStart !== 'string') return false
+  const call = Date.parse(startedAt), turn = Date.parse(turnStart)
+  return Number.isFinite(call) && Number.isFinite(turn) && call >= turn
+}
+
+/** The later of the two turn starts a desk holds (its chat payload's and its
+ *  node's): an older one can only be a turn that has ended. */
+export function newerStamp(a?: string | null, b?: string | null): string | null {
+  const ok = (s?: string | null): s is string => typeof s === 'string' && Number.isFinite(Date.parse(s))
+  if (!ok(a)) return ok(b) ? b : null
+  if (!ok(b)) return a
+  return Date.parse(a) >= Date.parse(b) ? a : b
+}
+
+/** A call is timed live only while its own turn runs on this desk. */
+export function useLiveCall(startedAt: unknown): boolean {
+  const active = useContext(TurnActiveContext)
+  const turnStart = useContext(RunningTurnContext)
+  return active && ofRunningTurn(startedAt, turnStart)
+}
 
 /** "840 ms", "1.2s", "12s", "1m 05s", "1h 02m". */
 export function formatDuration(ms: number): string {
@@ -50,9 +82,12 @@ function useLiveDuration(startedAt?: string, active = true): string {
   return active && Number.isFinite(start) ? `${Math.floor(Math.max(0, now - start) / 1000)}s` : ''
 }
 
-/** Generation starts immediately at the observed block start, never after a threshold. */
+/** Generation starts immediately at the observed block start, never after a
+ *  threshold. A call known to be an earlier turn's is not timed. */
 export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?: string }) {
-  const elapsed = useLiveDuration(startedAt)
+  const turnStart = useContext(RunningTurnContext)
+  const earlier = turnStart !== null && !ofRunningTurn(startedAt, turnStart)
+  const elapsed = useLiveDuration(startedAt, !earlier)
   return <span className="tool-writing" aria-label={`Writing ${name || 'tool call'}`}>
     <EditIcon fontSize="inherit" />
     {elapsed && <span title={'Writing ' + (name || 'tool call') + ': writing time so far'}> {elapsed}</span>}
@@ -60,7 +95,7 @@ export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?:
 }
 
 export function ToolTimes({ tool }: { tool: ToolChip }) {
-  const turnActive = useContext(TurnActiveContext)
+  const live = useLiveCall(tool.started_at)
   const writing = typeof tool.writing_secs === 'number' ? formatDuration(tool.writing_secs * 1000) : ''
   const ran = executionTime(tool.started_at, tool.ended_at)
   const finished = tool.result !== undefined || !!tool.error || !!tool.ended_at
@@ -70,7 +105,7 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
         {' · '}<EditIcon fontSize="inherit" /> {writing || '—'}</span>}
     {ran ? <span className="dim tool-exec-time" title="execution time" aria-label={`ran for ${ran}`}>
       {' · '}<ArrowRightIcon fontSize="inherit" /> {ran}</span>
-      : !tool.writing_started_at && turnActive && typeof tool.started_at === 'string' && Number.isFinite(Date.parse(tool.started_at)) && tool.result === undefined && !tool.error
+      : !tool.writing_started_at && live && typeof tool.started_at === 'string' && tool.result === undefined && !tool.error
         ? <RunningTimer startedAt={tool.started_at} />
         : !tool.writing_started_at && (finished || tool.started_at)
           ? <span className="dim tool-exec-time" title="Execution time was not observed for this call" aria-label="execution time unavailable">{' · '}<ArrowRightIcon fontSize="inherit" /> —</span> : null}
@@ -78,10 +113,10 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
 }
 
 /** A call still waiting for its result: a live count of how long it has run,
- *  shown immediately, only while the turn is active. */
+ *  shown immediately, only while its own turn runs. */
 export function RunningTimer({ startedAt }: { startedAt: string }) {
-  const turnActive = useContext(TurnActiveContext)
-  const elapsed = useLiveDuration(startedAt, turnActive)
+  const live = useLiveCall(startedAt)
+  const elapsed = useLiveDuration(startedAt, live)
   if (!elapsed) return null
   return <span className="dim tool-running" title="execution time so far" aria-label={'running for ' + elapsed}> · <ArrowRightIcon fontSize="inherit" /> {elapsed}</span>
 }
