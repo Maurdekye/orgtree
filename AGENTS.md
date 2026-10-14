@@ -1984,7 +1984,12 @@ rulings go here and on their ticket.
   same way in the 4.x code: hidden until `agy models` lists it, then offered like the
   other two. [decided: user 2026-10-10; verified: `providers/catalog.rs`,
   `providers/mod.rs` `agy_offers` test, `tests/carbon.test.tsx`]
-  4.x reads the registry on every provider discovery (start, then every 5 minutes):
+  4.x reads the registry when it matters, never by polling: once at engine start, and on
+  `POST /api/providers/agy-models/refresh`, which every model choice sends as it opens
+  (hire sheet and menus, agent Model tab, rehire list, hire defaults, quick staffing,
+  Quick chat's model pop-up, the Providers tab: `useAgyModelsRefresh`/`refreshAgyModels`).
+  One read in flight, a result under 30 s reused; a changed list is republished live
+  (`providers::refresh_agy_models`). [decided: user 2026-10-14] The read is
   `agy --log-file diagnostics/agy-probe/models-probe.log models`, rows `<id>	<label>`.
   A failed or empty read (signed out) offers none of the three; the hire strips,
   staffing and `orgtree_list_tiers` all follow `providers::agy_offered`. A hire, a model
@@ -1992,7 +1997,7 @@ rulings go here and on their ticket.
   (`ops::agy_admit`, 3.x `provider_hire_gate`); a plain rehire on the stored tier is not
   gated and running seats are never touched. [decided: coordinator 2026-10-14, 3.x parity] Until
   2026-10-14 the port never filled `agy_models`, so none was ever offered. Rig:
-  `fakecli/agy-models.txt`, `up --discoveryS N`. [verified: `providers/agy_models.rs`,
+  `fakecli/agy-models.txt`. [verified: `providers/agy_models.rs`,
   `tools/rig/proofs/agy-conditional-tiers.mjs`]
 - A provider that is not installed is absent from the UI; installed but signed out shows
   greyed hire tokens; a disabled provider refuses new hires while live agents keep running.
