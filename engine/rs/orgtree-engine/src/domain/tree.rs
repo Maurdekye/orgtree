@@ -393,6 +393,7 @@ pub fn idle_runtime() -> Vec<(String, Value)> {
         ("queued".into(), json!(0)),
         ("proc_warm".into(), json!(false)),
         ("proc_live".into(), json!(false)),
+        ("proc_held".into(), json!(false)),
         ("proc_relaunch".into(), json!(false)),
         ("proc_relaunch_reason".into(), Value::Null),
         ("proc_paused".into(), json!(false)),

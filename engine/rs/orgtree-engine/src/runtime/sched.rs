@@ -43,6 +43,17 @@ enum Msg {
 /// Idle CLI processes kept alive at most, machine-wide.
 pub const MAX_PARKED: usize = 64;
 
+/// The idle cap: `MAX_PARKED`, or in rig mode `ORGTREE_RIG_MAX_PARKED` (a
+/// proof's smaller cap, at least 1). Read once, when the scheduler starts.
+#[logged]
+fn max_parked() -> usize {
+    crate::rig::active()
+        .then(|| std::env::var("ORGTREE_RIG_MAX_PARKED").ok()?.trim().parse::<usize>().ok())
+        .flatten()
+        .filter(|n| *n >= 1)
+        .unwrap_or(MAX_PARKED)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SchedStats {
     pub limit: usize,
@@ -141,6 +152,7 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
         let mut queues: HashMap<i64, VecDeque<(i64, Lane, oneshot::Sender<Slot>, tracing::Span)>> = HashMap::new();
         let mut rotation: VecDeque<i64> = VecDeque::new();
         let mut parked: VecDeque<i64> = VecDeque::new();
+        let cap = max_parked();
         // turns running per language server
         let mut lanes: HashMap<String, usize> = HashMap::new();
         let sched = &engine.sched;
@@ -174,7 +186,7 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
                 Msg::Parked(agent) => {
                     parked.retain(|a| *a != agent);
                     parked.push_back(agent);
-                    while parked.len() > MAX_PARKED {
+                    while parked.len() > cap {
                         let Some(oldest) = parked.pop_front() else { break };
                         if let Some(h) = engine.agents.get(oldest) {
                             h.send(crate::runtime::AgentMsg::CloseIdle);

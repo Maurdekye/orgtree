@@ -61,6 +61,19 @@ impl Tasks {
         (self.running.len(), self.live.len())
     }
 
+    /// The task ran in the background (the CLI listed it as such, or its
+    /// call asked for it), not a foreground call the CLI also numbers.
+    #[nolog]
+    pub fn is_background(&self, task_id: &str) -> bool {
+        self.background.contains(task_id)
+    }
+
+    /// The tool call asked to run in the background (`run_in_background`).
+    #[nolog]
+    pub fn asked_background(&self, tool_use_id: &str) -> bool {
+        self.explicit_background.contains(tool_use_id)
+    }
+
     /// Every Claude stream line passes here. Returns a stopped background task
     /// the agent must be told about, if this line reports one.
     #[nolog]
@@ -246,6 +259,28 @@ impl Tasks {
     }
 }
 
+/// The exit code a task notification reports, read for the agent's wake
+/// note: its `exit_code`, else the last "exit code N" its summary names
+/// (Claude Code 2.1.292: `… completed (exit code 0)`, `… failed with exit
+/// code 3`; the summary quotes the command, which may say "exit" itself),
+/// else what `exit_code` finds. Never invented.
+#[logged]
+pub fn reported_exit_code(v: &Value) -> Option<i64> {
+    if let Some(c) = v["exit_code"].as_i64() {
+        return Some(c);
+    }
+    let summary = v["summary"].as_str().unwrap_or("").to_lowercase();
+    if let Some(at) = summary.rfind("exit code") {
+        let digits: String = summary[at + "exit code".len()..].trim_start().chars().enumerate()
+            .take_while(|(i, c)| c.is_ascii_digit() || (*i == 0 && *c == '-'))
+            .map(|(_, c)| c).collect();
+        if let Ok(c) = digits.parse() {
+            return Some(c);
+        }
+    }
+    exit_code(v)
+}
+
 /// The exit code a task notification reports, if any (never invented).
 #[logged]
 fn exit_code(v: &Value) -> Option<i64> {
@@ -301,6 +336,41 @@ fn non_empty(p: &Path) -> bool {
     std::fs::metadata(p).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
 }
 
+/// What a background command printed, from the `.output` file its
+/// notification names (Claude Code 2.1.292 hands the model only the file's
+/// path, never the output): at most `COMMAND_OUTPUT_MAX` bytes, and whether
+/// there was more. Only a `<task>.output` file inside the CLI's own folder in
+/// the temp directory is read. Blocking: call it on the blocking pool.
+#[nolog] // returns the command's output
+pub fn command_output(file: &str, task_id: &str) -> Option<(String, bool)> {
+    output_under(&std::env::temp_dir().join("claude"), file, task_id)
+}
+
+/// `command_output` with the CLI's folder given.
+#[nolog] // returns the command's output
+fn output_under(folder: &Path, file: &str, task_id: &str) -> Option<(String, bool)> {
+    use std::io::Read;
+    if task_id.is_empty() || Path::new(file).file_name()?.to_str()? != format!("{task_id}.output") {
+        return None;
+    }
+    let root = std::fs::canonicalize(folder).ok()?;
+    let real = std::fs::canonicalize(file).ok()?;
+    if !real.starts_with(&root) {
+        tracing::warn!(task = task_id, "a background task's output file is outside the CLI's folder; not read");
+        return None;
+    }
+    let mut buf = Vec::new();
+    std::fs::File::open(&real).ok()?.take(COMMAND_OUTPUT_MAX + 1).read_to_end(&mut buf).ok()?;
+    let more = buf.len() as u64 > COMMAND_OUTPUT_MAX;
+    buf.truncate(COMMAND_OUTPUT_MAX as usize);
+    tracing::info!(task = task_id, bytes = buf.len(), more, "read a background command's output");
+    Some((String::from_utf8_lossy(&buf).into_owned(), more))
+}
+
+/// The most of a background command's output read for its chip (the most a
+/// failed shell call keeps for reading on demand, `convo::retain_failed_shell_output`).
+pub const COMMAND_OUTPUT_MAX: u64 = 1024 * 1024;
+
 /// Orphan rows for the `runtime.subagent_died` card, with output files
 /// looked up for the first 20. Blocking: call it on the blocking pool.
 #[logged]
@@ -310,4 +380,63 @@ pub fn orphan_rows(session: Option<&str>, orphans: &[Orphan]) -> Vec<Value> {
             .or_else(|| if i < 20 { session.and_then(|s| task_output(s, &o.task_id)) } else { None });
         json!({ "id": o.task_id, "description": o.description, "output_file": out })
     }).collect()
+}
+
+#[cfg(test)]
+mod background_tests {
+    use super::*;
+
+    #[test]
+    fn a_snapshot_or_the_call_makes_a_task_background_and_a_foreground_call_never() {
+        let mut t = Tasks::default();
+        t.observe(&json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_bg","name":"Bash",
+            "input":{"command":"sleep 20","run_in_background":true}}]}}));
+        // measured on Claude Code 2.1.292: the snapshot comes before task_started
+        t.observe(&json!({"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","task_type":"local_bash","description":"sleep 20"}]}));
+        t.observe(&json!({"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"toolu_bg","is_backgrounded":true,"task_type":"local_bash"}));
+        // a foreground call gets a task id too, and is in no snapshot
+        t.observe(&json!({"type":"system","subtype":"task_started","task_id":"f1","tool_use_id":"toolu_fg","is_backgrounded":false,"task_type":"local_bash"}));
+        assert!(t.is_background("b1") && t.asked_background("toolu_bg"));
+        assert!(!t.is_background("f1") && !t.asked_background("toolu_fg"));
+        assert_eq!(t.counts().1, 1);
+        // its end: the notification, then an empty snapshot
+        let stopped = t.observe(&json!({"type":"system","subtype":"task_notification","task_id":"b1","tool_use_id":"toolu_bg",
+            "status":"completed","summary":"Background command \"sleep 20\" completed (exit code 0)"}));
+        assert!(stopped.is_none(), "a completed task is the CLI's to deliver");
+        t.observe(&json!({"type":"system","subtype":"background_tasks_changed","tasks":[]}));
+        assert_eq!(t.counts().1, 0);
+        assert!(t.is_background("b1"), "still known as background once it ended");
+    }
+
+    #[test]
+    fn the_reported_exit_code_is_the_last_the_summary_names() {
+        let v = |s: &str| json!({ "summary": s });
+        assert_eq!(reported_exit_code(&v("Background command \"npm test\" completed (exit code 0)")), Some(0));
+        assert_eq!(reported_exit_code(&v("Background command \"node exit.js\" failed with exit code 3")), Some(3));
+        assert_eq!(reported_exit_code(&json!({ "exit_code": 2, "summary": "failed with exit code 9" })), Some(2));
+        assert_eq!(reported_exit_code(&v("Background command \"npm test\" was killed")), None);
+    }
+
+    #[test]
+    fn a_command_output_is_read_only_from_the_clis_folder_and_bounded() {
+        let base = std::env::temp_dir().join(format!("orgtree-tasks-test-{}", std::process::id()));
+        let folder = base.join("claude");
+        let dir = folder.join("proj").join("session").join("tasks");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t1.output");
+        std::fs::write(&file, "line one\nline two\n").unwrap();
+        let path = file.to_string_lossy().to_string();
+        assert_eq!(output_under(&folder, &path, "t1"), Some(("line one\nline two\n".to_string(), false)));
+        // another task's name, or a file outside the CLI's folder, is never read
+        assert_eq!(output_under(&folder, &path, "t2"), None);
+        let outside = base.join("t1.output");
+        std::fs::write(&outside, "not the CLI's").unwrap();
+        assert_eq!(output_under(&folder, &outside.to_string_lossy(), "t1"), None);
+        // more than the cap: its first COMMAND_OUTPUT_MAX bytes, and more
+        let big = dir.join("t3.output");
+        std::fs::write(&big, vec![b'x'; COMMAND_OUTPUT_MAX as usize + 10]).unwrap();
+        let (text, more) = output_under(&folder, &big.to_string_lossy(), "t3").unwrap();
+        assert!(more && text.len() == COMMAND_OUTPUT_MAX as usize);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

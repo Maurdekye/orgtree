@@ -279,11 +279,36 @@ struct MuseBg {
     arg: String,
 }
 
-/// How often at most the cancels of turns a Muse host started by itself are
-/// warned about: a host holding a background result for an idle agent starts
-/// one again at once after each cancel (measured on Muse 1.4.6: every ~55 ms,
-/// 332 times in 19 s).
-const MUSE_CANCEL_WARN_EVERY: Duration = Duration::from_secs(60);
+/// Claude: a background task of the agent's CLI (a command run in the
+/// background, a background subagent) whose call's chip is known. It can
+/// outlive its turn, so it is followed by the actor until the CLI reports its
+/// end or the CLI ends.
+#[derive(Debug, Clone)]
+struct ClaudeBg {
+    /// the transcript row its chip is drawn in
+    seq: i64,
+    /// the call's tool-use id: its chip's id
+    tool: String,
+    name: String,
+    /// the chip's label
+    arg: String,
+    /// a shell command: what it printed is in the CLI's `.output` file
+    shell: bool,
+}
+
+/// How often at most the cancels of turns a CLI or Muse host started by
+/// itself are warned about: a Muse host holding a background result for an
+/// idle agent starts one again at once after each cancel (measured on Muse
+/// 1.4.6: every ~55 ms, 332 times in 19 s); Claude Code starts one per
+/// notification and does not retry it (2.1.292).
+const OWN_TURN_WARN_EVERY: Duration = Duration::from_secs(60);
+
+/// How long after a turn ends a turn the CLI or Muse host starts by itself
+/// shows that a background result which settled during that turn was not
+/// taken by it (its last model step had begun): each starts one at once when
+/// it holds a result and no turn runs (measured: Muse 15-40 ms after the
+/// result, Claude Code 40-110 ms).
+const BG_GRACE: Duration = Duration::from_secs(3);
 
 struct Turn {
     id: i64,
@@ -661,9 +686,32 @@ struct Actor {
     /// Muse: the calls Muse moved to the background, by item id, until their
     /// item settles or their host ends
     muse_bg: HashMap<String, MuseBg>,
-    /// Muse: turns the host started by itself that Orgtree cancelled since the
-    /// last warning about them, and when that warning was
-    muse_cancels: (u32, Option<Instant>),
+    /// Claude: background tasks whose chips are followed, by task id, until
+    /// the CLI reports their end or the CLI ends
+    claude_bg: HashMap<String, ClaudeBg>,
+    /// turns the CLI or Muse host started by itself that Orgtree cancelled
+    /// since the last warning about them, and when that warning was
+    own_cancels: (u32, Option<Instant>),
+    /// a background result reached the CLI while no turn ran: the CLI gives
+    /// it to the next turn on this process, which is therefore kept for it
+    bg_unread: bool,
+    /// Claude: wake notes for results that reached an idle CLI, held back
+    /// until the turn the CLI starts by itself for them is cancelled (so the
+    /// agent's own turn never races it), or until `bg_wake_due` if none comes
+    bg_wake: Vec<String>,
+    bg_wake_due: Option<Instant>,
+    /// Claude: the lines now arriving belong to a turn the CLI started by
+    /// itself, cancelled here, until its result or the next turn's start
+    claude_own: bool,
+    /// wake notes for background results that settled while a turn ran: that
+    /// turn took them, unless the CLI starts a turn of its own within
+    /// `BG_GRACE` of its end (`bg_grace`), which shows it did not
+    bg_in_turn: Vec<String>,
+    bg_grace: Option<Instant>,
+    /// the process is kept open only for its background work (warming off, or
+    /// warming switched off or the idle cap asked it to close): not parked,
+    /// so the idle cap neither counts nor evicts it (user 2026-10-14, gap 11)
+    held: bool,
     /// waking mail arrived while a turn ran: when (the unread-mail check, P36)
     steer_since: Option<Instant>,
     /// mail whose sender was already told it waits unread (this turn)
@@ -762,7 +810,15 @@ impl Actor {
             codex_total: None,
             tasks: Default::default(),
             muse_bg: HashMap::new(),
-            muse_cancels: (0, None),
+            claude_bg: HashMap::new(),
+            own_cancels: (0, None),
+            bg_unread: false,
+            bg_wake: Vec::new(),
+            bg_wake_due: None,
+            claude_own: false,
+            bg_in_turn: Vec::new(),
+            bg_grace: None,
+            held: false,
             steer_since: None,
             late_told: Default::default(),
             keepalive: None,
@@ -899,6 +955,9 @@ impl Actor {
         if let Some(at) = self.admit_retry {
             d = d.min(at);
         }
+        for at in [self.bg_wake_due, self.bg_grace].into_iter().flatten() {
+            d = d.min(at);
+        }
         if self.dormant() {
             d = d.min(self.idle_since + ACTOR_IDLE_EXIT + Duration::from_millis(50));
         }
@@ -924,7 +983,13 @@ impl Actor {
                 if now != seen || stale {
                     self.reconfigured |= stale;
                     self.update_forecast().await;
-                    self.replace_idle_process().await;
+                    // a process kept open for its background work is not
+                    // replaced for an edit, which would end that work: the
+                    // next turn still starts a fresh one (decision 61), and it
+                    // closes once the work is over
+                    if !self.held {
+                        self.replace_idle_process().await;
+                    }
                     self.publish();
                 }
             }
@@ -936,6 +1001,16 @@ impl Actor {
                 self.update_forecast().await;
                 self.publish();
             }
+        }
+        if self.bg_wake_due.is_some_and(|due| Instant::now() >= due) {
+            // the CLI started no turn of its own for these results: wake the agent anyway
+            self.send_held_wakes().await;
+        }
+        if self.bg_grace.is_some_and(|g| Instant::now() >= g) {
+            // no turn of the CLI's own followed: the turn they settled in took them
+            self.bg_grace = None;
+            self.bg_in_turn.clear();
+            self.release_held().await;
         }
         let (silent, over) = self.turn.as_ref().map_or((false, false), |t| {
             let idle_limit = self.engine.settings.turn_idle_s();
@@ -1166,6 +1241,11 @@ impl Actor {
             AgentMsg::Warm(reply) => {
                 let warm = self.warm().await;
                 let _ = reply.send(warm);
+            }
+            AgentMsg::CloseIdle if self.turn.is_none() && self.proc.is_some() && self.bg_pending() => {
+                // warming switched off, or the idle cap evicting it: its
+                // background work keeps it open, outside the cap, until it is over
+                self.hold();
             }
             AgentMsg::CloseIdle => {
                 if self.turn.is_none() && self.proc.is_some() {
@@ -3191,7 +3271,10 @@ impl Actor {
         }
         self.proc_print = None;
         self.proc_notes = None;
+        self.bg_reset();
+        self.claude_own = false;
         self.orphans("the CLI was closed");
+        self.claude_lost("the CLI was closed").await;
         self.muse_lost("the host was closed").await;
     }
 
@@ -3203,7 +3286,10 @@ impl Actor {
         }
         self.proc_print = None;
         self.proc_notes = None;
+        self.bg_reset();
+        self.claude_own = false;
         self.orphans("the CLI was stopped");
+        self.claude_lost("the CLI was stopped").await;
         self.muse_lost("the host was stopped").await;
     }
 
@@ -3272,6 +3358,8 @@ impl Actor {
 
     fn begin_turn(&mut self, mut turn: Turn) {
         self.unpark();
+        // the CLI gives this turn the background results it holds
+        self.bg_reset();
         self.steer_since = None;
         self.late_told.clear();
         turn.span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
@@ -3675,20 +3763,50 @@ impl Actor {
             t.last_event = Instant::now();
         }
         let counts = self.tasks.counts();
+        let mut reported = None;
         if let Some(stopped) = self.tasks.observe(&v) {
+            reported = Some(stopped.task_id.clone());
             let (engine, org_id, id) = (self.engine.clone(), self.org_id, self.id);
             let span = tracing::Span::current();
             tokio::spawn(tracing::Instrument::instrument(async move {
                 recovery::task_stopped(&engine, org_id, id, stopped).await;
             }, span));
         }
+        let sub = v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false);
+        if !sub && v["type"] == "system" {
+            match v["subtype"].as_str() {
+                Some("task_started") => self.follow_claude_background(&v),
+                Some("task_notification") => self.on_claude_late(&v, reported.as_deref()).await,
+                _ => {}
+            }
+        }
         if self.tasks.counts() != counts {
             self.publish();
+            // a process kept open for its background tasks closes when they are over
+            self.release_held().await;
         }
-        let sub = v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false);
         match v["type"].as_str() {
             Some("system") => match v["subtype"].as_str() {
-                Some("init") => self.on_init(&v),
+                Some("init") => {
+                    // a query starts: one the CLI started by itself before it is over
+                    self.claude_own = false;
+                    self.on_init(&v);
+                    if !sub && self.turn.is_none() {
+                        // a turn the CLI started by itself, to hand the model a
+                        // background task's notification (an idle CLI prints
+                        // nothing before its input: measured on 2.1.292). The
+                        // interrupt ends it before its model call; the
+                        // notification stays in the session for the next turn.
+                        if let Some(Proc::Claude(p)) = &self.proc {
+                            if !p.interrupt() {
+                                tracing::warn!(agent = %self.name, "the CLI could not be reached to cancel a turn it started by itself");
+                            }
+                        }
+                        self.claude_own = true;
+                        let session = v["session_id"].as_str().unwrap_or("").to_string();
+                        self.own_turn_cancelled("Claude Code CLI", &session).await;
+                    }
+                }
                 Some("compact_boundary") => {
                     let client = self.engine.db.get().await?;
                     crate::domain::runtime_notices::compacted(&self.engine,self.org_id,self.id,!self.turn.as_ref().map(|t|t.compact).unwrap_or(false)).await?;
@@ -3707,10 +3825,19 @@ impl Actor {
                     turn.limit_signal |= crate::account_marks::limit_signal(&v["rate_limit_info"]);
                 }
             }
+            // the lines of a turn the CLI started by itself are no turn's of the agent
+            Some("stream_event" | "assistant" | "user") if self.claude_own => {}
             Some("stream_event") if !sub => self.on_stream_event(&v["event"]),
             Some("assistant") if !sub => self.on_assistant(&v).await?,
             Some("user") if !sub => self.on_tool_results(&v).await?,
-            Some("result") => self.on_result(&v).await?,
+            Some("result") if self.claude_own => {
+                self.claude_own = false;
+                tracing::info!(agent = %self.name, subtype = ?v["subtype"], "the turn the CLI started by itself ended");
+            }
+            Some("result") if self.turn.is_some() => self.on_result(&v).await?,
+            Some("result") => {
+                tracing::info!(agent = %self.name, subtype = ?v["subtype"], "a result outside any turn; ignored");
+            }
             _ => {}
         }
         Ok(())
@@ -3831,19 +3958,11 @@ impl Actor {
             "turn/started" => {
                 if let Some(id) = p["turnId"].as_str().filter(|id| Some(*id) != ours.as_deref()) {
                     // a host holding a background result for an idle agent starts
-                    // one again at once after each cancel: counted, warned about
-                    // at most once a minute
-                    let (n, last) = &mut self.muse_cancels;
-                    *n += 1;
-                    if last.is_none_or(|at| at.elapsed() >= MUSE_CANCEL_WARN_EVERY) {
-                        tracing::warn!(agent = %self.name, turn = id, cancelled = *n,
-                            "cancelling turns the Muse host started by itself (Orgtree admits turns); count since the last such line");
-                        *n = 0;
-                        *last = Some(Instant::now());
-                    }
+                    // one again at once after each cancel
                     if let Some(Proc::Muse(m)) = &self.proc {
                         m.cancel_turn(id);
                     }
+                    self.own_turn_cancelled("Muse host", id).await;
                 }
             }
             "item/started" | "item/updated" | "item/completed" => {
@@ -4134,10 +4253,12 @@ impl Actor {
                     self.follow_muse_background(&id, &name, &input);
                     return Ok(());
                 }
-                if self.muse_bg.remove(&id).is_some() {
-                    // it finished inside its own turn, which Muse gives the result to
+                if let Some(bg) = self.muse_bg.remove(&id) {
+                    // it finished inside its own turn, which Muse gives the result
+                    // to, unless the turn's last model step had begun (`bg_result`)
                     tracing::info!(agent = %self.name, item = %id, tool = %name, status = ?item["status"],
                         "a Muse call moved to the background settled within its turn");
+                    self.bg_in_turn.push(muse_finished_note(&bg, item));
                     self.publish();
                 }
                 let (text, failed) = muse_result(item);
@@ -4228,16 +4349,16 @@ impl Actor {
     /// into the history just before it, when one of the turns Muse starts
     /// to deliver it, each cancelled here, takes it first). Its chip gets
     /// the result in the row it was drawn in, and an idle agent is woken
-    /// through its mailbox, so admission decides when it runs. The message
-    /// names the command and how it ended, never the output (no second copy).
+    /// through its mailbox (`bg_result`), so admission decides when it runs.
+    /// The message names the command and how it ended, never the output (no
+    /// second copy).
     async fn on_muse_late(&mut self, item: &Value) -> Result<()> {
         let id = item["itemId"].as_str().unwrap_or("").to_string();
         let Some(bg) = self.muse_bg.remove(&id) else { return Ok(()) };
         let (text, failed) = muse_result(item);
         let (_, input) = muse_tool(item);
         let reason = item["failureReason"].as_str().filter(|r| !r.is_empty()).map(str::to_string);
-        let idle = !self.stopping && self.turn.is_none() && self.waiting_since.is_none() && self.slot.is_none();
-        tracing::info!(agent = %self.name, item = %id, tool = %bg.name, status = ?item["status"], idle,
+        tracing::info!(agent = %self.name, item = %id, tool = %bg.name, status = ?item["status"], idle = self.idle_for_wake(),
             "a Muse call moved to the background settled after its turn");
         if let Err(e) = self
             .amend_chip(bg.seq, &id, |chip| {
@@ -4251,14 +4372,165 @@ impl Actor {
         {
             tracing::warn!(agent = %self.name, item = %id, error = %format!("{e:#}"), "the late result could not be written to its chip");
         }
-        if idle {
-            let note = muse_finished_note(&bg, item);
-            if let Err(e) = crate::domain::mail::system_wake(&self.engine, self.org_id, self.id, &note).await {
-                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "could not wake the agent for its finished background command");
-            }
-        }
+        self.bg_result(muse_finished_note(&bg, item), false).await;
         self.publish();
         Ok(())
+    }
+
+    /// A background result reached the CLI (a Muse item settling, Claude
+    /// Code's task notification) and the CLI gives it to the model itself,
+    /// once. A turn running now takes it, unless that turn's last model step
+    /// had begun: then the CLI starts a turn of its own right after it ends
+    /// (`own_turn_cancelled`), and only then is the agent woken for it. With
+    /// no turn running the CLI keeps it for the next turn on this process,
+    /// which is kept open for it (`bg_unread`), and an idle agent is woken
+    /// through its mailbox with `note`, so admission decides when that turn
+    /// runs. A turn already waiting for admission or a slot needs no note.
+    /// `defer` (Claude Code): the note waits for the turn the CLI starts by
+    /// itself 40-110 ms later to be cancelled; Muse's own turns carry ids, so
+    /// its note goes at once.
+    async fn bg_result(&mut self, note: String, defer: bool) {
+        if self.turn.is_some() {
+            self.bg_in_turn.push(note);
+            return;
+        }
+        self.bg_unread = true;
+        if !self.idle_for_wake() {
+            return;
+        }
+        if defer {
+            self.bg_wake.push(note);
+            if self.bg_wake_due.is_none() {
+                self.bg_wake_due = Some(Instant::now() + BG_GRACE);
+            }
+        } else {
+            self.wake_for(&note).await;
+        }
+    }
+
+    /// Send the wake notes held back for a turn the CLI starts by itself:
+    /// it was cancelled, or none came in time. Only an agent still idle gets
+    /// them; a turn on its way takes the results from the CLI anyway.
+    async fn send_held_wakes(&mut self) {
+        self.bg_wake_due = None;
+        let notes = std::mem::take(&mut self.bg_wake);
+        if notes.is_empty() || !self.idle_for_wake() {
+            return;
+        }
+        for note in &notes {
+            self.wake_for(note).await;
+        }
+    }
+
+    /// The agent waits for nothing: no turn runs, none waits for admission or
+    /// holds a slot, and the seat is not stopping.
+    #[nolog]
+    fn idle_for_wake(&self) -> bool {
+        !self.stopping && self.turn.is_none() && self.waiting_since.is_none() && self.slot.is_none()
+    }
+
+    /// Wake the agent through its mailbox with a system message about its
+    /// background work (admission decides when its turn runs).
+    async fn wake_for(&self, note: &str) {
+        if let Err(e) = crate::domain::mail::system_wake(&self.engine, self.org_id, self.id, note).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "could not wake the agent about its background work");
+        }
+    }
+
+    /// The CLI or Muse host started a turn of its own, to hand the model a
+    /// background result (Claude Code's task notification, Muse's inbox);
+    /// the caller has cancelled it, as Orgtree admits turns. The result stays
+    /// in the session for the next turn (measured: Claude Code 2.1.292 keeps
+    /// the interrupted turn's notification, Muse 1.4.6 its inbox or the
+    /// cancelled turn's history). Warned about at most once a minute, with
+    /// the count. Results that settled during the turn that just ended were
+    /// evidently not taken by it: the agent is woken for them now when idle,
+    /// and the process is kept for the turn that takes them.
+    async fn own_turn_cancelled(&mut self, harness: &str, turn: &str) {
+        let (n, last) = &mut self.own_cancels;
+        *n += 1;
+        if last.is_none_or(|at| at.elapsed() >= OWN_TURN_WARN_EVERY) {
+            tracing::warn!(agent = %self.name, turn, cancelled = *n,
+                "cancelling turns the {harness} started by itself (Orgtree admits turns); count since the last such line");
+            *n = 0;
+            *last = Some(Instant::now());
+        }
+        if self.turn.is_some() {
+            return;
+        }
+        self.send_held_wakes().await;
+        if self.bg_in_turn.is_empty() || !self.bg_grace.is_some_and(|g| Instant::now() <= g) {
+            return;
+        }
+        let notes = std::mem::take(&mut self.bg_in_turn);
+        self.bg_grace = None;
+        self.bg_unread = true;
+        let idle = self.idle_for_wake();
+        tracing::info!(agent = %self.name, results = notes.len(), idle,
+            "background results that settled during the last turn were not taken by it");
+        if idle {
+            for note in &notes {
+                self.wake_for(note).await;
+            }
+        }
+    }
+
+    /// Background work keeps the process open instead of closing it (user
+    /// 2026-10-14, gap 11): with warming off at its turn's end, and when
+    /// warming is switched off or the idle cap asks it to close. It is not
+    /// parked, so the idle cap neither counts nor evicts it, and it closes
+    /// once the work is over (`release_held`).
+    fn hold(&mut self) {
+        self.unpark();
+        self.keep_until = None;
+        if !self.held {
+            self.held = true;
+            tracing::info!(agent = %self.name, running = self.bg_running(), unread = self.bg_unread, settled_in_turn = self.bg_in_turn.len(),
+                "the process stays open for its background work");
+        }
+        self.publish();
+    }
+
+    /// A process kept open for its background work closes once that work is
+    /// over, as it would have at its turn's end: nothing runs in the
+    /// background, the CLI owes no turn a result, and no result that settled
+    /// during the last turn is still unaccounted for.
+    async fn release_held(&mut self) {
+        if !self.held || self.turn.is_some() || self.bg_pending() {
+            return;
+        }
+        tracing::info!(agent = %self.name, "its background work is over; the process kept open for it closes");
+        self.close_proc().await;
+        self.update_forecast().await;
+        self.publish();
+    }
+
+    /// Background tasks and commands running now: Claude Code's (its live set)
+    /// and the calls Muse moved to the background.
+    #[nolog]
+    fn bg_running(&self) -> usize {
+        self.tasks.counts().1 + self.muse_bg.len()
+    }
+
+    /// Background work the process still holds: something running, a result
+    /// the CLI owes the next turn, or results that settled during the last
+    /// turn while it is not yet clear that turn took them.
+    #[nolog]
+    fn bg_pending(&self) -> bool {
+        self.bg_running() > 0 || self.bg_unread || !self.bg_in_turn.is_empty()
+    }
+
+    /// Nothing is held for background work or owed by the CLI any more: the
+    /// process is gone, or a turn starts on it (the CLI gives that turn what
+    /// it holds). Commands still running stay followed.
+    #[nolog]
+    fn bg_reset(&mut self) {
+        self.held = false;
+        self.bg_unread = false;
+        self.bg_wake.clear();
+        self.bg_wake_due = None;
+        self.bg_in_turn.clear();
+        self.bg_grace = None;
     }
 
     /// Change one tool chip of a transcript row and save the row: the running
@@ -4319,6 +4591,100 @@ impl Actor {
             let note = muse_lost_note(&lost, reason);
             if let Err(e) = crate::domain::mail::system_wake(&self.engine, self.org_id, self.id, &note).await {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "could not tell the agent its background commands ended with the host");
+            }
+        }
+        self.publish();
+    }
+
+    /// Claude Code started a task (`task_started`): when it runs in the
+    /// background and its call's chip is in the running turn, it is followed
+    /// from now on, past its turn, until the CLI reports its end or ends.
+    /// Foreground calls get a task id too (measured on 2.1.292) and are not.
+    #[nolog] // every task start
+    fn follow_claude_background(&mut self, v: &Value) {
+        let (task, tool) = (v["task_id"].as_str().unwrap_or(""), v["tool_use_id"].as_str().unwrap_or(""));
+        if task.is_empty() || tool.is_empty() || self.claude_bg.contains_key(task) {
+            return;
+        }
+        let background = v["is_backgrounded"] == true || v["is_background"] == true
+            || self.tasks.is_background(task) || self.tasks.asked_background(tool);
+        if !background {
+            return;
+        }
+        let Some(t) = self.turn.as_ref() else { return };
+        let Some((seq, row)) = t.tools.get(tool).and_then(|mid| t.rows.get(mid)) else { return };
+        let Some(chip) = row["tools"].as_array().and_then(|c| c.iter().find(|c| c["id"].as_str() == Some(tool))) else { return };
+        let bg = ClaudeBg {
+            seq: *seq,
+            tool: tool.to_string(),
+            name: chip["name"].as_str().unwrap_or("tool").to_string(),
+            arg: chip["arg"].as_str().unwrap_or("").to_string(),
+            shell: v["task_type"].as_str() == Some("local_bash"),
+        };
+        tracing::info!(agent = %self.name, task, tool = %bg.name, "a Claude Code task runs in the background; it is followed past its turn");
+        self.claude_bg.insert(task.to_string(), bg);
+    }
+
+    /// A background task of the CLI ended (`task_notification`; measured on
+    /// 2.1.292: `status` completed, failed, stopped or killed, a `summary`
+    /// with the exit code, the `.output` file). The CLI hands the model only
+    /// that notification, never the output, once: into a turn running now,
+    /// else into a turn it starts by itself (cancelled here; the notification
+    /// stays in the session for the next turn). A followed task's chip gets
+    /// what the command printed, read from that file, or else the summary;
+    /// the agent is woken for it as for Muse (`bg_result`), unless the
+    /// stopped-task card (`reported`) already woke it.
+    async fn on_claude_late(&mut self, v: &Value, reported: Option<&str>) {
+        let task = v["task_id"].as_str().unwrap_or("").to_string();
+        let status = v["status"].as_str().unwrap_or("").to_string();
+        if task.is_empty() || status.is_empty() || status == "running" || !self.tasks.is_background(&task) {
+            return;
+        }
+        let bg = self.claude_bg.remove(&task);
+        let summary = v["summary"].as_str().unwrap_or("").to_string();
+        tracing::info!(agent = %self.name, task = %task, status = %status, followed = bg.is_some(), in_turn = self.turn.is_some(),
+            "a Claude Code background task ended");
+        if let Some(bg) = &bg {
+            let file = v["output_file"].as_str().unwrap_or("").to_string();
+            let output = if bg.shell && !file.is_empty() {
+                let id = task.clone();
+                tokio::task::spawn_blocking(move || tasks::command_output(&file, &id)).await.ok().flatten()
+            } else {
+                None
+            };
+            let (text, more) = output.unwrap_or_else(|| (summary.clone(), false));
+            let (st, sum) = (status.clone(), summary.clone());
+            if let Err(e) = self.amend_chip(bg.seq, &bg.tool, move |chip| claude_settle_chip(chip, &text, more, &st, &sum)).await {
+                tracing::warn!(agent = %self.name, task = %task, error = %format!("{e:#}"), "the background task's result could not be written to its chip");
+            }
+        }
+        if reported != Some(task.as_str()) {
+            self.bg_result(claude_finished_note(bg.as_ref(), v), true).await;
+        }
+        self.publish();
+    }
+
+    /// The CLI ended while background tasks whose chips are followed still
+    /// ran: each chip says so. The agent's message about them is the orphan
+    /// card (P33, `orphans`).
+    async fn claude_lost(&mut self, reason: &str) {
+        if self.claude_bg.is_empty() {
+            return;
+        }
+        let mut lost: Vec<(String, ClaudeBg)> = self.claude_bg.drain().collect();
+        lost.sort_by(|a, b| a.1.seq.cmp(&b.1.seq).then_with(|| a.0.cmp(&b.0)));
+        tracing::warn!(agent = %self.name, tasks = lost.len(), reason, "Claude Code background tasks ended with their CLI");
+        let why = format!("ended with its CLI ({reason}) before it finished");
+        for (task, bg) in &lost {
+            let why = why.clone();
+            if let Err(e) = self
+                .amend_chip(bg.seq, &bg.tool, move |chip| {
+                    chip["error"] = json!(why);
+                    chip["ended_at"] = json!(now_iso());
+                })
+                .await
+            {
+                tracing::warn!(agent = %self.name, task = %task, error = %format!("{e:#}"), "the lost background task's chip could not be written");
             }
         }
         self.publish();
@@ -5429,7 +5795,10 @@ impl Actor {
         self.proc_print = None;
         self.proc_notes = None;
         self.unpark();
+        self.bg_reset();
+        self.claude_own = false;
         self.orphans(&format!("the CLI exited: {reason}"));
+        self.claude_lost(&format!("the CLI exited: {reason}")).await;
         self.muse_lost(&format!("the host exited: {reason}")).await;
         if let Some(t) = self.turn.as_mut() {
             t.exited = true;
@@ -5530,6 +5899,11 @@ impl Actor {
         crate::net::typing::stop_agent(&self.engine, self.id);
         let Some(turn) = self.take_turn() else { return Ok(()) };
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
+        // background results settled during this turn: a turn the CLI starts
+        // by itself right after it shows it did not take them
+        if !self.bg_in_turn.is_empty() {
+            self.bg_grace = Some(Instant::now() + BG_GRACE);
+        }
         let codex = res["codex"].as_bool().unwrap_or(false);
         // A terminal process error may carry no result object. The admitted
         // provider still determines the usage shape and quota pool.
@@ -5913,6 +6287,9 @@ impl Actor {
             self.replace_idle_process().await;
         } else if self.engine.settings.keep_warm() && self.proc.is_some() {
             self.park();
+        } else if self.proc.is_some() && self.bg_pending() {
+            // warming off: background work keeps the process open until it is over
+            self.hold();
         } else {
             self.close_proc().await;
         }
@@ -6248,6 +6625,8 @@ impl Actor {
             "proc_warm": live && !busy,
             "cache_keepalive": self.keepalive.is_some(),
             "proc_live": live,
+            // kept open only for its background work (outside the idle cap)
+            "proc_held": self.held,
             "proc_relaunch": self.reconfigured && live,
             "proc_relaunch_reason": if self.reconfigured && live { json!("settings changed; the next turn starts a fresh process") } else { Value::Null },
             "proc_paused": false,
@@ -6717,6 +7096,52 @@ fn muse_lost_note(lost: &[(String, MuseBg)], reason: &str) -> String {
     )
 }
 
+/// A Claude background task's end on its chip: what the command printed
+/// (clipped), or for any other task the CLI's summary; the line count and the
+/// end time; and the summary as the error when it did not complete. A failed
+/// shell command keeps its full output for reading on demand.
+#[nolog] // the command's output
+fn claude_settle_chip(chip: &mut Value, text: &str, more: bool, status: &str, summary: &str) {
+    let failed = status != "completed";
+    let (clipped, cut) = convo::clip(text, 4000);
+    chip["result"] = json!(clipped);
+    chip["result_lines"] = json!(text.lines().count());
+    chip["ended_at"] = json!(now_iso());
+    let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(text));
+    chip["refs"] = refs;
+    if cut || more {
+        chip["truncated"] = json!(true);
+    }
+    if failed {
+        chip["error"] = json!(gist(if summary.is_empty() { status } else { summary }, 500));
+    }
+    convo::retain_failed_shell_output(chip, text, failed, more);
+}
+
+/// What an idle agent is woken with when a background task of its Claude
+/// Code CLI has ended: the call (as its chip names it) and how it ended.
+/// Never its output: the CLI hands the model its notification (status, exit
+/// code, output file) itself, once.
+#[logged]
+fn claude_finished_note(bg: Option<&ClaudeBg>, v: &Value) -> String {
+    let status = v["status"].as_str().unwrap_or("completed");
+    let code = tasks::reported_exit_code(v).map(|c| format!(", exit code {c}")).unwrap_or_default();
+    let how = match status {
+        "completed" => format!("it completed{code}"),
+        "failed" => format!("it failed{code}"),
+        "stopped" | "killed" | "cancelled" => format!("it was {status}{code}"),
+        other => format!("it ended {other}{code}"),
+    };
+    let (what, label) = match bg {
+        Some(b) => (if b.shell { "command" } else { "task" }, format!("{} `{}`", b.name, gist(&b.arg, 300))),
+        None => ("task", format!("`{}`", gist(v["summary"].as_str().unwrap_or("a background task"), 300))),
+    };
+    format!(
+        "Your background {what} has finished ({how}): {label}. Claude Code has put its notification (status, exit code and \
+         output file) into your context; this message only wakes you so you can act on it."
+    )
+}
+
 #[cfg(test)]
 mod print_tests {
     use super::*;
@@ -6893,5 +7318,51 @@ mod muse_silence_tests {
         assert!(one.contains("your powershell call") && one.contains("no output for 10 minutes") && one.contains("silence limit"), "{one}");
         let two = muse_silence_note(&["a".to_string(), "b".to_string()], 3);
         assert!(two.contains("your 2 tool calls (a, b)") && two.contains("3 seconds"), "{two}");
+    }
+}
+
+#[cfg(test)]
+mod claude_bg_tests {
+    use super::*;
+
+    fn bash() -> ClaudeBg {
+        ClaudeBg { seq: 7, tool: "toolu_1".into(), name: "Bash".into(), arg: "npm run build".into(), shell: true }
+    }
+
+    #[test]
+    fn the_wake_note_names_the_call_and_how_it_ended_never_its_output() {
+        let done = json!({ "status": "completed", "summary": "Background command \"npm run build\" completed (exit code 0)",
+                           "output_file": r"C:\t\b1.output" });
+        let note = claude_finished_note(Some(&bash()), &done);
+        assert!(note.starts_with("Your background command has finished (it completed, exit code 0): Bash `npm run build`."), "{note}");
+        assert!(note.contains("this message only wakes you"), "{note}");
+        let failed = json!({ "status": "failed", "summary": "Background command \"node exit.js\" failed with exit code 3" });
+        assert!(claude_finished_note(Some(&bash()), &failed).contains("(it failed, exit code 3)"));
+        let killed = json!({ "status": "killed", "summary": "Background command \"npm run build\" was killed" });
+        assert!(claude_finished_note(Some(&bash()), &killed).contains("(it was killed)"));
+        let agent = ClaudeBg { shell: false, name: "Agent".into(), arg: "review the diff".into(), ..bash() };
+        assert!(claude_finished_note(Some(&agent), &done).starts_with("Your background task has finished (it completed, exit code 0): Agent `review the diff`."));
+        let unknown = claude_finished_note(None, &done);
+        assert!(unknown.contains("`Background command \"npm run build\" completed (exit code 0)`"), "{unknown}");
+    }
+
+    #[test]
+    fn a_settled_chip_shows_the_output_and_a_failed_one_keeps_it() {
+        let mut chip = json!({ "id": "toolu_1", "name": "Bash", "arg": "npm test", "input": { "command": "npm test", "run_in_background": true },
+                               "result": "Command running in background with ID: b1." });
+        claude_settle_chip(&mut chip, "ok 1\nok 2\n", false, "completed", "Background command \"npm test\" completed (exit code 0)");
+        assert_eq!(chip["result"], "ok 1\nok 2\n");
+        assert_eq!(chip["result_lines"], 2);
+        assert!(chip["error"].is_null() && chip["truncated"].is_null() && chip["ended_at"].is_string(), "{chip}");
+        let mut failed = json!({ "id": "toolu_2", "name": "Bash", "arg": "npm test", "input": { "command": "npm test" } });
+        claude_settle_chip(&mut failed, "not ok 3\n", true, "failed", "Background command \"npm test\" failed with exit code 1");
+        assert_eq!(failed["error"], "Background command \"npm test\" failed with exit code 1");
+        assert_eq!(failed["truncated"], true);
+        assert_eq!(failed["failed_shell_output"]["output"], "not ok 3\n");
+        // a background subagent's chip gets the CLI's summary
+        let mut agent = json!({ "id": "toolu_3", "name": "Agent", "arg": "review", "input": { "prompt": "review" } });
+        claude_settle_chip(&mut agent, "Agent \"review\" completed", false, "completed", "Agent \"review\" completed");
+        assert_eq!(agent["result"], "Agent \"review\" completed");
+        assert!(agent.get("failed_shell_output").is_none());
     }
 }
