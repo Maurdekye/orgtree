@@ -7,11 +7,15 @@
 //           moves it to the background, and the turn ends;
 //   then:   the command finishes; its chip in turn 1 gets the output; the
 //           agent, idle, is woken once through its mailbox (the note names
-//           the command, not the output); each turn Muse starts by itself to
-//           deliver the result is cancelled before any model step (Muse's own
-//           session log is read for that, when the run used the user's own
-//           login); the admitted turn knows exactly what the command printed.
+//           the call as its chip does: the description the model gave it,
+//           else its command; never the output); each turn Muse starts by
+//           itself to deliver the result is cancelled before it gets a model
+//           response (Muse's own session log is read for that, when the run
+//           used the user's own login); the admitted turn knows exactly what
+//           the command printed.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-bg-result-real.mjs --real-muse <muse-bin-*.exe>
+// The two predicates are exported, to be re-applied to a run's recorded
+// observations (observed.json, Muse's session log) without new turns.
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -21,7 +25,7 @@ import { Proof } from '../proof.mjs'
 const FINISHED = 'Your background command has finished'
 
 /** Muse's own session log, read for protocol facts only (record kinds, never text). */
-function sessionFacts(sessionId) {
+export function sessionFacts(sessionId) {
   if (!sessionId) return { found: false }
   const root = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'muse', 'sessions')
   let file = null
@@ -44,22 +48,35 @@ function sessionFacts(sessionId) {
     for (const c of kids) { try { recs.push(JSON.parse(c.record_json)) } catch {} }
     if (!kids.length && v.record_type) recs.push(v)
   }
-  // runs in order: their origin (a delivery of Muse's inbox, or a client turn) and whether a model step ran
+  // runs in order: their origin (a delivery of Muse's inbox, or a client turn), whether
+  // the model began a response, whether a model step completed, how the run ended
   const runs = []
   let cur = null
   for (const r of recs) {
     const e = r.payload?.event ?? {}
     if (r.payload_type === 'runtime.retained_fact' && /run_origin$/.test(r.payload?.record?.payload_type ?? '')) {
-      cur = { origin: r.payload.record.payload_type, model: false, terminal: null }
+      cur = { origin: r.payload.record.payload_type, responded: false, model: false, terminal: null }
       runs.push(cur)
-    } else if (cur && e.kind === 'model_completed') cur.model = true
+    } else if (cur && e.kind === 'model_response_created') cur.responded = true
+    else if (cur && e.kind === 'model_completed') cur.model = true
     else if (cur && e.kind === 'terminal') cur.terminal = e.reason ?? 'ended'
   }
   const drained = recs.filter((r) => r.payload?.event?.kind === 'inbox_item_drained' && r.payload.event.delivery_snapshot?.source?.source === 'background_task_terminal').length
   const wakes = runs.filter((r) => /^inbox_delivery/.test(r.origin))
-  return { found: true, runs: runs.length, wakes: wakes.length, wakesWithModelStep: wakes.filter((r) => r.model).length,
-           wakeEnds: [...new Set(wakes.map((r) => r.terminal))], drained }
+  return { found: true, runs: runs.length, wakes: wakes.length, wakesWithResponse: wakes.filter((r) => r.responded).length,
+           wakesWithModelStep: wakes.filter((r) => r.model).length, wakeEnds: [...new Set(wakes.map((r) => r.terminal))], drained }
 }
+
+/** The wake note names the call as its chip does (the engine's tool label: the
+ * call's own description, else its command) and never carries its output. */
+export function noteNamesCall(mail, shell, mark) {
+  const label = shell?.arg ? `${shell.name} \`${shell.arg}\`` : null
+  return mail.length === 1 && !!label && mail[0].body.includes(label) && !mail[0].notice
+    && !mail[0].body.replace(`Write-Output ${mark}`, '').includes(mark)
+}
+
+/** No turn Muse started by itself got a model response, and the result was taken once. */
+export const noWakeAnswered = (facts) => !facts.found || (facts.wakesWithResponse === 0 && facts.wakesWithModelStep === 0 && facts.drained === 1)
 
 export default async function (rig) {
   const p = new Proof('muse-bg-result-real')
@@ -98,13 +115,12 @@ export default async function (rig) {
   p.check('the command finished after turn 1, and its chip got the output',
     !!shell && String(shell.result ?? '').includes(mark) && !shell.error && Date.parse(shell.ended_at) > Date.parse(turns[0]?.ended_at),
     shell && { result: String(shell.result ?? '').slice(0, 200), ended_at: shell.ended_at, error: shell.error })
-  p.check('the idle agent was woken once through its mailbox; the note names the command, not its output',
-    mail.length === 1 && mail[0].body.includes('Start-Sleep -Seconds 12') && !mail[0].body.replace(`Write-Output ${mark}`, '').includes(mark) && !mail[0].notice,
-    mail)
+  p.check('the idle agent was woken once through its mailbox; the note names the call as its chip does, not its output',
+    noteNamesCall(mail, shell, mark), { mail, label: shell && `${shell.name} \`${shell.arg}\`` })
   p.check('the admitted turn knew exactly what the command printed', turns.length === 2 && !turns[1].error && replies.slice(1).some((t) => t.includes(mark)),
     { turns: turns.length, replies })
-  p.check('no turn Muse started by itself reached a model step (Muse\'s session log), when the run used a readable session log',
-    !facts.found || (facts.wakesWithModelStep === 0 && facts.drained === 1), facts)
+  p.check('no turn Muse started by itself got a model response (Muse\'s session log), when the run used a readable session log',
+    noWakeAnswered(facts), facts)
   p.keep(rig, { agents: [], grep: /CLI started|background|cancelling turns|settled after its turn|followed past its turn/i })
   return p.summary()
 }
