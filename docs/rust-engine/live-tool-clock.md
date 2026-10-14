@@ -14,6 +14,26 @@ observed 1.2s and 200ms clocks still use the unchanged precise formatter.
 Changing the start cancels the old timer; inactive execution stops ticking;
 missing/invalid observations add no clock. No persisted duration is changed.
 
+User requests 2026-10-14 17:36–17:38UTC remove the entire writing-time slot
+(pencil, unavailable dash, and its separator) when no duration or live writing
+start was observed, including old rows. A measured zero keeps its pencil and
+`0 ms`; observed live writing retains the whole-second timer. This is based
+on the call's observation fields, with no provider-name inference. Execution
+time and its own unavailable placeholder remain unchanged. Executing tool rows
+use the same `ArrowRightIcon` as their execution-time display, preserving the
+status class, size, title and aria-label. Writing pencils and finished/error
+icons retain their existing behavior. All desk/popout/list transcript hosts use
+the shared ToolChip; other PlayIcon usages are resume/rehire actions.
+
+The separate source commits for these requests have three new observation
+cases and an explicit running `ArrowForwardIcon` assertion prepared for the
+next rig batch. Independent red substitutions use the actual integrated
+`0f8638f` toolclock (2 failures/1 known-duration control) and desk (1 running-icon
+failure/6 controls); green union expects 30 tests, plus root typecheck and four
+before/after dark/light captures of real ToolChip rows. These new checks have
+not run. Their fixture checks preserved writing/completed states and execution
+durations as well as omission and the running icon; PNGs require inspection.
+
 Rig round 437 measured five fake-timer cases: actual alpha.3 `ae0b5fd`
 toolclock red has four target failures and one completed-precision passing
 control; green 5/5, writing/menu/shell regression 16/16, timing union 29/29,

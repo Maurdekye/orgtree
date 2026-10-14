@@ -9,10 +9,12 @@
 
 - Live tool writing/execution clocks floor actual elapsed seconds and schedule
   at boundaries relative to the observed start; completed formatting remains
-  precise. Codex tool generation requires a genuine pre-execution observation,
+  precise. Omit an unobserved writing-time slot entirely; measured zero remains
+  visible, and executing tool status uses the same right arrow as execution time.
+  Codex tool generation requires a genuine pre-execution observation,
   never the execution span or unrelated preceding/turn time. See
   [live clocks and probe status](docs/rust-engine/live-tool-clock.md).
-  [decided: user/coordinator 2026-10-14; verified from source: `toolclock.tsx`]
+  [decided: user/coordinator 2026-10-14; verified from source: `toolclock.tsx`, `desk.tsx`]
 
 - 2026-10-14: Multi-replies retain every authorized immutable snapshot beside
   legacy first `reply_to`; `orgtree_message.metadata.replies` requires matching
@@ -277,7 +279,7 @@
   Claude-compatible tool block start/stop clocks persist as `writing_secs` in
   the admitted chip; unobserved/history clocks remain unavailable. Active
   snapshots use tool IDs and retire with committed rows. Shared live chips use
-  pencil/play status icons, immediate icon-only clocks, and bounded ephemeral
+  pencil/right-arrow status icons, immediate icon-only clocks, and bounded ephemeral
   streamed-input previews; finished dots remain, counts only expand. Full time
   wording stays in aria/tooltips; unsupported observations are never invented.
   Ticket references use Open details / Owner… / separator / three copy actions;
