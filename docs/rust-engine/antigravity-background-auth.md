@@ -57,6 +57,18 @@ only silent revalidation after at least five minutes; actual usage/model/turn
 commands remain forbidden until a check succeeds (coordinator, 2026-10-14).
 This platform path is source-reviewed, not measured against a real CLI here.
 
+## Version query (the one unchecked launch)
+
+Settings → Harnesses needs the installed version whatever the sign-in state, so
+discovery runs `agy --version` through `agy_auth::version` **without** the
+silent check: still windowless, updater-disabled, closed stdin, 8 s bound and
+prompt-watched. Only one short line starting with a digit is shown; anything
+else is no version. Measured on AGY 1.3.5 (2026-10-14, one approved query):
+exit 0 in 94 ms, stdout `1.3.5`, no CLI log written (no language server or auth
+stack started), credential untouched. Builds up to 4.3.0-alpha.3 read the
+version only after a passing check, so signed-out or latched installs showed
+"unknown". No other AGY command may skip the check.
+
 ## Measured evidence and limits
 
 Installed AGY 1.3.5 scratch probes showed that headless environment flags and

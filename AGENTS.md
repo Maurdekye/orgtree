@@ -51,7 +51,9 @@
   AGY 1.3.5); never require empty output. A clean refusal latch is silently
   rechecked on a forced read after 30 s or after 5 min; prompt/unknown-output
   latches hold until credential metadata changes (AGY refreshes tokens in place
-  without changing it). No Sign in UI. Headless
+  without changing it). No Sign in UI. Sole exception: discovery's
+  `agy --version` (`agy_auth::version`) runs unchecked so Harnesses shows the
+  version when signed out (measured: 94 ms, no CLI log, credential untouched). Headless
   flags/closed stdin alone are not an OAuth guard; the check/use and in-flight
   concurrency risks remain. Non-Windows silently revalidates after a five-minute
   refusal cooldown. See [background auth](docs/rust-engine/antigravity-background-auth.md).
