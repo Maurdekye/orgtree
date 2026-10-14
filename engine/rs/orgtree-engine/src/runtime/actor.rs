@@ -36,6 +36,9 @@ use crate::util::{gist, iso, now_iso};
 #[derive(Clone, Default, Debug)]
 pub struct LiveView {
     pub busy: bool,
+    /// when the running turn was admitted (`turn_started_at`): every call of
+    /// that turn starts after it, so the desk times only those live
+    pub turn_started_at: Option<String>,
     pub turn_activity: bool,
     pub draft_epoch: String,
     pub init: Value,
@@ -6621,6 +6624,7 @@ impl Actor {
         transient.sort_by_key(|row| row["stream_order"].as_u64().unwrap_or(0));
         LiveView {
             busy: self.turn.is_some(),
+            turn_started_at: self.turn.as_ref().map(|t| iso(t.admitted_at)),
             turn_activity: self.turn.as_ref().map(|t| t.activity).unwrap_or(false),
             draft_epoch: format!("{}:{}", self.born, self.text_frames),
             init: self.init.clone(),
@@ -6656,6 +6660,9 @@ impl Actor {
         let live = self.proc.is_some();
         json!({
             "busy": busy,
+            // the running turn's admission: a tool call that started before it
+            // belongs to an earlier turn and is never timed live again
+            "turn_started_at": self.turn.as_ref().map(|t| iso(t.admitted_at)),
             "effort_current": if busy { self.proc_effort.clone() } else { None },
             "pending_effort": if busy { self.pending_effort.clone() } else { None },
             "waiting": self.waiting_since.is_some(),

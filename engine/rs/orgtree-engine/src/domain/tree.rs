@@ -381,6 +381,7 @@ pub fn cold_turn_action(
 pub fn idle_runtime() -> Vec<(String, Value)> {
     vec![
         ("busy".into(), json!(false)),
+        ("turn_started_at".into(), Value::Null),
         ("effort_current".into(), Value::Null),
         ("pending_effort".into(), Value::Null),
         ("waiting".into(), json!(false)),
@@ -436,4 +437,19 @@ pub fn frozen_view(frozen: &Value) -> Value {
         o.entry("until_ts".to_string()).or_insert(Value::Null);
     }
     Value::Object(o)
+}
+
+#[cfg(test)]
+mod idle_runtime_tests {
+    use super::*;
+
+    #[test]
+    fn an_idle_agent_names_no_running_turn() {
+        // the overlay a node gets when its actor stops: a turn start left
+        // behind would let the desk time an earlier turn's open call as the
+        // running turn's (docket tool-calls-left-open-by-an-earlier-turn-count-up)
+        let idle: HashMap<String, Value> = idle_runtime().into_iter().collect();
+        assert_eq!(idle.get("turn_started_at"), Some(&Value::Null));
+        assert_eq!(idle.get("busy"), Some(&json!(false)));
+    }
 }

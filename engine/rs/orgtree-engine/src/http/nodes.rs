@@ -141,6 +141,7 @@ pub async fn chat(
         "conversation_id": format!("a{}", a.id),
         "transient": live.transient,
         "busy": live.busy,
+        "turn_started_at": live.turn_started_at,
         "turn_activity": live.turn_activity,
         "queued": 0,
         "responding": live.busy,
