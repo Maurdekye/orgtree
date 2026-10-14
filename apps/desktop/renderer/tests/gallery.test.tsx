@@ -91,10 +91,11 @@ const gallery = (extra?: Partial<{
     onFocusAgent={extra?.onFocusAgent} onReply={extra?.onReply} />
 )
 
-// Actual gallery callers must select the documents threshold, while mail
-// still uses the shared default. Width is supplied to jsdom's layout stub.
-for (const home of ['org', 'agent-modal', 'agent-inline', 'mail'] as const) {
-  test(`docs width: ${home} keeps its own collapse boundary`, async t => {
+// Actual gallery callers and the default mail layout must share the same
+// inclusive 896px boundary. Inline callers opt out. jsdom supplies no layout,
+// so widths are explicit ResizeObserver inputs, not measured window pixels.
+for (const home of ['org', 'agent-modal', 'agent-inline', 'mail', 'mail-inline'] as const) {
+  test(`list width: ${home} shares the modal boundary or stays inline`, async t => {
     const original = HTMLElement.prototype.getBoundingClientRect
     let width = 700
     HTMLElement.prototype.getBoundingClientRect = function () {
@@ -106,7 +107,7 @@ for (const home of ['org', 'agent-modal', 'agent-inline', 'mail'] as const) {
     t.after(() => { globalThis.fetch = oldFetch })
     mockDocs([row({ id: 'width-doc' })], { 'width-doc': 'A document body' })
     const body = home === 'org' ? gallery()
-      : home === 'mail' ? <CollapsibleMailer collapsible listLabel="message list"
+      : home === 'mail' || home === 'mail-inline' ? <CollapsibleMailer collapsible={home === 'mail'} listLabel="message list"
           list={<div className="mailer-list">Messages</div>}><div className="mailer-read">Message</div></CollapsibleMailer>
         : <AgentGalleryView slug="org1" nid="agent1" toast={noop} collapsible={home === 'agent-modal'} />
     const view = await mountView(body, el => el)
@@ -114,11 +115,15 @@ for (const home of ['org', 'agent-modal', 'agent-inline', 'mail'] as const) {
     await inAct(async () => { await flush(10) })
     const box = view.el.querySelector('.mailer') as HTMLElement
     assert.ok(box, 'the actual reading surface rendered')
-    for (const next of [700, 895, 896, 897, 1000, 559, 560, 561]) {
+    const list = box.querySelector('.mailer-list')
+    assert.ok(list, 'the list rendered')
+    for (const next of [897, 896, 895, 700, 1000, 559, 560, 561, 897]) {
       width = next
       await inAct(() => fireResize(box))
-      const collapse = home === 'agent-inline' ? false : next <= (home === 'mail' ? 560 : 896)
+      const collapse = home === 'agent-inline' || home === 'mail-inline' ? false : next <= 896
       assert.equal(box.classList.contains('narrow-list'), collapse, `${home} at ${next}px`)
+      assert.equal(box.querySelector('.mailer-listtoggle') !== null, collapse, `${home} list toggle at ${next}px`)
+      assert.equal(box.querySelector('.mailer-list') === list, true, 'resizing retains the same list')
     }
   })
 }
