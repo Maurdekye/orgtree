@@ -807,6 +807,6 @@ All entries are dated 2026-10-06 unless stated otherwise.
     end of turn, a settings change that restarts the process, engine
     shutdown, retire and delete, each still reporting lost work. The memory
     cost is accepted. Codex and Antigravity are unchanged. Within the ruling
-    (muse-code-opus, reported for confirmation): a startup-file edit does not
+    (coordinator-opus 2026-10-14 10:56Z, md6791e143443): a startup-file edit does not
     replace a held process; its next turn still starts a fresh one (decision
     61). Contract and limits: [`background-work.md`](background-work.md).

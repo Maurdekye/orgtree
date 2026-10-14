@@ -53,8 +53,9 @@ lost with it is reported: Claude Code's as the orphan card (P33) and on its
 chip ("ended with its CLI (the CLI was closed) before it finished"), Muse's on
 its chip and in one waking message ([`muse-code.md`](muse-code.md)).
 
-**A startup-file edit does not replace a held process** (muse-code-opus
-2026-10-14, within the ruling; reported to coordinator-opus). Decision 61
+**A startup-file edit does not replace a held process** (coordinator-opus
+ruling 2026-10-14 10:56Z, md6791e143443, within the user's: agents often
+update their own notes in the turn that starts a long command). Decision 61
 replaces an idle agent's CLI at once after an edit of its startup files (its
 `CLAUDE.md`, `AGENTS.md`, rules, auto-memory), so that the next turn starts
 warm. Replacing a held process would end its background work, and such a

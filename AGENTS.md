@@ -13,7 +13,8 @@
   input), ignores its lines and result (`claude_own`), and only then wakes an
   idle agent; the chip gets the command's output from the notification's
   `.output` file. See [background work](docs/rust-engine/background-work.md).
-  [decided: user 2026-10-14 09:44:51Z via coordinator; verified from source:
+  [decided: user 2026-10-14 09:44:51Z via coordinator; the startup-file edit:
+  coordinator 2026-10-14 10:56Z; verified from source:
   `runtime/actor.rs`, `runtime/tasks.rs`; measured: real Claude Code 2.1.292
   probes 2026-10-14; rig proofs pending]
 
