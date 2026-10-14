@@ -629,16 +629,17 @@ no-turn-while-halted check and the frozen state passing.
 `an_approval_that_cannot_be_given_once_is_refused_once_instead`, and
 `runtime::actor::muse_silence_tests::a_todo_list_lands_on_the_call_that_wrote_it`.
 Rig `muse-approval-stages.mjs` (6 s limit), on the fake asking in stages as
-real Muse was measured to (test-rig.md). **Not yet run when this was written;
-the expected counts are part of the item, and a different count fails it:**
-12/12 on this engine; against the engine of its base `0f8638f`, 5 pass (the
-hires, Muse's first ask, the refusal at the first stage, the `write_todos`
-call's own timing, no approval left without a choice) and 7 fail (stages 1
-and 2 never answered, so the command never runs and the turn ends at the
-silence limit; the doubled updates; a second chip beside the `write_todos`
+real Muse was measured to (test-rig.md). Measured in batch round 439
+(2026-10-14): the four unit tests pass with their modules (9 and 6), and the
+proof passes 12/12 on this engine. Against the engine of its base `0f8638f`,
+5 pass (the hires, Muse's first ask, the refusal at the first stage, the
+`write_todos` call's own timing, no approval left without a choice) and 7 fail
+(stages 1 and 2 never answered, so the command never runs and the turn ends at
+the silence limit; the doubled updates; a second chip beside the `write_todos`
 call). `muse-refusal.mjs` (9), `muse-tool-silence.mjs` (13),
-`muse-session0.mjs` (10), `muse-bg-result.mjs` (24) and `muse-lane.mjs` (48)
-keep their counts.
+`muse-session0.mjs` (10), `muse-bg-result.mjs` (24), `muse-lane.mjs` (48) and
+`turn-failures.mjs` (15) kept their counts. The fake CLI built with no
+warnings, and clippy found nothing new.
 
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
@@ -676,13 +677,13 @@ be paid).
 | Queued input while busy | `ifBusy: queue` | same | same | measured (fake) |
 | Interrupt | `turn/interrupt`, ends cancelled | same | same | measured (fake) |
 | A tool call silent for the silence limit | that call alone is stopped (`task/stop`, a note naming the limit first) and the turn goes on | the whole turn ends (unchanged) | the whole turn ends (unchanged) | measured (fake proof; the MSP stop, note and continuation measured on real Muse 1.4.6); other lanes source-derived |
-| A shell command that finishes in the background after its turn | its chip gets the result; an idle agent is woken through its mailbox; Muse delivers the output itself, once; one lost with its host is reported; with warming off the host stays open for it (decision 77) | the same (decision 77): its chip gets the output from the CLI's output file; the turn the CLI starts by itself to deliver the notification is interrupted and an idle agent is woken through its mailbox; the CLI delivers the notification (never the output) once; a stopped one keeps its card, ones lost with the CLI are reported (P33); the process stays open for it | not verified here | Muse measured (real 1.4.6; fake proof with red control); Claude measured (real 2.1.292; fake proofs `claude-bg-result`, `bg-keep-open` with red controls, not yet run: [`background-work.md`](background-work.md)) |
+| A shell command that finishes in the background after its turn | its chip gets the result; an idle agent is woken through its mailbox; Muse delivers the output itself, once; one lost with its host is reported; with warming off the host stays open for it (decision 77) | the same (decision 77): its chip gets the output from the CLI's output file; the turn the CLI starts by itself to deliver the notification is interrupted and an idle agent is woken through its mailbox; the CLI delivers the notification (never the output) once; a stopped one keeps its card, ones lost with the CLI are reported (P33); the process stays open for it | not verified here | Muse measured (real 1.4.6; fake proof with red control); Claude measured (real 2.1.292; fake proofs `claude-bg-result`, `bg-keep-open` with red controls, batch round 434: [`background-work.md`](background-work.md)) |
 | Resume across restarts | `session/resume` | same | same | measured (real) |
 | Compaction | `/compact` → `session/compact`; cheap compact as everywhere | same | same | measured (fake); real untested |
 | Orgtree tools, caller attribution | session MCP server | same | same | measured (fake) |
 | Folder scopes, read-only folders | write roots; read-only by approval | same outcome | same outcome | measured (fake: a write outside the folders refused with Muse's measured `abort`); read-only reads inferred |
 | Refusing an approval | once-only `abort` ("Reject"; `denied` when offered), the turn goes on | Claude Code's own rules (`--disallowed-tools`) | Orgtree answers `decline` | Muse measured (real 1.4.6 choice set and `abort` effect; fake proof); others source |
-| An approval in stages (a compound shell command) | every open stage answered once, as the call (`approval/updated`) | no such approval (one decision per call) | no such approval (one decision per call) | Muse: the stall and the message shapes measured on real 1.4.6 (2026-10-14, the user's agent); the fix by fake proof `muse-approval-stages` with red control, not yet run |
+| An approval in stages (a compound shell command) | every open stage answered once, as the call (`approval/updated`) | no such approval (one decision per call) | no such approval (one decision per call) | Muse: the stall and the message shapes measured on real 1.4.6 (2026-10-14, the user's agent); the fix by fake proof `muse-approval-stages` with red control, batch round 439 |
 | Shell / write closed on read-only seats | `--disable-shell` / `--disable-write` + `:read-only` | same | same | measured (fake) |
 | Images | MSP image parts | same | same | untested |
 | Subagents | stopped unless the scope allows | Claude Task allowed by scope | n/a | measured (fake stop); allowed path untested |

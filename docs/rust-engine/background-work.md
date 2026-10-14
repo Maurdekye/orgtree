@@ -152,18 +152,22 @@ code read from the summary, the output file's folder check and 1 MiB bound)
 and `runtime::actor::claude_bg_tests` (2: the wake note, the settled chip).
 
 Rig proofs, on the fake CLIs with the measured behaviour (the fake Claude CLI's
-`bg` step and the fake Muse host's `miss_running_turn`, test-rig.md). **Not yet
-run when this was written; the expected counts below are part of the item, and
-a different count fails it:**
+`bg` step and the fake Muse host's `miss_running_turn`, test-rig.md). Measured
+in batch round 434 (2026-10-14), where both unit test modules above passed:
 
-| Proof | Expected on this engine | Expected red control (engine 2e3d287) |
+| Proof | This engine | Red control (engine 2e3d287) |
 |---|---|---|
 | `claude-bg-result.mjs` (warming on) | 16/16 | 5 pass (hire, desk count, the three fake-side facts), 11 fail |
 | `bg-keep-open.mjs` (cap 1, warming toggled) | 17/17 | 1 pass (hire), 16 fail |
 
-`muse-bg-result.mjs` (24), `background-and-mail.mjs`, `claude-close.mjs`,
-`muse-tool-silence.mjs`, `muse-lane.mjs`, `turn-failures.mjs` and
-`cache-keeper.mjs` keep their counts.
+`muse-bg-result.mjs` (24), `background-and-mail.mjs` (15),
+`muse-tool-silence.mjs` (13), `muse-refusal.mjs` (9), `muse-session0.mjs` (10),
+`muse-lane.mjs` (48) and `turn-failures.mjs` (15) kept their counts, and
+`cache-keeper.mjs` exited 0. `claude-close.mjs` failed 0/2 on the base as on
+this engine: its check for the runtime's "CLI started" line also matched
+prompt text logged after it. With that check corrected (since landed) it passed
+2/2 on both. The one new clippy warning (`nonminimal_bool` in
+`own_turn_cancelled`) was fixed before landing.
 
 ## Files
 

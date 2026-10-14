@@ -74,20 +74,30 @@ written for it and no duration is shown: the chip is not changed.
   when its `started_at` is at or after that start; an unknown start times none.
   The optimistic send clears the copy it carries.
 
-Verification (**not yet run when this was written; the expected counts are
-part of the item, and a different count fails it**):
-- Renderer `toolclock-turn` 5/5. The same file against the renderer of the base
-  `0f8638f` fails 4, passing only the running turn's own clock (the control).
-- `toolclock-live`, `toolwriting` and the rest of the clock tests unchanged in
-  count (their running chips now name their turn).
+A test that mounts a running chip under `TurnActiveContext` must also provide
+`RunningTurnContext` with a start at or before the call's, or the chip shows the
+dash, as the desk does before its turn is known.
+
+Verification, measured in batch round 439 (2026-10-14):
+- Renderer `toolclock-turn` 5/5. Against the renderer of the base `0f8638f` the
+  file first reported nothing: its checks for absent elements handed jsdom
+  elements to `assert.equal`, and the failing ones ran out of memory (AGENTS.md).
+  With those five checks as booleans, as the file now has them, 4 fail and only
+  the running turn's own clock (the control) passes; one of the 4 fails because
+  the base has no `ofRunningTurn`.
+- `toolclock-live`, `toolwriting` and `toolwriting-slot` pass (their running
+  chips now name their turn).
 - Engine `domain::tree::idle_runtime_tests` 1.
 - Rig `turn-start-clock.mjs` 6/6: idle null, the same start on both copies
   during the turn, the call at or after it, the start this turn's, a control,
   null again after. Against the base engine 1 passes (the control) and 5 fail.
 - Captures: `toolclock-turn-pages.mjs` builds the fixture `toolclock-turn-visual.tsx`
   against this tree and the base, `toolclock-turn-capture.cjs` paints both in
-  dark and light and checks them: before, the earlier call counts live with the
-  executing icon; after, it shows the dash; the running call shows "33s" in both.
+  dark and light and checks them (`passed: true`, four distinct pictures; the
+  page builder ran with its dependency paths pointed at shared modules):
+  before, the earlier call counts live with the executing icon; after, it shows
+  the finished dot and the dash, marked unavailable; the running call shows
+  "33s" in both.
 
 ## Earlier timing contract (historical wording; refinements above supersede it)
 
