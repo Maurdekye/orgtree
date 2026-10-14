@@ -596,7 +596,7 @@ pub fn clip(text: &str, max: usize) -> (String, bool) {
 }
 
 /// The short argument a tool chip shows beside the tool name.
-#[logged]
+#[nolog]
 pub fn tool_arg(_name: &str, input: &Value) -> String {
     // a call's own human-readable `description` is the line when it has one
     // (user 2026-10-08); otherwise the most identifying argument IS the line
@@ -631,7 +631,7 @@ pub fn tool_arg(_name: &str, input: &Value) -> String {
 /// orgtree_staff (not a list call), else the slug a create returned; the
 /// `work_item` of orgtree_ask (also per question tab), orgtree_hire, orgtree_rehire.
 /// Empty for any other tool.
-#[logged]
+#[nolog]
 pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
     let base = name.rsplit("__").next().unwrap_or(name);
     let mut refs: Vec<Value> = Vec::new();

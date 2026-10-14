@@ -4852,6 +4852,7 @@ impl Actor {
                         if let (Some(t), Some(index), Some(id)) = (self.turn.as_mut(), ev["index"].as_u64(), block["id"].as_str()) {
                             t.partial_serial += 1;
                             t.tool_writing.start(index, id, &name, t.partial_serial);
+                            t.tool_writing.seed(index, &block["input"]);
                         }
                         // a message tool call: watch its arguments for `metadata`
                         // (typing in Hubchat, `net::typing`)
@@ -4913,6 +4914,10 @@ impl Actor {
                         self.stream("thinking", json!({ "text": text }));
                     }
                     Some("input_json_delta") => {
+                        let changed = if let (Some(t), Some(index)) = (self.turn.as_mut(), ev["index"].as_u64()) {
+                            t.tool_writing.delta(index, d["partial_json"].as_str().unwrap_or(""))
+                        } else { false };
+                        if changed { self.stream("tool_writing", json!({})); }
                         // a watched message call: its `metadata`, once whole as
                         // the first argument, starts typing; anything else
                         // first (or too much) ends the watch, the send unaffected
