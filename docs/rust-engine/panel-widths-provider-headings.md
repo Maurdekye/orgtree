@@ -7,8 +7,9 @@ changing labels or tab styling.
 
 Documents use896CSSpx (formerly560); mail retains560 and inline galleries keep
 their persistent list. Both org and agent gallery modals pass the new threshold.
-Settings use726px (formerly660), scoped to `.settings.acct-panel`, with the94vw
-cap and pinned-window sizing retained.
+Settings now use783px (formerly660, then726), scoped to `.settings.acct-panel`,
+with the94vw cap and pinned-window sizing retained. This follows the user's
+20:15UTC ruling to widen until the whole desktop tab row fits.
 
 Provider headings: Claude · Claude Code, ChatGPT · Codex, Gemini · Antigravity,
 Muse · Muse Code. Known providers use the same bold/dim slots; unknown-provider
@@ -43,9 +44,14 @@ errors except Electron's filtered CSP warning. Measurements:
 | Document reading box700px | list expanded | rail/toggle collapsed | requested new collapse behavior |
 | Document reading box1000px | expanded | expanded | enough room above896px |
 
-**All desktop tabs still do not fit.** About remains beyond the visible row;
-overflow improved from123px to57px. No label or tab-style change was made,
-as the scoped request requires. Small windows keep horizontal scrolling.
+At the measured726px candidate **desktop tabs still did not fit**: About
+remained beyond the visible row. Overflow improved from123px to57px. User
+20:15UTC then authorized widening until they fit, keeping all tab labels,
+padding and font unchanged. The new783px width is derived from measured719px
+tab content plus64px panel chrome. The added proof checks its actual client /
+scroll widths at1366×768 and1920×1080, with a one-pixel-smaller overflow control,
+and rechecks390×844 for the unchanged94vw cap. Those new captures are pending;
+the earlier16captures prove the726px candidate only.
 
 The four after headings are checked in DOM receipts and focused tests. The
 settings captures show the visible top sections. The OpenRouter fixture has no

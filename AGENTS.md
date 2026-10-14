@@ -7,11 +7,12 @@
   remain in `pick`. See [desk owner close](docs/rust-engine/desk-owner-close.md).
   [decided: user 2026-10-14 18:36UTC; verified from source: `canvas/deskhosts.tsx`]
 
-- App settings uses a 726px modal width (formerly 660px), retaining the 94vw
+- App settings uses a 783px modal width (formerly 660px, then726px), retaining the 94vw
   cap and pinned-window sizing. Scope the override to `.settings.acct-panel`;
   organization/agent settings and other modals keep their own widths.
-  At1366×768 the719px tab content still overflows the662px viewport by57px;
-  report this without changing tab labels/style. [measured: rig439;
+  Derived from rig439's719px tab content plus64px panel chrome after726px
+  still overflowed57px; final fit/one-pixel-less controls await rig proof.
+  Do not change tab labels/style. [measured: rig439; decided: user20:15UTC;
   [panel proof and limits](docs/rust-engine/panel-widths-provider-headings.md)]
   [decided: user 2026-10-14 17:54UTC; verified: renderer `styles.css`]
 
