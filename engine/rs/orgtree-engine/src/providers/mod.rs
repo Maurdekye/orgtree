@@ -2,6 +2,7 @@
 //! Muse Code), the OpenRouter lane, their sign-in state, and the tiers each
 //! offers. Discovery runs in the background and publishes the `providers` value.
 
+pub mod agy_models;
 pub mod catalog;
 pub mod agy_auth;
 mod codex_models;
@@ -333,6 +334,17 @@ pub async fn discover(engine: &Engine) {
             CliStatus { installed: true, version: version_of(&p).await, path: Some(p), source: src, connected, email, kind };
     }
     if let Some((p, src)) = locate_agy() {
+        // the account's registry, the evidence for the conditional tiers: a
+        // failed read is no evidence, so they hide until a read lists them
+        st.agy_models = match agy_models::read(engine, &p).await {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::warn!(error = %e, "Antigravity model list unavailable");
+                Vec::new()
+            }
+        };
+        tracing::info!(conditional = ?catalog::TIERS.iter().filter(|t| t.provider == catalog::GOOGLE && t.conditional && agy_models::listed(t.model, &st.agy_models)).map(|t| t.tier).collect::<Vec<_>>(),
+                       listed = st.agy_models.len(), "Antigravity model list");
         // the email comes from the usage probe's own CLI log (set_agy_email)
         let prev = engine.providers.state.load().agy.clone();
         let connected = agy_auth::preflight(engine, &p).await.is_ok();
@@ -362,8 +374,6 @@ pub async fn discover(engine: &Engine) {
             source:"ACP initialize".into(), ..CliStatus::default() };
     }
     st.openrouter = openrouter_favorites(engine);
-    let prev_models = engine.providers.state.load().agy_models.clone();
-    st.agy_models = prev_models;
     st.probed = true;
     engine.providers.state.store(Arc::new(st));
     publish(engine);
@@ -1098,13 +1108,20 @@ fn muse_detail(found: Option<&MuseDiscovery>, error: Option<&str>) -> Value {
 
 /// Whether an Antigravity tier is offered: always, unless it is CONDITIONAL
 /// (Argon, Barium, Carbon), which is offered only while the account's
-/// `agy models` lists its model (a listed variant such as `-high` counts).
+/// `agy models` lists its exact model id, bare or with an effort suffix.
 #[nolog]
 fn agy_offers(tier: &str, listed: &[String]) -> bool {
     match catalog::tier(tier) {
-        Some(t) if t.conditional => listed.iter().any(|m| m.starts_with(t.model)),
+        Some(t) if t.conditional && t.provider == catalog::GOOGLE => agy_models::listed(t.model, listed),
         _ => true,
     }
+}
+
+/// `agy_offers` on the last registry read: what the hire strips, staffing
+/// and the tier list offer.
+#[nolog]
+pub fn agy_offered(engine: &Engine, tier: &str) -> bool {
+    agy_offers(tier, &engine.providers.state.load().agy_models)
 }
 
 #[logged]
@@ -1119,7 +1136,7 @@ pub fn start(engine: &Arc<Engine>) {
         loop {
             discover(&engine).await;
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(300)) => {}
+                _ = tokio::time::sleep(crate::rig::discovery_every().unwrap_or(Duration::from_secs(300))) => {}
                 _ = engine.shutdown.cancelled() => break,
             }
         }
@@ -1138,8 +1155,11 @@ mod conditional_tests {
         for listed in ["gemini-4-carbon", "gemini-4-carbon-high", "gemini-4-carbon-low"] {
             assert!(agy_offers("carbon", &[listed.to_string()]), "{listed}");
         }
-        // the three conditional tiers are judged independently; flash is never conditional
+        // the three conditional tiers are judged independently, each by its
+        // exact id; flash is never conditional
         assert!(agy_offers("argon", &without) && agy_offers("barium", &without));
+        assert!(!agy_offers("argon", &["gemini-4-argonite".to_string(), "gemini-4-argon-2".to_string()]));
+        assert!(!agy_offers("argon", &[]) && !agy_offers("barium", &[]));
         assert!(agy_offers("flash", &[]));
         let row = super::catalog::tier("carbon").unwrap();
         assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 2.0, true));

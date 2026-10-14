@@ -152,6 +152,18 @@ pub fn reminder_sweep_s() -> Option<u64> {
     Some(every.filter(|n| (1..=60).contains(n)).unwrap_or(20))
 }
 
+/// A rig run's provider discovery period (`ORGTREE_RIG_DISCOVERY_S`, 1 to
+/// 300 seconds), so a proof can see a listing change land without waiting
+/// the product's 5 minutes. None outside rig mode.
+#[logged]
+pub fn discovery_every() -> Option<std::time::Duration> {
+    if !active() {
+        return None;
+    }
+    let s = std::env::var("ORGTREE_RIG_DISCOVERY_S").ok().and_then(|s| s.trim().parse::<u64>().ok())?;
+    (1..=300).contains(&s).then(|| std::time::Duration::from_secs(s))
+}
+
 /// A rig run's pause between an automatic wake's reservation and its mail
 /// (`ORGTREE_RIG_REMINDER_PAUSE_MS`, up to 30 s), so a proof can put real
 /// work in the window a lost idle race needs. None outside rig mode.

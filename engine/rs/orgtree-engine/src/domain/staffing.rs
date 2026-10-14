@@ -36,7 +36,8 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
         .copied()
         // a Muse tier is conditional on a Muse login's own catalog: the user's
         // own, or a registered one (primary entitlement is no prerequisite)
-        .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && muse_somewhere(engine, t.tier)))
+        .filter(|t| !t.legacy && (!t.conditional || (t.provider == catalog::MUSE && muse_somewhere(engine, t.tier))
+                || (t.provider == catalog::GOOGLE && crate::providers::agy_offered(engine, t.tier)))
             && engine.settings.provider_enabled(t.provider))
         .filter(|t| !catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled())
         .filter(|t| crate::usage::antigravity_limit(engine, t.tier).is_none())
