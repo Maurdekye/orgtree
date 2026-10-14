@@ -2848,16 +2848,18 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                     ? refToken({ kind: 'mail', org: slug, box: 'user', id: m.id }) : null}
                   onRead={(m: MailEntry) => readNow(m)
                     .catch((e: Error) => toast([`could not mark read: ${e.message}`]))}
-                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean) => {
-                    return sendLinkedReply(slug, m.from, text, { kind: 'mail', org: slug, box: 'user', id: m.id },
-                      attachments, notice)
+                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean, targets?: MailEntry[]) => {
+                    const originals = targets?.length ? targets : [m]
+                    return sendLinkedReply(slug, m.from, text, originals.length > 1
+                      ? originals.map(t => ({ kind: 'mail' as const, org: slug, box: 'user' as const, id: t.id }))
+                      : { kind: 'mail', org: slug, box: 'user', id: m.id }, attachments, notice)
                       .then(async (receipt) => {
                         toast([`sent to ${m.from}`, ...(receipt.warnings ?? [])])
                         // Commands have no mail receipt. Read only after a
                         // durable reply, using the captured original identity.
                         if (!receipt.id) return
                         try {
-                          await readNow(m)
+                          await Promise.all(originals.map(readNow))
                         } catch {
                           // The reply already exists: do not retain its draft
                           // as though sending failed and invite a duplicate.

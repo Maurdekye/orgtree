@@ -172,6 +172,7 @@ export interface MailAttachment {
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
   reply_to?: MailReplyWire
+  replies?: MailReplyWire[]
   /** Raw wire data is decoded against the generated schema. */
   ev?: unknown
   ev_raw?: unknown
@@ -219,6 +220,7 @@ export interface OrgInboxEntry {
   /** the message this one answers: its quote (who, when, a gist) and the
    *  org-inbox row it links to; only `net_id` when this org never had it */
   reply_to?: { id?: string; kind?: 'mail'; box?: 'org'; from?: string; at?: string; gist?: string; net_id?: string }
+  replies?: MailReplyWire[]
 }
 
 // F-06: net.py status_block — hub config + live connectivity (never secrets)
@@ -953,6 +955,7 @@ export interface ToolChip {
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
 export interface ChatMessage {
+  replies?: MailReplyWire[]
   /** Rust conversation revision; a delayed poll must not replace a newer stream commit. */
   convo_revision?: number
   /** Native Claude block order, including text before a tool in the same message. */
@@ -1055,6 +1058,7 @@ export interface PendingMail {
   notice?: boolean
   event_id?: string
   reply_to?: MailReplyWire
+  replies?: MailReplyWire[]
   ev?: unknown
   ev_raw?: unknown
   ev_error?: unknown

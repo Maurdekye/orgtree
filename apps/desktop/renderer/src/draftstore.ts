@@ -1,5 +1,5 @@
 import { recordStranded, renameHistory } from './composerhistory'
-const partSuffix = (key: string) => key.endsWith('-attachments') ? '-attachments' : key.endsWith('-reply') ? '-reply' : ''
+const partSuffix = (key: string) => key.endsWith('-attachments') ? '-attachments' : key.endsWith('-replies') ? '-replies' : key.endsWith('-reply') ? '-reply' : ''
 
 export interface DraftAttachment { name: string; path: string; bytes: number }
 export const draftKey = (slug: string, id: string, generation: number) =>
@@ -72,6 +72,7 @@ export function preserveRemovedDrafts(slug: string, ids: Pick<ReadonlyMap<string
       localStorage.removeItem(textKey)
       localStorage.removeItem(`${textKey}-attachments`)
       localStorage.removeItem(`${textKey}-reply`)
+      localStorage.removeItem(`${textKey}-replies`)
     }
   } catch { /* best effort persistence */ }
 }

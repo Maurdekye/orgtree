@@ -32,6 +32,7 @@ export function isSegments(value: unknown, profile: EventProfile): value is AnyS
           && (!own(row, 'attachments') || Array.isArray(row.attachments))
           && (!own(row, 'attachments_missing') || (Array.isArray(row.attachments_missing) && row.attachments_missing.every(x => typeof x === 'string')))
           && (!own(row, 'reply_to') || record(row.reply_to))
+          && (!own(row, 'replies') || (Array.isArray(row.replies) && row.replies.length <= 50 && row.replies.every(record)))
           && ['model_only','retracted','delivering'].every(k => !own(row, k) || typeof row[k] === 'boolean')
       })
       default: return false

@@ -18,7 +18,7 @@ import { agentNavProps } from './agentnav'
 import { objectNavProps } from './objectnav'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
-import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
+import { appendReplyTarget, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
@@ -104,7 +104,7 @@ import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { RefMdBody } from './refmd'
 import { EventCard, eventSurface } from '../events/card'
-import { MailMessage } from '../events/segments'
+import { MailMessage, isSegments } from '../events/segments'
 import { decodeEventRow } from '../events/decode'
 import { askHidden, markAnswerSeen, queuedAnswerRow, queuedAnswers, useSubmittedAsks } from '../asksubmitted'
 import { eventDedup } from '../events/dedup'
@@ -1997,8 +1997,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     } catch { /* private mode */ }
     return next
   }), [draftKey])
-  const [reply, setReplyRaw] = useState<ReplyContext | null>(() => readReply(draftKey))
-  const setReply = (next: ReplyContext | null) => { setReplyRaw(next); storeReply(draftKey, next) }
+  const [replyTargets, setReplyTargetsRaw] = useState<ReplyContext[]>(() => readReplies(draftKey))
+  const reply = replyTargets[0] ?? null
+  const setReplyTargets = (next: ReplyContext[]) => { setReplyTargetsRaw(next); storeReplies(draftKey, next) }
+  const setReply = (next: ReplyContext | null) => setReplyTargets(next ? [next] : [])
   /** SENT-MESSAGE HISTORY - Up and Down walk what you have sent to THIS agent,
    *  the way PowerShell and bash do (user request 2026-09-18). Kept per agent
    *  and deliberately NOT per generation, so a compaction or a rehire cannot
@@ -2078,10 +2080,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
    *  component's state. It is consulted ONLY when the press resolved to the
    *  row itself rather than to something nested inside it. */
   const openReply = (e: ReplyMouseEvent, row: { event_id?: string }, local?: string) => {
-    const target = (e.target as Element).closest?.<HTMLElement>('[data-reply-event]')
+    const target = (e.target as Element).closest?.<HTMLElement>('[data-reply-mail],[data-reply-event]')
     const exact = target && e.currentTarget.contains(target) ? target : e.currentTarget
-    const quote = exact.getAttribute('data-reply-quote') ?? exact.textContent?.trim() ?? ''
-    const event_id = exact.hasAttribute('data-reply-event') ? exact.getAttribute('data-reply-event') ?? undefined : row.event_id
+    const event_id = exact.closest('[data-reply-event]')?.getAttribute('data-reply-event') || row.event_id
+    const mailId = exact.getAttribute('data-reply-mail') || undefined
+    const quote = mailId ? exact.getAttribute('data-reply-quote') ?? ''
+      : (event_id ? copyTextOf.get(event_id) : undefined) ?? exact.getAttribute('data-reply-quote') ?? ''
     const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id }, quote)
     // copy-transcript-messages-from-the-context-menu. The text comes from the
     // ROW MODEL, keyed by the same event id the reply target resolves to — so
@@ -2104,7 +2108,16 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
       onSelect: () => { if (source) {
-        setReply(source); setView('chat')
+        const mailSource = chat?.pending_mail?.find(m => m.event_id === event_id)?.from
+        const messageSource = chat?.messages?.find(m => m.event_id === event_id)
+        const segments = messageSource?.segments
+        const mailRows = isSegments(segments, 'operator') ? segments.flatMap(s => s.kind === 'mail' ? s.rows : []) : []
+        const senders = new Set(mailRows.map(m => m.from))
+        if (!mailId && senders.size > 1) { toast(['This turn includes several senders. Reply to an individual mail card.']); return }
+        const sender = exact.getAttribute('data-reply-sender') ?? mailSource ?? [...senders][0] ?? (messageSource?.role === 'user' ? '@user' : node.id)
+        try { setReplyTargets(appendReplyTarget(replyTargets, { ...source, sender, mailId })) }
+        catch (e) { toast([String((e as Error).message)]); return }
+        setView('chat')
         // show-reply-context-on-sent-user-messages (user spec, 2026-09-09
         // 14:16:54): starting a reply must land the cursor in the message
         // box, not just open it. `setView` may still be mounting the chat
@@ -2183,7 +2196,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }, [chat?.messages, chat?.transient, chat?.pending_mail, live_feed,
     convo.draft, convo.draftEventId, convo.thinking, convo.thinkingEventId])
   const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
-    (sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
+    ((r.mailId && (chat?.pending_mail?.some(m => m.id === r.mailId) || chat?.messages?.some(m =>
+      isSegments(m.segments, 'operator') && m.segments.some(s => s.kind === 'mail' && s.rows.some(row => row.id === r.mailId)))))
+      || sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
       || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
   const replySources = useMemo(() => indexReplySources({
     messages: chat?.messages, pending: chat?.pending_mail, live: live_feed, transient: chat?.transient,
@@ -2981,6 +2996,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
+    const sentReplies = replyTargets
     const armedNotice = isNoticeArmed(chatKey)
     if (armedNotice) setNoticeArmed(chatKey, false)
     setReply(null)
@@ -2999,11 +3015,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // payload showing the durable copy retires the ghost by identity, even
     // while this request is still in flight (see PendingGhost.op).
     const op = mintClientOp()
-    const ghostId = addPending(slug, node.id, t, sentReply, attached, op, armedNotice)
+    const ghostId = addPending(slug, node.id, t, sentReply, attached, op, armedNotice, sentReplies)
     if (live && !node.halt && !armedNotice) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
-    sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined, op, armedNotice)
+    const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId)
+    sendMessage(slug, node.id, t, paths, pluralWire ? undefined : sentReply ? replyWire(sentReply) : undefined, op, armedNotice,
+      pluralWire ? sentReplies.map(replyWire) : undefined)
       .then((r) => {
         bindPendingMail(slug, node.id, ghostId, r)
         if (!r.command) firstUseSent(slug, node.id)
@@ -3783,7 +3801,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                   <div className="msg sys" data-reply-event="">— {gapMs > 5400e3
                     ? `${Math.round(gapMs / 3600e3)} h`
                     : `${Math.round(gapMs / 60e3)} min`} later —</div>)}
-                {first && renderReply(m.reply_to)}
+                {first && (m.replies?.length ? m.replies.map((r, i) => <div key={i}>{renderReply(r)}</div>) : renderReply(m.reply_to))}
                 <Msg systemPart m={m} slug={slug} nid={node.id} onMailLink={onMailLink}
                   onWorkLink={onWorkLink} refs={deskRefs}
                   replyAvailable={replyAvailable} onLocateReply={locateReply} />
@@ -3908,7 +3926,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               // text travels with the press — see `openReply`'s `local`
               onContext={e => openReply(e, {}, p.text)}
               onRestore={p.failed && !text.trim()
-                ? () => { setText(p.text); setReply(p.reply ?? null); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }
+                ? () => { setText(p.text); setReplyTargets(p.replies ?? (p.reply ? [p.reply] : [])); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }
                 : undefined}
               onDismiss={() => dismissPending(slug, node.id, p.id)} />
           ))}
@@ -4058,8 +4076,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the files tab shouldn't cost your place to say so */}
       {replyMenu.node}
-      {reply && <ReplyPreview reply={reply} available={replyAvailable(reply)}
-        onLocate={() => locateReply(reply)} onRemove={() => setReply(null)} />}
+      {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}`} reply={r} available={replyAvailable(r)}
+        onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))} />)}
+      {replyTargets.length > 1 && <button className="link" onClick={() => setReply(null)}>Cancel all replies</button>}
       {sendMode && <div className="sendmode dim">{sendMode}</div>}
       {histUndelivered && <div className="dim composer-history-note" role="status">
         recalled from history - this message was never sent
@@ -4679,6 +4698,7 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
           at: new Date(p.at).toISOString(),
           attachments: p.attachments,
           ...(p.reply ? { reply_to: replyWire(p.reply) } : {}),
+          ...(p.replies?.length ? { replies: p.replies.map(replyWire) } : {}),
         }}
         profile={'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}

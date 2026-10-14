@@ -76,6 +76,7 @@ export const STALL_MS = 60_000
  *  ghost a moment longer — erring toward showing the message, which is the
  *  direction this whole class of bug wants. */
 export interface PendingGhost {
+  replies?: ReplyContext[]
   reply?: ReplyContext | null
   attachments?: DraftAttachment[]
   error?: string
@@ -1422,7 +1423,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, _viewpo
   return true
 }
 
-export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[], op?: string, notice?: boolean): number {
+export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[], op?: string, notice?: boolean, replies?: ReplyContext[]): number {
   const k = key(slug, nid)
   const e = entry(k)
   // Baseline: everything already ACCOUNTED FOR is not this send. That is the
@@ -1436,7 +1437,7 @@ export function addPending(slug: string, nid: string, text: string, reply?: Repl
   patch(k, {
     pending: [...e.s.pending, {
       id: ghostId,
-      text, reply, attachments,
+      text, reply, replies, attachments,
       // the submission's own pre-send name — see PendingGhost.op. Optional so
       // legacy callers (and their tests) keep the counting rules unchanged.
       ...(op ? { op } : {}),

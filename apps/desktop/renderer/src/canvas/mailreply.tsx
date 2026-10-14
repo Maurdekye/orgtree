@@ -9,7 +9,7 @@ import { RefChip, resolveRef } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 
-interface ReplyRow { reply_to?: unknown; ev?: unknown }
+interface ReplyRow { reply_to?: unknown; replies?: unknown[]; ev?: unknown }
 
 /** Reply snapshots predate transcript-event references and are still what
  * mailbox, presentation and docket replies store. Never infer an identity
@@ -48,6 +48,9 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
   row: ReplyRow; org: string; world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void
   replyAvailable?: (reply: ReplyContext) => boolean; onLocateReply?: (reply: ReplyContext) => void
 }) {
+  if (row.replies?.length) return <>{row.replies.slice(0, 50).map((reply, i) =>
+    <MailReplyPreview key={i} row={{ reply_to: reply }} org={org} world={world} onOpen={onOpen}
+      replyAvailable={replyAvailable} onLocateReply={onLocateReply} />)}</>
   const chat = replyContext(row.reply_to)
   if (chat) return <ReplyPreview reply={chat} available={Boolean(replyAvailable?.(chat))}
     onLocate={() => onLocateReply?.(chat)} />

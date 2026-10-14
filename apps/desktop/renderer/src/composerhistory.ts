@@ -106,6 +106,7 @@ const recoveryPrefix = 'orgtree-draft-recovery-'
 const dismissedRecoveryPrefix = 'orgtree-draft-recovery-dismissed-'
 const legacyDraftKey = (slug: string, id: string) => `orgtree-draft-${slug}-${id}`
 const partSuffix = (key: string) => key.endsWith('-attachments') ? '-attachments'
+  : key.endsWith('-replies') ? '-replies'
   : key.endsWith('-reply') ? '-reply' : ''
 
 function identityOf(key: string, prefix: string): unknown[] | null {
@@ -121,6 +122,7 @@ function dropDraft(textKey: string) {
     localStorage.removeItem(textKey)
     localStorage.removeItem(`${textKey}-attachments`)
     localStorage.removeItem(`${textKey}-reply`)
+    localStorage.removeItem(`${textKey}-replies`)
   } catch { /* unavailable storage */ }
 }
 

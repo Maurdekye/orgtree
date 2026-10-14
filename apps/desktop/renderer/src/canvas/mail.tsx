@@ -71,7 +71,7 @@ export interface MailListProps {
   onRead?: (m: MailRow) => void
   /** `notice` is set only when the reply box's notice toggle was armed at
    *  send; the host forwards it to its own send call. */
-  onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean) => void
+  onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean, targets?: MailRow[]) => void
   /** Which rows may be answered from here. Default: incoming mail from a
    *  plain agent id (the @-sentinels route elsewhere). */
   canReply?: (m: MailRow) => boolean
@@ -176,6 +176,16 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // different server-side facts (undelivered vs delivered); `_wait` carries
   // that distinction into the row's styling, which is now all it drives.
   const profile = 'operator'
+  const [replyTargets, setReplyTargets] = useState<MailRow[]>([])
+  const [replyError, setReplyError] = useState('')
+  useEffect(() => { setReplyTargets([]); setReplyError('') }, [org, outgoing])
+  const collectReply = (m: MailRow) => {
+    if (!m.id) { setReplyError('This message has no durable reply reference yet.'); return false }
+    if (replyTargets.some(r => r.from !== m.from)) { setReplyError('A multi-reply can only answer messages from the same sender.'); return false }
+    if (replyTargets.some(r => r.id === m.id)) return true
+    if (replyTargets.length >= 50) { setReplyError('A multi-reply can answer at most 50 messages.'); return false }
+    setReplyTargets([...replyTargets, m]); setReplyError(''); return true
+  }
   const views = new WeakMap<MailRow, EventView | null>()
   const typedView = (m: MailRow) => {
     if (views.has(m)) return views.get(m)!
@@ -421,7 +431,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         : { label: 'Open', onSelect: select },
     ]
     const canReply = Boolean(onReply && !outgoing && !m._ask && answerable(m))
-    if (canReply) entries.push({ label: 'Reply', onSelect: () => { select(); setReplyFocus(keyOf(m)) } })
+    if (canReply) entries.push({ label: 'Reply', onSelect: () => { if (collectReply(m)) { select(); setReplyFocus(keyOf(m)) } } })
     if (m._wait && m.id && !m._ask && onRead) {
       entries.push({ label: 'Mark as read', onSelect: () => onRead(m) })
     }
@@ -552,13 +562,25 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       }>
       {menu.node}
       <div {...surface} className={"mailer-read " + surface.className}>
+        {replyError && <div role="alert">{replyError}</div>}
+        {replyable && cur && <button className="link" onClick={() => collectReply(cur)}>Add this message to reply</button>}
+        {replyTargets.map(m => <div className="mail-reply-target" key={m.id}>
+          <span>{m.from}: {String(m.body ?? '').slice(0, 160)}</span>
+          <button aria-label="Remove reply target" onClick={() => setReplyTargets(replyTargets.filter(r => r.id !== m.id))}>×</button>
+        </div>)}
+        {replyTargets.length > 0 && <button className="link" onClick={() => setReplyTargets([])}>Cancel all replies</button>}
         {cur && (
           <MailReadPane cur={cur} members={curPile} org={org} refs={refs}
             mdBase={mdBase} fileHref={fileHref} sender={S} outgoing={outgoing}
             customSender={customS} waitLabel={waitLabel} custom={custom}
             party={displayParty(cur)!}
             onReply={replyable
-              ? (text, attachments, notice) => onReply!(cur, text, attachments, notice)
+              ? async (text, attachments, notice) => {
+                const targets = replyTargets.length ? replyTargets : [cur]
+                if (targets.some(m => m.from !== cur.from)) { setReplyError('Open a message from the reply targets\' sender before sending.'); throw Error('Mixed senders in a multi-reply') }
+                await onReply!(targets[0], text, attachments, notice, targets)
+                setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
+              }
               : undefined}
             toast={toast} />
         )}
@@ -1478,6 +1500,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     // org never had) shows nothing
     reply_to: e.reply_to?.gist ? { id: e.reply_to.id ?? '', kind: 'mail', box: 'org', org: slug,
       from: e.reply_to.from ?? '', at: e.reply_to.at ?? '', gist: e.reply_to.gist } : undefined,
+    replies: e.replies,
   }))
   const inn = rows.filter((r) => r.kind === 'message')
   const out = rows.filter((r) => r.kind === 'reply')
