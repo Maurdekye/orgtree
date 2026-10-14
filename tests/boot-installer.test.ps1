@@ -353,4 +353,68 @@ Assert (@($script:bootLog | Where-Object { $_ -like 'stop: still running after 0
 $script:processes=@(); $script:task.Instances=1
 Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'Still running: the Orgtree Background Engine task \(1 instance\(s\) running\)\. Open Orgtree'
 $script:task.Instances=0
+
+# The closed desktop's core-recovery observer (docket installer-can-t-replace-a-
+# running-orgtree-an-ins, 2026-10-14). Alpha.0/alpha.1 observers wait out a
+# 180-second installer allowance from the engine folder and the boot step timed
+# out on them. Coordinator ruling: end it only with this installation's image,
+# the `core-recovery watch` command line and its desktop verifiably gone.
+$script:RecoveryWatchGraceSeconds=0
+$script:watchKills=[Collections.Generic.List[int]]::new()
+function Stop-RecoveryWatchProcess($Watcher) {
+    $script:watchKills.Add([int]$Watcher.ProcessId); $script:events.Add('watch-kill')
+    $script:processes=@($script:processes | Where-Object { $_.ProcessId -ne $Watcher.ProcessId -and $_.ParentProcessId -ne $Watcher.ProcessId })
+}
+$t0=[datetime]'2026-10-14T09:49:00'
+function New-Watcher([int]$Id=501,[string]$Exe=$engineExe,[string]$Mode='core-recovery watch') {
+    return [pscustomobject]@{ProcessId=$Id; ParentProcessId=4321; CreationDate=$t0; Name='orgtree-engine.exe'; ExecutablePath=$Exe
+        CommandLine=('"'+$Exe+'" '+$Mode+' "C:\Users\op\AppData\Roaming\Orgtree v2\data" 4321 133999999999999999')}
+}
+$conhost=[pscustomobject]@{ProcessId=502; ParentProcessId=501; CreationDate=$t0.AddMilliseconds(5); Name='conhost.exe'; ExecutablePath='C:\Windows\System32\conhost.exe'}
+# Desktop gone: the observer (and its console host with it) is ended before the
+# tree is captured, so the stop completes instead of waiting it out.
+$script:task=New-FakeTask $xml; $script:task.KeepProcesses=$true
+$script:processes=@((New-Watcher),$conhost); $script:events.Clear(); $script:bootLog.Clear(); $script:watchKills.Clear()
+Stop-OwnedBootTask $script:folder $original $dir 2
+Assert ($script:watchKills.Count -eq 1 -and $script:watchKills[0] -eq 501) 'The closed desktop''s observer was not ended'
+Assert ($script:events.IndexOf('watch-kill') -lt $script:events.IndexOf('stop')) 'The observer must be ended before the boot tree is stopped'
+Assert (@($script:bootLog -like 'watcher: ended orgtree-engine.exe pid 501 (core-recovery watch, parent 4321) at *; the desktop it watched (pid 4321) is gone').Count -eq 1) "The ended observer was not logged: $($script:bootLog -join ' | ')"
+# The same through the lifecycle Setup runs (Prepare), with the task kept running.
+$script:task=New-FakeTask (New-BootTaskXml $script:record); $script:task.KeepProcesses=$true
+$script:processes=@((New-Watcher),$conhost); $script:watchKills.Clear()
+Invoke-BootLifecycle Prepare $dir $sid
+Assert ($script:watchKills.Count -eq 1) 'Prepare did not end the closed desktop''s observer'
+# The desktop's id now held by a process created after the observer, or by an
+# image outside the installation: that is not the desktop, which is gone.
+foreach ($holder in @([pscustomobject]@{ProcessId=4321; ParentProcessId=8; CreationDate=$t0.AddMinutes(1); Name='Orgtree.exe'; ExecutablePath=$desktopExe},
+                      [pscustomobject]@{ProcessId=4321; ParentProcessId=8; CreationDate=$t0.AddMinutes(-5); Name='notepad.exe'; ExecutablePath='C:\Windows\notepad.exe'})) {
+    $script:processes=@($holder,(New-Watcher)); $script:watchKills.Clear()
+    $left=Stop-ClosedDesktopWatchers $dir $script:processes
+    Assert ($left -eq $true -and $script:watchKills.Count -eq 1) "An observer whose desktop id was reused by $($holder.Name) was kept"
+}
+# Never ended while its desktop may still be there: the desktop itself, or an
+# id holder whose image and age cannot be read. The stop then names it.
+foreach ($holder in @([pscustomobject]@{ProcessId=4321; ParentProcessId=8; CreationDate=$t0.AddMinutes(-5); Name='Orgtree.exe'; ExecutablePath=$desktopExe},
+                      [pscustomobject]@{ProcessId=4321; ParentProcessId=8; CreationDate=$null; Name='mystery.exe'; ExecutablePath=$null})) {
+    $script:task=New-FakeTask $xml; $script:task.KeepProcesses=$true
+    $script:processes=@($holder,(New-Watcher),$conhost); $script:watchKills.Clear()
+    Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'Still running: orgtree-engine\.exe pid 501 \(core-recovery watch, parent 4321\)'
+    Assert ($script:watchKills.Count -eq 0) "An observer was ended while its desktop could still be running ($($holder.Name))"
+}
+# Never another installation's binary, and never another mode of this one.
+$script:processes=@((New-Watcher -Exe (Join-Path ($dir+'-other') 'resources\engine\orgtree-engine.exe')),(New-Watcher -Id 503 -Mode 'core-recovery arm'),(New-Watcher -Id 504 -Mode 'host'))
+$script:watchKills.Clear()
+$left=Stop-ClosedDesktopWatchers $dir $script:processes
+Assert ($left -eq $false -and $script:watchKills.Count -eq 0) "A process that is not this installation's observer was ended: $($script:watchKills -join ',')"
+# Graceful first: an observer that stands down by itself within the grace is
+# not ended (later engines do, as soon as their desktop closes for an install).
+$savedProcesses=${function:Get-BootProcesses}
+$script:standReads=0
+function Get-BootProcesses { $script:standReads++; if ($script:standReads -eq 1) { return @((New-Watcher)) }; return @() }
+$script:watchKills.Clear(); $script:bootLog.Clear()
+$left=Stop-ClosedDesktopWatchers $dir (Get-BootProcesses) 2
+Assert ($left -eq $true -and $script:watchKills.Count -eq 0 -and $script:standReads -eq 2) 'An observer that stood down by itself was ended anyway'
+Assert (@($script:bootLog -like 'watcher: 1 core-recovery observer(s) of a closed desktop stood down by themselves').Count -eq 1) 'The stand-down was not logged'
+Set-Item Function:Get-BootProcesses $savedProcesses
+$script:processes=@()
 Write-Output "PASS $script:checks installer assertions; synthetic fixture: $root"

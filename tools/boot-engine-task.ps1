@@ -176,6 +176,86 @@ function Get-BootProcessLabel($Process) {
     }
     return "$name pid $(& $field 'ProcessId') (${mode}parent $parent) at $path"
 }
+# ---- the desktop's core-recovery observer
+# `resources\engine\orgtree-engine.exe core-recovery watch <data root> <desktop
+# pid> <desktop creation stamp>` (engine core_recovery.rs). The desktop starts it
+# outside every job so that it outlives a crashed desktop and relaunches it.
+# After an installer or the in-app updater has closed the desktop, the observer
+# of 4.3.0-alpha.0 and alpha.1 instead waits out a 180-second installer
+# allowance and then relaunches the old application. It runs from the engine
+# folder, so all that time the files cannot be replaced and the boot tree is
+# not quiet: two real upgrades to alpha.1 failed on exactly this (docket
+# installer-can-t-replace-a-running-orgtree-an-ins, 2026-10-14). Later engines
+# stand down by themselves when their desktop closes for an install and get a
+# few seconds to do so; an older observer is then ended. Coordinator ruling
+# 2026-10-14: only this installation's engine image, only the `core-recovery
+# watch` command line, and only once the desktop it watches is verifiably gone.
+# Every other process is still only asked to stop and waited for.
+$script:RecoveryWatchGraceSeconds = 3
+function Get-RecoveryWatchDesktopId($Process, [string]$InstallDir) {
+    $path = $Process.PSObject.Properties['ExecutablePath']; $command = $Process.PSObject.Properties['CommandLine']
+    if ($null -eq $path -or -not $path.Value -or $null -eq $command -or -not $command.Value) { return 0 }
+    if ([string]$path.Value -ine (Join-Path $InstallDir 'resources\engine\orgtree-engine.exe')) { return 0 }
+    $id = 0L
+    if ([string]$command.Value -cmatch '^\s*(?:"[^"]*"|\S+)\s+core-recovery\s+watch\s+.+\s(\d{1,10})\s+\d{1,20}\s*$') { $id = [long]$Matches[1] }
+    if ($id -le 0 -or $id -gt [int]::MaxValue) { return 0 }
+    return [int]$id
+}
+# Gone: no process holds the id any more, or the one holding it is provably
+# another: created after the observer (a desktop always predates its observer)
+# or running an image from outside this installation. Unreadable counts as there.
+function Test-WatchedDesktopGone($Processes, $Watcher, [int]$DesktopId, [string]$InstallDir) {
+    foreach ($p in @($Processes | Where-Object { $null -ne $_ -and [int]$_.ProcessId -eq $DesktopId })) {
+        $created = $p.PSObject.Properties['CreationDate']; $watched = $Watcher.PSObject.Properties['CreationDate']
+        if ($null -ne $created -and $null -ne $watched -and $created.Value -is [datetime] -and $watched.Value -is [datetime] -and $created.Value -gt $watched.Value) { continue }
+        $path = $p.PSObject.Properties['ExecutablePath']
+        if ($null -ne $path -and $path.Value -and -not ([string]$path.Value).StartsWith($InstallDir+'\', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        return $false
+    }
+    return $true
+}
+# Ends one observer; an I/O boundary the tests replace. The handle taken first
+# pins the process, so its id cannot pass to another process before the
+# identity re-check, and the kill goes through that same handle.
+function Stop-RecoveryWatchProcess($Watcher) {
+    $id = [int]$Watcher.ProcessId
+    $process = Get-Process -Id $id -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return }
+    try {
+        $null = $process.Handle
+        $now = @(Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction Stop)
+        if ($now.Count -ne 1 -or $now[0].CreationDate -ne $Watcher.CreationDate -or $now[0].ExecutablePath -ine $Watcher.ExecutablePath) { throw 'it is no longer the process that was checked' }
+        $process.Kill()
+        $null = $process.WaitForExit(5000)
+    } finally { $process.Dispose() }
+}
+# $Processes is the caller's current reading; $true when an observer left or
+# was ended, so the caller reads the table again.
+function Stop-ClosedDesktopWatchers([string]$InstallDir, $Processes, [int]$GraceSeconds=$script:RecoveryWatchGraceSeconds) {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $first = -1
+    $processes = @($Processes | Where-Object { $null -ne $_ })
+    do {
+        $watchers = @(foreach ($p in $processes) {
+            $desktop = Get-RecoveryWatchDesktopId $p $InstallDir
+            if ($desktop -gt 0 -and (Test-WatchedDesktopGone $processes $p $desktop $InstallDir)) { [pscustomobject]@{Process=$p; Desktop=$desktop} }
+        })
+        if ($first -lt 0) { $first = $watchers.Count }
+        if ($watchers.Count -eq 0) {
+            if ($first -gt 0) { Write-BootLog "watcher: $first core-recovery observer(s) of a closed desktop stood down by themselves" }
+            return ($first -gt 0)
+        }
+        if ($clock.Elapsed.TotalSeconds -ge $GraceSeconds) { break }
+        Start-Sleep -Milliseconds 250
+        $processes = @(Get-BootProcesses | Where-Object { $null -ne $_ })
+    } while ($true)
+    foreach ($w in $watchers) {
+        $label = Get-BootProcessLabel $w.Process
+        try { Stop-RecoveryWatchProcess $w.Process; Write-BootLog "watcher: ended $label; the desktop it watched (pid $($w.Desktop)) is gone" }
+        catch { Write-BootLog "watcher: did not end $label : $($_.Exception.Message)" }
+    }
+    return $true
+}
 function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
     foreach ($p in $Processes) {
         if ($null -eq $p -or $p.ExecutablePath -or [int]$p.ProcessId -in @(0,4)) { continue }
@@ -377,8 +457,11 @@ function Get-BootTree($Processes, [string]$InstallDir, $Known) {
 # and PostgreSQL (up to 120 s on a busy disk) before it exits.
 function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$TimeoutSeconds=150) {
     $task = Find-BootTask $Folder
+    $processes = @(Get-BootProcesses)
+    # Before the tree is captured: a closed desktop's observer is not the engine.
+    if (Stop-ClosedDesktopWatchers $InstallDir $processes) { $processes = @(Get-BootProcesses) }
     $known = @{}
-    $running = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
+    $running = @(Get-BootTree $processes $InstallDir $known)
     Write-BootLog "stop: $($running.Count) process(es) in the boot tree$(if ($running.Count) { ': ' + ((@($running | Select-Object -First 10 | ForEach-Object { Get-BootProcessLabel $_ })) -join '; ') })"
     $disabledByUs = $false
     $wasEnabled = $false

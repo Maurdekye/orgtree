@@ -921,7 +921,20 @@ test('graceful shutdown is path-bound, retryable, and never force-kills', () => 
   assert.match(helper, /if \(Test-SamePath \$candidate \$executable\)/)
   assert.match(helper, /\$Left\.ToUpperInvariant\(\) -ceq \$Right\.ToUpperInvariant\(\)/)
   assert.match(helper, /Start-Process -FilePath \$executable -ArgumentList @\('--installer-upgrade'\)/)
-  assert.doesNotMatch(helper, /(?:Stop-Process|taskkill|\.Kill\s*\()/i)
+  // The one process the helper may end is the closed desktop's core-recovery
+  // observer (docket installer-can-t-replace-a-running-orgtree-an-ins, coordinator
+  // ruling 2026-10-14): never the application, its engine or anything else, and
+  // only with this installation's engine image, the `core-recovery watch` command
+  // line and its desktop verifiably gone.
+  const kills = [...helper.matchAll(/Stop-Process|taskkill|\.Kill\s*\(/gi)]
+  assert.equal(kills.length, 1)
+  const owner = helper.slice(helper.lastIndexOf('function ', kills[0].index), kills[0].index)
+  assert.match(owner, /^function Stop-ClosedDesktopObserver\(/)
+  assert.match(owner, /\$null = \$process\.Handle[\s\S]*\$created -ne \$Observer\.Created/)
+  assert.match(helper, /Test-SamePath \(Get-CanonicalPath \(\[string\]\$Reading\.Path\)\) \(Get-CanonicalPath \$script:EngineImage\)/)
+  assert.match(helper, /-cmatch '\^\\s\*\(\?:"\[\^"\]\*"\|\\S\+\)\\s\+core-recovery\\s\+watch\\s\+/)
+  assert.match(helper, /Get-ObservedDesktopId \$reading[\s\S]*Test-ObservedDesktopGone \$readings \$reading \$desktopId[\s\S]*Stop-ClosedDesktopObserver \$observer\.Reading/)
+  assert.match(helper, /if \(-not \$ObserveOnly\) \{ Stop-ClosedDesktopObservers \}/)
   assert.match(installer, /IDRETRY orgtreeUpgradeShutdownAttempt IDCANCEL orgtreeUpgradeShutdownCancel/)
   assert.match(installer, /Retry to request a graceful close again, or Cancel to leave the existing installation untouched/)
   assert.match(installer, /!ifndef BUILD_UNINSTALLER[\s\S]*?Call orgtreeCloseForUpgrade[\s\S]*?!else[\s\S]*?!insertmacro _CHECK_APP_RUNNING[\s\S]*?!endif/)

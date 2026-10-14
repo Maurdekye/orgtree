@@ -897,12 +897,116 @@ try {
     }
   }
 
+  # ---------------------------------------------------------------------------
+  # THE CLOSED DESKTOP'S RECOVERY OBSERVER (docket installer-can-t-replace-a-
+  # running-orgtree-an-ins, 2026-10-14)
+  #
+  # The desktop starts `resources\engine\orgtree-engine.exe core-recovery watch
+  # <data root> <desktop pid> <desktop creation stamp>` (engine core_recovery.rs)
+  # outside every job, so that it outlives a crashed desktop and relaunches it.
+  # When this helper has closed the desktop for an upgrade, the observer of
+  # 4.3.0-alpha.0 and alpha.1 instead waits out a 180-second installer allowance
+  # and then relaunches the OLD application. It runs from the engine folder, so
+  # while it lives the tree below is never quiet: a per-user upgrade times out
+  # here, and an all-users upgrade left it to the boot step, which timed out
+  # after 150 seconds. Two real upgrades to alpha.1 failed on exactly that.
+  #
+  # IT IS THE ONE PROCESS THIS HELPER MAY END, and only when all three checks
+  # hold (coordinator ruling 2026-10-14): the image is this installation's
+  # engine, the command line is `core-recovery watch`, and the desktop it
+  # watches is verifiably gone. Later engines stand down by themselves when
+  # their desktop closes for an install and are given a few seconds to do so.
+  # The application, its engine and everything else are only asked and waited
+  # for, as before.
+  # ---------------------------------------------------------------------------
+  function Get-ObservedDesktopId($Reading) {
+    if (-not $Reading.Readable -or -not $Reading.CommandReadable) { return 0 }
+    if (-not (Test-SamePath (Get-CanonicalPath ([string]$Reading.Path)) (Get-CanonicalPath $script:EngineImage))) { return 0 }
+    $id = 0
+    if (([string]$Reading.Command) -cmatch '^\s*(?:"[^"]*"|\S+)\s+core-recovery\s+watch\s+.+\s(\d{1,9})\s+\d{1,20}\s*$') { $id = [int]$Matches[1] }
+    return $id
+  }
+
+  # Gone: no process holds the id any more, or the one holding it is provably
+  # another: created after the observer (a desktop always predates the observer
+  # it starts) or running a readable image from outside the installation.
+  # Anything unreadable counts as the desktop still being there.
+  function Test-ObservedDesktopGone($Readings, $Observer, [int] $DesktopId) {
+    foreach ($reading in @($Readings)) {
+      if ([int]$reading.Id -ne $DesktopId) { continue }
+      if ($null -ne $reading.Created -and $null -ne $Observer.Created -and $reading.Created -gt $Observer.Created) { continue }
+      if ($reading.Readable -and -not (Test-PathUnderRoot $reading.Path)) { continue }
+      return $false
+    }
+    return $true
+  }
+
+  # Ends one observer. The handle taken first pins the process, so its id
+  # cannot pass to another process before the identity re-check, and the stop
+  # goes through that same handle. Returns what happened, for the log.
+  function Stop-ClosedDesktopObserver($Observer) {
+    $process = Get-Process -Id ([int]$Observer.Id) -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return 'already gone' }
+    try {
+      $null = $process.Handle
+      $now = @(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $([int]$Observer.Id)" -ErrorAction Stop)
+      $created = $null
+      if ($now.Count -eq 1 -and $null -ne $now[0].CreationDate) { $created = [datetime]$now[0].CreationDate }
+      if ($null -eq $created -or $null -eq $Observer.Created -or $created -ne $Observer.Created) { return 'not ended: the id no longer names the observer that was checked' }
+      Stop-Process -InputObject $process -Force -ErrorAction Stop
+      Wait-Process -InputObject $process -Timeout 5 -ErrorAction SilentlyContinue
+      # Its console host goes with it, a moment later; wait for that too, so
+      # the tree check below does not take it for a process of its own.
+      $settle = (Get-Date).AddSeconds(2)
+      while ((Get-Date) -lt $settle) {
+        $hosts = @(@(Get-InstallTreeReadings) | Where-Object { [int]$_.Parent -eq [int]$Observer.Id -and ($null -eq $_.Created -or $_.Created -ge $Observer.Created) })
+        if ($hosts.Count -eq 0) { break }
+        Start-Sleep -Milliseconds 100
+      }
+      return 'ended'
+    } finally {
+      try { $process.Dispose() } catch { }
+    }
+  }
+
+  function Stop-ClosedDesktopObservers {
+    Set-Step 'end-closed-desktop-observer'
+    $graceUntil = (Get-Date).AddSeconds(3)
+    $first = -1
+    while ($true) {
+      $readings = @(Get-InstallTreeReadings)
+      $observers = @()
+      foreach ($reading in $readings) {
+        $desktopId = Get-ObservedDesktopId $reading
+        if ($desktopId -gt 0 -and (Test-ObservedDesktopGone $readings $reading $desktopId)) {
+          $observers += [pscustomobject]@{ Reading = $reading; Desktop = $desktopId }
+        }
+      }
+      if ($first -lt 0) { $first = $observers.Count }
+      if ($observers.Count -eq 0) {
+        if ($first -gt 0) { Write-Log "observer: $first core-recovery observer(s) of the closed desktop stood down by themselves" }
+        break
+      }
+      if ((Get-Date) -ge $graceUntil) {
+        foreach ($observer in $observers) {
+          $outcome = 'not ended'
+          try { $outcome = Stop-ClosedDesktopObserver $observer.Reading } catch { $outcome = "not ended: $($_.Exception.Message)" }
+          Write-Log "observer: orgtree-engine.exe($($observer.Reading.Id)) core-recovery watch of closed desktop pid $($observer.Desktop): $outcome"
+        }
+        break
+      }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+
   # Waits for the installation tree to be verifiably quiet, or throws naming
-  # what is still in it. Never kills, signals or stops anything: when the tree
-  # is not quiet it asks the background engine to stop, once, the way the
-  # window does, and then gives the engine's tree the engine's own budget.
-  # -ObserveOnly is the recovery path's single look: it asks nothing.
+  # what is still in it. Kills nothing but the closed desktop's recovery
+  # observer above: when the tree is not quiet it asks the background engine to
+  # stop, once, the way the window does, and then gives the engine's tree the
+  # engine's own budget. -ObserveOnly is the recovery path's single look: it
+  # asks and ends nothing.
   function Assert-InstallTreeQuiet([datetime] $Deadline, [switch] $ObserveOnly) {
+    if (-not $ObserveOnly) { Stop-ClosedDesktopObservers }
     Set-Step 'verify-install-tree-quiet'
     $held = @(Get-InstallTreeHolders)
     if ($held.Count -gt 0 -and -not $ObserveOnly -and $null -eq $script:EngineRequest) {
