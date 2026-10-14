@@ -80,13 +80,14 @@ export default async function (rig) {
   const ids = Object.fromEntries(AGENTS.map(a => [a, rig.agentRow(a)?.id]))
   p.check('seven flash agents hired on the Antigravity lane', AGENTS.every(a => ids[a]), ids)
   const log = (agent, kind) => rig.fakeLog(agent).filter(l => !kind || l.kind === kind)
-  const convo = agent => rig.sql(`SELECT body FROM ot.convo WHERE agent_id = ${ids[agent]} ORDER BY seq`).map(r => r.body)
+  const convo = (agent, after = 0) => rig.sql(`SELECT body FROM ot.convo WHERE agent_id = ${ids[agent]} AND seq > ${after} ORDER BY seq`).map(r => r.body)
   const mailRow = text => rig.one(`SELECT id, state, turn_id FROM ot.mail WHERE body LIKE '${text.replace(/'/g, "''")}%' ORDER BY id DESC LIMIT 1`)
 
   // kai first: his retry waits ~30 s while the rest runs
   await rig.userMail('kai', 'PROOF-EXIT: please start the work.')
 
   // ---------------------------------------------------------------- gia: a normal turn
+  const giaBefore = rig.one(`SELECT coalesce(max(seq), 0) AS seq FROM ot.convo WHERE agent_id = ${ids.gia}`).seq
   await rig.userMail('gia', 'PROOF-HELLO: please say hi.')
   const [g1] = await rig.waitTurns('gia', 1)
   const row1 = rig.one(`SELECT * FROM ot.turns WHERE id = ${g1.id}`)
@@ -99,9 +100,19 @@ export default async function (rig) {
   const chartRes = log('gia', 'tool_result').find(l => l.tool === 'orgtree_chart')
   p.check('gia: the orgtree tools reached the CLI through the workspace plugin (mcp-bridge over the pipe)', /orgtree-engine\.exe$/i.test(mcp?.command ?? '')
     && mcp.tools > 30 && chartRes?.ok === true, { mcp, chart: chartRes && String(chartRes.text).slice(0, 80) })
-  const said = convo('gia').find(b => b.role === 'assistant' && /Hi from gia/.test(b.text ?? ''))
-  p.check('gia: her message carries both tool chips with their results', ['orgtree_chart', 'run_command'].every(n => said?.tools?.some(t => t.name === n && t.result))
-    && /boss/.test(said.tools.find(t => t.name === 'orgtree_chart').result), said?.tools?.map(t => [t.name, String(t.result).slice(0, 40)]))
+  // Both lanes use codex_row: tools after reply text live on a later row,
+  // preserving production order. Inspect this turn, not the greeting's tools.
+  const helloRows = convo('gia', giaBefore)
+  p.file('gia-hello-convo.json', helloRows)
+  const saidAt = helloRows.findIndex(b => b.role === 'assistant' && /Hi from gia/.test(b.text ?? ''))
+  const toolRows = helloRows.slice(saidAt + 1).filter(b => b.role === 'assistant')
+  const chips = toolRows.flatMap(b => b.tools ?? [])
+  const chart = chips.filter(t => t.name === 'orgtree_chart')
+  const command = chips.filter(t => t.name === 'run_command')
+  p.check('gia: her turn carries both completed tool chips after her greeting', saidAt >= 0
+    && chart.length === 1 && /boss/.test(chart[0].result ?? '') && chart[0].ended_at && !chart[0].error
+    && command.length === 1 && command[0].result === 'a.txt' && command[0].ended_at && !command[0].error,
+    { greeting: helloRows[saidAt]?.seq, tools: toolRows.map(b => ({ seq: b.seq, tools: b.tools })) })
   const conv = log('gia', 'start')[0]?.conversation
   p.check('gia: her conversation is her session', rig.agentRow('gia').session_id === conv, { session: rig.agentRow('gia').session_id, conv })
 
