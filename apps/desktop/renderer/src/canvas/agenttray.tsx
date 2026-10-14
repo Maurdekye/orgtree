@@ -93,13 +93,15 @@ export interface AgentTrayProps {
   /** extra attributes on the row */
   rowProps?: (node: CanvasNode) => HTMLAttributes<HTMLDivElement> & Record<string, unknown>
   filterLabel?: string
+  /** host-owned root/option rows after the filter, before the agent hierarchy */
+  leadingRows?: ReactNode
   /** shown when no row matches; nothing by default (the canvas's behaviour) */
   empty?: ReactNode
 }
 
 export function AgentTray({
   map, rows, query, onQuery, archived, onArchived, onPick, onRowMenu, compactAt,
-  refs, selected, listProps, mainProps, rowProps, filterLabel, empty,
+  refs, selected, listProps, mainProps, rowProps, filterLabel, leadingRows, empty,
 }: AgentTrayProps) {
   const archN = archivedCount(map)
   return (
@@ -113,6 +115,7 @@ export function AgentTray({
           {archived ? '▾ hide' : '▸ show'} {archN} archived
         </button>
       )}
+      {leadingRows}
       {rows.map(({ node: n, depth, ghost }) => {
         const go = () => onPick(n.id)
         // №13: the status summary is TEXT here, not a tooltip — and a

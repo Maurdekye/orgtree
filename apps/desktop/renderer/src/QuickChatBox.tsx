@@ -289,7 +289,7 @@ function treeNodes(tree: TreePayload): Map<string, CanvasNode> {
 }
 
 /** THE AGENTS LIST as a superior picker: the host's rows in the host's
- *  order, live agents only, with "top level" above them. The filter box,
+ *  order, live agents only, under the "top level" root row. The filter box,
  *  arrows and Enter pick; Escape closes. */
 function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
   nodes: Map<string, CanvasNode>
@@ -306,17 +306,21 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
   }, [agentList, nodes, query])
   // a superior must be live: the archived toggle has nothing to offer here
   const liveMap = useMemo(() => new Map([...map].filter(([, n]) => n.state === 'live')), [map])
+  const rootMatches = TOP_LEVEL_LABEL.includes(query.trim().toLowerCase())
+  // Like filtered agent ancestors, a nonmatching root stays for context.
+  const showRoot = rootMatches || rows.length > 0
+  const indentedRows = useMemo(() => rows.map(r => ({ ...r, depth: r.depth + 1 })), [rows])
   const choices: QuickSuperior[] = useMemo(() =>
-    [null, ...rows.filter(r => !r.ghost && r.node.state === 'live').map(r => r.node.id)], [rows])
+    [...(rootMatches ? [null] : []), ...rows.filter(r => !r.ghost && r.node.state === 'live').map(r => r.node.id)], [rows, rootMatches])
   const [hi, setHi] = useState<QuickSuperior>(superior)
   const at = Math.max(0, choices.indexOf(hi))
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => { ref.current?.querySelector<HTMLInputElement>('.tray-filter')?.focus() }, [])
   useEffect(() => {
-    if (!choices.includes(hi)) setHi(choices[1] ?? null)
+    if (!choices.includes(hi)) setHi(choices[0] ?? null)
   }, [choices, hi])
   useEffect(() => {
-    ref.current?.querySelector('.tray-row.sel, .quickchat-top.sel')
+    ref.current?.querySelector('.tray-row.sel')
       ?.scrollIntoView?.({ block: 'nearest' })
   }, [hi])
   const pick = (id: string) => { if (liveMap.has(id)) onPick(id) }
@@ -326,33 +330,36 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault()
           const n = choices.length
+          if (!n) return
           setHi(choices[(at + (e.key === 'ArrowDown' ? 1 : n - 1)) % n] ?? null)
         } else if (e.key === 'Enter') {
           e.preventDefault()
+          if (!choices.length) return
           onPick(choices[at] ?? null)
         }
       }}>
-      {/* an option row like the agents' (user 2026-10-10): same row, hover
-          and selection, with the user's eye where an agent's chip sits */}
-      <div className={'tray-row quickchat-top' + (hi === null ? ' sel' : '')}
-        aria-current={superior === null || undefined} onClick={() => onPick(null)}>
-        <div className="tray-primary">
-          <button type="button" className="tray-main" title="no superior: a top-level agent">
-            <span className="tier quickchat-user-mark" aria-hidden="true">
-              <svg className="eye" viewBox="0 0 48 26">
-                <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
-                <circle className="iris" cx="24" cy="13" r="6.5" />
-                <circle className="pupil" cx="24" cy="13" r="2.6" />
-              </svg>
-            </span>
-            <span className="tray-name">{TOP_LEVEL_LABEL}</span>
-          </button>
-        </div>
-      </div>
-      <AgentTray map={liveMap} rows={rows} query={query} onQuery={setQuery}
+      <AgentTray map={liveMap} rows={indentedRows} query={query} onQuery={setQuery}
         archived={false} onArchived={() => {}} onPick={pick} compactAt={compactAt}
         selected={hi} filterLabel="filter superiors"
-        empty={<div className="quickchat-empty">no live agent matches</div>} />
+        leadingRows={showRoot && (
+          <div className={'tray-row quickchat-top' + (!rootMatches ? ' ghost' : '') + (hi === null && rootMatches ? ' sel' : '')}
+            style={{ paddingLeft: 8 }}
+            aria-current={superior === null || undefined} onClick={() => onPick(null)}>
+            <div className="tray-primary">
+              <button type="button" className="tray-main" title="no superior: a top-level agent">
+                <span className="tier quickchat-user-mark" aria-hidden="true">
+                  <svg className="eye" viewBox="0 0 48 26">
+                    <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
+                    <circle className="iris" cx="24" cy="13" r="6.5" />
+                    <circle className="pupil" cx="24" cy="13" r="2.6" />
+                  </svg>
+                </span>
+                <span className="tray-name">{TOP_LEVEL_LABEL}</span>
+              </button>
+            </div>
+          </div>
+        )}
+        empty={!showRoot && <div className="quickchat-empty">no live agent matches</div>} />
     </div>
   )
 }
