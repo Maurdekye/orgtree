@@ -359,6 +359,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- New-org presets with no offered slot (including fallbacks) are dimmed and
+  collapsed after the first sign-in check, but remain selectable. Selection
+  opens model choices and warns; edits follow the current plan, partial layouts
+  retain per-slot blocking. Invalid files remain disabled, checking/unknown
+  stays normal, and template filename order is preserved. See
+  [preset availability](docs/rust-engine/preset-availability.md).
+  [decided: user 2026-10-14 17:56:42Z; verified from source: `domain/templates.rs`,
+  `http/templates.rs`, `shell/templatepicker.tsx`; batch checks pending]
+
 - Quick chat's superior picker puts its selectable `top level` eye row
   inside the Agents List after the filter, with every agent one depth deeper.
   A filtered agent keeps its ancestor chain and a ghost root; keyboard choices
