@@ -57,7 +57,9 @@ pub fn auth_check() -> i32 {
         "prompt" => { eprint!("Enter the authorization code:"); let _ = std::io::stderr().flush(); std::thread::sleep(Duration::from_secs(60)); 1 }
         "hang" => { std::thread::sleep(Duration::from_secs(60)); 1 }
         "unsupported" => { println!("unknown environment action"); 0 }
-        _ => 0,
+        "silent" => 0,
+        // Real AGY 1.3.5 signed in (measured 2026-10-14): exit 0 and this line.
+        _ => { println!("Already authenticated as rig-user@example.invalid"); 0 }
     }
 }
 

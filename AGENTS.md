@@ -27,8 +27,12 @@
   probes 2026-10-14; rig proofs pending]
 
 - Antigravity background launches share `providers::agy_auth`: Windows exact
-  credential metadata → silent zero-argument auth check → guarded command;
-  refusal latches until credential metadata changes. No Sign in UI. Headless
+  credential metadata → silent zero-argument auth check → guarded command.
+  Signed-in check reply is exit 0 + `Already authenticated as …` (measured
+  AGY 1.3.5); never require empty output. A clean refusal latch is silently
+  rechecked on a forced read after 30 s or after 5 min; prompt/unknown-output
+  latches hold until credential metadata changes (AGY refreshes tokens in place
+  without changing it). No Sign in UI. Headless
   flags/closed stdin alone are not an OAuth guard; the check/use and in-flight
   concurrency risks remain. Non-Windows silently revalidates after a five-minute
   refusal cooldown. See [background auth](docs/rust-engine/antigravity-background-auth.md).

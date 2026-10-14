@@ -18,16 +18,29 @@ reported as unavailable, not evidence that the user signed out.
 Each permitted launch first runs **no arguments**, with
 `AGY_CLI_CDE_AUTH_ACTION=check`, updater disabled, hidden window, closed piped stdin
 and bounded captured output. Arguments would bypass this mode in AGY 1.3.5.
-Only exit zero with empty output authorizes the requested command. Refusal is
-shown as signed out **or sign-in could not be validated**: expired credentials
-and validation failures are not distinguishable from this exit code. A hung
-check is unavailable, never success. Agent warm reuse also checks sign-in; a
+Only exit zero with either empty output or exactly one stdout line starting
+`Already authenticated as ` (and empty stderr) authorizes the requested command:
+that line is the measured signed-in reply of AGY 1.3.5. Any other exit-zero
+output never authorizes. Refusal is shown as signed out **or sign-in could not
+be validated**: expired credentials and validation failures are not
+distinguishable from this exit code. A hung check is unavailable, never success. Agent warm reuse also checks sign-in; a
 credential timestamp change replaces the old process.
 
-An auth refusal or recognizable OAuth/code prompt records a timestamp-only
-latch in `diagnostics/agy-auth-latch.json`, clears connected state and publishes
-signed-out usage. Further Windows launches, including forced reads, stop until
-the credential timestamp changes. The latch survives engine restart. A ten-second
+An auth refusal or recognizable OAuth/code prompt records a latch in
+`diagnostics/agy-auth-latch.json` holding only the credential timestamp and the
+refusal kind, clears connected state and publishes signed-out usage. The latch
+survives engine restart; its file time is when it was written.
+
+- `refused`: the measured clean signed-out answer (non-zero exit, no output).
+  The silent check alone (never the requested command) may run again on a
+  user's forced read at least 30 s after the latch, and otherwise once the
+  latch is five minutes old (the usage loop and agent starts then check).
+  This is needed because AGY refreshes its hourly token in place: the user's
+  own AGY can make the stored credential valid again without a sign-in that
+  would change its timestamp.
+- `untrusted`: an OAuth/code prompt, or output the check is not known to
+  produce. No CLI runs again until the credential timestamp changes.
+- A bare-number latch from 4.3.0-alpha.3 or earlier counts as `refused`. A ten-second
 usage-loop metadata observation notices external sign-in; a successful usage
 read wakes waiting account mail. The admission gate holds mail without starting
 repeated turns. No provider/account/session switching is performed.
@@ -52,10 +65,13 @@ orders OAuth startup before printing the auth prompt. Output interception alone
 therefore cannot guarantee that a browser never opens.
 
 The approved no-argument check-mode probe exited 1 in 94 ms with empty output
-and no OAuth indication. Static analysis follows main → RunLogin(CheckOnly) →
-stored-credential validation, without interactive acquisition. Successful check
-behavior is covered by the fake CLI; the real signed-out control does not prove
-every success or network-error case. This environment action is **undocumented**
+and no OAuth indication. A second approved probe, signed in (2026-10-14), exited
+0 in 589 ms printing `Already authenticated as <account>` and a newline, with empty
+stderr, and did not rewrite the credential. Builds up to 4.3.0-alpha.3 required
+empty output, so they latched every valid sign-in. Static analysis follows main → RunLogin(CheckOnly) →
+stored-credential validation, without interactive acquisition. The fake CLI's default
+check answer reproduces the measured signed-in reply; these two real probes do
+not prove every network-error case. This environment action is **undocumented**
 and may change in future AGY releases. Public documentation describes OS-keyring
 authentication and headless operation but does not document this action:
 [authentication](https://antigravity.google/docs/cli/install),
