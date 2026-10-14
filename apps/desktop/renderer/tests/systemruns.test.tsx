@@ -103,12 +103,18 @@ test('real desk groups settled notices across turns and keeps assistant, tools, 
     op={async () => ({})} toast={() => {}} />, el => el)
   t.after(async () => { await view.unmount(); resetConvos() })
   await inAct(async () => { await refreshConvo(slug, 'worker'); await flush() })
-  assert.equal(runs(view.el).length, 2)
-  assert.ok(runs(view.el).every(r => !r.open))
+  const scroller = view.el.querySelector<HTMLElement>('.msgs')!
+  assert.equal(runs(scroller).length, 2)
+  assert.ok(runs(scroller).every(r => !r.open))
+  // The composer renders its own rich copy of the quoted source. Its singleton
+  // wrapper is not a third settled transcript run.
+  const preview = view.el.querySelector<HTMLElement>('.reply-preview-composing')!
+  assert.equal(runs(preview).length, 1)
+  assert.equal(runs(preview)[0].open, true)
   assert.equal(view.el.querySelector('.msg.assistant')!.closest('.transcript-system-run'), null)
   assert.equal(view.el.querySelector('[data-mail-id="agent"]')!.closest('.transcript-system-run'), null)
   assert.equal(view.el.querySelector('.pendrow')!.closest('.transcript-system-run'), null)
-  const first = runs(view.el)[0]
+  const first = runs(scroller)[0]
   const target = first.querySelector<HTMLElement>('[data-reply-event="1"]')!
   let scrolls = 0
   target.scrollIntoView = () => { assert.equal(first.open, true); scrolls++ }
@@ -118,7 +124,6 @@ test('real desk groups settled notices across turns and keeps assistant, tools, 
   })
   assert.equal(scrolls, 1)
   assert.equal(view.el.querySelectorAll('[data-reply-event="1"]').length, 1)
-  const scroller = view.el.querySelector<HTMLElement>('.msgs')!
   Object.defineProperties(scroller, {
     scrollHeight: { configurable: true, get: () => first.open ? 1200 : 300 },
     clientHeight: { configurable: true, value: 100 },

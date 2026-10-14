@@ -72,8 +72,8 @@ export function transcriptEntries(messages: ChatMessage[]): TranscriptEntry[] {
   })
 }
 
-export function systemRuns<T extends SystemEntry>(entries: T[]): T[][] {
-  const runs: T[][] = []
+export function systemRuns<T extends SystemEntry>(entries: T[]): [T, ...T[]][] {
+  const runs: [T, ...T[]][] = []
   for (const entry of entries) {
     const last = runs[runs.length - 1]
     if (entry.system && last?.[0].system) last.push(entry)

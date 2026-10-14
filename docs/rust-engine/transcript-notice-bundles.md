@@ -52,3 +52,12 @@ and shell-error changes. This branch does not alter their dispatch or timing.
 No native app, live traffic, engine changes, installation or publication is part
 of this feature. Screenshot results and typecheck/test results remain pending
 until the batch supplies actual receipts.
+
+Round 431 tested e176148 and found five new strict TypeScript errors, a Desk
+fixture counting the composer's separate quoted-source wrapper, and a visual
+wait matching the whole count-and-kinds header against the count alone. Its
+failure screenshot already shows four notices after append. The correction
+expresses each run as a nonempty tuple, scopes the Desk assertion to `.msgs`
+(also checking the separate preview), and matches the visual count element.
+These corrections await rig-opus verification; the strict renderer baseline is
+29 existing errors, with no new errors permitted. Root typecheck must remain 0.

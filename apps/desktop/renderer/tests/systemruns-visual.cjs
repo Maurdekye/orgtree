@@ -17,7 +17,7 @@ module.exports = async page => {
     if (initial.open || initial.peerHidden || !initial.summary.includes('3 system notices')) throw new Error(JSON.stringify(initial))
     await page.screenshot(`systemruns-${theme}-collapsed`)
     await page.eval(() => window.systemFixture.append())
-    await page.waitFor({ selector: '.transcript-system-run > summary', text: '4 system notices' })
+    await page.waitFor({ selector: '.transcript-system-run > summary > .noticekind', text: '4 system notices' })
     const appended = await read()
     if (appended.open || Math.abs(appended.peerY - initial.peerY) > 1 || appended.count !== initial.count + 1)
       throw new Error('Collapsed append moved/lost content: ' + JSON.stringify({ initial, appended }))
