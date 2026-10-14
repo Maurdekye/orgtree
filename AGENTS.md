@@ -254,6 +254,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Quick chat's superior picker puts its selectable `top level` eye row
+  inside the Agents List after the filter, with every agent one depth deeper.
+  A filtered agent keeps its ancestor chain and a ghost root; keyboard choices
+  skip ghosts and empty results cannot select a hidden root. Other Agents Lists
+  keep their depths. See [superior picker root](docs/rust-engine/superior-picker-root.md).
+  [decided: user 2026-10-14 10:54:49Z; verified from source: `QuickChatBox.tsx`,
+  `canvas/agenttray.tsx`; batch verification pending]
+
 - `orgtree_message`/`orgtree_send_notice` take `{metadata, body}`. Metadata
   holds every former argument, is listed first and is described as written
   first. The handler (`mailtools::flat_args`) reads it in any order and still
