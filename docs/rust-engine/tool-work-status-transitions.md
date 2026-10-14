@@ -1,5 +1,13 @@
 # Docket status changes on tool-call rows
 
+Live Claude path checked 2026-10-14 17:47UTC: the user's screenshot of the
+coordinator's actual changed presentation-ticket update shows `Open → In progress`
+beside the ticket ref with docket colours. A preceding example on the running-icon
+item was a no-op (already in progress), so omitted previous_status/transition
+was correct. Coordinator ended the investigation with no source fix or live
+write. Earlier unseen calls predating install or being no-ops is an inference,
+not a measured audit of all stored rows.
+
 User 2026-10-14 12:44:47UTC requested an inline, colour-coded `old → new`
 status on an `orgtree_work` call that changes a ticket. Docket:
 `transcript-show-a-ticket-s-status-change-inline-o`. The user did not require

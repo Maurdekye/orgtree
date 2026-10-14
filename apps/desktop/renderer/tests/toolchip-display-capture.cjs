@@ -8,7 +8,7 @@ app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 const receipts = []
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1100, height: 550, show: false, useContentSize: true, paintWhenInitiallyHidden: true,
+  const win = new BrowserWindow({ width: 1100, height: 680, show: false, useContentSize: true, paintWhenInitiallyHidden: true,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } })
   win.webContents.startPainting()
   try {
@@ -16,11 +16,13 @@ app.whenReady().then(async () => {
       await win.loadFile(path.join(root, version + '.html'))
       const state = await win.webContents.executeJavaScript(`new Promise((resolve,reject)=>{
         const timeout=setTimeout(()=>reject(new Error('fixture timeout')),5000);
-        const ready=()=>{if(document.querySelectorAll('[data-case] .tline').length!==5){setTimeout(ready,20);return}
+        const ready=()=>{if(document.querySelectorAll('[data-case]').length!==6 || !document.querySelector('.presentation-chat-card')){setTimeout(ready,20);return}
           document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
           requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(timeout);resolve({
             rows:Array.from(document.querySelectorAll('[data-case]')).map(row=>({
-              id:row.dataset.case,text:row.querySelector('.tline').textContent,
+              id:row.dataset.case,text:row.querySelector('.tline')?.textContent ?? null,
+              cardText:row.querySelector('.presentation-chat-card')?.textContent ?? null,
+              cardTimed:!!row.querySelector('.presentation-chat-card .tool-writing-time,.presentation-chat-card .tool-exec-time'),
               writing:row.querySelector('.tool-writing-time')?.textContent ?? null,
               statusIcon:row.querySelector('.tool-running-status')?.getAttribute('data-testid') ?? null,
               statusTitle:row.querySelector('[aria-label="executing tool call"]')?.title ?? null,
@@ -37,6 +39,9 @@ app.whenReady().then(async () => {
         && row('running').statusIcon === expectedIcon && row('running').statusTitle === 'Executing tool call'
         && row('running').writing === null && /1s/.test(row('running').text)
         && row('writing').writingStatus && /1s/.test(row('writing').writing || '')
+        && (version === 'before' ? row('presentation').text === null && row('presentation').cardTimed
+          : /orgtree_present/.test(row('presentation').text || '') && /1\.2s/.test(row('presentation').text || '')
+            && /31 ms/.test(row('presentation').text || '') && row('presentation').cardText === 'Verification report' && !row('presentation').cardTimed)
       const expected = state.background.match(/\d+/g).slice(0,3).map(Number)
       const attempts = []
       let frame, captured, matched = false

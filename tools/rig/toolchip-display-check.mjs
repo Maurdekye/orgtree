@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 const [mode, depsArg, outputArg, evidenceArg, electronArg] = process.argv.slice(2)
-if (!['red-writing','red-running','green','visual'].includes(mode) || !depsArg || !outputArg) throw new Error('Usage: mode DepsRoot COutputRoot [DEvidenceRoot ElectronExe]')
+if (!['red-writing','red-running','red-presentation','green','visual'].includes(mode) || !depsArg || !outputArg) throw new Error('Usage: mode DepsRoot COutputRoot [DEvidenceRoot ElectronExe]')
 const source=process.cwd(),deps=path.resolve(depsArg),out=path.resolve(outputArg)
 if (!/^C:\\orgtree-build\\[^\\]+\\/i.test(out+'\\')) throw new Error('C build scope required')
 fs.mkdirSync(out,{recursive:true})
@@ -31,9 +31,9 @@ if(mode==='visual'){
   const result=spawnSync(path.resolve(electronArg),[path.join(source,'apps/desktop/renderer/tests/toolchip-display-capture.cjs')],{cwd:source,env,stdio:'inherit',windowsHide:true})
   process.exitCode=result.status??1
 }else{
-  const suites=mode==='red-writing'?['toolwriting-slot']:mode==='red-running'?['toolwriting']
-    :['toolwriting-slot','toolwriting','toolclock-live','workstatus','objectnav','shellerror']
-  const plugins=mode==='red-writing'?baseline(['toolclock.tsx']):mode==='red-running'?baseline(['desk.tsx']):[]
+  const suites=mode==='red-writing'?['toolwriting-slot']:mode==='red-running'?['toolwriting']:mode==='red-presentation'?['presentation-toolrow']
+    :['toolwriting-slot','toolwriting','toolclock-live','workstatus','objectnav','shellerror','presentation-toolrow','presentation-routing']
+  const plugins=mode==='red-writing'?baseline(['toolclock.tsx']):['red-running','red-presentation'].includes(mode)?baseline(['desk.tsx']):[]
   for(const suite of suites)await esbuild.build({entryPoints:[path.join(source,'apps/desktop/renderer/tests/'+suite+'.test.tsx')],
     outfile:path.join(out,suite+'.test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',nodePaths:[path.join(deps,'node_modules')],
     external:['jsdom','react','react-dom','react-dom/*','react/*'],plugins,

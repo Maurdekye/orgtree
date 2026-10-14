@@ -29,10 +29,28 @@ The separate source commits for these requests have three new observation
 cases and an explicit running `ArrowForwardIcon` assertion prepared for the
 next rig batch. Independent red substitutions use the actual integrated
 `0f8638f` toolclock (2 failures/1 known-duration control) and desk (1 running-icon
-failure/6 controls); green union expects 30 tests, plus root typecheck and four
+failure/6 controls); with the presentation split, green union expects 36 tests, plus root typecheck and four
 before/after dark/light captures of real ToolChip rows. These new checks have
 not run. Their fixture checks preserved writing/completed states and execution
 durations as well as omission and the running icon; PNGs require inspection.
+
+## Presented-document row and card (2026-10-14 17:40–17:41UTC)
+
+The successful orgtree_present call now renders the ordinary tool line with
+name/argument summary, clocks, fold/expand and transcript row actions, followed
+by the existing PresentationCard with document icon/title and no times. It uses
+the same PresentationCard/presentationMenu as desk document badges, canvas
+chips and gallery cards, with no copied menu. Gallery rows additionally have
+close/dismiss actions from their own collection context. Failed presentations
+keep the ordinary error row. Card opening retains its existing document route.
+The title-only body matches the parent of history commit e8e2457; the timed
+ordinary row is now retained instead of the old early return.
+
+Four prepared presentation tests cover split/fold/open, unknown-writing omission,
+markdown/HTML menu parity with desk badges, and error fallback. Red substitutes
+only actual0f8638f desk: two split-row failures and two existing-behavior controls.
+Combined four themed captures include the presentation before/after, with timing
+placement checks. This new request is unverified until rig receipt/PNG review.
 
 Rig round 437 measured five fake-timer cases: actual alpha.3 `ae0b5fd`
 toolclock red has four target failures and one completed-precision passing

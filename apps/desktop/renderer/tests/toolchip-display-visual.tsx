@@ -16,13 +16,16 @@ const rows: [string, string, ToolChipData][] = [
   ['running', 'Execution in progress: writing unobserved', { id: 'running', name: 'powershell',
     arg: 'Show current dir contents', started_at: start }],
   ['writing', 'Observed writing: in progress', { id: 'writing', name: 'Bash', arg: 'Say hello', writing_started_at: start }],
+  ['presentation', 'Presented document', { id: 'present-report', name: 'orgtree_present', arg: 'Verification report',
+    presentation: { id: 'report', title: 'Verification report' }, writing_secs: 1.2,
+    started_at: start, ended_at: '2026-10-14T16:00:00.031Z', result: 'Presented report' }],
 ]
 createRoot(document.getElementById('root')!).render(<main style={{ padding: 32, maxWidth: 950 }}>
   <h2>Tool call timing and status</h2>
   <TurnActiveContext.Provider value={true}>
     {rows.map(([id, label, tool]) => <section key={id} data-case={id} style={{ marginTop: 20 }}>
       <div className="dim" style={{ marginBottom: 6 }}>{label}</div>
-      <ToolChip t={tool} slug="fixture" nid="worker" />
+      <ToolChip t={tool} slug="fixture" nid="worker" onOpenDoc={() => {}} />
     </section>)}
   </TurnActiveContext.Provider>
 </main>)

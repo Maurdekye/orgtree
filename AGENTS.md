@@ -28,6 +28,11 @@
   [decided: user/coordinator 2026-10-14; verified from source: `domain/replies.rs`,
   `tools/mailtools.rs`, `http/nodes.rs`, `net.rs`, renderer `eventReply.ts`]
 
+- Successful presented documents in transcripts render the ordinary timed,
+  expandable tool row followed by the title-only PresentationCard. The card
+  shares the desk document menu; failed presentations remain tool rows.
+  [decided: user/coordinator 2026-10-14; verified: `desk.tsx`, `docs.tsx`]
+
 - Transcript `orgtree_work` ticket refs carry `status_change` only from a
   committed mutation result's locked `previous_status` and final status.
   Shared tool rows reuse docket wording/colours; failures, no-ops and legacy
