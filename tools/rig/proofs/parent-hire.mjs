@@ -39,6 +39,8 @@ export default async function (rig) {
   p.check('root placement result describes final siblings rather than temporary caller children',first.json.parent===null&&first.json.index===slot('first-parent',after)&&near(first.json.sibling_order,after['first-parent'].ord)&&first.json.live_sibling_count===Object.values(after).filter(a=>a.state==='live'&&a.parent_id===null).length,first)
   p.check('caller pays new seat plus free grant; child allocation stays unchanged',near(after['root-self'].grant,before['root-self'].grant-after['first-parent'].seat-2)&&near(after['first-parent'].free,2)&&unchanged(before['kept-child'],after['kept-child'])&&valid())
   p.check('kickoff committed once',rig.one(`SELECT count(*)::int AS n FROM ot.mail WHERE org_id=${ORG} AND recipient_name='first-parent' AND body='Proof kickoff.'`).n===1)
+  const firstKick=rig.one(`SELECT (ev->>'grant')::float8 AS grant FROM ot.mail WHERE org_id=${ORG} AND uid='${first.json.kickoff}'`)
+  p.check('hire kickoff reports the final parent grant rather than requested free capacity',near(firstKick.grant,after['first-parent'].grant)&&!near(firstKick.grant,2),firstKick)
 
   before=ledger()
   const second=await parent('root-self','second-parent',{parent:'root-self',grant:1})
@@ -76,12 +78,29 @@ export default async function (rig) {
   const deniedRead=await rig.tool('scoped-parent','orgtree_state_inspect',{})
   p.check('inherited tool denial enforced on the new parent',!deniedRead.ok,deniedRead)
 
+  for (const [name,callerFallback,requestedFallback,expected] of [
+    ['fallback-off',false,true,false],
+    ['fallback-on',true,true,true],
+    ['fallback-opt-out',true,false,false],
+  ]) {
+    await hire(name,3)
+    await rig.op({op:'retool',node:name,account_fallback:callerFallback})
+    before=ledger()
+    const admitted=await parent(name,`${name}-parent`,{account_fallback:requestedFallback})
+    after=ledger()
+    p.check(`${name}: explicit parent fallback stays within caller preference`,admitted.ok&&after[`${name}-parent`]?.scope.account_fallback===expected&&after[name].scope.account_fallback===callerFallback&&near(roots(before),roots(after))&&valid(),admitted)
+  }
+
   await hire('staff-caller',8)
+  await rig.op({op:'retool',node:'staff-caller',account_fallback:false})
   before=ledger()
-  const staffed=await rig.tool('staff-caller','orgtree_staff',{name:'staff-parent',tier:'haiku',grant:1,charter:'Own this proof item.',hire_type:'superior',index:slot('staff-caller'),title:'Parent hire proof item',objective:'Test atomic parent staffing.',kind:'non-code',audiences:['user']})
+  const staffed=await rig.tool('staff-caller','orgtree_staff',{name:'staff-parent',tier:'haiku',grant:1,charter:'Own this proof item.',hire_type:'superior',index:slot('staff-caller'),title:'Parent hire proof item',objective:'Test atomic parent staffing.',kind:'non-code',audiences:['user'],account_fallback:true,kickoff:'Staff proof kickoff.'})
   after=ledger()
   p.check('staff alias validates item and audience before atomic promotion',staffed.ok&&after['staff-caller'].parent_id===after['staff-parent']?.id&&near(roots(before),roots(after))&&near(after['staff-parent'].free,1),staffed)
   p.check('staffed item belongs to final parent',rig.one(`SELECT count(*)::int AS n FROM ot.work_items WHERE org_id=${ORG} AND owner_agent_id=(SELECT id FROM ot.agents WHERE org_id=${ORG} AND name='staff-parent')`).n===1)
+  p.check('staff alias also clamps explicit fallback to its caller',staffed.ok&&after['staff-parent']?.scope.account_fallback===false&&after['staff-caller'].scope.account_fallback===false,staffed)
+  const staffKick=rig.sql(`SELECT (ev->>'grant')::float8 AS grant FROM ot.mail WHERE org_id=${ORG} AND recipient_name='staff-parent' AND body='Staff proof kickoff.'`)
+  p.check('staff kickoff reports the final parent grant exactly once',staffed.ok&&staffKick.length===1&&near(staffKick[0].grant,after['staff-parent'].grant)&&!near(staffKick[0].grant,1),staffKick)
 
   before=ledger()
   const failedStaff=await rig.tool('root-self','orgtree_staff',{name:'failed-staff-parent',tier:'haiku',grant:0,charter:'Must roll back.',hire_type:'superior',index:slot('root-self'),title:'Must not persist',objective:'Atomic failure proof.',parent:'missing-work-item'})
