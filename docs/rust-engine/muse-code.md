@@ -54,7 +54,9 @@ directly), **untested**.
   Muse asks about none, and its file tools also write outside the folders.
   Told that, the user kept the posture ("ship as built", over no shell in
   Session 0) and asked for it to be stated plainly on the Harnesses page, in
-  this document and in AGENTS.md.
+  this document and in AGENTS.md. (Corrected 2026-10-14: Muse asked about
+  none of the commands tried then, but it does ask, in stages, about a
+  statement its policy cannot settle; see **Approvals in stages**.)
 - 2026-10-14 16:39Z: the user removed the long warning paragraph next to the
   Muse provider, superseding the October13 request to show it in Providers.
   The documented runtime posture and ordinary sign-in/error statuses remain.
@@ -106,6 +108,31 @@ aborted") while the turn goes on (measured 2026-10-13, a shell approval; the
 choices of other approval kinds were not measured). Before that fix the
 engine looked only for `denied`, found nothing to answer with, and the call
 waited (no host timeout was seen in 240 s) until the silence limit.
+
+**Approvals in stages** (`muse.rs` `decision`, `next_stage`). Muse asks about
+a compound shell command in stages, one per statement its policy cannot
+settle, each its own requirement (`subject.stages[]`, `requirementId`
+`{approvalId, sourceIndex}`); a statement it settles itself is `policyAllow`
+and never asked. `approval/request` names the first open stage as
+`currentRequirementId`. Once that is decided Muse sends the notification
+`approval/updated` (`change.kind` `stageResolved`) naming the next, and so on;
+`approval/decide` must name the current one (MSP: "guarded by the current
+requirement id against the multi-stage race"). The call has no item and does
+not start until every stage is decided, and Muse waits with no timeout of its
+own. Measured 2026-10-14 on the user's agent bfp-bmi, from Muse's session log
+and its protocol-event journal: `$d=[Environment]::GetFolderPath('Desktop');
+Write-Host $d; Get-ChildItem -LiteralPath $d -Name | Select-Object -First 80`
+came as four stages, the last `policyAllow`. The engine answered only the
+request, and the call waited 6 min, with no row in the transcript, until the
+user interrupted the turn (`approval/resolved` `abort`; the call `rejected`,
+"approval aborted", shown with a 1 ms run). The engine now answers every open
+stage once with the scope's verdict on the whole call, leaves stages Muse
+settled and repeated updates alone, and forgets the approval at
+`approval/resolved`. An approval the scope allows but that Muse offers no
+once-only approval for is refused once, with that reason booked as a denial,
+instead of waiting until the silence limit; only an approval offering no
+once-only choice either way is still left to the silence limit.
+
 Orgtree's tools are a session MCP server (`config.mcpServers.orgtree`, the
 engine's `mcp-bridge`), so every call is the calling agent's. A restart resumes the same session
 (`session/resume`) and re-applies the seat's posture. Every turn carries the
@@ -128,10 +155,13 @@ own session; a rig run may force it with `ORGTREE_RIG_SESSION0`), a write seat
 (`acceptEdits`, `default`) starts its host with `--disable-sandbox`.
 
 What that means, measured 2026-10-13 (synthetic Spark turns in scratch
-folders): **Orgtree is not asked about anything such a seat does with its
-shell or its file tools.** Muse asked about no shell command (a visible write
+folders): **Orgtree is not asked about what such a seat does with its file
+tools, and about a shell command only when Muse's policy cannot settle one of
+its statements.** Muse asked about none of the commands tried (a visible write
 outside the workspace and a script writing outside both ran, Muse's policy
-decision `allow:policy`), and Muse's own `write_file` wrote outside the
+decision `allow:policy`); it does ask, in stages, about a statement whose
+arguments it cannot read in full, such as one built from a variable (measured
+2026-10-14, **Approvals in stages** above). Muse's own `write_file` wrote outside the
 workspace roots without asking as well, although Muse's help says the flag
 disables "shell filesystem/network sandboxing". With the sandbox on, Muse
 refuses that write itself ("absolute path is outside the workspace"). Muse's
@@ -156,7 +186,12 @@ turn Orgtree did not start is cancelled (Muse's delivery of a background
 result included, see below); a subagent the scope does not allow
 is stopped (`subagent/stop`); `/compact` is `session/compact`. Items become
 the conversation: agent messages, reasoning, tool calls (orgtree tools on
-their chips), the todo list as the checklist chip.
+their chips), the todo list as the checklist chip. A list a call wrote
+(`session/todoListChanged` names Muse's `write_todos` as its `sourceTool`;
+measured order: the call's item/started, the list, its item/completed) goes
+onto that call's own chip, shown as the checklist (`TodoWrite`, with
+`native_tool` `write_todos`) and keeping the call's timing and result; until
+2026-10-14 one such call showed as two chips (`actor.rs` `muse_todos_on_call`).
 
 **Tool calls past the silence limit** (`actor.rs` `stop_silent_muse_tools`,
 `muse.rs` `stop_task`). The silence limit (Runtime `turn_idle_s`, 10 minutes
@@ -588,6 +623,23 @@ warning for every cancelled Muse turn), its hires, the two fake-side checks
 of a finish during a later turn, the within-its-turn control, the
 no-turn-while-halted check and the frozen state passing.
 
+**Approvals in stages and the todo chip (2026-10-14).** Engine unit tests
+`runtime::muse::tests::every_stage_of_an_approval_is_answered_once`,
+`a_refused_call_is_refused_at_every_stage_and_booked_once` and
+`an_approval_that_cannot_be_given_once_is_refused_once_instead`, and
+`runtime::actor::muse_silence_tests::a_todo_list_lands_on_the_call_that_wrote_it`.
+Rig `muse-approval-stages.mjs` (6 s limit), on the fake asking in stages as
+real Muse was measured to (test-rig.md). **Not yet run when this was written;
+the expected counts are part of the item, and a different count fails it:**
+12/12 on this engine; against the engine of its base `0f8638f`, 5 pass (the
+hires, Muse's first ask, the refusal at the first stage, the `write_todos`
+call's own timing, no approval left without a choice) and 7 fail (stages 1
+and 2 never answered, so the command never runs and the turn ends at the
+silence limit; the doubled updates; a second chip beside the `write_todos`
+call). `muse-refusal.mjs` (9), `muse-tool-silence.mjs` (13),
+`muse-session0.mjs` (10), `muse-bg-result.mjs` (24) and `muse-lane.mjs` (48)
+keep their counts.
+
 **Real Muse Code, 2026-10-13** (`muse-real.mjs`; its result files are kept
 in the implementing agent's evidence folder, off the repository). The account's
 catalog offered Wonder 1.0, Wonder Full 1.0, Spark 1.3 and Spark 1.2. Each ran
@@ -630,6 +682,7 @@ be paid).
 | Orgtree tools, caller attribution | session MCP server | same | same | measured (fake) |
 | Folder scopes, read-only folders | write roots; read-only by approval | same outcome | same outcome | measured (fake: a write outside the folders refused with Muse's measured `abort`); read-only reads inferred |
 | Refusing an approval | once-only `abort` ("Reject"; `denied` when offered), the turn goes on | Claude Code's own rules (`--disallowed-tools`) | Orgtree answers `decline` | Muse measured (real 1.4.6 choice set and `abort` effect; fake proof); others source |
+| An approval in stages (a compound shell command) | every open stage answered once, as the call (`approval/updated`) | no such approval (one decision per call) | no such approval (one decision per call) | Muse: the stall and the message shapes measured on real 1.4.6 (2026-10-14, the user's agent); the fix by fake proof `muse-approval-stages` with red control, not yet run |
 | Shell / write closed on read-only seats | `--disable-shell` / `--disable-write` + `:read-only` | same | same | measured (fake) |
 | Images | MSP image parts | same | same | untested |
 | Subagents | stopped unless the scope allows | Claude Task allowed by scope | n/a | measured (fake stop); allowed path untested |
@@ -762,3 +815,7 @@ the renderer's `canvas/accounts.tsx` and `types.ts` with test `musesession0`,
 the fake's `--disable-sandbox`, `proofs/muse-session0{,-real}.mjs`.
 Background commands: `runtime/{actor,muse}.rs`; the fake's `finish_ms`
 background steps and Muse's delivery turns, `proofs/muse-bg-result{,-real}.mjs`.
+Approvals in stages and the todo chip: `runtime/muse.rs` (`Asked`, `decision`,
+`next_stage`, `stage_open`), `runtime/actor.rs` (`muse_todos_on_call`,
+`newest_call`, `muse_todo_chip`); the fake's `stages` approvals and
+`write_todos` list, `proofs/muse-approval-stages.mjs`.

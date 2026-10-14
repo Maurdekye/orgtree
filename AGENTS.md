@@ -172,8 +172,9 @@
   OS sandbox cannot start a command there, so a write seat's host starts with
   `--disable-sandbox`; read-only seats have no shell; bypass seats, and every
   seat outside Session 0, are unchanged. Without the sandbox Muse asks Orgtree
-  about no command and its file tools write outside the agent's folders
-  (measured). The user kept this knowingly. User 2026-10-14 16:39UTC removed
+  only about a shell statement its policy cannot settle (in stages, next entry;
+  2026-10-14, replacing "about no command") and its file tools write outside
+  the agent's folders (measured). The user kept this knowingly. User 2026-10-14 16:39UTC removed
   the long Muse paragraph from Providers, superseding the October13 display
   request; ordinary provider status remains. Runtime posture is unchanged.
   See [Muse Session 0](docs/rust-engine/muse-code.md). [decided: user
@@ -187,6 +188,16 @@
   choice and the call waited until the silence limit. See [Muse
   sessions](docs/rust-engine/muse-code.md). [decided: coordinator 2026-10-13
   20:15Z; verified: `muse.rs` `choice`, real Muse 1.4.6 probe 2026-10-13]
+  2026-10-14: Muse asks about a compound shell command in stages, one per
+  statement its policy cannot settle; `approval/request` names the first, each
+  `approval/updated` notification the next `currentRequirementId`, and the call
+  never starts until every stage is decided. Answer every open stage once, as
+  the call (the read loop's `next_stage`); answering only the request left the
+  user's agent waiting 6 min until interrupted. An approval allowed by the scope
+  but offered only as a session or persistent rule is refused once, saying why.
+  [decided: coordinator 2026-10-14 (the turn proceeds or fails promptly);
+  verified: `muse.rs` `decision`, `next_stage`, real Muse 1.4.6 session log and
+  event journal 2026-10-14]
 
 - Reparent drag ghosts use the same display projection and final targets as
   the move animation, including piles and inbox clearance. Keep sibling drags
