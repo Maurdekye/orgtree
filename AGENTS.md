@@ -7,6 +7,11 @@
   remain in `pick`. See [desk owner close](docs/rust-engine/desk-owner-close.md).
   [decided: user 2026-10-14 18:36UTC; verified from source: `canvas/deskhosts.tsx`]
 
+- App settings uses a 726px modal width (formerly 660px), retaining the 94vw
+  cap and pinned-window sizing. Scope the override to `.settings.acct-panel`;
+  organization/agent settings and other modals keep their own widths.
+  [decided: user 2026-10-14 17:54UTC; verified: renderer `styles.css`]
+
 - Providers headers use family names Claude/ChatGPT/Gemini/Muse with dim
   harness names Claude Code/Codex/Antigravity/Muse Code. OpenRouter's dim
   subtitle is REST API; each key's own harness label remains. IDs, status,

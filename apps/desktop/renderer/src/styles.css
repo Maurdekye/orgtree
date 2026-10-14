@@ -3884,6 +3884,8 @@ main.solo { width: 100%; }
   line-height: 1.55;
 }
 .settings > * { min-width: 0; }
+/* App settings alone: 10% wider for its tab row; keep the 94vw cap. */
+.settings.acct-panel { width: 726px; }
 /* the agent ⚙ panel: wider, with room to actually write charters */
 .settings.cfg { width: min(880px, 94vw); --panel-pad-y: var(--panel-pad-x); }
 /* Tab content scrolls; it must not compress the shared header's rows. */
