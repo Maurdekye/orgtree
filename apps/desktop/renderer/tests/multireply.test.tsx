@@ -66,7 +66,7 @@ test('inbox Reply collects several same-sender rows and sends them together',asy
     await replyOn([...view.el.querySelectorAll('.mailrow')].find(e=>e.textContent?.includes('First mail'))!)
     await replyOn([...view.el.querySelectorAll('.mailrow')].find(e=>e.textContent?.includes('Second mail'))!)
     assert.equal(view.el.querySelectorAll('.mail-reply-target').length,2)
-    await inAct(()=>{const ta=view.el.querySelector<HTMLTextAreaElement>('.mail-reply textarea')!;Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(ta,'One inbox reply');ta.dispatchEvent(new Event('input',{bubbles:true}))})
+    await inAct(()=>{const ta=view.el.querySelector<HTMLTextAreaElement>('.mail-reply textarea')!;Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(ta,'One inbox reply');ta.dispatchEvent(new Event('input',{bubbles:true}))})
     const button=view.el.querySelector<HTMLButtonElement>('.mail-reply-send')!
     await inAct(async()=>{button.click();await flush(5)})
     assert.equal(sends.length,1);assert.equal(sends[0].text,'One inbox reply')
@@ -99,7 +99,7 @@ test('inbox refuses another sender and preserves collected targets on failed sen
     for(const name of ['First mail','Second mail','Other mail']) await replyOn([...view.el.querySelectorAll('.mailrow')].find(e=>e.textContent?.includes(name))!)
     assert.equal(view.el.querySelectorAll('.mail-reply-target').length,2)
     assert.match(view.el.querySelector('[role=alert]')?.textContent||'',/same sender/)
-    await inAct(()=>{const ta=view.el.querySelector<HTMLTextAreaElement>('.mail-reply textarea')!;Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(ta,'Keep draft');ta.dispatchEvent(new Event('input',{bubbles:true}))})
+    await inAct(()=>{const ta=view.el.querySelector<HTMLTextAreaElement>('.mail-reply textarea')!;Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(ta,'Keep draft');ta.dispatchEvent(new Event('input',{bubbles:true}))})
     await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.mail-reply-send')!.click();await flush(5)})
     assert.equal(view.el.querySelectorAll('.mail-reply-target').length,2)
     assert.equal(view.el.querySelector<HTMLTextAreaElement>('.mail-reply textarea')?.value,'Keep draft')
