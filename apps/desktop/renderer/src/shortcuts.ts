@@ -17,6 +17,7 @@
 // apps/desktop.
 
 import type { EnterKeyBehavior } from './composerkeys'
+import { APP_FKEYS } from './shell/appshortcuts'
 
 export interface Shortcut {
   /** alternatives; each is one combo, e.g. 'Alt+ArrowUp' */
@@ -48,6 +49,10 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
       { keys: ['Mod+Z'], action: 'Undo the latest action that offers Undo',
         note: 'not while typing in a field', sources: [R('toasts.tsx')] },
     ] },
+    // F1-F10, the main window's function keys (usage-query-sol's
+    // shell/appshortcuts.ts); its matcher reads the same table
+    { title: 'Function keys', items: APP_FKEYS.map(({ keys, action }) =>
+      ({ keys, action, sources: [R('shell/appshortcuts.ts')] })) },
     { title: 'Writing a message', items: [
       enter === 'send'
         ? { keys: ['Enter', 'Mod+Enter'], action: 'Send', sources: [composer] }
