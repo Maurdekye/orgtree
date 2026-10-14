@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Codex and Antigravity tools following reply text use a separate transcript
+  row (`actor::codex_row`). Lane proofs inspect the scripted turn's new rows,
+  requiring completed results after the greeting, rather than greeting.tools.
+  Feed snapshots keep every shared record, including events_count; the removed
+  always-true filter excluded nothing. See [lane checks](docs/rust-engine/stream-order.md#lane-proof-row-selection).
+  [verified: `runtime/actor.rs`, `feed/mod.rs`, `tools/rig/proofs/{agy,codex}-lane.mjs`, 2026-10-14]
+
 - A shell command Muse moves to the background (after ~10 s) can finish after
   its turn. Muse hands its result to the session itself, once, and starts
   turns of its own to deliver it; Orgtree still cancels those (admission) and

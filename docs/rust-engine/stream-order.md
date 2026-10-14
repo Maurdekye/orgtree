@@ -31,6 +31,9 @@ so later results update the same chip without copying its input. Older stored
 rows keep the legacy display layout. Codex starts a separate tool row when its
 previous row already contains reply text.
 
+Antigravity uses that same `actor::codex_row` helper: a response, subsequent
+tools, and a later response can occupy three ordered assistant rows.
+
 Live thought bodies and expanded saved thoughts use the same component and CSS.
 The old live root used `white-space: pre-wrap`, preserving Markdown's HTML
 separator newlines between paragraphs as additional blank lines. The shared
@@ -47,6 +50,28 @@ frames continue. The proof captures screenshots, live/final DOM order, reply
 counts, paint samples and thought HTML/line/block metrics. Additional cases
 cover Claude records sharing one API message id and Codex text/tool/text.
 No real model inference, live agent or live database is used.
+
+### Lane proof row selection
+
+`agy-lane.mjs` and `codex-lane.mjs` record the transcript sequence before their
+scripted hello turn and inspect the new rows after that turn settles. Their
+tool assertions require the greeting followed by exactly one completed chart
+call with its result; Antigravity also requires its completed native command
+and exact result. The proofs save these rows as `gia-hello-convo.json` and
+`dana-hello-convo.json`. Selecting only the greeting's `tools` array is stale:
+the separate later row preserves the existing display order.
+
+Round 431 measured 26/27 Antigravity and 30/31 Codex on the unchanged base:
+only those old assertions failed. Retained engine log rows show both completed
+results on their later rows. A source-exact replay of the old and corrected
+assertions reproduces both old failures and accepts the retained rows, with
+negative controls for missing/unfinished/failed/duplicate calls, missing
+greetings and reversed row order (12 Antigravity checks, 9 Codex checks).
+This replay starts no engine or fake CLI. Fresh lifecycle proofs and engine
+Clippy verification belong to rig-opus round 432 and are pending at this source
+hand-in. The one-line feed cleanup in the same hand-in removes a filter ending
+in `|| true`: shared snapshots still include `events_count` and every other
+shared record, while the deny-level Clippy boolean expression is gone.
 
 `apps/desktop/renderer/tests/streamorder.test.tsx` checks stale HTTP snapshots,
 overlapping cursor pages, tool revisions, atomic partial retirement, final
