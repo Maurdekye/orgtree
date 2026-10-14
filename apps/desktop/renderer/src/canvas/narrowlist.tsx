@@ -24,18 +24,11 @@ import {
 import { MenuIcon } from '../icons'
 import { useEsc } from './shared'
 
-/** The usable `.mailer` width, in CSS px, at or below which the left list
- *  stops being a persistent column. Above it nothing changes at all.
- *
- *  Chosen against the layout it governs rather than a device: `.mailer-list`
- *  takes 36% (floor 140px), so this is the width at which the reading pane
- *  drops to roughly 350px — the point where a mail body or a presentation
- *  stops laying out as prose and starts wrapping every few words. */
-export const NARROW_MAILER_WIDTH = 560
-
-/** Presented-document modals collapse their list at a 60% wider width.
- *  Mail keeps the default above; inline desk galleries never opt in. */
+/** Usable `.mailer` width in CSS px, at or below which presentation lists
+ *  become overlays. Inbox uses this same boundary (user 2026-10-14), measured
+ *  on the reading surface rather than the viewport. Inline views opt out. */
 export const NARROW_DOCS_WIDTH = 896
+export const NARROW_MAILER_WIDTH = NARROW_DOCS_WIDTH
 
 /** Watches one element's own width. Returns null until it has been measured,
  *  so nothing flashes the wrong layout on the first paint. */
