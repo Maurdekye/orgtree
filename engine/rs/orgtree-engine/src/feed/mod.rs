@@ -711,7 +711,6 @@ impl Actor {
         let mut out: Vec<Value> = self
             .shared
             .iter()
-            .filter(|((e, id), _)| !(e == "org" && id == "events_count") || true)
             .map(|((e, id), b)| rec(e, id, b, None))
             .collect();
         out.extend(self.live_body.iter().map(|(id, b)| rec("agent", &id.to_string(), b, None)));
