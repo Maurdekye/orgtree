@@ -255,6 +255,21 @@ export default async function (rig) {
     return { h, done, held: () => rig.waitFor(() => rig.one("SELECT wait_event FROM pg_stat_activity WHERE application_name = 'or-proof-org'")?.wait_event === 'PgSleep',
       { what: 'the org holder to hold the org row', timeout: 5000, every: 20 }) }
   }
+  // The brief hold is released by the proof, not by a timer: the holder sits
+  // idle in its transaction (a state a slow poll cannot miss; a fixed 80 ms
+  // sleep could be missed by a ~300 ms psql poll, rig round 439) and commits
+  // when the removal has met it and retried once.
+  const holdOpen = () => {
+    const h = spawn(path.join(rig.run.pgBin, 'psql.exe'), ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', String(port),
+      '-U', 'orgtree_admin', '-d', 'orgtree_engine', '-f', '-'],
+    { env: { ...process.env, PGPASSWORD: password, PGAPPNAME: 'or-proof-org-open', PGCONNECT_TIMEOUT: '5' }, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] })
+    const done = new Promise((resolve, reject) => { h.once('error', reject); h.once('exit', resolve) })
+    h.stdin.write(`BEGIN;\nSELECT id FROM ot.orgs WHERE slug = '${rig.org}' FOR NO KEY UPDATE;\n`)
+    return { h, done,
+      held: () => rig.waitFor(() => rig.one("SELECT state FROM pg_stat_activity WHERE application_name = 'or-proof-org-open'")?.state === 'idle in transaction',
+        { what: 'the org holder to hold the org row', timeout: 15000, every: 20 }),
+      release: () => { h.stdin.write('COMMIT;\n'); h.stdin.end() } }
+  }
   const retries = () => (rig.engineLog().match(/OpenRouter key removal conflicted; retrying entire transaction/g) ?? []).length
   const removedEvents = () => rig.sql("SELECT 1 AS e FROM ot.events WHERE op = 'account_removed' AND detail->>'removed_account' = 'openrouter-1'").length
   const long = holdOrg(2)
@@ -276,14 +291,18 @@ export default async function (rig) {
   } finally {
     if (long.h.exitCode == null) long.h.kill()
   }
-  const brief = holdOrg(0.08)
+  const brief = holdOpen()
   let r1
   try {
     await brief.held()
     const before = retries()
-    r1 = await rig.api('DELETE', '/api/openrouter/keys/openrouter-1')
-    p.check('control: a brief org hold made the removal retry at least once', retries() - before >= 1, retries() - before)
-    await brief.done
+    const removal = rig.api('DELETE', '/api/openrouter/keys/openrouter-1').then(v => v, e => ({ error: e.message }))
+    await rig.waitFor(() => retries() - before >= 1, { what: 'the removal to meet the held org and retry', timeout: 5000, every: 5 })
+    brief.release()
+    r1 = await removal
+    p.check('control: a brief org hold made the removal retry at least once, and it then went through', retries() - before >= 1 && !r1?.error,
+      { retries: retries() - before, r1 })
+    p.check('control: the brief holder commits cleanly', (await brief.done) === 0)
   } finally {
     if (brief.h.exitCode == null) brief.h.kill()
   }
