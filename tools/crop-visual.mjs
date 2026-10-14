@@ -10,7 +10,7 @@ for (const key of ['CROP_JOB_CONTAINED', 'CROP_OUT', 'CROP_DEPS', 'CROP_TOOLS_DE
 if (env.CROP_JOB_CONTAINED !== '1' || !/^C:[\\/]orgtree-build[\\/]/i.test(env.CROP_OUT)) throw Error('Contained C output required');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), out = path.resolve(env.CROP_OUT);
 const hub = fs.existsSync(path.join(root, 'src/components/PictureEditor.tsx'));
-const deps = createRequire(path.join(env.CROP_DEPS, 'package.json')), esbuild = createRequire(path.join(env.CROP_TOOLS_DEPS, 'package.json'))('esbuild');
+const esbuild = createRequire(path.join(env.CROP_TOOLS_DEPS, 'package.json'))('esbuild');
 const { launch } = await import(pathToFileURL(path.resolve(env.CROP_CDP)).href);
 fs.mkdirSync(out, { recursive: true });
 const checks = [], check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); console.log(JSON.stringify(checks.at(-1))); };
@@ -20,8 +20,10 @@ for (const before of [true, false]) {
   const base = env.CROP_BASE || (hub ? '4f3db23410c64dc7975561e329f3406c4329a1ec' : '0f8638fc154fb7c58b46ba530eb193f9921efa87');
   await esbuild.build({ entryPoints: [path.join(root, 'tools/crop.fixture.tsx')], outfile: path.join(dir, 'renderer.js'), bundle: true,
     format: 'esm', platform: 'browser', target: 'es2022', jsx: 'automatic', loader: { '.md': 'text' },
+    // Let the browser bundler select package exports/module entries. require.resolve
+    // selects CommonJS icon entries and turns default components into module objects.
+    nodePaths: [path.join(env.CROP_DEPS, 'node_modules')],
     plugins: [{ name: 'dependencies-and-predecessor', setup(b) {
-      b.onResolve({ filter: /^[^./][^:]*/ }, a => ({ path: deps.resolve(a.path === 'qrcode' ? 'qrcode/lib/browser.js' : a.path) }));
       if (before) b.onLoad({ filter: /[/\\](orgpicture|PictureEditor)\.tsx$/ }, a => {
         const rel = path.relative(root, a.path).replaceAll('\\', '/');
         const r = spawnSync('git', ['show', base + ':' + rel], { cwd: root, encoding: 'utf8', windowsHide: true });
