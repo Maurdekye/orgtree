@@ -152,8 +152,8 @@ fn latched(engine: &Engine, stamp: Stamp) -> bool {
         return age < CADENCE_RECHECK;
     }
     if kind == Refusal::Untrusted { return true; }
-    let forced = engine.providers.agy_auth.forced.lock().unwrap_or_else(|p| p.into_inner())
-        .is_some_and(|t| t > at);
+    let forced: Option<SystemTime> = *engine.providers.agy_auth.forced.lock().unwrap_or_else(|p| p.into_inner());
+    let forced = forced.is_some_and(|t| t > at);
     !(age >= CADENCE_RECHECK || (forced && age >= FORCED_RECHECK))
 }
 
