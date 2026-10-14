@@ -3,17 +3,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import http from 'node:http'
 const [mode, depsArg, outputArg, evidenceArg, electronArg] = process.argv.slice(2)
-if (!['red-writing','red-running','red-presentation','green','visual'].includes(mode) || !depsArg || !outputArg) throw new Error('Usage: mode DepsRoot COutputRoot [DEvidenceRoot ElectronExe]')
+if (!['red-writing','red-running','red-presentation','red-files','green','visual'].includes(mode) || !depsArg || !outputArg) throw new Error('Usage: mode DepsRoot COutputRoot [DEvidenceRoot ElectronExe]')
 const source=process.cwd(),deps=path.resolve(depsArg),out=path.resolve(outputArg)
 if (!/^C:\\orgtree-build\\[^\\]+\\/i.test(out+'\\')) throw new Error('C build scope required')
 fs.mkdirSync(out,{recursive:true})
 const require=createRequire(path.join(deps,'package.json')), esbuild=require('esbuild')
-const baseline = files => [{name:'integrated-tool-display-baseline',setup(build){build.onLoad({filter:/canvas[\\/]((toolclock)|(desk))\.tsx$/},args=>{
+const baseline = (files, ref='0f8638f') => [{name:'integrated-tool-display-baseline',setup(build){build.onLoad({filter:/canvas[\\/]((toolclock)|(desk))\.tsx$/},args=>{
   if(!files.includes(path.basename(args.path)))return
   const rel=path.relative(source,args.path).replaceAll('\\','/')
-  const old=spawnSync('git',['show','0f8638f:'+rel],{cwd:source,encoding:'utf8',windowsHide:true,maxBuffer:4*1024*1024})
+  const old=spawnSync('git',['show',ref+':'+rel],{cwd:source,encoding:'utf8',windowsHide:true,maxBuffer:4*1024*1024})
   if(old.status!==0)throw new Error(old.stderr)
   return {contents:old.stdout,loader:'tsx',resolveDir:path.dirname(args.path)}
 })}}]
@@ -26,14 +27,28 @@ if(mode==='visual'){
     fs.writeFileSync(path.join(out,version+'.html'),`<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="${version}.css"><div id="root"></div><script src="${version}.js"></script>`)
   }
   esbuild.stop()
-  const env={...process.env,CHIP_VISUAL_ROOT:out,CHIP_VISUAL_EVIDENCE:path.resolve(evidenceArg)}
-  delete env.ELECTRON_RUN_AS_NODE
-  const result=spawnSync(path.resolve(electronArg),[path.join(source,'apps/desktop/renderer/tests/toolchip-display-capture.cjs')],{cwd:source,env,stdio:'inherit',windowsHide:true})
-  process.exitCode=result.status??1
+  // Loopback serves only generated fixture assets and one synthetic image,
+  // so the real ToolChip file URL decodes without changing product code.
+  const server=http.createServer((req,res)=>{
+    if(req.url?.startsWith('/api/orgs/fixture/nodes/worker/file?path=shot.png')){
+      res.writeHead(200,{'content-type':'image/svg+xml'});res.end('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="100"><rect width="320" height="100" fill="#517dab"/><rect x="20" y="20" width="80" height="60" fill="#b7d5ed"/><text x="120" y="56" fill="white" font-family="sans-serif" font-size="18">Synthetic image</text></svg>');return
+    }
+    const match=req.url?.match(/^\/(before|after)\.(html|js|css)$/)
+    if(!match){res.writeHead(404);res.end();return}
+    res.writeHead(200,{'content-type':{html:'text/html',js:'text/javascript',css:'text/css'}[match[2]]})
+    res.end(fs.readFileSync(path.join(out,match[1]+'.'+match[2])))
+  })
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+  try{
+    const env={...process.env,CHIP_VISUAL_ROOT:out,CHIP_VISUAL_EVIDENCE:path.resolve(evidenceArg),CHIP_VISUAL_URL:'http://127.0.0.1:'+server.address().port}
+    delete env.ELECTRON_RUN_AS_NODE
+    const child=spawn(path.resolve(electronArg),[path.join(source,'apps/desktop/renderer/tests/toolchip-display-capture.cjs')],{cwd:source,env,stdio:'inherit',windowsHide:true})
+    process.exitCode=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',code=>resolve(code??1))})
+  }finally{await new Promise(resolve=>server.close(resolve))}
 }else{
-  const suites=mode==='red-writing'?['toolwriting-slot']:mode==='red-running'?['toolwriting']:mode==='red-presentation'?['presentation-toolrow']
-    :['toolwriting-slot','toolwriting','toolclock-live','workstatus','objectnav','shellerror','presentation-toolrow','presentation-routing']
-  const plugins=mode==='red-writing'?baseline(['toolclock.tsx']):['red-running','red-presentation'].includes(mode)?baseline(['desk.tsx']):[]
+  const suites=mode==='red-writing'?['toolwriting-slot']:mode==='red-running'?['toolwriting']:mode==='red-presentation'?['presentation-toolrow']:mode==='red-files'?['sentfile-toolrow']
+    :['toolwriting-slot','toolwriting','toolclock-live','workstatus','objectnav','shellerror','presentation-toolrow','presentation-routing','sentfile-toolrow']
+  const plugins=mode==='red-writing'?baseline(['toolclock.tsx']):['red-running','red-presentation'].includes(mode)?baseline(['desk.tsx']):mode==='red-files'?baseline(['desk.tsx'],'eaf28b6'):[]
   for(const suite of suites)await esbuild.build({entryPoints:[path.join(source,'apps/desktop/renderer/tests/'+suite+'.test.tsx')],
     outfile:path.join(out,suite+'.test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',nodePaths:[path.join(deps,'node_modules')],
     external:['jsdom','react','react-dom','react-dom/*','react/*'],plugins,

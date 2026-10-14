@@ -19,6 +19,12 @@ const rows: [string, string, ToolChipData][] = [
   ['presentation', 'Presented document', { id: 'present-report', name: 'orgtree_present', arg: 'Verification report',
     presentation: { id: 'report', title: 'Verification report' }, writing_secs: 1.2,
     started_at: start, ended_at: '2026-10-14T16:00:00.031Z', result: 'Presented report' }],
+  ['sentfile', 'Sent file', { id: 'sent-report', name: 'orgtree_send_file', arg: 'report.txt', writing_secs: 1.2,
+    started_at: start, ended_at: '2026-10-14T16:00:00.031Z', result: 'Delivered report',
+    file: { path: 'report.txt', name: 'report.txt', bytes: 2048, note: 'Exported report' } }],
+  ['sentimage', 'Sent image', { id: 'sent-image', name: 'orgtree_send_file', arg: 'shot.png', writing_secs: 1.2,
+    started_at: start, ended_at: '2026-10-14T16:00:00.031Z', result: 'Delivered image',
+    file: { path: 'shot.png', name: 'shot.png', bytes: 194560, note: 'Synthetic preview' } }],
 ]
 createRoot(document.getElementById('root')!).render(<main style={{ padding: 32, maxWidth: 950 }}>
   <h2>Tool call timing and status</h2>

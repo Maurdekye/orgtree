@@ -2,27 +2,34 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.CHIP_VISUAL_ROOT, evidence = process.env.CHIP_VISUAL_EVIDENCE
+const fixtureUrl = process.env.CHIP_VISUAL_URL
 if (!/^C:\\orgtree-build\\/i.test(root || '') || !/^D:\\orgtree-work\\/i.test(evidence || '')) throw new Error('Expected C build / D evidence roots')
+if(!/^http:\/\/127\.0\.0\.1:\d+$/.test(fixtureUrl||''))throw new Error('Expected synthetic loopback fixture URL')
 fs.mkdirSync(evidence, { recursive: true })
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 const receipts = []
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1100, height: 680, show: false, useContentSize: true, paintWhenInitiallyHidden: true,
+  const win = new BrowserWindow({ width: 1100, height: 1100, show: false, useContentSize: true, paintWhenInitiallyHidden: true,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } })
   win.webContents.startPainting()
   try {
     for (const version of ['before', 'after']) for (const theme of ['dark', 'light']) {
-      await win.loadFile(path.join(root, version + '.html'))
+      await win.loadURL(fixtureUrl + '/' + version + '.html')
       const state = await win.webContents.executeJavaScript(`new Promise((resolve,reject)=>{
         const timeout=setTimeout(()=>reject(new Error('fixture timeout')),5000);
-        const ready=()=>{if(document.querySelectorAll('[data-case]').length!==6 || !document.querySelector('.presentation-chat-card')){setTimeout(ready,20);return}
+        const ready=()=>{const image=document.querySelector('.imgcard-img');
+          if(document.querySelectorAll('[data-case]').length!==8 || !document.querySelector('.presentation-chat-card') || !image?.complete || !image.naturalWidth){setTimeout(ready,20);return}
           document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
           requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(timeout);resolve({
             rows:Array.from(document.querySelectorAll('[data-case]')).map(row=>({
               id:row.dataset.case,text:row.querySelector('.tline')?.textContent ?? null,
               cardText:row.querySelector('.presentation-chat-card')?.textContent ?? null,
               cardTimed:!!row.querySelector('.presentation-chat-card .tool-writing-time,.presentation-chat-card .tool-exec-time'),
+              fileText:row.querySelector('.filecard')?.textContent ?? null,
+              fileTimed:!!row.querySelector('.filecard .tool-writing-time,.filecard .tool-exec-time'),
+              imageWidth:row.querySelector('.imgcard-img')?.naturalWidth ?? null,
+              download:row.querySelector('a.filecard,a.fdl')?.getAttribute('download') ?? null,
               writing:row.querySelector('.tool-writing-time')?.textContent ?? null,
               statusIcon:row.querySelector('.tool-running-status')?.getAttribute('data-testid') ?? null,
               statusTitle:row.querySelector('[aria-label="executing tool call"]')?.title ?? null,
@@ -42,6 +49,10 @@ app.whenReady().then(async () => {
         && (version === 'before' ? row('presentation').text === null && row('presentation').cardTimed
           : /orgtree_present/.test(row('presentation').text || '') && /1\.2s/.test(row('presentation').text || '')
             && /31 ms/.test(row('presentation').text || '') && row('presentation').cardText === 'Verification report' && !row('presentation').cardTimed)
+        && ['sentfile','sentimage'].every(id=>version==='before'?row(id).text===null&&row(id).fileTimed
+          : /orgtree_send_file/.test(row(id).text||'') && /1\.2s/.test(row(id).text||'') && /31 ms/.test(row(id).text||'') && !row(id).fileTimed)
+        && row('sentfile').download==='report.txt' && /2 KB/.test(row('sentfile').fileText||'') && /Exported report/.test(row('sentfile').fileText||'')
+        && row('sentimage').download==='shot.png' && /190 KB/.test(row('sentimage').fileText||'') && row('sentimage').imageWidth===320
       const expected = state.background.match(/\d+/g).slice(0,3).map(Number)
       const attempts = []
       let frame, captured, matched = false

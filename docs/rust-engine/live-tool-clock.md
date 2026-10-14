@@ -29,7 +29,7 @@ The separate source commits for these requests have three new observation
 cases and an explicit running `ArrowForwardIcon` assertion prepared for the
 next rig batch. Independent red substitutions use the actual integrated
 `0f8638f` toolclock (2 failures/1 known-duration control) and desk (1 running-icon
-failure/6 controls); with the presentation split, green union expects 36 tests, plus root typecheck and four
+failure/6 controls); with presentation/file splits, green union expects 41 tests, plus root typecheck and four
 before/after dark/light captures of real ToolChip rows. These new checks have
 not run. Their fixture checks preserved writing/completed states and execution
 durations as well as omission and the running icon; PNGs require inspection.
@@ -51,6 +51,25 @@ markdown/HTML menu parity with desk badges, and error fallback. Red substitutes
 only actual0f8638f desk: two split-row failures and two existing-behavior controls.
 Combined four themed captures include the presentation before/after, with timing
 placement checks. This new request is unverified until rig receipt/PNG review.
+
+## Sent-file row and card (2026-10-14 18:00–18:03UTC)
+
+Sent files follow the same split: the ordinary orgtree_send_file row owns
+timing and expanded input/result details; its sibling keeps the pre-timing
+download card (name/size/note/link), or image card with ImgCardCaption and the
+existing lightbox/download route. Exact earlier card markup was checked in
+e8e2457's parent. Error sends render only the error tool row.
+
+There is no canonical sent-file context menu or file object-nav kind in the
+current source. Coordinator explicitly corrected that extrapolated requirement:
+preserve existing browser link and containing transcript-row menus, build no
+new file menu. Five prepared tests include normal/image split and links,
+expanded details, unknown-writing omission, error fallback, and a native-link
+passing control. The eaf28b6 desk-only red expects four failures plus that
+control; green union41/rootTS and four themed captures remain unrun. The visual
+runner serves only generated assets and one synthetic SVG image over loopback,
+awaits Electron exit, and closes the server before returning. Actual decode is
+checked so image captures cannot silently show a broken image.
 
 Rig round 437 measured five fake-timer cases: actual alpha.3 `ae0b5fd`
 toolclock red has four target failures and one completed-precision passing
