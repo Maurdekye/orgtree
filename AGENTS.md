@@ -281,6 +281,16 @@
   [timing, menu contract and verification status](docs/rust-engine/tool-writing-and-link-menus.md).
   [decided: user 2026-10-13 17:47–17:50UTC; verified from source:
   `runtime/toolwriting.rs`, renderer `toolclock.tsx`, `objectactions.ts`, `objectnav.tsx`]
+  2026-10-14: a live clock or the executing icon runs only for a call of the
+  turn running now. The engine publishes that turn's admission
+  (`turn_started_at`, beside `busy`, in the node's runtime view and the chat
+  payload; null while idle). A call that started before it belongs to an
+  earlier turn: if that turn left it open it shows unavailable (arrow + dash),
+  never a live count or an invented end time. An unknown start (the composer's
+  optimistic busy, a slot wait) times no call. A writing clock stops once known
+  to be an earlier turn's. [decided: coordinator 2026-10-14 (docket
+  tool-calls-left-open-by-an-earlier-turn-count-up); verified: `toolclock.tsx`
+  `useLiveCall`, `actor.rs` `runtime_value`/`live_view`]
 
 - Provider/category/collection labels use **Language servers**, including tier
   families, navigation and theme names. Wording about one server stays singular;

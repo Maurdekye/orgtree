@@ -46,6 +46,47 @@ new-behaviour cases with two passing controls; menu red failed the two expected
 cases with four passing controls. The base-engine preview-only control failed
 exactly the two new preview checks. Detailed provenance and limits are below.
 
+## Clocks belong to their turn (2026-10-14)
+
+Docket `tool-calls-left-open-by-an-earlier-turn-count-up`. The user saw a
+Muse call from the day before count "23h 08m" during a new turn. That call
+never got a result on its chip: its turn ended at the silence limit while the
+command hung in Muse's Session 0 sandbox. The clock ran because the desk knew only that
+SOME turn was active (`TurnActiveContext`, per desk). That flag also turns on
+for the composer's optimistic busy right after a send and while the agent
+waits for a slot or compacts, before any turn exists.
+
+Rule: a live execution clock, and the executing icon, run only for a call of
+the turn running now. A writing clock stops once the call is known to be an
+earlier turn's. A call an earlier turn left open shows the existing
+unavailable form (arrow and dash), never a live count. No end time is
+written for it and no duration is shown: the chip is not changed.
+
+- **Engine.** The running turn's admission (`turn.admitted_at`, taken before
+  the turn claims its mail, so every call of the turn starts after it) is
+  published as `turn_started_at`. It sits beside `busy` in the actor's runtime
+  view (the node's overlay) and in the chat payload's live view, and is null
+  while idle (`idle_runtime`).
+- **Renderer.** The desk provides the newer of its two copies as
+  `RunningTurnContext` while a turn is active. `useLiveCall` times a call only
+  when its `started_at` is at or after that start; an unknown start times none.
+  The optimistic send clears the copy it carries.
+
+Verification (**not yet run when this was written; the expected counts are
+part of the item, and a different count fails it**):
+- Renderer `toolclock-turn` 5/5. The same file against the renderer of the base
+  `0f8638f` fails 4, passing only the running turn's own clock (the control).
+- `toolclock-live`, `toolwriting` and the rest of the clock tests unchanged in
+  count (their running chips now name their turn).
+- Engine `domain::tree::idle_runtime_tests` 1.
+- Rig `turn-start-clock.mjs` 6/6: idle null, the same start on both copies
+  during the turn, the call at or after it, the start this turn's, a control,
+  null again after. Against the base engine 1 passes (the control) and 5 fail.
+- Captures: `toolclock-turn-pages.mjs` builds the fixture `toolclock-turn-visual.tsx`
+  against this tree and the base, `toolclock-turn-capture.cjs` paints both in
+  dark and light and checks them: before, the earlier call counts live with the
+  executing icon; after, it shows the dash; the running call shows "33s" in both.
+
 ## Earlier timing contract (historical wording; refinements above supersede it)
 
 Claude-compatible `content_block_start` tool-use events begin an observed clock
