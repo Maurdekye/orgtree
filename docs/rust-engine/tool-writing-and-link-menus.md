@@ -13,13 +13,15 @@ per call, tolerates unfinished strings, omits incomplete keys/unknown values,
 and updates expanded structured input in place. Preview helpers and transport
 are unlogged, and preview input never enters conversation storage.
 
-Executing calls use a play icon in the status position. Finished dots and
+Executing calls use the execution-time right arrow in the status position
+(user 2026-10-14 17:38UTC, replacing the play icon). Finished dots and
 colours remain. Writing and execution durations display only their icons and
 numbers, with full wording kept in accessible labels/tooltips. Both observed
 live clocks start immediately; the former ten-second execution threshold is
-removed. Interrupted inactive calls stop counting. Missing finished observations
-remain explicitly unavailable through the icon's accessible label/tooltip and
-a dash, never a fabricated zero. Unknown fields are absent from active chips.
+removed. Interrupted inactive calls stop counting. Missing writing observations
+omit the whole writing-time slot, including its pencil, dash and separator
+(user 2026-10-14 17:36UTC). A measured zero stays visible. Missing execution
+observations retain the accessible explanation and dash. Unknown fields are absent from active chips.
 Line counts are shown only when a chip is expanded.
 
 Muse/ACP and Antigravity updates refresh the known input summary/references on
@@ -116,8 +118,8 @@ call is created.
 
 Current Codex, Muse and Antigravity adapters provide completed argument objects
 or execution steps, not an observed start/end of argument generation. They do
-not acquire a fabricated writing clock. Historical/unobserved writing and missing
-execution observations display as unavailable. This is a concrete signal limit,
+not acquire a fabricated writing clock. Historical/unobserved writing slots are
+omitted; missing execution observations display as unavailable. This is a concrete signal limit,
 not proof that those providers cannot expose the phase through another protocol.
 Claude-compatible gateway/local-server harnesses share the implemented path if
 their CLI emits the corresponding blocks.
