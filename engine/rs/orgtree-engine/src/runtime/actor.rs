@@ -4291,7 +4291,8 @@ impl Actor {
                 tracing::warn!(agent = %self.name, item = %id, error = %format!("{e:#}"), "the lost background call's chip could not be written");
             }
         }
-        if !(self.stopping && !self.engine.is_stopping()) {
+        // a seat stopping while the engine runs on is being retired or deleted
+        if !self.stopping || self.engine.is_stopping() {
             let note = muse_lost_note(&lost, reason);
             if let Err(e) = crate::domain::mail::system_wake(&self.engine, self.org_id, self.id, &note).await {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "could not tell the agent its background commands ended with the host");
