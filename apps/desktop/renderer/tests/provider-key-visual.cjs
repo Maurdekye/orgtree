@@ -61,7 +61,7 @@ module.exports=async page=>{
     const shot=await page.screenshot('providers-'+size+'-'+theme)
     results.push({name:'header-'+size+'-'+theme,...geometry,shot})
     await dismiss({selector:'.prov-openrouter button',text:'Add another OpenRouter key'},'openrouter-add-'+size+'-'+theme)
-    await dismiss('button[title^="replace the key"]','openrouter-settings-'+size+'-'+theme)
+    await dismiss('button[title^="rename this key"]','openrouter-settings-'+size+'-'+theme)
     await dismiss('button[title^="add a model server"]','language-add-'+size+'-'+theme)
     await dismiss('button[title="edit this server"]','language-edit-'+size+'-'+theme)
   }

@@ -31,7 +31,7 @@ fallback=account('claude-4','Fallback account');fallback['tiers']=[dict(tier=t,a
 other=account('claude-9','Another account with additional explanatory text');other['unsupported']=True;other['error']='Usage reporting is unavailable for this account. '+('LongExplanationWithoutSpaces'*8)
 REGISTRY=dict(primary='claude-1',accounts=[row('claude-1','claude (machine login)','primary@example.test',True),row('claude-4','claude-0-'+('LongManagedProfileLabel'*2),'second.account.with.a.long.address@example.test'),row('claude-9','claude-9','third@example.test')])
 providers=[dict(id=i,label=i,status=dict(installed=True,connected=True),tiers=[]) for i in ['anthropic','openai','google','openrouter']]
-DATA={'/api/providers':dict(providers=providers),'/api/usage':primary,'/api/accounts':REGISTRY,'/api/accounts/claude-4/usage':fallback,'/api/accounts/claude-9/usage':other,'/api/codex/usage':dict(account('codex','Codex account',82),provider='Codex'),'/api/antigravity/usage':dict(account('agy','Antigravity account',100),provider='Antigravity'),'/api/openrouter/usage':dict(account('openrouter','OpenRouter credit account',23),provider='OpenRouter')}
+DATA={'/api/providers':dict(providers=providers),'/api/usage':primary,'/api/accounts':REGISTRY,'/api/accounts/claude-4/usage':fallback,'/api/accounts/claude-9/usage':other,'/api/codex/usage':dict(account('codex','Codex account',82),provider='Codex'),'/api/antigravity/usage':dict(account('agy','Antigravity account',100),provider='Antigravity'),'/api/openrouter/keys/usage':{'openrouter-1':dict(account('openrouter-1','OpenRouter credit account',23),provider='OpenRouter',name='personal')}}
 blocked=[];errors=[]
 class Handler(http.server.SimpleHTTPRequestHandler):
  def log_message(self,*args):pass

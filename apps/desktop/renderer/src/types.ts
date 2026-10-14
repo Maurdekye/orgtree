@@ -1389,7 +1389,9 @@ export interface OpenRouterCredits {
   checked_at: string | null
 }
 /** GET /api/openrouter — secret-free: `key_set` says a key is stored, never
- *  what it is; `connected` says openrouter.ai accepted it. */
+ *  what it is; `connected` says openrouter.ai accepted one. Each key's own
+ *  standing is its row in `keys` (no key is special, user 2026-10-14); the
+ *  lane-wide `credits` stay null. */
 export interface OpenRouterDoc {
   installed: boolean
   connected: boolean
@@ -1406,21 +1408,20 @@ export interface OpenRouterDoc {
    *  newly added key gets — see `OpenRouterHarness`; each key's own is
    *  `OpenRouterKey.harness` */
   harness?: OpenRouterHarness
-  /** every stored key, the original first (several keys at once, ruling
-   *  2026-10-11). The top-level fields above describe the original key. */
+  /** every stored key in the key list's order, alike (several keys at once,
+   *  ruling 2026-10-11; no key is special, user 2026-10-14) */
   keys?: OpenRouterKey[]
-  /** whether any key is stored (the original may have been removed) */
+  /** whether any key is stored */
   any_key?: boolean
 }
-/** one stored OpenRouter key, secret-free. `lane` is how the usage board,
- *  the org's account list and placement name it: `openrouter` for the
- *  original key, its id (`openrouter-N`) for an added one. `name` is what to
- *  show: the user's `label`, else openrouter.ai's `key_label`, else
- *  "OpenRouter key N". `connected` is null before its first reading. */
+/** one stored OpenRouter key, secret-free. Its id (`openrouter-N`) is how the
+ *  usage board, the org's account list and placement name it; `lane` is the
+ *  same id. `name` is what to show: the user's `label`, else openrouter.ai's
+ *  `key_label`, else "OpenRouter key N". `connected` is null before its first
+ *  reading. */
 export interface OpenRouterKey {
   id: string
   lane: string
-  original: boolean
   label: string | null
   name: string
   key_label: string | null
@@ -1479,8 +1480,8 @@ export interface OpenRouterHarnessOption {
  *  `unavailable` true is the neither case (no choice is offered at all). */
 export interface OpenRouterHarness {
   harnesses: OpenRouterHarnessOption[]
-  /** what a newly added key gets (the original key's harness, else the
-   *  old global setting); not necessarily `selected` */
+  /** what a newly added key gets (the first key's harness, else the old
+   *  global setting); not necessarily `selected` */
   stored: string
   default: string
   enabled: boolean

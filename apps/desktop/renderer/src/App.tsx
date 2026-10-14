@@ -27,7 +27,7 @@ import {
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
   getMuseUsage, getMuseUsagePeek,
-  getCodexUsage, getCodexUsagePeek, getLangServers, getOpenRouterKeysUsage, getOpenRouterUsage, getOpenRouterUsagePeek,
+  getCodexUsage, getCodexUsagePeek, getLangServers, getOpenRouterKeysUsage, getOpenRouterUsagePeek,
   getProviders, getAppTree, patchedTreeCache,
   getUsage, getUsagePeek, killAll,
   markRead, openWs,
@@ -2171,9 +2171,10 @@ function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; 
   </div>
 }
 
-/** Added OpenRouter keys keep ordinary reads cache-only, like their existing
- * bulk feed. Only this card's explicit Refresh asks its own registered lane
- * to force a provider read; pending/error/age state belongs to that key. */
+/** Every OpenRouter key's card, alike (no key is special, user 2026-10-14):
+ * ordinary reads are cache-only, like their bulk feed. Only this card's
+ * explicit Refresh asks its own key to force a provider read; pending/error/
+ * age state belongs to that key. */
 function OpenRouterKeyUsageSection({ lane, name }: { lane: string; name?: string }) {
   const state = useUsageReadout<AccountUsage>('openrouter_keys_usage', async (force) => {
     if (force) return getRegisteredAccountUsage(lane, true)
@@ -2202,17 +2203,11 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   // Antigravity's zero-token /usage command supplies real quota percentages
   // and reset timestamps through the same shared usage renderer.
   const agy = useUsageReadout('antigravity_usage', getAntigravityUsage)
-  // OpenRouter: a prepaid credit balance read off the stored key, not a
-  // subscription lane — see openrouter_limits's module docstring. `fetch`
-  // answers `{available:false, error:"no API key…"}` rather than nothing
-  // when no key is stored, same shape as the other providers' "not
-  // installed" case, so it degrades through the same `shown.openrouter &&`
-  // gate below rather than a bespoke branch.
-  const orr = useUsageReadout('openrouter_usage', getOpenRouterUsage)
-  // every stored OpenRouter key by its lane (several keys at once, ruling
-  // 2026-10-11): the original key is the `orr` card above; each ADDED key
-  // (`openrouter-N`) gets a card of its own with its spend, cap and the
-  // shared account balance. Cache-only: the engine's usage loop reads them.
+  // OpenRouter: a prepaid credit balance per stored key, not a subscription
+  // lane — see openrouter_limits's module docstring. Every key by its id
+  // (several keys at once, ruling 2026-10-11; every key alike, user
+  // 2026-10-14) gets a card of its own with its spend, cap and the shared
+  // account balance. Cache-only: the engine's usage loop reads them.
   const orrKeys = useAppRead('openrouter_keys_usage', getOpenRouterKeysUsage)
   // Muse: the 5-hour window and the week as Muse itself last dated them —
   // read by its own metadata host or reported by a turn, never estimated
@@ -2333,21 +2328,10 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
         : <div className="dim">usage unavailable until refresh succeeds</div>}
     </div> })
   }
-  const addedKeys = Object.entries(orrKeys ?? {}).filter(([lane]) => lane !== 'openrouter')
-  if (shown.openrouter && (orr.value || orr.failure || orr.pending)) {
-    // beside added keys the original names itself as they do
-    const name = addedKeys.length ? orrKeys?.openrouter?.name : undefined
-    cards.push({ provider: 'openrouter', lane: 'openrouter', node: <div className="usage-acct" key={'host:openrouter:' + (orr.value?.account ?? 'openrouter')}>
-      <UsageAcctHead label={orr.value?.provider ?? 'OpenRouter'}
-        parts={name ? [name] : [orr.value?.label]} provider="OpenRouter" state={orr} />
-      {orr.value
-        ? <UsageBars u={orr.value} />
-        : <div className="dim">usage unavailable until refresh succeeds</div>}
-    </div> })
-  }
-  for (const [lane, u] of shown.openrouter ? addedKeys : []) {
+  const orrCards = Object.entries(orrKeys ?? {})
+  for (const [lane, u] of shown.openrouter ? orrCards : []) {
     cards.push({ provider: 'openrouter', lane, node: <OpenRouterKeyUsageSection
-      key={'openrouter-key:' + lane} lane={lane} name={u.name} /> })
+      key={'openrouter:' + lane} lane={lane} name={u.name} /> })
   }
   for (const srv of (langServerDoc(langservers)?.servers ?? []).filter((x) => x.enabled)) {
     const offered = Object.values(srv.models).filter((m) => m.offered).map((m) => m.label)
@@ -2358,7 +2342,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
         {offered.length ? ` · ${offered.join(', ')}` : ' · no model offered'}</div>
     </div> })
   }
-  // an added OpenRouter key is a registry row too, but has its card above
+  // an OpenRouter key is a registry row too, but has its card above
   for (const r of registered.filter((x) => x.provider !== 'openrouter')) {
     cards.push({ provider: r.provider, lane: r.id, node: <RegisteredAccountSection key={r.id}
       row={r} multiple={multipleAccounts(r.provider)} /> })
@@ -2373,7 +2357,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
         {!claude.value && !claude.failure && !claude.pending
           && !(shown.openai && (codex.value || codex.failure || codex.pending))
           && !(shown.google && (agy.value || agy.failure || agy.pending))
-          && !(shown.openrouter && (orr.value || orr.failure || orr.pending))
+          && !(shown.openrouter && orrCards.length > 0)
           && !(shown.muse && (muse.value || muse.failure || muse.pending))
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">

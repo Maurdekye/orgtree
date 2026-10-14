@@ -1,6 +1,5 @@
 import { PinFrame } from './modalpin'
-import { ProviderDialog } from './providerdialog'
-import { OpenRouterAddedKeys, OpenRouterKeyDialog, OriginalKeyActive, keyHarness, originalKeyName } from './openrouterkeys'
+import { OpenRouterKeys, OpenRouterKeyDialog, keyHarness } from './openrouterkeys'
 import { useAppValue } from '../appfeed'
 // canvas/openrouter.tsx — the OpenRouter lane's settings surface (user spec
 // 2026-09-02, verbatim intent):
@@ -28,11 +27,12 @@ import { useAppValue } from '../appfeed'
 // visual language as the tier chips on the canvas. There is no cap on
 // favorites (user choice); the row wraps.
 //
-// The key is written here and never read back: the document this renders
-// says `key_set`, the key's LABEL at openrouter.ai and the credit standing —
-// nothing else, by construction of the backend (openrouter.py).
+// A key is written here and never read back: the document this renders
+// says `key_set` and lists every key alike (its name, numbered id and its own
+// standing; openrouterkeys.tsx) — nothing else, by construction of the
+// backend (openrouter.rs). No key is special (user 2026-10-14).
 //
-// THE KEY ROW IS AN ACCOUNT ROW (2026-09-03). It is built from the accounts
+// A KEY ROW IS AN ACCOUNT ROW (2026-09-03). It is built from the accounts
 // panel's own parts — `.acct-line` › `.acct-gutter` + `.acct-row` ›
 // `.acct-main` (ghost grip · field · 27px icon buttons) + `.acct-provenance`
 // — so it sits on the Claude rows' rail and ends on their button column, and
@@ -47,10 +47,8 @@ import { useAppValue } from '../appfeed'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  addOpenRouterKey, clearOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
-  setOpenRouterKey, updateOpenRouterKey,
+  addOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
 } from '../api'
-import { AutorenewIcon, DeleteIcon, EditIcon } from '../icons'
 import type {
   OpenRouterDoc, OpenRouterHarness, OpenRouterModel, OpenRouterModelsPage,
   OpenRouterSort, ProviderInfo, ProviderTier,
@@ -58,7 +56,7 @@ import type {
 import { byOpenrouterPriceDesc, capabilityNote, capabilityNotes, fmtCredits, modelLabel, setOpenRouterTiers } from './shared'
 import { BrowserPager, BrowserSelected, ModelCard, ToggleChips } from './modelbrowser'
 import { SetToggle } from './settingskit'
-import { fmtHm, fmtMonth } from '../timefmt'
+import { fmtMonth } from '../timefmt'
 
 type ToastFn = (lines: string[]) => void
 
@@ -92,8 +90,6 @@ function useSharedDoc(adopt: (d: OpenRouterDoc) => void): void {
  *  The backend clamps to `PAGE_MIN..PAGE_MAX`; this is the opinion. */
 const PAGE = 25
 
-const money = (v: number | null | undefined, digits = 2): string =>
-  v == null || Number.isNaN(v) ? '—' : `$${v.toFixed(digits)}`
 /** per-million price, trimmed: $0.14 · $2 · $10 */
 const perM = (v: number): string =>
   `$${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(v < 1 ? 2 : 1).replace(/\.0$/, '')}`
@@ -117,25 +113,6 @@ const DIR_LABEL: Record<OpenRouterSort, Record<'asc' | 'desc', string>> = {
   output: { asc: 'cheapest first', desc: 'most expensive first' },
   recency: { asc: 'oldest first', desc: 'newest first' },
 }
-/** "checked 01:20" — when the key was last verified, on the local clock */
-const clock = (iso: string): string => fmtHm(iso) || iso
-
-/** the credit standing as the row's second line: one short phrase per figure,
- *  only the figures openrouter.ai actually reported */
-function standingOf(doc: OpenRouterDoc): string[] {
-  const c = doc.credits
-  if (!doc.connected || !c) return []
-  const out = [c.limit_remaining != null
-    ? `${money(c.limit_remaining)} of ${money(c.limit)} left`
-    : `${money(c.usage)} spent`]
-  if (c.usage_daily != null) out.push(`today ${money(c.usage_daily)}`)
-  if (c.usage_weekly != null) out.push(`week ${money(c.usage_weekly)}`)
-  if (c.usage_monthly != null) out.push(`month ${money(c.usage_monthly)}`)
-  if (c.is_free_tier) out.push('free tier')
-  if (c.checked_at) out.push(`checked ${clock(c.checked_at)}`)
-  return out
-}
-
 /** the monogram card (canvas/modelbrowser.tsx), still importable from here */
 export { ModelCard }
 
@@ -179,8 +156,6 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   const [doc, setDoc] = useState<OpenRouterDoc | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [keyDraft, setKeyDraft] = useState('')
-  const [editingKey, setEditingKey] = useState(false)
   const [addingKey, setAddingKey] = useState(false)
 
   const adopt = (d: OpenRouterDoc) => {
@@ -198,24 +173,14 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setBusy(false))
   }
-  const saveKey = () => {
-    const k = keyDraft.trim()
-    if (!k) return
-    run(setOpenRouterKey(k), 'OpenRouter key saved')
-    setKeyDraft(''); setEditingKey(false)
-  }
-
   const off = provider?.user_enabled === false
-  const keySet = !!doc?.key_set
-  // any key at all (the original may be gone while added keys remain): the
-  // favorites and the lane's state follow it, the original's row `keySet`
-  const anyKey = !!(doc?.any_key ?? keySet)
+  // any key at all: the favorites and the lane's state follow it
+  const anyKey = !!(doc?.any_key ?? doc?.key_set)
   // an older backend serves no `harness` at all, and the head's clause simply
   // does not appear for it. The CHOICE is each key's own, in its settings
   // dialog (user 2026-10-13); the head only reports it.
   const harness = doc?.harness
   const keyHarnesses = [...new Set((doc?.keys ?? []).map((k) => k.harness).filter((h): h is string => !!h))]
-  const original = doc?.keys?.find((k) => k.original)
   const favorites = doc?.tiers ?? []
   // the chips as shown since the section opened: a model deselected here or in
   // the picker keeps its place, dimmed, and a new favorite joins at the end.
@@ -225,12 +190,6 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   // the dearest first (the one listing rule for the chosen models), a model just
   // deselected keeping the place its price gives it
   const shown = keepPlaces(seen, favorites).sort(byOpenrouterPriceDesc)
-  const standing = doc ? standingOf(doc) : []
-  // line 1's verdict word, and the tone it reads in
-  const verdict = doc?.connected ? 'connected'
-    : doc?.reason ? 'not connected' : 'not checked yet'
-  const verdictClass = doc?.connected || !doc?.reason ? 'dim' : 'ask-warn-inline'
-
   return (
     <div className="set-group">
       <div className={'set-group-head acct-provider-head prov-openrouter'
@@ -246,7 +205,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
         <span className="set-head-right">
           {doc && <button type="button" className="acct-secondary-btn"
             disabled={busy} aria-haspopup="dialog"
-            onClick={() => anyKey ? setAddingKey(true) : setEditingKey(true)}>
+            onClick={() => setAddingKey(true)}>
             {anyKey ? 'Add another OpenRouter key' : 'Add OpenRouter key'}
           </button>}
           {!off && anyKey && !provider?.hire_enabled
@@ -257,95 +216,13 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
       {err && <div className="dim acct-prov-note">could not read OpenRouter state: {err}</div>}
       {!doc && !err && <div className="dim acct-prov-note">reading OpenRouter state…</div>}
 
-      {doc && addingKey && <OpenRouterKeyDialog title="Add another OpenRouter key" keyRequired
+      {doc && addingKey && <OpenRouterKeyDialog title={anyKey ? 'Add another OpenRouter key' : 'Add OpenRouter key'} keyRequired
         initialName="" harness={harness && keyHarness(harness, harness.stored)}
         busy={busy} close={() => setAddingKey(false)}
         save={(name, key, h) => { run(addOpenRouterKey(key, name, h), 'OpenRouter key added'); setAddingKey(false) }} />}
-      {doc && editingKey && keySet && <OpenRouterKeyDialog title="Replace OpenRouter key"
-        keyRequired={false} initialName={original?.label ?? ''}
-        harness={harness && original?.harness
-          ? keyHarness(harness, original.harness, original.pinned_seats) : undefined}
-        busy={busy} close={() => setEditingKey(false)}
-        save={(name, key, h) => {
-          const moved = h && h !== original?.harness ? { harness: h } : {}
-          run(updateOpenRouterKey('openrouter-key', key ? { label: name, key, ...moved } : { label: name, ...moved }),
-            key ? 'OpenRouter key saved' : moved.harness && harness
-              ? `OpenRouter key now runs on ${labelOf(harness, moved.harness)}` : 'OpenRouter key renamed')
-          setEditingKey(false)
-        }} />}
-      {doc && editingKey && !keySet && (
-        <ProviderDialog title="Add OpenRouter key"
-          busy={busy} close={() => { setEditingKey(false); setKeyDraft('') }}>
-          <div className="provider-key-form">
-            <label htmlFor="openrouter-key-draft">API key</label>
-            <input type="password" autoComplete="off" spellCheck={false}
-              id="openrouter-key-draft" placeholder={keySet
-                ? 'paste the new OpenRouter API key'
-                : 'paste an OpenRouter API key (sk-or-\u2026)'}
-              aria-label="OpenRouter API key"
-              value={keyDraft} disabled={busy}
-              onChange={(e) => setKeyDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') saveKey() }} />
-            <div className="ls-actions">
-              <button type="button" className="acct-secondary-btn"
-                title={keySet ? 'replace the key' : 'set the key'}
-                disabled={busy || !keyDraft.trim()} onClick={saveKey}>Save</button>
-              <button type="button" className="acct-secondary-btn" title="keep the current key"
-                disabled={busy}
-                onClick={() => { setEditingKey(false); setKeyDraft('') }}>Cancel</button>
-            </div>
-          </div>
-          <div className="acct-provenance">
-            <span>stored on this machine, never shown again</span>
-            <span>get one at openrouter.ai/keys</span>
-          </div>
-        </ProviderDialog>
-      )}
-
-      {/* the KEY row — identity + verdict, then the credit standing, then
-          three icon buttons: re-check · replace · forget */}
-      {doc && keySet && (
-        <div className="acct-line">
-          <span className="acct-gutter" />
-          <div className="acct-row orr-keyrow">
-            <div className="acct-main">
-              <span className="acct-grip acct-ghost">⠿</span>
-              <span className="acct-email orr-standing"
-                title={[`${originalKeyName(doc)} · ${verdict}`,
-                  ...(doc.connected ? standing : [doc.reason ?? ''])]
-                  .filter(Boolean).join(' · ')}>
-                {originalKeyName(doc)}
-                <span className={verdictClass}> · {verdict}</span>
-                {harness && original?.harness
-                  && <span className={original.harness_installed === false ? 'ask-warn-inline' : 'dim'}>
-                    {' · '}{labelOf(harness, original.harness)}{original.harness_installed === false ? ' (not installed)' : ''}</span>}
-              </span>
-              <button className="acct-btn"
-                title="re-check the key and its credit standing at openrouter.ai"
-                disabled={busy} onClick={() => run(getOpenRouter(true), '')}>
-                <AutorenewIcon fontSize="inherit" /></button>
-              <button className="acct-btn" title="replace the key — the favorites stay"
-                disabled={busy} aria-haspopup="dialog" onClick={() => setEditingKey(true)}>
-                <EditIcon fontSize="inherit" /></button>
-              <button className="acct-btn acct-del"
-                title="forget the key — nothing on OpenRouter can be hired until a new one is set; the favorites stay"
-                disabled={busy}
-                onClick={() => run(clearOpenRouterKey(), 'OpenRouter key cleared')}>
-                <DeleteIcon fontSize="inherit" /></button>
-            </div>
-            <div className="acct-provenance">
-              {doc.connected
-                ? standing.map((s) => <span key={s}>{s}</span>)
-                : <span className={doc.reason ? 'acct-dead' : ''}>
-                  {doc.reason ?? 'not checked at openrouter.ai yet — re-check to see the credit standing'}
-                </span>}
-            </div>
-            <OriginalKeyActive doc={doc} busy={busy} run={run} />
-          </div>
-        </div>
-      )}
-      {/* several keys at once: each added key's row and settings */}
-      {doc && <OpenRouterAddedKeys doc={doc} busy={busy} run={run} />}
+      {/* every key alike (user 2026-10-14 18:00Z: no key is special): its
+          row, its settings and its removal */}
+      {doc && <OpenRouterKeys doc={doc} busy={busy} run={run} />}
 
       {/* the favorites ROW: a chip per favorite that a click deselects (or,
           dimmed, selects again), then "+" for the picker. Rendered only once

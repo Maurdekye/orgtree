@@ -40,10 +40,10 @@ const ONLY_CLAUDE: OpenRouterHarness = { harnesses: [CLAUDE, CODEX_GONE], stored
   enabled: false, unavailable: false, selected: 'claude-code', explain: 'Only Claude Code is installed, so it drives OpenRouter agents.' }
 
 function key(id: string, over: Partial<OpenRouterKey> = {}): OpenRouterKey {
-  const original = id === 'openrouter-key'
+  const first = id === 'openrouter-1'
   return {
-    id, lane: original ? 'openrouter' : id, original, label: original ? null : 'team',
-    name: original ? 'personal' : 'team', key_label: null, enabled: true, connected: true, reason: null,
+    id, lane: id, label: first ? null : 'team',
+    name: first ? 'personal' : 'team', key_label: null, enabled: true, connected: true, reason: null,
     observed_at: '2026-10-13T19:00:00Z', limits: [], harness: 'claude-code', harness_installed: true, pinned_seats: 0,
     ...over,
   }
@@ -123,7 +123,7 @@ function type(input: HTMLInputElement, value: string) {
 
 test('§1 adding a key: both harnesses installed, the default is preselected and a pick is POSTed', async () => {
   const seen: Seen[] = []
-  stubFetch(seen, BOTH, [key('openrouter-key')])
+  stubFetch(seen, BOTH, [key('openrouter-1')])
   const view = await mount()
   try {
     assert.equal(view.el.querySelector('select'), null, 'no harness control on the card itself')
@@ -133,7 +133,7 @@ test('§1 adding a key: both harnesses installed, the default is preselected and
     const sel = harnessSelect(dialog)!
     assert.ok(sel, 'the harness is chosen in the key dialog')
     assert.deepEqual(optionValues(sel), ['claude-code', 'codex-cli'])
-    assert.equal(sel.value, 'claude-code', 'a new key starts on the original key\'s harness')
+    assert.equal(sel.value, 'claude-code', 'a new key starts on the first key\'s harness')
     assert.ok(button(dialog, 'Which harnesses are supported?'), 'the selector links to the harness list')
     await choose(sel, 'codex-cli')
     await inAct(async () => {
@@ -148,7 +148,7 @@ test('§1 adding a key: both harnesses installed, the default is preselected and
 
 test('§2 editing a key: a change says when its agents move, counts pinned agents, and PUTs only the change', async () => {
   const seen: Seen[] = []
-  stubFetch(seen, BOTH, [key('openrouter-key'), key('openrouter-2', { pinned_seats: 2 })])
+  stubFetch(seen, BOTH, [key('openrouter-1'), key('openrouter-2', { pinned_seats: 2 })])
   const view = await mount()
   try {
     const edit = view.el.querySelectorAll<HTMLButtonElement>('.acct-row.orr-keyrow')[1]!
@@ -168,7 +168,7 @@ test('§2 editing a key: a change says when its agents move, counts pinned agent
 
 test('§3 only Claude Code installed: Codex is listed after a separator, greyed out and disabled', async () => {
   const seen: Seen[] = []
-  stubFetch(seen, ONLY_CLAUDE, [key('openrouter-key')])
+  stubFetch(seen, ONLY_CLAUDE, [key('openrouter-1')])
   const view = await mount()
   try {
     await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
@@ -190,7 +190,7 @@ test('§3 only Claude Code installed: Codex is listed after a separator, greyed 
 
 test('§3b order follows install state, not the registry: Codex installed comes before Claude Code', async () => {
   const seen: Seen[] = []
-  stubFetch(seen, ONLY_CODEX, [key('openrouter-key', { harness: 'codex-cli' })])
+  stubFetch(seen, ONLY_CODEX, [key('openrouter-1', { harness: 'codex-cli' })])
   const view = await mount()
   try {
     await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
@@ -204,7 +204,7 @@ test('§3b order follows install state, not the registry: Codex installed comes 
 
 test('§3c both installed: no separator and nothing disabled', async () => {
   const seen: Seen[] = []
-  stubFetch(seen, BOTH, [key('openrouter-key')])
+  stubFetch(seen, BOTH, [key('openrouter-1')])
   const view = await mount()
   try {
     await inAct(async () => { button(view.el, 'Add another OpenRouter key').click(); await flush(4) })
@@ -216,7 +216,7 @@ test('§3c both installed: no separator and nothing disabled', async () => {
 
 test('§4 a saved harness since uninstalled is named, warned about, and never sent', async () => {
   const seen: Seen[] = []
-  stubFetch(seen, ONLY_CLAUDE, [key('openrouter-key'), key('openrouter-2', { harness: 'codex-cli', harness_installed: false })])
+  stubFetch(seen, ONLY_CLAUDE, [key('openrouter-1'), key('openrouter-2', { harness: 'codex-cli', harness_installed: false })])
   const view = await mount()
   try {
     assert.match(view.el.textContent ?? '', /Codex \(not installed\)/, 'the key row says so')
@@ -239,7 +239,7 @@ test('§4 a saved harness since uninstalled is named, warned about, and never se
 
 test('§5 an older backend with no harness block: no harness row and no head clause', async () => {
   const seen: Seen[] = []
-  stubFetch(seen, undefined, [key('openrouter-key', { harness: undefined, harness_installed: undefined })])
+  stubFetch(seen, undefined, [key('openrouter-1', { harness: undefined, harness_installed: undefined })])
   const view = await mount()
   try {
     assert.doesNotMatch(view.el.textContent ?? '', /runs on/)

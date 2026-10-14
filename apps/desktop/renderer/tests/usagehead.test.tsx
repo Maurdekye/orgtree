@@ -110,7 +110,8 @@ const ALL: Routes = {
   '/api/providers': PROVIDERS,
   '/api/codex/usage': CODEX,
   '/api/antigravity/usage': AGY,
-  '/api/openrouter/usage': ORR,
+  // every OpenRouter key is a card of its own, alike (user 2026-10-14)
+  '/api/openrouter/keys/usage': { 'openrouter-1': { ...ORR, account: 'openrouter-1', name: 'personal' } },
   '/api/accounts': REGISTRY,
   '/api/accounts/claude-4/usage': SECONDARY,
 }

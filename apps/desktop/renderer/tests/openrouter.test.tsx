@@ -15,7 +15,7 @@ import {
   isDarkTierColor, modelLabel, noteTierModels, openrouterTierCss, openrouterTierIds,
   setOpenRouterTiers, TIER_LETTER, tierLabel,
 } from '../src/canvas/shared'
-import type { OpenRouterDoc, OpenRouterModel, ProviderInfo } from '../src/types'
+import type { OpenRouterDoc, OpenRouterKey, OpenRouterModel, ProviderInfo } from '../src/types'
 
 type Seen = { method: string; path: string; body: unknown }
 const g = globalThis as unknown as Record<string, unknown>
@@ -42,13 +42,20 @@ function stubFetch(seen: Seen[], opts: { keySet?: boolean; favorites?: string[] 
   // selected, then deselected without a refetch
   const favorites: OpenRouterModel[] = (opts.favorites ?? [])
     .map((id) => CATALOG.find((c) => c.id === id)!)
+  // every key alike (user 2026-10-14): the one key is a numbered row with
+  // its own standing; the lane-wide credits stay null
+  const theKey = (): OpenRouterKey => ({
+    id: 'openrouter-1', lane: 'openrouter-1', label: null, name: 'sk-or-v1-abc…xyz', key_label: 'sk-or-v1-abc…xyz',
+    enabled: true, connected: true, reason: null, observed_at: '2026-09-02T22:00:00Z',
+    limits: [{ kind: 'usage', label: '$1.25 spent · today $0.50 · week $1.25 · month $1.25' } as OpenRouterKey['limits'][number]],
+  })
   const doc = (): OpenRouterDoc => ({
     installed: keySet, connected: keySet, key_set: keySet,
-    kind: keySet ? 'api-key' : null, label: keySet ? 'sk-or-v1-abc…xyz' : null,
-    credits: { limit: null, limit_remaining: null, usage: 1.25, usage_daily: 0.5,
-      usage_weekly: 1.25, usage_monthly: 1.25, is_free_tier: false,
-      checked_at: '2026-09-02T22:00:00Z' },
-    reason: keySet ? null : 'no API key — add one in App settings → Providers',
+    kind: keySet ? 'api-key' : null, label: null,
+    credits: { limit: null, limit_remaining: null, usage: null, usage_daily: null,
+      usage_weekly: null, usage_monthly: null, is_free_tier: null, checked_at: null },
+    keys: keySet ? [theKey()] : [], any_key: keySet,
+    reason: null,
     favorites: favorites.length, favorites_max: 0,
     tiers: favorites.map((m) => ({
       tier: 'or-' + m.id.replace(/[^a-z0-9]+/g, '-'), provider: 'openrouter',
@@ -66,9 +73,9 @@ function stubFetch(seen: Seen[], opts: { keySet?: boolean; favorites?: string[] 
     seen.push({ method, path, body })
     let payload: unknown = null
     if (path === '/api/openrouter' && method === 'GET') payload = doc()
-    else if (path === '/api/openrouter/key' && method === 'PUT') {
-      keySet = true; payload = doc()
-    } else if (path === '/api/openrouter/key' && method === 'DELETE') {
+    else if (path === '/api/openrouter/keys' && method === 'POST') {
+      keySet = true; payload = { ...doc(), added: 'openrouter-1', added_lane: 'openrouter-1' }
+    } else if (path === '/api/openrouter/keys/openrouter-1' && method === 'DELETE') {
       keySet = false; payload = doc()
     } else if (path === '/api/openrouter/models') {
       const q = (u.searchParams.get('q') ?? '').toLowerCase()
@@ -105,14 +112,15 @@ async function mountSection(pickerState: { open: boolean }) {
   return view
 }
 
-test('§1 no key: the section offers key entry and nothing else; setting it '
-  + 'PUTs the key and reveals the favorites row', async () => {
+test('§1 no key: the section offers key entry and nothing else; adding one '
+  + 'POSTs it as a key like any other and reveals its row and the favorites row', async () => {
   const seen: Seen[] = []
   stubFetch(seen)
   const picker = { open: false }
   const view = await mountSection(picker)
   try {
     assert.equal(view.el.querySelector('input[type="password"]'), null, 'no inline form')
+    assert.equal(view.el.querySelector('.orr-keyrow'), null, 'no key row before a key')
     await inAct(async () => { view.el.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click(); await flush(4) })
     const input = document.querySelector<HTMLInputElement>(
       '[aria-label="Add OpenRouter key"] input[aria-label="OpenRouter API key"]')
@@ -128,41 +136,42 @@ test('§1 no key: the section offers key entry and nothing else; setting it '
       input.dispatchEvent(new Event('input', { bubbles: true }))
       await flush(2)
     })
-    // the entry row is the Claude section's "paste a new key" row: the ✓
-    // spans the two button columns
-    const btn = document.querySelector<HTMLButtonElement>('.provider-dialog button[title="set the key"]')!
-    assert.ok(btn, 'the ✓ button sets the key')
-    await inAct(async () => { btn.click(); await flush(10) })
-    const put = seen.find((r) => r.method === 'PUT' && r.path === '/api/openrouter/key')
-    assert.deepEqual(put?.body, { key: 'sk-or-v1-testkey-000000000000' })
+    const save = [...document.querySelectorAll<HTMLButtonElement>('.provider-dialog button')].find((b) => b.textContent === 'Save')!
+    assert.ok(save, 'Save adds the key')
+    await inAct(async () => { save.click(); await flush(10) })
+    const post = seen.find((r) => r.method === 'POST' && r.path === '/api/openrouter/keys')
+    assert.equal((post?.body as { key?: string } | undefined)?.key, 'sk-or-v1-testkey-000000000000')
+    assert.equal(seen.some((r) => r.path === '/api/openrouter/key'), false, 'the first key is added like any other')
     assert.equal(view.el.textContent?.includes('sk-or-v1-testkey'), false,
       'the key never renders')
     assert.ok(view.el.querySelector('.orr-favs'), 'favorites row appears once a key is set')
-    // the key row: an ACCOUNT ROW — identity + verdict on line 1, the credit
-    // standing on line 2, three icon buttons in the account rows' columns
-    const row = view.el.querySelector('.acct-line > .acct-row.orr-keyrow')!
-    assert.ok(row, 'the key row is an account row')
+    // the key row: an ACCOUNT ROW like every key's — name and id + verdict on
+    // line 1, its own spend on line 2, three icon buttons in the account rows' columns
+    const rows = view.el.querySelectorAll('.acct-line > .acct-row.orr-keyrow')
+    assert.equal(rows.length, 1, 'one row for the one key')
+    const row = rows[0]!
     const line1 = row.querySelector('.acct-main > .orr-standing')!
-    assert.ok(line1.textContent?.includes('sk-or-v1-abc…xyz'), 'the label is the identity')
+    assert.ok(line1.textContent?.includes('sk-or-v1-abc…xyz'), 'the key is called by its name')
+    assert.ok(line1.textContent?.includes('(openrouter-1)'), 'and shows its numbered id, as every key does')
     assert.ok(line1.textContent?.includes('connected'), 'connected standing shown')
     const line2 = row.querySelector('.acct-provenance')!.textContent ?? ''
     for (const s of ['$1.25 spent', 'today $0.50', 'week $1.25', 'month $1.25']) {
-      assert.ok(line2.includes(s), `credit standing carries "${s}"`)
+      assert.ok(line2.includes(s), `its spend line carries "${s}"`)
     }
     const btns = [...row.querySelectorAll<HTMLButtonElement>('.acct-main > .acct-btn')]
     assert.deepEqual(btns.map((b) => b.title.split(' — ')[0]), [
-      're-check the key and its credit standing at openrouter.ai',
-      'replace the key', 'forget the key'])
+      're-check every key and its credit standing at openrouter.ai',
+      'rename this key, choose its harness or replace it', 'remove this key'])
     // ⚠ `.acct-btn` is a 27px ICON button: a word in it spills out of the box
     // and over its neighbours (the 2026-09-02 overlap). Icons only, ever.
     for (const b of view.el.querySelectorAll('.acct-btn')) {
       assert.equal(b.textContent?.trim(), '', `no text in an icon button (${b.getAttribute('title')})`)
       assert.ok(b.querySelector('svg'), 'an icon button carries an icon')
     }
-    // Replace opens the shared settings form; Cancel keeps the stored key.
+    // Edit opens the shared settings form; Cancel keeps the stored key.
     await inAct(async () => { btns[1]!.click(); await flush(4) })
     assert.ok(document.querySelector('input[aria-label="OpenRouter API key"]'),
-      'replace opens the key dialog')
+      'edit opens the key dialog')
     const keep = [...document.querySelectorAll<HTMLButtonElement>('.provider-dialog button')]
       .find(b => b.textContent === 'Cancel')!
     assert.ok(keep, 'Cancel keeps the current key')
@@ -535,9 +544,9 @@ test('key dialog Cancel and Escape discard unsaved secrets without changing the 
   stubFetch(seen, { keySet: true })
   const view = await mountSection({ open: false })
   try {
-    const edit = view.el.querySelector<HTMLButtonElement>('button[title^="replace the key"]')!
+    const edit = view.el.querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
     await inAct(async () => { edit.click(); await flush(3) })
-    const dialog = document.querySelector('[role="dialog"][aria-label="Replace OpenRouter key"]')!
+    const dialog = document.querySelector('[role="dialog"][aria-label="Edit sk-or-v1-abc…xyz"]')!
     assert.ok(dialog)
     assert.equal(view.el.contains(dialog), false)
     const input = dialog.querySelector<HTMLInputElement>('input[aria-label="OpenRouter API key"]')!

@@ -1,10 +1,11 @@
 // Several OpenRouter keys at once (docket use-several-openrouter-keys-at-once,
-// ruling 2026-10-11). The OpenRouter section (openrouter.tsx) keeps the
-// ORIGINAL key's row as it always was; this file adds what several keys need:
+// ruling 2026-10-11). Every key is alike (user 2026-10-14 18:00Z, docket
+// openrouter-keys-are-all-equal-no-unnumbered-prim): no key is the original
+// or the primary, and every id is numbered (`openrouter-N`). This file is
+// what the OpenRouter section (openrouter.tsx) lists them with:
 //
-//  - a row per ADDED key (`openrouter-N`): its name, verdict and spend line,
-//    and the same three icon buttons as the original row (re-check · edit ·
-//    remove);
+//  - a row per key, in the key list's order: its name, id, verdict and spend
+//    line, and three icon buttons (re-check · edit · remove);
 //  - the shared name, harness and optional replacement form every key uses
 //    in settings (each key has its own harness, user 2026-10-13).
 // The section header owns its single add action for first and subsequent keys.
@@ -44,21 +45,6 @@ export function KeyActive({ k, busy, run }: { k: OpenRouterKey; busy: boolean; r
     {!k.enabled && <div className="dim account-note">
       Inactive: its agents wait until it is active again or they move to another key.</div>}
   </>
-}
-
-/** the original key's switch, for the section in openrouter.tsx */
-export function OriginalKeyActive({ doc, busy, run }: { doc: OpenRouterDoc; busy: boolean; run: Run }) {
-  const original = doc.keys?.find((k) => k.original)
-  return original ? <KeyActive k={original} busy={busy} run={run} /> : null
-}
-
-/** what the original key is called on its row: its name once there are
- *  several keys (so the rows can be told apart), else what it always said */
-export function originalKeyName(doc: OpenRouterDoc): string {
-  const keys = doc.keys ?? []
-  const original = keys.find((k) => k.original)
-  if (original && (keys.length > 1 || original.label)) return original.name
-  return doc.label ?? 'OpenRouter key'
 }
 
 /** a key's spend line: the reading's own row label (spend, cap, account
@@ -160,19 +146,18 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, 
   </ProviderDialog>
 }
 
-/** the added keys' rows and settings; the section header owns adding */
-export function OpenRouterAddedKeys({ doc, busy, run }: { doc: OpenRouterDoc; busy: boolean; run: Run }) {
+/** every key's row and settings, alike; the section header owns adding */
+export function OpenRouterKeys({ doc, busy, run }: { doc: OpenRouterDoc; busy: boolean; run: Run }) {
   const h = doc.harness
   const [editing, setEditing] = useState<OpenRouterKey | null>(null)
-  const added = (doc.keys ?? []).filter((k) => !k.original)
   return <>
-    {added.map((k) => <div className="acct-line" key={k.id}>
+    {(doc.keys ?? []).map((k) => <div className="acct-line" key={k.id}>
       <span className="acct-gutter" />
       <div className="acct-row orr-keyrow">
         <div className="acct-main">
           <span className="acct-grip acct-ghost">⠿</span>
-          <span className="acct-email orr-standing" title={`${k.name} (${k.lane}) · ${standingOf(k)}`}>
-            {k.name}<span className="dim"> ({k.lane})</span>
+          <span className="acct-email orr-standing" title={`${k.name} (${k.id}) · ${standingOf(k)}`}>
+            {k.name}<span className="dim"> ({k.id})</span>
             <span className={k.connected === false ? 'ask-warn-inline' : 'dim'}>
               {' · '}{k.connected ? 'connected' : k.connected === false ? 'not connected' : 'not checked yet'}
               {k.enabled ? '' : ' · inactive'}
@@ -186,7 +171,7 @@ export function OpenRouterAddedKeys({ doc, busy, run }: { doc: OpenRouterDoc; bu
           <button className="acct-btn" title="rename this key, choose its harness or replace it" disabled={busy}
             aria-haspopup="dialog" onClick={() => setEditing(k)}><EditIcon fontSize="inherit" /></button>
           <button className="acct-btn acct-del"
-            title="remove this key — agents on it move to the first OpenRouter key"
+            title="remove this key — each agent on it moves to another OpenRouter key it may run on, or waits until one is added"
             disabled={busy} onClick={() => run(removeOpenRouterKey(k.id), `${k.name} removed`)}>
             <DeleteIcon fontSize="inherit" /></button>
         </div>

@@ -195,7 +195,8 @@ const ROUTES = {
   '/api/usage': HOST_CLAUDE,
   '/api/codex/usage': HOST_CODEX,
   '/api/antigravity/usage': HOST_AGY,
-  '/api/openrouter/usage': HOST_ORR,
+  // every OpenRouter key is a card of its own, alike (user 2026-10-14)
+  '/api/openrouter/keys/usage': { 'openrouter-1': { ...HOST_ORR, account: 'openrouter-1', name: 'personal' } },
   '/api/providers': PROVIDERS,
   '/api/accounts': INTERLEAVED,
   '/api/accounts/claude-4/usage': usageFor('claude-4', 'claude', 44),
@@ -228,7 +229,7 @@ test('§2a interleaved accounts render grouped: every Claude, then every Codex, 
       'host:Claude Code', 'claude-4', 'claude-9',
       'host:Codex', 'openai-1', 'openai-5',
       'host:Antigravity', 'google-7',
-      'host:OpenRouter',
+      'openrouter-1',
     ])
     // NINE CARDS, COUNTED — nothing was lost on the way into one array.
     assert.equal(view.el.querySelectorAll('.usage-acct').length, 9)
@@ -251,7 +252,7 @@ test('§2b within each provider the host lane leads and the registry order is ke
     assert.deepEqual(cardOrder(view.el), [
       'host:Claude Code', 'claude-9', 'claude-4',
       'host:Codex', 'openai-5', 'openai-1',
-      'host:Antigravity', 'host:OpenRouter',
+      'host:Antigravity', 'openrouter-1',
     ])
   } finally { delete g.fetch }
 })
@@ -327,7 +328,7 @@ test('§2e a provider with no ruled position lands after the three, whole', asyn
       'host:Claude Code', 'claude-4',
       'host:Codex', 'openai-1',
       'host:Antigravity',
-      'host:OpenRouter',
+      'openrouter-1',
       'xenon-1', 'xenon-2',
     ])
   } finally { delete g.fetch }
@@ -342,7 +343,7 @@ test('§2f a single account per provider is grouped the same way, and one provid
     const view = await openModal()
     assert.deepEqual(cardOrder(view.el), [
       'host:Claude Code', 'claude-4', 'host:Codex', 'host:Antigravity',
-      'host:OpenRouter',
+      'openrouter-1',
     ])
   } finally { delete g.fetch }
 })
@@ -378,7 +379,7 @@ test('§2g an unreadable registry still says so, below the grouped host lanes', 
   try {
     const view = await openModal()
     assert.deepEqual(cardOrder(view.el),
-      ['host:Claude Code', 'host:Codex', 'host:Antigravity', 'host:OpenRouter'])
+      ['host:Claude Code', 'host:Codex', 'host:Antigravity', 'openrouter-1'])
     assert.match(view.el.textContent ?? '',
       /registered accounts unavailable: registry down/)
   } finally { delete g.fetch }

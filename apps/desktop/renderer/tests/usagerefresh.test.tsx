@@ -107,7 +107,7 @@ test('actual native and registered Refresh show HTTP200 retained-bar errors with
 test('every OpenRouter key has independent Refresh; only the clicked key forces and failures retain its bars',async()=>{
   const before=globalThis.fetch,seen:string[]=[]
   const readings:Record<string,AccountUsage&{name:string}>={
-    openrouter:{...good('openrouter',11),provider:'OpenRouter',name:'Original'},
+    'openrouter-1':{...good('openrouter-1',11),provider:'OpenRouter',name:'Personal'},
     'openrouter-2':{...good('openrouter-2',22),provider:'OpenRouter',name:'Team budget'},
     'openrouter-3':{...good('openrouter-3',63),provider:'OpenRouter',name:'Other budget'},
   }
@@ -117,7 +117,6 @@ test('every OpenRouter key has independent Refresh; only the clicked key forces 
     seen.push(path+url.search)
     if(path==='/api/providers')return reply({providers:[{id:'openrouter',hire_enabled:true,status:{installed:true}}]})
     if(path==='/api/accounts')return reply({accounts:[]})
-    if(path==='/api/openrouter/usage')return reply(readings.openrouter)
     if(path==='/api/openrouter/keys/usage')return reply(readings)
     if(path==='/api/accounts/openrouter-2/usage')return new Promise<Response>(resolve=>{settle=resolve})
     if(path==='/api/langservers')return reply({servers:[]})
@@ -135,7 +134,9 @@ test('every OpenRouter key has independent Refresh; only the clicked key forces 
     const other=three.querySelector<HTMLButtonElement>('[aria-label="refresh openrouter-3 usage"]')
     assert.ok(button,'secondary key gets the shared Refresh control')
     assert.ok(other,'every added key gets its own Refresh control')
-    assert.ok(view.el.querySelector('[aria-label="refresh OpenRouter usage"]'),'original keeps Refresh')
+    // every key alike (user 2026-10-14): the first key's card is one more key card
+    assert.ok(view.el.querySelector('[aria-label="refresh openrouter-1 usage"]'),'the first key has its own Refresh too')
+    assert.equal(view.el.querySelector('[aria-label="refresh OpenRouter usage"]'),null,'no separate lane card')
     assert.equal(seen.some(url=>url.startsWith('/api/accounts/openrouter-')),false,'ordinary key reads remain cache-only')
     const stamp=two.querySelector('.usage-updated')?.getAttribute('title')
     assert.ok(stamp)
@@ -144,7 +145,7 @@ test('every OpenRouter key has independent Refresh; only the clicked key forces 
     assert.equal(other.getAttribute('aria-busy'),'false')
     await inAct(async()=>{button.click();await flush(4)})
     assert.deepEqual(seen.filter(url=>url.includes('force=')),['/api/accounts/openrouter-2/usage?force=true'],
-      'pending duplicate cannot force another call or any sibling/original key')
+      'pending duplicate cannot force another call or any sibling key')
     assert.ok(settle,'the key-specific synthetic request reached the endpoint')
     await inAct(async()=>{settle!(await reply({...readings['openrouter-2'],error:'key provider failed'}));await flush(12)})
     assert.match(two.querySelector('[role="alert"]')?.textContent??'',/refresh failed: key provider failed/)

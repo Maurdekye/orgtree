@@ -34,12 +34,12 @@ const accounts = [
   { id: 'muse-key', provider: 'muse', label: 'Synthetic Muse API key', name: 'muse-api', identity: {}, mode: 'apikey', enabled: true,
     credential: { kind: 'token' }, tint_ordinal: 2, standing: { auth: 'authenticated' }, bound: [] },
 ]
-// several OpenRouter keys: the named original, a named added key, and an
-// inactive added key openrouter.ai refused
-const orKey = (id: string, over: Record<string, unknown>) => ({ id, lane: id === 'openrouter-key' ? 'openrouter' : id,
-  original: id === 'openrouter-key', label: null, name: id, key_label: null, enabled: true, connected: true, reason: null,
+// several OpenRouter keys, every one alike: two named keys and an inactive
+// key openrouter.ai refused
+const orKey = (id: string, over: Record<string, unknown>) => ({ id, lane: id,
+  label: null, name: id, key_label: null, enabled: true, connected: true, reason: null,
   observed_at: '2026-10-13T00:00:00Z', limits: [{ kind: 'usage', label: '$3.00 of $25.00 spend cap · $22.00 account balance', percent: 12 }], ...over })
-const orKeys = [orKey('openrouter-key', { label: 'Original key', name: 'Original key' }),
+const orKeys = [orKey('openrouter-1', { label: 'Personal key', name: 'Personal key' }),
   orKey('openrouter-2', { label: 'Team budget', name: 'Team budget' }),
   orKey('openrouter-3', { name: 'OpenRouter key 3', enabled: false, connected: false, reason: 'refused at openrouter.ai (401)', limits: [] })]
 const servers = [true, false].map((enabled, i) => ({ id: `fixture-${i}`, preset: 'custom', label: i ? 'Disabled backup server' : 'Local models',
@@ -53,7 +53,7 @@ window.fetch = async (url, init) => {
   if (pathname === '/api/providers') body = providers()
   else if (pathname === '/api/accounts') body = { accounts }
   else if (pathname.includes('/marks')) body = { marks: [] }
-  else if (pathname.startsWith('/api/openrouter')) body = { installed: true, key_set: true, connected: true, kind: 'api-key', label: 'Original key',
+  else if (pathname.startsWith('/api/openrouter')) body = { installed: true, key_set: true, connected: true, kind: 'api-key', label: null,
     reason: null, tiers: [], favorites: 0, favorites_max: 0, user_enabled: true, keys: orKeys, any_key: true,
     credits: { limit: 25, limit_remaining: 22, usage: 3, usage_daily: null, usage_weekly: null, usage_monthly: null, is_free_tier: false, checked_at: '2026-10-13T00:00:00Z' },
     harness: { selected: 'codex-cli', harnesses: [{ id: 'codex-cli', label: 'Codex', available: true }] } }

@@ -964,9 +964,9 @@ export const setOpenRouterKey = (key: string): Promise<OpenRouterDoc> =>
 export const clearOpenRouterKey = (): Promise<OpenRouterDoc> =>
   req('/api/openrouter/key', { method: 'DELETE' })
 // several keys at once (docket use-several-openrouter-keys-at-once, ruling
-// 2026-10-11): each key is its own account. The original key keeps the
-// `openrouter` lane; an added one is `openrouter-N`. A key crosses the wire
-// once, inward; the answers are the panel's document (`keys` lists them).
+// 2026-10-11): each key is its own account, `openrouter-N`, every key alike
+// (user 2026-10-14). A key crosses the wire once, inward; the answers are the
+// panel's document (`keys` lists them).
 export const addOpenRouterKey = (key: string, label?: string, harness?: string): Promise<OpenRouterDoc & { added: string; added_lane: string }> =>
   req('/api/openrouter/keys', {
     method: 'POST',
@@ -995,7 +995,8 @@ export const setOpenRouterKeyEnabled = (id: string, enabled: boolean): Promise<O
 /** every harness the engine knows (App settings › Harnesses): presence
  *  only, nothing is spawned */
 export const getHarnesses = (): Promise<HarnessesDoc> => req('/api/harnesses')
-/** remove a key; an added key's agents move to the original key first */
+/** remove a key, any key alike: each agent on it moves to another key it may
+ *  run on, or waits until one is added */
 export const removeOpenRouterKey = (id: string): Promise<OpenRouterDoc> =>
   req(`/api/openrouter/keys/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const searchOpenRouterModels = (
@@ -1170,12 +1171,13 @@ export const getMuseUsagePeek = (): Promise<UsagePeek> =>
 // OpenRouter: a prepaid credit balance read off the stored key's
 // `GET /api/v1/key`, cached 60s server-side — the modal costs a fetch, the
 // glow polls the cache-only peek
-export const getOpenRouterUsage = (force = false): Promise<AccountUsage> =>
+/** every key's reading by its id, read alike (cached unless forced) */
+export const getOpenRouterUsage = (force = false): Promise<{ provider: string; available: boolean; keys: Record<string, AccountUsage> }> =>
   req(`/api/openrouter/usage${force ? '?force=true' : ''}`)
 export const getOpenRouterUsagePeek = (): Promise<UsagePeek> =>
   req('/api/openrouter/usage/peek')
-/** every stored OpenRouter key's last reading by its lane (`openrouter` is
- *  the original key, `openrouter-N` an added one). Cache-only: the engine's
+/** every stored OpenRouter key's last reading by its id (`openrouter-N`).
+ *  Cache-only: the engine's
  *  usage loop reads the keys and pushes `openrouter_keys_usage`. */
 export const getOpenRouterKeysUsage = (): Promise<Record<string, AccountUsage & { name?: string }>> =>
   req('/api/openrouter/keys/usage')
