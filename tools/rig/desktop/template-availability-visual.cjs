@@ -35,9 +35,13 @@ app.whenReady().then(async () => {
           dim:getComputedStyle(missing.querySelector('.tp-name')).color!==getComputedStyle(ready.querySelector('.tp-name')).color,
           order:rows.map(row=>row.querySelector('.tp-name').textContent),background:getComputedStyle(document.body).backgroundColor};
       })()`)
+      // DOM readiness can precede the compositor frame used by capturePage.
+      await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
       fs.writeFileSync(path.join(out, `${light ? 'light' : 'dark'}-list.png`), (await win.webContents.capturePage()).toPNG())
       await win.webContents.executeJavaScript("window.presetVisual.select('missing')")
       await wait('.tp-unusable-warning')
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
       const selected = await win.webContents.executeJavaScript(`({warning:document.querySelector('.tp-unusable-warning').textContent,
         models:document.querySelectorAll('.tp-preview select').length,expanded:!document.querySelector('.tp-row.sel').classList.contains('collapsed')})`)
       fs.writeFileSync(path.join(out, `${light ? 'light' : 'dark'}-selected.png`), (await win.webContents.capturePage()).toPNG())
