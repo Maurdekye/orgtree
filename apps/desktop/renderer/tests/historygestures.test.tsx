@@ -30,7 +30,7 @@ function tree(roots: CanvasNode[]): TreePayload {
 
 test('retool: settings Save sends account and scope as one gesture and preserves queued disclosures and the journal toast', async t => {
   const original = globalThis.fetch, posts: { path: string; body: Record<string, unknown> }[] = [], messages: string[] = []
-  let undo: ToastUndo | undefined, closed = 0
+  let undo: Extract<ToastUndo, { fn: () => void }> | undefined, closed = 0
   t.after(() => { globalThis.fetch = original })
   globalThis.fetch = (async (url, init) => {
     const path = new URL(String(url), 'http://localhost').pathname
@@ -43,7 +43,7 @@ test('retool: settings Save sends account and scope as one gesture and preserves
   const alice = node('alice')
   const view = await mountView(<NodeConfig node={alice} map={new Map([['alice', alice]])} tree={tree([alice])}
     slug="gesture-org" op={async () => { throw Error('settings escaped its atomic gesture') }}
-    toast={(lines, action) => { messages.push(...lines); if (action && typeof action !== 'function') undo = action }} close={() => { closed++ }} />, el => el)
+    toast={(lines, action) => { messages.push(...(lines ?? [])); if (action && typeof action !== 'function') undo = action }} close={() => { closed++ }} />, el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(6) })
   const account = view.el.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
@@ -62,7 +62,7 @@ test('retool: settings Save sends account and scope as one gesture and preserves
 
 test('retire from settings exposes the committed journal entry instead of a guessed rehire', async t => {
   const original = globalThis.fetch, ops: unknown[] = []
-  let undo: ToastUndo | undefined
+  let undo: Extract<ToastUndo, { fn: () => void }> | undefined
   t.after(() => { globalThis.fetch = original })
   globalThis.fetch = (async () => new Response(JSON.stringify({ accounts: [], servers: [], turns: [] }))) as typeof fetch
   const alice = node('alice')

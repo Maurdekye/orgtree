@@ -9,7 +9,7 @@ export function bindHistory(slug: string, controller: HistoryController): () => 
   return () => { if (controllers.get(slug) === controller) controllers.delete(slug) }
 }
 /** Toasts keep the committed entry identity, including after another action. */
-export function historyUndo(slug: string, result: HistoryRecorded): ToastUndo | null {
+export function historyUndo(slug: string, result: HistoryRecorded): Extract<ToastUndo, { fn: () => void }> | null {
   const id = result.history_entry?.id
   if (id == null) return null
   void controllers.get(slug)?.refresh()
