@@ -11,7 +11,9 @@ import { ToolChip } from '../src/canvas/desk'
 // "23h 08m" again during today's turn, because the desk only knew that SOME
 // turn ran. The running turn's start reaches the desk as `RunningTurnContext`;
 // it is read through the module so this file also runs, as the red control,
-// against the renderer before that context existed.
+// against the renderer before that context existed. Absent elements are
+// checked as booleans: a failing assertion handed a jsdom element runs out of
+// memory before it reports (AGENTS.md).
 const RunningTurn = (clock as { RunningTurnContext?: Context<string | null> }).RunningTurnContext
 const desk = (turnStart: string | null, node: ReactNode, active = true) =>
   <clock.TurnActiveContext.Provider value={active}>
@@ -33,13 +35,13 @@ test('a call an earlier turn left open is not timed under a new turn: it shows a
   const open = { id: 'old', name: 'powershell', arg: 'List workspace roots', started_at: old }
   const view = await mountView(desk(turn, <ToolChip t={open} slug="org" nid="worker" />), text)
   t.after(async () => { await view.unmount(); realClock() })
-  assert.equal(view.el.querySelector('.tool-running'), null, "no live timer for an earlier turn's call")
-  assert.equal(view.el.querySelector('.tline .tool-running-status'), null, 'nor the executing icon')
+  assert.equal(view.el.querySelector('.tool-running') === null, true, "no live timer for an earlier turn's call")
+  assert.equal(view.el.querySelector('.tline .tool-running-status') === null, true, 'nor the executing icon')
   assert.ok(view.el.querySelector('.tooldot[data-testid="FiberManualRecordIcon"]'))
   assert.ok(view.el.querySelector('[aria-label="execution time unavailable"]'), 'the existing unfinished form')
   assert.doesNotMatch(view.last(), /\d+\s*(h|m|s|ms)\b/, 'no duration, live or made up')
   await advance(3000)
-  assert.equal(view.el.querySelector('.tool-running'), null)
+  assert.equal(view.el.querySelector('.tool-running') === null, true, 'nor once time passes')
 })
 
 test("the running turn's own call is timed live from its start, with the executing icon", async t => {
@@ -61,8 +63,8 @@ test('a desk busy before its turn is known (the optimistic send, a slot wait) ti
   const open = { id: 'old', name: 'powershell', arg: 'List workspace roots', started_at: old }
   const view = await mountView(desk(null, <ToolChip t={open} slug="org" nid="worker" />), text)
   t.after(async () => { await view.unmount(); realClock() })
-  assert.equal(view.el.querySelector('.tool-running'), null)
-  assert.equal(view.el.querySelector('.tline .tool-running-status'), null)
+  assert.equal(view.el.querySelector('.tool-running') === null, true, 'no live timer without a known turn')
+  assert.equal(view.el.querySelector('.tline .tool-running-status') === null, true, 'nor the executing icon')
   assert.ok(view.el.querySelector('[aria-label="execution time unavailable"]'))
 })
 
