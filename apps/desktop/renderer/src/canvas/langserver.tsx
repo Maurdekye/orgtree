@@ -680,14 +680,18 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
                 {listed != null ? ` · ${listed} model${listed === 1 ? '' : 's'} on the server` : ''}</span>
               : <span className="acct-dead">not answering: {check.error}</span>)}
           </div>
+          {/* the server's own switch, inside its panel like an OpenRouter key's
+              (KeyActive) and an account's: "Active" beside the row, the full
+              name kept as the switch's accessible name (user 2026-10-14) */}
+          <SetToggle label={`${s.label} active`} labelContent="Active" checked={s.enabled} disabled={busy}
+            title={s.enabled
+              ? 'Active: for all orgs, new agents can be hired on this server. Clear it and no new hires are made on it.'
+              : 'Inactive: no new hires; existing agents wait for this server to be active again. Check it to use this server again.'}
+            onChange={(enabled) => { void run(updateLangServer(s.id, { enabled }),
+              `${s.label} ${enabled ? 'active' : 'inactive'}`, (v) => v.doc) }} />
+          {!s.enabled && <div className="dim account-note">
+            Inactive: no new hires; existing agents wait for this server to be active again.</div>}
         </div>
-      </div>
-      <div className="ls-server-toggle">
-        <SetToggle label={`Use ${s.label}`} labelContent="Enabled" checked={s.enabled} disabled={busy}
-          title="For all orgs. Off: no new hires; existing agents wait for this server to be enabled again."
-          hint={s.enabled ? undefined : 'Off: no new hires; existing agents wait for this server.'}
-          onChange={(enabled) => { void run(updateLangServer(s.id, { enabled }),
-            `${s.label} ${enabled ? 'enabled' : 'disabled'}`, (v) => v.doc) }} />
       </div>
       {!draft && (
         <ToggleChips busy={busy} label={`${s.label} models`} className="ls-toggles"
