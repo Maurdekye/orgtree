@@ -23,7 +23,8 @@ Scripted runs: `node tools/rig/rig.mjs run tools/rig/proofs/turn-recovery.mjs` b
 calls the script's default export with a `Rig` handle (`tools/rig/lib.mjs`), and always stops the
 run (also on Ctrl-C); a run whose script failed keeps its files for inspection until
 `rig cleanup`. A script may `export async function setup(flags)` returning `up` options
-(`{ fixture: 'none', legacy: <dir>, prepare: async ({ data, pgBin }) => … }`). `proof.mjs`
+(`{ fixture: 'none', legacy: <dir>, prepare: async ({ data, pgBin }) => … }`; `maxParked: n` sets
+the engine's cap on idle CLIs for the run, `ORGTREE_RIG_MAX_PARKED`, the product's being 64). `proof.mjs`
 records pass/fail checks and evidence under `<rig home>\evidence\<proof>-<time>\`, which outlives
 the run.
 
@@ -31,6 +32,9 @@ the run.
 |---|---|
 | `turn-recovery.mjs` | CLI exits mid-turn → connection freeze → timer retry with the banner on the resumed session; a 401 result → auth park and the superior's one-time notice |
 | `background-and-mail.mjs` | stopped and orphaned background tasks (P33), the 45 s unread notice (P36), mid-turn mail through the PostToolUse hook |
+| `claude-bg-result.mjs` | a command Claude Code runs in the background, on the fake's `bg` step ([background-work.md](background-work.md)): its chip gets the output from the output file; the turn the CLI starts by itself is interrupted and an idle agent woken once; a later turn takes one that ends while it runs; one that ends during that turn's last model step is caught by the CLI's own turn right after; a failed one says so |
+| `bg-keep-open.mjs` | background work keeps a process open (decision 77), with the idle cap at 1 (`maxParked`): a parked process evicted by the cap, or by warming switched off, is held while its command runs and not counted; with warming off a turn's end holds the Claude CLI or Muse host until the result reached the agent on the same process, then it closes; a result settled in a turn's last model step; a startup-file edit leaves a held process alone |
+| `muse-bg-result.mjs` | a shell command Muse moves to the background ([muse-code.md](muse-code.md)): the late result on its chip, one wake for an idle agent, Muse's own delivery turns cancelled, a later turn taking it, a failure, a host halted or closed at a usage limit, a turn slot wait |
 | `docket-rules.mjs` | docket read/update permissions and stale `expected_rev` refusals, checked in the database |
 | `batch-halt.mjs` | Halt subtree / Unhalt all / Halt all (with a turn running) / Unhalt subtree from the menus, in the real renderer |
 | `import-2x.mjs` | first-start import of a synthetic 2.x store, section by section; a damaged store keeps nothing, retries, and shows its line in the org list |
@@ -220,6 +224,7 @@ prompt (case-insensitive; `unless` excludes), trying `agents.<name>.turns` befor
 | `{"poll_mail": {"every_ms": 2000, "timeout_ms": 30000}}` | tool boundaries until the hook hands mail over |
 | `{"sleep_ms": n}` / `{"hang": true}` | silence (an interrupt ends either) |
 | `{"spawn": "sleep 300"}` | starts the command through a shell (`cmd /C` on Windows, `sh -c` elsewhere) and leaves it running in the fake's process group and session, as a tool's child of a real CLI; logs `spawned` with `child_pid` and `command` (every log line's `pid` is the fake's own) |
+| `{"bg": {"task": "b1", "id": "toolu_b1", "command": "npm test", "finish_ms": 3000, "status": "completed", "exit_code": 0, "output": "...", "description": "...", "agent": false, "miss_running_turn": false}}` | a call run in the background as Claude Code 2.1.292 reports one ([background-work.md](background-work.md)): the Bash call (`agent`: an Agent call) with `run_in_background`, `background_tasks_changed` and `task_started` (`is_backgrounded`), and its result naming the task and its output file (`<temp>\claude\<project>\<session>\tasks\<task>.output`). `finish_ms` later the file gets `output` and the fake prints `task_updated`, `task_notification` (status, a summary with the exit code, the file) and the live set. A turn running then takes it at its next step, unless `miss_running_turn` (it ended during that turn's last model step); else the fake starts a turn of its own (`system init`), which an interrupt within 400 ms ends with `[Request interrupted by user]` and an `error_during_execution` result with no usage (else it answers). At the end of its input it first waits for tasks still running. Logs `bg_started`, `bg_finished`, `own_turn`, `bg_delivered` (`how`) and `drain` |
 | `{"exit": 1}` | the CLI dies mid-turn |
 | `{"result": {"is_error": true, "text": "...", "api_error_status": 401}}` | ends the turn with this result (fields merged into the result line) |
 | `{"usage": {...}, "cost_usd": 0.02}` | this turn's usage and cost |

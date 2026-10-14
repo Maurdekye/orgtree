@@ -116,7 +116,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     parked CLI per agent" part of decision 28 and the plan's 10-minute keep-alive, ledger B4): every
     live agent's CLI starts at engine start and on hire, and stays parked between turns. Two limits
     remain: at most 64 idle CLIs (the longest idle closed first), and warming pauses while the machine
-    has under 6 GB of free commit memory.
+    has under 6 GB of free commit memory. A process kept open only for its background work is
+    outside the 64 and is not closed by it (decision 77, 2026-10-14).
 43. **Keep as much agent context as possible across provider, account and model switches** (user
     2026-10-07): a model switch resumes the session; an account switch carries the Claude transcript or
     the Codex thread to the new account; a provider switch, or a session that cannot be resumed, starts
@@ -791,3 +792,21 @@ All entries are dated 2026-10-06 unless stated otherwise.
     agent's wake mail in the removal's own transaction (once, through a
     rolled-back retry; a halt kept). Contract, evidence
     and every remaining gap: [`muse-code.md`](muse-code.md).
+
+77. **Background work keeps an agent's process open** (user 2026-10-14
+    09:44:51Z, mb0530d71c4ee, answering the gap-11 question "Keep open
+    (Muse+Claude)"; scope by coordinator-opus 09:45Z). With warming off, an
+    agent's Claude Code process or Muse host is not closed at its turn's end
+    while it runs background work (a background command or subagent) or the
+    CLI still owes the next turn a result; it closes as soon as that is over,
+    with no time cap. Warming being switched off and the idle cap do not close
+    it either; such a held process is outside the cap (neither counted nor
+    evicted). The results reach the agent as for Muse: the chip, one waking
+    message for an idle agent, the output delivered once by the CLI itself.
+    Unchanged: halt, the stop control, the time-limit kill, the usage-limit
+    end of turn, a settings change that restarts the process, engine
+    shutdown, retire and delete, each still reporting lost work. The memory
+    cost is accepted. Codex and Antigravity are unchanged. Within the ruling
+    (muse-code-opus, reported for confirmation): a startup-file edit does not
+    replace a held process; its next turn still starts a fresh one (decision
+    61). Contract and limits: [`background-work.md`](background-work.md).

@@ -243,22 +243,29 @@ What Orgtree does:
   Admission decides when the agent runs. While the agent waits for it (for
   a turn slot, say) and its host lives, Muse's own turns keep being
   cancelled, and the message waits in the mailbox. A turn already running or
-  about to start gets the result from Muse, and no message is sent.
+  about to start gets the result from Muse, and no message is sent. A result
+  that settles during a turn's last model step is not taken by that turn:
+  Muse starts a turn of its own right after it, which shows it, and the
+  agent is woken then (within 3 s of the turn's end, `BG_GRACE`).
+- **Background work keeps the host open** (user 2026-10-14, decision 77;
+  [`background-work.md`](background-work.md), which also covers Claude
+  Code): with warming off, a turn's end does not close the host while a
+  command runs in the background or Muse holds a result for the next turn,
+  and neither do warming being switched off or the cap on idle processes; the
+  host is then held (`proc_held`), outside the idle cap, and closes once that
+  is over. Before this, every command Muse moved to the background was lost at
+  its turn's end with warming off (gap 11).
 - When the host ends with commands still in the background, the commands end
   with it, and their chips say so: "ended with its Muse host (the host was
   closed) before it finished" ("the host was stopped" when Orgtree kills it,
   "the host exited: …" when it died). The agent gets one waking message
   listing them, saying no result will arrive (none for a seat retired or
-  deleted). Orgtree closes a host whether or not it runs background
-  commands: at a usage limit (the turn that hits one ends the process: the
-  account changes or the agent sleeps, so a frozen agent's commands end at
-  the wall), at every turn's end when warming is off, when warming is
-  switched off or the cap on idle processes evicts it, when the agent's
-  settings change, and on the process's stop control. It kills one at a
-  halt, when a turn is killed at its time limit, and at engine shutdown.
-  This is the same rule as for Claude Code's background tasks (P33):
-  background work does not keep a process open, and its loss is reported
-  (gap 11).
+  deleted). Background work still does not keep a host from these ends: a
+  usage limit (the turn that hits one ends the process: the account changes
+  or the agent sleeps, so a frozen agent's commands end at the wall), a
+  settings change, and the process's stop control close it; a halt, a turn
+  killed at its time limit and engine shutdown kill it. Claude Code's
+  background tasks follow the same rules (P33).
 - The desk's background count (`bg_tasks`) includes them while they run.
 
 **What the log keeps.** No raw MSP request or answer reaches the engine log:
@@ -608,7 +615,7 @@ be paid).
 | Queued input while busy | `ifBusy: queue` | same | same | measured (fake) |
 | Interrupt | `turn/interrupt`, ends cancelled | same | same | measured (fake) |
 | A tool call silent for the silence limit | that call alone is stopped (`task/stop`, a note naming the limit first) and the turn goes on | the whole turn ends (unchanged) | the whole turn ends (unchanged) | measured (fake proof; the MSP stop, note and continuation measured on real Muse 1.4.6); other lanes source-derived |
-| A shell command that finishes in the background after its turn | its chip gets the result; an idle agent is woken through its mailbox; Muse delivers the output itself, once; one lost with its host is reported | the CLI's own background tasks: a failed or stopped one wakes the agent with a card, ones lost with the CLI are reported (P33); a completed one is the CLI's to deliver | not verified here | Muse measured (real 1.4.6; fake proof with red control); Claude source (`tasks.rs`, `recovery.rs`) |
+| A shell command that finishes in the background after its turn | its chip gets the result; an idle agent is woken through its mailbox; Muse delivers the output itself, once; one lost with its host is reported; with warming off the host stays open for it (decision 77) | the same (decision 77): its chip gets the output from the CLI's output file; the turn the CLI starts by itself to deliver the notification is interrupted and an idle agent is woken through its mailbox; the CLI delivers the notification (never the output) once; a stopped one keeps its card, ones lost with the CLI are reported (P33); the process stays open for it | not verified here | Muse measured (real 1.4.6; fake proof with red control); Claude measured (real 2.1.292; fake proofs `claude-bg-result`, `bg-keep-open` with red controls, not yet run: [`background-work.md`](background-work.md)) |
 | Resume across restarts | `session/resume` | same | same | measured (real) |
 | Compaction | `/compact` → `session/compact`; cheap compact as everywhere | same | same | measured (fake); real untested |
 | Orgtree tools, caller attribution | session MCP server | same | same | measured (fake) |
@@ -707,17 +714,14 @@ be paid).
     unmeasured. The log warns once a minute. Class: upstream (no switch to
     turn the delivery turn off). Closes with such a switch in Muse, or a way
     to defer a session's delivery.
-11. **A command in the background ends with its host.** Orgtree closes or
-    stops a Muse host for the reasons under **Commands Muse moves to the
-    background**: a usage limit, every turn's end when warming is off, the
-    cap on idle processes, a settings change, a stop or halt. A command still
-    running then ends with it; the agent is told that no result will arrive
-    and can run it again. Impact: with warming off, every command Muse moves
-    to the background is lost when its turn ends. Class: Orgtree policy,
-    shared with Claude Code's background tasks (P33): background work does
-    not keep a process open. Closes by keeping a host open while it runs
-    background commands, a decision on process lifetime and memory that is
-    not made here.
+11. **A command in the background ended with its host (closed 2026-10-14).**
+    With warming off, every turn's end closed the host, and the cap on idle
+    processes or warming being switched off could too, so a command Muse had
+    moved to the background was lost with it. The user ruled "keep open, for
+    Muse and Claude" (decision 77): background work now keeps the host open
+    until it is over ([`background-work.md`](background-work.md)). A usage
+    limit, a settings change, the stop control, a halt, the time-limit kill
+    and engine shutdown still end it, and the loss is reported as before.
 
 ## Files
 

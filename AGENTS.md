@@ -1,5 +1,22 @@
 # AGENTS.md — working on Orgtree
 
+- Background work keeps an agent's process open (user 2026-10-14, "keep open",
+  Muse and Claude Code; decision 77). A turn's end with warming off, warming
+  switched off, and the idle cap `hold` the process (`proc_held`, unparked:
+  the cap neither counts nor evicts it) while a background task runs, the CLI
+  owes the next turn a result, or results settled in the last turn (3 s
+  grace); it closes once that is over. Usage limit, settings change, stop,
+  halt, time-limit kill, shutdown, retire still end it and report losses; a
+  startup-file edit does not replace a held process. Claude Code starts a
+  turn of its own 40-110 ms after a background task's notification: the actor
+  interrupts it at its `system init` (an idle CLI prints nothing before its
+  input), ignores its lines and result (`claude_own`), and only then wakes an
+  idle agent; the chip gets the command's output from the notification's
+  `.output` file. See [background work](docs/rust-engine/background-work.md).
+  [decided: user 2026-10-14 09:44:51Z via coordinator; verified from source:
+  `runtime/actor.rs`, `runtime/tasks.rs`; measured: real Claude Code 2.1.292
+  probes 2026-10-14; rig proofs pending]
+
 - Antigravity background launches share `providers::agy_auth`: Windows exact
   credential metadata → silent zero-argument auth check → guarded command;
   refusal latches until credential metadata changes. No Sign in UI. Headless
@@ -62,14 +79,13 @@
   description, else its command) and how it ended, never the output (on real
   Muse the model gave its call a description, so a proof must not expect the
   command line); a host that ends with such commands running marks their
-  chips and tells the agent once (Muse says nothing of them). Background work
-  does not keep a host open, as for Claude's background tasks (P33): a usage
-  limit closes the host (a frozen agent's commands end at the wall), and so
-  do each turn's end with warming off and the idle-process cap. See [Muse:
+  chips and tells the agent once (Muse says nothing of them). A usage limit
+  still closes the host (a frozen agent's commands end at the wall); with
+  warming off, background work now keeps it open (entry above; this replaced
+  "background work does not keep a host open", 2026-10-14). See [Muse:
   commands moved to the background](docs/rust-engine/muse-code.md). [decided:
   coordinator 2026-10-13 18:53Z; verified: `actor.rs` `on_muse_late`,
-  `muse_lost`, `end_turn`'s `close_proc`, real Muse 1.4.6 probes 2026-10-13
-  and proof 2026-10-14]
+  `muse_lost`, real Muse 1.4.6 probes 2026-10-13 and proof 2026-10-14]
 
 - Transcript bundles include unsent, delivering and recorded passive system
   notices in one ordered presentation pass; delivery carriers alone are not
