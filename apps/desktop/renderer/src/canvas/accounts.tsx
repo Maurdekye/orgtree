@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppValue } from '../appfeed'
 import { composerKeyHint, type EnterKeyBehavior } from '../composerkeys'
 import { subscribeProviderLogin } from '../../../../../packages/contracts/provider-login-feed'
+import { PROVIDER_THEME_PRESETS } from '../../../../../packages/contracts/visual-theme'
 import type {
   AccountUsage, ProviderInfo, ProvidersPayload, RuntimeSettingsPayload,
   TierStanding, ToastFn, UsageCredits, UsageLimit,
@@ -755,6 +756,10 @@ export function AccountsPanel({ toast, close, initialTab }: {
   const langserver = providers?.find(p => p.id === 'langserver')
   // the two lanes that are not a CLI's own sign-in have their own sections below
   const gateway = (id: string) => id === 'openrouter' || id === 'langserver'
+  const providerRank = (id: string) => {
+    const rank = PROVIDER_THEME_PRESETS.findIndex(([provider]) => provider === id)
+    return rank < 0 ? PROVIDER_THEME_PRESETS.length : rank
+  }
   return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
     close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false) : close()}>
     <h3>App settings</h3>
@@ -786,7 +791,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
       )}
       {providers && !providers.some(p => !gateway(p.id) && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex, Antigravity or Muse Code to run agents.</p>}
-      {providers?.filter(p => !gateway(p.id)).map(p => <div key={p.id} className='set-group acct-provider-group'>
+      {providers?.filter(p => !gateway(p.id)).sort((a, b) => providerRank(a.id) - providerRank(b.id)).map(p => <div key={p.id} className='set-group acct-provider-group'>
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
           <ProviderHeaderText provider={p} />
           <span className='set-head-right'>

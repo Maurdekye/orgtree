@@ -12,15 +12,15 @@ import type { VisualTheme, PresetVisualTheme } from '../../../../packages/contra
 type ProviderPayload = { providers?: Array<{ id?: unknown; status?: { installed?: unknown } }> }
 
 export const THEMES = {
-  // display names are the user's exact wording (2026-09-10 13:29) — labels
+  // Display names follow the user's exact wording (2026-09-10 and 2026-10-14); labels
   // only; the ids these keys ARE stay the stored/wire vocabulary
   orgtree: { label: 'Orgtree Grey', accent: '#b6bdc8', hover: '#d0d5dd', soft: 'rgba(182,189,200,.16)' },
   claude: { label: 'Claude Terracotta', accent: '#d97757', hover: '#e99b81', soft: 'rgba(217,119,87,.16)' },
   codex: { label: 'Codex Teal', accent: '#22c4bd', hover: '#64ddd7', soft: 'rgba(34,196,189,.16)' },
-  antigravity: { label: 'Antigravity Blue', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
+  antigravity: { label: 'Antigravity Navy', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
   openrouter: { label: 'OpenRouter Lavender', accent: '#b69afa', hover: '#d0baff', soft: 'rgba(182,154,250,.16)' },
-  langserver: { label: 'Language servers Gold', ...customTheme(THEME_ACCENTS.langserver) },
-  muse: { label: 'Muse Cyan', ...customTheme(THEME_ACCENTS.muse) },
+  langserver: { label: 'LS Gold', ...customTheme(THEME_ACCENTS.langserver) },
+  muse: { label: 'Muse Eggshell', ...customTheme(THEME_ACCENTS.muse) },
 } satisfies Record<PresetVisualTheme, { label: string; accent: string; hover: string; soft: string }>
 
 const STORAGE_KEY = 'orgtree-visual-theme'

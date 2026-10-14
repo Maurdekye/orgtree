@@ -3,6 +3,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { clearProviderDiscovery, getProviders, peekProviders, setProviderEnabled } from '../src/api'
 import { AccountsPanel } from '../src/canvas/accounts'
+import { ThemeSetting } from '../src/themes'
+import { PROVIDER_THEME_PRESETS } from '../../../../packages/contracts/visual-theme'
 import type { ProvidersPayload } from '../src/types'
 
 const payload = (label: string): ProvidersPayload => ({ providers: [{
@@ -10,6 +12,32 @@ const payload = (label: string): ProvidersPayload => ({ providers: [{
   status: { installed: true, connected: true, version: label },
 }] } as ProvidersPayload)
 const response = (body: unknown) => ({ ok: true, headers: new Headers(), json: async () => body }) as Response
+
+test('theme menu follows rendered Providers order with Orgtree first and Custom last', async t => {
+  clearProviderDiscovery()
+  const old = globalThis.fetch
+  localStorage.clear()
+  t.after(() => { globalThis.fetch = old; clearProviderDiscovery(); localStorage.clear() })
+  const ids = ['claude', 'openai', 'google', 'muse', 'openrouter', 'langserver']
+  // Discovery arrival order cannot reorder the two settings surfaces.
+  globalThis.fetch = async url => response(String(url) === '/api/providers'
+    ? { providers: [...ids].reverse().map(id => ({ id, label: id, cli: id, tiers: [], hire_enabled: true,
+        status: { installed: true, connected: true } })) }
+    : String(url).includes('/accounts') ? { accounts: [], aliases: {} } : {})
+  const view = await mountView(<><AccountsPanel close={() => {}} toast={() => {}} /><ThemeSetting /></>, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(10) })
+  const providers = [...view.el.querySelectorAll('#app-settings-panel-providers .acct-provider-head')]
+    .map(el => [...el.classList].find(c => c.startsWith('prov-'))!.slice(5))
+  assert.deepEqual(providers, ids)
+  const options = [...view.el.querySelector<HTMLSelectElement>('[aria-label="Visual theme"]')!.options]
+  assert.deepEqual(options.map(o => o.textContent), ['Orgtree Grey', 'Claude Terracotta', 'Codex Teal',
+    'Antigravity Navy', 'Muse Eggshell', 'OpenRouter Lavender', 'LS Gold', 'Custom'])
+  assert.deepEqual(options.slice(1, -1).map(o => o.value), providers.map(id =>
+    PROVIDER_THEME_PRESETS.find(([provider]) => provider === id)![1]))
+  assert.equal(options[0]!.value, 'orgtree')
+  assert.equal(options.at(-1)!.value, 'custom')
+})
 
 test('provider headers name the model families with dim harness subtitles', async t => {
   clearProviderDiscovery()

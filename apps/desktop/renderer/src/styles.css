@@ -8447,7 +8447,7 @@ main:has(> .orgbar.native-header) > .error {
    tinted Muse account would all but vanish, so the light surfaces ring it in
    the deep cyan (the swatch itself keeps the account's own tint) */
 :root:is(.contrast-light, .contrast-solarized-light) .account-swatch.swatch-muse { box-shadow: inset 0 0 0 1px var(--prov-muse); }
-/* The Muse Cyan app theme (visual-theme preset `muse`) on the light surfaces:
+/* The Muse Eggshell app theme (visual-theme preset `muse`) on the light surfaces:
    its pale accent would paint text at 1.36:1 there, so the accent becomes the
    same partner the provider uses, #0077b0 (4.56:1 or more; white ink on it
    4.92:1). applyTheme sets the accent inline: these declarations outrank it

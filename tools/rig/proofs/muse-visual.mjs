@@ -74,13 +74,13 @@ export default async function (rig) {
     p.check(`${theme}: the Usage window has a Muse Code card`, usage.some((c) => c.label === 'Muse Code'), usage)
   }
 
-  // the Muse Cyan app theme (visual-theme preset `muse`) under every contrast theme: the
+  // the Muse Eggshell app theme (visual-theme preset `muse`) under every contrast theme: the
   // sampled cyan on the dark surfaces, the provider's light partner on the light ones
   const contrasts = ['charcoal', 'obsidian-black', 'light', 'solarized-light']
   const t = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'muse-theme.cjs'),
     { args: { org: rig.org, agent: 'wanda', contrasts }, out: path.join(p.dir, 'theme'), timeout: 90000 })
   p.file('theme.json', t)
-  p.check(`theme: the Muse Cyan stage ran (screenshots in ${path.join(p.dir, 'theme')})`, t.ok, t.error)
+  p.check(`theme: the Muse Eggshell stage ran (screenshots in ${path.join(p.dir, 'theme')})`, t.ok, t.error)
   if (t.ok) {
     const c = t.value.contrasts
     p.check('theme: in every contrast theme the preset is applied with the sampled cyan inline',

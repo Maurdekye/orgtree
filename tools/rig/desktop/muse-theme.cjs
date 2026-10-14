@@ -1,4 +1,4 @@
-// muse-visual.mjs's app-theme stage: the Muse Cyan preset (visual theme
+// muse-visual.mjs's app-theme stage: the Muse Eggshell preset (visual theme
 // `muse`) chosen the way a browser profile keeps it, under each contrast
 // theme in turn. Reads what applyTheme set inline, what the cascade makes of
 // it (the light surfaces' !important rule outranks the inline accent) and the

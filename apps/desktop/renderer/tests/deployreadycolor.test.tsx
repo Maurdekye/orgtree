@@ -122,7 +122,7 @@ test('§6 the text stays readable on every surface it is rendered on', () => {
   }
 })
 
-test('Language Server Gold remains distinct from existing presets and every status palette', t => {
+test('LS Gold remains distinct from existing presets and every status palette', t => {
   const gold = THEMES.langserver.accent
   for (const [id, theme] of Object.entries(THEMES)) {
     if (id === 'langserver') continue

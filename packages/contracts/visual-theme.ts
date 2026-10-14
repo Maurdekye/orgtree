@@ -1,5 +1,10 @@
-/** Appearance only: never use these values as provider or route identities. */
-export const VISUAL_THEMES = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'langserver', 'muse'] as const
+/** Settings Providers and its matching appearance presets share this order. */
+export const PROVIDER_THEME_PRESETS = [
+  ['claude', 'claude'], ['openai', 'codex'], ['google', 'antigravity'],
+  ['muse', 'muse'], ['openrouter', 'openrouter'], ['langserver', 'langserver'],
+] as const
+/** Appearance only: never use preset values as provider or route identities. */
+export const VISUAL_THEMES = ['orgtree', ...PROVIDER_THEME_PRESETS.map(([, theme]) => theme)] as const
 export type PresetVisualTheme = typeof VISUAL_THEMES[number]
 export type VisualTheme = PresetVisualTheme | `custom:#${string}`
 export const isCustomTheme = (value: unknown): value is `custom:#${string}` =>
