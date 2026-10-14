@@ -973,7 +973,8 @@ pub async fn antigravity(engine: &Engine, force: bool) -> Value {
 
 #[nolog]
 async fn antigravity_read(engine: &Engine, force: bool) -> Value {
-    if let Some(v) = crate::rig::usage("google", None) {
+    if let Some(v) = crate::rig::usage("google", None).filter(|_|
+        !engine.cfg.data_root.join("agy-auth-metadata.json").is_file()) {
         // Isolated fixtures may exercise the same structured-result/log parser
         // as the zero-token CLI path. This branch is unreachable outside rig.
         let v = if let Some(raw) = v.get("rig_google_result") {
@@ -987,6 +988,11 @@ async fn antigravity_read(engine: &Engine, force: bool) -> Value {
             crate::account_marks::profile_history(engine, "google", None, Utc::now(), &v).await;
         }
         return v;
+    }
+    if let Some(failure) = crate::providers::agy_auth::blocked(engine) {
+        let out = failure.reading();
+        record_agy_auth_failure(engine, out.clone());
+        return out;
     }
     if !force {
         if let Some(v) = engine.usage.fresh("agy", TTL) {
@@ -1012,7 +1018,7 @@ async fn antigravity_read(engine: &Engine, force: bool) -> Value {
             out["label"] = json!(email);
             crate::providers::set_agy_email(engine, &email);
         }
-        None => out["label"] = json!("signed-in account"),
+        None => out["label"] = json!(if out["reauth_required"] == true { "signed out" } else { "Antigravity account" }),
     }
     out["observed_at"] = json!(iso(Utc::now()));
     crate::account_marks::profile_usage(engine, "google", None, observed, &out).await;
@@ -1020,13 +1026,25 @@ async fn antigravity_read(engine: &Engine, force: bool) -> Value {
     out
 }
 
+#[nolog]
+pub fn record_agy_auth_failure(engine: &Engine, mut reading: Value) {
+    reading["observed_at"] = json!(iso(Utc::now()));
+    reading["label"] = json!(if reading["reauth_required"] == true { "signed out" } else { "Antigravity account" });
+    engine.usage.put("agy", &reading);
+    publish(engine, "google", &reading);
+}
+
+#[nolog]
 async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
     // only builds verified to answer /usage without a model turn
     let version = {
         let mut cmd = tokio::process::Command::new(exe);
         cmd.arg("--version").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
         crate::winproc::no_window(&mut cmd);
-        let o = tokio::time::timeout(Duration::from_secs(20), cmd.output()).await.map_err(|_| "agy --version timed out")?.map_err(|e| e.to_string())?;
+        let o = match crate::providers::agy_auth::checked_output(engine, exe, cmd, Duration::from_secs(20)).await {
+            Ok(o) => o,
+            Err(e) => return Ok(e.reading()),
+        };
         String::from_utf8_lossy(&o.stdout).to_string()
     };
     let parts: Vec<u64> = version
@@ -1059,7 +1077,10 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
         }
     }
     crate::winproc::no_window(&mut cmd);
-    let o = tokio::time::timeout(Duration::from_secs(30), cmd.output()).await.map_err(|_| "agy /usage timed out")?.map_err(|e| e.to_string())?;
+    let o = match crate::providers::agy_auth::checked_output(engine, exe, cmd, Duration::from_secs(30)).await {
+        Ok(o) => o,
+        Err(e) => return Ok(e.reading()),
+    };
     let stdout = String::from_utf8_lossy(&o.stdout);
     let result = stdout
         .lines()
@@ -1648,9 +1669,11 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         publish(engine, "openai", &v);
         last.insert("openai", Instant::now());
     }
-    if (rig || st.agy.installed) && lane_due(engine, last, misses, "google", "agy", 300) {
+    let agy_changed = st.agy.installed && crate::providers::agy_auth::changed(engine);
+    if (rig || st.agy.installed) && (agy_changed || lane_due(engine, last, misses, "google", "agy", 300)) {
         let before = engine.usage.peek("agy", "google");
-        let v = antigravity(engine, false).await;
+        let signed_out_before = engine.usage.cached_reauth_required("agy") == Some(true);
+        let v = antigravity(engine, agy_changed).await;
         publish(engine, "google", &v);
         // A known full group becoming usable releases mail held at the turn gate.
         let recovered = before["limits"].as_array().is_some_and(|old| old.iter().any(|b| {
@@ -1659,7 +1682,7 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
                     n["group"] == b["group"] && n["percent"].as_f64().is_some_and(|p| p < 100.0)
                 }))
         }));
-        if recovered {
+        if recovered || ((signed_out_before || before["available"] != true) && v["available"] == true) {
             crate::accounts::wake_waiting(engine, crate::accounts::Waiting::Native("google".into())).await;
         }
         last.insert("google", Instant::now());

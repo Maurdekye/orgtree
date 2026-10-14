@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Map, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -74,9 +74,10 @@ pub struct AgyProc {
     pub process: uuid::Uuid,
     stdin: mpsc::UnboundedSender<String>,
     child: Option<Child>,
-    job: Option<winproc::ChildJob>,
+    job: Option<Arc<winproc::ChildJob>>,
     pipe: CancellationToken,
     pub model: String,
+    pub auth_stamp: crate::providers::agy_auth::Stamp,
 }
 
 impl Drop for AgyProc {
@@ -89,6 +90,7 @@ impl Drop for AgyProc {
 impl AgyProc {
     #[nolog]
     pub async fn spawn(engine: Arc<Engine>, spec: AgySpec, caller: Caller, actor: AgentTx) -> Result<AgyProc> {
+        let auth_stamp = crate::providers::agy_auth::preflight(&engine, &spec.exe).await?;
         let pipe = CancellationToken::new();
         // the mail tools in their flat shape: the nested one is unchecked on
         // this CLI (coordinator 2026-10-13 21:36Z, tools::defs::MailShape)
@@ -131,10 +133,11 @@ impl AgyProc {
         for (k, v) in &spec.env {
             cmd.env(k, v);
         }
-        winproc::no_window(&mut cmd);
+        crate::providers::agy_auth::configure(&mut cmd);
+        if let Some(failure) = crate::providers::agy_auth::blocked(&engine) { return Err(failure.into()); }
         winproc::own_group(&mut cmd);
         let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
-        let job = winproc::child_job(&child);
+        let job = winproc::child_job(&child).map(Arc::new);
         let pid = child.id().unwrap_or(0);
         let process = uuid::Uuid::new_v4();
         tracing::info!(agent = caller.agent_id, pid, %process, provider = "Agy", "CLI started");
@@ -154,41 +157,32 @@ impl AgyProc {
         });
         let client = crate::trace::agent_client(caller.agent_id, &caller.name);
         let proc_span = crate::trace::request(&client);
+        let auth = RuntimeAuth { engine, stamp: auth_stamp, job: job.clone(), actor: actor.clone(), process,
+            rejected: CancellationToken::new() };
+        let stderr_auth = auth.clone();
         tokio::spawn(tracing::Instrument::instrument(
             async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(l)) = lines.next_line().await {
+                guarded_lines(stderr, &stderr_auth, |line| {
+                    let l = String::from_utf8_lossy(line);
                     if !l.trim().is_empty() {
                         tracing::info!("agy stderr (pid {pid}): {}", crate::util::gist(&l, 600));
                     }
-                }
+                    true
+                }).await;
             },
             proc_span.clone(),
         ));
         tokio::spawn(tracing::Instrument::instrument(
             async move {
-                let mut reader = BufReader::with_capacity(1 << 16, stdout);
-                let mut buf = Vec::new();
-                let reason = loop {
-                    buf.clear();
-                    match reader.read_until(b'\n', &mut buf).await {
-                        Ok(0) => break "stdout EOF".to_string(),
-                        Err(e) => break format!("stdout read failed: {e}"),
-                        Ok(_) => {}
-                    }
-                    let Ok(v) = serde_json::from_slice::<Value>(&buf) else { continue };
-                    if !v.is_object() {
-                        continue;
-                    }
-                    if !actor.post(AgentMsg::Agy(process, v)) {
-                        break "actor closed".to_string();
-                    }
-                };
-                let _ = actor.post(AgentMsg::ProcExited { process, reason });
+                guarded_lines(stdout, &auth, |line| {
+                    let Ok(v) = serde_json::from_slice::<Value>(line) else { return true };
+                    !v.is_object() || actor.post(AgentMsg::Agy(process, v))
+                }).await;
+                let _ = actor.post(AgentMsg::ProcExited { process, reason: "stdout closed".into() });
             },
             proc_span,
         ));
-        Ok(AgyProc { pid, process, stdin: tx, child: Some(child), job, pipe, model: spec.model })
+        Ok(AgyProc { pid, process, stdin: tx, child: Some(child), job, pipe, model: spec.model, auth_stamp })
     }
 
     /// One prompt; the process answers with a `result` and waits for the next.
@@ -244,6 +238,52 @@ impl AgyProc {
             None => false,
         }
     }
+}
+
+#[derive(Clone)]
+struct RuntimeAuth {
+    engine: Arc<Engine>,
+    stamp: crate::providers::agy_auth::Stamp,
+    job: Option<Arc<winproc::ChildJob>>,
+    actor: AgentTx,
+    process: uuid::Uuid,
+    rejected: CancellationToken,
+}
+
+impl RuntimeAuth {
+    #[nolog]
+    fn inspect(&self, bytes: &[u8]) -> bool {
+        if self.rejected.is_cancelled() { return false; }
+        if !crate::providers::agy_auth::auth_prompt(bytes) { return true; }
+        self.rejected.cancel();
+        crate::providers::agy_auth::refuse(&self.engine, self.stamp);
+        let _ = self.actor.post(AgentMsg::Agy(self.process, json!({"event":"result","result":{
+            "status":"ERROR","error":"Antigravity sign-in required; background authentication stopped"}})));
+        // Queue the specific refusal before killing: otherwise the other pipe
+        // can report EOF first and classify this as a transient network death.
+        if let Some(job) = &self.job { job.terminate(); }
+        false
+    }
+}
+
+/// Read chunks so a prompt without a trailing newline is stopped too. Prompt
+/// bytes are inspected before either the trace or the model transcript sees them.
+#[nolog]
+async fn guarded_lines(mut stream: impl tokio::io::AsyncRead + Unpin, auth: &RuntimeAuth,
+    mut line: impl FnMut(&[u8]) -> bool) {
+    let mut pending = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = match stream.read(&mut chunk).await { Ok(0) | Err(_) => break, Ok(n) => n };
+        pending.extend_from_slice(&chunk[..n]);
+        while let Some(end) = pending.iter().position(|b| *b == b'\n') {
+            if !auth.inspect(&pending[..end]) || !line(&pending[..end]) { return; }
+            pending.drain(..=end);
+        }
+        if !auth.inspect(&pending) { return; }
+        if pending.len() > 4 * 1024 * 1024 { return; }
+    }
+    if !pending.is_empty() && auth.inspect(&pending) { line(&pending); }
 }
 
 /// The tools a narrowed seat may not call, each with the reason the model is shown.

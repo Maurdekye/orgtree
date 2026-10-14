@@ -1914,6 +1914,9 @@ impl Actor {
         let view = self.engine.accounts.view();
         let acc = ctx.account.as_deref().and_then(|a| view.get(a));
         if ctx.provider == catalog::GOOGLE {
+            if let Some(failure) = crate::providers::agy_auth::blocked(&self.engine) {
+                return Err(anyhow!(failure));
+            }
             if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
                 return Err(anyhow!("Antigravity {} quota is marked exhausted until {until}", catalog::antigravity_pool(&ctx.tier)));
             }
@@ -2581,10 +2584,23 @@ impl Actor {
         if !self.engine.settings.provider_enabled(catalog::GOOGLE) {
             return Err(anyhow!("Antigravity is turned off in App settings"));
         }
+        if let Some(failure) = crate::providers::agy_auth::blocked(&self.engine) {
+            self.close_proc().await;
+            return Err(anyhow!(failure));
+        }
+        let exe = match self.engine.providers.agy_path() {
+            Some(p) => p,
+            None => tokio::task::spawn_blocking(crate::providers::locate_agy).await.ok().flatten()
+                .map(|(p, _)| p).ok_or_else(|| anyhow!("the Antigravity CLI is not installed on this machine"))?,
+        };
+        let stamp = match crate::providers::agy_auth::preflight(&self.engine, &exe).await {
+            Ok(stamp) => stamp,
+            Err(e) => { self.close_proc().await; return Err(e.into()); }
+        };
         let plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => {
-                p.is_agy()
+                matches!(&*p, Proc::Agy(a) if a.auth_stamp == stamp)
                     && self.proc_print.as_ref() == Some(&plan.print)
                     && self.proc_effort.as_deref() == Some(ctx.effort.as_str())
                     && !self.reconfigured
@@ -2597,15 +2613,6 @@ impl Actor {
         }
         self.close_proc().await;
         self.reconfigured = false;
-        let exe = match self.engine.providers.agy_path() {
-            Some(p) => p,
-            None => tokio::task::spawn_blocking(crate::providers::locate_agy)
-                .await
-                .ok()
-                .flatten()
-                .map(|(p, _)| p)
-                .ok_or_else(|| anyhow!("the Antigravity CLI is not installed on this machine"))?,
-        };
         std::fs::create_dir_all(&ctx.scratch)?;
         let tools = &ctx.effective["tools"];
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
@@ -3297,6 +3304,21 @@ impl Actor {
         let mut ctx = self.load_ctx().await?;
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
             return Ok(false);
+        }
+        // Auth refusal is an admission hold, not a failed inference turn.
+        // Check before opening the mail-claim transaction; external sign-in
+        // wakes this pending mail through the usage loop.
+        if ctx.provider == catalog::GOOGLE {
+            let failure = if let Some(e) = crate::providers::agy_auth::blocked(&self.engine) {
+                Some(e)
+            } else if let Some(exe) = self.engine.providers.agy_path() {
+                crate::providers::agy_auth::preflight(&self.engine, &exe).await.err()
+            } else { None };
+            if let Some(e) = failure {
+                self.last_error = Some(e.to_string());
+                self.close_proc().await;
+                return Ok(false);
+            }
         }
         // a lane the org switched off serves no new turn: the agent moves to
         // one it allows (or freezes, saying none is left) before any mail is
@@ -4305,6 +4327,9 @@ impl Actor {
     /// One Antigravity stream-json event.
     #[nolog]
     async fn on_agy(&mut self, v: Value) -> Result<()> {
+        if v.pointer("/result/error").and_then(Value::as_str) == Some("Antigravity sign-in required; background authentication stopped") {
+            self.kill_proc().await;
+        }
         if let Some(t) = self.turn.as_mut() {
             t.last_event = Instant::now();
         }

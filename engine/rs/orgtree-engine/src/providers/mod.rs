@@ -3,6 +3,7 @@
 //! offers. Discovery runs in the background and publishes the `providers` value.
 
 pub mod catalog;
+pub mod agy_auth;
 mod codex_models;
 pub mod muse_models;
 
@@ -61,6 +62,7 @@ pub struct MuseDiscovery {
 #[derive(Default)]
 pub struct Providers {
     pub state: ArcSwap<State>,
+    pub agy_auth: agy_auth::AuthGate,
     /// `~/.claude.json` mcpServers, re-read when the file changes
     mcp: ArcSwap<McpRegistry>,
     /// each registered Muse login's last own metadata read (account id →
@@ -333,14 +335,21 @@ pub async fn discover(engine: &Engine) {
     if let Some((p, src)) = locate_agy() {
         // the email comes from the usage probe's own CLI log (set_agy_email)
         let prev = engine.providers.state.load().agy.clone();
+        let connected = agy_auth::preflight(engine, &p).await.is_ok();
+        let version = if connected {
+            let mut cmd = tokio::process::Command::new(&p);
+            cmd.arg("--version");
+            agy_auth::checked_output(engine, &p, cmd, Duration::from_secs(20)).await.ok()
+                .filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        } else { prev.version.clone() };
         st.agy = CliStatus {
             installed: true,
-            version: version_of(&p).await,
+            version,
             path: Some(p),
             source: src,
-            connected: true,
-            email: prev.email,
-            kind: prev.kind,
+            connected: connected && agy_auth::blocked(engine).is_none(),
+            email: if connected { prev.email } else { None },
+            kind: if connected { prev.kind } else { None },
         };
     }
     if let Some((status, found, error)) = discover_muse(engine).await {
