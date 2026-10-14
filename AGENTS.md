@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- The revealed Rainbow mode row appears only for Custom themes. Selecting a
+  preset hides it without altering saved revealed/enabled/epoch preferences;
+  returning to Custom restores its prior state. [decided: user/coordinator
+  2026-10-14 23:24UTC; verified: `themes.tsx`; contract:
+  `docs/rust-engine/rainbow-custom-toggle.md`]
+
 - Docket ticket menus match transcript ticket menus through shared
   ticketReferenceActions/ticketOwnerAction: Open details always opens/keeps,
   Owner submenu, separator, copy title/slug/reference. Docket-only Fold/Staff

@@ -259,7 +259,7 @@ export function ThemeSetting() {
         }} />
       <span>{customColor}</span>
     </SetRow>}
-    {rainbow.revealed && <SetToggle label="Rainbow mode"
+    {rainbow.revealed && isCustomTheme(theme) && <SetToggle label="Rainbow mode"
       labelContent={<span className="rainbow-theme-label">Rainbow mode</span>}
       hint="Cycle the accent color through the rainbow."
       checked={rainbow.enabled} disabled={savingRainbow}

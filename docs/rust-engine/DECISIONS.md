@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Rainbow mode selection, user 2026-10-14 23:24:59UTC:** show its revealed
+toggle only while the Custom visual theme is selected; hide the row for all
+presets. The hidden picker gesture stays unchanged. Coordinator scope ruling:
+switching themes retains the saved revealed/enabled/epoch preference, restoring
+the previous toggle state on return to Custom. Animation, popouts and agent
+colours are unchanged. See [`rainbow-custom-toggle.md`](rainbow-custom-toggle.md).
+
 **Multi-reply transcript boundary, user 2026-10-14 23:11:17Z:** combine any
 replyable events shown in one transcript, whoever authored them. Reply goes to
 that transcript's agent; Hubchat uses its open conversation's contact. This
