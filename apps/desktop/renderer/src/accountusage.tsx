@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { req } from './api'
 import { UsageBars } from './canvas/accounts'
 import type { AccountStanding, RegisteredAccountUsage } from './types'
+import { usageRefreshDisabledReason } from './usagerefreshpolicy'
 
 type PerAccountUsage = RegisteredAccountUsage
 
@@ -48,6 +49,10 @@ export function AccountUsagePanel({ accountId }: { accountId: string }) {
   const displayed = codex
     ? { ...u, limits: u.limits?.filter(l => l.model !== 'gpt-reserve') }
     : u
+  const disabledReason = usageRefreshDisabledReason(u.provider)
+  const refreshButton = <button disabled={!!disabledReason} title={disabledReason}
+    data-turn-only={disabledReason ? '' : undefined}
+    onClick={() => { if (!disabledReason) reload() }}>refresh usage</button>
   return <div className="account-usage">
     {u.available
       ? <UsageBars u={displayed} />
@@ -55,6 +60,8 @@ export function AccountUsagePanel({ accountId }: { accountId: string }) {
           ? `${u.provider}: no usage surface`
           : (u.error ?? 'usage unavailable')}</p>}
     <StandingMarks standing={u.standing} />
-    <button onClick={reload}>refresh usage</button>
+    {disabledReason
+      ? <span className="usage-refresh-disabled" title={disabledReason}>{refreshButton}</span>
+      : refreshButton}
   </div>
 }

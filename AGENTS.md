@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Muse usage Refresh stays visible, disabled and dimmed in host/registered
+  Usage cards and the reusable account usage panel. The hover text explains
+  that Muse usage arrives at the end of a turn. Gate by provider identity,
+  never the account ID or label; other providers and engine refresh paths stay
+  unchanged. [decided: user 2026-10-14 23:05UTC; verified from source:
+  `App.tsx`, `accountusage.tsx`; see [Muse Refresh](docs/rust-engine/muse-usage-refresh.md)]
+
 - Appearance presets are LS Gold, Muse Eggshell and Antigravity Navy. Shared
   provider/preset order keeps Orgtree first, then Claude/Codex/Antigravity/Muse/
   OpenRouter/LS, with Custom last; preset IDs, accent colours and saved values

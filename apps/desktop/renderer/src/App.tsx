@@ -122,6 +122,7 @@ import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
 import { langServerDoc } from './canvas/langserver'
 import { invalidateStaffingOptions, prefetchStaffingOptions } from './canvas/staffingoptions'
 import { StandingMarks } from './accountusage'
+import { usageRefreshDisabledReason } from './usagerefreshpolicy'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
@@ -2115,20 +2116,26 @@ function useAge(at: number | null): string {
   return at === null ? '' : ago(new Date(at).toISOString())
 }
 
-function UsageRefresh({ provider, state }: { provider: string; state: UsageReadoutState }) {
+function UsageRefresh({ provider, state, disabledReason }: {
+  provider: string; state: UsageReadoutState; disabledReason?: string
+}) {
   // HOW LONG AGO, not what time it was (user 2026-09-11). "updated 1:02 PM"
   // leaves the reader to do the subtraction themselves to answer the only
   // question they have of it — is this number current? The exact instant is
   // still one hover away.
   const age = useAge(state.updatedAt)
+  const button = <button type="button" className="usage-refresh-button" aria-busy={state.pending}
+    aria-label={`refresh ${provider} usage`} disabled={!!disabledReason}
+    data-turn-only={disabledReason ? '' : undefined}
+    title={disabledReason ?? (state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`)}
+    onClick={() => { if (!disabledReason) void state.refresh(true) }}>
+    <AutorenewIcon fontSize="inherit" className={state.pending && !disabledReason ? 'cc-spin' : undefined} />
+  </button>
   return <div className="usage-refresh">
     <div className="usage-refresh-line">
-      <button type="button" className="usage-refresh-button" aria-busy={state.pending}
-        aria-label={`refresh ${provider} usage`}
-        title={state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`}
-        onClick={() => { void state.refresh(true) }}>
-        <AutorenewIcon fontSize="inherit" className={state.pending ? 'cc-spin' : undefined} />
-      </button>
+      {disabledReason
+        ? <span className="usage-refresh-disabled" title={disabledReason}>{button}</span>
+        : button}
       {/* ⚠ NOT a live region any more. It was one while it read a clock
           time, which only ever changed when a refresh actually landed; an
           age that re-renders itself every few seconds would announce
@@ -2155,18 +2162,19 @@ function UsageRefresh({ provider, state }: { provider: string; state: UsageReado
  *  in the same modal aligned differently. Same markup here means the same
  *  wrapping rule, and the length of the text is then the only thing that
  *  can differ between two cards. */
-function UsageAcctHead({ label, parts, provider, state }: {
+function UsageAcctHead({ label, parts, provider, state, disabledReason }: {
   label: string
   parts: (string | null | undefined)[]
   provider: string
   state: UsageReadoutState
+  disabledReason?: string
 }) {
   const detail = parts.filter(Boolean).map((part) => ` · ${part}`).join('')
   return <div className="usage-acct-head">
     <span className="usage-acct-who"><span className="acct-label">{label}</span>
       {detail && <span className="dim">{detail}</span>}
     </span>
-    <UsageRefresh provider={provider} state={state} />
+    <UsageRefresh provider={provider} state={state} disabledReason={disabledReason} />
   </div>
 }
 
@@ -2189,7 +2197,7 @@ function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; 
   const provider = registryProviderName(row.provider)
   return <div className="usage-acct" data-account={row.id}>
     <UsageAcctHead label={provider} parts={[usageIdentity(row.id, row.identity?.email, multiple)]}
-      provider={row.id} state={state} />
+      provider={row.id} state={state} disabledReason={usageRefreshDisabledReason(row.provider)} />
     {u
       ? <><UsageBars u={{ ...u, provider: registryPlanName(row.provider) }} />
         <StandingMarks standing={u.standing} /></>
@@ -2343,7 +2351,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
     cards.push({ provider: 'muse', lane: 'muse/primary', node: <div className="usage-acct" key={'host:muse:' + (muse.value?.account ?? 'muse')}>
       <UsageAcctHead label={registryProviderName('muse')}
         parts={[usageIdentity('default', hostEmail('muse', muse.value), multipleAccounts('muse'))]}
-        provider="Muse" state={muse} />
+        provider="Muse" state={muse} disabledReason={usageRefreshDisabledReason('muse')} />
       {/* Muse's own sign-in (`muse login`, a code approved in the browser)
           runs in a terminal it opens, like Antigravity's — see
           providerlogin.ts's launchLoginTerminal */}

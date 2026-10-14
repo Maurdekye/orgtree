@@ -7078,6 +7078,9 @@ label.set-row { cursor: pointer; }
   cursor: pointer; font: inherit; }
 .usage-refresh-button:hover:not(:disabled) { color: var(--ink-strong); background: transparent; border-color: transparent; }
 .usage-refresh-button:disabled { cursor: wait; opacity: .7; }
+.usage-refresh-disabled { display: inline-flex; }
+.usage-refresh-button[data-turn-only]:disabled,
+.account-usage button[data-turn-only]:disabled { color: var(--dim); cursor: default; opacity: .45; }
 .usage-updated { color: var(--dim); white-space: nowrap; }
 .usage-refresh-error { color: var(--warn, #e5c07b); }
 /* stacked standing/limit notes inside a usage section (e.g. Fable + pooled limits)

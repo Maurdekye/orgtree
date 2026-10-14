@@ -30,9 +30,10 @@ if(mode==='typecheck'){
       bundle:true,format:'esm',platform:'node',target:'node22',jsx:'automatic',nodePaths:[deps],external:['node:*'],
       define:{'process.env.NODE_ENV':'"development"',__SRC_DIR__:JSON.stringify(root+'/apps/desktop/renderer/src')},
       plugins:[...(baseline?[{name:'exact-refresh-base',setup(b){
-        b.onLoad({filter:/[\\/]src[\\/]api\.ts$|[\\/]src[\\/]App\.tsx$|[\\/]src[\\/]canvas[\\/]accounts\.tsx$/},args=>{
+        b.onLoad({filter:/[\\/]src[\\/]api\.ts$|[\\/]src[\\/]App\.tsx$|[\\/]src[\\/]accountusage\.tsx$|[\\/]src[\\/]canvas[\\/]accounts\.tsx$/},args=>{
           const file=args.path.endsWith('api.ts')?'apps/desktop/renderer/src/api.ts':args.path.endsWith('App.tsx')?
-            'apps/desktop/renderer/src/App.tsx':'apps/desktop/renderer/src/canvas/accounts.tsx'
+            'apps/desktop/renderer/src/App.tsx':args.path.endsWith('accountusage.tsx')?
+              'apps/desktop/renderer/src/accountusage.tsx':'apps/desktop/renderer/src/canvas/accounts.tsx'
           const p=spawnSync('git',['show',baseline+':'+file],{cwd:root,encoding:'utf8',windowsHide:true})
           if(p.status!==0)throw new Error(p.stderr)
           console.log('EXACT_BASE_SOURCE '+baseline+' '+file)
