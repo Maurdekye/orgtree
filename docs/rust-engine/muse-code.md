@@ -212,6 +212,11 @@ folder, `bg-probe2.mjs`):
   cancelled turns takes it. Then the result stays in the session's history,
   and the next turn knows it. Left to run, Muse's own turn is a model step on
   the result (23,251 prompt tokens in one run).
+- Under Orgtree (the real-Muse proof, 2026-10-14), the cancel of Muse's own
+  turn came 65 ms after the result settled, once its model step had begun:
+  Muse ended the turn "cancelled during model step", with no response and no
+  usage recorded. That turn had taken the result, so the admitted turn knew
+  it.
 - A failed command settles `failed` with Muse's reason ("process exited with
   status 3") and its output.
 - A host that ends while a command runs in the background says nothing of
@@ -230,7 +235,8 @@ What Orgtree does:
   for any failed shell call.
 - If the agent is idle then (no turn running, none waiting for admission or
   holding a slot), it is woken through its mailbox with a system message that
-  names the command and how it ended: "Your background command has finished
+  names the call as its chip does (the description the model gave the call,
+  else its command) and how it ended: "Your background command has finished
   (it completed): powershell `npm test`. Muse has put its output and exit
   status into your context; this message only wakes you so you can act on
   them." The message carries no output; Muse delivers that itself, once.
@@ -514,7 +520,7 @@ status and the exact HEAD it ran on.
 | Rig `muse-session0-real.mjs` on the REAL Muse Code 1.4.6, from a Session 0 engine (one synthetic Spark turn at its lowest effort): the host without the sandbox, its powershell call returning, its write outside its folders going through unasked, the turn ending well | 6 checks passed |
 | Engine unit tests `runtime::actor::muse_silence_tests::muse_background_results_land_on_the_chip_and_the_wake_names_the_outcome` and `muse_background_commands_lost_with_their_host_are_listed_once` (the chip's result and Muse's failure reason; the wake names the command and how it ended, never the output; the host-loss message lists each command once, at most 20) | 2 passed |
 | Rig `muse-bg-result.mjs`, on a fake that delivers results as Muse 1.4.6 was measured to. A finish while idle: the chip gets the result after its turn, one waking message names the command and how it ended (never the output), every turn Muse starts is cancelled and the admitted turn gets the result, the desk counts the command while it runs. A finish during a later turn: the earlier chip gets it, no message. Within its own turn: as before. A failure: Muse's reason on the chip and in the message, the failed output kept. A halt: the chip says the command ended with its host, one message, read once unhalted. A quota wall: the host closed at the limit, the chip and one message say so, the message waits while frozen. Waiting for a turn slot with the host alive: the chip gets the result, the message waits, Muse's turns meanwhile all cancelled and warned about once, the result in the turn admitted when the slot frees | 24 checks passed; `muse-tool-silence.mjs` (13), `muse-refusal.mjs` (9), `muse-session0.mjs` (10), `muse-lane.mjs` (48) and `turn-failures.mjs` (15) pass on the same engine |
-| Rig `muse-bg-result-real.mjs` on the REAL Muse Code (two synthetic Spark turns) | not run: the batched verification has no authorization for turns on the user's Muse login; what real Muse does is measured by the probes above |
+| Rig `muse-bg-result-real.mjs` on the REAL Muse Code 1.4.6, on this change's engine (two synthetic Spark turns at the lowest effort, a scratch rig): turn 1's command moved to the background and followed past the turn; its chip got the output after the turn; one waking message, without the output; the admitted turn quoting the output; Muse's own delivery turn cancelled before any response | 2026-10-14: 6 of 7 checks passed as first written. The seventh expected the command line in the message, but the message names the call by its chip's label, here the description the model gave it ("Run background proof command"). The check now compares with the chip's label; re-applied to the same run's recorded observations it passes, and mutated records fail it. Not re-run since |
 
 **Red controls** (the same proof, run against an engine without the change):
 without the Muse fallback five checks fail (the move to the profile, its
@@ -692,12 +698,15 @@ be paid).
 10. **Muse's own delivery turns keep coming while the agent cannot run.**
     A background command that finishes while its host lives but the agent
     cannot be admitted yet (waiting for a turn slot, for one) sets Muse
-    starting its own turn about every 55 ms, each cancelled here before any
-    model step, until Muse hands the result to one of them (19 s in one
-    measured run) or the agent's turn arrives. Impact: protocol traffic and
-    Muse's own work, no tokens and no lost result; the log warns once a
-    minute. Class: upstream (no switch to turn the delivery turn off). Closes
-    with such a switch in Muse, or a way to defer a session's delivery.
+    starting its own turn about every 55 ms, each cancelled here before it
+    gets a model response, until Muse hands the result to one of them (19 s
+    in one measured run) or the agent's turn arrives. Impact: protocol
+    traffic and Muse's own work, and no lost result. Muse records no usage
+    for a cancelled turn, but a cancel can land after the turn's model step
+    began (measured once); whether such a step costs anything is
+    unmeasured. The log warns once a minute. Class: upstream (no switch to
+    turn the delivery turn off). Closes with such a switch in Muse, or a way
+    to defer a session's delivery.
 11. **A command in the background ends with its host.** Orgtree closes or
     stops a Muse host for the reasons under **Commands Muse moves to the
     background**: a usage limit, every turn's end when warming is off, the
