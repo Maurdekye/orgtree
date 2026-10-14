@@ -147,6 +147,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/langservers/ollama-variant", post(langserver::ollama_variant))
         .route("/api/langservers/{id}", axum::routing::patch(langserver::update).delete(langserver::remove))
         .route("/api/langservers/{id}/key", axum::routing::put(langserver::set_key))
+        .route("/api/providers/agy-models/refresh", axum::routing::post(settings::refresh_agy_models))
         .route("/api/providers/{provider}/enabled", axum::routing::put(settings::provider_enabled))
         .route("/api/providers/{provider}/apikey-fallback", axum::routing::put(settings::provider_apikey_fallback))
         .route(

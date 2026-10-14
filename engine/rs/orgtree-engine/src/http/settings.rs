@@ -670,6 +670,14 @@ pub async fn get_providers(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value
     Ok(Json(crate::providers::payload(&e)))
 }
 
+/// A model choice or the providers page opened: re-read the account's
+/// `agy models` (debounced) and answer with the providers document.
+#[logged]
+pub async fn refresh_agy_models(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    crate::providers::refresh_agy_models(&e).await;
+    Ok(Json(crate::providers::payload(&e)))
+}
+
 #[derive(Deserialize, Debug)]
 pub struct Enabled {
     enabled: bool,

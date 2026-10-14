@@ -70,6 +70,9 @@ pub struct Providers {
     /// read): what it offers, as the login itself said (the user's own login
     /// is `State::muse_probe`)
     muse_logins: ArcSwap<std::collections::HashMap<String, MuseLoginRead>>,
+    /// when `agy models` was last read: held across a read, so at most one
+    /// runs and a caller arriving meanwhile reuses its answer
+    agy_models_read: tokio::sync::Mutex<Option<std::time::Instant>>,
 }
 
 /// One registered Muse login's catalog as its own metadata read last saw it.
@@ -334,9 +337,6 @@ pub async fn discover(engine: &Engine) {
             CliStatus { installed: true, version: version_of(&p).await, path: Some(p), source: src, connected, email, kind };
     }
     if let Some((p, src)) = locate_agy() {
-        // the account's registry, the evidence for the conditional tiers: a
-        // failed read is no evidence, so they hide until a read lists them
-        st.agy_models = read_agy_models(engine, &p).await;
         // the email comes from the usage probe's own CLI log (set_agy_email)
         let prev = engine.providers.state.load().agy.clone();
         let connected = agy_auth::preflight(engine, &p).await.is_ok();
@@ -366,9 +366,16 @@ pub async fn discover(engine: &Engine) {
             source:"ACP initialize".into(), ..CliStatus::default() };
     }
     st.openrouter = openrouter_favorites(engine);
+    // the agy registry is read when it matters (start, and each opened model
+    // choice: `refresh_agy_models`), never by this periodic pass
+    let first = !engine.providers.state.load().probed;
+    st.agy_models = engine.providers.state.load().agy_models.clone();
     st.probed = true;
     engine.providers.state.store(Arc::new(st));
     publish(engine);
+    if first {
+        refresh_agy_models(engine).await;
+    }
 }
 
 /// The Muse part of discovery: the binary, then one metadata read of the
@@ -1132,24 +1139,44 @@ async fn read_agy_models(engine: &Engine, exe: &std::path::Path) -> Vec<String> 
     ids
 }
 
-/// Whether a conditional Antigravity tier may be placed now (3.x
-/// `conditional_antigravity_availability`): the last read lists it, or a
-/// FRESH read does, so a model Google switched on a minute ago is not
-/// refused on a stale list. The fresh read is published like discovery's.
-/// Run before an op's transaction, never inside it.
+/// A read of the agy registry younger than this is reused (user 2026-10-14).
+const AGY_MODELS_REUSE: Duration = Duration::from_secs(30);
+
+/// Read the account's `agy models` registry when it matters: at engine start,
+/// whenever a model choice or the providers page opens, and before placing a
+/// conditional tier (user 2026-10-14: no polling). At most one read runs; a
+/// result under 30 s old is reused. A changed list is published, so hire
+/// tokens and selectors follow it live.
 #[logged]
-pub async fn agy_admits(engine: &Engine, tier: &str) -> bool {
-    if agy_offered(engine, tier) {
-        return true;
+pub async fn refresh_agy_models(engine: &Engine) {
+    let mut last = engine.providers.agy_models_read.lock().await;
+    if last.is_some_and(|at| at.elapsed() < AGY_MODELS_REUSE) {
+        return;
     }
-    let Some(exe) = engine.providers.agy_path() else { return false };
+    let Some(exe) = engine.providers.agy_path() else { return };
     let ids = read_agy_models(engine, &exe).await;
+    *last = Some(std::time::Instant::now());
+    if engine.providers.state.load().agy_models == ids {
+        return;
+    }
     engine.providers.state.rcu(|cur| {
         let mut st = State::clone(cur);
         st.agy_models = ids.clone();
         st
     });
     publish(engine);
+}
+
+/// Whether a conditional Antigravity tier may be placed now (3.x
+/// `conditional_antigravity_availability`): the last read lists it, or a
+/// fresh one does, so a model Google switched on a minute ago is not refused
+/// on a stale list. Run before an op's transaction, never inside it.
+#[logged]
+pub async fn agy_admits(engine: &Engine, tier: &str) -> bool {
+    if agy_offered(engine, tier) {
+        return true;
+    }
+    refresh_agy_models(engine).await;
     agy_offered(engine, tier)
 }
 
@@ -1165,7 +1192,7 @@ pub fn start(engine: &Arc<Engine>) {
         loop {
             discover(&engine).await;
             tokio::select! {
-                _ = tokio::time::sleep(crate::rig::discovery_every().unwrap_or(Duration::from_secs(300))) => {}
+                _ = tokio::time::sleep(Duration::from_secs(300)) => {}
                 _ = engine.shutdown.cancelled() => break,
             }
         }

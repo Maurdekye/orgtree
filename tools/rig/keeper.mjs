@@ -73,8 +73,6 @@ if (run.bootIsolated) env.ORGTREE_RIG_BOOT_ISOLATED = '1'
 if (run.session0 != null) env.ORGTREE_RIG_SESSION0 = String(run.session0)
 // a shortened "still unread" threshold (src/runtime/recovery.rs `steer_late_after`)
 if (run.steerLateS) env.ORGTREE_RIG_STEER_LATE_S = String(run.steerLateS)
-// a shortened provider discovery period (src/rig.rs `discovery_every`)
-if (run.discoveryS) env.ORGTREE_RIG_DISCOVERY_S = String(run.discoveryS)
 // the automatic wakes (checkups, idle docket reminders), swept every `reminders` seconds (true: 5)
 if (run.reminders) {
   env.ORGTREE_RIG_REMINDERS = '1'

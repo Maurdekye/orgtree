@@ -59,7 +59,6 @@ async function up(flags) {
     quietLog: !!flags['quiet-log'],
     session0: flags.session0 == null ? null : String(flags.session0),
     steerLateS: flags.steerLateS && Number(flags.steerLateS),
-    discoveryS: flags.discoveryS && Number(flags.discoveryS),
     fsync: !!flags.fsync })
   let made = null
   if (flags.fixture !== 'none') {
