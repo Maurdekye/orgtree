@@ -1,4 +1,4 @@
-import { advance, inAct, mountView, realClock, useFakeClock } from './harness'
+import { advance, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { RunningTimer, ToolTimes, ToolWritingLine, TurnActiveContext } from '../src/canvas/toolclock'
@@ -59,4 +59,11 @@ test('completed observations retain precise existing durations after the live ti
   await view.render(<ToolTimes tool={final} />)
   assert.equal(view.last(), '· 1.2s · 200 ms')
   await advance(2000); assert.equal(view.last(), '· 1.2s · 200 ms')
+})
+
+test('completed precision is unchanged without a live observation', async t => {
+  const view = await mountView(<ToolTimes tool={{ name: 'Bash', writing_secs: 1.2,
+    started_at: '2026-10-14T16:00:00Z', ended_at: '2026-10-14T16:00:00.200Z', result: 'done' }} />, text)
+  t.after(() => view.unmount())
+  assert.equal(view.last(), '· 1.2s · 200 ms')
 })
