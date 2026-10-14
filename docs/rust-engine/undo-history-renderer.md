@@ -20,6 +20,9 @@ Ctrl/Cmd+Z, Ctrl+Y and Ctrl/Cmd+Shift+Z therefore work after a toast disappears.
 windows, selects, editable content and embedded editors. Pending commands and
 confirmation block shortcut fallthrough to an older transient inverse. Toast
 buttons carry the committed entry ID and are available only at that undo head.
+The keyboard explainer lists persistent undo and both redo chords. Its source
+scanner follows the normalized classifier and its actual keydown consumers;
+the transient toast consumer binds undo only.
 
 Worked-hire confirmation opens in the presentation's own document. Cancel sends
 nothing. Confirm retains the token through the dialog's close-before-act path;

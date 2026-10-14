@@ -10,6 +10,9 @@
   Durable shortcuts use window capture before transient toast bubbling:
   owner-document discovery can register the history listener later regardless
   of JSX order. [verified: `historyui.tsx`, 2026-10-14]
+  Shortcut documentation/scanning tracks `undokeys.ts` plus its durable and
+  transient consumers; only the durable consumer binds redo.
+  [verified: `shortcuts.ts`, `tests/shortcuts.test.tsx`, 2026-10-14]
   [decided: user/coordinator 2026-10-14; verified from source: `undokeys.ts`,
   `toasts.tsx`, `historyui.tsx`, `canvas/{OrgCanvas,modals}.tsx`]
 

@@ -35,6 +35,10 @@ function scanKeys(text: string): Set<string> {
   for (const m of text.matchAll(/\.key\s*[!=]==?\s*(['"])(.*?)\1/g)) add(m[2]!)
   // event.key.toLowerCase() !== 'z'
   for (const m of text.matchAll(/\.key\.toLowerCase\(\)\s*[!=]==?\s*(['"])(.*?)\1/g)) add(m[2]!)
+  // const key = event.key.toLowerCase(); if (key === 'z') ...
+  // Only aliases read from an event key count, not arbitrary local strings.
+  for (const alias of text.matchAll(/\bconst\s+(\w+)\s*=\s*\w+\.key(?:\.toLowerCase\(\))?/g))
+    for (const m of text.matchAll(new RegExp(`\\b${alias[1]}\\s*[!=]==?\\s*(['"])(.*?)\\1`, 'g'))) add(m[2]!)
   // ['ArrowLeft', 'Home'].includes(e.key)
   for (const m of text.matchAll(/\[([^\]]*)\]\.includes\(\s*\w+\.key\s*\)/g))
     for (const s of m[1]!.matchAll(/(['"])(.*?)\1/g)) add(s[2]!)
@@ -47,6 +51,16 @@ function scanKeys(text: string): Set<string> {
   // letter typeahead: any printable key
   if (/\.key\.length\s*!==\s*1/.test(text)) found.add(TYPEAHEAD)
   return found
+}
+
+/** Delegation is a binding only with the actual import, call and key listener.
+ * Toasts request undo only; the durable surface handles both directions. */
+function historyBindingKeys(text: string, classifier: Set<string>): Set<string> {
+  if (!/import\s*\{[^}]*\bhistoryShortcut\b[^}]*\}\s*from\s*['"]\.\/undokeys['"]/.test(text)
+    || !/\bhistoryShortcut\(\s*\w+\s*,/.test(text)
+    || !/\.addEventListener\(\s*['"]keydown['"]/.test(text)) return new Set()
+  const undoOnly = /historyShortcut\([^\n]*\)\s*!==\s*['"]undo['"]/.test(text)
+  return new Set([...classifier].filter(k => !undoOnly || k === 'z'))
 }
 
 function sourceFiles(): string[] {
@@ -65,8 +79,10 @@ function sourceFiles(): string[] {
 
 function scanAll(): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>()
+  const classifier = scanKeys(readFileSync(path.join(DESKTOP, 'renderer/src/undokeys.ts'), 'utf8'))
   for (const f of sourceFiles()) {
-    const keys = scanKeys(readFileSync(path.join(DESKTOP, f), 'utf8'))
+    const text = readFileSync(path.join(DESKTOP, f), 'utf8')
+    const keys = new Set([...scanKeys(text), ...historyBindingKeys(text, classifier)])
     if (keys.size) out.set(f, keys)
   }
   return out
@@ -125,6 +141,17 @@ test('the scanner reads each binding form and ignores non-key comparisons', () =
   const table = `const T = [{ keys: ['F1'] }, { keys: ['Shift+F10'] }]`
   assert.deepEqual([...scanKeys(table)], [])
   assert.deepEqual([...scanKeys(table + ' T.find(r => r.keys.includes(key))')].sort(), ['F1', 'F10'])
+  assert.deepEqual([...scanKeys(`const key = event.key.toLowerCase(); if (key === 'z' || key === 'y') run()`)].sort(), ['y', 'z'])
+  assert.deepEqual([...scanKeys(`const key = 'z'; if (key === 'z') run()`)], [])
+  const helper = `import { historyShortcut } from './undokeys';
+    const keydown = event => { if (historyShortcut(event, doc) !== 'undo') return; run() };
+    win.addEventListener('keydown', keydown)`
+  assert.deepEqual([...historyBindingKeys(helper, new Set(['y', 'z']))], ['z'])
+  assert.deepEqual([...historyBindingKeys(helper.replace("!== 'undo'", "=== null"), new Set(['y', 'z']))].sort(), ['y', 'z'])
+  for (const broken of [helper.replace('import { historyShortcut }', 'import { somethingElse }'),
+    helper.replace('historyShortcut(event, doc)', 'somethingElse(event, doc)'),
+    helper.replace("addEventListener('keydown'", "addEventListener('click'")])
+    assert.deepEqual([...historyBindingKeys(broken, new Set(['y', 'z']))], [])
 })
 
 test('the scan reaches the real bindings (not a vacuous pass)', () => {
@@ -132,6 +159,9 @@ test('the scan reaches the real bindings (not a vacuous pass)', () => {
   assert.ok(scan.size >= 30, `bindings found in ${scan.size} files`)
   assert.ok(scan.get('renderer/src/canvas/desk.tsx')?.has('n'), 'desk Alt+N')
   assert.ok(scan.get('renderer/src/toasts.tsx')?.has('z'), 'toast Ctrl+Z')
+  assert.equal(scan.get('renderer/src/toasts.tsx')?.has('y'), false, 'transient toast has no redo')
+  assert.deepEqual([...scan.get('renderer/src/undokeys.ts') ?? []].sort(), ['y', 'z'], 'shared undo/redo classifier')
+  assert.deepEqual([...scan.get('renderer/src/historyui.tsx') ?? []].sort(), ['y', 'z'], 'durable undo/redo listener')
   assert.ok(scan.get('main/editmenu.ts')?.has('c'), 'edit menu accelerator')
   assert.ok(scan.get('main/index.ts')?.has('Escape'), 'tray pop-up Escape')
   assert.ok(scan.get('renderer/src/canvas/docket.tsx')?.has(TYPEAHEAD), 'recipient typeahead')
@@ -183,6 +213,11 @@ test('the section renders every group as rows of keycaps', async () => {
       const undo = [...view.el.querySelectorAll('.set-row')]
         .find(r => r.querySelector('.set-label')?.textContent?.startsWith('Undo'))!
       assert.deepEqual([...undo.querySelectorAll('kbd')].map(k => k.textContent), [mac ? '⌘' : 'Ctrl', 'Z'])
+      const redo = [...view.el.querySelectorAll('.set-row')]
+        .find(r => r.querySelector('.set-label')?.textContent?.startsWith('Redo'))!
+      assert.ok(redo, 'durable redo is explained alongside undo')
+      assert.deepEqual([...redo.querySelectorAll('kbd')].map(k => k.textContent),
+        ['Ctrl', 'Y', mac ? '⌘' : 'Ctrl', 'Shift', 'Z'])
       assert.equal(view.el.querySelectorAll('.set-row').length,
         shortcutGroups().reduce((n, g) => n + g.items.length, 0))
       assert.equal(view.el.querySelectorAll('input, select, button').length, 0, 'read-only: no controls')

@@ -46,8 +46,11 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         sources: [R('canvas/shared.ts'), R('App.tsx'), R('canvas/OrgCanvas.tsx'),
           R('shell/menu.tsx'), R('canvas/lightbox.ts'), R('picker.tsx'),
           R('canvas/desk.tsx')] },
-      { keys: ['Mod+Z'], action: 'Undo the latest action that offers Undo',
-        note: 'not while typing in a field', sources: [R('toasts.tsx')] },
+      { keys: ['Mod+Z'], action: 'Undo the latest action',
+        note: 'persistent move, hire, retire and settings history; not while typing in a field',
+        sources: [R('undokeys.ts'), R('historyui.tsx'), R('toasts.tsx')] },
+      { keys: ['Ctrl+Y', 'Mod+Shift+Z'], action: 'Redo the last undone action',
+        note: 'not while typing in a field', sources: [R('undokeys.ts'), R('historyui.tsx')] },
     ] },
     // F1-F10, the main window's function keys (usage-query-sol's
     // shell/appshortcuts.ts); its matcher reads the same table
