@@ -225,9 +225,10 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
     const ref = props.shortcutRef
     if (!ref) return
     const actions = { openOrganizations: () => {
+      if (open && orgList) { close(); return }
       openWith(false)
       openSub('key')
-      // A repeated request focuses an already-expanded submenu too.
+      // A menu open without this submenu still opens the requested target.
       setSubmenuRequest(n => n + 1)
     } }
     ref.current = actions

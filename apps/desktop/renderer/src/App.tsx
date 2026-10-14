@@ -1280,6 +1280,25 @@ export default function App() {
     [v3, slug])
   const mainKillswitch = useRef<KillSwitchActions | null>(null)
   const mainMenu = useRef<OrgtreeMenuActions | null>(null)
+  // Keyboard toggles close their exact target, including a pinned one behind
+  // another panel. Mouse controls keep the existing open/raise rule.
+  const shortcutFocus = useRef(new Map<string, HTMLElement>())
+  const toggleShortcut = (kind: string, open: boolean, show: () => void, close: () => void) => {
+    if (open) {
+      close()
+      const focus = shortcutFocus.current.get(kind)
+      shortcutFocus.current.delete(kind)
+      if (focus?.isConnected) focus.focus()
+    } else {
+      const focus = document.activeElement
+      if (focus instanceof HTMLElement) shortcutFocus.current.set(kind, focus)
+      show()
+    }
+  }
+  const closeAccounts = () => { setShowAccounts(false); setAppSettingsTab(undefined) }
+  const closeInbox = () => { setShowInbox(false); setInboxJump(null); refreshTree(slug) }
+  const closeDocket = () => { setDocketJump(null); setShowDocket(false) }
+  const closeOrgSettings = () => { setShowSettings(false); setSettingsInitialTab(undefined); refreshTree(slug) }
   const openAccounts = () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)
   const openInbox = () => {
     setInboxJump(null)
@@ -1289,13 +1308,17 @@ export default function App() {
   const openPresentations = () => toggleSurface('gallery', showGallery, setShowGallery)
   const openOrgSettings = () => toggleSurface('org-settings', showSettings, setShowSettings)
   useAppShortcuts({
-    settings: openAccounts, usage: toggleUsage, usageHistory: toggleUsageHistory,
+    settings: () => toggleShortcut('app-settings', showAccounts, openAccounts, closeAccounts),
+    usage: () => toggleShortcut('usage', showUsage, toggleUsage, () => setShowUsage(false)),
+    usageHistory: () => toggleShortcut('usage-history', showUsageHistory, toggleUsageHistory, () => setShowUsageHistory(false)),
     refresh: () => refreshFromHeader(document),
     newWindow: () => newWindow(), createWindow: () => createWindow(),
     openOrganizations: () => mainMenu.current?.openOrganizations(),
     ...(slug && tree ? {
-      inbox: openInbox, docket: openDocket, presentations: openPresentations,
-      orgSettings: openOrgSettings,
+      inbox: () => toggleShortcut('inbox', showInbox, openInbox, closeInbox),
+      docket: () => toggleShortcut('docket', showDocket, openDocket, closeDocket),
+      presentations: () => toggleShortcut('gallery', showGallery, openPresentations, () => setShowGallery(false)),
+      orgSettings: () => toggleShortcut('org-settings', showSettings, openOrgSettings, closeOrgSettings),
       view: () => {
         // Centred app/org panels are another view; return to the canvas.
         // Existing pinned/detached surfaces keep their placement and content.
@@ -1845,7 +1868,7 @@ export default function App() {
                   the browser — it carries the button (user refinement) */}
               {showSettings && (
                 <SettingsPanel tree={tree} toast={toast} initialTab={settingsInitialTab}
-                  close={() => { setShowSettings(false); setSettingsInitialTab(undefined); refreshTree(slug) }} />
+                  close={closeOrgSettings} />
               )}
               {showInbox && (
                 <InboxPanel slug={slug} tree={tree} toast={toast}
@@ -1882,9 +1905,7 @@ export default function App() {
                     }, slug)
                     setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq })
                   }}
-                  close={() => {
-                    setShowInbox(false); setInboxJump(null); refreshTree(slug)
-                  }} />
+                  close={closeInbox} />
               )}
             </>
           ) : <div className="empty">loading {slug}…</div>}
@@ -1949,11 +1970,11 @@ export default function App() {
             }, slug)
             setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq })
           }}
-          close={() => { setDocketJump(null); setShowDocket(false) }} />
+          close={closeDocket} />
       )}
       {showAccounts && (
         <AccountsPanel toast={toast} initialTab={appSettingsTab}
-          close={() => { setShowAccounts(false); setAppSettingsTab(undefined) }} />
+          close={closeAccounts} />
       )}
       {doomedOrg && (
         <ConfirmModal title={`permanently delete ${doomedOrg.name}?`}

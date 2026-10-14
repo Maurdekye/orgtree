@@ -29,7 +29,7 @@ test('Shift+F1/F2/F3 rows are shared by matcher and Settings, with exact app-men
   assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F10', shiftKey: true })), 'halt')
 })
 
-for (const count of [2, 7]) test(`Shift+F2 opens and refocuses the organization submenu (${count} organizations)`, async () => {
+for (const count of [2, 7]) test(`Shift+F2 toggles the organization submenu (${count} organizations)`, async () => {
   const ref = React.createRef<OrgtreeMenuActions>()
   const opened: string[] = []
   const view = await mountView(<OrgtreeMenu orgs={orgs(count)} freshness="current" ageMs={0}
@@ -45,20 +45,34 @@ for (const count of [2, 7]) test(`Shift+F2 opens and refocuses the organization 
     const first = submenu.querySelector<HTMLButtonElement>('.shell-menu-org')!
     const focus = count > 6 ? submenu.querySelector<HTMLInputElement>('.shell-menu-filter')! : first
     assert.equal(document.activeElement, focus)
+    await inAct(() => editor.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'F2', shiftKey: true, repeat: true, bubbles: true, cancelable: true,
+    })))
+    assert.equal(view.el.querySelector('[role="menu"][aria-label="Organizations"]'), submenu,
+      'holding Shift+F2 does not close or remount the submenu')
     editor.focus()
     await inAct(async () => { press('F2', editor, true); await flush(6) })
-    assert.equal(document.activeElement, focus, 'already-open submenu is focused again')
+    assert.equal(view.el.querySelector('.shell-menu-panel'), null, 'same combo closes the menu and submenu')
+    assert.equal(document.activeElement, view.el.querySelector('.shell-menu-button'), 'normal close returns focus')
+    await inAct(async () => { press('F2', editor, true); await flush(6) })
+    const reopened = view.el.querySelector<HTMLElement>('[role="menu"][aria-label="Organizations"]')!
+    const reopenedFirst = reopened.querySelector<HTMLButtonElement>('.shell-menu-org')!
+    const reopenedFocus = count > 6 ? reopened.querySelector<HTMLInputElement>('.shell-menu-filter')! : reopenedFirst
+    assert.equal(document.activeElement, reopenedFocus)
     if (count > 6) {
-      await inAct(() => press('ArrowDown', focus))
-      assert.equal(document.activeElement, first, 'arrows leave the filter for the organizations')
+      await inAct(() => press('ArrowDown', reopenedFocus))
+      assert.equal(document.activeElement, reopenedFirst, 'arrows leave the filter for the organizations')
     }
-    await inAct(() => press('Escape', first))
+    await inAct(() => press('Escape', reopenedFirst))
     assert.equal(view.el.querySelector('[aria-label="Organizations"][role="menu"]'), null)
     assert.ok(view.el.querySelector('.shell-menu-panel'), 'first Escape closes only the submenu')
     await inAct(() => press('Escape', document.activeElement!))
     assert.equal(view.el.querySelector('.shell-menu-panel'), null)
     assert.equal(document.activeElement, view.el.querySelector('.shell-menu-button'))
+    await inAct(() => view.el.querySelector<HTMLButtonElement>('.shell-menu-button')!.click())
     await inAct(async () => { press('F2', editor, true); await flush(6) })
+    assert.ok(view.el.querySelector('[role="menu"][aria-label="Organizations"]'),
+      'an open parent menu without the target submenu expands it')
     await inAct(() => view.el.querySelector<HTMLButtonElement>('.shell-menu-org')!.click())
     assert.deepEqual(opened, ['org-0'], 'selection uses the existing org-opening callback')
     assert.equal(view.el.querySelector('.shell-menu-panel'), null)

@@ -12,11 +12,21 @@ User requests on 2026-10-14, docket
 - F1 opens app Settings (`AccountsPanel`). F2/F3 use the existing Usage and
   Usage history actions. F6-F9 reuse the four main-header current-org actions;
   F9 opens organization settings, unlike F1.
+  Updated user ruling 17:58 UTC: F1-F3/F6-F9 close the exact target if already
+  open, including pins behind another surface, through the same close callbacks
+  as the close button (transient-tab/jump cleanup and tree refresh included).
+  A shortcut-opened panel returns focus to its connected opener on re-press.
+  Mouse open/raise behavior is preserved. Different targets stack as before;
+  closing one leaves its sibling mounted.
 - Shift+F1 uses the app menu's New window action; Shift+F3 uses its Create
   organization action. Shift+F2 opens that same menu and its Open organization
   submenu with keyboard focus on the filter (when present) or first org.
-  Repeating Shift+F2 refocuses an already-expanded submenu. Its existing
+  Updated user ruling 17:58 UTC: repeating Shift+F2 closes the menu and submenu,
+  returning focus to the menu button. If only the parent menu is open, it opens
+  the organization submenu. Its existing
   arrow-key and Escape behavior remains; selection uses the same callback.
+  User 18:02 UTC: "No, leave windows" — Shift+F1/F3 keep their native window
+  opening/focusing behavior and do not become window-close shortcuts.
 - F4 switches Canvas/Attention. From a centred app/org panel it closes the
   panel and chooses Canvas; pinned/detached surfaces keep their content and
   placement. There is no org canvas destination on Homepage/Create.
@@ -93,3 +103,26 @@ and function-key table; expect four behavior failures. Unset both variables
 for green `tests appshiftkeys appkeys killswitch shellviews header_docket_glow
 shortcuts`, with zero failures/skips, plus root typecheck. The original
 ten-case red recipe keeps the new table unless `UI_APPKEY_TABLE_BASE` is set.
+
+## Toggle correction recipe (execution pending)
+
+Ticket `pressing-an-f-key-shortcut-again-closes-the-menu`, source base `0f8638f`.
+Run through rig-opus's next shared-lock/contained batch and C output. The existing
+`appkeys-check.mjs` supports the new `appkeytoggle` suite without a runner change.
+
+- Red: set `UI_APPKEY_BASE=0f8638f` (or the exact pre-correction batch parent),
+  leave `UI_APPKEY_TABLE_BASE` unset, run `tests appkeytoggle appshiftkeys`.
+  The new fixtures/table remain; exact baseline App/menu/KillSwitch are overlaid.
+  Expected appkeytoggle: nine behavioral failures, one table control pass;
+  appshiftkeys: two submenu toggle failures, two unchanged window/matcher controls.
+  Confirm failure names from raw output; these counts are a recipe, not evidence.
+- Green: unset both base variables; run `tests appkeytoggle appshiftkeys appkeys
+  killswitch shellviews header_docket_glow shortcuts`, then root `typecheck`.
+  The seven actual-App panel cases each open, hold (repeat), close, return focus,
+  and reopen. Additional cases check stacking, keyboard close behind a sibling
+  pin versus mouse raise, and shared explainer text. Shift+F2 tests cover short
+  and filtered org lists, hold, close/focus, reopen, arrows/Escape, parent-only
+  opening and original selection. Existing window controls remain unchanged.
+
+Native device keys and detached-panel native-window closure are not newly
+measured by these renderer tests. No engine/provider/live operation is needed.

@@ -105,6 +105,11 @@
   arming expires after five seconds; keep mouse's 500 ms safety delay and other
   modifier chords except assigned Shift+F1/F2/F3/F10. Shift+F1/F3 reuse menu
   New/Create window actions; Shift+F2 opens/focuses its organization submenu.
+  F1-F3/F6-F9 and Shift+F2 toggle their exact open target via its normal close
+  cleanup, even if pinned behind another; mouse open/raise rules stay unchanged.
+  Different panel targets still stack. Repeated keydown events do nothing.
+  Shift+F1/F3 remain native window navigation, never close windows on re-press.
+  [decided: user/coordinator 2026-10-14 17:58/18:02UTC]
   See [function keys](docs/rust-engine/app-menu-shortcuts.md).
   [decided: user/coordinator 2026-10-14; verified from source: `App.tsx`,
   `shell/{menu,appshortcuts}.ts*`, `KillSwitch.tsx`]

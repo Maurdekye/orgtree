@@ -1,5 +1,14 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Function-key panel toggles, user 2026-10-14 17:58UTC:** F1-F3/F6-F9 and
+Shift+F2 close their exact menu/panel target when it is already open, with
+normal close cleanup and focus return. Different targets keep existing stacking;
+held-key repeats do not invoke actions. This keyboard rule supersedes the
+open/refocus behavior only for these shortcuts, preserving mouse open/raise.
+User 18:02UTC: "No, leave windows" — Shift+F1/F3 keep opening or focusing
+their separate top-level windows and never close them. F4/F5/F10/Shift+F10
+keep their existing non-panel actions. See [`app-menu-shortcuts.md`](app-menu-shortcuts.md).
+
 **Transcript docket transitions, user 2026-10-14 12:44:47UTC:** an
 `orgtree_work` call that actually changes ticket status shows `old → new`
 inline, each in the docket's own colour and wording. Capture the real
