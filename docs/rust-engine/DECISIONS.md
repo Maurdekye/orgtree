@@ -823,7 +823,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     `openrouter-keys-are-all-equal-no-unnumbered-prim`; supersedes the id/lane
     compatibility in decision 74 and `openrouter-keys.md`'s original-key rows).
     Every key is `openrouter-N` from 1, its lane its id; no key is the original
-    or the primary. Migration 0021 renumbers the old first key `openrouter-key`
+    or the primary. Migration 0022 renumbers the old first key `openrouter-key`
     (lane `openrouter`) once, carrying every reference and binding its unbound
     seats. The one symmetric default: an unbound seat bills the first key in the
     key list (`ord`, then N); a hire naming no key is placed by the placement

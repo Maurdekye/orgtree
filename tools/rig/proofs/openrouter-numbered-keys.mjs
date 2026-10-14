@@ -7,12 +7,12 @@
 //   - a hire naming no key is placed on a key and bound to it;
 //   - removing the FIRST key moves its agents to another key, like any key,
 //     and its id is never reused;
-//   - MIGRATION 0021: an install from before (row `openrouter-key`, lane
+//   - MIGRATION 0022: an install from before (row `openrouter-key`, lane
 //     `openrouter`, an unbound seat, a seat bound to the lane, turns, usage
 //     history, a mark, spend, the org's default and switched-off list) is
 //     rewritten once to `openrouter-N`, every reference carried, the seats
 //     on the same secret as before; a second run changes nothing.
-// RED: an engine without migration 0021 leaves `openrouter-key` in place
+// RED: an engine without migration 0022 leaves `openrouter-key` in place
 // (the first migration check fails), and lists it with `original: true`.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/openrouter-numbered-keys.mjs
 
@@ -22,7 +22,7 @@ import path from 'node:path'
 import { Proof } from '../proof.mjs'
 
 const TIER = 'or-rig-fake-model'
-const MIGRATION = '0021_openrouter_numbered_keys'
+const MIGRATION = '0022_openrouter_numbered_keys'
 const ONE = { label: 'rig key one', limit: 25, limit_remaining: 16.51, limit_reset: 'monthly', usage: 8.49, usage_daily: 0.5,
               usage_weekly: 1, usage_monthly: 8.49, is_free_tier: false, total_credits: 30, total_usage: 11.43 }
 
@@ -81,7 +81,7 @@ export default async function (rig) {
   p.check('a hire naming no key is placed on a key and bound to it', /^openrouter-[12]$/.test(seat(rig, 'una').account ?? ''),
     seat(rig, 'una').account)
 
-  // ---------------------------------------------------------------- migration 0021 on a legacy install
+  // ---------------------------------------------------------------- migration 0022 on a legacy install
   // Rewrite this disposable database to the state a 4.3.0-alpha.3 install
   // has: the first key's row `openrouter-key` (placeholder label), named by
   // the lane `openrouter`; one seat unbound, one bound to the lane.
@@ -149,6 +149,6 @@ export default async function (rig) {
   const third = await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-THR333' })
   p.check('a removed id is never reused: the next key is openrouter-3', third.added === 'openrouter-3', third.added)
   p.check('no response carries a secret', !JSON.stringify([doc, added, removed, third]).includes('sk-or-rig-not-a-real-key'))
-  p.keep(rig, { agents: ['una', 'bea', 'kit'], grep: /openrouter|0021/ })
+  p.keep(rig, { agents: ['una', 'bea', 'kit'], grep: /openrouter|0022/ })
   return p.summary()
 }

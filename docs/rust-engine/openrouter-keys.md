@@ -7,7 +7,7 @@ Rulings:
 - User, 2026-10-11 22:50Z: every key can be switched off on its own.
 - Coordinator: compatibility of ids and lanes (superseded below).
 - User, 2026-10-14 18:00Z (docket `openrouter-keys-are-all-equal-no-unnumbered-prim`): every key
-  is alike. No key is the original or the primary; every id is numbered. Migration 0021 renumbers
+  is alike. No key is the original or the primary; every id is numbered. Migration 0022 renumbers
   the old first key.
 
 ## Model
@@ -29,7 +29,7 @@ registry order (`ord`, the order keys were added unless reordered), then the num
 naming no key (omitted, or the picker's `default`) is placed by the placement balancing
 (`org_accounts::best_allowed`) and bound to the key it lands on.
 
-**Migration 0021** (`migrations/0021_openrouter_numbered_keys.sql`, runs once, a no-op without an
+**Migration 0022** (`migrations/0022_openrouter_numbered_keys.sql`, runs once, a no-op without an
 `openrouter-key` row): the old first key `openrouter-key` (lane `openrouter`) becomes
 `openrouter-1`, or the next number nobody used if 1 was taken. Every column of the row is copied
 (its placeholder label "OpenRouter" dropped, it stays first in the key list) and its secret moves

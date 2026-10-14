@@ -599,7 +599,7 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   row (provider `openrouter`, kind `apikey`, secret in `ot.account_secrets`), id
   `openrouter-N` (N from 1, never reused); a key's lane is its id. **No key is special**
   (user 2026-10-14 18:00Z): never special-case a key's id, never add an "original" or
-  "primary" key. Migration 0021 renumbered the old first key (`openrouter-key`, lane
+  "primary" key. Migration 0022 renumbered the old first key (`openrouter-key`, lane
   `openrouter`) to `openrouter-1` with every reference, and bound its unbound seats. The one
   symmetric default: a seat with no OpenRouter key bound bills the first key in the key
   list (`openrouter::first_key`: `ord`, then N); a hire naming none is placed by

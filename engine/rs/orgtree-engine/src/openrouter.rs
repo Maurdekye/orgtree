@@ -39,7 +39,7 @@ static CATALOG: LazyLock<ArcSwap<Catalog>> = LazyLock::new(|| ArcSwap::from_poin
 // special (user 2026-10-14 18:00Z, docket
 // openrouter-keys-are-all-equal-no-unnumbered-prim). Builds up to
 // 4.3.0-alpha.3 kept a first key `openrouter-key` with the lane `openrouter`;
-// migration 0021 renumbers it. A seat with no OpenRouter key bound bills the
+// migration 0022 renumbers it. A seat with no OpenRouter key bound bills the
 // first key in the key list (`keys`).
 
 /// The longest name a key may be given.
