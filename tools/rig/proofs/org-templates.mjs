@@ -148,6 +148,7 @@ export default async function (rig) {
     shotApp.ok && ['devteam-claude.json', 'devteam-codex.json'].every((f) => fs.existsSync(path.join(tpDir, f)))
       && /restored 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
   const pop = await rig.api('POST', '/api/templates/populate')
-  p.check('restoring again changes nothing (all three files already present)', pop.created.length === 0 && pop.existing.length === 3, pop)
+  p.check('restoring again changes nothing (all four default files already present: Claude, Codex, Muse, Antigravity)', pop.created.length === 0
+    && pop.existing.length === 4 && pop.existing.includes('devteam-antigravity.json'), pop)
   return p.summary()
 }
