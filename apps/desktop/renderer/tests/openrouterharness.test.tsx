@@ -257,8 +257,9 @@ test('§6 App settings › Harnesses lists the registry, installed or not, and t
     const text = (view.el.textContent ?? '').replace(/\s+/g, ' ')
     assert.match(text, /Claude Code · installed/)
     assert.match(text, /opencode · not installed/, 'a registry entry appears with nothing named in the renderer')
-    assert.match(text, /Runs agents on: Claude, OpenRouter/)
-    assert.match(text, /Install: Install Claude Code\. https:\/\/code\.claude\.com/)
+    assert.doesNotMatch(text, /Runs agents on:|Install:|Anthropic's coding agent/)
+    assert.match(text, /version unknown/)
+    assert.equal(view.el.querySelector('a'), null, 'installed rows have no install link; absent null URL stays absent')
     const opened: string[] = []
     const w = (globalThis as unknown as { window: Window }).window
     const on = (e: Event) => opened.push((e as CustomEvent<{ tab: string }>).detail.tab)

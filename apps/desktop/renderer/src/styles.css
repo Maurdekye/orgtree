@@ -8591,8 +8591,13 @@ main:has(> .orgbar.native-header) > .error {
 .harness-help-link { background: none; border: 0; padding: 0; font: inherit; font-size: 12px;
   color: var(--agent-accent-text, var(--accent)); cursor: pointer; text-decoration: underline; align-self: flex-start; }
 .harness-intro { margin: 4px 0 10px; }
-.harness-list { display: flex; flex-direction: column; gap: 12px; }
-.harness-entry { display: flex; flex-direction: column; gap: 2px; }
+.harness-list { display: flex; flex-direction: column; gap: 8px; }
+.harness-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 4px 0; }
+.harness-head { flex: 1 1 190px; }
+.harness-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.harness-tags:empty { display: none; }
+.harness-tag { font-size: 11px; color: var(--dim); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+.harness-detail { margin-left: auto; overflow-wrap: anywhere; }
 .harness-installed { color: var(--ok, inherit); }
 /* a picker's not-installed harnesses and its separator: greyed, never chosen */
 option.harness-absent, option.harness-sep { color: var(--dim); }

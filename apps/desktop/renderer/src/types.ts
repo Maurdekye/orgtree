@@ -1443,6 +1443,8 @@ export interface HarnessInfo {
   name: string
   what: string
   installed: boolean
+  /** Cached CLI discovery; older engines may omit it. */
+  version?: string | null
   /** chosen per OpenRouter key, language server and hire (else it runs its
    *  own provider's agents only) */
   selectable: boolean

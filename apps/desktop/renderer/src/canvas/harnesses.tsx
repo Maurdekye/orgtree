@@ -1,9 +1,9 @@
 // canvas/harnesses.tsx — App settings › Harnesses (user 2026-10-13: "document
 // the full harness list in the app", placed in App settings by the
 // coordinator, there being no Help surface). Every harness the engine knows,
-// from its one registry (GET /api/harnesses, engine `harnesses.rs`): what it
-// is, whether it is installed on this computer, the providers whose agents it
-// runs and how to install it. A harness added to the registry (opencode)
+// from its one registry (GET /api/harnesses, engine `harnesses.rs`): installed
+// state, cached version, compatibility tags and a missing-only install link.
+// A harness added to the registry
 // appears here with nothing to change in this file.
 //
 // `HarnessesLink` is the "Which harnesses are supported?" link every harness
@@ -68,24 +68,27 @@ export function HarnessesSection({ active }: { active: boolean }) {
       else setErr('the engine did not list its harnesses')
     }).catch((e: Error) => setErr(e.message))
   }, [active])
-  return <SetGroup title="Harnesses" note=" · the CLIs that run agents">
-    <p className="dim harness-intro">A harness is the command-line agent an Orgtree agent runs in. Where
-      you choose one (an OpenRouter key, a language server, a hire), only the harnesses installed on this
-      computer are offered.</p>
+  return <SetGroup title="Harnesses">
+    <p className="dim harness-intro">Tags show where else a harness can be used.</p>
     {err && <div className="ask-warn" role="alert">could not read the harnesses: {err}</div>}
     {!doc && !err && <div className="dim">reading the harnesses…</div>}
     {doc && <div className="harness-list" role="list">
-      {doc.harnesses.map((h) => <div className="harness-entry" role="listitem" key={h.id}>
+      {doc.harnesses.map((h) => <div className="harness-entry" role="listitem" key={h.id} data-harness={h.id}>
         <div className="harness-head">
           <b>{h.name}</b>
           <span className={h.installed ? 'harness-installed' : 'dim'}>
             {h.installed ? ' · installed' : ' · not installed'}</span>
         </div>
-        <div className="dim">{h.what}</div>
-        <div><span className="dim">Runs agents on: </span>{(h.providers ?? []).map((p) => p.label).join(', ')}
-          {h.selectable ? <span className="dim"> · can be chosen per OpenRouter key, language server and hire</span> : null}</div>
-        <div><span className="dim">Install: </span>{h.install}
-          {h.install_url && <> <a href={h.install_url} target="_blank" rel="noreferrer">{h.install_url}</a></>}</div>
+        <span className="harness-tags">
+          {h.selectable && (h.providers ?? []).some((p) => p.id === 'openrouter')
+            && <span className="harness-tag">OpenRouter</span>}
+          {h.selectable && (h.providers ?? []).some((p) => p.id === 'langserver')
+            && <span className="harness-tag">Language server</span>}
+        </span>
+        <span className="harness-detail">
+          {h.installed ? <span className="dim harness-version">{h.version?.trim() || 'version unknown'}</span>
+            : h.install_url && <a href={h.install_url} target="_blank" rel="noreferrer">How to install</a>}
+        </span>
       </div>)}
     </div>}
   </SetGroup>
