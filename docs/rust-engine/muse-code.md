@@ -58,6 +58,13 @@ directly), **untested**.
 - 2026-10-14 16:39Z: the user removed the long warning paragraph next to the
   Muse provider, superseding the October13 request to show it in Providers.
   The documented runtime posture and ordinary sign-in/error statuses remain.
+  Round436 measured 11/11 focused renderer cases; restoring the old card
+  fails only the paragraph-removal case (10/11). Root typecheck exits0;
+  the src+tests config has the same825 baseline errors, none in changed files.
+  All eight offscreen before/after captures were checked at desktop/narrow
+  sizes in dark/light: Muse height486.8→400.0px and696.5→556.3px respectively,
+  with no overflow. The short status is covered by the unit test; the visual
+  fixture has no status reason. Installed-app acceptance was not exercised.
 
 ## How the lane runs
 
