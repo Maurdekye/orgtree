@@ -5486,6 +5486,7 @@ svg.MuiSvgIcon-root {
   white-space: nowrap; font-family: var(--mono);
 }
 .tray-frozen { color: var(--ice); font-size: 13px; }
+.tray-halted { color: var(--bad); font-size: 13px; flex: none; }
 /* №13/№26: rows carry the status summary as text; a filter heads the tray */
 .tray-row { flex-direction: column; align-items: stretch; gap: 2px; }
 /* The main line is a real <button> so the row keeps keyboard activation now
@@ -5520,6 +5521,7 @@ svg.MuiSvgIcon-root {
    provider theme (user 2026-09-07 15:32Z) */
 .tray-status-label.compacting { color: var(--warn, #e5c07b); }
 .tray-status-label.blocked { color: var(--bad); }
+.tray-status-label.halted { color: var(--bad); }
 .tray-status-label.done { color: var(--ok); }
 .tray-status-label.idle { color: var(--dim); }
 .tray-status-time {
@@ -5528,6 +5530,7 @@ svg.MuiSvgIcon-root {
 }
 .tray-sum {
   display: flex; align-items: baseline;
+  min-height: 1.4em; line-height: 1.4;
   font-size: 10.5px; color: var(--dim); padding-left: 26px;
   overflow: hidden; white-space: nowrap;
 }

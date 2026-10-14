@@ -679,7 +679,20 @@ export function TrayStatus({ node, turn, live = true }: {
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
     () => ageClockSecond)
   const state = deriveTurnState(node)
-  if (node.halt) return <HaltStatus halt={node.halt} />
+  if (node.halt) {
+    const halt = node.halt
+    const at = halt.phase === 'halted' ? halt.at ?? halt.requested_at : halt.requested_at
+    const label = halt.phase === 'halting' ? 'Halting…' : 'Halted'
+    return <span className="tray-status" role="status" title={halt.phase === 'halting'
+      ? 'Turn admission is blocked; the active turn is still ending'
+      : 'No turn can run. Mail stays unread until explicit unhalt'}>
+      <StopIcon fontSize="inherit" className="tray-halted" titleAccess={label} />
+      <span className="tray-status-label halted">{label}</span>
+      <span className="tray-status-time" title={at ? `${label} since ${fmtStamp(at)}` : undefined}>
+        {at ? ago(at) : '—'}
+      </span>
+    </span>
+  }
   if (isUsageFrozen(node) && node.frozen) return <UsageFreezeStatus frozen={node.frozen} variant="tray" />
   if (state === 'working') {
     return (

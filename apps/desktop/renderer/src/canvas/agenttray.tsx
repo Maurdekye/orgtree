@@ -165,15 +165,15 @@ export function AgentTray({
                 job (`.tray-sum-text` is ellipsis-clipped). The AGE is its own
                 element so the ellipsis eats the summary's tail rather than the
                 one fact beside it that the summary does not contain. */}
-            {stat?.summary && (
-              <div className={'tray-sum' + (stat._stale ? ' stale' : '')}
-                title={stat.summary}>
+              <div className={'tray-sum' + (stat?._stale ? ' stale' : '')}
+                title={stat?.summary || undefined}>
+                {stat?.summary ? <>
                 <span className="tray-sum-text">
                   {stat.status}: <Written text={stat.summary} refs={refs} />
                 </span>
                 {stat.at && <span className="tray-sum-at"> · {ago(stat.at)} ago</span>}
+                </> : <span className="tray-sum-text" aria-hidden="true">&nbsp;</span>}
               </div>
-            )}
           </div>
         )
       })}
