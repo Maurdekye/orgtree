@@ -1,15 +1,16 @@
 // Proof: each OpenRouter key has its own harness (docket
 // openrouter-choose-the-harness-claude-code-codex-p; user 2026-10-13),
 // through the real engine, the fake CLI and canned key checks only:
-//   1. the registry (GET /api/harnesses) and the per-key harness: the
-//      original key is seeded, an added key takes the harness it is given;
+//   1. the registry (GET /api/harnesses) and the per-key harness: the first
+//      key (openrouter-1; every key alike since user 2026-10-14) is seeded,
+//      an added key takes the harness it is given;
 //   2. per-key launch: a seat runs on its key's harness; a hire's explicit
 //      harness pins the seat;
 //   3. turn boundary: a key's harness change reaches its unpinned seats at
 //      their next turn, never mid-turn (a running turn finishes on its CLI),
 //      as a fresh session; a pinned seat is skipped;
-//   4. removal: a removed key's seat moves to the original key and runs on
-//      that key's harness from its next turn;
+//   4. removal: a removed key's seat moves to another key it may run on
+//      (openrouter-1) and runs on that key's harness from its next turn;
 //   5. installed only: with Codex gone, choosing it (key or hire) is refused,
 //      staffing (hire menus, templates, Quick chat) stops offering its keys,
 //      and a seat whose saved harness is Codex refuses to launch saying so,
@@ -66,17 +67,17 @@ export default async function (rig) {
   p.check('control: Claude Code and Codex are installed in this rig (its fake CLI)', byId['claude-code']?.installed && byId['codex-cli']?.installed)
   p.check('the OpenRouter registry supports Claude Code, Codex and OpenCode independently of installation',
     reg.filter((h) => h.selectable && h.providers.some((x) => x.id === 'openrouter')).map((h) => h.id).join() === 'claude-code,codex-cli,opencode')
-  p.check('the original key carries its own harness, seeded Claude Code', (await keyDoc('openrouter-key'))?.harness === 'claude-code',
-    await keyDoc('openrouter-key'))
+  p.check('the first key carries its own harness, seeded Claude Code', (await keyDoc('openrouter-1'))?.harness === 'claude-code',
+    await keyDoc('openrouter-1'))
   p.check('the global harness endpoint is gone', (await refused(rig.api('PUT', '/api/openrouter/harness', { harness: 'codex-cli' }))) !== null)
   await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-TWO222', label: 'team', harness: 'codex-cli' })
   p.check('an added key takes the harness it is given', (await keyDoc('openrouter-2'))?.harness === 'codex-cli', await keyDoc('openrouter-2'))
   p.check('no secret is in the harness storage', !JSON.stringify(rig.sql("SELECT extra::text AS e FROM ot.accounts WHERE provider = 'openrouter'")).includes('not-a-real-key'))
 
   // ------------------------------------------------ 2. per-key launch, pins
-  await rig.op({ op: 'hire', name: 'onone', parent: 'boss', tier: TIER, grant: 1, title: 'on the original key' })
+  await rig.op({ op: 'hire', name: 'onone', parent: 'boss', tier: TIER, grant: 1, title: 'on key one', account: 'openrouter-1' })
   await rig.op({ op: 'hire', name: 'ontwo', parent: 'boss', tier: TIER, grant: 1, title: 'on key two', account: 'openrouter-2' })
-  await rig.op({ op: 'hire', name: 'pinned', parent: 'boss', tier: TIER, grant: 1, title: 'pinned to Claude Code', harness: 'claude-code' })
+  await rig.op({ op: 'hire', name: 'pinned', parent: 'boss', tier: TIER, grant: 1, title: 'pinned to Claude Code', harness: 'claude-code', account: 'openrouter-1' })
   await idle()
   p.check('stamps follow the keys; only the explicit hire is pinned',
     extra('onone').harness === 'claude-code' && !extra('onone').harness_pin
@@ -84,11 +85,11 @@ export default async function (rig) {
     && extra('pinned').harness === 'claude-code' && extra('pinned').harness_pin === true,
     { onone: extra('onone'), ontwo: extra('ontwo'), pinned: extra('pinned') })
   for (const a of ['onone', 'ontwo', 'pinned']) await settle(a, `PROOF-H: first ${a}.`)
-  p.check('a seat on the original key runs Claude Code', starts('onone').length >= 1 && !codexStart(starts('onone').at(-1)), starts('onone').at(-1)?.mode)
+  p.check('a seat on key one runs Claude Code', starts('onone').length >= 1 && !codexStart(starts('onone').at(-1)), starts('onone').at(-1)?.mode)
   p.check('a seat on key two runs Codex (an app-server on key two)', codexStart(starts('ontwo').at(-1))
     && JSON.stringify(starts('ontwo').at(-1)?.args ?? '').includes('app-server'), starts('ontwo').at(-1))
   p.check('control: the pinned seat runs Claude Code', !codexStart(starts('pinned').at(-1)))
-  p.check('the original key counts one pinned seat', (await keyDoc('openrouter-key'))?.pinned_seats === 1, (await keyDoc('openrouter-key'))?.pinned_seats)
+  p.check('key one counts one pinned seat', (await keyDoc('openrouter-1'))?.pinned_seats === 1, (await keyDoc('openrouter-1'))?.pinned_seats)
   p.check('a hire naming a harness OpenRouter cannot use is refused',
     (await refused(rig.op({ op: 'hire', name: 'badh', parent: 'boss', tier: TIER, grant: 1, title: 'x', harness: 'antigravity' }))) !== null)
 
@@ -99,8 +100,8 @@ export default async function (rig) {
   const nLong = rig.turns('onone').filter((t) => t.ended_at).length
   await rig.userMail('onone', 'PROOF-LONG: a long turn.')
   await rig.waitFor(() => rig.fakeLog('onone').some((l) => l.step?.sleep_ms), { what: 'onone to be mid-turn' })
-  await rig.api('PUT', '/api/openrouter/keys/openrouter-key', { harness: 'codex-cli' })
-  p.check('control: the original key now runs Codex', (await keyDoc('openrouter-key'))?.harness === 'codex-cli')
+  await rig.api('PUT', '/api/openrouter/keys/openrouter-1', { harness: 'codex-cli' })
+  p.check('control: key one now runs Codex', (await keyDoc('openrouter-1'))?.harness === 'codex-cli')
   await rig.waitTurns('onone', nLong + 1)
   const longTurn = rig.turns('onone').at(-1)
   p.check('the running turn finished on its own CLI: no new start, no kill, its text complete',
@@ -124,14 +125,14 @@ export default async function (rig) {
   p.check('control: after the switch, a turn with nothing changed reuses the Codex CLI', starts('onone').length === o0 + 1)
 
   // ------------------------------------------------ 4. removal moves a seat onto the destination key's harness
-  await rig.api('PUT', '/api/openrouter/keys/openrouter-key', { harness: 'claude-code' })
+  await rig.api('PUT', '/api/openrouter/keys/openrouter-1', { harness: 'claude-code' })
   const t0 = starts('ontwo').length
   await rig.api('DELETE', '/api/openrouter/keys/openrouter-2')
   await idle()
   const moved = rig.one("SELECT account FROM ot.agents WHERE name = 'ontwo' AND state = 'live'")
-  p.check('control: the removed key\'s seat moved to the original key', moved && (moved.account == null || moved.account === 'primary'), moved)
+  p.check('control: the removed key\'s seat moved to another key it may run on (openrouter-1)', moved && moved.account === 'openrouter-1', moved)
   await settle('ontwo', 'PROOF-H: after its key was removed.')
-  p.check('its next turn runs the original key\'s harness (Claude Code) on a fresh session',
+  p.check('its next turn runs key one\'s harness (Claude Code) on a fresh session',
     starts('ontwo').length === t0 + 1 && !codexStart(starts('ontwo').at(-1)) && sessionsEnded('ontwo', 'harness switch') === 1
     && extra('ontwo').harness === 'claude-code', { starts: starts('ontwo').length, t0, extra: extra('ontwo') })
 
@@ -162,13 +163,13 @@ export default async function (rig) {
     p.check('the key whose harness is Codex says it is not installed', doc.keys.find((k) => k.id === 'openrouter-3')?.harness_installed === false
       && doc.keys.find((k) => k.id === 'openrouter-3')?.harness === 'codex-cli', doc.keys.find((k) => k.id === 'openrouter-3'))
     const o2 = await offer()
-    const want = doc.keys.filter((k) => !k.original && k.harness_installed).map((k) => k.id).sort()
+    const want = doc.keys.filter((k) => k.harness_installed).map((k) => k.id).sort()
     p.check('staffing offers only the keys whose harness is installed (key three is not)',
       !offered(o2).includes('openrouter-3') && JSON.stringify(offered(o2).sort()) === JSON.stringify(want), { offered: offered(o2), want })
-    const orig = doc.keys.find((k) => k.original)
-    p.check('a hire naming no key is offered only while the original key’s harness is installed',
-      (o2?.default_ok ?? false) === (orig.harness_installed && orig.enabled), { default_ok: o2?.default_ok, orig: { harness: orig.harness, installed: orig.harness_installed } })
-    p.check('choosing Codex for a key is refused', (await refused(rig.api('PUT', '/api/openrouter/keys/openrouter-key', { harness: 'codex-cli' }))) === 400)
+    const placeable = doc.keys.some((k) => k.harness_installed && k.enabled)
+    p.check('a hire naming no key is offered while any key it could be placed on has its harness installed',
+      (o2?.default_ok ?? false) === placeable, { default_ok: o2?.default_ok, keys: doc.keys.map((k) => [k.id, k.harness, k.harness_installed]) })
+    p.check('choosing Codex for a key is refused', (await refused(rig.api('PUT', '/api/openrouter/keys/openrouter-1', { harness: 'codex-cli' }))) === 400)
     p.check('adding a key on Codex is refused', (await refused(rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-FOUR44', harness: 'codex-cli' }))) === 400)
     p.check('a hire pinned to Codex is refused',
       (await refused(rig.op({ op: 'hire', name: 'nocodex', parent: 'boss', tier: TIER, grant: 1, title: 'x', harness: 'codex-cli' }))) !== null)
@@ -189,13 +190,13 @@ export default async function (rig) {
   // ------------------------------------------------ 6. migration at the next start
   await idle()
   rig.exec(`UPDATE ot.kv SET value = jsonb_set(value, '{openrouter,harness}', '"codex-cli"') WHERE key = 'app_settings';
-            UPDATE ot.accounts SET extra = extra - 'harness' WHERE id = 'openrouter-key';
+            UPDATE ot.accounts SET extra = extra - 'harness' WHERE id = 'openrouter-1';
             UPDATE ot.agents SET extra = extra - 'harness_pin' || '{"harness":"claude-code"}' WHERE name = 'onone';
             UPDATE ot.agents SET extra = extra - 'harness_pin' || '{"harness":"codex-cli"}' WHERE name = 'pinned';
             DELETE FROM ot.meta WHERE key = 'openrouter_harness_per_key_v1';`)
   await rig.restart()
-  await rig.waitFor(async () => (await keyDoc('openrouter-key'))?.harness, { what: 'the keys after the restart', timeout: 60000 })
-  p.check('a key stored without a harness takes the old global value', (await keyDoc('openrouter-key'))?.harness === 'codex-cli')
+  await rig.waitFor(async () => (await keyDoc('openrouter-1'))?.harness, { what: 'the keys after the restart', timeout: 60000 })
+  p.check('a key stored without a harness takes the old global value', (await keyDoc('openrouter-1'))?.harness === 'codex-cli')
   p.check('a seat whose stamp differs from its key\'s is pinned to it (the upgrade moves no seat)',
     extra('onone').harness === 'claude-code' && extra('onone').harness_pin === true, extra('onone'))
   p.check('a seat whose stamp matches its key\'s is left to follow it', extra('pinned').harness === 'codex-cli' && !extra('pinned').harness_pin, extra('pinned'))

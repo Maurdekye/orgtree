@@ -1,21 +1,21 @@
 // Proof: several OpenRouter keys at once (docket use-several-openrouter-keys-at-once,
 // rulings 2026-10-11 22:35Z and 22:50Z), through the real engine with the
 // gateway scripted (rig mode's canned key checks: rig-home\rig-usage\
-// openrouter-key.json for the original key, openrouter-key@openrouter-2.json
-// for the added one):
-//   - the 3.x key carried over is the ORIGINAL key: lane `openrouter`;
+// openrouter-key.json for any key without its own file,
+// openrouter-key@openrouter-2.json for the second). Every key is alike
+// (user 2026-10-14 18:00Z): numbered ids, no original or primary key.
+//   - the 3.x key carried over is openrouter-1, lane its id;
 //   - a second key is added with a name: `openrouter-2`, lane its id; the same
 //     secret again is refused; the panel lists both, secret-free;
-//   - each key's usage is its own reading, under its lane, with the shared
-//     "account balance" wording; the account pickers offer the added key, the
-//     original stays `default`;
-//   - an agent bound to openrouter-2 launches with THAT key, an unbound one
-//     with the original (the fake CLI logs the key's last 6 characters);
+//   - each key's usage is its own reading, under its id, with the shared
+//     "account balance" wording; the account pickers offer both keys;
+//   - an agent bound to openrouter-2 launches with THAT key, one bound to
+//     openrouter-1 with key one (the fake CLI logs the key's last 6 characters);
 //   - per key app-wide switch: openrouter-2 off → its lane reads disabled in
 //     Org settings, its agent's turn does not run; on again → it runs;
 //   - per org: the org switches openrouter-2 off → a hire naming it is refused;
-//   - removing openrouter-2 moves its agent to the original key; the next
-//     added key is openrouter-3 (ids are never reused);
+//   - removing openrouter-2 moves its agent to another key it may run on
+//     (openrouter-1); the next added key is openrouter-3 (ids are never reused);
 //   - the agents' PROVIDER USAGE board names each key once, under its lane.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/openrouter-keys.mjs
 
@@ -58,11 +58,11 @@ export default async function (rig) {
   const p = new Proof('openrouter-keys')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
 
-  // ---------------------------------------------------------------- the original key
+  // ---------------------------------------------------------------- the first key
   let doc = await rig.api('GET', '/api/openrouter?force=true')
   const k0 = doc.keys ?? []
-  p.check('the 3.x key is the original key: id openrouter-key, lane openrouter, connected', k0.length === 1
-    && k0[0].id === 'openrouter-key' && k0[0].lane === 'openrouter' && k0[0].original === true && doc.connected === true,
+  p.check('the 3.x key is openrouter-1, lane its id, connected, nothing marks it special', k0.length === 1
+    && k0[0].id === 'openrouter-1' && k0[0].lane === 'openrouter-1' && !('original' in k0[0]) && doc.connected === true,
     k0.map((k) => ({ id: k.id, lane: k.lane, original: k.original })))
 
   // ---------------------------------------------------------------- add a second key
@@ -73,39 +73,41 @@ export default async function (rig) {
   p.check('no response carries a secret', !JSON.stringify(added).includes('sk-or-rig-not-a-real-key'))
   p.check('the same secret again is refused (409)',
     await refused(rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-TWO222' })) === 409)
-  p.check('a secret stored as the original is refused as an added key too (409)',
+  p.check('a secret stored as openrouter-1 is refused as another key too (409)',
     await refused(rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-ONE111' })) === 409)
 
   // ---------------------------------------------------------------- per-key usage
   await rig.api('GET', '/api/openrouter/usage?force=true')
   const usage = await rig.waitFor(async () => {
     const u = await rig.api('GET', '/api/openrouter/keys/usage')
-    return u?.openrouter?.available && u?.['openrouter-2']?.available ? u : null
+    return u?.['openrouter-1']?.available && u?.['openrouter-2']?.available ? u : null
   }, { what: 'both keys to be read', timeout: 30000 }).catch(() => null)
   const lbl = (u) => (u?.limits ?? []).map((l) => l.label).join(' | ')
-  p.check('each key has its own reading under its lane', !!usage && lbl(usage.openrouter).includes('$8.49 of $25.00')
-    && lbl(usage['openrouter-2']).includes('$3.00 of $10.00'), usage && { openrouter: lbl(usage.openrouter), 'openrouter-2': lbl(usage['openrouter-2']) })
+  p.check('each key has its own reading under its id', !!usage && lbl(usage['openrouter-1']).includes('$8.49 of $25.00')
+    && lbl(usage['openrouter-2']).includes('$3.00 of $10.00'), usage && { 'openrouter-1': lbl(usage['openrouter-1']), 'openrouter-2': lbl(usage['openrouter-2']) })
   p.check('both rows name the shared balance "account balance"', !!usage
-    && lbl(usage.openrouter).includes('$18.57 account balance') && lbl(usage['openrouter-2']).includes('$18.57 account balance'))
+    && lbl(usage['openrouter-1']).includes('$18.57 account balance') && lbl(usage['openrouter-2']).includes('$18.57 account balance'))
   const hist = rig.sql(`SELECT DISTINCT account FROM ot.usage_history WHERE provider = 'openrouter' ORDER BY 1`).map((r) => r.account)
-  p.check('usage history is recorded per lane', hist.includes('openrouter') && hist.includes('openrouter-2'), hist)
+  p.check('usage history is recorded per key id', hist.includes('openrouter-1') && hist.includes('openrouter-2')
+    && !hist.includes('openrouter'), hist)
 
   // ---------------------------------------------------------------- pickers
   const accts = await rig.api('GET', `/api/accounts?org=${rig.org}`)
   const ids = (accts.accounts ?? []).map((a) => a.id)
-  p.check('the account pickers offer the added key; the original stays default (no row)',
-    ids.includes('openrouter-2') && !ids.includes('openrouter-key'), ids)
+  p.check('the account pickers offer every key alike',
+    ids.includes('openrouter-1') && ids.includes('openrouter-2') && !ids.includes('openrouter-key'), ids)
   const opts = await rig.api('GET', `/api/orgs/${rig.org}/staffing-options`)
   const orTier = (opts.tiers ?? []).find((t) => t.tier === TIER)
-  p.check('staffing options: the OpenRouter tier lists openrouter-2 by name and the original as default_ok', !!orTier
-    && orTier.default_ok === true && (orTier.accounts ?? []).some((a) => a.id === 'openrouter-2' && a.label === 'team'), orTier)
+  p.check('staffing options: the OpenRouter tier lists both keys (openrouter-2 by its name), default_ok places one', !!orTier
+    && orTier.default_ok === true && (orTier.accounts ?? []).some((a) => a.id === 'openrouter-2' && a.label === 'team')
+    && (orTier.accounts ?? []).some((a) => a.id === 'openrouter-1'), orTier)
 
   // ---------------------------------------------------------------- per-seat key routing
   await rig.op({ op: 'hire', name: 'keytwo', parent: 'boss', tier: TIER, grant: 1, title: 'on key two', account: 'openrouter-2' })
-  await rig.op({ op: 'hire', name: 'keyone', parent: 'boss', tier: TIER, grant: 1, title: 'on the original key' })
+  await rig.op({ op: 'hire', name: 'keyone', parent: 'boss', tier: TIER, grant: 1, title: 'on key one', account: 'openrouter-1' })
   const account = (name) => rig.one(`SELECT account FROM ot.agents WHERE name = '${name}' AND state = 'live'`)?.account
-  p.check('bindings: keytwo on openrouter-2, keyone unbound (the original)',
-    account('keytwo') === 'openrouter-2' && account('keyone') == null,
+  p.check('bindings: keytwo on openrouter-2, keyone on openrouter-1',
+    account('keytwo') === 'openrouter-2' && account('keyone') === 'openrouter-1',
     { keytwo: account('keytwo'), keyone: account('keyone') })
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'hire turns to settle', timeout: 60000 })
   for (const a of ['keytwo', 'keyone']) {
@@ -116,14 +118,15 @@ export default async function (rig) {
   const tail = (a) => startEnv(starts(rig, a).at(-1) ?? {})
   p.check('keytwo launched with key two, against OpenRouter', tail('keytwo').auth_token_tail === 'TWO222'
     && /openrouter\.ai/.test(String(tail('keytwo').ANTHROPIC_BASE_URL)), tail('keytwo'))
-  p.check('keyone launched with the original key', tail('keyone').auth_token_tail === 'ONE111', tail('keyone'))
+  p.check('keyone launched with key one', tail('keyone').auth_token_tail === 'ONE111', tail('keyone'))
 
   // ---------------------------------------------------------------- the board
   const turn = rig.fakeLog('keytwo').filter((l) => l.kind === 'turn' || l.prompt).at(-1)
   const prompt = String(turn?.prompt ?? turn?.data?.prompt ?? '')
   const roster = (prompt.match(/\[ACCOUNTS\][^\n]*/) ?? [''])[0]
-  p.check('the PROVIDER USAGE board lists each key once under its lane, keytwo starred on openrouter-2',
-    /openrouter-2\*/.test(prompt) && /(\] |· )openrouter( |$|·)/.test(roster + ' ') && roster.includes('openrouter-2')
+  p.check('the PROVIDER USAGE board lists each key once under its id, keytwo starred on openrouter-2',
+    /openrouter-2\*/.test(prompt) && roster.includes('openrouter-1') && roster.includes('openrouter-2')
+    && !/(\] |· )openrouter( |$|·)/.test(roster + ' ')
     && !roster.includes('openrouter-key (API key, metered)'), roster)
 
   // ---------------------------------------------------------------- per-key app-wide switch
@@ -133,8 +136,8 @@ export default async function (rig) {
   p.check('switched off app-wide: the org lane reads enabled=false with the reason, still allowed by the org', l2?.enabled === false
     && /inactive/.test(String(l2?.disabled_reason)) && l2?.allowed === true, l2)
   doc = await rig.api('GET', '/api/openrouter')
-  p.check('the panel shows openrouter-2 inactive, the original active', (doc.keys ?? []).find((k) => k.id === 'openrouter-2')?.enabled === false
-    && (doc.keys ?? []).find((k) => k.original)?.enabled === true)
+  p.check('the panel shows openrouter-2 inactive, openrouter-1 active', (doc.keys ?? []).find((k) => k.id === 'openrouter-2')?.enabled === false
+    && (doc.keys ?? []).find((k) => k.id === 'openrouter-1')?.enabled === true)
   const before = rig.turns('keytwo').length
   await rig.userMail('keytwo', 'PROOF-KEYS: while inactive.')
   await new Promise((r) => setTimeout(r, 6000))
@@ -155,7 +158,7 @@ export default async function (rig) {
   p.check('the org switched openrouter-2 off: a hire naming it is refused (409)',
     await refused(rig.op({ op: 'hire', name: 'nokey', parent: 'boss', tier: TIER, grant: 1, account: 'openrouter-2' })) === 409)
   lanes = (await rig.api('GET', `/api/orgs/${rig.org}/accounts-allowed`)).accounts ?? []
-  p.check('the org list shows one tick per key', lanes.filter((l) => l.provider === 'openrouter').map((l) => l.id).join(',') === 'openrouter,openrouter-2',
+  p.check('the org list shows one tick per key', lanes.filter((l) => l.provider === 'openrouter').map((l) => l.id).join(',') === 'openrouter-1,openrouter-2',
     lanes.filter((l) => l.provider === 'openrouter'))
   const revoked = lanes.find((l) => l.id === 'openrouter-2')
   p.check('org-revoked: allowed=false while app-wide enabled stays true', revoked?.allowed === false && revoked?.enabled === true, revoked)
@@ -166,16 +169,16 @@ export default async function (rig) {
   // ---------------------------------------------------------------- removal
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'turns to settle', timeout: 60000 })
   const removed = await rig.api('DELETE', '/api/openrouter/keys/openrouter-2')
-  p.check('removing openrouter-2 moves keytwo to the original key', account('keytwo') == null
+  p.check('removing openrouter-2 moves keytwo to another key it may run on (openrouter-1)', account('keytwo') === 'openrouter-1'
     && (removed.removed?.rebound ?? []).some((r) => r.node === 'keytwo'), { account: account('keytwo'), rebound: removed.removed?.rebound })
-  p.check('the panel lists the original key only', (removed.keys ?? []).map((k) => k.id).join(',') === 'openrouter-key')
+  p.check('the panel lists openrouter-1 only', (removed.keys ?? []).map((k) => k.id).join(',') === 'openrouter-1')
   const again = await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-THREE3' })
   p.check('the next added key is openrouter-3 (a removed id is never reused) and is named "OpenRouter key 2" or its own label',
     again.added === 'openrouter-3', { added: again.added, keys: (again.keys ?? []).map((k) => [k.id, k.name]) })
   const n = rig.turns('keytwo').filter((t) => t.ended_at).length
   await rig.userMail('keytwo', 'PROOF-KEYS: after removal.')
   await rig.waitTurns('keytwo', n + 1)
-  p.check('keytwo runs on the original key after the removal', tail('keytwo').auth_token_tail === 'ONE111', tail('keytwo'))
+  p.check('keytwo runs on key one after the removal', tail('keytwo').auth_token_tail === 'ONE111', tail('keytwo'))
 
   const alive = await rig.api('GET', '/api/app/records').then(() => true, () => false)
   p.check('the engine still answers', alive)

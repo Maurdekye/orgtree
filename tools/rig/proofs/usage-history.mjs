@@ -84,7 +84,7 @@ function seedRows(A, B) {
   // OpenRouter: a prepaid balance spent from $25.00 to $18.57
   for (let m = WEEK; m >= 5; m -= 60) {
     if (engineOff(m)) continue
-    row(m, 'openrouter', 'openrouter', 'credits', { grp: '', amount: +(25 - 6.43 * (WEEK - m) / WEEK).toFixed(2), unit: 'USD' })
+    row(m, 'openrouter-1', 'openrouter', 'credits', { grp: '', amount: +(25 - 6.43 * (WEEK - m) / WEEK).toFixed(2), unit: 'USD' })
   }
   return rows
 }
@@ -141,7 +141,7 @@ export default async function (rig) {
   p.check("7d: B's unavailable span is sent as availability changes",
     week.states.some(s => s.account === B && s.state === 'unavailable' && /401/.test(s.detail ?? ''))
     && week.states.filter(s => s.account === B).at(-1)?.state === 'ok', week.states)
-  const orr = find('openrouter', 'credits')
+  const orr = find('openrouter-1', 'credits')
   p.check('7d: the OpenRouter balance is an amount in USD', orr?.kind === 'amount' && orr.unit === 'USD', orr && { kind: orr.kind, unit: orr.unit, latest: orr.latest })
   const day = await rig.api('GET', '/api/usage/history?range=24h')
   p.check('24h: 5-minute buckets, session resets in the period', day.bucket_s === 300
@@ -188,7 +188,7 @@ export default async function (rig) {
   const after = await rig.api('GET', '/api/usage/history?range=7d')
   const accts = new Set(after.series.map(s => s.account))
   p.check('route: the history now has every account (seeded and recorded)',
-    ['claude/primary', 'openai/primary', 'google/primary', B, C, D, 'openrouter'].every(a => accts.has(a)), [...accts])
+    ['claude/primary', 'openai/primary', 'google/primary', B, C, D, 'openrouter-1'].every(a => accts.has(a)), [...accts])
   const primaryLabel = after.series.find(s => s.account === 'openai/primary')?.account_label
   p.check('route: a default sign-in is named by its email, not its id', primaryLabel === 'rig-codex@example.invalid', primaryLabel)
   p.note('recorded', { C, D, recorded })

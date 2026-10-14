@@ -114,8 +114,10 @@ export default async function (rig) {
   // ---------------------------------------------------------------- a key check with fewer fields
   keyCheck(rig.data, { status: 200, data: { label: 'rig key', usage: 1.5 } })
   const sparse = await rig.api('GET', '/api/openrouter?force=true').then(v => ({ ok: true, v }), e => ({ ok: false, e: e.message }))
-  p.check('a key check without credit fields: the panel document answers, connected, the missing fields null', sparse.ok
-    && sparse.v.connected === true && sparse.v.credits?.total_credits === null && sparse.v.credits?.usage === 1.5, sparse.ok ? sparse.v.credits : sparse.e)
+  // every key alike (user 2026-10-14): the standing is each key's own row
+  p.check('a key check without credit fields: the panel document answers, its key connected', sparse.ok
+    && sparse.v.connected === true && sparse.v.keys?.[0]?.id === 'openrouter-1' && sparse.v.keys?.[0]?.connected === true,
+    sparse.ok ? sparse.v.keys : sparse.e)
   const alive = await rig.api('GET', '/api/app/records').then(() => true, () => false)
   p.check('the engine still answers after that check', alive)
 

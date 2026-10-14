@@ -9,10 +9,11 @@
 //      while the same key with balance can;
 //   3. a reading's private provider text never reaches the engine log through
 //      the readers, while their safe summary line does;
-//   4. removing the ORIGINAL key reassigns its seats (unbound and bound) to
-//      another key, or freezes a live seat when none is left, clears defaults,
-//      and the usage tool no longer offers the removed lane; an org-first
-//      writer holding the org makes it retry whole (NOWAIT), or refuse unchanged;
+//   4. removing the FIRST key (openrouter-1; every key alike since user
+//      2026-10-14) reassigns its seats (unbound and bound) to another key, or
+//      freezes a live seat when none is left, clears defaults, and the usage
+//      tool no longer offers the removed key; an org-first writer holding the
+//      org makes it retry whole (NOWAIT), or refuse unchanged;
 //   5. on a LATER start (no import), a stored favorite is hireable before the
 //      provider discovery finishes;
 //   6. two replacements with the same secret at once: one succeeds, one is
@@ -151,7 +152,7 @@ export default async function (rig) {
   await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-CAP888' })
   const capped = (await rig.api('GET', '/api/openrouter/keys/usage'))['openrouter-2']?.limits?.[0]
   p.check('control: the capped zero-balance reading is active at 30% of its cap', capped?.is_active === true && capped?.percent === 30, capped)
-  await rig.op({ op: 'hire', name: 'mover', parent: 'boss', tier: TIER, grant: 1, title: 'moves between keys' })
+  await rig.op({ op: 'hire', name: 'mover', parent: 'boss', tier: TIER, grant: 1, title: 'moves between keys', account: 'openrouter-1' })
   await idle()
   const spent = await rig.tool('boss', 'orgtree_continue_on', { node: 'mover', account: 'openrouter-2' })
   p.check('continuing on the capped key with no account balance is refused', spent.ok === false, spent)
@@ -192,14 +193,14 @@ export default async function (rig) {
   const { port, password } = rig.pgConn()
   const blocker = spawn(path.join(rig.run.pgBin, 'psql.exe'), ['-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', String(port),
     '-U', 'orgtree_admin', '-d', 'orgtree_engine', '-c',
-    "BEGIN; SELECT account_id FROM ot.account_secrets WHERE account_id IN ('openrouter-key','openrouter-2') FOR UPDATE; SELECT pg_sleep(2); COMMIT;"],
+    "BEGIN; SELECT account_id FROM ot.account_secrets WHERE account_id IN ('openrouter-1','openrouter-2') FOR UPDATE; SELECT pg_sleep(2); COMMIT;"],
   { env: { ...process.env, PGPASSWORD: password, PGAPPNAME: 'or-proof-lock', PGCONNECT_TIMEOUT: '5' }, windowsHide: true, stdio: 'ignore' })
   const blockerDone = new Promise((resolve, reject) => { blocker.once('error', reject); blocker.once('exit', resolve) })
   try {
     await rig.waitFor(() => rig.one("SELECT wait_event FROM pg_stat_activity WHERE application_name = 'or-proof-lock'")?.wait_event === 'PgSleep',
       { what: 'the blocker to hold the secret rows', timeout: 5000, every: 50 })
     p.check('control: a transaction holds both secret rows', true)
-    const raced = await Promise.allSettled(['openrouter-key', 'openrouter-2'].map((id) =>
+    const raced = await Promise.allSettled(['openrouter-1', 'openrouter-2'].map((id) =>
       rig.api('PUT', `/api/openrouter/keys/${id}`, { key: 'sk-or-rig-not-a-real-key-DUPE77' })))
     const codes = raced.map((r) => r.status === 'fulfilled' ? 200 : r.reason.status)
     p.check('two replacements with the same secret at once: one succeeds, one is refused (409)',
@@ -210,8 +211,8 @@ export default async function (rig) {
   }
   const db = rig.one("SELECT count(*)::integer AS n, count(DISTINCT secret)::integer AS d FROM ot.account_secrets WHERE account_id LIKE 'openrouter%'")
   p.check('every stored key is a distinct secret', db?.n === db?.d && db?.n === 2, db)
-  // the original's tail again (whichever won the race)
-  await rig.api('PUT', '/api/openrouter/keys/openrouter-key', { key: 'sk-or-rig-not-a-real-key-ONE111' }).catch(() => null)
+  // key one's tail again (whichever won the race)
+  await rig.api('PUT', '/api/openrouter/keys/openrouter-1', { key: 'sk-or-rig-not-a-real-key-ONE111' }).catch(() => null)
   await rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-TWO222' }).catch(() => null)
   p.check('control: a sequential duplicate is still refused (409)',
     await refused(rig.api('PUT', '/api/openrouter/keys/openrouter-2', { key: 'sk-or-rig-not-a-real-key-ONE111' })) === 409)
@@ -228,15 +229,18 @@ export default async function (rig) {
   fs.unlinkSync(path.join(rig.fakeDir, 'version-delay-ms'))
   await idle()
 
-  // ------------------------------------------------ 4. removing the original key
-  await rig.op({ op: 'hire', name: 'unbound', parent: 'boss', tier: TIER, grant: 1, title: 'on the original by default' })
-  await rig.op({ op: 'hire', name: 'pinned', parent: 'boss', tier: TIER, grant: 1, title: 'bound to the original', account: 'openrouter-key' })
+  // ------------------------------------------------ 4. removing the first key
+  // A hire naming no key is placed and bound now; an unbound seat (one from
+  // before, or switched to the default) bills the first key: made here.
+  await rig.op({ op: 'hire', name: 'unbound', parent: 'boss', tier: TIER, grant: 1, title: 'on the first key by default', account: 'openrouter-1' })
+  await rig.op({ op: 'hire', name: 'pinned', parent: 'boss', tier: TIER, grant: 1, title: 'bound to the first key', account: 'openrouter-1' })
   await idle()
-  p.check('control: unbound is unbound, pinned is bound to the original',
-    account('unbound')?.account == null && account('pinned')?.account === 'openrouter-key', { unbound: account('unbound'), pinned: account('pinned') })
-  await rig.api('POST', `/api/orgs/${rig.org}/settings`, { default_account: 'openrouter-key' }).catch(() => null)
-  p.check('control: the org default names the original before its removal',
-    rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d === 'openrouter-key')
+  rig.exec("UPDATE ot.agents SET account = NULL WHERE name = 'unbound' AND state = 'live';")
+  p.check('control: unbound is unbound, pinned is bound to the first key',
+    account('unbound')?.account == null && account('pinned')?.account === 'openrouter-1', { unbound: account('unbound'), pinned: account('pinned') })
+  await rig.api('POST', `/api/orgs/${rig.org}/settings`, { default_account: 'openrouter-1' }).catch(() => null)
+  p.check('control: the org default names the first key before its removal',
+    rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d === 'openrouter-1')
   // An org-first writer holding this org FOR NO KEY UPDATE (as folder and
   // settings writes do; it still admits the event rows' key-share checks)
   // while the removal reaches its late default scan: the scan never waits
@@ -251,22 +255,22 @@ export default async function (rig) {
     return { h, done, held: () => rig.waitFor(() => rig.one("SELECT wait_event FROM pg_stat_activity WHERE application_name = 'or-proof-org'")?.wait_event === 'PgSleep',
       { what: 'the org holder to hold the org row', timeout: 5000, every: 20 }) }
   }
-  const retries = () => (rig.engineLog().match(/original OpenRouter key removal conflicted; retrying entire transaction/g) ?? []).length
-  const removedEvents = () => rig.sql("SELECT 1 AS e FROM ot.events WHERE op = 'account_removed' AND detail->>'removed_account' = 'openrouter-key'").length
+  const retries = () => (rig.engineLog().match(/OpenRouter key removal conflicted; retrying entire transaction/g) ?? []).length
+  const removedEvents = () => rig.sql("SELECT 1 AS e FROM ot.events WHERE op = 'account_removed' AND detail->>'removed_account' = 'openrouter-1'").length
   const long = holdOrg(2)
   try {
     await long.held()
     const before = retries()
     const t0 = Date.now()
-    const code = await refused(rig.api('DELETE', '/api/openrouter/keys/openrouter-key'))
+    const code = await refused(rig.api('DELETE', '/api/openrouter/keys/openrouter-1'))
     const ms = Date.now() - t0
-    p.check('while an org-first writer holds the org past the retry budget, removing the original is refused without waiting for it',
+    p.check('while an org-first writer holds the org past the retry budget, removing the first key is refused without waiting for it',
       code != null && ms < 1500, { code, ms })
     p.check('control: the refusal came after the bounded retries (3 logged)', retries() - before === 3, retries() - before)
     p.check('the refused removal changed nothing: key, secret, seats, default and events are as before',
-      rig.one("SELECT 1 AS k FROM ot.accounts a JOIN ot.account_secrets s ON s.account_id = a.id WHERE a.id = 'openrouter-key'") != null
-      && account('unbound')?.account == null && account('pinned')?.account === 'openrouter-key' && removedEvents() === 0
-      && rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d === 'openrouter-key',
+      rig.one("SELECT 1 AS k FROM ot.accounts a JOIN ot.account_secrets s ON s.account_id = a.id WHERE a.id = 'openrouter-1'") != null
+      && account('unbound')?.account == null && account('pinned')?.account === 'openrouter-1' && removedEvents() === 0
+      && rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d === 'openrouter-1',
       { unbound: account('unbound'), pinned: account('pinned'), events: removedEvents() })
     p.check('control: the long holder exits cleanly', (await long.done) === 0)
   } finally {
@@ -277,37 +281,37 @@ export default async function (rig) {
   try {
     await brief.held()
     const before = retries()
-    r1 = await rig.api('DELETE', '/api/openrouter/keys/openrouter-key')
+    r1 = await rig.api('DELETE', '/api/openrouter/keys/openrouter-1')
     p.check('control: a brief org hold made the removal retry at least once', retries() - before >= 1, retries() - before)
     await brief.done
   } finally {
     if (brief.h.exitCode == null) brief.h.kill()
   }
-  p.check('removing the original reassigns its unbound and bound seats to another key',
+  p.check('removing the first key reassigns its unbound and bound seats to another key',
     account('unbound')?.account === 'openrouter-2' && account('pinned')?.account === 'openrouter-2' && account('unbound')?.frozen == null,
     { r1, unbound: account('unbound'), pinned: account('pinned') })
   p.check('the reassignment is recorded per seat',
-    rig.sql("SELECT detail->>'node' AS n FROM ot.events WHERE op = 'account_removed' AND detail->>'removed_account' = 'openrouter-key'").length >= 2)
-  p.check('an org default naming the original is cleared',
+    rig.sql("SELECT detail->>'node' AS n FROM ot.events WHERE op = 'account_removed' AND detail->>'removed_account' = 'openrouter-1'").length >= 2)
+  p.check('an org default naming the removed key is cleared',
     rig.one(`SELECT settings->>'default_account' AS d FROM ot.orgs WHERE slug = '${rig.org}'`)?.d == null)
-  const q = await rig.tool('boss', 'orgtree_usage', { accounts: ['openrouter'], refresh: true })
-  p.check('the usage tool no longer offers the removed original lane', q.ok === false || !JSON.stringify(q).includes('"enabled":true'), q)
+  const q = await rig.tool('boss', 'orgtree_usage', { accounts: ['openrouter-1'], refresh: true })
+  p.check('the usage tool no longer offers the removed key', q.ok === false || !JSON.stringify(q).includes('"enabled":true'), q)
   const n = rig.turns('unbound').filter((t) => t.ended_at).length
-  await rig.userMail('unbound', 'PROOF-FIX: after the original went.')
+  await rig.userMail('unbound', 'PROOF-FIX: after the first key went.')
   await rig.waitTurns('unbound', n + 1)
   p.check('a reassigned seat runs on its new key', tail('unbound') === 'TWO222', { tail: tail('unbound') })
 
   // with no other key it may run on, a live seat freezes, saying so
-  await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-ORIG88' })
-  p.check('control: a key added with none original stored is the original again',
-    rig.one("SELECT id FROM ot.accounts WHERE id = 'openrouter-key'") != null)
-  await rig.op({ op: 'hire', name: 'lonely', parent: 'boss', tier: TIER, grant: 1, title: 'only the original' })
+  const k3 = await rig.api('POST', '/api/openrouter/keys', { key: 'sk-or-rig-not-a-real-key-ORIG88' })
+  p.check('control: a removed id is never reused: the next key is openrouter-3', k3.added === 'openrouter-3'
+    && rig.one("SELECT id FROM ot.accounts WHERE id = 'openrouter-1'") == null, k3.added)
+  await rig.op({ op: 'hire', name: 'lonely', parent: 'boss', tier: TIER, grant: 1, title: 'only key three', account: 'openrouter-3' })
   await idle()
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: ['openrouter-2'] })
-  const r2 = await rig.api('DELETE', '/api/openrouter/keys/openrouter-key')
+  const r2 = await rig.api('DELETE', '/api/openrouter/keys/openrouter-3')
   const lonely = account('lonely')
-  p.check('with no other key the org allows, removing the original freezes the seat, saying so',
-    lonely?.frozen?.cause === 'account' && /original OpenRouter key was removed/.test(lonely?.frozen?.error ?? ''), { r2, lonely })
+  p.check('with no other key the org allows, removing its key freezes the seat, saying so',
+    lonely?.frozen?.cause === 'account' && /OpenRouter key openrouter-3 was removed/.test(lonely?.frozen?.error ?? ''), { r2, lonely })
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: [] })
 
   const alive = await rig.api('GET', '/api/app/records').then(() => true, () => false)

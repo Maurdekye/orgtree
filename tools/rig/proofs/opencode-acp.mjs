@@ -14,7 +14,7 @@ export default async function (rig) {
   const registry = (await rig.api('GET', '/api/harnesses')).harnesses.find(h => h.id === 'opencode')
   p.check('installed ACP harness serves only the two configured provider lanes', registry.selectable
     && registry.providers.map(x => x.id).sort().join() === 'langserver,openrouter', registry)
-  await rig.api('PUT', '/api/openrouter/keys/openrouter-key', { harness: 'opencode' })
+  await rig.api('PUT', '/api/openrouter/keys/openrouter-1', { harness: 'opencode' })
   await rig.op({ op: 'hire', name: 'acp', parent: 'boss', tier: 'or-rig-fake-model', grant: 1,
     title: 'ACP fixture', permission_mode: 'default', tools: { bash: false, edit: true } })
   await rig.userMail('acp', 'ACP initial bridge control')
