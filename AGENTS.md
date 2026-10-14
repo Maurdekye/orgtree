@@ -3,8 +3,12 @@
 - User-history undo/redo and transient toast Undo share `undokeys.ts` chord
   classification; preserve native editing in the event's own document.
   Classification alone never consumes a key. See
-  [history preparation and limits](docs/rust-engine/undo-history-renderer.md).
-  [decided: user/coordinator 2026-10-14; verified from source: `undokeys.ts`, `toasts.tsx`]
+  [renderer history and limits](docs/rust-engine/undo-history-renderer.md).
+  Durable commands outlive toasts, use journal entry IDs, guard pending keys,
+  and mirror worked-hire confirmation in the presentation's own document.
+  Composite canvas hires/reorders and agent settings Save each use one gesture.
+  [decided: user/coordinator 2026-10-14; verified from source: `undokeys.ts`,
+  `toasts.tsx`, `historyui.tsx`, `canvas/{OrgCanvas,modals}.tsx`]
 
 - Desk-slot removal resolves the eligible remaining owner after the React
   commit and before publishing the registry revision. Publishing first lets

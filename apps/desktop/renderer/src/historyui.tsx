@@ -24,6 +24,7 @@ export function useUserHistory(slug: string | null, enabled: boolean, revision: 
   useSyncExternalStore(controller?.subscribe ?? noSubscribe, controller?.getSnapshot ?? emptySnapshot, emptySnapshot)
   useEffect(() => {
     if (!slug || !controller) return
+    controller.activate()
     const unbind = bindHistory(slug, controller)
     void controller.refresh()
     const remove = onLiveBump(() => { void controller.refresh() })
@@ -45,7 +46,12 @@ export function HistorySurface({ controller }: { controller: HistoryController |
     const key = (event: KeyboardEvent) => {
       if (owner.hidden) return
       const direction = historyShortcut(event, owner)
-      if (!direction || !controller.can(direction)) return
+      if (!direction) return
+      // During a command or a confirmation, a repeated shortcut must not
+      // fall through to an older transient toast's unrelated inverse.
+      const current = controller.getSnapshot()
+      if (current.pending || current.confirmation) { event.preventDefault(); return }
+      if (!controller.can(direction)) return
       event.preventDefault(); void controller.run(direction)
     }
     win.addEventListener('keydown', key)

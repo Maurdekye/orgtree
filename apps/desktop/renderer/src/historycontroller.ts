@@ -25,6 +25,13 @@ export class HistoryController {
     for (const fn of [...this.listeners]) fn()
   }
   dispose() { this.alive = false; this.epoch++; this.listeners.clear() }
+  /** Effect setup may follow StrictMode's simulated cleanup on the same
+   * controller. Old requests retain their obsolete epoch. */
+  activate() {
+    if (this.alive) return
+    this.alive = true; this.epoch++; this.refreshPending = false
+    this.set({ pending: false, confirmation: null })
+  }
   async refresh(): Promise<void> {
     if (!this.alive) return
     if (this.value.pending) { this.refreshPending = true; return }

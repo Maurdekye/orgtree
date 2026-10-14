@@ -1,28 +1,39 @@
-# Durable user undo and redo
+# Durable user undo and redo — renderer
 
-Renderer companion; the engine owner maintains the canonical contract in
-`undo-history.md`. Published v1 transport and controller preparation follows
-that contract; API routes are not activated in the app until full wiring.
+The canonical engine contract is [undo-history.md](undo-history.md). User
+2026-10-14 chose per-org history across restarts, redo, and confirmation before
+undoing a hire whose agent has started a turn. The engine retains at most100
+entries/org; windows read only entry summaries, never journal payloads.
 
-User 2026-10-14 chose per-org history across restarts, redo (Ctrl+Y and
-Ctrl/Cmd+Shift+Z), and confirmation before undoing a hire that has taken a turn.
-Engine foundation belongs to `undo-history-engine-foundation-durable-journal-a`;
-renderer and integrated proofs belong to its parent ticket
-`persistent-undo-history-undo-several-move-hire-r`.
+`useUserHistory` binds a per-org controller while the current tree exposes
+`undo_history`. The feed's `undo` revision and existing mutation notifications
+refresh it. Effect cleanup ignores old reads and commands; setup supports
+React's StrictMode remount. The App and its window mirrors share that controller,
+while separate app windows rely on the engine's target-ID transaction guards.
 
-Contract-independent preparation only: `undokeys.ts` shares chord and editor
-classification with the existing toast handler, which still handles Undo only.
-Inputs, editable text, select controls and embedded editors keep native undo
-and redo in their own document. Classification does not consume the event;
-the caller must first establish that its action can be handled.
+`HistorySurface` lives before the transient ToastStack in every presentation.
+Ctrl/Cmd+Z, Ctrl+Y and Ctrl/Cmd+Shift+Z therefore work after a toast disappears.
+`undokeys.ts` preserves editing in the event's own document, including popped
+windows, selects, editable content and embedded editors. Pending commands and
+confirmation block shortcut fallthrough to an older transient inverse. Toast
+buttons carry the committed entry ID and are available only at that undo head.
 
-`historyapi.ts` consumes the engine's published v1 history and gesture shapes.
-Expected history404/409 replies preserve their structured state; unrelated
-requests retain the existing transport failure behavior. `historycontroller.ts`
-guards concurrent commands, stale reads, disposed-org completions and in-flight
-feed refreshes, with worked-hire confirmation and refusal states.
+Worked-hire confirmation opens in the presentation's own document. Cancel sends
+nothing. Confirm retains the token through the dialog's close-before-act path;
+another started turn produces a fresh confirmation. Refusal reports the engine's
+reason; only the next deliberate shortcut reaches an older entry. Oversized
+retire entries use this ordinary refusal path.
 
-Grouped user gestures, actual app shortcut/listener wiring, toast journal-entry
-targeting and the confirmation dialog are not yet connected. The preparation
-does not enable durable history or redo. Per-kind restart/red controls remain
-pending the engine implementation. No runtime or typecheck pass is claimed.
+Canvas side hires use a single gesture with a `$0.node` placement reference;
+superior hires use `hire_type:superior`. Multi-member reorders and agent settings
+Save (model/account plus scope) are each one gesture. No-op answers carry no
+Undo action. Queued-account disclosures and existing provider-reset confirmation
+remain. Old engines without the header retain the preceding UI paths.
+
+Prepared proofs cover controller races/refusals, four action-kind shortcuts,
+StrictMode, worked-hire cancellation/reconfirmation, mirrored native editing,
+structured transport errors, request IDs, actual settings Save/retire and canvas
+side/superior hires. Red controls disable the durable surface and restore the
+pre-change composite UI paths. Engine proofs cover exact inverses, redo clearing,
+conflicts, scope cascades and scratch restart durability. Runtime and typecheck
+results are still pending the combined rig phase; this document claims no pass.
