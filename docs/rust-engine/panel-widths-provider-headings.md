@@ -5,8 +5,12 @@ model-family headers with dim harness names, and an App settings panel about10%
 wider. The latter expressly asks to report remaining tab overflow without
 changing labels or tab styling.
 
-Documents use896CSSpx (formerly560); mail retains560 and inline galleries keep
-their persistent list. Both org and agent gallery modals pass the new threshold.
+Documents use896CSSpx (formerly560). User2026-10-14 23:07UTC subsequently asked
+inbox to collapse at that same width: `NARROW_MAILER_WIDTH` now aliases
+`NARROW_DOCS_WIDTH`, replacing mail's560px boundary. Both use the same overlay
+list behavior, at or below896CSSpx of the `.mailer` reading box; wider boxes
+keep two panes. The org and agent presentation modals retain896px. Inline desk
+mail and galleries keep their persistent lists because they do not opt in.
 Settings now use791px (formerly660/726/783), scoped to `.settings.acct-panel`,
 with the94vw cap and pinned-window sizing retained. This follows the user's
 20:15UTC ruling to widen until the whole desktop tab row fits and the coordinator's
@@ -18,6 +22,16 @@ fallback, status, IDs and controls retain their existing behavior. OpenRouter's
 subtitle is REST API; per-key actual harness labels remain.
 
 ## Measured evidence and limits
+
+The inbox alignment is a later source hand-in; the Rig439 results below are
+historical evidence for the earlier document-only change. The updated
+`gallery.test.tsx` covers org and agent presentation modals, the default inbox
+layout, and inline opt-outs at895/896/897px, plus700/1000px and the former
+559/560/561px boundary. It checks the rail and retained list DOM through a
+resize round trip. Widths are explicit jsdom/ResizeObserver inputs, not real
+window geometry. Tests-only predecessor5b3184c retains the560px inbox and
+should fail the mail case at896px; targeted batch execution is pending at
+source hand-in. This adds no layout behavior beyond the threshold alignment.
 
 Rig439 tested the composed batch `bc737c0`. The appsettings fixup `14e763e`
 was picked patch-identically as `3e473ee`. Focused appsettings12/12, within its

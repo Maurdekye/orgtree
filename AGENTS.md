@@ -56,10 +56,12 @@
   [decided: user 2026-10-14 17:53–17:54UTC; verified from source:
   `canvas/accounts.tsx`, `canvas/openrouter.tsx`]
 
-- Presented-document modals collapse their list at 896 CSS px of their own
-  reading box; mail keeps 560 and inline desk galleries stay persistent.
-  Both organization and agent gallery callers use `NARROW_DOCS_WIDTH`.
-  [decided: user 2026-10-14 17:51UTC; verified from source:
+- Inbox and presented-document modals collapse their list at <=896 CSS px of
+  their own reading box. `NARROW_MAILER_WIDTH` aliases `NARROW_DOCS_WIDTH`,
+  replacing inbox's former560px boundary; inline desk lists stay persistent.
+  Both organization and agent gallery callers retain the896px value.
+  [decided: user 2026-10-14 23:07UTC, superseding mail exception from17:51UTC;
+  verified from source:
   `canvas/gallery.tsx`, `canvas/narrowlist.tsx`]
 
 - Org settings Accounts uses a short explanation (32 words), preserving the
