@@ -16,6 +16,7 @@ struct Writing {
     secs: Option<f64>,
     input: String,
     seed: Value,
+    seed_bytes: usize,
 }
 #[nolog]
 impl ToolWriting {
@@ -24,17 +25,20 @@ impl ToolWriting {
         self.blocks.insert(block, id.to_string());
         self.calls.entry(id.to_string()).or_insert_with(|| Writing {
             name: name.to_string(), started: Instant::now(),
-            at: crate::util::now_iso(), order, secs: None, input: String::new(), seed: json!({}),
+            at: crate::util::now_iso(), order, secs: None, input: String::new(), seed: json!({}), seed_bytes: 2,
         });
     }
     pub fn seed(&mut self, block: u64, input: &Value) {
         if let Some(call) = self.blocks.get(&block).and_then(|id| self.calls.get_mut(id)) {
-            if input.is_object() && input.to_string().len() <= 64_000 { call.seed = input.clone(); }
+            let bytes = input.to_string().len();
+            if input.is_object() && bytes + call.input.len() <= 64_000 {
+                call.seed = input.clone(); call.seed_bytes = bytes;
+            }
         }
     }
     pub fn delta(&mut self, block: u64, text: &str) -> bool {
         let Some(call) = self.blocks.get(&block).and_then(|id| self.calls.get_mut(id)) else { return false };
-        let mut len = text.len().min(64_000usize.saturating_sub(call.input.len()));
+        let mut len = text.len().min(64_000usize.saturating_sub(call.input.len() + call.seed_bytes));
         while !text.is_char_boundary(len) { len -= 1; }
         if len == 0 || call.secs.is_some() { return false; }
         call.input.push_str(&text[..len]);
