@@ -316,6 +316,10 @@ pub async fn run_op(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json
     if matches!(b["op"].as_str(), Some("halt" | "unhalt")) {
         return Ok(Json(super::nodes::halt_batch(&e, &o, &b, b["op"] == "halt").await?));
     }
+    // the user's move, hire, retire and retool enter the undo history
+    if crate::domain::undo::RECORDED_OPS.contains(&b["op"].as_str().unwrap_or("")) {
+        return Ok(Json(super::undo::single(&e, &o, b).await?));
+    }
     Ok(Json(ops::run(&e, &o, Actor::User, &b).await?))
 }
 
@@ -331,7 +335,7 @@ pub async fn reorder(
     }
     b["op"] = json!("reorder");
     b["node"] = json!(nid);
-    Ok(Json(ops::run(&e, &o, Actor::User, &b).await?))
+    Ok(Json(super::undo::single(&e, &o, b).await?))
 }
 
 #[logged]
@@ -346,7 +350,7 @@ pub async fn account(
     }
     b["op"] = json!("account");
     b["node"] = json!(nid);
-    Ok(Json(ops::run(&e, &o, Actor::User, &b).await?))
+    Ok(Json(super::undo::single(&e, &o, b).await?))
 }
 
 /// Retire every top-level agent with its team.

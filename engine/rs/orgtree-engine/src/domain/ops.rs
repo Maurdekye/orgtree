@@ -517,12 +517,7 @@ fn str_arg<'a>(req: &'a Value, k: &str) -> Option<&'a str> {
 #[logged]
 pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: &Value) -> Result<Value> {
     let op = req["op"].as_str().unwrap_or("").to_string();
-    // a Muse seat is placed by its own login's catalog: read stale logins now,
-    // before the transaction, never inside it
-    if muse_op(engine, org, req).await {
-        crate::providers::muse_logins_refresh(engine, &org.slug).await;
-    }
-    agy_admit(engine, &op, req).await?;
+    prepare(engine, org, req).await?;
     let mut attempt = 0;
     loop {
         attempt += 1;
@@ -530,12 +525,7 @@ pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: 
         let res = run_once(engine, org, &actor, &op, req, &mut fx).await;
         match res {
             Ok(mut v) => {
-                let effort = fx.effort.take();
-                apply_effects(engine, org, fx).await;
-                // 3.x: the level is committed now, so a running Claude turn may be sent it
-                if let Some((id, previous, level)) = effort {
-                    v["effort_delivery"] = crate::runtime::deliver_effort(engine, id, &previous, &level).await;
-                }
+                finish(engine, org, fx, &mut v).await;
                 return Ok(v);
             }
             Err(e) if attempt < 4 && retryable(&e) => {
@@ -547,7 +537,29 @@ pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: 
     }
 }
 
-fn retryable(e: &anyhow::Error) -> bool {
+/// What an op reads before its transaction, never inside it.
+#[logged]
+pub(crate) async fn prepare(engine: &Arc<Engine>, org: &Arc<OrgHandle>, req: &Value) -> Result<()> {
+    // a Muse seat is placed by its own login's catalog: read stale logins now,
+    // before the transaction, never inside it
+    if muse_op(engine, org, req).await {
+        crate::providers::muse_logins_refresh(engine, &org.slug).await;
+    }
+    agy_admit(engine, req["op"].as_str().unwrap_or(""), req).await
+}
+
+/// Publish an op's effects after its transaction committed.
+#[logged]
+pub(crate) async fn finish(engine: &Arc<Engine>, org: &Arc<OrgHandle>, mut fx: Effects, out: &mut Value) {
+    let effort = fx.effort.take();
+    apply_effects(engine, org, fx).await;
+    // 3.x: the level is committed now, so a running Claude turn may be sent it
+    if let Some((id, previous, level)) = effort {
+        out["effort_delivery"] = crate::runtime::deliver_effort(engine, id, &previous, &level).await;
+    }
+}
+
+pub(crate) fn retryable(e: &anyhow::Error) -> bool {
     e.chain().any(|c| {
         c.downcast_ref::<tokio_postgres::Error>()
             .and_then(|pe| pe.code())

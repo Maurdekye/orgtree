@@ -22,6 +22,7 @@ pub mod staging;
 pub mod teams;
 pub mod templates;
 pub mod tree;
+pub mod undo;
 pub mod watchdogs;
 
 use axum::http::StatusCode;

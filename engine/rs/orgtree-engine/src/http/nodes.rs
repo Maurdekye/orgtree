@@ -475,14 +475,24 @@ pub async fn set_scope(
     Json(b): Json<Value>,
 ) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
-    Ok(Json(apply_user_scope(&e, &org, &nid, &b).await?))
+    let Some(fields) = b.as_object() else {
+        return Err(ApiError::bad_request("the body must be a JSON object"));
+    };
+    // a settings save is a retool entry of the user's undo history
+    let mut step = json!({ "op": "scope", "node": nid });
+    for (k, v) in fields {
+        if k != "op" && k != "node" {
+            step[k] = v.clone();
+        }
+    }
+    Ok(Json(super::undo::single(&e, &org, step).await?))
 }
 
-/// The user changes an agent's scope; what the chain above does not hold is
-/// raised on the way up (the user grants it). Also how granted scope
-/// requests apply.
+/// What a user scope save reads before its transaction, never inside it. The
+/// save itself runs in the undo history's gesture runner (`set_scope`); what
+/// the chain above does not hold is raised on the way up (the user grants it).
 #[logged]
-pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, b: &Value) -> anyhow::Result<Value> {
+pub(crate) async fn prepare_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, b: &Value) -> anyhow::Result<()> {
     // a Muse seat's level or version is judged by its own login's catalog:
     // read stale logins before the transaction, never inside it
     if !b["effort"].is_null() || !b["model_version"].is_null() {
@@ -495,12 +505,7 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
             crate::providers::muse_logins_refresh(e, &org.slug).await;
         }
     }
-    let mut client = e.db.get().await?;
-    let tx = client.transaction().await?;
-    let fx = apply_user_scope_in_tx(e, org, &tx, nid, b, None).await?;
-    tx.commit().await?;
-    drop(client);
-    Ok(apply_scope_effects(e, org, fx).await)
+    Ok(())
 }
 
 pub(crate) struct ScopeEffects {

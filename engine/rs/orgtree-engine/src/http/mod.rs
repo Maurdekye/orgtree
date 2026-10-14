@@ -15,6 +15,7 @@ pub mod error;
 pub mod mailbox;
 pub mod nodes;
 pub mod orgops;
+pub mod undo;
 pub mod orgs;
 pub mod pictures;
 pub mod settings;
@@ -166,6 +167,11 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/template", post(templates::save))
         .route("/api/fs", get(settings::fs))
         .route("/api/orgs/{slug}/ops", post(orgops::run_op))
+        // the user's undo history (docs/rust-engine/undo-history.md)
+        .route("/api/orgs/{slug}/gesture", post(undo::gesture))
+        .route("/api/orgs/{slug}/undo-history", get(undo::history))
+        .route("/api/orgs/{slug}/undo-history/undo", post(undo::undo))
+        .route("/api/orgs/{slug}/undo-history/redo", post(undo::redo))
         .route("/api/orgs/{slug}/dissolve-all", post(orgops::dissolve_all))
         .route("/api/orgs/{slug}/killswitch", post(orgops::killswitch))
         .route("/api/orgs/{slug}/killswitch/release", post(orgops::killswitch_release))

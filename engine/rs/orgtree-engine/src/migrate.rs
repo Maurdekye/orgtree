@@ -28,6 +28,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0020_clear_legacy_limit_locks", include_str!("../migrations/0020_clear_legacy_limit_locks.sql")),
     ("0021_multi_replies", include_str!("../migrations/0021_multi_replies.sql")),
     ("0022_openrouter_numbered_keys", include_str!("../migrations/0022_openrouter_numbered_keys.sql")),
+    ("0023_undo_history", include_str!("../migrations/0023_undo_history.sql")),
 ];
 
 #[logged]

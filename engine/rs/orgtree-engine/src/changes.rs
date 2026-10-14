@@ -57,6 +57,8 @@ pub enum Change {
     Registry,
     /// mail hub connections and rosters (the org's `net` record)
     Net,
+    /// the user's undo history (the org's `undo` record)
+    UndoHistory,
 }
 
 /// Fan changes out to the feed, the rooms and the app feed.
@@ -125,6 +127,7 @@ pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
             }
             Change::Registry => registry = true,
             Change::Net => keys.push(Key::Group("net")),
+            Change::UndoHistory => keys.push(Key::Group("undo")),
         }
     }
     if !keys.is_empty() {

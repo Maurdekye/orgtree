@@ -1,4 +1,4 @@
-//! The twelve org header groups of the tree (`treeOrgGroups` in the
+//! The thirteen org header groups of the tree (`treeOrgGroups` in the
 //! renderer). Their fields are disjoint; together they make the TreePayload
 //! header.
 
@@ -13,7 +13,7 @@ use crate::util::iso_opt;
 
 pub const GROUPS: &[&str] = &[
     "settings", "tiers", "cost", "audit", "foreground", "asks", "audiences", "watchdogs", "inbox_summary",
-    "org_inbox", "net", "work_summary",
+    "org_inbox", "net", "work_summary", "undo",
 ];
 
 /// The compaction threshold as a fraction (0.5–0.95). Saved as a percent
@@ -297,6 +297,8 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
         "net" => {
             json!({ "net": crate::net::block(engine, client, org).await? })
         }
+        // the user's undo history: its revision and both targets (no entry data)
+        "undo" => json!({ "undo_history": crate::domain::undo::head(client, org_id).await? }),
         "work_summary" => {
             let r = client
                 .query_one(
