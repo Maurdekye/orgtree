@@ -11,7 +11,10 @@ refresh it. Effect cleanup ignores old reads and commands; setup supports
 React's StrictMode remount. The App and its window mirrors share that controller,
 while separate app windows rely on the engine's target-ID transaction guards.
 
-`HistorySurface` lives before the transient ToastStack in every presentation.
+`HistorySurface` lives before the transient ToastStack in every presentation
+and handles shortcuts in window capture, before transient bubbling listeners.
+Owner-document discovery can install its listener after the toast listener;
+capture priority makes arbitration independent of effect and mount order.
 Ctrl/Cmd+Z, Ctrl+Y and Ctrl/Cmd+Shift+Z therefore work after a toast disappears.
 `undokeys.ts` preserves editing in the event's own document, including popped
 windows, selects, editable content and embedded editors. Pending commands and

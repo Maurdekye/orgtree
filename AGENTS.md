@@ -7,6 +7,9 @@
   Durable commands outlive toasts, use journal entry IDs, guard pending keys,
   and mirror worked-hire confirmation in the presentation's own document.
   Composite canvas hires/reorders and agent settings Save each use one gesture.
+  Durable shortcuts use window capture before transient toast bubbling:
+  owner-document discovery can register the history listener later regardless
+  of JSX order. [verified: `historyui.tsx`, 2026-10-14]
   [decided: user/coordinator 2026-10-14; verified from source: `undokeys.ts`,
   `toasts.tsx`, `historyui.tsx`, `canvas/{OrgCanvas,modals}.tsx`]
 

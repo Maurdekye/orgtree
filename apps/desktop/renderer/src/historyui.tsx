@@ -54,8 +54,12 @@ export function HistorySurface({ controller }: { controller: HistoryController |
       if (!controller.can(direction)) return
       event.preventDefault(); void controller.run(direction)
     }
-    win.addEventListener('keydown', key)
-    return () => win.removeEventListener('keydown', key)
+    // Owner discovery takes a second render, so a ToastStack can register
+    // its bubbling listener first even when HistorySurface precedes it.
+    // Durable history must arbitrate before transient inverses regardless
+    // of effect/mount order; the shared classifier still preserves editors.
+    win.addEventListener('keydown', key, true)
+    return () => win.removeEventListener('keydown', key, true)
   }, [owner, controller])
   const confirm = view.confirmation
   return <>

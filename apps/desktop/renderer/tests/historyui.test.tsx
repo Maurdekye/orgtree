@@ -88,8 +88,8 @@ test('worked hire asks, cancel consumes nothing, and close-before-confirm preser
   assert.equal(controller.getSnapshot().confirmation?.turns, 2, 'a turn after preflight requires another confirmation')
   await inAct(async () => { confirmButton(native.window.document).click(); await flush(5) })
   assert.deepEqual(calls, [['undo', 9, undefined], ['undo', 9, undefined], ['undo', 9, 'first'], ['undo', 9, 'fresh']])
-  assert.equal(document.querySelector('[role="dialog"]'), null)
-  assert.equal(native.window.document.querySelector('[role="dialog"]'), null)
+  assert.equal(document.querySelector('[role="dialog"]') === null, true)
+  assert.equal(native.window.document.querySelector('[role="dialog"]') === null, true)
   const editor = native.window.document.createElement('textarea'); native.window.document.body.appendChild(editor); editor.focus()
   assert.equal((await key(native.window.document, { shiftKey: true }, editor)).defaultPrevented, false)
   assert.equal(calls.length, 4, 'native text redo never reaches the org journal')
@@ -111,7 +111,9 @@ test('pending history keys cannot fall through to an older transient toast; toas
   const rect = { x: 1, y: 1, left: 1, top: 1, right: 20, bottom: 20, width: 19, height: 19, toJSON: () => ({}) }
   button.getBoundingClientRect = () => rect; button.getClientRects = () => [rect] as unknown as DOMRectList
   t.after(async () => { await view.unmount(); unbind(); controller.dispose() })
-  await key(); await key()
+  assert.equal((await key(document, {}, document.body)).defaultPrevented, true)
+  assert.equal(controller.getSnapshot().pending, true)
+  assert.equal((await key()).defaultPrevented, true)
   assert.equal(calls, 1); assert.equal(legacyCalls, 0)
   await inAct(async () => { resolve({ status: 'undone', id: 4, label: 'Move 4', history: history(2, 4) }); await flush(5) })
   assert.equal(old.available?.(), false)
