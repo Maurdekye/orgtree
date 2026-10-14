@@ -104,7 +104,9 @@ for (const zoom of [0.24, 0.8]) test(`org inbox tile and opened modal use the sa
     assert.equal(icon.classList.contains('oi-far-icon'), zoom < Z_MINI, 'far sizing class preserved')
     const paths = icon.innerHTML
     await inAct(async () => { tile.click(); await flush(20) })
-    const heading = view.el.querySelector('h3 [data-testid="PublicIcon"]')!
+    // Canvas-owned dialogs use ModalOverPins and live in the document body,
+    // outside the transformed canvas and this mount's element.
+    const heading = document.querySelector('h3 [data-testid="PublicIcon"]')!
     assert.ok(heading, 'existing modal opened with globe header')
     assert.equal(heading.innerHTML, paths, 'same SVG artwork at both destinations')
   } finally { await view?.unmount(); globalThis.fetch = savedFetch; localStorage.clear() }

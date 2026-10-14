@@ -80,3 +80,9 @@ The older `faroverview-baseline.mjs` now recognizes the PublicIcon hunk when
 reversing the original overview work; `faroverview-proof.py` additionally checks
 the after far glyph is Public. No need to re-run its full 16-case matrix for
 this icon-only correction unless the focused proof exposes another issue.
+
+Round439 fixture correction: both new SVG tests found the globe tile but looked
+for the modal header under the canvas mount. OrgCanvas explicitly portals its
+dialogs through ModalOverPins to the document body. The heading query now follows
+that real destination. Production icon source and before/after browser proof
+are unchanged; corrected green/red renderer execution remains pending.
