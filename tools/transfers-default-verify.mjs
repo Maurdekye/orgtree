@@ -36,7 +36,7 @@ try{
       const log=(result.stdout||'')+(result.stderr||'');writeFileSync(path.join(out,colour+'.log'),log);process.stdout.write(log);
       if(result.error)throw result.error;
       if(colour==='green'&&result.status!==0)throw Error('Green focused checks failed');
-      if(colour==='red'&&(result.status===0||!/expected|AssertionError/.test(log)||!/# tests 6/.test(log)||/ERR_MODULE_NOT_FOUND|SyntaxError|ReferenceError/.test(log)))throw Error('Red control did not fail on collapse assertions');
+      if(colour==='red'&&(result.status===0||!/expected|AssertionError/.test(log)||!/^(?:#|\u2139) tests 6\s*$/m.test(log)||/ERR_MODULE_NOT_FOUND|SyntaxError|ReferenceError/.test(log)))throw Error('Red control did not fail on collapse assertions');
     }
     console.log('Focused red fails as expected; green 6/6 passes.');
   }else{

@@ -17,7 +17,11 @@ const nodes=[make('active',{busy:true,inflight_at:at(10)}),make('halted',{halt})
   make('compacting',{phase:'compacting',inflight_at:at(15)}),make('retired',{state:'retired'})]
 const host=document.body.dataset.host
 const cls=host==='superior'?'quickchat-pop quickchat-pop-superior':host==='drawer'?'attn-agents':'tray-wrap'
-createRoot(document.getElementById('root')!).render(<div className={cls} style={{position:'relative',width:Number(document.body.dataset.width),margin:16}}>
+const list=<div className={cls} style={{position:'relative',width:Number(document.body.dataset.width),margin:16}}>
   <AgentTray map={new Map(nodes.map(n=>[n.id,n]))} rows={nodes.map(node=>({node,depth:0}))} query="" onQuery={()=>{}}
     archived={true} onArchived={()=>{}} onPick={()=>{}}/>
-</div>)
+</div>
+// The actual Attention drawer's stylesheet requires its open-state ancestor.
+createRoot(document.getElementById('root')!).render(host==='drawer'
+  ? <div className="attn-agents-wrap list-open" style={{height:760,width:Number(document.body.dataset.width)+32}}>{list}</div>
+  : list)

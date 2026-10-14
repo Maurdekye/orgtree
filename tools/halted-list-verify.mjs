@@ -28,7 +28,7 @@ try{
       const log=(r.stdout||'')+(r.stderr||'');writeFileSync(path.join(out,colour+'.log'),log);process.stdout.write(log);
       if(r.error)throw r.error;
       if(colour==='green'&&r.status!==0)throw Error('Green focused/regression checks failed');
-      if(colour==='red'&&(r.status===0||!/AssertionError/.test(log)||!/# tests 5/.test(log)||/ERR_MODULE_NOT_FOUND|SyntaxError|ReferenceError/.test(log)))throw Error('Red control must fail on halted-list assertions');
+      if(colour==='red'&&(r.status===0||!/AssertionError/.test(log)||!/^(?:#|\u2139) tests 5\s*$/m.test(log)||/ERR_MODULE_NOT_FOUND|SyntaxError|ReferenceError/.test(log)))throw Error('Red control must fail on halted-list assertions');
     }
     console.log('Halted-list red fails as expected; green focused/regressions pass.');
   }else{
