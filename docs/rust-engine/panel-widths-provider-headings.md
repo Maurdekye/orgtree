@@ -50,8 +50,24 @@ remained beyond the visible row. Overflow improved from123px to57px. User
 padding and font unchanged. The new783px width is derived from measured719px
 tab content plus64px panel chrome. The added proof checks its actual client /
 scroll widths at1366×768 and1920×1080, with a one-pixel-smaller overflow control,
-and rechecks390×844 for the unchanged94vw cap. Those new captures are pending;
-the earlier16captures prove the726px candidate only.
+and rechecks390×844 for the unchanged94vw cap. The earlier16captures prove
+the726px candidate only; the new width has its own receipts below.
+
+Rig439 at5677e87 (patch-identical802e3ff) ran the canonical width-only proof:
+six passing light/dark captures, all inspected by the author. At1366×768 and
+1920×1080 the783px panel has719px tab client and719px scroll width: all nine
+tabs through About fit. The782px control has718px client versus719px content,
+so783px is the measured smallest whole-pixel width for this harness. At390×844
+the panel remains366.59375px (94vw), with303px tab client and719px content,
+scrolling as before. Provider headings remain correct; at1920×1080 the four
+sections' headings are visible in the inspected screenshots.
+
+This fit has zero slack. The measurements use this harness's fonts and DPR1;
+other font rasterisation or native Windows125%/150%scaling is unmeasured and
+could differ by a pixel. No added safety margin was chosen, following the
+request for the smallest width. Width proof:
+`D:/orgtree-work/tmp/rig-opus/batch-439/logs/d-panels-783.log` and
+`evidence/d-panels-783/result.json` under that same batch directory.
 
 The four after headings are checked in DOM receipts and focused tests. The
 settings captures show the visible top sections. The OpenRouter fixture has no

@@ -11,7 +11,9 @@
   cap and pinned-window sizing. Scope the override to `.settings.acct-panel`;
   organization/agent settings and other modals keep their own widths.
   Derived from rig439's719px tab content plus64px panel chrome after726px
-  still overflowed57px; final fit/one-pixel-less controls await rig proof.
+  still overflowed57px; rig439 at1366×768 and1920×1080 measures719/719px
+  tab client/content, versus718/719 at782px. Narrow94vw is unchanged;
+  zero slack at DPR1/fonts tested does not prove125/150% native scaling.
   Do not change tab labels/style. [measured: rig439; decided: user20:15UTC;
   [panel proof and limits](docs/rust-engine/panel-widths-provider-headings.md)]
   [decided: user 2026-10-14 17:54UTC; verified: renderer `styles.css`]
