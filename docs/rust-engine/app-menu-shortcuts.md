@@ -12,6 +12,11 @@ User requests on 2026-10-14, docket
 - F1 opens app Settings (`AccountsPanel`). F2/F3 use the existing Usage and
   Usage history actions. F6-F9 reuse the four main-header current-org actions;
   F9 opens organization settings, unlike F1.
+- Shift+F1 uses the app menu's New window action; Shift+F3 uses its Create
+  organization action. Shift+F2 opens that same menu and its Open organization
+  submenu with keyboard focus on the filter (when present) or first org.
+  Repeating Shift+F2 refocuses an already-expanded submenu. Its existing
+  arrow-key and Escape behavior remains; selection uses the same callback.
 - F4 switches Canvas/Attention. From a centred app/org panel it closes the
   panel and chooses Canvas; pinned/detached surfaces keep their content and
   placement. There is no org canvas destination on Homepage/Create.
@@ -34,7 +39,7 @@ User requests on 2026-10-14, docket
 `shell/appshortcuts.ts` exports `APP_FKEYS` as the single data table used by
 the matcher and the Settings keyboard explainer. `App` installs one capture
 listener on its own window. It takes only bare assigned function keys plus
-Shift+F10; other modifier combinations (Alt+F4, Ctrl+F4, Shift+F3, etc.) are
+Shift+F1/F2/F3/F10; other modifier combinations (Alt+F4, Ctrl+F4, etc.) are
 untouched. A held key consumes its default without repeatedly invoking an
 action. It does not listen in popped-out panel documents.
 
@@ -74,3 +79,17 @@ scope and invoke `apps/desktop/renderer/tests/appkeys-check.mjs` with arguments
 
 Source and fixtures only; no app packaging, installation, live data/provider
 operation or push. Coordinator reviews and integrates the exact checked tip.
+
+## Added Shift-key checks (not yet executed)
+
+The user added Shift+F1-F3 at 11:06 UTC. `APP_FKEYS` contains all three rows,
+so the existing explainer consumer automatically lists them. `appshiftkeys`
+has four focused checks: shared matching, two submenu/focus variants (with
+and without a filter), and actual App new/create-window/submenu callbacks
+while typing. For its separate red control, set `UI_APPKEY_BASE=3d716fe`
+(or the exact pre-addition batch parent) and `UI_APPKEY_TABLE_BASE=1`, then
+run `tests appshiftkeys`. The runner overlays the old App, menu, KillSwitch
+and function-key table; expect four behavior failures. Unset both variables
+for green `tests appshiftkeys appkeys killswitch shellviews header_docket_glow
+shortcuts`, with zero failures/skips, plus root typecheck. The original
+ten-case red recipe keeps the new table unless `UI_APPKEY_TABLE_BASE` is set.

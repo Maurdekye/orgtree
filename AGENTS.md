@@ -6,7 +6,9 @@
   keep these keys active. F1 is app Settings, F9 org Settings. F10 arms only,
   never releases a persistent halt; Shift+F10 immediately uses killAll. Local
   arming expires after five seconds; keep mouse's 500 ms safety delay and other
-  modifier chords. See [function keys](docs/rust-engine/app-menu-shortcuts.md).
+  modifier chords except assigned Shift+F1/F2/F3/F10. Shift+F1/F3 reuse menu
+  New/Create window actions; Shift+F2 opens/focuses its organization submenu.
+  See [function keys](docs/rust-engine/app-menu-shortcuts.md).
   [decided: user/coordinator 2026-10-14; verified from source: `App.tsx`,
   `shell/{menu,appshortcuts}.ts*`, `KillSwitch.tsx`]
 

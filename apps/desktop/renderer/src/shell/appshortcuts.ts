@@ -3,6 +3,7 @@ import type { OrgView } from '../attention/mode'
 
 export type AppShortcutAction = 'settings' | 'usage' | 'usageHistory' | 'view'
   | 'refresh' | 'inbox' | 'docket' | 'presentations' | 'orgSettings' | 'unlatch' | 'halt'
+  | 'newWindow' | 'openOrganizations' | 'createWindow'
 
 /** Used both by the matcher and Settings' keyboard shortcut list. */
 export const APP_FKEYS: { keys: string[]; action: string; id: AppShortcutAction }[] = [
@@ -17,6 +18,9 @@ export const APP_FKEYS: { keys: string[]; action: string; id: AppShortcutAction 
   { keys: ['F9'], action: 'Open current organization Settings', id: 'orgSettings' },
   { keys: ['F10'], action: 'Unlatch Halt all (does not halt or release a halted organization)', id: 'unlatch' },
   { keys: ['Shift+F10'], action: 'Halt all immediately, whether armed or not', id: 'halt' },
+  { keys: ['Shift+F1'], action: 'Open a new window (Homepage)', id: 'newWindow' },
+  { keys: ['Shift+F2'], action: 'Open the app menu and focus its Open organization submenu', id: 'openOrganizations' },
+  { keys: ['Shift+F3'], action: 'Open the create-organization window', id: 'createWindow' },
 ]
 
 export type AppShortcutActions = Partial<Record<AppShortcutAction, () => void>>

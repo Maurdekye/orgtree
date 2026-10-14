@@ -34,13 +34,15 @@ if (mode === 'typecheck') {
       define: { 'process.env.NODE_ENV': '"development"', __SRC_DIR__: JSON.stringify(root + '/apps/desktop/renderer/src') },
       plugins: [
         ...(baseline ? [{ name: 'exact-appkey-base', setup(build) {
-          build.onLoad({ filter: /[\\/]src[\\/](App|KillSwitch)\.tsx$|[\\/]src[\\/]shell[\\/]menu\.tsx$/ }, args => {
-            const file = baseFiles.find(candidate => path.resolve(root, candidate).toLowerCase() === args.path.toLowerCase())
+          build.onLoad({ filter: /[\\/]src[\\/](App|KillSwitch)\.tsx$|[\\/]src[\\/]shell[\\/](menu\.tsx|appshortcuts\.ts)$/ }, args => {
+            const candidates = process.env.UI_APPKEY_TABLE_BASE ? [...baseFiles,
+              'apps/desktop/renderer/src/shell/appshortcuts.ts'] : baseFiles
+            const file = candidates.find(candidate => path.resolve(root, candidate).toLowerCase() === args.path.toLowerCase())
             if (!file) return
             const result = spawnSync('git', ['show', baseline + ':' + file], { cwd: root, encoding: 'utf8', windowsHide: true })
             if (result.status !== 0) throw new Error(result.stderr)
             console.log('EXACT_BASE_SOURCE ' + baseline + ' ' + file)
-            return { contents: result.stdout, loader: 'tsx' }
+            return { contents: result.stdout, loader: file.endsWith('.tsx') ? 'tsx' : 'ts' }
           })
         } }] : []),
         { name: 'real-jsdom', setup(build) {

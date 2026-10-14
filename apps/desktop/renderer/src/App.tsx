@@ -46,6 +46,7 @@ import { OrgRows } from './shell/orgrows'
 export { AdvancedOrgModal, OrgRows }
 import { ShellAction, ShellHeader } from './shell/header'
 import { OrgtreeMenu } from './shell/menu'
+import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
 import { OrgStatusBar } from './shell/statusbar'
 import { HomepageView } from './shell/homepage'
@@ -1278,6 +1279,7 @@ export default function App() {
   const setViewMode = useCallback((m: OrgView) => setOrgView(v3 ? slug : null, m),
     [v3, slug])
   const mainKillswitch = useRef<KillSwitchActions | null>(null)
+  const mainMenu = useRef<OrgtreeMenuActions | null>(null)
   const openAccounts = () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)
   const openInbox = () => {
     setInboxJump(null)
@@ -1289,6 +1291,8 @@ export default function App() {
   useAppShortcuts({
     settings: openAccounts, usage: toggleUsage, usageHistory: toggleUsageHistory,
     refresh: () => refreshFromHeader(document),
+    newWindow: () => newWindow(), createWindow: () => createWindow(),
+    openOrganizations: () => mainMenu.current?.openOrganizations(),
     ...(slug && tree ? {
       inbox: openInbox, docket: openDocket, presentations: openPresentations,
       orgSettings: openOrgSettings,
@@ -1356,7 +1360,7 @@ export default function App() {
       onUsageHistory={toggleUsageHistory}
       isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
-      onAppSettings={openAccounts} />
+      onAppSettings={openAccounts} shortcutRef={mainMenu} />
   )
 
   const pick = (s: string) => { setSlug(s); setDrawer(false) }

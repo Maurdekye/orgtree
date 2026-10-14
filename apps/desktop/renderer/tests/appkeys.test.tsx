@@ -39,7 +39,7 @@ test('app menu keeps labels and routes, ordered Settings / Usage / Usage History
   } finally { await view.unmount() }
 })
 
-test('matcher accepts only bare F1-F10 and assigned Shift+F10, preserving other chords', () => {
+test('matcher accepts assigned function-key rows, preserving other chords', () => {
   for (const row of APP_FKEYS) for (const key of row.keys) {
     const shiftKey = key.startsWith('Shift+')
     const value = key.replace('Shift+', '')
@@ -47,7 +47,7 @@ test('matcher accepts only bare F1-F10 and assigned Shift+F10, preserving other 
     for (const modifier of ['altKey', 'ctrlKey', 'metaKey'])
       assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: value, shiftKey, [modifier]: true })), undefined)
   }
-  for (let n = 1; n <= 9; n++)
+  for (let n = 4; n <= 9; n++)
     assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F' + n, shiftKey: true })), undefined)
   assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F11' })), undefined)
 })

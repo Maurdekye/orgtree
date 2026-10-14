@@ -22,10 +22,13 @@
 // all of them. Rendering that through a label API would mean flattening it to
 // text and losing the thing the list is for.
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { DataUsageIcon, HomeIcon, MenuIcon, SettingsIcon, ShowChartIcon } from '../icons'
 import { orgFreshnessNote } from '../orgstatus'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
+
+export interface OrgtreeMenuActions { openOrganizations: () => void }
 
 export interface OrgtreeMenuProps {
   /** every organization, in the list's existing order */
@@ -44,6 +47,8 @@ export interface OrgtreeMenuProps {
   /** the usage history panel, listed right under Usage (user 2026-10-09) */
   onUsageHistory?: () => void
   onAppSettings: () => void
+  /** Main shell's keyboard route uses the existing submenu/open helpers. */
+  shortcutRef?: RefObject<OrgtreeMenuActions | null>
   /** told whenever the organization list inside the menu opens or closes.
    *  ⚠ THIS IS NOT COSMETIC: the org-status poller runs while a list is on
    *  screen and stops when none is, and this menu is a list. Without it the
@@ -203,18 +208,31 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
   // one, otherwise its first organization. Opened by the pointer it leaves
   // focus alone, as the main menu does.
   const wantSubFocus = useRef(false)
+  const [submenuRequest, setSubmenuRequest] = useState(0)
   useEffect(() => {
     if (!orgList || !wantSubFocus.current) return
     wantSubFocus.current = false
     const input = sub.current?.querySelector<HTMLElement>('.shell-menu-filter')
     if (input) input.focus()
     else focusItem(sub.current, null, 'first')
-  }, [orgList])
+  }, [orgList, submenuRequest])
   const openSub = (by: 'hover' | 'click' | 'key') => {
     clearTimeout(hoverTimer.current)
     if (by === 'key') wantSubFocus.current = true
     setSubBy(by)
   }
+  useLayoutEffect(() => {
+    const ref = props.shortcutRef
+    if (!ref) return
+    const actions = { openOrganizations: () => {
+      openWith(false)
+      openSub('key')
+      // A repeated request focuses an already-expanded submenu too.
+      setSubmenuRequest(n => n + 1)
+    } }
+    ref.current = actions
+    return () => { if (ref.current === actions) ref.current = null }
+  })
   const closeSub = (focusRow: boolean) => {
     clearTimeout(hoverTimer.current)
     setSubBy(null); setFilter('')
