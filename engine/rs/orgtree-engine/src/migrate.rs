@@ -27,6 +27,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0019_net_transfers", include_str!("../migrations/0019_net_transfers.sql")),
     ("0020_clear_legacy_limit_locks", include_str!("../migrations/0020_clear_legacy_limit_locks.sql")),
     ("0021_multi_replies", include_str!("../migrations/0021_multi_replies.sql")),
+    ("0021_openrouter_numbered_keys", include_str!("../migrations/0021_openrouter_numbered_keys.sql")),
 ];
 
 #[logged]
@@ -72,4 +73,20 @@ pub async fn run(client: &mut Client, progress: &dyn Fn(&str)) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod numbered_keys_tests {
+    /// Every OpenRouter key alike (user 2026-10-14): migration 0021 is
+    /// registered, a no-op without the old row, and carries every reference.
+    #[test]
+    fn openrouter_numbered_keys_migration_is_registered_guarded_and_complete() {
+        let (_, sql) = super::MIGRATIONS.iter().find(|(n, _)| *n == "0021_openrouter_numbered_keys").expect("registered");
+        assert!(sql.contains("IF NOT EXISTS (SELECT 1 FROM ot.accounts WHERE id = 'openrouter-key') THEN"));
+        for part in ["ot.account_secrets", "ot.agents SET account", "pending_account", "pending_switch", "ot.turns",
+                     "ot.usage_history", "ot.account_mark_audit", "ot.account_marks", "ot.account_spend",
+                     "default_account", "disabled_accounts", "app_settings", "ot.removed_accounts"] {
+            assert!(sql.contains(part), "migration 0021 does not carry {part}");
+        }
+    }
 }

@@ -1747,9 +1747,9 @@ impl Actor {
         }
         let fav = crate::openrouter::favorite(&self.engine, &ctx.tier)
             .ok_or_else(|| anyhow!("{} is not an OpenRouter model this app knows; switch this agent to another tier", ctx.tier))?;
-        // the seat's own key: an added key it is bound to, else the original
+        // the seat's own key: the key it is bound to, else the first key
         let id = crate::openrouter::seat_key(&self.engine, ctx.account.as_deref());
-        let lane = crate::openrouter::lane(&id);
+        let lane = id.clone();
         if let Some(a) = self.engine.accounts.view().get(&id) {
             if !a.enabled {
                 return Err(anyhow!("the OpenRouter key {lane} is inactive (App settings › Providers); activate it or move this agent to another key"));
@@ -1759,9 +1759,7 @@ impl Actor {
             return Err(anyhow!("{lane} is not used by this org (Org settings › Accounts); the agent moves at its next turn"));
         }
         let key = crate::openrouter::key_of(&self.engine, &id).await.ok_or_else(|| {
-            if id == crate::openrouter::ACCOUNT_ID && crate::openrouter::any_key(&self.engine) {
-                anyhow!("this agent runs on the original OpenRouter key, which was removed; move it to another OpenRouter key")
-            } else if id == crate::openrouter::ACCOUNT_ID {
+            if id.is_empty() {
                 anyhow!("this agent runs on an OpenRouter tier and no OpenRouter API key is set (App settings › Providers › OpenRouter)")
             } else {
                 anyhow!("this agent's OpenRouter key {lane} is no longer stored; move it to another OpenRouter key (App settings › Providers › OpenRouter)")

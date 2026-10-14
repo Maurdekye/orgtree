@@ -90,46 +90,44 @@ pub fn primary(provider: &str) -> String {
 }
 
 /// The lane an unbound seat of `provider` runs on: the provider's own
-/// login, or for OpenRouter the original key (`openrouter`).
+/// login. OpenRouter has none (every key is alike): its unbound seat is on
+/// the first key (`seat_lane`), and a hire is placed on a key.
 #[nolog]
 pub fn default_lane(provider: &str) -> String {
-    if provider == catalog::OPENROUTER { crate::openrouter::LANE.to_string() } else { primary(provider) }
+    primary(provider)
 }
 
 /// The lane a registry row is: the provider's own login for an ambient row,
-/// an OpenRouter key's lane (`openrouter` for the original key, an added
-/// key's id), else its id. The one mapping every lane consumer uses
-/// (allowlists, the usage board, the usage tool).
+/// else its id (an OpenRouter key's id is its lane). The one mapping every
+/// lane consumer uses (allowlists, the usage board, the usage tool).
 #[nolog]
 pub fn lane_of(a: &AccountInfo) -> String {
     if a.ambient {
         primary(&a.provider)
-    } else if a.provider == catalog::OPENROUTER {
-        crate::openrouter::lane(&a.id)
     } else {
         a.id.clone()
     }
 }
 
 /// The lane a seat on `tier` bound to `account` runs on, when that is not a
-/// provider login: an OpenRouter tier its key's lane (the original key,
-/// `openrouter`, when unbound), a language-server tier its server's. None
-/// for a tier that runs on a provider account.
+/// provider login: an OpenRouter tier its key's (the first key when
+/// unbound; empty with no key stored), a language-server tier its server's.
+/// None for a tier that runs on a provider account.
 #[logged]
 pub fn seat_lane(engine: &Engine, tier: &str, account: Option<&str>) -> Option<String> {
     if catalog::is_openrouter(tier) {
-        return Some(crate::openrouter::lane(&crate::openrouter::seat_key(engine, account)));
+        return Some(crate::openrouter::seat_key(engine, account));
     }
     tier_lane(engine, tier)
 }
 
 /// The lane an accountless tier runs on when no account is named:
-/// OpenRouter's original key, or its language server's. None for a tier
-/// that runs on a provider account.
+/// OpenRouter's first key, or its language server's. None for a tier that
+/// runs on a provider account (and for OpenRouter with no key stored).
 #[logged]
 pub fn tier_lane(engine: &Engine, tier: &str) -> Option<String> {
     if catalog::is_openrouter(tier) {
-        return Some(crate::openrouter::LANE.to_string());
+        return crate::openrouter::first_key(engine);
     }
     if catalog::is_langserver(tier) {
         let server = crate::langserver::route_of(engine, tier)
@@ -168,17 +166,11 @@ pub fn lanes(engine: &Engine, org_slug: &str) -> Vec<Value> {
             push(a.id.clone(), provider, a.display(), why);
         }
     }
-    // one tick per OpenRouter key (ruling 2026-10-11)
-    let keys = crate::openrouter::keys(engine);
-    for a in keys.iter().filter(|a| a.available_origin(org_slug)) {
-        // a lone unnamed original key reads as it always did
-        let label = if keys.len() == 1 && crate::openrouter::user_label(a).is_none() {
-            "OpenRouter".to_string()
-        } else {
-            format!("OpenRouter: {} ({})", crate::openrouter::display(engine, a), crate::openrouter::lane(&a.id))
-        };
+    // one tick per OpenRouter key (ruling 2026-10-11), every key named alike
+    for a in crate::openrouter::keys(engine).iter().filter(|a| a.available_origin(org_slug)) {
+        let label = format!("OpenRouter: {} ({})", crate::openrouter::display(engine, a), a.id);
         let why = provider_off(catalog::OPENROUTER).or_else(|| (!a.enabled).then_some("this key is inactive in App settings › Providers"));
-        push(crate::openrouter::lane(&a.id), catalog::OPENROUTER, label, why);
+        push(a.id.clone(), catalog::OPENROUTER, label, why);
     }
     for s in crate::langserver::servers(engine) {
         let id = s["id"].as_str().unwrap_or("").to_string();
@@ -269,7 +261,8 @@ pub async fn leave(engine: &Arc<Engine>, org_id: i64, org_slug: &str, agent_id: 
         }
         // Muse's own login only if it offers the model and passes every
         // continuation gate: this unbinding never bypasses a refused target
-        if account.is_some() && allowed(Some(org_slug), &default_lane(provider))
+        // (an OpenRouter seat has no own login: an unbound one is on a key)
+        if account.is_some() && provider != catalog::OPENROUTER && allowed(Some(org_slug), &default_lane(provider))
             && (!muse || crate::runtime::freeze::muse_primary_takes(engine, tier, version.as_deref(), org_slug, false).await) {
             match to_primary(engine, org_id, agent_id, why).await {
                 Ok(()) => return,

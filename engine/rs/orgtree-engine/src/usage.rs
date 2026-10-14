@@ -151,11 +151,14 @@ pub fn antigravity_limit(engine: &Engine, tier: &str) -> Option<String> {
 #[nolog]
 fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts::AccountInfo>) -> Option<Value> {
     use crate::providers::catalog;
-    // an OpenRouter key's reading is its credit standing, by its lane (`None`
-    // is the original key)
+    // an OpenRouter key's reading is its credit standing, by its id (`None`
+    // is the first key, the one an unbound seat bills)
     if provider == catalog::OPENROUTER {
-        let id = account.filter(|a| a.provider == catalog::OPENROUTER).map(|a| a.id.as_str()).unwrap_or(crate::openrouter::ACCOUNT_ID);
-        let v = openrouter_reading(engine, &crate::openrouter::lane(id))?;
+        let id = match account.filter(|a| a.provider == catalog::OPENROUTER) {
+            Some(a) => a.id.clone(),
+            None => crate::openrouter::first_key(engine)?,
+        };
+        let v = openrouter_reading(engine, &id)?;
         return v["available"].as_bool().unwrap_or(false).then_some(v);
     }
     if account.is_some_and(|a| a.is_apikey()) {
@@ -1295,50 +1298,66 @@ pub fn muse_publish(engine: &Engine) {
 
 // ------------------------------------------------------------ OpenRouter
 
-/// Read every stored OpenRouter key again and push them: the original
-/// key's usage as before (`openrouter_usage`), every key's by lane
-/// (`openrouter_keys_usage`), and the panel's document, whose `connected` is
-/// the original key's check. The usage loop does this every 5 minutes; a
-/// refused turn at once.
+/// Read every stored OpenRouter key again and push them alike: every key's
+/// reading by its id (`openrouter_keys_usage`), their combined peek
+/// (`openrouter_usage_peek`) and the panel's document. The usage loop does
+/// this every 5 minutes; a refused turn at once.
 #[logged]
 pub async fn refresh_openrouter(engine: &Engine, force: bool) {
+    let keys = crate::openrouter::keys(engine);
     let mut by_lane = serde_json::Map::new();
-    for a in crate::openrouter::keys(engine) {
-        let v = openrouter_key_usage(engine, &a.id, force).await;
-        if a.id == crate::openrouter::ACCOUNT_ID {
-            publish(engine, "openrouter", &v);
-        }
-        let mut named = v;
-        named["name"] = json!(crate::openrouter::display(engine, &a));
-        by_lane.insert(crate::openrouter::lane(&a.id), named);
+    for a in &keys {
+        let mut named = openrouter_key_usage(engine, &a.id, force).await;
+        named["name"] = json!(crate::openrouter::display(engine, a));
+        by_lane.insert(a.id.clone(), named);
     }
     engine.app.set_value("openrouter_keys_usage", Value::Object(by_lane));
+    engine.app.set_value("openrouter_usage_peek", openrouter_peek(engine, &keys));
     crate::openrouter::publish(engine).await;
 }
 
-/// The original OpenRouter key's credit standing (`GET /api/v1/key`). Not
-/// logged: a reading can carry the provider's own error text
-/// (`openrouter_key_usage` logs a safe summary).
+/// The usage button's OpenRouter peek: every key's cached limits together,
+/// so whichever key is nearest a wall is what glows. Never a fetch.
 #[nolog]
-pub async fn openrouter(engine: &Engine, force: bool) -> Value {
-    openrouter_key_usage(engine, crate::openrouter::ACCOUNT_ID, force).await
+pub fn openrouter_peek(engine: &Engine, keys: &[crate::accounts::AccountInfo]) -> Value {
+    let peeks: Vec<Value> = keys.iter().map(|a| engine.usage.peek(&a.id, "openrouter")).collect();
+    let live: Vec<&Value> = peeks.iter().filter(|p| p["available"] == json!(true)).collect();
+    if live.is_empty() {
+        return json!({ "available": false, "provider": "openrouter" });
+    }
+    let limits: Vec<Value> = live.iter().flat_map(|p| p["limits"].as_array().cloned().unwrap_or_default()).collect();
+    let age = live.iter().filter_map(|p| p["age"].as_u64()).max();
+    json!({ "available": true, "provider": "openrouter", "limits": limits, "age": age })
 }
 
-/// One OpenRouter key's last cached reading, by its lane (`openrouter` for
-/// the original key, the id of an added one). Never a fetch.
+/// `GET /api/openrouter/usage`: every key's credit standing by its id, read
+/// alike (cached unless forced). Not logged: a reading can carry the
+/// provider's own error text (`openrouter_key_usage` logs a safe summary).
+#[nolog]
+pub async fn openrouter(engine: &Engine, force: bool) -> Value {
+    refresh_openrouter(engine, force).await;
+    let keys: serde_json::Map<String, Value> = crate::openrouter::keys(engine).iter()
+        .filter_map(|a| openrouter_reading(engine, &a.id).map(|v| (a.id.clone(), v)))
+        .collect();
+    let available = keys.values().any(|v| v["available"] == json!(true));
+    json!({ "provider": "OpenRouter", "available": available, "keys": keys })
+}
+
+/// One OpenRouter key's last cached reading, by its id (its lane). Never a
+/// fetch.
 #[nolog]
 pub fn openrouter_reading(engine: &Engine, lane: &str) -> Option<Value> {
     engine.usage.cache.pin().get(lane).map(|c| c.data.clone())
 }
 
-/// One OpenRouter key's credit standing, cached and recorded under its lane
-/// (the original key's as before several keys: `openrouter`). The public
+/// One OpenRouter key's credit standing, cached and recorded under its id
+/// (its lane). The public
 /// reader; `openrouter_key_read` is the read itself (a probe reservation
 /// per lane wraps it here, not there). Not logged: a reading can carry the
 /// provider's own error text; one safe line says what came back.
 #[nolog]
 pub async fn openrouter_key_usage(engine: &Engine, id: &str, force: bool) -> Value {
-    let lane = crate::openrouter::lane(id);
+    let lane = id.to_string();
     let Some(_guard) = engine.usage.reserve(&lane) else { return engine.usage.busy_reading(&lane) };
     let v = openrouter_key_read(engine, id, force).await;
     tracing::info!(lane = %lane, available = v["available"] == json!(true), error = v["error"].is_string(),
@@ -1352,7 +1371,7 @@ const OPENROUTER_REPLACED_RETRIES: usize = 2;
 
 #[nolog]
 async fn openrouter_key_read(engine: &Engine, id: &str, force: bool) -> Value {
-    let lane = crate::openrouter::lane(id);
+    let lane = id.to_string();
     // rig mode: a canned reading stands in for the check, cache included;
     // without one the key check below is the rig's canned one too (never the
     // network), so a rig proof reads each key through the real derivation
@@ -1510,8 +1529,8 @@ pub async fn refresh_permitted(engine: &Engine, provider: &str, account: &str, f
             "claude" => claude_read(engine, folder, false).await,
             "openai" => codex_read(engine, account, folder, false).await,
             "google" => antigravity_read(engine, false).await,
-            // a key row's id, or the original key's lane
-            "openrouter" => openrouter_key_read(engine, &crate::openrouter::id_of_lane(account), false).await,
+            // a key row's id
+            "openrouter" => openrouter_key_read(engine, account, false).await,
             "muse" => muse_read(engine, account, folder, true).await,
             _ => return false,
         }
@@ -1572,7 +1591,6 @@ pub fn publish(engine: &Engine, lane: &str, value: &Value) {
         "claude" => ("usage", "usage_peek", claude_key(None), "claude"),
         "openai" => ("codex_usage", "codex_usage_peek", codex_key(None), "openai"),
         "google" => ("antigravity_usage", "antigravity_usage_peek", "agy".to_string(), "google"),
-        "openrouter" => ("openrouter_usage", "openrouter_usage_peek", "openrouter".to_string(), "openrouter"),
         "muse" => ("muse_usage", "muse_usage_peek", muse_key(None), "muse"),
         _ => return,
     };
@@ -1751,8 +1769,8 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     let pin = engine.usage.cache.pin();
     let own = account.and_then(|a| view.get(a)).filter(|a| !crate::accounts::is_ambient(a)).map(|a| a.id.clone());
     let selected_lane = match (provider, &own) {
-        // an OpenRouter seat's lane is its key's (the original: `openrouter`)
-        ("openrouter", _) => crate::openrouter::lane(&crate::openrouter::seat_key(engine, account)),
+        // an OpenRouter seat's lane is its key's id
+        ("openrouter", _) => crate::openrouter::seat_key(engine, account),
         (_, Some(id)) => id.clone(),
         ("openai", None) => "openai/primary".into(),
         ("google", None) => "google/primary".into(),
@@ -1780,10 +1798,9 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     for a in registered.iter().filter(|a| a.provider == "muse" && !a.is_apikey() && !crate::accounts::is_ambient(a)) {
         lanes.push((a.id.clone(), muse_key(a.config_dir.as_deref()), a.email.clone()));
     }
-    // every OpenRouter key this org may see, by its lane (its cache key too)
+    // every OpenRouter key this org may see, by its id (its lane and cache key)
     for a in registered.iter().filter(|a| a.provider == "openrouter") {
-        let lane = crate::openrouter::lane(&a.id);
-        lanes.push((lane.clone(), lane, None));
+        lanes.push((a.id.clone(), a.id.clone(), None));
     }
     // only the accounts this org may use: an agent never plans onto one it
     // switched off (Org settings › Accounts)

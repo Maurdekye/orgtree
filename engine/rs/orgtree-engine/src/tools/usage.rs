@@ -57,21 +57,7 @@ fn lanes(engine: &Engine, org: &str) -> BTreeMap<String, Lane> {
             },
         );
     }
-    // the original key's lane while it is stored (`key_set` is any key's);
-    // its registry row below carries its own switch
-    if view.get(crate::openrouter::ACCOUNT_ID).is_some() {
-        out.insert(
-            "openrouter".into(),
-            Lane {
-                id: "openrouter".into(),
-                provider: "openrouter".into(),
-                key: "openrouter".into(),
-                account: None,
-                enabled: true,
-                local_cap: None,
-            },
-        );
-    }
+    // every OpenRouter key is a registry row below, by its id
     for a in view.all().into_iter().filter(|a| a.available_origin(org)) {
         let id = crate::org_accounts::lane_of(a);
         let key = if a.provider == "openrouter" {

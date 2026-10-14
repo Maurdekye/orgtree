@@ -65,9 +65,8 @@ pub async fn list(State(e): State<Arc<Engine>>, Query(q): Query<OrgQuery>) -> Ap
     let rows: Vec<Value> = view
         .all()
         .into_iter()
-        // an added OpenRouter key is a pickable account; the original is
-        // the lane's `default` (`openrouter/primary`), like a host login
-        .filter(|a| a.id != crate::openrouter::ACCOUNT_ID && a.available_to(org))
+        // every OpenRouter key is a pickable account, alike
+        .filter(|a| a.available_to(org))
         .map(|a| crate::accounts::row(a, bound.get(&a.id).cloned().unwrap_or_default(), now))
         .collect();
     Ok(Json(json!({ "accounts": rows, "primary": "claude/primary", "host_identity": host_identity(&e) })))
@@ -203,7 +202,7 @@ pub struct EnabledBody {
 /// finishes); its agents' mail waits until it is active again or they move.
 #[logged]
 pub async fn set_enabled(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<EnabledBody>) -> ApiResult<Json<Value>> {
-    // every OpenRouter key, the original included, is switched on its own
+    // every OpenRouter key is switched on its own
     // (user 2026-10-11 22:50: each key individually disableable)
     let client = e.db.get().await?;
     let n = client.execute("UPDATE ot.accounts SET enabled = $2 WHERE id = $1", &[&id, &b.enabled]).await?;
@@ -221,13 +220,11 @@ pub async fn set_enabled(State(e): State<Arc<Engine>>, Path(id): Path<String>, J
         crate::openrouter::publish(&e).await;
     }
     if b.enabled {
-        // the original key's agents are the unbound ones
-        let which = if id == crate::openrouter::ACCOUNT_ID {
-            crate::accounts::Waiting::Native(crate::providers::catalog::OPENROUTER.to_string())
-        } else {
-            crate::accounts::Waiting::Account(id.clone())
-        };
-        crate::accounts::wake_waiting(&e, which).await;
+        crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Account(id.clone())).await;
+        // an unbound OpenRouter seat is on the first key (the one rule for all keys)
+        if openrouter && crate::openrouter::first_key(&e).as_deref() == Some(id.as_str()) {
+            crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Native(crate::providers::catalog::OPENROUTER.to_string())).await;
+        }
     }
     let view = e.accounts.view();
     let row = view.get(&id).map(|a| crate::accounts::row(a, Vec::new(), chrono::Utc::now())).unwrap_or(Value::Null);
@@ -500,15 +497,13 @@ pub async fn peek_muse(State(e): State<Arc<Engine>>) -> Json<Value> {
 #[nolog]
 pub async fn usage_openrouter(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
     served("usage_openrouter");
-    let v = usage::openrouter(&e, q.force).await;
-    usage::publish(&e, "openrouter", &v);
-    Json(v)
+    Json(usage::openrouter(&e, q.force).await)
 }
 
 #[nolog]
 pub async fn peek_openrouter(State(e): State<Arc<Engine>>) -> Json<Value> {
     served("peek_openrouter");
-    Json(e.usage.peek("openrouter", "openrouter"))
+    Json(usage::openrouter_peek(&e, &crate::openrouter::keys(&e)))
 }
 
 /// The primary Claude login as an `AccountUsage` row.
@@ -595,7 +590,12 @@ pub async fn usage_history(State(e): State<Arc<Engine>>, Query(q): Query<History
 #[nolog]
 pub async fn openrouter_doc(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
     served("openrouter_doc");
-    Json(crate::openrouter::doc(&e, q.force).await)
+    // a re-check reads every key at openrouter.ai and pushes them all (the
+    // usage board too); the document then answers from those readings
+    if q.force {
+        usage::refresh_openrouter(&e, true).await;
+    }
+    Json(crate::openrouter::doc(&e, false).await)
 }
 
 #[derive(Deserialize)]
@@ -634,17 +634,16 @@ pub async fn harnesses(State(e): State<Arc<Engine>>) -> Json<Value> {
 }
 
 /// `GET /api/openrouter/keys/usage`: every stored key's last reading by its
-/// lane, as the `openrouter_keys_usage` value pushes it. Cache-only: the
+/// id, as the `openrouter_keys_usage` value pushes it. Cache-only: the
 /// usage loop reads the keys, a window never makes it fetch. Not logged:
 /// readings can carry the provider's own error text.
 #[nolog]
 pub async fn openrouter_keys_usage(State(e): State<Arc<Engine>>) -> Json<Value> {
     let mut out = serde_json::Map::new();
     for a in crate::openrouter::keys(&e) {
-        let lane = crate::openrouter::lane(&a.id);
-        let mut v = usage::openrouter_reading(&e, &lane).unwrap_or_else(|| json!({ "available": false, "error": "not read yet" }));
+        let mut v = usage::openrouter_reading(&e, &a.id).unwrap_or_else(|| json!({ "available": false, "error": "not read yet" }));
         v["name"] = json!(crate::openrouter::display(&e, &a));
-        out.insert(lane, v);
+        out.insert(a.id.clone(), v);
     }
     Json(Value::Object(out))
 }
@@ -685,9 +684,9 @@ pub async fn openrouter_key_add(State(e): State<Arc<Engine>>, Json(b): Json<AddK
     tracing::info!(label = ?b.label, harness = ?b.harness, "add OpenRouter key");
     let id = crate::openrouter::add_key(&e, &b.key, b.label.as_deref(), b.harness.as_deref()).await?;
     openrouter_keys_mutated(&e, Some(&id)).await;
-    let mut doc = crate::openrouter::doc(&e, id == crate::openrouter::ACCOUNT_ID).await;
+    let mut doc = crate::openrouter::doc(&e, false).await;
     doc["added"] = json!(id);
-    doc["added_lane"] = json!(crate::openrouter::lane(&id));
+    doc["added_lane"] = json!(id);
     Ok(Json(doc))
 }
 
@@ -708,20 +707,18 @@ impl std::fmt::Debug for UpdateKeyBody {
 /// set its harness (`harness`) and/or replace its secret (`key`; the body
 /// is a secret: not logged).
 pub async fn openrouter_key_update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<UpdateKeyBody>) -> ApiResult<Json<Value>> {
-    let id = crate::openrouter::id_of_lane(&id);
     tracing::info!(key = %id, replace = b.key.is_some(), label = ?b.label, harness = ?b.harness, "update OpenRouter key");
     crate::openrouter::update_key(&e, &id, b.key.as_deref(), b.label.as_deref(), b.harness.as_deref()).await?;
     let replaced = b.key.as_deref().is_some_and(|k| !k.trim().is_empty());
     openrouter_keys_mutated(&e, replaced.then_some(id.as_str())).await;
-    Ok(Json(crate::openrouter::doc(&e, replaced && id == crate::openrouter::ACCOUNT_ID).await))
+    Ok(Json(crate::openrouter::doc(&e, false).await))
 }
 
-/// `DELETE /api/openrouter/keys/{id}`: remove a key. An added key's agents
-/// and defaults move to the original key first (the registry's removal).
+/// `DELETE /api/openrouter/keys/{id}`: remove a key, any key alike: each
+/// agent it bills moves to another key it may run on, or freezes saying so.
 #[nolog]
 pub async fn openrouter_key_remove(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     served("openrouter_key_remove");
-    let id = crate::openrouter::id_of_lane(&id);
     let out = crate::openrouter::remove_key(&e, &id).await?;
     openrouter_keys_mutated(&e, None).await;
     let mut doc = crate::openrouter::doc(&e, false).await;

@@ -371,14 +371,17 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
         }
     }
     // the org's account list (Org settings › Accounts): an OpenRouter tier
-    // is its key's lane (the original key unless one is named), a
+    // is its key's lane (the first key unless one is named), a
     // language-server tier its server's, an explicit primary the default login
-    if let Some(lane) = crate::org_accounts::seat_lane(engine, tier, raw) {
+    // (an OpenRouter tier naming no key is placed on a key the org uses: no
+    // lane to check yet)
+    let unnamed_key = catalog::is_openrouter(tier) && !matches!(crate::accounts::choice(raw), crate::accounts::Choice::Account(_));
+    if let Some(lane) = crate::org_accounts::seat_lane(engine, tier, raw).filter(|_| !unnamed_key) {
         if !crate::org_accounts::allowed(Some(org_slug), &lane) {
             refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, org_slug, &lane, provider));
         }
     }
-    if crate::accounts::choice(raw) == crate::accounts::Choice::Primary {
+    if crate::accounts::choice(raw) == crate::accounts::Choice::Primary && provider != catalog::OPENROUTER {
         let lane = crate::org_accounts::default_lane(provider);
         if !crate::org_accounts::allowed(Some(org_slug), &lane) {
             refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, org_slug, &lane, provider));
@@ -1085,15 +1088,16 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     // placed on the best one it allows (ruling 2026-10-10); an explicit
     // primary was refused above
     let provider = catalog::provider_of(&tier);
-    // an unbound OpenRouter seat bills the original key: with none stored
-    // (only added keys left) it is placed like a switched-off default
-    let no_original = catalog::is_openrouter(&tier) && engine.accounts.view().get(crate::openrouter::ACCOUNT_ID).is_none();
+    // every OpenRouter key is alike: a hire naming none is placed on the best
+    // key the org uses (balancing at placement) and bound to it
+    let or_tier = catalog::is_openrouter(&tier);
     if account.is_none() && !catalog::is_langserver(&tier)
-        && (no_original || !crate::org_accounts::allowed(Some(&org.slug), &crate::org_accounts::default_lane(provider))) {
-        match (explicit, crate::org_accounts::best_allowed(engine, &org.slug, &tier)) {
-            (None, Some(best)) => account = Some(best),
-            _ if no_original => refuse!(Conflict, "the original OpenRouter key was removed and no other OpenRouter key this org \
-                                                   uses can run {tier}; name one, or add a key in App settings › Providers › OpenRouter"),
+        && (or_tier || !crate::org_accounts::allowed(Some(&org.slug), &crate::org_accounts::default_lane(provider))) {
+        // (an explicit default names no OpenRouter key: it is placed too)
+        match (explicit.is_none() || or_tier, crate::org_accounts::best_allowed(engine, &org.slug, &tier)) {
+            (true, Some(best)) => account = Some(best),
+            _ if or_tier => refuse!(Conflict, "no OpenRouter key this org uses can run {tier} now; name one, or add or switch on \
+                                               a key in App settings › Providers › OpenRouter (Org settings › Accounts)"),
             _ => refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, &org.slug, &crate::org_accounts::default_lane(provider), provider)),
         }
     }

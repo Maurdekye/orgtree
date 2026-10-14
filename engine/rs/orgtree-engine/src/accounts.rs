@@ -115,11 +115,13 @@ impl AccountsView {
     pub fn continue_candidates(&self, tier: &str, current: Option<&str>, org_slug: &str) -> Vec<String> {
         let provider = crate::providers::catalog::provider_of(tier);
         let now = Utc::now();
-        // an unbound OpenRouter seat is on the original key: not a move to it
-        let current = match current {
-            None if provider == crate::providers::catalog::OPENROUTER => Some(crate::openrouter::ACCOUNT_ID),
-            c => c,
-        };
+        // an unbound OpenRouter seat is on the first key: not a move to it
+        let first = (provider == crate::providers::catalog::OPENROUTER && current.is_none())
+            .then(|| self.all().into_iter().filter(|a| a.provider == provider)
+                .min_by_key(|a| (a.ord, a.id.strip_prefix("openrouter-").and_then(|n| n.parse::<u64>().ok()).unwrap_or(u64::MAX), a.id.clone()))
+                .map(|a| a.id.clone()))
+            .flatten();
+        let current = current.or(first.as_deref());
         self.all()
             .into_iter()
             .filter(|a| {
@@ -443,9 +445,8 @@ pub fn row(a: &AccountInfo, bound: Vec<Value>, now: DateTime<Utc>) -> Value {
 pub fn publish(engine: &Engine) {
     let view = engine.accounts.view();
     let now = Utc::now();
-    // added OpenRouter keys are pickable accounts; the original key is the
-    // lane's `default`, never a row (as before several keys)
-    let rows: Vec<Value> = view.all().into_iter().filter(|a| a.id != crate::openrouter::ACCOUNT_ID).map(|a| row(a, Vec::new(), now)).collect();
+    // every OpenRouter key is a pickable account, alike
+    let rows: Vec<Value> = view.all().into_iter().map(|a| row(a, Vec::new(), now)).collect();
     engine.app.set_value("accounts", json!({ "accounts": rows }));
     // the providers payload lists what each registered Muse login offers
     crate::providers::publish(engine);

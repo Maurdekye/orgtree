@@ -74,25 +74,28 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
 
 /// A lane that bills no account: the user's own language servers. Its hires
 /// name no account and need no sign-in. (OpenRouter's keys are accounts
-/// since several keys, ruling 2026-10-11: an unbound seat bills the
-/// original key, the way another provider's bills its own login.)
+/// since several keys, ruling 2026-10-11: a hire naming none is placed on a
+/// key, every key alike.)
 #[nolog]
 fn accountless(provider: &str) -> bool {
     provider == catalog::LANGSERVER
 }
 
 /// `host_ready`, and the org has not switched that lane off (its provider's
-/// own login, OpenRouter's original key, or a language server's lane).
+/// own login, any OpenRouter key, or a language server's lane).
 #[logged]
 fn host_for(engine: &Engine, org_slug: &str, tier: &str, provider: &str) -> bool {
+    // a hire naming no OpenRouter key is placed on a key (balancing at
+    // placement): one must be stored, active, used by the org and on an
+    // installed harness (installed-only ruling 2026-10-13: every staffing
+    // surface offers only what can launch)
+    if provider == catalog::OPENROUTER {
+        return host_ready(engine, provider) && crate::openrouter::keys(engine).iter().any(|a| a.enabled
+            && a.available_to(Some(org_slug))
+            && crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, &a.id)));
+    }
     let lane = crate::org_accounts::tier_lane(engine, tier).unwrap_or_else(|| crate::org_accounts::primary(provider));
-    // an unbound OpenRouter seat needs the original key stored and active,
-    // and the harness that key runs on installed (installed-only ruling
-    // 2026-10-13: every staffing surface offers only what can launch)
-    let original = provider != catalog::OPENROUTER
-        || (engine.accounts.view().get(crate::openrouter::ACCOUNT_ID).is_some_and(|a| a.enabled)
-            && crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, crate::openrouter::ACCOUNT_ID)));
-    original && host_ready(engine, provider) && crate::org_accounts::allowed(Some(org_slug), &lane)
+    host_ready(engine, provider) && crate::org_accounts::allowed(Some(org_slug), &lane)
 }
 
 /// Whether a hire that names no account can run `provider`: the host login
@@ -173,8 +176,6 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
         .into_iter()
         .filter(|a| {
             a.provider == provider
-                // the original OpenRouter key is the default (`default_ok`), not a pick
-                && a.id != crate::openrouter::ACCOUNT_ID
                 // a key whose harness is not installed cannot launch its seats
                 && (a.provider != catalog::OPENROUTER
                     || crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, &a.id)))

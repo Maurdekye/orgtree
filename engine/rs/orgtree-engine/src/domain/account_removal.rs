@@ -137,13 +137,16 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
     let Some(row) = row else { refuse!(NotFound, "no account {id}"); };
     let provider: String = row.get(0);
     let config_dir: Option<String> = row.get(1);
-    if id == crate::openrouter::ACCOUNT_ID || id.ends_with("/primary")
-        || crate::accounts::ambient_dir(&provider, config_dir.as_deref()) {
+    // every OpenRouter key is alike: its own reassignment-or-freeze path
+    if provider == catalog::OPENROUTER {
+        return remove_key(engine, id).await;
+    }
+    if id.ends_with("/primary") || crate::accounts::ambient_dir(&provider, config_dir.as_deref()) {
         refuse!(Conflict, "{id} is a primary account and cannot be removed");
     }
-    // an added OpenRouter key's agents move to the original key (its primary);
-    // a Muse login's to a login whose own catalog offers their model (`muse_target`)
-    if !matches!(provider.as_str(), "claude" | "openai" | "google" | "openrouter" | "muse") {
+    // a Muse login's agents move to a login whose own catalog offers their
+    // model (`muse_target`); every other provider's to its own login
+    if !matches!(provider.as_str(), "claude" | "openai" | "google" | "muse") {
         refuse!(Conflict, "{id} has no provider primary to move its bindings to");
     }
     if provider == catalog::MUSE {
@@ -401,25 +404,25 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
     Ok(out)
 }
 
-// ------------------------------------------------------------ the original OpenRouter key
+// ------------------------------------------------------------ an OpenRouter key
 
-/// Remove the original OpenRouter key (`openrouter-key`, lane `openrouter`)
-/// through the same reassignment-or-freeze path as any account (ruling
-/// 2026-10-11): every seat it bills (an unbound OpenRouter seat, one bound
-/// to it, and queued switches naming it) moves to another stored key it may
-/// run on, in key order, checked as a continuation is; a live seat with
-/// none freezes, saying so, until it is continued on a key. An org or app
-/// default naming it is cleared (no key is the provider's own login). The
-/// id is not retired: a key added later with none stored is the original
-/// again. One short transaction; nothing waits on a provider.
+/// Remove an OpenRouter key, any key alike (user 2026-10-14 18:00Z: no key
+/// is special), through the reassignment-or-freeze path (ruling
+/// 2026-10-11): every seat it bills (one bound to it, an unbound one when
+/// it is the first key, and queued intents naming it) moves to another
+/// stored key it may run on, in key order, checked as a continuation is; a
+/// live seat with none freezes, saying so, until it is continued on a key.
+/// An org or app default naming it is cleared (no key is a provider's own
+/// login). The id is retired: no later key gets it. One short transaction;
+/// nothing waits on a provider.
 #[logged]
-pub async fn remove_original(engine: &Arc<Engine>) -> Result<Value> {
+pub async fn remove_key(engine: &Arc<Engine>, id: &str) -> Result<Value> {
     let mut out = None;
     for attempt in 0..4 {
-        match remove_original_once(engine).await {
+        match remove_key_once(engine, id).await {
             Ok(v) => { out = Some(v); break; }
             Err(e) if attempt < 3 && retryable(&e) => {
-                tracing::warn!(attempt, "original OpenRouter key removal conflicted; retrying entire transaction");
+                tracing::warn!(attempt, key = id, "OpenRouter key removal conflicted; retrying entire transaction");
                 // the attempt has rolled back and released its key/seat locks
                 // (as `remove`): let an org-first writer finish first
                 tokio::time::sleep(std::time::Duration::from_millis(25 << attempt)).await;
@@ -429,30 +432,31 @@ pub async fn remove_original(engine: &Arc<Engine>) -> Result<Value> {
     }
     let (out, frozen) = out.expect("successful removal or early error");
     announce(engine, &out).await;
-    Ok(json!({ "removed": crate::openrouter::ACCOUNT_ID, "rebound": out.rebound, "frozen": frozen,
+    Ok(json!({ "removed": id, "rebound": out.rebound, "frozen": frozen,
         "orgs": out.orgs, "app_default_rebound": out.app_default }))
 }
 
-/// The freeze a seat gets when the original key went and no other key may
+/// The freeze a seat gets when its OpenRouter key went and no other key may
 /// take it.
 #[logged]
-fn no_key_left(org_slug: &str) -> Value {
+fn no_key_left(org_slug: &str, id: &str) -> Value {
     json!({ "at": crate::util::now_iso(), "until": null, "limit": false, "cause": "account",
-            "account": crate::openrouter::LANE,
-            "error": format!("the original OpenRouter key was removed and the org {org_slug} has no other OpenRouter key \
+            "account": id,
+            "error": format!("the OpenRouter key {id} was removed and the org {org_slug} has no other OpenRouter key \
                               this agent could run on; add or switch on a key (App settings › Providers, Org settings › Accounts), \
                               then continue the agent on it") })
 }
 
 #[logged]
-async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Value>)> {
-    use crate::openrouter::{ACCOUNT_ID, LANE};
+async fn remove_key_once(engine: &Arc<Engine>, id: &str) -> Result<(Outcome, Vec<Value>)> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     // reference triggers take KEY SHARE on this row: binders drain first
-    if tx.query_opt("SELECT 1 FROM ot.accounts WHERE id = $1 FOR UPDATE", &[&ACCOUNT_ID]).await?.is_none() {
-        refuse!(NotFound, "no OpenRouter key {ACCOUNT_ID}");
+    if tx.query_opt("SELECT 1 FROM ot.accounts WHERE id = $1 AND provider = 'openrouter' FOR UPDATE", &[&id]).await?.is_none() {
+        refuse!(NotFound, "no OpenRouter key {id}");
     }
+    // unbound seats bill the first key: only its removal moves them
+    let first = crate::openrouter::first_key(engine).as_deref() == Some(id);
     let mut out = Outcome::default();
     let mut frozen_out = Vec::new();
     // per (org, tier): the first other key a continuation would accept
@@ -464,9 +468,10 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
                     a.inflight_at IS NOT NULL, a.session_id,
                     (SELECT provider FROM ot.agent_sessions s WHERE s.agent_id = a.id AND s.session_id = a.session_id ORDER BY s.id DESC LIMIT 1), o.slug
              FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id > $1 AND
-                ((a.tier LIKE 'or-%' AND (a.account IS NULL OR a.account IN ($2, $3, '', 'primary', 'default', 'openrouter/primary')))
-                 OR a.pending_account->>'account' IN ($2, $3) OR a.pending_switch->>'account' IN ($2, $3))
-             ORDER BY a.id LIMIT 128 FOR UPDATE OF a", &[&after, &ACCOUNT_ID, &LANE]).await?;
+                ((a.tier LIKE 'or-%' AND (a.account = $2
+                   OR ($3 AND (a.account IS NULL OR a.account IN ('', 'primary', 'default', 'openrouter/primary')))))
+                 OR a.pending_account->>'account' = $2 OR a.pending_switch->>'account' = $2)
+             ORDER BY a.id LIMIT 128 FOR UPDATE OF a", &[&after, &id, &first]).await?;
         if rows.is_empty() { break; }
         for r in rows {
             let aid: i64 = r.get(0);
@@ -481,12 +486,12 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
             let frozen = r.get::<_, Option<Value>>(8).unwrap_or(Value::Null);
             let slug: String = r.get(12);
             let live = state == "live";
-            let names_original = |v: &Value| matches!(v["account"].as_str(), Some(a) if a == ACCOUNT_ID || a == LANE);
-            // the seat bills the original key now (unbound, or bound to it)
-            let billed = catalog::is_openrouter(&tier) && crate::openrouter::seat_key(engine, account.as_deref()) == ACCOUNT_ID;
+            let names_original = |v: &Value| v["account"].as_str() == Some(id);
+            // the seat bills this key now (bound to it, or unbound on the first key)
+            let billed = catalog::is_openrouter(&tier) && crate::openrouter::seat_key(engine, account.as_deref()) == id;
             let target = if billed || names_original(&pa) || names_original(&ps) {
                 targets.entry((slug.clone(), tier.clone())).or_insert_with(|| {
-                    engine.accounts.view().continue_candidates(&tier, Some(ACCOUNT_ID), &slug).into_iter()
+                    engine.accounts.view().continue_candidates(&tier, Some(id), &slug).into_iter()
                         .find(|id| crate::runtime::freeze::eligible(engine, &slug, &tier, id))
                 }).clone()
             } else {
@@ -502,7 +507,7 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
                     refuse!(Conflict, "{name} is running a turn and requires a session boundary; removal succeeds once that turn ends");
                 }
             }
-            // a queued intent naming the original names the target, or no
+            // a queued intent naming the key names the target, or no
             // key at all (a queued switch then bills whatever key is stored)
             let requeue = |q: &Value| -> Option<Value> {
                 if q.is_null() { return None; }
@@ -518,12 +523,12 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
             let next_pa = if names_original(&pa) && target.is_none() { None } else { requeue(&pa) };
             let next_ps = requeue(&ps);
             // the binding: the target, or none (an explicit binding to the
-            // original goes with it; a seat left without a key freezes)
+            // key goes with it; a seat left without a key freezes)
             let rebind = billed && (target.is_some() || account.is_some());
             let next_account = if billed { target.clone() } else { account.clone() };
             let thaw = live && billed && target.is_some() && thaw_on_rebind(&frozen);
             let freeze = live && billed && target.is_none() && frozen.is_null();
-            let freeze_rec = freeze.then(|| no_key_left(&slug));
+            let freeze_rec = freeze.then(|| no_key_left(&slug, id));
             tx.execute(
                 "UPDATE ot.agents SET account = CASE WHEN $2 THEN $3 ELSE account END,
                   pending_account = $4, pending_switch = $5,
@@ -540,7 +545,7 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
                 crate::domain::asks::moot_for_fresh_session(&tx, aid,
                     "the asking session was replaced when its account was removed; the fresh session never posed it").await?;
             }
-            let detail = json!({"node": name, "removed_account": ACCOUNT_ID, "account": target,
+            let detail = json!({"node": name, "removed_account": id, "account": target,
                 "binding_rebound": rebind, "session_boundary": boundary, "thawed": thaw, "frozen": freeze,
                 "pending_account_rebound": names_original(&pa), "pending_switch_rebound": names_original(&ps)});
             tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'account_removed', '@user', $2, $3)", &[&org_id, &aid, &detail]).await?;
@@ -559,9 +564,9 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
         // As `remove_once`: the key row, then its seats, are locked already, so
         // never wait here for an org-first writer that may await one of those
         // seats. NOWAIT aborts the whole attempt (55P03); roll back now, so
-        // every lock is released before `remove_original` backs off and retries.
-        let rows = match tx.query("SELECT id, slug FROM ot.orgs WHERE id > $1 AND settings->>'default_account' IN ($2, $3) ORDER BY id LIMIT 128 FOR UPDATE NOWAIT",
-            &[&after, &ACCOUNT_ID, &LANE]).await {
+        // every lock is released before `remove_key` backs off and retries.
+        let rows = match tx.query("SELECT id, slug FROM ot.orgs WHERE id > $1 AND settings->>'default_account' = $2 ORDER BY id LIMIT 128 FOR UPDATE NOWAIT",
+            &[&after, &id]).await {
             Ok(rows) => rows,
             Err(error) => {
                 tx.rollback().await?;
@@ -574,16 +579,17 @@ async fn remove_original_once(engine: &Arc<Engine>) -> Result<(Outcome, Vec<Valu
             after = org_id;
             tx.execute("UPDATE ot.orgs SET settings = settings - 'default_account', row_version = row_version + 1 WHERE id = $1", &[&org_id]).await?;
             tx.execute("INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'account_default_rebound', '@user', $2)",
-                &[&org_id, &json!({"removed_account": ACCOUNT_ID, "account": null})]).await?;
+                &[&org_id, &json!({"removed_account": id, "account": null})]).await?;
             out.defaults.insert(org_id);
             out.orgs.insert(row.get(1));
         }
     }
     out.app_default = tx.execute(
         "UPDATE ot.kv SET value = value #- '{defaults,default_account}', updated_at = now()
-         WHERE key = 'app_settings' AND value #>> '{defaults,default_account}' IN ($1, $2)", &[&ACCOUNT_ID, &LANE]).await? > 0;
-    tx.execute("DELETE FROM ot.account_marks WHERE account = $1", &[&ACCOUNT_ID]).await?;
-    tx.execute("DELETE FROM ot.accounts WHERE id = $1", &[&ACCOUNT_ID]).await?;
+         WHERE key = 'app_settings' AND value #>> '{defaults,default_account}' = $1", &[&id]).await? > 0;
+    tx.execute("DELETE FROM ot.account_marks WHERE account = $1", &[&id]).await?;
+    tx.execute("INSERT INTO ot.removed_accounts (id, provider) VALUES ($1, 'openrouter') ON CONFLICT (id) DO NOTHING", &[&id]).await?;
+    tx.execute("DELETE FROM ot.accounts WHERE id = $1", &[&id]).await?;
     tx.commit().await?;
     Ok((out, frozen_out))
 }
