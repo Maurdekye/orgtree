@@ -133,3 +133,11 @@ now use the fake clock in a visible document, settle opening reads, then advance
 the shared TREE_MIN_GAP_MS after closing. Product source is unchanged. The other
 eight new cases and shortcuts suite passed in the initial standalone run; the
 two corrected cases still require rig-opus's green/red execution.
+
+Round439 follow-up at combined `04b83de`: green 73/73 and root typecheck exit 0.
+The red run exhausted its contained process before reporting tests: comparing a
+live jsdom element with null made the failure reporter inspect the DOM graph.
+The seven null checks in appkeytoggle/appshiftkeys now compare a boolean, with
+identical closure expectations and no product changes. Rig's diagnostic edits
+to built red bundles yielded the predicted nine toggle and two submenu failures,
+with three controls passing; the committed fixup still needs red/green execution.

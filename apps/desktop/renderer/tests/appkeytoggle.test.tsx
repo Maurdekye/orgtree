@@ -95,7 +95,7 @@ for (const [key, selector] of routes) test(`${key} opens, ignores held repeat, c
     if (key === 'F6' || key === 'F9') await advance(TREE_MIN_GAP_MS)
     const before = reads.filter(path => path === '/api/orgs/toggle-org').length
     await inAct(async () => { press(key, document.activeElement!); await flush(20) })
-    assert.equal(el.querySelector(selector), null, `${key} second press closes its target`)
+    assert.equal(el.querySelector(selector) === null, true, `${key} second press closes its target`)
     assert.equal(document.activeElement, editor, 'focus returns to the connected shortcut opener')
     if (key === 'F6' || key === 'F9') {
       await advance(TREE_MIN_GAP_MS)
@@ -116,7 +116,7 @@ test('different panel shortcuts stack as before and close only the associated ta
     const history = el.querySelector('.usage-history-modal')
     assert.ok(history, 'different target stacks rather than replacing Usage')
     await inAct(async () => { press('F2', editor); await flush(20) })
-    assert.equal(el.querySelector('.usage-modal'), null)
+    assert.equal(el.querySelector('.usage-modal') === null, true)
     assert.equal(el.querySelector('.usage-history-modal'), history, 'other target remains mounted')
   })
 })
@@ -140,7 +140,7 @@ test('keyboard closes a pinned target behind a sibling while mouse still raises 
     assert.equal(el.querySelector('.usage-modal'), usage, 'mouse raises rather than dismissing a hidden pin')
     await inAct(() => raisePinnedModal('usage-history', 'toggle-org'))
     await inAct(async () => { press('F2', editor); await flush(20) })
-    assert.equal(el.querySelector('.usage-modal'), null, 'keyboard closes even when behind')
+    assert.equal(el.querySelector('.usage-modal') === null, true, 'keyboard closes even when behind')
     assert.ok(el.querySelector('.usage-history-modal'))
   })
 })

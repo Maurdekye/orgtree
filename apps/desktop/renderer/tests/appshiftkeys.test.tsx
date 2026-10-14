@@ -52,7 +52,7 @@ for (const count of [2, 7]) test(`Shift+F2 toggles the organization submenu (${c
       'holding Shift+F2 does not close or remount the submenu')
     editor.focus()
     await inAct(async () => { press('F2', editor, true); await flush(6) })
-    assert.equal(view.el.querySelector('.shell-menu-panel'), null, 'same combo closes the menu and submenu')
+    assert.equal(view.el.querySelector('.shell-menu-panel') === null, true, 'same combo closes the menu and submenu')
     assert.equal(document.activeElement, view.el.querySelector('.shell-menu-button'), 'normal close returns focus')
     await inAct(async () => { press('F2', editor, true); await flush(6) })
     const reopened = view.el.querySelector<HTMLElement>('[role="menu"][aria-label="Organizations"]')!
@@ -64,10 +64,10 @@ for (const count of [2, 7]) test(`Shift+F2 toggles the organization submenu (${c
       assert.equal(document.activeElement, reopenedFirst, 'arrows leave the filter for the organizations')
     }
     await inAct(() => press('Escape', reopenedFirst))
-    assert.equal(view.el.querySelector('[aria-label="Organizations"][role="menu"]'), null)
+    assert.equal(view.el.querySelector('[aria-label="Organizations"][role="menu"]') === null, true)
     assert.ok(view.el.querySelector('.shell-menu-panel'), 'first Escape closes only the submenu')
     await inAct(() => press('Escape', document.activeElement!))
-    assert.equal(view.el.querySelector('.shell-menu-panel'), null)
+    assert.equal(view.el.querySelector('.shell-menu-panel') === null, true)
     assert.equal(document.activeElement, view.el.querySelector('.shell-menu-button'))
     await inAct(() => view.el.querySelector<HTMLButtonElement>('.shell-menu-button')!.click())
     await inAct(async () => { press('F2', editor, true); await flush(6) })
@@ -75,7 +75,7 @@ for (const count of [2, 7]) test(`Shift+F2 toggles the organization submenu (${c
       'an open parent menu without the target submenu expands it')
     await inAct(() => view.el.querySelector<HTMLButtonElement>('.shell-menu-org')!.click())
     assert.deepEqual(opened, ['org-0'], 'selection uses the existing org-opening callback')
-    assert.equal(view.el.querySelector('.shell-menu-panel'), null)
+    assert.equal(view.el.querySelector('.shell-menu-panel') === null, true)
   } finally { stop(); editor.remove(); await view.unmount(); assert.equal(ref.current, null) }
 })
 
