@@ -4,7 +4,7 @@ module.exports = async page => {
     await page.resize(size)
     await page.goto('/')
     await page.eval(light => document.documentElement.classList.toggle('contrast-light', light), contrast === 'light')
-    await page.waitFor('input[aria-label="Use Local models"]')
+    await page.waitFor('input[aria-label="Local models active"]')
     await page.waitFor({ selector: '.acct-provider-note', text: 'Sign in to use this harness.' })
     await page.waitFor('input[aria-label="Team budget active"]')
     await page.waitFor('.provider-accounts[aria-label="Muse accounts"] .account-row:not(.native-login)')
@@ -21,8 +21,24 @@ module.exports = async page => {
         return { name: name.innerText, height: row.getBoundingClientRect().height,
           switchOnIdentityLine: toggle.top < main.bottom && toggle.bottom > main.top, nameClipped: name.scrollWidth > name.clientWidth }
       })
-      return { width: rect.width, contentHeight: panel.scrollHeight, clientWidth: panel.clientWidth, scrollWidth: panel.scrollWidth, groups, keyRows }
+      // each language server row (user 2026-10-14): its "Active" switch is a
+      // direct child of the server panel, and on the identity line like a key's
+      // when the panel is wide enough for two columns
+      const serverRows = [...panel.querySelectorAll('.ls-server-row')].map(row => {
+        const main = row.querySelector('.acct-main').getBoundingClientRect()
+        const set = row.querySelector(':scope > .set-row')
+        const toggle = set.getBoundingClientRect()
+        const box = row.getBoundingClientRect()
+        return { name: row.querySelector('.ls-server-head b').innerText, label: set.querySelector('.set-label').innerText,
+          below: !!row.parentElement.parentElement.querySelector(':scope > .ls-server-toggle'),
+          insidePanel: toggle.left >= box.left && toggle.right <= box.right && toggle.top >= box.top && toggle.bottom <= box.bottom,
+          switchOnIdentityLine: toggle.top < main.bottom && toggle.bottom > main.top }
+      })
+      return { width: rect.width, contentHeight: panel.scrollHeight, clientWidth: panel.clientWidth, scrollWidth: panel.scrollWidth, groups, keyRows, serverRows }
     })
+    if (dimensions.serverRows.length !== 2 || dimensions.serverRows.some(r => r.label !== 'Active' || r.below || !r.insidePanel)) {
+      throw new Error(`language server switches: ${JSON.stringify(dimensions.serverRows)}`)
+    }
     const controls = await page.eval(() => [...document.querySelectorAll('#app-settings-panel-providers input[type="checkbox"], #app-settings-panel-providers button, #app-settings-panel-providers a')]
       .filter(e => e.getBoundingClientRect().width > 0).map((e, index) => ({ index, name: e.getAttribute('aria-label') || e.title || e.innerText, checked: e.checked, disabled: e.disabled })))
     for (const control of controls) {
