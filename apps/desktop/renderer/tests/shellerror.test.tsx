@@ -34,9 +34,10 @@ test('failed shell hides error by default and fetches full output only on expans
 test('successful shells and other tools errors retain the existing display; error-only historical shell stays expandable', async t => {
   const view = await mountView(<Msg m={message({ name: 'Bash', result: 'SUCCESS_OUTPUT', result_lines: 1 })} slug="org" nid="node" />, el => el.textContent ?? '')
   t.after(view.unmount)
-  assert.doesNotMatch(view.last(), /an error occurred/); assert.match(view.last(), /1 line/)
+  assert.doesNotMatch(view.last(), /an error occurred|1 line/)
   await inAct(() => { view.el.querySelector<HTMLElement>('.tline')!.click() }); await flush()
   assert.match(view.last(), /SUCCESS_OUTPUT/)
+  assert.equal(view.el.querySelector('.tool-line-count')?.textContent, '1 line')
   await view.render(<Msg key="read" m={message({ name: 'Read', error: 'OTHER_ERROR', result: 'read output' })} slug="org" nid="node" />)
   assert.match(view.last(), /OTHER_ERROR/)
   await view.render(<Msg key="shell" m={message({ name: 'PowerShell', error: 'ONLY_ERROR' })} slug="org" nid="node" />)

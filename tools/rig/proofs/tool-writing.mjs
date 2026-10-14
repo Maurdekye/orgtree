@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { Proof } from '../proof.mjs'
 
-export default async function (rig) {
+export default async function (rig, { flags = {} } = {}) {
   const p = new Proof('tool-writing')
   const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
   p.note('engine/fake source hashes', { engine: rig.run.engineSource, engineSha256: hash(rig.run.engineSource),
@@ -12,11 +12,15 @@ export default async function (rig) {
   const stream = event => ({ raw: { type: 'stream_event', event, parent_tool_use_id: null } })
   const start = (id, name, index) => stream({ type: 'content_block_start', index, content_block: { type: 'tool_use', id, name, input: {} } })
   const stop = index => stream({ type: 'content_block_stop', index })
+  const delta = text => stream({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: text } })
   const assistant = (id, tool) => ({ raw: { type: 'assistant', parent_tool_use_id: null,
     message: { id, role: 'assistant', content: [{ type: 'tool_use', id: tool, name: 'Bash', input: { command: 'synthetic-only' } }] } } })
   const results = ids => ({ raw: { type: 'user', parent_tool_use_id: null,
     message: { content: ids.map(id => ({ type: 'tool_result', tool_use_id: id, content: `${id}-result` })) } } })
   rig.scenario({ agents: { boss: { turns: [
+    { match: 'PREVIEW-PROOF', steps: [start('preview', 'Bash', 0), delta('{"command":"echo hel'), { sleep_ms: 4000 },
+      delta('lo","description":"Say hello"}'), { sleep_ms: 4000 }, stop(0), assistant('preview-row', 'preview'),
+      results(['preview']), { text: 'PREVIEW-PROOF-DONE' }] },
     { match: 'WRITING-PROOF', steps: [start('write-a', 'Bash', 0), { sleep_ms: 1600 },
       start('write-b', 'Bash', 1), { sleep_ms: 1200 }, stop(0), { sleep_ms: 100 },
       assistant('write-row', 'write-a'), { sleep_ms: 1200 }, stop(1),
@@ -27,6 +31,19 @@ export default async function (rig) {
   ] } }, default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
   const chat = () => rig.api('GET', `/api/orgs/${rig.org}/nodes/boss/chat?last=80`)
   const active = async () => ((await chat()).transient ?? []).filter(row => row.kind === 'tool_writing')
+  await rig.userMail('boss', 'PREVIEW-PROOF')
+  const partial = await rig.waitFor(async () => (await active()).find(r => r.tool_id === 'preview' && r.tool?.arg === 'echo hel'),
+    { what: 'partial command is visible before closing its JSON string', timeout: 2500 }).catch(() => null)
+  p.check('partial input appears as the same real tool chip before the JSON string closes', partial?.tool?.name === 'Bash'
+    && partial.tool.preview_input.command === 'echo hel' && !('description' in partial.tool.preview_input)
+    && partial.tool.writing_started_at === partial.started_at, partial)
+  const updated = await rig.waitFor(async () => (await active()).find(r => r.tool_id === 'preview' && r.tool?.arg === 'Say hello'),
+    { what: 'later streamed description updates the same chip', timeout: 6500 }).catch(() => null)
+  p.check('later streamed fields update the same call without restarting its writing clock', !!updated
+    && updated.tool.preview_input.command === 'echo hello' && (!partial || updated.started_at === partial.started_at), updated)
+  p.file('live-preview.json', { partial, updated })
+  if (flags['preview-only']) return p.summary()
+  await rig.waitFor(async () => !(await chat()).busy, { what: 'preview turn settles', timeout: 15000 })
   await rig.userMail('boss', 'WRITING-PROOF')
   let first
   await rig.waitFor(async () => { const rows = await active(); first = rows.find(r => r.tool_id === 'write-a'); return !!first },

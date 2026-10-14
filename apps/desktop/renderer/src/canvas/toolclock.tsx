@@ -44,6 +44,7 @@ export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?:
 }
 
 export function ToolTimes({ tool }: { tool: ToolChip }) {
+  const turnActive = useContext(TurnActiveContext)
   const writing = typeof tool.writing_secs === 'number' ? formatDuration(tool.writing_secs * 1000) : ''
   const ran = executionTime(tool.started_at, tool.ended_at)
   const finished = tool.result !== undefined || !!tool.error || !!tool.ended_at
@@ -53,9 +54,9 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
         {' · '}<EditIcon fontSize="inherit" /> {writing || '—'}</span>}
     {ran ? <span className="dim tool-exec-time" title="execution time" aria-label={`ran for ${ran}`}>
       {' · '}<ArrowRightIcon fontSize="inherit" /> {ran}</span>
-      : typeof tool.started_at === 'string' && tool.result === undefined && !tool.error
+      : !tool.writing_started_at && turnActive && typeof tool.started_at === 'string' && Number.isFinite(Date.parse(tool.started_at)) && tool.result === undefined && !tool.error
         ? <RunningTimer startedAt={tool.started_at} />
-        : tool.result !== undefined || tool.error || tool.ended_at
+        : !tool.writing_started_at && (finished || tool.started_at)
           ? <span className="dim tool-exec-time" title="Execution time was not observed for this call" aria-label="execution time unavailable">{' · '}<ArrowRightIcon fontSize="inherit" /> —</span> : null}
   </>
 }

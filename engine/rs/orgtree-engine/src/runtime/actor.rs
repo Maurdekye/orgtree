@@ -4472,7 +4472,6 @@ impl Actor {
                 }
                 if known && state != "DONE" && state != "ERROR" {
                     self.update_active_input(&client, &id, &name, &info["parameters"]).await?;
-                    self.stream("tool", json!({ "id": id }));
                 }
                 if state == "DONE" || state == "ERROR" {
                     let err = info.pointer("/error/message").and_then(Value::as_str).map(str::to_string);

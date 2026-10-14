@@ -4805,8 +4805,8 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
           onKeyDown: (e: React.KeyboardEvent) => {
             if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleOpen() }
           } } : {})}>
-        {writing ? <EditIcon fontSize="inherit" className="tooldot tool-writing-status" titleAccess="Writing tool call" />
-          : running ? <PlayIcon fontSize="inherit" className="tooldot tool-running-status" titleAccess="Executing tool call" />
+        {writing ? <span title="Writing tool call" aria-label="writing tool call"><EditIcon fontSize="inherit" className="tooldot tool-writing-status" /></span>
+          : running ? <span title="Executing tool call" aria-label="executing tool call"><PlayIcon fontSize="inherit" className="tooldot tool-running-status" /></span>
             : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
         {t.arg ? <span className="targ"> {t.arg}</span> : null}
