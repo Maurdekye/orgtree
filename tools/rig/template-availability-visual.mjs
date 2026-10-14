@@ -27,7 +27,9 @@ fs.mkdirSync(path.join(out, 'tmp'), { recursive: true })
 const electron = args.electron ?? path.join(deps, 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron')
 const env = { ...process.env, TMP: path.join(out, 'tmp'), TEMP: path.join(out, 'tmp') }
 delete env.ELECTRON_RUN_AS_NODE
-const child = spawnSync(electron, [path.join(repo, 'tools/rig/desktop/template-availability-visual.cjs'), '--probe-out', out],
+const childArgs = [path.join(repo, 'tools/rig/desktop/template-availability-visual.cjs'), '--probe-out', out]
+if (args['stale-selected']) childArgs.push('--stale-selected', path.resolve(args['stale-selected']))
+const child = spawnSync(electron, childArgs,
   { env, windowsHide: true, timeout: 60000, encoding: 'utf8', maxBuffer: 1024 * 1024 })
 if (child.stdout) process.stdout.write(child.stdout)
 if (child.stderr) process.stderr.write(child.stderr)
