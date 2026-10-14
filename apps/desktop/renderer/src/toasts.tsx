@@ -19,6 +19,7 @@ export function createToast(lines: string[], undo: ToastUndo | null, remove: (id
   let active = true
   const dismiss = () => { active = false; remove(id) }
   const available = () => active && !!undo && Date.now() < expires
+    && (typeof undo === 'function' || undo.available?.() !== false)
   return { id, lines, undo, available, dismiss, runUndo: () => {
     if (!available()) return
     dismiss()
@@ -63,7 +64,7 @@ export function ToastStack({ toasts }: { toasts: Toast[] }) {
   return <div className="toasts" ref={root}>
     {toasts.map(toast => <div key={toast.id} className="toast" onClick={toast.dismiss}>
       {toast.lines.map((line, i) => <div key={i}>{line}</div>)}
-      {toast.undo && <button className="toast-undo" onClick={event => {
+      {toast.undo && <button className="toast-undo" disabled={!toast.available()} onClick={event => {
         event.stopPropagation()
         toast.runUndo()
       }}>{typeof toast.undo === 'function' ? 'undo' : toast.undo.label}</button>}

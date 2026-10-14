@@ -1,6 +1,8 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
 import { MoveGhost, moveGhostPosition } from './moveghost'
 import { QueuedModelBadge } from './nextturn'
+import { userGesture } from '../historyapi'
+import { historyUndo } from '../historyregistry'
 import { toggleAgentHalt } from './haltcontrol'
 import { withPendingOrder, type PendingOrder, type ReorderSlot } from './pendingorder'
 import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } from './draftfocus'
@@ -25,7 +27,7 @@ import { DeskHosts, useDeskActionsNow } from './deskhosts'
 import { Fragment, useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AudienceGrant, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
+import type { AudienceGrant, OpResult, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
 import { useAgyModelsRefresh } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
@@ -2697,13 +2699,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         setPendingOrders(m => new Map([...m].filter(([, e]) => !e.block.includes(id))))
         setPendingMoves((m) => new Map(m).set(id, entry))
         return op(b).then(
-          () => { settlePendingMove(id, entry) },
+          r => { settlePendingMove(id, entry); return r },
           (e: unknown) => { dropPendingMove(id, entry); throw e })
       }
       // №17: a re-parent is one mis-drag away — the toast carries the reverse
-      moveShown(body, drop === USER ? null : drop).then(() => toast(
+      moveShown(body, drop === USER ? null : drop).then(r => toast(
         [`${id} now reports to ${drop === USER ? 'you' : drop}`],
-        () => moveShown({ op: 'move', node: id, new_parent: parent ?? null },
+        tree.undo_history ? historyUndo(slug, r) : () => moveShown({ op: 'move', node: id, new_parent: parent ?? null },
           parent == null || parent === USER ? null : parent)
           .catch(() => {})))
         .catch(() => {}).finally(finish)
@@ -2744,6 +2746,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         next.set(id, entry); return next
       })
       try {
+        if (tree.undo_history) {
+          const r = await userGesture(slug, block.map((member, index) => ({
+            op: 'reorder', node: member, ...(index ? { after: block[index - 1] } : lead),
+          })), `Reorder ${id}`)
+          settlePendingOrder(id, entry)
+          return r
+        }
         let prev: string | null = null
         for (const member of block) {
           await reorderNode(slug, member, prev ? { after: prev } : lead)
@@ -2757,11 +2766,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     // №17: a successful accidental reorder used to be completely silent
     chain(req)
-      .then(() => toast([block.length > 1
+      .then(r => toast([block.length > 1
         ? `${id} reordered (with its ${block.length - 1} stacked sibling`
           + (block.length > 2 ? 's)' : ')')
         : `${id} reordered`],
-        () => chain(oldReq).catch(() => {})))
+        tree.undo_history ? historyUndo(slug, r ?? {}) : () => chain(oldReq).catch(() => {})))
       .catch((err: Error) => toast([`error: ${err.message}`])).finally(finish)
   }
 
@@ -3302,7 +3311,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // an eligible subscription login that does (`museHireAccount`)
     const museAccount = scope?.account === undefined
       ? museHireAccount(slug, draft!.tier, tree.default_account) : undefined
-    op({ op: 'hire', parent: draft!.parent, tier: draft!.tier, grant, name,
+    const hireBody: Parameters<OpFn>[0] = { op: 'hire', parent: draft!.parent, tier: draft!.tier, grant, name,
          ...(museAccount ? { account: museAccount } : {}),
          charter: charter?.trim() || undefined,
          // FR-25: the anchor rides the hire op — the SERVER splices the new
@@ -3320,7 +3329,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                        // only; omitted = the default, reserve first)
                        ...(scope.prefer_reserve === undefined ? {}
                          : { prefer_reserve: scope.prefer_reserve }),
-                       ...(scope.account !== undefined ? { account: scope.account } : {}) } : {}) })
+                       ...(scope.account !== undefined ? { account: scope.account } : {}) } : {}) }
+    const steps: Record<string, unknown>[] = [{ ...hireBody }]
+    if (draft?.above) {
+      steps[0]!.hire_type = 'superior'; steps[0]!.target = draft.above.anchor
+      delete steps[0]!.above
+    }
+    if (draft?.beside) steps.push({ op: 'reorder', node: '$0.node',
+      ...(draft.beside.side === 'left' ? { before: draft.beside.anchor } : { after: draft.beside.anchor }) })
+    const hired = tree.undo_history
+      ? userGesture(slug, steps, `Hire ${tierLabel(draft!.tier)}`).then((r): OpResult => ({ ...(r.results?.[0] ?? {}), history_entry: r.history_entry }))
+      : op(hireBody)
+    hired
       .then((r) => {
         // the real card replaces the draft IN PLACE — seed its birth position
         // from the draft's spring. Via seedRef, NOT a direct springs.set: the
@@ -3355,7 +3375,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         // hire itself already succeeded, and reorder is cosmetic (its own
         // ruling); a failure leaves the hire appended at the end.
         const beside = draft?.beside
-        if (typeof born === 'string' && born && beside) {
+        if (typeof born === 'string' && born && beside && !tree.undo_history) {
           void reorderNode(slug, born, beside.side === 'left'
             ? { before: beside.anchor } : { after: beside.anchor })
             .catch(() => {})   // the broadcast refetch shows the final order
@@ -3368,6 +3388,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         if (draftTimer.current !== null) clearTimeout(draftTimer.current)
         draftTimer.current = null
         setDraft(null)
+        if (typeof born === 'string' && born && r.history_entry) toast([`hired ${born}`], historyUndo(slug, r))
       }).catch((e: Error) => toast([`hire failed: ${e.message}`]))
   }
 
@@ -4331,7 +4352,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               // judged on the ring as it is NOW, before the hire changes it
               const pin = placement === 'left' || placement === 'right' ? ringSide(a, placement) : null
               const museAccount = museHireAccount(slug, tier, tree.default_account)
-              op({ op: 'hire', parent, tier, grant, name, ...(museAccount ? { account: museAccount } : {}) })
+              const body: Parameters<OpFn>[0] = { op: 'hire', parent, tier, grant, name, ...(museAccount ? { account: museAccount } : {}) }
+              const steps: Record<string, unknown>[] = [{ ...body, ...(placement === 'above' ? { hire_type: 'superior', target: a.id } : {}) }]
+              if (pin) steps.push({ op: 'reorder', node: '$0.node', ...(pin === 'left' ? { before: a.id } : { after: a.id }) })
+              const hired = tree.undo_history ? userGesture(slug, steps, `Hire ${tierLabel(tier)}`)
+                .then((r): OpResult => ({ ...(r.results?.[0] ?? {}), history_entry: r.history_entry })) : op(body)
+              hired
                 .then((r) => {
                   const born = r?.node
                   if (typeof born === 'string' && born)
@@ -4340,16 +4366,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                     // same follow-ups as the desktop chips: side = pin the
                     // promised ordering (best-effort, cosmetic); above = the
                     // FR-25 splice (loud on failure — it IS the point)
-                    if (pin) {
+                    if (pin && !tree.undo_history) {
                       void reorderNode(slug, born, pin === 'left'
                         ? { before: a.id } : { after: a.id }).catch(() => {})
                     }
-                    if (placement === 'above') {
+                    if (placement === 'above' && !tree.undo_history) {
                       op({ op: 'move', node: a.id, new_parent: born })
                         .catch((e: Error) => toast([
                           `hired ${born}, but the splice failed: ${e.message}`]))
                     }
-                    toast([`hired ${born}`])
+                    toast([`hired ${born}`], historyUndo(slug, r))
                   }
                   setHireOpen(false)
                 })

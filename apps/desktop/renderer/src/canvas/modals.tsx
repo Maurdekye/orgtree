@@ -1,6 +1,8 @@
 import { watchdogActions } from './objectactions'
 import { objectNavProps } from './objectnav'
 import { useSurfaceDocument } from '../popout'
+import { userGesture } from '../historyapi'
+import { historyUndo } from '../historyregistry'
 import { lineageCount } from '../archived'
 // canvas/modals.tsx — the config modals: the in-page ConfirmModal, the
 // pre-hire permissions modal (DraftScopeModal), the per-node ⚙ config
@@ -1088,7 +1090,33 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     model_version: versions.includes(modelVersion)
       ? modelVersion : '',
     ...fallbackPayload }
-  const doSave = () =>
+  const doSave = () => {
+    if (tree.undo_history) {
+      const steps: Record<string, unknown>[] = []
+      if (model !== node.tier) steps.push({ op: 'switch_model', node: node.id, tier: model, ...(acct ? { account: acct } : {}) })
+      else if (acctChanged && acct) steps.push({ op: 'account', node: node.id, account: acct })
+      steps.push({ op: 'scope', node: node.id, ...scopeBody })
+      return userGesture(slug, steps, `Settings: ${node.id}`)
+        .then(r => {
+          const results = r.results ?? []
+          const saved = results[results.length - 1] ?? {}
+          const lines = savePopups(saved)
+          for (const result of results.slice(0, -1)) lines.push(...(result.warnings ?? []))
+          if (model === node.tier && acctChanged && acct && !r.duplicate) {
+            const d = results[0] as Awaited<ReturnType<typeof assignAccount>> | undefined
+            if (d?.queued) lines.push(`${node.id} → account ${d.account} queued — applies when the current turn ends`)
+            else if (d?.cancelled) lines.push(`${node.id}: queued account change to ${d.cancelled} cancelled — keeps ${d.account}`)
+            else if (d) lines.push(`${node.id} → account ${d.account}`
+              + (d.billing_mode ? ` (${d.billing_mode})` : '')
+              + (d.standing?.state === 'limited' ? ` — WILL WAIT until ${new Date((d.standing.until ?? 0) * 1000).toLocaleString()}`
+                + (d.standing.provenance === 'inferred' ? ' (inferred)' : '') : '')
+              + (d.session_boundary ? ' — session restarts next turn' : ''))
+          }
+          toast(lines.length ? lines : [`Saved settings for ${node.id}`], historyUndo(slug, r))
+          close()
+        }).catch((e: Error) => toast([`error: ${e.message}`]))
+    }
+    return (
     (model !== node.tier
       ? op({ op: 'switch_model', node: node.id, tier: model,
              // atomic switch+rebind: the account rides the same act (the
@@ -1123,7 +1151,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         toast(lines)
         close()
       })
-      .catch((e: Error) => toast([`error: ${e.message}`]))
+      .catch((e: Error) => toast([`error: ${e.message}`])))
+  }
   const parent = map.get(node.id)?.parent
   const parentNode = parent && parent !== USER ? map.get(parent) : null
   const parentTools = parentNode?.scope?.tools ?? null   // null = the user: everything
@@ -1527,7 +1556,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           body={`It stops working and frees ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))} credit(s) back to its superior. Its context is KEPT — rehire brings it back exactly as it was.`}
           confirmLabel="retire"
           onConfirm={() => op({ op: 'retire', node: node.id })
-            .then(close).catch(() => {})}
+            .then(r => { if (r.history_entry) toast([`${node.id} retired`], historyUndo(slug, r)); close() }).catch(() => {})}
           close={() => setAsking(null)} />
       )}
       {asking === 'dissolve' && (

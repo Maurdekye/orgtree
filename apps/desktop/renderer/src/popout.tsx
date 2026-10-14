@@ -35,6 +35,12 @@ export const useCurrentOrg = () => useContext(CurrentOrg)
 export const useSurface = () => useContext(SurfaceContext)
 export const useSurfaceDocument = () => useContext(SurfaceDocumentContext) ?? document
 export const useOverlayRoot = () => useContext(SurfaceOverlayContext) ?? document.body
+/** Mirrored controls use their native document for focus and confirmation. */
+export function SurfaceDocumentOwner({ owner, children }: { owner: Document; children: ReactNode }) {
+  return <SurfaceDocumentContext.Provider value={owner}><SurfaceOverlayContext.Provider value={owner.body}>
+    {children}
+  </SurfaceOverlayContext.Provider></SurfaceDocumentContext.Provider>
+}
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 // Native document ownership and React propagation are DIFFERENT boundaries.
 // This helper also belongs on an ancestor capture handler, before any action.

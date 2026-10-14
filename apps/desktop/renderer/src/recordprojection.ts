@@ -12,7 +12,7 @@ export interface TreeRecordInputs {
   cursor?: FeedCursor
 }
 export const treeOrgGroups = ['settings', 'tiers', 'cost', 'audit', 'foreground', 'asks',
-  'audiences', 'watchdogs', 'inbox_summary', 'org_inbox', 'net', 'work_summary'] as const
+  'audiences', 'watchdogs', 'inbox_summary', 'org_inbox', 'net', 'work_summary', 'undo'] as const
 
 function header(records: RecordTable): Omit<TreePayload, 'roots'> {
   const rows = records.get('org')
@@ -21,6 +21,8 @@ function header(records: RecordTable): Omit<TreePayload, 'roots'> {
   const top: Record<string, unknown> = {}
   for (const group of treeOrgGroups) {
     const fields = rows?.get(group)
+    // A cached snapshot from an older engine has no durable history group.
+    if (group === 'undo' && !fields) continue
     if (!fields || typeof fields !== 'object' || Array.isArray(fields))
       throw new Error('Feed snapshot is missing org group: ' + group)
     for (const [key, value] of Object.entries(fields)) {

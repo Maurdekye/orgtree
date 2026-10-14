@@ -16,6 +16,7 @@ import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
 import { createToast, ToastStack } from './toasts'
 import type { Toast } from './toasts'
+import { HistorySurface, useUserHistory } from './historyui'
 import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
 import type { NativePreferences } from './desktop'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -727,6 +728,8 @@ export default function App() {
     setToasts(t => [...t, item])
     setTimeout(item.dismiss, 12000)
   }, [])
+  const userHistory = useUserHistory(slug, !!tree?.undo_history, tree?.undo_history?.rev, toast,
+    () => { refreshTree(slug, { urgent: true }); refreshOrgs() })
 
   // ONE NOTICE FOR THE WHOLE RESTORATION, once both halves are known.
   //
@@ -1986,8 +1989,10 @@ export default function App() {
           close={() => setDoomedOrg(null)} />
       )}
 
+      <HistorySurface controller={userHistory} />
       <ToastStack toasts={toasts} />
       <WindowMirrors>
+        <HistorySurface controller={userHistory} />
         <ToastStack toasts={toasts} />
       </WindowMirrors>
       {/* the in-app folder picker: LAST so it stacks above every modal */}

@@ -32,6 +32,8 @@
 // menu was opened from (contextmenu.tsx), so a builder that added its own
 // would double them.
 
+import { useCurrentOrg } from '../popout'
+import { historyEnabled, historyUndo } from '../historyregistry'
 import { continueOnAccount, refreshAgyModels } from '../api'
 import type { ToastFn } from '../types'
 import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
@@ -334,6 +336,7 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
   toast: ToastFn
   close: () => void
 }) {
+  const historyOrg = useCurrentOrg()
   if (kind === 'halt-subtree' || kind === 'halt-subordinates'
     || kind === 'unhalt-subtree' || kind === 'unhalt-subordinates') {
     const unhalt = kind.startsWith('unhalt-')
@@ -394,9 +397,10 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
       body={`It stops working and frees ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))} credit(s) back to its superior. Its context is KEPT — rehire brings it back exactly as it was.`
         + (node.busy ? ' ⚠ It is mid-turn right now; that turn is cut off.' : '')}
       confirmLabel="retire"
-      onConfirm={() => op({ op: 'retire', node: node.id }).then(() =>
+      onConfirm={() => op({ op: 'retire', node: node.id }).then(r =>
         toast([`${node.id} retired`],
-          () => op({ op: 'rehire', node: node.id }).catch(() => {})))
+          historyOrg && (r.history_entry || historyEnabled(historyOrg)) ? historyUndo(historyOrg, r)
+            : () => op({ op: 'rehire', node: node.id }).catch(() => {})))
         .catch(() => {})}
       close={close} />
   )

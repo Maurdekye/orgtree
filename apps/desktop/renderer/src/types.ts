@@ -739,7 +739,7 @@ export interface AuditReport {
 /** the toast surface App threads everywhere: lines + an optional 12 s undo.
  *  Callers pass `r.warnings` straight through, so nullish is accepted — the
  *  implementation's `if (!lines || !lines.length) return` is the contract */
-export type ToastUndo = (() => void) | { fn: () => void; label: string }
+export type ToastUndo = (() => void) | { fn: () => void; label: string; available?: () => boolean }
 export type ToastFn = (
   lines: string[] | null | undefined, undo?: ToastUndo | null,
 ) => void
@@ -763,6 +763,8 @@ export interface TreePayload {
   sync_rev?: number
   /** Conservative committed PG boundary carried alongside sync_rev. */
   org_rev?: number
+  /** Durable user history header; absent on engines before the feature. */
+  undo_history?: { rev: number; undo: import('./historyapi').HistoryTarget | null; redo: import('./historyapi').HistoryTarget | null }
   slug: string
   name: string
   workspace: string | null
@@ -2359,6 +2361,8 @@ export interface ReorderRequest {
 // Ledger op results are op-specific dicts (hire → {node, ...}, dissolve →
 // {freed, nodes}, …) — only `warnings` is a cross-op convention
 export interface OpResult {
+  history_entry?: import('./historyapi').HistoryEntryRef
+  duplicate?: boolean
   warnings?: string[]
   /** Facts about a save that SUCCEEDED, carrying no action — the other half of
    *  the report from `warnings`, and NOT a thing to pop at the user. Today it

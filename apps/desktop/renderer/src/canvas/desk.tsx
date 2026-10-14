@@ -1,3 +1,4 @@
+import { historyEnabled, historyUndo } from '../historyregistry'
 import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/systemruns'
 import { livePartials } from '../livePartials'
 import { revealPendingRun } from './pendingrun'
@@ -3572,9 +3573,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           confirmLabel="retire"
           // the undo toast stays: the confirm stops the mis-click, the toast
           // catches the changed mind a moment later
-          onConfirm={() => op({ op: 'retire', node: node.id }).then(() =>
+          onConfirm={() => op({ op: 'retire', node: node.id }).then(r =>
             toast([`${node.id} retired`],
-              () => op({ op: 'rehire', node: node.id }).catch(() => {})))
+              r.history_entry || historyEnabled(slug) ? historyUndo(slug, r) : () => op({ op: 'rehire', node: node.id }).catch(() => {})))
             .catch(() => {})}
           close={() => setAsking(null)} />
       )}
