@@ -5,25 +5,45 @@ Docket: `use-several-openrouter-keys-at-once`.
 Rulings:
 - User, 2026-10-11 22:35Z: the multi-key package.
 - User, 2026-10-11 22:50Z: every key can be switched off on its own.
-- Coordinator: compatibility of ids and lanes.
+- Coordinator: compatibility of ids and lanes (superseded below).
+- User, 2026-10-14 18:00Z (docket `openrouter-keys-are-all-equal-no-unnumbered-prim`): every key
+  is alike. No key is the original or the primary; every id is numbered. Migration 0021 renumbers
+  the old first key.
 
 ## Model
 
 Each OpenRouter key is a hidden registry row in `ot.accounts`: provider `openrouter`, kind
-`apikey`. Its secret is in `ot.account_secrets`.
+`apikey`. Its secret is in `ot.account_secrets`. Every key is alike:
 
-| | Original key | Added key |
-|---|---|---|
-| registry id | `openrouter-key` (unchanged) | `openrouter-N`, N ≥ 2, never reused (`ot.removed_accounts`) |
-| lane (allowlist, usage board, usage cache/history) | `openrouter` (unchanged) | its id |
-| how a seat binds to it | `account` NULL or `primary` | `account = openrouter-N` |
-| account pickers | `default` (`openrouter/primary`) | a row in `GET /api/accounts` |
+| | Every key |
+|---|---|
+| registry id | `openrouter-N`, N from 1, never reused (`ot.removed_accounts`) |
+| lane (allowlist, usage board, usage cache/history) | its id |
+| how a seat binds to it | `account = openrouter-N`; a hire naming none is placed on a key and bound |
+| account pickers | a row in `GET /api/accounts`, like every other key |
+
+**The one symmetric default.** A seat with no OpenRouter key bound (`account` NULL, `primary`,
+`default`, or a binding to another provider's login) bills the *first key in the key list*: the
+registry order (`ord`, the order keys were added unless reordered), then the number in the id
+(`openrouter::first_key`). Nothing depends on a key's id. New hires are not left unbound: a hire
+naming no key (omitted, or the picker's `default`) is placed by the placement balancing
+(`org_accounts::best_allowed`) and bound to the key it lands on.
+
+**Migration 0021** (`migrations/0021_openrouter_numbered_keys.sql`, runs once, a no-op without an
+`openrouter-key` row): the old first key `openrouter-key` (lane `openrouter`) becomes
+`openrouter-1`, or the next number nobody used if 1 was taken. Every column of the row is copied
+(its placeholder label "OpenRouter" dropped, it stays first in the key list) and its secret moves
+with it. Every reference to either old name follows: agent bindings and queued intents
+(`pending_account`, `pending_switch`), turns, usage history, marks and their audit, spend (merged),
+org `default_account` and `disabled_accounts`, and the app default. Every OpenRouter seat that
+billed it unbound is bound to it explicitly, so no agent changes key. The old names go into
+`ot.removed_accounts`, so a stale reference to them is refused rather than stored.
 
 Helpers:
-- `openrouter::lane(id)` and `openrouter::id_of_lane(lane)`.
-- `openrouter::seat_key(engine, account)`: the key a seat bills.
-- `org_accounts::lane_of(&AccountInfo)`: the canonical lane of any registry row.
-- `org_accounts::seat_lane(engine, tier, account)` and `org_accounts::default_lane(provider)`.
+- `openrouter::seat_key(engine, account)`: the key a seat bills; `openrouter::first_key(engine)`.
+- `openrouter::keys(engine)`: every key in the key list's order.
+- `org_accounts::lane_of(&AccountInfo)`: the canonical lane of any registry row (a key's id).
+- `org_accounts::seat_lane(engine, tier, account)`.
 
 Global for every key: favorites. Each key has its own harness (below).
 
@@ -33,15 +53,17 @@ All key endpoints are secret-free on the way out; a key crosses the wire once, i
 
 | Method and path | What it does |
 |---|---|
-| `GET /api/openrouter` | The panel document. The top-level fields describe the original key, as before. `keys[]` lists every key (`id`, `lane`, `original`, `label`, `name`, `key_label`, `enabled`, `connected`, `reason`, `limits`, `observed_at`, `harness`, `harness_installed`, `pinned_seats`) and `any_key` says whether any is stored. `harness` is the machine's options (the registry's) and `stored`, the harness a new key gets. |
-| `PUT` / `DELETE /api/openrouter/key` | Unchanged: sets or forgets the original key. |
-| `POST /api/openrouter/keys {key, label?, harness?}` | Adds a key and answers the document plus `added` and `added_lane`. With no original stored, the new key becomes the original. A secret already stored on another row is refused. |
-| `PUT /api/openrouter/keys/{id or lane} {key?, label?, harness?}` | Renames a key (an empty label clears the name), sets its harness and/or replaces its secret. A harness must be installed (400 otherwise). |
+| `GET /api/openrouter` | The panel document. `keys[]` lists every key alike in the key list's order (`id`, `lane` = the id, `label`, `name`, `key_label`, `enabled`, `connected`, `reason`, `limits`, `observed_at`, `harness`, `harness_installed`, `pinned_seats`) and `any_key` says whether any is stored. `connected` is whether any key is; `reason` is the first key's reason when none is; `credits` stays null (each key's standing is its row). Every key is read alike first: a `force` re-check reads them all at openrouter.ai, otherwise each reading is at most a minute old. `harness` is the machine's options (the registry's) and `stored`, the harness a new key gets. |
+| `PUT /api/openrouter/key` | As before several keys, but only with no key stored: adds the key like `POST /api/openrouter/keys` (the 3.x import uses it). With keys stored it refuses (409): each key is edited by its id. |
+| `DELETE /api/openrouter/key` | Removes every key, each through the same removal as `DELETE /api/openrouter/keys/{id}`. |
+| `POST /api/openrouter/keys {key, label?, harness?}` | Adds a key as the next `openrouter-N` and answers the document plus `added` and `added_lane` (the same id). A secret already stored on another row is refused. |
+| `PUT /api/openrouter/keys/{id} {key?, label?, harness?}` | Renames a key (an empty label clears the name), sets its harness and/or replaces its secret. A harness must be installed (400 otherwise). |
 | `GET /api/harnesses` | The harness registry: every harness, what it is, whether it is installed here, its providers and how to install it. |
 | ~~`PUT /api/openrouter/harness`~~ | Gone (2026-10-13): the harness is each key's own. |
-| `DELETE /api/openrouter/keys/{id or lane}` | Removes a key. An added key goes through `account_removal`, so its agents, queued intents and defaults move to the original key first. Removing the original (`clear_key` → `account_removal::remove_original`) moves every seat it bills (unbound, bound to it, queued intents naming it) to the first other key a continuation would accept, in key order; a live seat with none freezes (cause `account`) saying so; org and app defaults naming it are cleared. Its id is not retired: a key added with none original stored is the original again. |
-| `PUT /api/accounts/{id}/enabled` | Now also accepts `openrouter-key`. Re-enabling the original wakes the unbound OpenRouter agents. |
-| `GET /api/openrouter/keys/usage` | Every key's last reading by lane, cache-only. |
+| `DELETE /api/openrouter/keys/{id}` | Removes a key, any key alike (`account_removal::remove_key`; the registry's `DELETE /api/accounts/{id}` routes an OpenRouter key there too): every seat it bills (bound to it, unbound ones when it is the first key, queued intents naming it) moves to the first other key a continuation would accept, in key order; a live seat with none freezes (cause `account`) saying so; org and app defaults naming it are cleared. Its id is retired (`ot.removed_accounts`). |
+| `PUT /api/accounts/{id}/enabled` | Switches one key. Re-enabling the first key also wakes the unbound OpenRouter agents (they bill it). |
+| `GET /api/openrouter/keys/usage` | Every key's last reading by id, cache-only. |
+| `GET /api/openrouter/usage` | Reads every key alike (cached unless `force`) and answers `{provider, available, keys: {id: reading}}`. |
 
 A key's name is the user's label; else the label openrouter.ai reports for it (`key_label`, from its
 last reading); else "OpenRouter key N".
@@ -50,9 +72,10 @@ last reading); else "OpenRouter key N".
 
 - `usage::openrouter_key_usage(engine, id, force)` reads one key and caches and records it under
   that key's lane. The inner `openrouter_key_read` is where the usage tool's probe reservation wraps.
-- `usage::openrouter(engine, force)` is unchanged; it reads the original key.
-- The usage loop reads every key every 5 minutes and pushes `openrouter_usage` (the original) and
-  `openrouter_keys_usage` (by lane, with `name`).
+- `usage::openrouter(engine, force)` reads every key alike (`refresh_openrouter`).
+- The usage loop reads every key every 5 minutes and pushes `openrouter_keys_usage` (by id, with
+  `name`) and `openrouter_usage_peek`, every key's cached limits together (whichever key is
+  nearest a wall is what glows). No key has a reading of its own apart from the others.
 - The prepaid balance (`total_credits − total_usage`) belongs to the OpenRouter *account*, so every
   key's row shows it labelled "account balance". Rows are not de-duplicated, because openrouter.ai
   does not say which keys share an account.
@@ -65,23 +88,24 @@ last reading); else "OpenRouter key N".
 ## Placement
 
 - **Hire:** an explicit key is validated against the org's lanes. An omitted account uses the org
-  default when it is an OpenRouter key; otherwise the seat stays unbound (the original key). When
-  the original is switched off for the org, or no longer stored, `best_allowed` places the seat on
-  an allowed added key.
-- **Templates:** an OpenRouter slot balances its keys like logins (`primary` is the original).
-- **Staffing options:** each OpenRouter tier lists its eligible added keys (with `label`).
-  `default_ok` requires the original key to be stored and active.
+  default when it is an OpenRouter key; otherwise (and for an explicit `default`/`primary`)
+  `best_allowed` places the seat on the best key the org uses and binds it there. With none it is
+  refused, saying so.
+- **Templates:** an OpenRouter slot balances its keys like logins.
+- **Staffing options:** each OpenRouter tier lists every eligible key alike (with `label`).
+  `default_ok` (a hire naming no key) requires some key stored, active, used by the org and on an
+  installed harness.
 - **Fallback:** `pick_fallback` and `continue_candidates` include OpenRouter keys, so the existing
   opt-in fallback applies between keys. Nothing switches automatically beyond that setting.
 - **Launch:** `openrouter_route` reads the seat's own key and refuses an inactive key, a lane the
   org switched off, or a key that is no longer stored, each with its own message.
 - **Fallback eligibility:** an OpenRouter key passes the shared `continuation::resolve` check like any
   registry account (org allowlist, per-key switch, limits). `continue_on` takes an unbound seat's
-  previous lane as `org_accounts::default_lane`, so a move to the original key is not reported as a
-  new cache namespace.
+  previous lane as the key it billed (`seat_lane`, the first key), so a move onto that key is not
+  reported as a new cache namespace.
 - **Usage reads:** `openrouter_key_usage` reserves the key's lane (one read per lane at a time);
   the usage tool's `refresh_permitted` already holds that permit and calls the inner reader with
-  the key id (`openrouter::id_of_lane`).
+  the key id (its lane).
 - **Startup:** the 3.x import refreshes the providers' OpenRouter tiers itself, so a carried
   favorite is hireable before the first provider discovery finishes.
 
@@ -120,7 +144,7 @@ there by the coordinator).
 - **Storage:** `ot.accounts.extra.harness` on each key row, a harness id (another
   harness is a registry entry, not a schema change). Every start, a key without one
   takes the old global `openrouter.harness` (`migrate_harnesses`); that setting now
-  only seeds. A new key gets the harness named, else the original key's, else the
+  only seeds. A new key gets the harness named, else the first key's, else the
   seed (the first installed one when the seed is not installed).
 - **Seats:** `ot.agents.extra.harness` is the harness the seat's session runs on;
   `extra.harness_pin` marks an explicit hire choice. `openrouter::seat_harness` is the
@@ -140,7 +164,7 @@ there by the coordinator).
   uninstalled is shown "not installed" and refuses its launch with that reason; the
   boundary does not cross to it, and nothing substitutes another harness.
 - **Selectors (every place a harness is chosen):** the OpenRouter key dialog (add and
-  edit, original and added keys); the language-server add form (Harness, and Custom's
+  edit, every key alike); the language-server add form (Harness, and Custom's
   API style); the hire/staff `harness` argument (orgtree_hire, orgtree_staff, the hire
   op). The Runtime tab's global row is removed. Each UI selector links to App
   settings › Harnesses.
@@ -153,7 +177,7 @@ there by the coordinator).
 - **Model pickers (templates, Quick chat, hire menus, defaults):** they choose a model,
   not a harness; the harness follows the provider, key or server. Their one source,
   the staffing offers (`domain/staffing.rs`), offers an OpenRouter key only while its
-  harness is installed, a hire naming no key only while the original key's is, and a
+  harness is installed, a hire naming no key only while some key it could be placed on has its harness installed, and a
   language-server model only while its server's harness is (registry check).
 
 ## Limits (inferred, not measured)

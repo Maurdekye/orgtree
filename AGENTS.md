@@ -235,9 +235,9 @@
   [decided: user 2026-10-13 18:14UTC; verified: renderer `toasts.tsx`, `App.tsx`]
 
 - OpenRouter has one header Add action beside its provider switch for first
-  and subsequent keys. The original key's settings combines its custom name
-  and optional replacement secret, using the added keys' shared form; there is
-  no separate naming action. Provider drafts close on backdrop clicks and
+  and subsequent keys. Every key's row and settings are alike (one shared form
+  for its custom name, harness and optional replacement secret); there is no
+  separate naming action and no first-key-only row. Provider drafts close on backdrop clicks and
   Escape when idle, discard unsaved entries, and ignore inside-started drag-out
   clicks. Busy saves keep the existing dismissal guard. [decided: user
   2026-10-13 18:16–18:17UTC; verified: `canvas/openrouter.tsx`,
@@ -595,35 +595,37 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   newer pending drag. [verified: renderer `canvas/pendingorder.ts`,
   `canvas/OrgCanvas.tsx`, 2026-10-11; proof: `docs/rust-engine/move-preview.md`]
 
-- **Several OpenRouter keys at once.** Each key is its own hidden registry row (provider
-  `openrouter`, kind `apikey`, secret in `ot.account_secrets`). The original row keeps
-  id `openrouter-key` and **lane `openrouter`**, so allowlists, usage history and running
-  agents carry over. Added keys are `openrouter-N` (N from 2, never reused); an added key's
-  lane is its id. Use only `openrouter::lane`/`id_of_lane`/`seat_key` and
-  `org_accounts::lane_of`/`seat_lane`. An unbound OpenRouter seat (`account` NULL or
-  `primary`) bills the original key, so the original is the lane's `default` and never a
-  pickable row.
-  - **Usage:** cache and history keys are lanes. The original's reading stays
-    `openrouter_usage`; every key's reading is `openrouter_keys_usage` or
-    `GET /api/openrouter/keys/usage`. The prepaid balance belongs to the OpenRouter
-    account, so each key's row says "account balance".
-  - **Placement** follows the other providers: explicit key, org default, template
-    balancing, opt-in fallback; removal is reassign-or-freeze, the original included
-    (`account_removal::remove_original`: its seats move to the first other key a
-    continuation accepts, else a live seat freezes; defaults naming it are cleared; its
-    late org scan is `FOR UPDATE NOWAIT` with rollback-then-backoff retry, as `remove`).
+- **Several OpenRouter keys at once, every key alike.** Each key is its own hidden registry
+  row (provider `openrouter`, kind `apikey`, secret in `ot.account_secrets`), id
+  `openrouter-N` (N from 1, never reused); a key's lane is its id. **No key is special**
+  (user 2026-10-14 18:00Z): never special-case a key's id, never add an "original" or
+  "primary" key. Migration 0021 renumbered the old first key (`openrouter-key`, lane
+  `openrouter`) to `openrouter-1` with every reference, and bound its unbound seats. The one
+  symmetric default: a seat with no OpenRouter key bound bills the first key in the key
+  list (`openrouter::first_key`: `ord`, then N); a hire naming none is placed by
+  `best_allowed` and bound. Use `openrouter::seat_key`/`keys` and
+  `org_accounts::lane_of`/`seat_lane`. See [keys](docs/rust-engine/openrouter-keys.md).
+  - **Usage:** cache and history keys are key ids. Every key's reading is
+    `openrouter_keys_usage` or `GET /api/openrouter/keys/usage`; `openrouter_usage_peek`
+    combines every key's limits. The prepaid balance belongs to the OpenRouter account, so
+    each key's row says "account balance".
+  - **Placement** follows the other providers: explicit key, org default, placement
+    balancing, opt-in fallback; removal is reassign-or-freeze for every key
+    (`account_removal::remove_key`: its seats move to the first other key a continuation
+    accepts, else a live seat freezes; defaults naming it are cleared; its id is retired;
+    its late org scan is `FOR UPDATE NOWAIT` with rollback-then-backoff retry, as `remove`).
   - **Secrets:** a replacement bumps `extra.credential_gen`; the fingerprint's account
     part carries `#credential-N`, so a warm CLI on the old secret is replaced at the next
     turn boundary, and a usage read answered for a replaced key is discarded. Key writes
     lock the OpenRouter rows and refuse a duplicate secret inside the transaction. The
     usage readers and `openrouter::doc` are `#[nolog]` (readings carry provider text), and
     the wire log omits `/api/openrouter` route bodies except `/models`.
-  - **Toggles:** every key, the original included, has its own active switch
+  - **Toggles:** every key has its own active switch
     (`PUT /api/accounts/{id}/enabled`). Org lanes carry `enabled` and `disabled_reason`;
     an org tick cannot turn on a key switched off app-wide.
   - **Harness per key** (replaces the global harness, 2026-10-13): each key row stores
     `extra.harness` (seeded at every start from the old `openrouter.harness`, which
-    now only seeds; a new key takes the original key's). A seat's `extra.harness` is
+    now only seeds; a new key takes the first key's). A seat's `extra.harness` is
     what its session runs on; `openrouter::seat_harness` is the one precedence point:
     a hire's explicit `harness` pins the seat (`extra.harness_pin`, wins over the key),
     else the billed key's. `start_turn` moves a seat whose stamp differs, at the

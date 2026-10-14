@@ -108,7 +108,7 @@ spend line); the row's own layout belongs to its owner.
 
 OpenRouter's single header Add action uses the native providers' secondary-button
 class and opens the first-key or additional-key form according to saved state.
-The original key's settings shares the added keys' Name/optional-key form: a name
+Every key's settings use the one shared Name/optional-key form (no key is special since 2026-10-14): a name
 alone renames, an empty name uses the provider label, and a replacement key keeps
 the existing replacement toast. The separate naming control is removed.
 
@@ -138,7 +138,7 @@ The OpenRouter provider header now owns one add action beside its enable switch,
 using the same `acct-secondary-btn` as other providers' Add account. With no key
 it opens the first-key form; with any remaining key (including added-only keys)
 it opens the additional-key form. Neither action is repeated beneath the rows.
-The original key's Replace settings uses the shared name/optional-key form:
+Every key's settings use the shared name/optional-key form (2026-10-14: no original key):
 name-only saves rename, a supplied key replaces and renames together, and an
 empty custom name restores the existing provider-label meaning. There is no
 separate naming button or dialog. Existing endpoints and activation are retained.

@@ -152,7 +152,7 @@ authorized by lead-astra m6c900416bc77; the shared D build lock is unchanged.
 
 OpenRouter owner confirms its canonical contract (m0b3c97ec4248):
 `openrouter::lane(id)`, inverse `id_of_lane`, `org_accounts::lane_of`, per-lane
-cache keys, and `usage::openrouter_key_usage(engine,id,force)`. Original registry
+cache keys, and `usage::openrouter_key_usage(engine,id,force)`. (Superseded 2026-10-14, decision 78: every key is `openrouter-N` and its lane is its id.) Original registry
 `openrouter-key` maps lane `openrouter`; secondary `openrouter-N` rows map to
 themselves. The original reader retains its signature. Both branches must be
 composed with the shared reservation before a multi-key tool claim is verified.
@@ -320,7 +320,7 @@ was user-waived; this is checked coordinator integration, not a claimed new
 independent OpenRouter security pass. The remaining original usage-query
 composition is now complete; no takeover of paused owner work was needed.
 
-The original owner already supplied the agreed source plumbing. The original
+(Superseded 2026-10-14, decision 78: every key's query lane is its id.) The original owner already supplied the agreed source plumbing. The original
 query ID/cache/history/reservation lane is `openrouter`, with storage ID
 `openrouter-key`; added keys use their registry IDs as distinct lanes. The
 original registry row replaces the synthetic entry and supplies its real active
