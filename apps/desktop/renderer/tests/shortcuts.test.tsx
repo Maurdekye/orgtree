@@ -217,7 +217,7 @@ test('the section renders every group as rows of keycaps', async () => {
         .find(r => r.querySelector('.set-label')?.textContent?.startsWith('Redo'))!
       assert.ok(redo, 'durable redo is explained alongside undo')
       assert.deepEqual([...redo.querySelectorAll('kbd')].map(k => k.textContent),
-        ['Ctrl', 'Y', mac ? '⌘' : 'Ctrl', 'Shift', 'Z'])
+        ['Ctrl', 'Y', mac ? '⌘' : 'Ctrl', mac ? '⇧' : 'Shift', 'Z'])
       assert.equal(view.el.querySelectorAll('.set-row').length,
         shortcutGroups().reduce((n, g) => n + g.items.length, 0))
       assert.equal(view.el.querySelectorAll('input, select, button').length, 0, 'read-only: no controls')
