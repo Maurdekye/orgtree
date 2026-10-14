@@ -92,12 +92,13 @@ export default async function (rig) {
   const mailRow = text => rig.one(`SELECT id, state, turn_id FROM ot.mail WHERE body LIKE '${text.replace(/'/g, "''")}%' ORDER BY id DESC LIMIT 1`)
   const toBoss = (who, like) => rig.sql(`SELECT body, ev->>'variant' AS variant FROM ot.mail WHERE recipient_agent_id = ${rig.agentRow('boss').id}
     AND sender = '@system' AND body LIKE '${who}%${like}%' ORDER BY id`)
-  const convo = agent => rig.sql(`SELECT body FROM ot.convo WHERE agent_id = ${ids[agent]} ORDER BY seq`).map(r => r.body)
+  const convo = (agent, after = 0) => rig.sql(`SELECT body FROM ot.convo WHERE agent_id = ${ids[agent]} AND seq > ${after} ORDER BY seq`).map(r => r.body)
 
   // gus first: his retry waits ~30 s while the rest runs
   await rig.userMail('gus', 'PROOF-EXIT: please start the work.')
 
   // ---------------------------------------------------------------- dana: a normal turn
+  const danaBefore = rig.one(`SELECT coalesce(max(seq), 0) AS seq FROM ot.convo WHERE agent_id = ${ids.dana}`).seq
   await rig.userMail('dana', 'PROOF-HELLO: please say hi.')
   const [t1] = await rig.waitTurns('dana', 1)
   const row1 = rig.one(`SELECT * FROM ot.turns WHERE id = ${t1.id}`)
@@ -107,11 +108,16 @@ export default async function (rig) {
   p.check('dana: priced as gpt-6-luna', row1.model === 'gpt-6-luna' && Number(row1.cost_usd) > 0 && row1.cost_source === 'priced',
     { model: row1.model, cost: row1.cost_usd, source: row1.cost_source })
   p.check('dana: occupancy is the last call\'s input', rig.one(`SELECT occupancy FROM ot.agents WHERE id = ${ids.dana}`)?.occupancy === 5000)
-  const rows = convo('dana')
+  const rows = convo('dana', danaBefore)
+  p.file('dana-hello-convo.json', rows)
   p.check('dana: the reasoning is in the conversation', rows.some(b => /Reading the mail first/.test(b.thinking ?? '')))
-  const said = rows.find(b => b.role === 'assistant' && /Hi from dana/.test(b.text ?? ''))
-  const chart = said?.tools?.find(t => t.name === 'orgtree_chart')
-  p.check('dana: her message carries the dynamic tool call and its answer', !!chart && /boss/.test(chart.result ?? ''), said?.tools)
+  // codex_row keeps tools after reply text on a separate transcript row.
+  const saidAt = rows.findIndex(b => b.role === 'assistant' && /Hi from dana/.test(b.text ?? ''))
+  const toolRows = rows.slice(saidAt + 1).filter(b => b.role === 'assistant')
+  const chart = toolRows.flatMap(b => b.tools ?? []).filter(t => t.name === 'orgtree_chart')
+  p.check('dana: her turn carries the completed dynamic tool call after her greeting', saidAt >= 0
+    && chart.length === 1 && /boss/.test(chart[0].result ?? '') && chart[0].ended_at && !chart[0].error,
+    { greeting: rows[saidAt]?.seq, tools: toolRows.map(b => ({ seq: b.seq, tools: b.tools })) })
   const tr = log('dana', 'tool_result').find(l => l.tool === 'orgtree_chart')
   p.check('dana: the app-server got the engine\'s answer to item/tool/call', tr?.ok === true && !tr.is_error, tr && { ok: tr.ok, text: String(tr.text).slice(0, 80) })
   const approval = log('dana', 'approval')[0]
