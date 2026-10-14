@@ -42,13 +42,13 @@ app.whenReady().then(async () => {
         return {placeholder:panel.querySelectorAll('.popout-placeholder').length,
           sameComposer:panel.querySelector('textarea')===window.reclaimComposer,
           composers:document.querySelectorAll('textarea').length,desk:box(desk),live:box(live),
-          pin:box(panel.closest('.pinwin')),background:getComputedStyle(document.body).backgroundColor};
+          pin:box(panel.closest('.modalpin-win')),background:getComputedStyle(document.body).backgroundColor};
       })()`)
       fs.writeFileSync(path.join(out, `${theme}-closed.png`), (await win.webContents.capturePage()).toPNG())
       checks.push({ theme, closed })
     }
     const passed = checks.every(({closed:c}) => c.placeholder === 0 && c.sameComposer && c.composers === 1 &&
-      c.live && c.desk && c.live.w > 0 && Math.abs(c.live.w-c.desk.w) <= 2) &&
+      c.pin && c.live && c.desk && c.live.w > 0 && Math.abs(c.live.w-c.desk.w) <= 2) &&
       checks[0].closed.background !== checks[1].closed.background
     fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ passed, checks }, null, 2))
     win.destroy(); app.exit(passed ? 0 : 1)

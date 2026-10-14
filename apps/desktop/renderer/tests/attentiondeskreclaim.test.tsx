@@ -20,7 +20,7 @@ test('closing the switchboard returns the SAME live desk to pinned Attention wit
   t.after(() => v.unmount())
   await settle()
   const panel = document.querySelector('.attn-panel-desk')!
-  assert.ok(panel?.closest('.pinwin'), 'the real attention panel is pinned')
+  assert.ok(panel?.matches('.modalpin-win'), 'the real attention panel is pinned')
   const composer = panel.querySelector('textarea') as HTMLTextAreaElement
   assert.ok(composer)
   await inAct(() => {
