@@ -246,6 +246,7 @@ export interface TemplateSummary {
   source: 'folder'; path: string
   agents: { name: string; tier: string; depth: number; parent: string | null }[]
   problems: string[]
+  availability?: { unusable: boolean; checking: boolean; reason: string | null }
 }
 export interface TemplatePick {
   id: string
@@ -269,6 +270,7 @@ export interface TemplatePlan {
   offered: { tier: string; seat: number; provider: string }[]
   /** the engine has not finished its first sign-in check: ask again shortly */
   loading?: boolean
+  unusable_here?: boolean
 }
 export interface TemplateInclude {
   charters: boolean; credits: boolean; effort: boolean; tools: boolean
@@ -281,8 +283,8 @@ export interface TemplateInclude {
 export interface SavedTemplate {
   id: string; file: string; path: string; content: string; agents: number; problems: string[]
 }
-export const listTemplates = (): Promise<{ templates: TemplateSummary[]; dir: string; folder_error?: string | null }> =>
-  req('/api/templates')
+export const listTemplates = (name = ''): Promise<{ templates: TemplateSummary[]; dir: string; folder_error?: string | null; loading?: boolean }> =>
+  req('/api/templates' + (name ? `?name=${encodeURIComponent(name)}` : ''))
 export const resolveTemplate = (pick: TemplatePick, name: string, dirs: string[]): Promise<TemplatePlan> =>
   req('/api/templates/resolve', {
     method: 'POST',

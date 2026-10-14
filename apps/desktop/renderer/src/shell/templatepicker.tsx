@@ -72,13 +72,20 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   const [planError, setPlanError] = useState('')
   const [reload, setReload] = useState(0)
   const [recheck, setRecheck] = useState(0)
+  const [listRecheck, setListRecheck] = useState(0)
+  const [listPending, setListPending] = useState(true)
   useEffect(() => {
     let live = true
+    let again = 0
+    setListPending(true)
     // read afresh each time the picker opens (and on Reload): the folder is the list
-    listTemplates().then((r) => { if (live) { setTemplates(r.templates); setFolderError(r.folder_error ?? ''); setListError('') } })
-      .catch((e: Error) => { if (live) setListError(e.message) })
-    return () => { live = false }
-  }, [reload])
+    listTemplates(orgName).then((r) => {
+      if (!live) return
+      setTemplates(r.templates); setFolderError(r.folder_error ?? ''); setListError(''); setListPending(false)
+      if (r.loading) again = window.setTimeout(() => setListRecheck((n) => n + 1), 1000)
+    }).catch((e: Error) => { if (live) { setListError(e.message); setListPending(false) } })
+    return () => { live = false; window.clearTimeout(again) }
+  }, [reload, orgName, listRecheck])
   // the preview follows every choice; the name and folders matter too
   // (accounts kept for one org, folders a saved template carries)
   const dirsKey = dirs.join('\n')
@@ -105,6 +112,9 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   const setSlot = (slot: string, v: { tier?: string; name?: string }) =>
     onChange({ ...choice, overrides: { ...choice.overrides, [slot]: { ...choice.overrides[slot], ...v } } })
   const anyKickoff = plan?.agents.some((a) => a.kickoff) ?? false
+  const currentPlan = plan?.id === choice.id ? plan : null
+  const planUnusable = !!currentPlan && !currentPlan.loading &&
+    (currentPlan.unusable_here ?? (currentPlan.agents.length > 0 && currentPlan.agents.every(a => !a.tier)))
   return <div className="tp">
     <div className="field-label tp-label">
       <span>Starting layout</span>
@@ -123,14 +133,19 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
       {(templates ?? []).map((t) => {
         const usable = !!t.id && t.problems.length === 0
         const desc = usable ? t.description?.trim() : t.problems[0]
+        const selected = choice.id === t.id
+        const unavailable = usable && !listPending && !listError &&
+          (selected && currentPlan ? planUnusable : !!t.availability?.unusable && !t.availability.checking)
+        const collapsed = unavailable && !selected
         return <button type="button" role="option" key={t.path} aria-selected={choice.id === t.id}
-          className={`tp-row${choice.id === t.id ? ' sel' : ''}${usable ? '' : ' invalid'}`}
+          className={`tp-row${selected ? ' sel' : ''}${usable ? '' : ' invalid'}${unavailable ? ' unusable' : ''}${collapsed ? ' collapsed' : ''}`}
           disabled={!usable} title={usable ? t.path : t.problems.join('\n')}
           onClick={() => t.id && pick(t.id)}>
-          <MiniTree t={t} />
+          {!collapsed && <MiniTree t={t} />}
           <span className="tp-name">{t.name}</span>
-          <span className="tp-count">{t.agents.length} agent{t.agents.length === 1 ? '' : 's'}</span>
-          {desc && <span className="tp-desc">{desc}</span>}
+          {!collapsed && <span className="tp-count">{t.agents.length} agent{t.agents.length === 1 ? '' : 's'}</span>}
+          {unavailable && <span className="tp-reason">{t.availability?.reason ?? 'models unavailable here'}</span>}
+          {!collapsed && desc && <span className="tp-desc">{desc}</span>}
         </button>
       })}
     </div>
@@ -140,6 +155,8 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
     {listError && <div className="ask-warn" role="alert">Templates could not be listed: {listError}</div>}
     {choice.id && planError && <div className="ask-warn" role="alert">{planError}</div>}
     {choice.id && plan && plan.id === choice.id && <div className="tp-preview">
+      {planUnusable && <div className="ask-warn tp-unusable-warning" role="alert">
+        These agents can't be hired here unless you change their models. Choose available models below.</div>}
       <div className="tp-ph">
         <span>{plan.agents.length} agent{plan.agents.length === 1 ? '' : 's'} will be hired under you</span>
         <span className="dim">grants add each agent's reports' seats</span>
