@@ -15,6 +15,11 @@
 //!   {"result": {"status": "...", "error": "..."}}   end the turn with that result
 //!   {"usage": {"input": 1200, "cached": 900, "output": 80}}   the next responses' tokens
 //!   {"init_model": "..."}                    as a first step: init names this model
+//!
+//! `agy [--log-file <f>] models` prints the account's registry as the real
+//! CLI does (`<id>` TAB `<label>` rows after a banner): `agy-models.txt` in the
+//! fake's folder verbatim (an empty file: signed out, no rows), else the
+//! registry measured 2026-10-01 without the conditional Gemini 4 models.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -438,6 +443,9 @@ fn run_turn(agy: &Agy, hooks: &[Hook], mcp: &mut Option<Mcp>, prompt: &str, firs
 }
 
 pub fn run(raw: &[String]) -> i32 {
+    if raw.iter().any(|a| a == "models") {
+        return models(raw);
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let agent = std::env::var("ORGTREE_AGENT").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "probe".into());
     let dir = std::env::var("ORGTREE_FAKECLI_DIR").ok().filter(|s| !s.is_empty()).map(PathBuf::from);
@@ -478,5 +486,29 @@ pub fn run(raw: &[String]) -> i32 {
         }
     }
     agy.log("exit", json!({ "code": 0, "why": "stdin closed" }));
+    0
+}
+
+/// `agy models`: the registry rows, and a log naming the fetch.
+fn models(raw: &[String]) -> i32 {
+    const MEASURED: &str = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n\
+                            gemini-3.1-pro-high\tGemini 3.1 Pro (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n";
+    let dir = std::env::var("ORGTREE_FAKECLI_DIR").ok().filter(|s| !s.is_empty()).map(PathBuf::from);
+    let rows = dir.as_ref().and_then(|d| std::fs::read_to_string(d.join("agy-models.txt")).ok()).unwrap_or_else(|| MEASURED.to_string());
+    if let Some(log) = raw.iter().position(|a| a == "--log-file").and_then(|i| raw.get(i + 1)) {
+        let line = if rows.trim().is_empty() { "Auth mode is unspecified, skipping fetchAvailableModels and returning empty response" }
+                   else { "URL: https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels" };
+        let _ = std::fs::write(log, format!("I0000 00:00:00.000000 1 fake.go:1] {line}\n"));
+    }
+    if let Some(d) = &dir {
+        let p = d.join("log");
+        let _ = std::fs::create_dir_all(&p);
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p.join("agy-models.jsonl")) {
+            let _ = writeln!(f, "{}", json!({ "at": iso_now(), "args": raw, "rows": rows.lines().count() }));
+        }
+    }
+    let mut out = std::io::stdout();
+    let _ = write!(out, "Fetching available models...\n{rows}");
+    let _ = out.flush();
     0
 }

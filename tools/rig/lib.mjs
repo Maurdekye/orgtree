@@ -762,6 +762,8 @@ export async function startRun(opts = {}) {
       session0: opts.session0 ?? null,
       // the "still unread" notice's threshold in seconds (the engine's is 10 min)
       steerLateS: opts.steerLateS || null,
+      // seconds between provider discoveries (the engine's is 300)
+      discoveryS: opts.discoveryS || null,
     })
     touch(dir)
     await launchKeeper(dir, opts.timeout)
