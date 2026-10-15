@@ -1070,10 +1070,9 @@ mod trim_tests {
 
     #[nolog]
     fn render(scope: &Value, lane: Lane, top: bool, builtin_skills: bool) -> String {
-        let teams = [json!({ "path": "D:/data/scratch/org/_teams/601", "own_team": true, "mode": "rw" })];
-        let mut scope = crate::domain::scope::with_org_notes(scope, "D:/data/scratch/org/_shared");
-        if let Some(dirs) = scope["add_dirs"].as_array_mut() { dirs.extend(teams.iter().map(|t| {
-            let mut t = t.clone(); t["team_workspace"] = json!(true); t })); }
+        let teams = crate::domain::teams::workspaces(std::path::Path::new("D:/data/scratch/org/_teams"), &[(601, "lead".into())]);
+        let scope = crate::domain::scope::with_team_workspaces(
+            &crate::domain::scope::with_org_notes(scope, "D:/data/scratch/org/_shared"), &teams);
         identity(&Identity {
             name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
             charter: None, team_charter: None, cascade: &[],
