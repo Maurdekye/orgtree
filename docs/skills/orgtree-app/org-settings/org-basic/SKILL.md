@@ -36,6 +36,11 @@ see `orgtree-credits` (orgtree-working › team). For session behavior, see
 
 ## Logo
 
+Agents can also set/remove their own org's Logo with `orgtree_org_logo` when
+their inherited Organization Logo tool switch is on (the default). It applies
+immediately and records the agent/time/action in the existing undo history.
+See `orgtree-tool-org-logo` (orgtree-working › team) for the tool and limits.
+
 `screen:org-logo` is the Logo group at the top of Basic. Click the logo/pencil
 to choose a static PNG, JPEG or WebP, at most **5 MiB and 16 million pixels**.
 Animated/unsupported or invalid images are refused. The initial fallback is

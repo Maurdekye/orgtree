@@ -21,6 +21,8 @@ Choose the page that answers the current question; detailed behavior and example
 
 ## Tools
 
+- [orgtree-tool-org-logo](tool-org-logo/SKILL.md): Set or remove your own organization's Logo immediately, with logging and undo history.
+
 - [orgtree-tool-hire](tool-hire/SKILL.md): Hire a subordinate or insert a superior: tiers, harnesses, scope, charter, credits.
 - [orgtree-tool-rehire](tool-rehire/SKILL.md): Bring back a retired agent with its context.
 - [orgtree-tool-retire](tool-retire/SKILL.md): Retire an agent below you; what survives retirement.

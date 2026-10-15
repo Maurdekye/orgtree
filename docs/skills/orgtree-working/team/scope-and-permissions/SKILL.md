@@ -21,6 +21,7 @@ Native switches are bash (shell), web (web capability), edit (file editing), and
 | watchdogs | watchdog. |
 | runtime | interrupt, halt, unhalt, unstick, continue_on, account_mark; optional usage refresh also needs runtime. |
 | user | ask, withdraw_ask, present, send_file, request_credits, request_scope. |
+| logo | org_logo: set/remove this organization's Logo, logged and undoable. |
 
 Status reporting is always available. Missing group switches default on; explicit ancestor denials remain effective. The scope API rejects unknown group names and non-boolean values.
 

@@ -5,6 +5,11 @@ The canonical engine contract is [undo-history.md](undo-history.md). User
 undoing a hire whose agent has started a turn. The engine retains at most100
 entries/org; windows read only entry summaries, never journal payloads.
 
+User 2026-10-15 explicitly added autonomous agent Logo changes to this same
+journal. `HistoryKind` includes `logo`; the existing generic history surface
+handles it through the ordinary durable shortcuts. No image bytes enter the
+renderer history payload. The `logo` case joins the action-kind shortcut test.
+
 `useUserHistory` binds a per-org controller while the current tree exposes
 `undo_history`. The feed's `undo` revision and existing mutation notifications
 refresh it. Effect cleanup ignores old reads and commands; setup supports

@@ -1,5 +1,15 @@
 # AGENTS.md — working on Orgtree
 
+- Autonomous org Logo edits use `orgtree_org_logo`, gated only by inherited
+  `tools.orgtree.logo` (on by default, including old scopes; user 2026-10-15
+  22:10Z). Use the existing bounded native picture decoder/store/publisher.
+  Only this agent tool joins user undo history: atomic picture+journal write,
+  identity/permission/folder recheck after decode, new revision for undo/redo,
+  stale edit refusal. Keep normalized image data out of traces/history feeds.
+  Contract and verification limits: [Logo tool](docs/rust-engine/profile-pictures.md#autonomous-logo-tool-431).
+  [decided: user 2026-10-15 22:07–22:10Z; verified from source:
+  `tools/logo.rs`, `domain/undo.rs`, `profile_pictures/*`]
+
 - Muse last-good usage is durable per account in `ot.kv` (`muse_usage:<id>`),
   restored before discovery with original observation age and no new auth
   evidence. Removal deletes its key in the account transaction; writers take

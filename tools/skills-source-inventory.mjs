@@ -74,6 +74,15 @@ export function sourceInventory(repo) {
     labels.push(...setting.rows.map(row => ({ file, ...row })))
     dynamicLabels.push(...setting.dynamic.map(row => ({ file, ...row })))
   }
+  // The same generated Orgtree-group controls serve agent settings and hire
+  // defaults. Enumerate their source labels so a new group needs a skill home.
+  const groupFile = `${rendererRoot}/canvas/modals.tsx`
+  const groupSource = fs.readFileSync(path.join(repo, groupFile), 'utf8')
+  const groups = groupSource.match(/const ORGTREE_GROUPS[^=]*=\s*\[([\s\S]*?)\n\]/)?.[1]
+  if (!groups) throw new Error('cannot locate Orgtree tool-group controls')
+  for (const match of groups.matchAll(/\['[^']+',\s*'([^']+)'/g)) {
+    labels.push({ file: groupFile, label: match[1] })
+  }
   // Notification rows are generated from this shared contract, not JSX literals.
   const notifications = 'packages/contracts/notifications.ts'
   for (const match of fs.readFileSync(path.join(repo, notifications), 'utf8').matchAll(/\{ key: '[^']+', label: '([^']+)', default: (?:true|false) \}/g)) {

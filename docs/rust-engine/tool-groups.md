@@ -18,6 +18,13 @@ Malformed group names and non-boolean values are refused.
 | `watchdogs` | watchdog |
 | `runtime` | interrupt, halt, unhalt, unstick, continue_on, account_mark |
 | `user` | ask, withdraw_ask, present, send_file, request_credits, request_scope |
+| `logo` | org_logo (set/remove this org's Logo; immediate, logged, undoable) |
+
+User 2026-10-15 22:10Z explicitly made `logo` on by default, including older
+scopes with no key. It is independent of `team`, `user` and org-inbox audiences.
+The shared Tools controls and org hire defaults expose **Organization Logo**.
+Execution rechecks current identity, inherited permission and file grants under
+the org mutation lock after decoding, in addition to the ordinary dispatch gate.
 
 Disabled tools are absent from MCP `tools/list` and Codex dynamic tools. The
 engine also refuses their invocation, including a call remembered from an

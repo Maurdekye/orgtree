@@ -13,6 +13,11 @@ Outside text editors, Ctrl/Cmd+Z requests undo; Ctrl+Y or Ctrl/Cmd+Shift+Z reque
 
 The durable journal retains up to 100 entries per organization for supported explicit user gestures, including moving, hiring, retiring, and retooling agents. New recorded actions clear redo. Agent tool actions, messages, file edits, general organization settings changes, and cheap compaction are not a blanket undoable history.
 
+The specific agent-tool exception is `orgtree_org_logo`: autonomous Logo set
+and remove changes are logged and undoable here. Undo/redo restores with a fresh
+revision; an intervening independent edit refuses the old entry and keeps the
+newer Logo. See `orgtree-tool-org-logo` (orgtree-working › team).
+
 Undoing a hire that has started at least one turn asks for confirmation: it retires the agent and keeps its work/context archived. If further turns change that confirmation's basis, confirmation is requested again. Cancel leaves the hire in place. Conflicting entries can be refused; the same key press does not silently skip to an older action.
 
 The organization History screen is an inspection surface, distinct from the undo/redo journal. Read each result, especially when an intervening change prevents reversal.

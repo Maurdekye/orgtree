@@ -3,7 +3,8 @@
 User scope (2026-10-12): Hubchat person and organization identities can own a
 picture. Direct AI chat identities cannot. Eligible pictures remain visible in
 conversation surfaces. Human organization settings edit this organization's
-picture; no agent editing tool or per-conversation picture is introduced.
+picture. User 2026-10-15 extended this to autonomous org Logo editing through
+`orgtree_org_logo`; there is still no per-conversation picture.
 
 ## Image and storage boundary
 
@@ -25,6 +26,46 @@ remote merges and the initially missing record. No decoding or external I/O
 holds that transaction. Organization trash retains the record with the org.
 
 ## Cross-hub convergence
+
+### Autonomous Logo tool (4.3.1)
+
+Any agent with effective `tools.orgtree.logo` can `set` from a local image in
+its own or held folders, or `remove`. It defaults **on** (user 22:10Z) and is
+inherited like other tool groups; user/team tools and org-inbox audience are
+not prerequisites. A relative path starts in the agent's stored working folder.
+Read-only grants suffice. The existing canonical file resolver bounds reads;
+reading stops at 5 MiB + 1 byte. Unknown actions/selectors, animated/unsupported
+images, directories, invalid crops and revoked grants refuse without mutation.
+
+The tool shares the human native decoder slot, normalization, storage key and
+Net feed/kick/publication path. Optional crop coordinates are the editor's
+fractions of top-left travel and shorter-side scale; omitted means the largest
+centred square. Image reads/decoding happen before a short transaction. Current
+agent identity, inherited group and canonical source authority are rechecked
+after taking history-head then org locks. Read-committed admission deliberately
+sees a scope change that committed while waiting for the org lock.
+
+An accepted tool edit commits the picture and a typed `logo` history entry in
+one transaction (migration `0024_logo_undo`). The entry stores numeric agent id,
+normalized before/after snapshots, timestamp and set/remove label; no original
+file, raw request or credentials. A nonverbose audit line names org/agent/action.
+The tool result and public history return metadata only; payload-bearing helpers
+are `#[nolog]`, with explicit safe audit after commit. Existing wire omissions
+remain. See [undo contract](undo-history.md#logo-history).
+
+Undo/redo restore with a new monotonic revision and the same publisher. Later
+independent edits refuse the stale entry without overwriting the new picture.
+Consecutive Logo undo/redo rebind only history snapshots of the exact restored
+revision. Removal is the existing versioned tombstone/orange-letter fallback.
+Local changes remain immediate while hubs are disconnected or outside access is
+disabled; supported hubs converge through the existing gate after re-enable.
+
+Focused fixtures are `tools/rig/proofs/org-logo.mjs`, the extended group UI
+proof, `scopebody.test.tsx` and native group/input tests. **At author hand-in
+these are source-only and unexecuted**: the coordinator paused heavy local
+verification below its free-commit floor. Rust syntax parsing and Node syntax
+checks do not establish compilation or runtime behavior. Rig-haiku owns the
+focused red/green/typecheck verification; original checkpoint below is historical.
 
 The additive hub capability is `profile_pictures`; unsupported hubs retain the
 usual fallback. Hub and Hubchat changes are separate repository landings. No

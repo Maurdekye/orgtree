@@ -20,7 +20,8 @@ before it lands.
   first, one that never ran is retired without asking.
 - Coordinator 2026-10-14 18:34Z: bound 100 entries per org, a typed allowlist,
   no secrets, **refuse-then-older**, precise guards.
-- Agents' own tool actions never enter the user's history.
+- Agents' own tool actions never enter the user's history, **except autonomous
+  Logo edits** (user 2026-10-15 22:07Z: immediate, logged and undoable).
 
 ## Model
 
@@ -31,7 +32,7 @@ the history lock and the feed revision `rev`) and `ot.undo_entries`, per org:
 |---|---|
 | `id` | entry id (monotonic, the identity the UI targets) |
 | `org_id` | the org (history never crosses orgs) |
-| `kind` | `move` \| `hire` \| `retire` \| `retool` |
+| `kind` | `move` \| `hire` \| `retire` \| `retool` \| `logo` |
 | `state` | `done` (undoable) \| `undone` (redoable) \| `refused` (left behind, with its reason) |
 | `label` | a short UI label, at most 120 characters |
 | `request_id` | the caller's idempotence key, unique per org when given |
@@ -56,8 +57,9 @@ the history lock and the feed revision `rev`) and `ot.undo_entries`, per org:
 
 ## What is recorded
 
-Only **explicit user UI actions** (the HTTP routes below, `Actor::User`)
-record. Agent tools, request approvals, retries, no-ops (`unchanged`, "already
+Only **explicit user UI actions** (the HTTP routes below, `Actor::User`) and
+the specifically authorized `orgtree_org_logo` agent tool record. Other agent
+tools, request approvals, retries, no-ops (`unchanged`, "already
 archived", "already live") and undo/redo replays never record.
 
 | kind | user operations it covers |
@@ -69,7 +71,32 @@ archived", "already live") and undo/redo replays never record.
 
 Out of scope (never recorded, never undone): rename, reallocate, rehire from
 the archive pile, dissolve, rescind, delete, swap, self-subjugation, cheap
-compact, org settings, chat.
+compact, org settings other than the agent Logo exception, chat.
+
+### Logo history
+
+User 2026-10-15 22:07Z made autonomous Logo set/remove changes immediate,
+logged and undoable. Migration `0024_logo_undo` extends the kind constraint.
+The `orgtree_org_logo` tool atomically records kind `logo`, agent id, created
+time and `Set/Remove Logo: <agent>` label alongside the picture write. Its
+typed internal data is `{agent: <numeric id>, generation: <number>, before: <normalized record or
+null>, after: <normalized record>}`. Records are bounded stripped PNGs (≤256
+KiB image bytes), not original inputs. No source path, credentials or image
+bytes appear in history responses, feeds or logs. The usual 100-entry bound,
+redo clearing and org isolation apply.
+
+Undo/redo guards the exact current picture against the snapshot the entry
+left. A later independent UI, agent or remote edit conflicts and leaves that
+newer picture untouched; the entry is refused under normal refuse-then-older
+rules. A successful inverse restores the desired normalized image (or a
+versioned removal for initial absence) with a **fresh greater revision**, then
+notifies/kicks the same publisher as the human editor. It updates only the
+revision field of other done/undone Logo snapshots that reference the exact
+restored revision, so several consecutive undos/redos remain usable without
+mistaking a history restoration for an independent later edit. There is no
+agent tool to undo history; the user's existing history/shortcuts do it.
+
+Source and pending verification: [profile pictures](profile-pictures.md#autonomous-logo-tool-431).
 
 ### One gesture is one entry
 
@@ -134,7 +161,8 @@ with the same id.
 
 ## Endpoints
 
-All are user routes (the windows); there is no MCP tool.
+All history endpoints are user routes (the windows); there is no MCP tool to
+step history. The Logo tool is the single agent recording exception above.
 
 **Route rename (v1.1):** `/api/orgs/{slug}/history` and `/history/{section}`
 are the existing Settings › History browser, so the undo routes live under

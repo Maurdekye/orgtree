@@ -17,8 +17,8 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 |---|---|
 | Categories (level 1, registered) | 2 |
 | Sections (level 2) | 18 |
-| Leaves (level 3) | 163: 41 tool, 44 concept, 33 screen, 45 setting |
-| SKILL.md files in total | 183 |
+| Leaves (level 3) | 164: 42 tool, 44 concept, 33 screen, 45 setting |
+| SKILL.md files in total | 184 |
 | Bytes of the two registered `name` + `description` lines | 403 |
 
 ## 1. Shape and conventions
@@ -180,6 +180,7 @@ leaf in it.
 | orgsettings-sol | app › org-settings | 13 |
 | agentsettings-sol | app › agent-settings | 9 |
 | rig-opus | `engine-start-mode` (written; approved at `7b7dd2e`) | 1 |
+| hubchat-dm-sol | working › team, `tool-org-logo` (4.3.1) | 1 |
 
 - **Section pages** (`<section>/SKILL.md`) are written by the section's writer, using
   the child order and purposes in `tree.json`.
@@ -293,6 +294,7 @@ Building and shaping your team: hiring, tiers, credits, charters, scope, and eve
 | `tool-switch-model` | tool | `orgtree_switch_model` | Move an agent below you to another tier/model. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:508`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("switch_model")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
 | `tool-move` | tool | `orgtree_move` | Reparent an agent within your subtree. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:514`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("move")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
 | `tool-rename` | tool | `orgtree_rename` | Rename an agent below you. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:521`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("rename")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
+| `tool-org-logo` | tool | `orgtree_org_logo` | Set/remove own org Logo immediately; inherited logo group, default on, files/crop limits, logging, undo and hub convergence. | `tools/logo.rs`<br>`domain/undo.rs`<br>`profile_pictures/` | scope-and-permissions, tool-retool, shared-folders |
 | `tool-reorder` | tool | `orgtree_reorder` | Set a descendant's position among its siblings. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:523`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("reorder")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
 | `tool-reallocate` | tool | `orgtree_reallocate` | Give credits to or take them from a report. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:531`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("reallocate")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
 | `tool-swap` | tool | `orgtree_swap` | Swap the seats of two agents below you. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:732`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("swap")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |

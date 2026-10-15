@@ -5,9 +5,9 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 163,
-  "tools": 41,
-  "total": 183
+  "leaves": 164,
+  "tools": 42,
+  "total": 184
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -17,7 +17,8 @@
   "skills-docs-sol": 13,
   "rig-opus": 1,
   "orgsettings-sol": 13,
-  "agentsettings-sol": 9
+  "agentsettings-sol": 9,
+  "hubchat-dm-sol": 1
  },
  "nodes": [
   {
@@ -90,7 +91,8 @@
     "team-shape",
     "credits",
     "charters",
-    "scope-and-permissions"
+    "scope-and-permissions",
+    "tool-org-logo"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -365,6 +367,36 @@
     "credits",
     "charters",
     "scope-and-permissions"
+   ]
+  },
+  {
+   "path": "orgtree-working/team/tool-org-logo",
+   "name": "orgtree-tool-org-logo",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_org_logo"
+   ],
+   "tool_group": "logo",
+   "registered": false,
+   "purpose": "Set/remove the caller's own organization Logo immediately, with logging, crop limits and undo history.",
+   "must_cover": [
+    "set/remove parameters and defaults",
+    "permitted files, image limits and crop coordinates",
+    "inherited logo grant, default on, any agent",
+    "immediate application, audit, undo conflicts and delayed hub convergence"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/logo.rs",
+    "engine/rs/orgtree-engine/src/domain/undo.rs logo()/apply_logo()",
+    "engine/rs/orgtree-engine/src/profile_pictures/"
+   ],
+   "writer": "hubchat-dm-sol",
+   "status": "fixed",
+   "see_also": [
+    "scope-and-permissions",
+    "tool-retool",
+    "shared-folders"
    ]
   },
   {
@@ -5511,6 +5543,38 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "all registered MCP servers"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Docket work"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Team management"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Messaging"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Organization reading"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Watchdogs"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Runtime and accounts"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "User questions and delivery"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Organization Logo"
     }
    ],
    "key_sources": [

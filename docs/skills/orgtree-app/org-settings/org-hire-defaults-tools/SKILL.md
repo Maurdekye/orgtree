@@ -32,7 +32,7 @@ capabilities that future agents do not need.
 ## Orgtree Tools
 
 `org:default_tools.orgtree` contains the following boolean groups. Missing
-groups default to enabled; all seven start enabled in effective scope.
+groups default to enabled; all eight start enabled in effective scope.
 
 | Label | Key | Purpose |
 | --- | --- | --- |
@@ -43,6 +43,7 @@ groups default to enabled; all seven start enabled in effective scope.
 | Watchdogs | `watchdogs` | Persistent watchers; command watchers also require Run commands. |
 | Runtime and accounts | `runtime` | Interrupt, halt/resume, account changes and capacity marks. |
 | User questions and delivery | `user` | Questions, presentations, files, scope and credit requests. |
+| Organization Logo | `logo` | Set/remove the org's Logo immediately, logged and undoable. |
 
 Disabling a group removes its tools and instructions from the agent; status
 reporting remains available. The endpoint refuses unknown group names or

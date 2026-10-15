@@ -938,3 +938,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     zero: retain times, clear percent/active, show `reset; awaiting reading`
     with no bar. Other providers retain existing behavior. Contract and proof:
     [`muse-usage-cache.md`](muse-usage-cache.md).
+
+82. **Agents may edit their own org's Logo autonomously** (user 2026-10-15
+    22:06–22:10Z; docket `let-orgs-update-or-remove-their-own-logo-autonom`).
+    Any agent with the inherited `logo` tool group may set/remove its org's
+    Logo through `orgtree_org_logo`. The group is **on by default**, including
+    existing scopes (explicit user answer 22:10Z). The user controls it in
+    existing per-agent Tools and hire defaults. No top-level or org-inbox
+    audience restriction; changes apply immediately, without approval, are
+    logged with agent/time/set-or-remove and can be undone through existing
+    history. This is the explicit exception to the earlier user-actions-only
+    undo rule, not a general expansion for agent tools. Reuse the human Logo
+    decoder/storage/publication path, validation and orange-letter removal
+    fallback; default centre-square crop, optional editor-compatible crop.
+    Targets the 4.3.1 patch/alpha. Contract and measured limits:
+    [`profile-pictures.md`](profile-pictures.md#autonomous-logo-tool-431),
+    [`undo-history.md`](undo-history.md#logo-history).
