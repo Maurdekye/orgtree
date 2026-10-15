@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Live thought bodies must not flex-shrink inside the transcript: the
+  display:contents reply wrapper exposes .thoughtbody.live as a .msgs flex
+  item, and its overflow:auto otherwise permits an 8px padding-only sliver.
+  Preserve the 320px border-box cap/scrolling and all non-live thought states.
+  See [streaming thoughts](docs/rust-engine/streaming-thought-height.md).
+  [measured: b77512f base Electron reproduction, 2026-10-15]
+
 - The revealed Rainbow mode row appears only for Custom themes. Selecting a
   preset hides it without altering saved revealed/enabled/epoch preferences;
   returning to Custom restores its prior state. [decided: user/coordinator
