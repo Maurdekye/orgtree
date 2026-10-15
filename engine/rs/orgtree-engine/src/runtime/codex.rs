@@ -940,8 +940,8 @@ pub fn ensure_rollout(thread: &str, home: Option<&str>, others: &[std::path::Pat
     false
 }
 
-/// `-c` overrides attaching granted MCP servers (bare-key names, command or url).
-#[logged]
+/// `-c` overrides attaching granted MCP servers (quoted TOML names when needed).
+#[nolog]
 pub fn mcp_overrides(servers: &serde_json::Map<String, Value>) -> (Vec<String>, Vec<String>) {
     let bare = |s: &str| !s.is_empty() && s.chars().next().map(|c| c.is_ascii_alphanumeric() || c == '_').unwrap_or(false)
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
@@ -949,31 +949,33 @@ pub fn mcp_overrides(servers: &serde_json::Map<String, Value>) -> (Vec<String>, 
     let mut out = Vec::new();
     let mut attached = Vec::new();
     for (name, srv) in servers {
-        if !bare(name) || !(srv.get("command").is_some() || srv.get("url").is_some()) {
+        if name.is_empty() || !(srv.get("command").is_some() || srv.get("url").is_some()) {
             continue;
         }
-        for field in ["command", "args", "env", "url"] {
+        let key = if bare(name) { name.clone() } else { serde_json::to_string(name).unwrap_or_default() };
+        for field in ["command", "args", "env", "url", "headers"] {
             let Some(val) = srv.get(field) else { continue };
             let rendered = match field {
                 "args" => match val.as_array() {
                     Some(a) => format!("[{}]", a.iter().map(toml).collect::<Vec<_>>().join(", ")),
                     None => continue,
                 },
-                "env" => match val.as_object() {
+                "env" | "headers" => match val.as_object() {
                     Some(o) => format!(
                         "{{{}}}",
-                        o.iter().filter(|(k, _)| bare(k)).map(|(k, v)| format!("{k} = {}", toml(v))).collect::<Vec<_>>().join(", ")
+                        o.iter().map(|(k, v)| format!("{} = {}", serde_json::to_string(k).unwrap_or_default(), toml(v))).collect::<Vec<_>>().join(", ")
                     ),
                     None => continue,
                 },
                 _ => toml(val),
             };
             out.push("-c".to_string());
-            out.push(format!("mcp_servers.{name}.{field}={rendered}"));
+            let field = if field == "headers" { "http_headers" } else { field };
+            out.push(format!("mcp_servers.{key}.{field}={rendered}"));
         }
         // headless: a prompt would read as a rejection, so this server's tools are pre-approved
         out.push("-c".to_string());
-        out.push(format!("mcp_servers.{name}.default_tools_approval_mode=\"approve\""));
+        out.push(format!("mcp_servers.{key}.default_tools_approval_mode=\"approve\""));
         attached.push(name.clone());
     }
     (out, attached)

@@ -156,6 +156,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
             axum::routing::put(settings::provider_subscription_inference),
         )
         .route("/api/mcp-servers", get(settings::mcp_servers))
+        .route("/api/mcp-servers/refresh", post(settings::mcp_servers_refresh))
         .route("/api/charters", get(settings::charters))
         .route("/api/charters/populate", post(settings::charters_populate))
         .route("/api/charters/open", post(settings::charters_open))

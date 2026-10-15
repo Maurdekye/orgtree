@@ -736,12 +736,14 @@ pub async fn provider_subscription_inference(
     provider_switch(e, p, "subscription_inference", b.enabled).await
 }
 
-#[logged]
+#[nolog]
 pub async fn mcp_servers(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
-    let reg = e.providers.mcp_registry();
-    let mut names: Vec<String> = reg.servers.iter().map(|(n, _)| n.clone()).filter(|n| n != "orgtree").collect();
-    names.sort();
-    Ok(Json(json!({ "servers": names })))
+    Ok(Json(e.providers.mcp_registry().public()))
+}
+
+#[nolog]
+pub async fn mcp_servers_refresh(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    Ok(Json(e.providers.refresh_mcp_registry().public()))
 }
 
 // ------------------------------------------------------------ charters

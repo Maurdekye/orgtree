@@ -7,6 +7,8 @@ pub mod catalog;
 pub mod agy_auth;
 mod codex_models;
 pub mod muse_models;
+mod mcp;
+pub use mcp::McpRegistry;
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -64,7 +66,7 @@ pub struct MuseDiscovery {
 pub struct Providers {
     pub state: ArcSwap<State>,
     pub agy_auth: agy_auth::AuthGate,
-    /// `~/.claude.json` mcpServers, re-read when the file changes
+    /// Installed harness user MCP definitions, re-read when sources change
     mcp: ArcSwap<McpRegistry>,
     /// each registered Muse login's last own metadata read (account id →
     /// read): what it offers, as the login itself said (the user's own login
@@ -94,12 +96,6 @@ pub enum MuseOffer {
     Unknown(String),
 }
 
-#[derive(Default)]
-pub struct McpRegistry {
-    pub stamp: Option<(std::time::SystemTime, u64)>,
-    pub servers: Vec<(String, Value)>,
-}
-
 #[logged]
 impl Providers {
     pub fn openrouter_tiers(&self) -> Vec<(String, f64, String)> {
@@ -124,25 +120,18 @@ impl Providers {
         self.state.load().muse_probe.as_ref()?.probe.catalog.as_ref()?.offered(model).cloned()
     }
 
-    /// The user's MCP server registry (`mcpServers` in `~/.claude.json`):
-    /// what an agent's `tools.mcp` grants name. Cached until the file changes.
+    /// Cached user MCP definitions. Secret-bearing; never log the result.
+    #[nolog]
     pub fn mcp_registry(&self) -> Arc<McpRegistry> {
-        let path = home().join(".claude.json");
-        let stamp = std::fs::metadata(&path).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
-        let cur = self.mcp.load_full();
-        if cur.stamp.is_some() && cur.stamp == stamp {
-            return cur;
-        }
-        let servers = std::fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v.get("mcpServers").and_then(Value::as_object).cloned())
-            .map(|m| m.into_iter().collect::<Vec<_>>())
-            .unwrap_or_default();
-        let next = Arc::new(McpRegistry { stamp, servers });
-        self.mcp.store(next.clone());
-        next
+        mcp::discover(self, false)
     }
+
+    /// Explicit rediscovery; does not touch any running process.
+    #[nolog]
+    pub fn refresh_mcp_registry(&self) -> Arc<McpRegistry> {
+        mcp::discover(self, true)
+    }
+
 }
 
 fn home() -> PathBuf {
