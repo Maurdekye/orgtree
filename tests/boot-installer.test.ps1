@@ -85,6 +85,15 @@ function Request-BootEngineShutdown($Record,[string]$InstallDir) {
     return $script:engineAnswers
 }
 function Get-OperatorDataRoot([string]$Sid) { throw 'The operator data folder must not be read by these tests' }
+# The installer's record is its own way to ask (docket installer-s-end-task-fallback-
+# no-longer-stops-th), never the real HKLM key here. By default writing it changes
+# nothing, as for an engine from before it; an engine that honours it stops by itself.
+$script:recordStops=$false
+function Request-BootEngineStopByRecord {
+    $script:events.Add('record-stop')
+    if ($script:recordStops) { $script:processes=@() }
+    return $true
+}
 # The operator's own "Run on startup" from desktop-settings.json: none unless a test sets one.
 $script:operatorChoice=$null
 function Get-OperatorStartupChoice([string]$Sid) { return $script:operatorChoice }
@@ -188,17 +197,29 @@ $script:processes=$engineTree; $script:engineAnswers=$true; $script:events.Clear
 Stop-OwnedBootTask $script:folder $original $dir 2
 Assert ($script:events -contains 'engine-request') 'A running engine was not asked to stop'
 Assert (-not ($script:events -contains 'stop')) 'The task was ended although the engine took the request'
+Assert (-not ($script:events -contains 'record-stop')) 'An engine that took the request must not be asked again through the record'
 Assert (-not $script:task.Enabled) 'The task must stay disabled while files are replaced'
 # An engine that cannot be asked is stopped by ending its task, after asking.
 $script:task=New-FakeTask $xml
 $script:processes=$engineTree; $script:engineAnswers=$false; $script:events.Clear()
 Stop-OwnedBootTask $script:folder $original $dir 2
 Assert ($script:events.IndexOf('engine-request') -ge 0 -and $script:events.IndexOf('engine-request') -lt $script:events.IndexOf('stop')) 'The engine must be asked before its task is ended'
+# ...and through the installer's record first (docket installer-s-end-task-fallback-no-
+# longer-stops-th): ending a task ends only its host, and since the 2026-10-12 recovery
+# the engine outlives its host.
+Assert ($script:events.IndexOf('record-stop') -gt $script:events.IndexOf('engine-request') -and $script:events.IndexOf('record-stop') -lt $script:events.IndexOf('stop')) "An engine that cannot be asked through its descriptor must be asked through the installer's record before its task is ended: $($script:events -join ',')"
+# The record alone stops an engine that outlives its ended host.
+$script:task=New-FakeTask $xml; $script:task.KeepProcesses=$true
+$script:processes=$engineTree; $script:engineAnswers=$false; $script:recordStops=$true; $script:events.Clear()
+Stop-OwnedBootTask $script:folder $original $dir 2
+Assert ($script:processes.Count -eq 0 -and $script:events -contains 'record-stop') 'The record request did not stop an engine that outlived its host'
+$script:recordStops=$false
 # Nothing running: there is nobody to ask, and the task is ended as before.
 $script:task=New-FakeTask $xml
 $script:processes=@(); $script:events.Clear()
 Stop-OwnedBootTask $script:folder $original $dir 2
 Assert (-not ($script:events -contains 'engine-request') -and $script:events -contains 'stop') 'An idle engine needs no request'
+Assert (-not ($script:events -contains 'record-stop')) 'An idle engine needs no record request'
 $script:task=New-FakeTask $xml
 $script:processes=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate='A'; ExecutablePath=$paths.Python},[pscustomobject]@{ProcessId=102; ParentProcessId=101; CreationDate='B'; ExecutablePath='C:\provider\cli.exe'})
 

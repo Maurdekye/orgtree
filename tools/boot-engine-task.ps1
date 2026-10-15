@@ -164,6 +164,27 @@ function Request-BootEngineShutdown($Record, [string]$InstallDir) {
         return $true
     } catch { return $false }
 }
+# The installer's own way to ask (docket installer-s-end-task-fallback-no-longer-
+# stops-th, coordinator 2026-10-15): StopRequested, the request's time in Unix
+# milliseconds, in its protected record, which only administrators can write. An
+# engine a task's host started reads it every 2 s and stops the graceful way when
+# the request is newer than its own start (engine src/install_stop.rs); an older
+# value never stops anything and is never removed (the next request overwrites
+# it). For an installer that cannot read the operator's descriptor. $true when
+# the request was written. An I/O boundary; the tests replace it.
+function Request-BootEngineStopByRecord {
+    $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')
+    try {
+        $key = $hive.OpenSubKey($script:BootRecordKey, $true)
+        if ($null -eq $key) { return $false }
+        try {
+            Assert-BootRegistryKey $key
+            $key.SetValue('StopRequested', [long][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(), 'QWord')
+            return $true
+        } finally { $key.Dispose() }
+    } catch { return $false }
+    finally { $hive.Dispose() }
+}
 function Get-BootProcessKey($Process) { return "$($Process.ProcessId):$($Process.CreationDate)" }
 # The installer's lifecycle log, the file the close helper (installer-upgrade.ps1)
 # appends to, so one file tells a whole upgrade. Best effort: a log that cannot be
@@ -573,14 +594,21 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
             if ($null -ne $signin) { $signinWasEnabled = [bool]$signin.Enabled; $signinDisabledByUs = $true; $signin.Enabled = $false }
             # Graceful first (docket installer-can-t-replace-a-running-orgtree-an-ins):
             # the engine is asked to stop, so it ends its agents' CLIs itself.
-            # Ending the task ends only the host; the engine then sees its host
-            # exit and stops on its own (engine main.rs, watch_parent). That is
-            # the way left when the engine cannot be asked. Whichever task's host
-            # it is, the engine publishes the same descriptor.
+            # Whichever task's host it is, the engine publishes the same descriptor.
+            # An installer that cannot read the descriptor (another administrator)
+            # asks through its own record instead (docket installer-s-end-task-
+            # fallback-no-longer-stops-th): ending a task ends only its host, and
+            # since the core-lifecycle recovery (2026-10-12) an engine outlives its
+            # host, so that alone left it running and this step timed out. A task
+            # ended any other way (a manual End) still leaves its engine running.
             $asked = $false
             if ($running.Count -ne 0) { $asked = [bool](Request-BootEngineShutdown $Record $InstallDir) }
             if ($asked) { Write-BootLog 'stop: the engine took the shutdown request' }
             else {
+                if ($running.Count -ne 0) {
+                    if (Request-BootEngineStopByRecord) { Write-BootLog "stop: recorded a stop request in the installer's record" }
+                    else { Write-BootLog "stop: could not record a stop request in the installer's record" }
+                }
                 $ended = @()
                 if ($null -ne $task) { $task.Stop(0); $ended += 'the boot task' }
                 if ($null -ne $signin) { $signin.Stop(0); $ended += 'the sign-in engine task' }
