@@ -365,14 +365,11 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
 #[logged]
 fn trimmed_tool_instructions(tools: &Value, top: bool) -> String {
     let group = |g: &str| crate::domain::tool_groups::enabled(tools, g);
-    let names = crate::tools::defs::implemented().iter()
-        .filter(|name| crate::domain::tool_groups::allows(tools, name))
-        .filter(|name| top || **name != "orgtree_request_credits")
-        .copied().collect::<Vec<_>>();
-    let mut text = format!(
-        "Your Orgtree tools: {}. Each tool's own description is its contract; its skill page (orgtree-tool-<name>) \
-         has the procedure. ",
-        names.join(", ")
+    // the tool list itself reaches the agent as tool definitions; naming them
+    // again here would only repeat it
+    let mut text = String::from(
+        "Your Orgtree tools are the orgtree tools you were given: each one's own description is its contract, and \
+         its skill page (orgtree-tool-<name without the orgtree_ prefix, dashes for underscores>) has the procedure. ",
     );
     if group("messaging") {
         text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. ");
