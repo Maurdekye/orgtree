@@ -27,4 +27,4 @@ Outside mail is addressed to the organization, through [the org inbox](../org-in
 
 - [orgtree-org-inbox](../org-inbox/SKILL.md)
 - [orgtree-tool-list-orgs](../tool-list-orgs/SKILL.md)
-- See `orgtree-phone-link` (orgtree-app â€º mailhub).
+- See `orgtree-phone-link` (orgtree-app › mailhub).

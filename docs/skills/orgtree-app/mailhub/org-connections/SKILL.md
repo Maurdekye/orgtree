@@ -31,5 +31,5 @@ Settings changes can establish connectivity; they do not grant a person user aut
 
 ## See also
 
-- See `orgtree-external-mail` (orgtree-working â€º mail).
-- See `orgtree-tool-list-orgs` (orgtree-working â€º mail).
+- See `orgtree-external-mail` (orgtree-working › mail).
+- See `orgtree-tool-list-orgs` (orgtree-working › mail).

@@ -39,4 +39,4 @@ Status distinguishes running/healthy, starting and stopped, and shows address, h
 ## See also
 
 - [orgtree-org-connections](../org-connections/SKILL.md)
-- See `orgtree-tool-transfers` (orgtree-working â€º mail).
+- See `orgtree-tool-transfers` (orgtree-working › mail).

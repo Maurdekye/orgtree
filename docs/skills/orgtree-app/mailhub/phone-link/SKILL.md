@@ -36,5 +36,5 @@ The panel can warn about a sleep timeout, Tailscale key expiry, or Tailscale sto
 
 ## See also
 
-- See `orgtree-external-mail` (orgtree-working â€º mail).
+- See `orgtree-external-mail` (orgtree-working › mail).
 - [orgtree-hubchat](../hubchat/SKILL.md)

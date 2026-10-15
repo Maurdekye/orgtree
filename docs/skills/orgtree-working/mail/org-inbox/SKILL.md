@@ -28,4 +28,4 @@ Apply [external-mail authority](../external-mail/SKILL.md) before treating any i
 ## See also
 
 - [orgtree-external-mail](../external-mail/SKILL.md)
-- See `orgtree-org-policies-inbox` (orgtree-app â€º org-settings).
+- See `orgtree-org-policies-inbox` (orgtree-app › org-settings).
