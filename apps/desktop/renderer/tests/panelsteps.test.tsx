@@ -1,6 +1,6 @@
 // Mounted pre-fix regression: selection, viewer, focus ownership and draft
 // preservation on actual gallery/docket surfaces. No engine or live sends.
-import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -29,7 +29,7 @@ const item = (slug: string, extra: Partial<WorkItem> = {}): WorkItem => ({
 } as WorkItem)
 let sequence = 0
 async function fixture(t: TestContext, surface: Surface, options: {
-  blank?: boolean; foreign?: boolean; docs?: DocRow[]; items?: WorkItem[]; asks?: AskInfo[]
+  blank?: boolean; foreign?: boolean; opening?: boolean; docs?: DocRow[]; items?: WorkItem[]; asks?: AskInfo[]
 } = {}) {
   useFakeClock()
   const previous = globalThis.fetch
@@ -65,6 +65,14 @@ async function fixture(t: TestContext, surface: Surface, options: {
     portalHost = frame.contentDocument!.createElement('div')
     frame.contentDocument!.body.appendChild(portalHost)
   }
+  // Opening a panel leaves its launcher focused until the panel takes focus.
+  // Do not dispatch a key straight at the panel or click a row in this path.
+  const launcher = options.opening ? (portalHost?.ownerDocument ?? document).createElement('button') : null
+  if (launcher) {
+    launcher.textContent = 'Open panel'
+    launcher.ownerDocument.body.appendChild(launcher)
+    launcher.focus()
+  }
   const scrolled: { name: string; block?: ScrollLogicalPosition }[] = []
   const prototypes = [window.HTMLElement.prototype]
   if (frame) prototypes.push((frame.contentWindow! as unknown as typeof window).HTMLElement.prototype)
@@ -88,7 +96,7 @@ async function fixture(t: TestContext, surface: Surface, options: {
   t.after(async () => {
     try { await unmount?.() } finally {
       prototypes.forEach((proto, i) => { proto.scrollIntoView = oldScroll[i]! })
-      frame?.remove(); globalThis.fetch = previous; realClock()
+      launcher?.remove(); frame?.remove(); globalThis.fetch = previous; realClock()
       for (const [key, value] of [['orgtree.docket.group', previousGroup], ['orgtree.docket.sort', previousSort]]) {
         if (value === null) window.localStorage.removeItem(key!)
         else window.localStorage.setItem(key!, value!)
@@ -111,10 +119,45 @@ async function fixture(t: TestContext, surface: Surface, options: {
     assert.ok(row, `click target ${id} exists`)
     if (selected() !== id) await inAct(async () => { row.click(); await flush(6) })
   }
-  if (!options.blank) await pick(name(rows()[0]!))
+  if (!options.blank && !options.opening) await pick(name(rows()[0]!))
   scrolled.length = 0
   return { el, root, rows, name, selected, pick, scrolled }
 }
+
+for (const surface of surfaces) {
+  for (const key of ['ArrowDown', 'ArrowUp']) test(`${surface}: opening routes ${key} from actual focus without a row click`, async t => {
+    const f = await fixture(t, surface, { opening: true })
+    const initial = surface === 'agent-work' ? null : 'alpha'
+    assert.equal(f.selected(), initial, 'opening selection is unchanged, without fixture clicks')
+    const doc = f.root.ownerDocument
+    const event = await press((doc.activeElement ?? doc.body) as HTMLElement, key)
+    assert.equal(f.selected(), key === 'ArrowDown' && initial === 'alpha' ? 'beta' : 'alpha')
+    assert.equal(event.defaultPrevented, true, 'the focused panel handles its chord')
+    assert.equal(f.root.contains(doc.activeElement), true, 'opening places focus within this panel')
+  })
+  test(`${surface}: later list polls do not reclaim focus from another editor`, async t => {
+    const f = await fixture(t, surface, { opening: true })
+    const doc = f.root.ownerDocument
+    const other = doc.createElement('input')
+    doc.body.appendChild(other); other.focus()
+    t.after(() => { other.remove() })
+    const selected = f.selected()
+    await advance(5000)
+    assert.equal(doc.activeElement === other, true, 'one opening focus claim, never a polling focus loop')
+    const event = await press(other, 'ArrowDown')
+    assert.equal(event.defaultPrevented, false)
+    assert.equal(f.selected(), selected)
+  })
+}
+for (const surface of ['agent-docs', 'agent-work'] as const) test(`${surface}: opening focuses its detached document before the first arrow`, async t => {
+  const f = await fixture(t, surface, { opening: true, foreign: true })
+  const doc = f.root.ownerDocument
+  assert.equal(doc === document, false)
+  const event = await press((doc.activeElement ?? doc.body) as HTMLElement, 'ArrowDown')
+  assert.equal(f.selected(), surface === 'agent-docs' ? 'beta' : 'alpha')
+  assert.equal(event.defaultPrevented, true)
+  assert.equal(f.root.contains(doc.activeElement), true)
+})
 async function press(target: HTMLElement, key: string, extra: KeyboardEventInit = {}) {
   const owner = target.ownerDocument.defaultView as Window & typeof globalThis
   const event = new owner.KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true, ...extra })
