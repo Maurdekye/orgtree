@@ -91,3 +91,9 @@ cover `.agents` and `rules`, checking no external part is written or removed.
 This boundary validation does not claim protection against a hostile concurrent
 path swap. Native read manifests, the 47/54 envelope migration rule and the other
 seven preserved files are unchanged. No live profile or native CLI probe was run.
+
+Migration runs before rule writing, so it independently applies the same output
+ancestor guard before reading legacy AGENTS.md and immediately before renaming
+source to backup. A third negative case points scratch at an external envelope
+and requires unchanged external bytes with no backup. The envelope predicate and
+normal migration behavior are unchanged; native read discovery is not restricted.

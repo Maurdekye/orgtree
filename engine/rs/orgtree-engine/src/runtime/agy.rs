@@ -383,7 +383,7 @@ const IDENTITY_RULE_HEADER: &str = "---\ntrigger: always_on\ndescription: Orgtre
 const IDENTITY_PART_BYTES: usize = 23_000;
 
 /// Reject redirected identity output before creating directories or inspecting
-/// owned parts. Native read manifests and legacy-envelope migration are separate.
+/// owned parts or migrating a legacy identity. Native read manifests are separate.
 #[nolog]
 fn validate_identity_output(path: &Path) -> Result<()> {
     for ancestor in path.ancestors() {
@@ -471,7 +471,9 @@ fn legacy_identity_envelope(text: &str) -> bool {
 /// nonmatching notes stay native; all migrated bytes survive in a unique backup.
 #[logged]
 pub fn migrate_generated_identity(cwd: &Path) -> Result<bool> {
+    validate_identity_output(cwd)?;
     let path = cwd.join("AGENTS.md");
+    validate_identity_output(&path)?;
     let meta = match std::fs::symlink_metadata(&path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -487,6 +489,8 @@ pub fn migrate_generated_identity(cwd: &Path) -> Result<bool> {
 
 #[logged] // paths only, never the identity or notes
 fn move_generated_identity(source: &Path, backup: &Path, bytes: usize) -> Result<()> {
+    validate_identity_output(source)?;
+    validate_identity_output(backup)?;
     std::fs::rename(source, backup)?;
     tracing::info!(source = %source.display(), backup = %backup.display(), bytes,
         reason = "exact generated preamble and closing envelope", "preserved legacy generated agy identity outside native notes");
