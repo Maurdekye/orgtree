@@ -3497,17 +3497,21 @@
    ],
    "purpose": "Engine start modes (at boot before sign-in, or at sign-in in the user's session): what each means for agents and when to suggest switching.",
    "must_cover": [
-    "owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); arrives with the start-mode option; content stays as written"
+    "the two modes (at boot, before sign-in, in Session 0 — the default; at sign-in, in the user's session) and what each means for agents",
+    "when to suggest switching, to the user or a superior; agents never change the setting themselves",
+    "owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); approved and integrated at rust-engine 7b7dd2e"
    ],
    "sources": [
-    "docs/skills/orgtree-engine-start-mode/SKILL.md (rig-opus/user-session-engine)"
+    "docs/rust-engine/engine-start-mode.md",
+    "apps/desktop/main/runonstartup.ts:38",
+    "apps/desktop/renderer/src/canvas/desktopsettings.tsx:92",
+    "tests/engine-start-mode.test.mjs"
    ],
    "see_also": [
     "app-runtime-desktop"
    ],
    "writer": "rig-opus",
-   "status": "exists-standalone:move-at-tree-release",
-   "current_path": "orgtree-engine-start-mode"
+   "status": "fixed"
   },
   {
    "path": "orgtree-app/app-settings/app-notifications",

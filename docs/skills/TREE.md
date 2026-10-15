@@ -125,18 +125,14 @@ These rulings explain choices a reader might otherwise question.
   Org agents doing software work need them. They are written as practices, with their
   ground truth in `AGENTS.md` and `docs/`, not as engine features.
 - **`orgtree-engine-start-mode`** (owner rig-opus, item
-  `option-to-run-the-background-engine-in-the-user-s`) ships in 4.3.0 as a standalone
-  registered skill at `docs/skills/orgtree-engine-start-mode/`. That location was ruled
-  at the 4.3.0 release cut. In this tree it is the leaf `engine-start-mode` under
-  `orgtree-app › app-settings`, next to `app-runtime-desktop` ("Run on startup"). It
-  keeps its `name` and content.
-  - **Recommended move** when the tree ships (the next release): move the folder to
-    `orgtree-app/app-settings/engine-start-mode/` and add the Up line. It is then no
-    longer registered, which keeps the "only categories are registered" ruling and
-    saves its roughly 560-byte description in the prompt catalog.
-  - If the coordinator would rather keep it registered, it stays where it is.
-    `app-runtime-desktop` then refers to it by name, and `tree.json` keeps
-    `current_path`.
+  `option-to-run-the-background-engine-in-the-user-s`; approved and integrated at
+  rust-engine `7b7dd2e`). 4.3.0 shipped it as a standalone registered skill. In the
+  library it is the leaf `engine-start-mode` under `orgtree-app › app-settings`, next to
+  `app-runtime-desktop` ("Run on startup"), with its `name` and content unchanged. It is
+  no longer registered, keeping the "only categories are registered" ruling (coordinator
+  2026-10-15 11:30Z). The library landing removes the standalone copy. Ground truth:
+  `docs/rust-engine/engine-start-mode.md`, `apps/desktop/main/runonstartup.ts`, the
+  `ENGINE_STARTS` choices in `canvas/desktopsettings.tsx`.
 - **Harnesses have their own section** (`orgtree-app › harnesses`, user request 2026-10-15
   12:41Z). It holds one page per harness the engine runs (`runtime/`: Claude Code, Codex,
   Antigravity, Muse, OpenCode over ACP). OpenRouter and local language servers are not
@@ -181,7 +177,7 @@ leaf in it.
 | skills-docs-sol | app › app-settings; plus the coverage guard, category pages and final source review | 13 |
 | orgsettings-sol | app › org-settings | 13 |
 | agentsettings-sol | app › agent-settings | 9 |
-| rig-opus | `engine-start-mode` (already written) | 1 |
+| rig-opus | `engine-start-mode` (written; approved at `7b7dd2e`) | 1 |
 
 - **Section pages** (`<section>/SKILL.md`) are written by the section's writer, using
   the child order and purposes in `tree.json`.
@@ -482,7 +478,7 @@ App settings (Orgtree menu > App settings…): Runtime, Display, Default org set
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
 | `app-runtime-desktop` | setting | `np:startAtLogin`, `np:exitOnClose`, `np:automaticUpdates`, `bridge:setRunAsAdministrator` | Runtime > desktop behavior: run on startup, exit on close, automatic updates, run as administrator. Must cover: each switch, default and effect; restarting the background engine. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:50`<br>`apps/desktop/renderer/src/canvas/desktopsettings.tsx:107` | engine-start-mode, tray-and-windows |
-| `engine-start-mode` | setting | `setting:engine-start-mode` | Engine start modes (at boot before sign-in, or at sign-in in the user's session): what each means for agents and when to suggest switching. **(exists-standalone:move-at-tree-release; today at `orgtree-engine-start-mode`)** Must cover: owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); arrives with the start-mode option; content stays as written. | `docs/skills/orgtree-engine-start-mode/SKILL.md (rig-opus/user-session-engine)` | app-runtime-desktop |
+| `engine-start-mode` | setting | `setting:engine-start-mode` | Engine start modes (at boot before sign-in, or at sign-in in the user's session): what each means for agents and when to suggest switching. Must cover: the two modes (at boot, before sign-in, in Session 0 — the default; at sign-in, in the user's session) and what each means for agents; when to suggest switching, to the user or a superior; agents never change the setting themselves; owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); approved and integrated at rust-engine 7b7dd2e. | `docs/rust-engine/engine-start-mode.md`<br>`apps/desktop/main/runonstartup.ts:38`<br>`apps/desktop/renderer/src/canvas/desktopsettings.tsx:92`<br>`tests/engine-start-mode.test.mjs` | app-runtime-desktop |
 | `app-notifications` | setting | `np:notificationsEnabled`, `np:notifyQuestions`, `np:notifyUrgentMail`, `np:notifyTerminalFailures`, `np:notifyDocketAttention`, `np:notifyAllMail`, `np:notifyDocuments`, `np:notifyFrozen`, `np:notifyWhileFocused` | Runtime > Notifications: the master switch and each notification kind. Must cover: each kind and default. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:69`<br>`packages/contracts/notifications.ts:3` | reaching-the-user |
 | `app-quick-staff` | setting | `rt:quick_staff_behavior` | Runtime > Quick staff behavior: request staffing vs staff immediately. Must cover: each choice. | `apps/desktop/renderer/src/canvas/quickstaffsetting.tsx:18` | tool-staff |
 | `app-turn-limits` | setting | `rt:turn_timeout_s`, `rt:turn_idle_s` | Runtime > Turn time limits: total and silence limits. Must cover: defaults and effect. | `apps/desktop/renderer/src/canvas/turnlimitssetting.tsx:84` | turns-and-wakes |
