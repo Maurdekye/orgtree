@@ -18,6 +18,7 @@ use crate::engine::Engine;
 use crate::util::{gist, iso};
 
 pub mod query;
+pub mod muse_cache;
 
 #[cfg(test)]
 mod claude_wait_tests;
@@ -457,7 +458,8 @@ impl Usage {
     }
     #[nolog]
     fn fresh(&self, key: &str, max: Duration) -> Option<Value> {
-        self.cache.pin().get(key).filter(|c| c.at.elapsed() < max).map(|c| c.data.clone())
+        self.cache.pin().get(key).filter(|c| cache_age(key, c, Utc::now()) < max)
+            .map(|c| current_reading(key, &c.data, Utc::now()))
     }
 
     #[nolog]
@@ -468,21 +470,30 @@ impl Usage {
 
     /// Store a reading dated when the provider observed it, not when it
     /// reached us: a cached observation is never re-dated as fresh, and an
-    /// older one never replaces a newer reading. One older than this
-    /// machine's uptime is dropped (no clock here can date it).
+    /// older one never replaces a newer reading. Muse's wall-clock date is
+    /// authoritative even when the observation predates this machine's uptime.
     #[nolog]
     fn put_observed(&self, key: &str, data: &Value, observed: DateTime<Utc>) -> bool {
+        self.put_muse_observed(key, data, observed, true)
+    }
+
+    #[nolog]
+    fn put_muse_observed(&self, key: &str, data: &Value, observed: DateTime<Utc>, auth: bool) -> bool {
         let age = (Utc::now() - observed).to_std().unwrap_or_default();
-        let Some(at) = Instant::now().checked_sub(age) else { return false };
-        let pin = self.cache.pin();
-        if pin.get(key).is_some_and(|c| c.at >= at && c.data["available"] == true) {
+        let at = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
+        let stored = self.cache.pin().compute(key.to_owned(), |existing| match existing {
+            Some((_, c)) if c.data["available"] == true
+                && c.data["observed_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t >= observed) =>
+                papaya::Operation::Abort(()),
+            _ => papaya::Operation::Insert(Cached { at, data: data.clone() }),
+        });
+        if matches!(stored, papaya::Compute::Aborted(())) {
             return false;
         }
         // only a recent observation says anything about the sign-in now
-        if age < Duration::from_secs(60) {
+        if auth && age < Duration::from_secs(60) {
             self.record_auth(key, data);
         }
-        pin.insert(key.to_string(), Cached { at, data: data.clone() });
         true
     }
 
@@ -584,10 +595,10 @@ impl Usage {
     /// The cached readout behind `key`, for a peek (the glow): never a fetch.
     pub fn peek(&self, key: &str, provider: &str) -> Value {
         match self.cache.pin().get(key) {
-            Some(c) if c.at.elapsed() < PEEK_MAX && c.data["available"].as_bool().unwrap_or(false) => json!({
-                "available": true, "provider": provider, "limits": c.data["limits"], "age": c.at.elapsed().as_secs(),
+            Some(c) if cache_age(key, c, Utc::now()) < PEEK_MAX && c.data["available"].as_bool().unwrap_or(false) => json!({
+                "available": true, "provider": provider, "limits": current_reading(key, &c.data, Utc::now())["limits"], "age": cache_age(key, c, Utc::now()).as_secs(),
             }),
-            Some(c) => json!({ "available": false, "provider": provider, "age": c.at.elapsed().as_secs(),
+            Some(c) => json!({ "available": false, "provider": provider, "age": cache_age(key, c, Utc::now()).as_secs(),
                                 "error": c.data["error"] }),
             None => json!({ "available": false, "provider": provider }),
         }
@@ -604,11 +615,39 @@ impl Usage {
         match pin.get(key) {
             Some(c) => {
                 let cached_at = now - chrono::Duration::from_std(c.at.elapsed()).unwrap_or_default();
-                query::reading_selected(Some(&c.data), Some(cached_at), now, selection)
+                query::reading_selected(Some(&current_reading(key, &c.data, now)), Some(cached_at), now, selection)
             }
             None => query::reading(None, None, now),
         }
     }
+}
+
+#[nolog]
+fn cache_age(key: &str, c: &Cached, now: DateTime<Utc>) -> Duration {
+    if key.starts_with("muse:") {
+        if let Some(at) = c.data["observed_at"].as_str().and_then(crate::util::parse_ts) {
+            return (now - at).to_std().unwrap_or_default();
+        }
+    }
+    c.at.elapsed()
+}
+
+/// Projection only: keep the original last-good document and date in storage.
+#[nolog]
+fn current_reading(key: &str, data: &Value, now: DateTime<Utc>) -> Value {
+    let mut out = data.clone();
+    if key.starts_with("muse:") {
+        if let Some(windows) = out["limits"].as_array_mut() {
+            for w in windows {
+                if w["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t <= now) {
+                    w["percent"] = Value::Null;
+                    w["is_active"] = Value::Null;
+                    w["severity"] = Value::Null;
+                }
+            }
+        }
+    }
+    out
 }
 
 fn home() -> PathBuf {
@@ -1272,6 +1311,16 @@ pub fn muse_key(root: Option<&str>) -> String {
     format!("muse:{}", root.unwrap_or("~"))
 }
 
+#[nolog]
+pub fn forget_muse(engine: &Engine, root: Option<&str>) {
+    // The native lane has no removable registry account.
+    if root.is_some() {
+        let key = muse_key(root);
+        engine.usage.cache.pin().remove(&key);
+        engine.usage.auth.pin().remove(&key);
+    }
+}
+
 /// A managed Muse login is probed at most this often; its live sessions'
 /// `usage/changed` keep it current in between.
 const MUSE_PROBE_EVERY: Duration = Duration::from_secs(300);
@@ -1320,8 +1369,13 @@ pub async fn muse_observed(engine: &Engine, root: Option<&str>, raw: &Value, obs
         out["email"] = json!(email);
     }
     out["observed_at"] = json!(iso(observed));
-    if !engine.usage.put_observed(&muse_key(root), &out, observed) {
-        return false;
+    match muse_cache::persist(engine, root, &out, observed).await {
+        Ok(true) => {},
+        Ok(false) => return false,
+        Err(error) => {
+            tracing::warn!(error = %error, "could not persist Muse usage reading");
+            return false;
+        }
     }
     crate::account_marks::profile_usage(engine, crate::providers::catalog::MUSE, root, observed, &out).await;
     true
@@ -1945,10 +1999,12 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
             Some(e) => format!("{lane} ({e})"),
             None => lane.clone(),
         });
-        let age = c.at.elapsed();
+        let age = cache_age(key, c, now);
         let observed = format!(
             "{} ({}, {})",
-            iso(now - chrono::Duration::from_std(age).unwrap_or_default()),
+            if key.starts_with("muse:") { c.data["observed_at"].as_str().map(str::to_owned)
+                .unwrap_or_else(|| iso(now - chrono::Duration::from_std(age).unwrap_or_default())) }
+            else { iso(now - chrono::Duration::from_std(age).unwrap_or_default()) },
             countdown(age.as_secs() as i64),
             if age < BOARD_FRESH { "fresh" } else { "stale" }
         );
@@ -1963,7 +2019,7 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
             key_lines.push(format!("{lane}|unavailable"));
             continue;
         }
-        for l in c.data["limits"].as_array().cloned().unwrap_or_default() {
+        for l in current_reading(key, &c.data, now)["limits"].as_array().cloned().unwrap_or_default() {
             let marked = lane_account.and_then(|a| {
                 match (a.provider.as_str(), l["group"].as_str().unwrap_or("")) {
                     ("google", "3p-5h" | "3p-weekly") => a.limited_for("agy-sonnet", now),
@@ -1991,7 +2047,10 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
                 Some(p) => p >= 100.0,
                 None => l["is_active"].as_bool().unwrap_or(false),
             };
-            let state = if spent {
+            let state = if key.starts_with("muse:") && pct.is_none()
+                && l["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t <= now) {
+                "reset; awaiting reading"
+            } else if spent {
                 "limited"
             } else if marked {
                 "limited (marked)"

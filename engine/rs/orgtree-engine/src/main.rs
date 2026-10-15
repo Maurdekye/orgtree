@@ -266,6 +266,9 @@ async fn run_with_cluster(
         tracing::warn!(error = %format!("{e:#}"), "the orgs' account lists could not be read; every account is allowed until they are");
     }
     accounts::start(&engine).await;
+    if let Err(error) = usage::muse_cache::restore(&engine).await {
+        tracing::warn!(error = %error, "could not restore Muse usage readings");
+    }
     openrouter::import_legacy(&engine).await;
     // every key carries its own harness, seeded from the old global setting
     openrouter::migrate_harnesses(&engine).await;

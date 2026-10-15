@@ -929,3 +929,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - Rejected: running the boot task through the windowless launcher. That would change the
       task's action, which every older installer's ownership check refuses, so downgrades would
       fail. Proof: `tools/rig/proofs/boot-host-stop.mjs` (B, C).
+
+81. **Muse last-good usage survives restarts** (user 2026-10-15 11:45Z;
+    mechanics approved coordinator-opus 11:47Z). Persist normalized windows
+    per Muse account in `ot.kv`, retaining original observation times; restore
+    without new authentication evidence. Removing an account deletes its key
+    in the same transaction. Passed-reset Muse windows become unknown, not
+    zero: retain times, clear percent/active, show `reset; awaiting reading`
+    with no bar. Other providers retain existing behavior. Contract and proof:
+    [`muse-usage-cache.md`](muse-usage-cache.md).

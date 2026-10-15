@@ -167,6 +167,9 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
         }
     }
     let out = out.expect("successful removal or early error");
+    if provider == catalog::MUSE {
+        crate::usage::forget_muse(engine, config_dir.as_deref());
+    }
     announce(engine, &out).await;
     Ok(json!({ "removed": id, "rebound": out.rebound,
         "orgs": out.orgs, "app_default_rebound": out.app_default }))
@@ -398,6 +401,9 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
         "UPDATE ot.kv SET value = jsonb_set(value, '{defaults,default_account}', to_jsonb($2::text)), updated_at = now()
          WHERE key = 'app_settings' AND value #>> '{defaults,default_account}' = $1", &[&id, &primary]).await? > 0;
     tx.execute("DELETE FROM ot.account_marks WHERE account = $1", &[&id]).await?;
+    if provider == catalog::MUSE {
+        tx.execute("DELETE FROM ot.kv WHERE key = $1", &[&crate::usage::muse_cache::key(id)]).await?;
+    }
     tx.execute("INSERT INTO ot.removed_accounts (id, provider) VALUES ($1, $2)", &[&id, &provider]).await?;
     tx.execute("DELETE FROM ot.accounts WHERE id = $1", &[&id]).await?;
     tx.commit().await?;

@@ -1,5 +1,15 @@
 # AGENTS.md — working on Orgtree
 
+- Muse last-good usage is durable per account in `ot.kv` (`muse_usage:<id>`),
+  restored before discovery with original observation age and no new auth
+  evidence. Removal deletes its key in the account transaction; writers take
+  KEY SHARE on the account row to prevent late durable resurrection. Read
+  projection makes passed-reset Muse windows unknown (never zero), with no
+  bar and `reset; awaiting reading`; other providers are unchanged.
+  [decided: coordinator 2026-10-15 11:47Z; verified from source:
+  `usage/muse_cache.rs`, `usage.rs`, `domain/account_removal.rs`; contract and
+  measured limits: `docs/rust-engine/muse-usage-cache.md`]
+
 - Live thought bodies must not flex-shrink inside the transcript: the
   display:contents reply wrapper exposes .thoughtbody.live as a .msgs flex
   item, and its overflow:auto otherwise permits an 8px padding-only sliver.
