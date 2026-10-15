@@ -37,6 +37,7 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Message composer, Enter set to Newline | Mod+Enter sends; Enter inserts a newline. |
 | Desk composer | Up/Down recalls previous/next sent messages when the caret is on the first/last line. Alt+N toggles sending as a passive notice. Esc cancels the reply being prepared. |
 | Inbox | Alt+Up/Down moves to the previous/next message. |
+| Focused Presentations or Docket panel | Alt+Up/Down selects the previous/next eligible item in its rendered order, including desk, modal and detached hosts. Folded or filtered rows are skipped; the ends clamp. Editing controls, question cards, consumed chords and unsent/staged reply or answer state keep their event or block switching. |
 | Questions and requests | Mod+Enter submits an answer; Alt+Left/Right changes question; Alt+Up/Down raises/lowers a credit offer. |
 | Docket | Enter opens the top search result; Esc clears the search or closes view options. Letters jump to an agent in the reply-recipient list; Space chooses a recipient. |
 | Canvas | Esc cancels an agent, pin or window drag, or cancels a drafted hire. Holding Shift while dragging places a pinned window without snapping. Enter hires a drafted agent; Shift+Enter adds a charter newline. |
