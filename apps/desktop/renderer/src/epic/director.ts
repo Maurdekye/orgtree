@@ -668,6 +668,28 @@ const asElement = (target: EventTarget | null): Element | null =>
 const isField = (el: Element): el is HTMLInputElement | HTMLTextAreaElement =>
   el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
 
+/** the world element of the canvas `el` is on, whose transform OrgCanvas
+ *  writes as `translate(…) scale(<zoom>)`; null off the canvas */
+const cameraOf = (el: Element): HTMLElement | null =>
+  el.closest('.viewport')?.querySelector<HTMLElement>('.space') ?? null
+const zoomOf = (space: HTMLElement | null): number | null => {
+  const m = space ? /scale\(\s*([\d.e+-]+)\s*\)/.exec(space.style.transform) : null
+  return m ? Number(m[1]) : null
+}
+/** how many frames a wheel's outcome is looked for: the browser's scroll and
+ *  the canvas's re-render both land within a frame or two */
+const WHEEL_FRAMES = 6
+/** a frame of the window's own; jsdom has none, and the tests supply one */
+function nextFrame(view: Window, cb: () => void): number {
+  const v = view as Window & { requestAnimationFrame?: Window['requestAnimationFrame'] }
+  return typeof v.requestAnimationFrame === 'function' ? v.requestAnimationFrame(cb) : globalThis.requestAnimationFrame(cb)
+}
+function cancelFrame(view: Window, id: number): void {
+  const v = view as Window & { cancelAnimationFrame?: Window['cancelAnimationFrame'] }
+  if (typeof v.cancelAnimationFrame === 'function') v.cancelAnimationFrame(id)
+  else globalThis.cancelAnimationFrame(id)
+}
+
 function attachHands(show: Show, t: Theater): () => void {
   const { doc, view } = t
   const opts = { capture: true, passive: true } as const
@@ -750,12 +772,45 @@ function attachHands(show: Show, t: Theater): () => void {
     else if (e.key === 'Backspace' || e.key === 'Delete') show.cue('erase', { spot })
     else if (e.key.length === 1) show.cue('type', { spot })
   }
+  // A wheel plays what it DID, never where it landed (user reports
+  // 2026-10-15: scrolling a pinned window on the canvas, then the agents
+  // list, showed the canvas's zoom). The canvas leaves pinned windows, the
+  // agents list, a focused desk and modals to the browser, which scrolls
+  // them, and takes every other wheel over it to zoom the camera, up to its
+  // limits. So the camera's zoom and every scroll offset from the target up
+  // are noted, then looked at again on the next frames: a zoom is a wheel the
+  // canvas took that changed the camera's scale (never the camera gliding on
+  // its own), a scroll is one of those offsets moving, and a wheel that moved
+  // nothing (a list at its end, the camera at its limit) plays nothing.
+  const looking = new Set<number>()
+  const later = (cb: () => void) => {
+    const id = nextFrame(view, () => { looking.delete(id); cb() })
+    looking.add(id)
+  }
   const onWheel = (e: WheelEvent) => {
     const target = asElement(e.target)
     if (!target) return
     if (Math.abs(e.deltaY) < 1 && Math.abs(e.deltaX) < 1) return
-    if (target.closest('.viewport')) show.cue(e.deltaY < 0 ? 'zoomIn' : 'zoomOut', { spot: at(e.clientX, e.clientY) })
-    else show.cue('scroll', { spot: at(e.clientX, e.clientY), n: Math.sign(e.deltaY) })
+    const space = cameraOf(target), zoom = zoomOf(space)
+    const offsets: [Element, number, number][] = []
+    for (let el: Element | null = target; el; el = el.parentElement) offsets.push([el, el.scrollTop, el.scrollLeft])
+    const spot = at(e.clientX, e.clientY)
+    let frames = WHEEL_FRAMES
+    const look = () => {
+      const now = zoomOf(space)
+      if (e.defaultPrevented && zoom !== null && now !== null && now !== zoom) {
+        show.cue(now > zoom ? 'zoomIn' : 'zoomOut', { spot })
+        return
+      }
+      for (const [el, top, side] of offsets) {
+        if (el.scrollTop !== top || el.scrollLeft !== side) {
+          show.cue('scroll', { spot, n: Math.sign(el.scrollTop - top) || Math.sign(e.deltaY) })
+          return
+        }
+      }
+      if (--frames > 0) later(look)
+    }
+    later(look)
   }
   // keyboard focus moving (Tab), not every programmatic or pointer focus
   const onFocus = (e: FocusEvent) => {
@@ -843,6 +898,8 @@ function attachHands(show: Show, t: Theater): () => void {
     view.removeEventListener('drop', onDrop, opts)
     view.removeEventListener('focusin', onFocus, opts)
     view.removeEventListener('dblclick', onDouble, opts)
+    for (const id of looking) cancelFrame(view, id)
+    looking.clear()
     observer?.disconnect()
     observer = null
     press = null
