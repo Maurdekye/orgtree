@@ -558,11 +558,13 @@ another urgent mail starts its own alarm, when EPIC Mode stops, or by itself
 after 8 s (ten pulses), fading out over 0.8 s. It plays once per urgent
 message: it fires when `urgent_unread` rises, so the same tree delivered again
 plays nothing, and urgent mail already waiting when EPIC Mode turns on is part
-of the first tree, the baseline. Another organization's urgent-mail notice, in
-the window the user is looking at, sounds the same alarm, which then ends only
-by its bound. EPIC Mode has no mute or volume setting of its own, so the alarm
-plays at the normal level. All of it is in `src/epic` (director, stage and
-audio), loaded only while EPIC Mode is on.
+of the first tree, the baseline. Another organization's urgent mail comes as a
+notice in the app feed and, in the window the user is looking at, sounds the
+same alarm. That alarm ends when its own notice leaves the feed, because its
+mail was read; another notice leaving does not end it (coordinator ruling
+after review, 2026-10-15). EPIC Mode has no mute or volume setting of its
+own, so the alarm plays at the normal level. All of it is in `src/epic`
+(director, stage and audio), loaded only while EPIC Mode is on.
 
 **Tests.** `epicmode-urgent` gives each window's stage a recording context that
 remembers its `globalAlpha` and notes, frame by frame (a frame starts at the
@@ -573,7 +575,10 @@ last and never more than three in a second, and tint a popped-out window
 showing the org too. One sound must repeat as the alarm, at no gain above 1.
 Reading the mail must end it within a second, and unread it must end within ten
 seconds. Ordinary mail must not tint the window or repeat a sound, and the same
-urgent mail delivered again must stage nothing. The visual capture's urgent
+urgent mail delivered again must stage nothing. Two urgent notices from another
+organization come through a stubbed app feed: once the newer one's alarm has
+taken over, the older one leaving must leave it sounding, and the newer one
+leaving must end it within a second, klaxon and all. The visual capture's urgent
 section photographs the alarm in the stage scene (now with an ask bell) in
 Charcoal and in Light: before it, at a pulse's peak (0.4 s) and trough (0.8 s),
 at a peak 3.6 s on and after it ended (9 s). It measures the redness (red minus
@@ -600,19 +605,21 @@ colours, strength and length, and the halt's rings starting with its flashes)
 and flash at most three times a second: each flash at least a third of a second
 after the one before, and never more than three starting in any one second.
 
-Measured at `93f201d` with a clean tree, under the machine build lock and a
-4,096 MB kernel job (C:\orgtree-build\epic-final\next1: check, visual,
-visual-before):
+Measured with a clean tree, under the machine build lock and a 4,096 MB kernel
+job: the checks at `3083e37` (C:\orgtree-build\epic-final\next1\check-2), the
+captures at `93f201d` (next1\visual, next1\visual-before). Between those two
+commits only how an alarm started by another organization's notice ends
+changed, which the captures do not exercise.
 
 | Check | Result |
 | --- | --- |
 | Root typecheck | Exit 0 |
 | Strict renderer configuration | 29 diagnostics at the tip and 29 at `f1eed04` (clean checkout): none added, none removed, none in EPIC files |
 | Strict test configuration | 830 and 830: none added, none removed; all eight EPIC suites are in the file list |
-| Green (tip) | 63 of 63 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9, urgent 6, comfort 2 |
-| Before (`f1eed04`) | 57 of 63 pass. The six that fail are the four alarm tests and the two flash-rate tests |
+| Green (tip) | 64 of 64 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9, urgent 7, comfort 2 |
+| Before (`f1eed04`) | 57 of 64 pass. The seven that fail are the five alarm tests and the two flash-rate tests |
 | Red (`b77512f`) and Opus (`fdd645f`) controls | Not executed: their bundles no longer build, because the tip's `canvas/modals.tsx` imports `refreshSkills` and `refreshGlobalInstructions`, which their `api.ts` lacks |
-| Urgent capture (tip) | Passed in Charcoal and Light: the corner's redness 70 and 72 at a pulse's peak, 21 and 22 at a trough, 70 and 72 at a peak 3.6 s on, 0 after the 8 s end; the middle's 26 and 25. 57 PNGs, no console errors |
+| Urgent capture (`93f201d`) | Passed in Charcoal and Light: the corner's redness 70 and 72 at a pulse's peak, 21 and 22 at a trough, 70 and 72 at a peak 3.6 s on, 0 after the 8 s end; the middle's 26 and 25. 57 PNGs, no console errors |
 | Urgent capture (`f1eed04`) | Failed as expected: no redness at any moment, in either theme |
 
 ## Limits
