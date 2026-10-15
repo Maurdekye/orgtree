@@ -80,3 +80,14 @@ repository fixture, and was deleted after the metadata-only classification recei
 
 Only syntax/diff checks were performed by the author; compiled and runtime results
 belong to the independent rig receipt.
+
+## Output path boundary (2026-10-15 source review)
+
+Identity rule writes and stale-owned-part removal reject symlinks and Windows
+reparse points at every existing ancestor, including scratch, `.agents`, `rules`
+and the part file. Validation occurs before directory creation or old-part reads,
+and is repeated before writes/removals. Two synthetic junction/symlink controls
+cover `.agents` and `rules`, checking no external part is written or removed.
+This boundary validation does not claim protection against a hostile concurrent
+path swap. Native read manifests, the 47/54 envelope migration rule and the other
+seven preserved files are unchanged. No live profile or native CLI probe was run.

@@ -382,15 +382,41 @@ const IDENTITY_RULE_HEADER: &str = "---\ntrigger: always_on\ndescription: Orgtre
 // Native rules are truncated at 24,000 bytes, including expanded includes.
 const IDENTITY_PART_BYTES: usize = 23_000;
 
+/// Reject redirected identity output before creating directories or inspecting
+/// owned parts. Native read manifests and legacy-envelope migration are separate.
+#[nolog]
+fn validate_identity_output(path: &Path) -> Result<()> {
+    for ancestor in path.ancestors() {
+        if ancestor.as_os_str().is_empty() { continue; }
+        let meta = match std::fs::symlink_metadata(ancestor) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        };
+        #[cfg(windows)]
+        let linked = {
+            use std::os::windows::fs::MetadataExt;
+            meta.file_attributes() & 0x400 != 0
+        };
+        #[cfg(not(windows))]
+        let linked = meta.file_type().is_symlink();
+        anyhow::ensure!(!linked, "identity rule output contains a link");
+    }
+    Ok(())
+}
+
 #[nolog] // contains private identity text
 fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
     let rules = cwd.join(".agents/rules");
+    validate_identity_output(&rules)?;
     std::fs::create_dir_all(&rules)?;
+    validate_identity_output(&rules)?;
     let mut old = Vec::new();
     for entry in std::fs::read_dir(&rules)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if !name.starts_with(IDENTITY_RULE_PREFIX) || !name.ends_with(".md") { continue; }
+        validate_identity_output(&entry.path())?;
         let meta = std::fs::symlink_metadata(entry.path())?;
         if !meta.is_file() || meta.file_type().is_symlink()
             || !std::fs::read_to_string(entry.path())?.starts_with(IDENTITY_RULE_HEADER) {
@@ -404,6 +430,7 @@ fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
         let mut end = rest.len().min(IDENTITY_PART_BYTES);
         while !rest.is_char_boundary(end) { end -= 1; }
         let path = rules.join(format!("{IDENTITY_RULE_PREFIX}{part:04}.md"));
+        validate_identity_output(&path)?;
         let content = format!("{IDENTITY_RULE_HEADER}{}", &rest[..end]);
         if std::fs::read(&path).ok().as_deref() != Some(content.as_bytes()) {
             std::fs::write(&path, content)?;
@@ -413,7 +440,10 @@ fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
         if rest.is_empty() { break; }
         part += 1;
     }
-    for path in old { std::fs::remove_file(path)?; }
+    for path in old {
+        validate_identity_output(&path)?;
+        std::fs::remove_file(path)?;
+    }
     Ok(())
 }
 
