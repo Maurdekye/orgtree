@@ -140,9 +140,9 @@ function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement,
     await body(v.el, v.el.querySelector('.viewport') as HTMLElement,
       async (ids) => { await v.render(canvas(ids)); await flush(); await advance(1600) },
       async (key) => {
-        await inAct(() => window.dispatchEvent(new KeyboardEvent('keydown', {
+        await inAct(() => { window.dispatchEvent(new KeyboardEvent('keydown', {
           key, shiftKey: true, bubbles: true, cancelable: true,
-        })))
+        })) })
         await flush(); await advance(1600)
       })
   })
