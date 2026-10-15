@@ -877,3 +877,31 @@ All entries are dated 2026-10-06 unless stated otherwise.
     balancing (`best_allowed`) and bound. Removing any key is the same
     reassign-or-freeze path (`account_removal::remove_key`), its id retired.
     Contract: [`openrouter-keys.md`](openrouter-keys.md).
+
+79. **Where the background engine starts is the operator's choice** (user 2026-10-15 10:37Z, docket
+    `option-to-run-the-background-engine-in-the-user-s`; default 10:38Z; design approved by the
+    coordinator 10:57Z, helper ruling 11:13Z). Extends decision 70. On an installation for all
+    users on Windows, "Run on startup" has a second setting, "engine starts":
+    - **At boot, before sign-in** (the default, new and existing installations): the "Orgtree
+      Background Engine" task in Session 0, as before.
+    - **At sign-in, in my session** (opt-in, 3.x style): "Orgtree Sign-in Engine", a logon task for
+      the operator's SID only with their interactive token, Normal priority (decision 46). The
+      engine and its agents run in the user's own session, with their desktop and sign-ins, only
+      while they are signed in. The task runs `orgtree-engine-host.exe`, a windowless launcher that
+      starts `orgtree-engine host` without a window (the engine is a console program and would open
+      one at every sign-in). Its run level is least privilege, or highest available while "Run
+      Orgtree as administrator" is on.
+    - **Exactly one engine task is enabled** while "Run on startup" is on; off disables both. The
+      credential helper follows "Run on startup" in both modes: the engine a task's host started
+      counts it as a lifecycle member, and an engine in the user's session never uses it. Tasks are
+      disabled, never deleted. The installer's protected record keeps `StartupMode` (`signin`, else
+      boot) beside `RunOnStartup`, and updates keep it.
+    - **Changing it:** Settings › Desktop › "engine starts", shown only on all-users Windows
+      installations and disabled while "Run on startup" is off, not in the tray. One Windows
+      permission prompt per change. A running engine keeps running until "Restart the background
+      engine now" (offered when a task started the engine) or the next sign-in or boot. These
+      three points were decided by the coordinator beyond the user's request.
+    - **One engine:** the data root's lock decides, as always. At sign-in the desktop adopts the
+      task's engine through its refused-then-attach path; when its own engine won instead, the
+      task's host leaves.
+    Details, verification and what only a real sign-in can show: [`engine-start-mode.md`](engine-start-mode.md).

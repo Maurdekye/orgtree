@@ -234,6 +234,13 @@ that gap.
 - **Not covered:** before the user signs in to Windows after a reboot there is
   no access (no interactive token exists). A second Windows session of the
   same user starts its own broker; the hold rule keeps the first.
+- **Engine at sign-in (decision 79):** when the operator chooses "At sign-in,
+  in my session", the engine runs in their own session with their interactive
+  token. It gets no isolation warning, so it injects no adapters and never asks
+  the broker for credentials, and it starts Codex directly with Codex's own
+  sandbox (hosting is Session 0 only). The helper task still runs, because that
+  engine's core lifecycle counts the helper as a member; next to that engine it
+  only keeps its leases. See [engine-start-mode.md](engine-start-mode.md).
 
 Proof: `tools/rig/proofs/credential-broker.mjs` (run with `ORGTREE_RIG_HOME`
 under your profile, see its header). The broker and a stand-in desktop start

@@ -961,6 +961,21 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   or ends is rebuilt after it closes.
   [decided: lead-astra 2026-10-11 20:00Z; verified: tests/startup-tray.test.mjs
   on the real closures; native menu view unverified (agents run in Session 0)]
+- **Where the engine starts** is a choice under "run on startup" (Settings ›
+  Desktop › "engine starts"), on all-users Windows installations only: at boot
+  in Session 0 (the default) or at sign-in in the operator's own session. The
+  sign-in mode uses the "Orgtree Sign-in Engine" task, which runs the windowless
+  `orgtree-engine-host.exe`, which runs `orgtree-engine host`. While "run on
+  startup" is on, exactly one engine task is enabled; the credential helper
+  runs in both modes, because the boot-topology core lifecycle requires it.
+  Anything that starts the background engine (recovery, a restart) goes through
+  `startEngineTask()`, never the boot task by name. Never run the console
+  `orgtree-engine.exe` from an interactive-token task: it opens a window at
+  every sign-in. The HKLM record value is `StartupMode`; the renderer API is
+  `EngineStart*`, because `StartupMode` is the window restore/homepage setting.
+  [decided: user 2026-10-15, coordinator 2026-10-15 10:57Z/11:13Z; verified:
+  `tools/boot-engine-task.ps1`, `apps/desktop/main/runonstartup.ts`,
+  `src/engine_host.rs`; details `docs/rust-engine/engine-start-mode.md`, decision 79]
 
 
 - Antigravity Claude 5.5 uses separate `agy-sonnet` / `agy-opus` tiers (seats
