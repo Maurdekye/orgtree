@@ -422,7 +422,7 @@ mod tests {
         assert_eq!(notes, standing_notes(&inputs, &own, &[grant]));
         std::fs::write(own.join("AGENTS.md"), "own notes changed").unwrap();
         assert_ne!(first, digest(&inputs));
-        assert!(native_files(&inputs).keys().any(|p| p.ends_with("AGENTS.md")));
+        assert!(native_files(&inputs).contains_key(&norm(&own.join("AGENTS.md"))));
         std::fs::remove_dir_all(root).unwrap();
     }
 
