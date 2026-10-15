@@ -63,6 +63,7 @@ pub fn run() -> ExitCode {
 /// waits for the host. Ending that task ends only the launcher; this host then
 /// stops its engine the graceful way, as on a console stop.
 #[cfg(windows)]
+#[logged]
 fn watch_launcher() {
     let Some(pid) = std::env::var("ORGTREE_HOST_LAUNCHER_PID").ok().and_then(|v| v.parse::<u32>().ok()) else { return };
     win::when_gone(pid, || {
@@ -72,6 +73,7 @@ fn watch_launcher() {
 }
 
 #[cfg(not(windows))]
+#[logged]
 fn watch_launcher() {}
 
 /// A line for whoever reads the task's output, and the boot host's own log.
@@ -783,6 +785,7 @@ mod win {
     /// once when there is no such process. The handle is opened before this
     /// returns, so the id cannot pass to another process in between. A process
     /// that cannot be opened for another reason is not watched.
+    #[logged]
     pub fn when_gone(pid: u32, then: impl FnOnce() + Send + 'static) {
         const ERROR_INVALID_PARAMETER: i32 = 87;
         let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
