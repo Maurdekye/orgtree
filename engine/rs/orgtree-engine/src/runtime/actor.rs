@@ -3591,18 +3591,15 @@ impl Actor {
             )
             .await?
             .get(0);
-        // the 64 oldest waiting mails, and the oldest real (non-notice) one
-        // when those are all notices: a real message behind a long run of
-        // notices still starts its turn (else nothing ever claims it), and the
-        // notices left over ride the next turns, oldest first
+        // Claim only the oldest prefix. A waking message behind a long run
+        // of notices admits that prefix without being delivered out of order.
         let claimed = tx
             .query(
                 "WITH oldest AS (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
-                                  ORDER BY id LIMIT 64 FOR UPDATE SKIP LOCKED),
-                      first_real AS (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending' AND (NOT notice OR extra->>'input_budget_deferred'='true')
-                                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
+                                  ORDER BY id LIMIT 64 FOR UPDATE SKIP LOCKED)
+
                  UPDATE ot.mail SET state = 'delivering', turn_id = $2
-                  WHERE id IN (SELECT id FROM oldest UNION SELECT id FROM first_real)
+                  WHERE id IN (SELECT id FROM oldest)
                   RETURNING id, to_jsonb(ot.mail.*)",
                 &[&self.id, &turn_id],
             )
@@ -3610,8 +3607,10 @@ impl Actor {
         let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
         rows.sort_by_key(|(id, _)| *id);
         if !rows.iter().any(|(_, m)| !m["notice"].as_bool().unwrap_or(false) || m["extra"]["input_budget_deferred"] == true) {
-            tx.rollback().await?;
-            return Ok(false);
+            // A real wake behind >64 notices admits their prefix, without
+            // jumping the waking message ahead of intermediate queued rows.
+            let waking: bool = tx.query_one("SELECT EXISTS (SELECT 1 FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending' AND (NOT notice OR extra->>'input_budget_deferred'='true'))", &[&self.id]).await?.get(0);
+            if rows.is_empty() || !waking { tx.rollback().await?; return Ok(false); }
         }
         tx.execute(
             "UPDATE ot.agents SET inflight_at = now(), last_error = NULL, row_version = row_version + 1 WHERE id = $1",
@@ -3674,7 +3673,7 @@ impl Actor {
                     true
                 }
                 Err(e) => {
-                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "turn/start failed");
+                    tracing::warn!(agent = %self.name, length_refusal = prompt::input_length_refusal(&format!("{e:#}")), input_bytes=text.len(), "turn/start failed");
                     refused = Some(format!("{e:#}"));
                     false
                 }
@@ -3693,7 +3692,7 @@ impl Actor {
                     true
                 }
                 Err(e) => {
-                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "Muse turn/start failed");
+                    tracing::warn!(agent = %self.name, length_refusal = prompt::input_length_refusal(&format!("{e:#}")), input_bytes=text.len(), "Muse turn/start failed");
                     refused = Some(format!("{e:#}"));
                     false
                 }
@@ -3705,7 +3704,7 @@ impl Actor {
             self.close_proc().await;
             let why = refused.map(|r| {
                 if prompt::input_length_refusal(&r) {
-                    format!(": {r}; input {} UTF-8 bytes / {} characters; Orgtree budget {budget} bytes; mail {} items",
+                    format!(": Input exceeds maximum length; input {} UTF-8 bytes / {} characters; Orgtree budget {budget} bytes; mail {} items",
                         text.len(), text.chars().count(), mails.len())
                 } else { format!(": {r}") }
             }).unwrap_or_default();
@@ -6285,7 +6284,8 @@ impl Actor {
         // that keeps failing never re-sends a growing batch.
         let succeeded = error.is_none() && limit.is_none() && !turn.limit_signal
             && !turn.interrupted && !turn.killed && !turn.compact && !res.is_null();
-        let requeue = error.is_some() && !turn.activity && turn.codex_turn.is_none();
+        let requeue = error.is_some() && !turn.activity
+            && (turn.codex_turn.is_none() || error.as_deref().is_some_and(prompt::input_length_refusal));
         let client = self.engine.db.get().await?;
         if let Some((_, ids, _)) = &turn.agy_steer {
             // A failed hook settlement is not delivery. Return these rows

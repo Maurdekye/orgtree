@@ -1,4 +1,4 @@
-﻿// All data and CLIs are synthetic. Use the candidate fake CLI on BOTH engines:
+// All data and CLIs are synthetic. Use the candidate fake CLI on BOTH engines:
 // it enforces Codex's observed 1,048,576-character field limit and supplies safe
 // input-size receipts for Muse/ACP. No real mailbox, profiles or provider calls.
 import fs from 'node:fs'
@@ -90,6 +90,20 @@ export default async function (rig) {
     p.check(`${n}: original medium bodies remain intact`, rig.one(`SELECT count(*)::int AS n FROM ot.mail WHERE recipient_agent_id=${id(n)} AND body LIKE 'MEDIUM-%' AND octet_length(body)=62010`)?.n === count)
     await hold(n)
   }
+
+  // The oldest waking item beyond the 64-row claim must not jump over
+  // intermediate notices, even when all of those notices are small.
+  await hire('budgetorder'); await hold('budgetorder')
+  for (let i=0; i<70; i++) await rig.userMail('budgetorder', `ORDER-${i}`, { notice:true })
+  await rig.userMail('budgetorder', 'ORDER-WAKING-LAST')
+  const ordered = rig.sql(`SELECT uid FROM ot.mail WHERE recipient_agent_id=${id('budgetorder')} AND body LIKE 'ORDER-%' ORDER BY id`)
+  await wake('budgetorder')
+  await wait(() => ordered.every(m => delivered(m.uid)), 'small notice prefix drains in order', 30000)
+  const observedOrder = logs('budgetorder','turn').flatMap(t => ordered.filter(m => t.prompt?.includes(m.uid)).map(m => m.uid))
+  p.check('claim boundary keeps the waking item behind preceding notices', JSON.stringify(observedOrder) === JSON.stringify(ordered.map(m => m.uid)),
+    { expected:ordered.length, seen:observedOrder.length })
+  p.check('small notices before the last waking item all drain', ordered.length === 71 && ordered.every(m => delivered(m.uid)))
+  await hold('budgetorder')
 
   await hire('budgetsteer')
   await rig.userMail('budgetsteer', 'STEER-HOLD')
