@@ -78,7 +78,7 @@
 - When an Orgtree system, tool, screen, panel or setting changes, update its
   built-in skill leaf and the [skill-tree manifest](docs/skills/tree.json) in
   the same landing. Add a leaf for a new public tool or setting and extend
-  the source inventory used by `tests/builtin-skills-coverage.test.mjs` when
+  the source inventory used by `tests/skills-tree-coverage.test.mjs` when
   its UI representation changes. The [tree](docs/skills/TREE.md) assigns
   each fact one home; registered category descriptions stay short.
   [decided: user 2026-10-15, built-in skills scope]

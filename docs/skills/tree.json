@@ -2472,7 +2472,10 @@
     "onboarding"
    ],
    "writer": "runtime-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/shell/homepage.tsx#HomepageView"
+   ]
   },
   {
    "path": "orgtree-app/app-shell/create-organization",
@@ -2499,7 +2502,11 @@
     "org-templates"
    ],
    "writer": "runtime-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/shell/createorg.tsx#CreateOrgView",
+    "apps/desktop/renderer/src/shell/templatepicker.tsx#TemplatePicker"
+   ]
   },
   {
    "path": "orgtree-app/app-shell/org-header-and-menu",
@@ -2527,7 +2534,10 @@
     "docket-screens"
    ],
    "writer": "runtime-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/shell/menu.tsx#OrgtreeMenu"
+   ]
   },
   {
    "path": "orgtree-app/app-shell/kill-switch",
@@ -2646,7 +2656,10 @@
     "context-and-compaction"
    ],
    "writer": "runtime-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/modals.tsx#ConfirmModal"
+   ]
   },
   {
    "path": "orgtree-app/app-shell/folder-picker",
@@ -2694,7 +2707,10 @@
     "app-developer"
    ],
    "writer": "runtime-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/FreezeLogPage.tsx#FreezeLogPage"
+   ]
   },
   {
    "path": "orgtree-app/app-shell/onboarding",
@@ -2746,7 +2762,11 @@
     "ask-cards"
    ],
    "writer": "runtime-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/attention/AgentDeskPanel.tsx#AgentDeskPanel",
+    "apps/desktop/renderer/src/attention/AttentionView.tsx#AttentionView"
+   ]
   },
   {
    "path": "orgtree-app/app-shell/mobile-layout",
@@ -2903,7 +2923,10 @@
     "confirm-dialogs"
    ],
    "writer": "org-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/cards.tsx#EyeDesk"
+   ]
   },
   {
    "path": "orgtree-app/canvas/draft-hires",
@@ -2930,7 +2953,11 @@
     "org-hire-defaults-scope"
    ],
    "writer": "org-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/modals.tsx#DraftScopeModal",
+    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet"
+   ]
   },
   {
    "path": "orgtree-app/canvas/org-inbox-tile",
@@ -2975,7 +3002,10 @@
     "app-display-desk-and-chart"
    ],
    "writer": "org-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/modals.tsx#PilePicker"
+   ]
   },
   {
    "path": "orgtree-app/canvas/agents-list",
@@ -3048,7 +3078,10 @@
     "app-display-desk-and-chart"
    ],
    "writer": "org-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/tempdesk.tsx#TempDeskModal"
+   ]
   },
   {
    "path": "orgtree-app/desk",
@@ -3139,7 +3172,10 @@
     "desk-chat"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/desk.tsx#HistoryView"
+   ]
   },
   {
    "path": "orgtree-app/desk/desk-files",
@@ -3194,7 +3230,15 @@
     "ask-cards"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/App.tsx#InboxPanel",
+    "apps/desktop/renderer/src/canvas/mail.tsx#MailRowView",
+    "apps/desktop/renderer/src/canvas/mail.tsx#InboxView",
+    "apps/desktop/renderer/src/canvas/mail.tsx#NodeInboxModal",
+    "apps/desktop/renderer/src/canvas/mail.tsx#OrgInboxModal",
+    "apps/desktop/renderer/src/canvas/transfers.tsx#TransferPanel"
+   ]
   },
   {
    "path": "orgtree-app/desk/ask-cards",
@@ -3247,7 +3291,13 @@
     "tool-work"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/agentdocket.tsx#AgentDocketModal",
+    "apps/desktop/renderer/src/canvas/docket.tsx#DocketModal",
+    "apps/desktop/renderer/src/canvas/docket.tsx#AgentDocketView",
+    "apps/desktop/renderer/src/canvas/teamdocket.tsx#TeamDocketModal"
+   ]
   },
   {
    "path": "orgtree-app/desk/presentations",
@@ -3277,7 +3327,12 @@
     "tool-send-file"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/gallery.tsx#DocGalleryModal",
+    "apps/desktop/renderer/src/canvas/gallery.tsx#AgentGalleryModal",
+    "apps/desktop/renderer/src/canvas/gallery.tsx#AgentGalleryView"
+   ]
   },
   {
    "path": "orgtree-app/desk/watchdog-panel",
@@ -3300,7 +3355,10 @@
     "tool-watchdog"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/modals.tsx#WatchdogPanel"
+   ]
   },
   {
    "path": "orgtree-app/app-settings",
@@ -3354,7 +3412,70 @@
     "tray-and-windows"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/accounts.tsx#AccountsPanel"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "run on startup"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "exit when the last window closes"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "automatic updates"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "run Orgtree as administrator"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "apply the change"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
+     "label": "run on startup"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
+     "label": "exit when the last window closes"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "np:startAtLogin",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "startAtLogin"
+     ]
+    },
+    {
+     "key": "np:exitOnClose",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "exitOnClose"
+     ]
+    },
+    {
+     "key": "np:automaticUpdates",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "automaticUpdates"
+     ]
+    },
+    {
+     "key": "bridge:setRunAsAdministrator",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "setRunAsAdministrator"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/engine-start-mode",
@@ -3408,7 +3529,110 @@
     "reaching-the-user"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "Notifications"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "Questions"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "Urgent mail"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "Terminal failures"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "Docket attention"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "All mail"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "New presented document"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "Agent frozen"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "Notify while Orgtree is focused"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "np:notificationsEnabled",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "notificationsEnabled"
+     ]
+    },
+    {
+     "key": "np:notifyQuestions",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyQuestions"
+     ]
+    },
+    {
+     "key": "np:notifyUrgentMail",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyUrgentMail"
+     ]
+    },
+    {
+     "key": "np:notifyTerminalFailures",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyTerminalFailures"
+     ]
+    },
+    {
+     "key": "np:notifyDocketAttention",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyDocketAttention"
+     ]
+    },
+    {
+     "key": "np:notifyAllMail",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyAllMail"
+     ]
+    },
+    {
+     "key": "np:notifyDocuments",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyDocuments"
+     ]
+    },
+    {
+     "key": "np:notifyFrozen",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyFrozen"
+     ]
+    },
+    {
+     "key": "np:notifyWhileFocused",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "notifyWhileFocused"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-quick-staff",
@@ -3430,7 +3654,22 @@
     "tool-staff"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/quickstaffsetting.tsx",
+     "label": "Quick staff behavior"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:quick_staff_behavior",
+     "file": "apps/desktop/renderer/src/canvas/quickstaffsetting.tsx",
+     "needles": [
+      "quick_staff_behavior"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-turn-limits",
@@ -3453,7 +3692,33 @@
     "turns-and-wakes"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/turnlimitssetting.tsx",
+     "label": "Total limit"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/turnlimitssetting.tsx",
+     "label": "Silence limit"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:turn_timeout_s",
+     "file": "apps/desktop/renderer/src/canvas/turnlimitssetting.tsx",
+     "needles": [
+      "turn_timeout_s"
+     ]
+    },
+    {
+     "key": "rt:turn_idle_s",
+     "file": "apps/desktop/renderer/src/canvas/turnlimitssetting.tsx",
+     "needles": [
+      "turn_idle_s"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-concurrency-and-checkups",
@@ -3481,7 +3746,77 @@
     "checkups-and-reminders"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "most agent turns running at once"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "keep agent processes warm"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "check on working agents after 20 minutes"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "wait until the MCP tool surface is ready"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "remind idle agents about unfinished docket items"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "also remind about blocked items when every ticket is blocked"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:max_concurrent_turns",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "max_concurrent_turns"
+     ]
+    },
+    {
+     "key": "rt:working_checkups_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "working_checkups_enabled"
+     ]
+    },
+    {
+     "key": "rt:wait_for_mcp_tools_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "wait_for_mcp_tools_enabled"
+     ]
+    },
+    {
+     "key": "rt:idle_docket_reminders_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "idle_docket_reminders_enabled"
+     ]
+    },
+    {
+     "key": "rt:blocked_docket_reminders_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "blocked_docket_reminders_enabled"
+     ]
+    },
+    {
+     "key": "rt:warming_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "warming_enabled"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-charters-and-templates",
@@ -3506,7 +3841,26 @@
     "org-templates"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/chartersettings.tsx",
+     "label": "populate missing documents"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/templates.tsx",
+     "label": "restore default templates"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:charter-template-dirs",
+     "file": "apps/desktop/renderer/src/api.ts",
+     "needles": [
+      "charter-template-dirs"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-display-appearance",
@@ -3530,7 +3884,52 @@
    ],
    "see_also": [],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/agentcolors.tsx",
+     "label": "organization theme color for agents"
+    },
+    {
+     "file": "apps/desktop/renderer/src/contrast.tsx",
+     "label": "contrast color"
+    },
+    {
+     "file": "apps/desktop/renderer/src/themes.tsx",
+     "label": "visual theme"
+    },
+    {
+     "file": "apps/desktop/renderer/src/themes.tsx",
+     "label": "custom color"
+    },
+    {
+     "file": "apps/desktop/renderer/src/themes.tsx",
+     "label": "Rainbow mode"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "np:visualTheme",
+     "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
+     "needles": [
+      "visualTheme"
+     ]
+    },
+    {
+     "key": "np:contrastTheme",
+     "file": "apps/desktop/renderer/src/contrast.tsx",
+     "needles": [
+      "contrastTheme"
+     ]
+    },
+    {
+     "key": "np:agentColorSource",
+     "file": "apps/desktop/renderer/src/agentcolors.tsx",
+     "needles": [
+      "agentColorSource"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-display-desk-and-chart",
@@ -3564,7 +3963,114 @@
     "piles"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "desk text size"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "collapse crowded teams into one stack"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "show agent card shortcuts"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Collapse many jump cards on desks"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "snap pinned panels to edges"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "org chart layout"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "hide retired agents"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/canvasanchor.tsx",
+     "label": "keep canvas controls inside the area pins leave free"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/pinoverlap.tsx",
+     "label": "fade pinned desks and modals over expanded desks"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/pinoverlap.tsx",
+     "label": "overlap opacity"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "ls:orgtree-chart-layout",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-chart-layout"
+     ]
+    },
+    {
+     "key": "ls:orgtree-desk-dpi",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-desk-dpi"
+     ]
+    },
+    {
+     "key": "ls:orgtree-crowd-piles",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-crowd-piles"
+     ]
+    },
+    {
+     "key": "ls:orgtree-hide-retired",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-hide-retired"
+     ]
+    },
+    {
+     "key": "ls:orgtree-agent-shortcuts",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-agent-shortcuts"
+     ]
+    },
+    {
+     "key": "ls:orgtree-modal-overlap-fade",
+     "file": "apps/desktop/renderer/src/canvas/pinoverlap.tsx",
+     "needles": [
+      "orgtree-modal-overlap-fade"
+     ]
+    },
+    {
+     "key": "ls:orgtree-pin-snap",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-pin-snap"
+     ]
+    },
+    {
+     "key": "ls:orgtree-jump-fold",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-jump-fold"
+     ]
+    },
+    {
+     "key": "ls:orgtree-canvas-anchor-bounded",
+     "file": "apps/desktop/renderer/src/canvas/canvasanchor.tsx",
+     "needles": [
+      "orgtree-canvas-anchor-bounded"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-display-input-and-startup",
@@ -3592,7 +4098,66 @@
     "quick-chat"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Quick chat position"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "open an org at"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "play the starting zoom"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Enter key"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/general.tsx",
+     "label": "on startup"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "ls:orgtree-quickchat-position",
+     "file": "apps/desktop/renderer/src/quickchat.ts",
+     "needles": [
+      "orgtree-quickchat-position"
+     ]
+    },
+    {
+     "key": "rt:enter_key_behavior",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "enter_key_behavior"
+     ]
+    },
+    {
+     "key": "np:startupMode",
+     "file": "apps/desktop/renderer/src/shell/general.tsx",
+     "needles": [
+      "startupMode"
+     ]
+    },
+    {
+     "key": "ls:orgtree-start-view",
+     "file": "apps/desktop/renderer/src/canvas/progress.tsx",
+     "needles": [
+      "orgtree-start-view"
+     ]
+    },
+    {
+     "key": "ls:orgtree-start-zoom",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-start-zoom"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-default-org-settings",
@@ -3621,7 +4186,91 @@
     "org-basic"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/App.tsx#DefaultsPanel"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "label": "top-level grant cap"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "label": "default top-level grant"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "label": "compaction threshold %"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "label": "default thinking effort"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "label": "hires bubble their cost up the chain"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "label": "allocations & model upgrades bubble their cost up the chain"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "label": "auto-resume usage-limit-frozen agents after the reset time"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "defaults:max_top_grant",
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "needles": [
+      "max_top_grant"
+     ]
+    },
+    {
+     "key": "defaults:default_top_grant",
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "needles": [
+      "default_top_grant"
+     ]
+    },
+    {
+     "key": "defaults:compact_at",
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "needles": [
+      "compact_at"
+     ]
+    },
+    {
+     "key": "defaults:default_effort",
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "needles": [
+      "default_effort"
+     ]
+    },
+    {
+     "key": "defaults:cascade_hire",
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "needles": [
+      "cascade_hire"
+     ]
+    },
+    {
+     "key": "defaults:cascade_alloc",
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "needles": [
+      "cascade_alloc"
+     ]
+    },
+    {
+     "key": "defaults:auto_resume",
+     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
+     "needles": [
+      "auto_resume"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-developer",
@@ -3648,7 +4297,36 @@
     "crash-and-restart"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/enginedebug.tsx#EngineDebugPanel"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "verbose engine logging"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/enginedebug.tsx",
+     "label": "show the engine debug view"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "ls:orgtree-engine-debug",
+     "file": "apps/desktop/renderer/src/canvas/enginedebug.tsx",
+     "needles": [
+      "orgtree-engine-debug"
+     ]
+    },
+    {
+     "key": "rt:verbose_logging",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "verbose_logging"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-keyboard-shortcuts",
@@ -3692,7 +4370,29 @@
     "app-runtime-desktop"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/updatecheck.tsx",
+     "label": "updates"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/general.tsx",
+     "label": "Orgtree"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/general.tsx",
+     "label": "engine"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/general.tsx",
+     "label": "version unknown"
+    },
+    {
+     "file": "apps/desktop/renderer/src/shell/general.tsx",
+     "label": "source"
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings",
@@ -3746,7 +4446,58 @@
     "app-default-org-settings"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/App.tsx#SettingsPanel"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "top-level grant cap"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "default top-level grant"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "compaction threshold"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "default thinking effort"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:max_top_grant",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "max_top_grant"
+     ]
+    },
+    {
+     "key": "org:default_top_grant",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "default_top_grant"
+     ]
+    },
+    {
+     "key": "org:compact_at",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "compact_at"
+     ]
+    },
+    {
+     "key": "org:default_effort",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "default_effort"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-charter-md",
@@ -3770,7 +4521,16 @@
     "external-mail"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "key_sources": [
+    {
+     "key": "org:org.md",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "org.md"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-templates",
@@ -3793,7 +4553,16 @@
     "create-organization"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/templates.tsx#SaveTemplateModal"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/templates.tsx",
+     "label": "save as template"
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-hire-defaults-folders",
@@ -3816,7 +4585,16 @@
     "scope-and-permissions"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "key_sources": [
+    {
+     "key": "org:org_dirs",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "org_dirs"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-hire-defaults-scope",
@@ -3841,7 +4619,48 @@
     "account-lanes"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Visible agents"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "File and command access"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Provider"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Account"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:default_visibility",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "default_visibility"
+     ]
+    },
+    {
+     "key": "org:permission_mode",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "permission_mode"
+     ]
+    },
+    {
+     "key": "org:default_account",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "default_account"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-hire-defaults-tools",
@@ -3866,7 +4685,50 @@
     "scope-and-permissions"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Native Tools"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Orgtree Tools"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "MCP Servers"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "all registered MCP servers"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:default_tools",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "default_tools"
+     ]
+    },
+    {
+     "key": "org:default_tools.orgtree",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "default_tools",
+      "orgtree"
+     ]
+    },
+    {
+     "key": "org:default_tools.mcp",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "default_tools",
+      "mcp"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-policies-compaction",
@@ -3889,7 +4751,35 @@
     "context-and-compaction"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "reset a session before a known-cold turn"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "only above a context occupancy of"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:auto_cheap_compact.enabled",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "auto_cheap_compact",
+      "enabled"
+     ]
+    },
+    {
+     "key": "org:auto_cheap_compact.occ",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "auto_cheap_compact",
+      "occ"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-policies-cost",
@@ -3912,7 +4802,33 @@
     "credits"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "hires bubble their cost up the chain"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "allocations & model upgrades bubble their cost up the chain"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:cascade_hire",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "cascade_hire"
+     ]
+    },
+    {
+     "key": "org:cascade_alloc",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "cascade_alloc"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-policies-inbox",
@@ -3935,7 +4851,33 @@
     "org-inbox"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "allow outside communication through the org inbox"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "allow multiple org-inbox audience holders"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:org_inbox_enabled",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "org_inbox_enabled"
+     ]
+    },
+    {
+     "key": "org:org_inbox_multi_holder",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "org_inbox_multi_holder"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-autonomy",
@@ -3959,7 +4901,33 @@
     "usage-freezes"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "automatically switch accounts after a usage limit"
+    },
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "auto-resume frozen agents when the usage limit resets"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:account_fallback_default",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "account_fallback_default"
+     ]
+    },
+    {
+     "key": "org:auto_resume",
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "auto_resume"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-accounts",
@@ -3981,7 +4949,16 @@
     "account-lanes"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "key_sources": [
+    {
+     "key": "org:disabled_accounts",
+     "file": "apps/desktop/renderer/src/orgaccounts.tsx",
+     "needles": [
+      "disabled_accounts"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-history",
@@ -4003,7 +4980,10 @@
     "toasts-and-undo"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/history.tsx#HistoryView"
+   ]
   },
   {
    "path": "orgtree-app/org-settings/org-advanced",
@@ -4025,7 +5005,10 @@
     "create-organization"
    ],
    "writer": "orgsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/shell/advancedorg.tsx#AdvancedOrgModal"
+   ]
   },
   {
    "path": "orgtree-app/agent-settings",
@@ -4071,7 +5054,26 @@
     "team-shape"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Name"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Agent actions"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:rename",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "rename"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-charter-tab",
@@ -4094,7 +5096,33 @@
     "charters"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Instructions"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Team instructions"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:charter",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "charter"
+     ]
+    },
+    {
+     "key": "node:team_charter",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "team_charter"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-model-tab",
@@ -4118,7 +5146,48 @@
     "tool-switch-model"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Model"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Model version"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Thinking effort"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Pending model change"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:tier",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "tier"
+     ]
+    },
+    {
+     "key": "node:model_version",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "model_version"
+     ]
+    },
+    {
+     "key": "node:effort",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "effort"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-account-tab",
@@ -4141,7 +5210,33 @@
     "account-lanes"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Account"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Switch accounts when limited"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:account",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "account"
+     ]
+    },
+    {
+     "key": "node:account_fallback",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "account_fallback"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-fresh-start",
@@ -4163,7 +5258,30 @@
     "context-and-compaction"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Start fresh when needed"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Conversation size"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Current session"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:auto_cheap_compact",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "auto_cheap_compact"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-credit-grant",
@@ -4185,7 +5303,22 @@
     "credits"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/creditgrant.tsx",
+     "label": "Credit grant"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:grant",
+     "file": "apps/desktop/renderer/src/canvas/creditgrant.tsx",
+     "needles": [
+      "grant"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-visibility-access",
@@ -4209,7 +5342,33 @@
     "scope-and-permissions"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Visible agents"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "File and command access"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:org_visibility",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "org_visibility"
+     ]
+    },
+    {
+     "key": "node:permission_mode",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "permission_mode"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-folders-tab",
@@ -4232,7 +5391,22 @@
     "folder-picker"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Folders"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:add_dirs",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "add_dirs"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/agent-settings/agent-tools-tab",
@@ -4258,7 +5432,38 @@
     "tool-request-scope"
    ],
    "writer": "agentsettings-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "all registered MCP servers"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:tools",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "tools"
+     ]
+    },
+    {
+     "key": "node:tools.orgtree",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "tools",
+      "orgtree"
+     ]
+    },
+    {
+     "key": "node:tools.mcp",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "tools",
+      "mcp"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/providers",
@@ -4308,7 +5513,29 @@
     "accounts-registry"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "show legacy models (Terra, Gemini Pro)"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "api:providers/{id}/enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "setProviderEnabled"
+     ]
+    },
+    {
+     "key": "ls:orgtree-show-legacy-models",
+     "file": "apps/desktop/renderer/src/canvas/shared.ts",
+     "needles": [
+      "orgtree-show-legacy-models"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/providers/accounts-registry",
@@ -4336,7 +5563,21 @@
     "tool-account-mark"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/accountsregistry.tsx#ClearMarkDialog",
+    "apps/desktop/renderer/src/canvas/accountsregistry.tsx#AddAccountDialog"
+   ],
+   "key_sources": [
+    {
+     "key": "api:accounts/{id}/enabled",
+     "file": "apps/desktop/renderer/src/canvas/accountsregistry.tsx",
+     "needles": [
+      "/api/accounts/",
+      "/enabled"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/providers/api-key-fallback",
@@ -4359,7 +5600,23 @@
     "accounts-registry"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "key_sources": [
+    {
+     "key": "api:providers/{id}/subscription-inference",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "setSubscriptionInferenceEnabled"
+     ]
+    },
+    {
+     "key": "api:providers/{id}/apikey-fallback",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "setApikeyFallbackEnabled"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/providers/harnesses-tab",
@@ -4478,7 +5735,22 @@
     "tool-message"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:antigravity_claude_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "antigravity_claude_enabled"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/providers/harness-muse",
@@ -4528,7 +5800,18 @@
     "harness-opencode"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/openrouter.tsx#ModelPicker",
+    "apps/desktop/renderer/src/canvas/openrouterkeys.tsx#OpenRouterKeyDialog",
+    "apps/desktop/renderer/src/canvas/providerdialog.tsx#ProviderDialog"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/openrouter.tsx",
+     "label": "group by provider"
+    }
+   ]
   },
   {
    "path": "orgtree-app/providers/language-servers",
@@ -4552,7 +5835,57 @@
     "harness-opencode"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Server"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Address"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "API style"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Harness"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Base path"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "API key"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Model ids"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Context size"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Agents at once"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Seat price"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "Name"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "label": "offer this server’s models to new hires"
+    }
+   ]
   },
   {
    "path": "orgtree-app/providers/usage-screens",
@@ -4577,7 +5910,11 @@
     "tool-usage"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/App.tsx#UsageModal",
+    "apps/desktop/renderer/src/usagehistory.tsx#UsageHistoryModal"
+   ]
   },
   {
    "path": "orgtree-app/mailhub",
@@ -4622,7 +5959,77 @@
     "tool-transfers"
    ],
    "writer": "comms-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Hub name"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Maximum attachment size (MiB)"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Port"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Listen on"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Keep mail"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Days to keep mail"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "hub:name",
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "needles": [
+      "name"
+     ]
+    },
+    {
+     "key": "hub:max_attachment_bytes",
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "needles": [
+      "max_attachment_bytes"
+     ]
+    },
+    {
+     "key": "hub:port",
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "needles": [
+      "port"
+     ]
+    },
+    {
+     "key": "hub:bind",
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "needles": [
+      "bind"
+     ]
+    },
+    {
+     "key": "hub:retention_days",
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "needles": [
+      "retention_days"
+     ]
+    },
+    {
+     "key": "hub:public_listener",
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "needles": [
+      "public_listener"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/mailhub/org-connections",
@@ -4647,7 +6054,45 @@
     "tool-list-orgs"
    ],
    "writer": "comms-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "connect to this computer's mail hub"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "label": "connect to this computer's mail hub"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "label": "Chat with this organization from your phone."
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "label": "connection enabled"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "label": "Hub address"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "org:net_autoconnect",
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "needles": [
+      "net_autoconnect"
+     ]
+    },
+    {
+     "key": "org:net_hubs",
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "needles": [
+      "net_hubs"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/mailhub/phone-link",
@@ -4672,7 +6117,19 @@
     "hubchat"
    ],
    "writer": "comms-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/phonelink.tsx#PhonePanel"
+   ],
+   "key_sources": [
+    {
+     "key": "hub:keep_awake",
+     "file": "apps/desktop/renderer/src/canvas/phonelink.tsx",
+     "needles": [
+      "keep_awake"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/mailhub/hubchat",
@@ -4698,5 +6155,30 @@
    "writer": "comms-sol",
    "status": "fixed"
   }
- ]
+ ],
+ "exempt": {
+  "components": [
+   {
+    "id": "apps/desktop/renderer/src/accountusage.tsx#AccountUsagePanel",
+    "reason": "Not mounted by the current renderer; reusable account usage implementation."
+   },
+   {
+    "id": "apps/desktop/renderer/src/canvas/connections.tsx#ConnectionsPanel",
+    "reason": "Not mounted; the active connections controls have their own setting home."
+   },
+   {
+    "id": "apps/desktop/renderer/src/canvas/desk.tsx#LineagePanel",
+    "reason": "Not mounted by the current desk."
+   },
+   {
+    "id": "apps/desktop/renderer/src/canvas/progress.tsx#ProgressView",
+    "reason": "Not mounted: source search finds the export only; the desk no longer mounts a Progress tab."
+   },
+   {
+    "id": "apps/desktop/renderer/src/canvas/settingskit.tsx#SettingsTabPanel",
+    "reason": "Reusable accessible tab wrapper, not an independently navigable screen."
+   }
+  ],
+  "labels": []
+ }
 }
