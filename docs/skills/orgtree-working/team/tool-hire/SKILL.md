@@ -55,3 +55,12 @@ After inspecting available tier/capacity and confirming a new name, this creates
 ```
 
 The result names the admitted node, final parent/index/order, live sibling count, cascade and warnings, plus item/kickoff identity when supplied. Read all warnings. Scope/admission, audience, work assignment and kickoff are committed together; no partial hire survives a late refusal. Typical refusals include missing explicit hire fields, invalid sibling index, duplicate name, insufficient credits, unavailable tier/harness/account and overbroad folder/tool scope. Top-level callers have no ordinary power over other top-level agents.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

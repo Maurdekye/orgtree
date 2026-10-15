@@ -17,3 +17,12 @@ The parent, scope, seat and grant remain unchanged. Self, superior, peers, unrel
 ```
 
 This places an authorized live descendant first among its existing live siblings. Check the returned final `index`, `sibling_order` and `live_sibling_count`; do not infer a parent change from visual position alone.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

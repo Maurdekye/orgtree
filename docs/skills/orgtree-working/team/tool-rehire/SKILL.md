@@ -46,3 +46,12 @@ Invalid authority, destination inside the archived subtree, insufficient credits
 ```
 
 This assumes draft-checker is an archived descendant with an admissible stored configuration. Inspect the returned node, warnings and cascade, including resumed-watchdog or fresh-session warnings. The hire/assignment/audience/kickoff composite rolls back on a late refusal.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

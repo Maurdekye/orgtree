@@ -17,3 +17,12 @@ Sibling or equal-seat swaps are budget-neutral at the affected payers. Different
 ```
 
 This assumes two eligible live descendants and adequate capacity. The result returns `a`, `b` and `cascaded` (no grant-raising cascade for this operation). Inspect each new effective scope: changing a seat's position can change its rights and startup prefix even though its conversation identity survives.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

@@ -21,3 +21,12 @@ Conversation history, scratch files and durable docket records remain. [Rehire](
 ```
 
 Use only after confirming draft-checker and any live descendants are ready to stop. A successful call is not proof that a previously running external operation finished; record interrupted work honestly.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

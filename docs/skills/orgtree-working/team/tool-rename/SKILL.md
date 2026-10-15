@@ -17,3 +17,12 @@ Renaming changes the name on the existing agent row, updates audience names/pend
 ```
 
 The successful result includes `renamed: true`, `was` and the new `node`. Use that returned name for later management/mail calls and tell collaborators when their saved name references matter. A new name does not grant new audiences or permissions.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

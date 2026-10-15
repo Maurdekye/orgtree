@@ -25,3 +25,12 @@ An atomic two-leg example, when both destinations are live within the caller's t
 ```
 
 A no-op same-parent move returns `unchanged: true`. Other results name the moved seat and transferred-path `cascaded` agents, with an archived-cost warning when applicable; batch results have `moved` and `moves`. Invalid authority, cycles, non-live destination, overlarge/empty batch or invalid final credit allocation refuse the operation. Re-read state after a timeout before repeating a batch.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

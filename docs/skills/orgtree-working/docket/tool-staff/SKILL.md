@@ -67,3 +67,9 @@ After checking tier/capacity, unique names and an available first-child index:
 This intentionally relies on assignment mail rather than kickoff. A restored owner can use action update, existing slug and node, with optional changes; the item must be manageable and the restored seat admissible. A named live node is not a shortcut for assignment and may fail when the composite attempts reassignment to its existing owner.
 
 The result gives node, item slug and the nested hire result plus a committed-together message. Inspect cascade/scope/fresh-session warnings and participant notice outcomes. Refusals include missing create scope, missing new-hire explicit fields, unsupported status, insufficient credits, missing/restricted item, invalid audience/account/scope or late ownership validation. All of those roll back the composite; if the response is lost, inspect the tree/item before retrying to avoid duplicate work.
+
+## See also
+
+- [orgtree-docket-items](../docket-items/SKILL.md)
+- [orgtree-docket-statuses](../docket-statuses/SKILL.md)
+- [orgtree-docket-review-and-attention](../docket-review-and-attention/SKILL.md)

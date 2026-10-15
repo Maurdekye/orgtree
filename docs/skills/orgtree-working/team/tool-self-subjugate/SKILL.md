@@ -17,3 +17,12 @@ The external stake stays the caller's old seat plus grant. The promoted agent's 
 ```
 
 This assumes review-lead is a live descendant and the existing stake is sufficient. The result names the caller as `node` and the new superior as `promoted`. Inspect the chart, credits and effective scope afterward. New authority is real: the promoted superior can manage the former caller. Leave ownership and work instructions clear before changing the reporting chain. For creating a new superior rather than promoting an existing descendant, use [hire](../tool-hire/SKILL.md) with its distinct self-parent funding rules.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

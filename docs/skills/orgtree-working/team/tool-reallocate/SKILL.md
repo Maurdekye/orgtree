@@ -17,3 +17,12 @@ Decreasing a grant cannot reclaim credits already held by the target's live chil
 ```
 
 This requires at least the relevant fundable capacity. Taking one unused credit back uses `delta: -1`. The result returns `node`, final `grant` and any `cascaded` intermediate agents. It does not change the seat's tier, scope or task assignment. User-originated top-level allocation has its own org cap; an agent call never inherits user authority from being top-level.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

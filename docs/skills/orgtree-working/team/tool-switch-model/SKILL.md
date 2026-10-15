@@ -19,3 +19,12 @@ Within one provider/harness, the saved session is retained when resumable. Cross
 ```
 
 This assumes an authorized descendant and currently eligible Sol tier. Read returned `cascaded` and `warnings` for an applied change, or pending state for a queued one. This tool configures a seat; it is not a task message or permission to change the user's provider settings.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

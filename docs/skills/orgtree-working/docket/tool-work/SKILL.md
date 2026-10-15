@@ -135,3 +135,9 @@ Create one new item only when no existing item covers it:
 ```
 
 Legacy addendum, review/verdict/review-seat actions, receipts, artifacts, grants, findings, claims and acceptance-check actions are refused with a removed-interface explanation. Use evidence and ordinary review/approved/done statuses. An unknown action is also refused; do not copy 3.x workflows from stale documents.
+
+## See also
+
+- [orgtree-docket-items](../docket-items/SKILL.md)
+- [orgtree-docket-statuses](../docket-statuses/SKILL.md)
+- [orgtree-docket-review-and-attention](../docket-review-and-attention/SKILL.md)

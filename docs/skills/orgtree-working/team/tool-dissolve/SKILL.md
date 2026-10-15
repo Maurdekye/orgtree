@@ -19,3 +19,12 @@ Self, peers, superiors and unrelated targets are refused. A top-level agent has 
 ```
 
 This assumes a live descendant team whose outstanding work has been handed off. Read the returned count and freed capacity before staffing replacement work.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)

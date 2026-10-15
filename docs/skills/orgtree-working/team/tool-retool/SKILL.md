@@ -50,3 +50,12 @@ For your own standing team rule, using your actual current name:
 ```
 
 The first example requires a descendant; the second requires the caller to be team-lead or an authorized superior. Refusals include "on yourself only team_charter can change", unknown folder removals, add/remove collisions, unknown visibility/mode, unsupported effort, invalid account and a grant exceeding the caller. Re-read after an unknown timeout outcome before retrying.
+
+## See also
+
+- [orgtree-hiring](../hiring/SKILL.md)
+- [orgtree-delegating](../delegating/SKILL.md)
+- [orgtree-team-shape](../team-shape/SKILL.md)
+- [orgtree-credits](../credits/SKILL.md)
+- [orgtree-charters](../charters/SKILL.md)
+- [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)
