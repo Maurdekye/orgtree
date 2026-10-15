@@ -21,7 +21,7 @@ import type {
   ChatInit, DirGrant, McpServerInfo, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
 } from '../types'
 import {
-  assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, refreshMcpServers, getOrgAccounts,
+  assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, refreshMcpServers, refreshSkills, refreshGlobalInstructions, getOrgAccounts,
   req, saveScope, watchdogAction,
 } from '../api'
 import { pickFolder } from '../picker'
@@ -787,6 +787,7 @@ function McpChecklist({ servers, details = [], checked, onToggle }: McpChecklist
 
 const MCP_SOURCE_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code', 'codex-cli': 'Codex', antigravity: 'Antigravity', muse: 'Muse', opencode: 'OpenCode',
+  'claude-plugin': 'Claude plugin',
 }
 function McpServerLabel({ name, details }: { name: string; details: McpServerInfo[] }) {
   const info = details.find(d => d.name === name)
@@ -794,16 +795,21 @@ function McpServerLabel({ name, details }: { name: string; details: McpServerInf
 }
 function McpRefresh({ onRead }: { onRead: (names: string[], details: McpServerInfo[]) => void }) {
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string[]>([])
+  const [skills, setSkills] = useState<number | null>(null)
   return <div className="set-hint">
-    <button type="button" disabled={busy} aria-label="Refresh MCP servers" onClick={async () => {
-      setBusy(true); setError(false)
-      try { const r = await refreshMcpServers(); onRead(r.servers ?? [], r.details ?? []) }
-      catch { setError(true) }
-      finally { setBusy(false) }
+    <button type="button" disabled={busy} aria-label="Refresh MCP servers, skills and instructions" onClick={async () => {
+      setBusy(true); setError([])
+      const results = await Promise.allSettled([refreshMcpServers(), refreshSkills(), refreshGlobalInstructions()])
+      const [mcp, discoveredSkills] = results
+      if (mcp.status === 'fulfilled') onRead(mcp.value.servers ?? [], mcp.value.details ?? [])
+      if (discoveredSkills.status === 'fulfilled') setSkills(discoveredSkills.value.skills?.length ?? 0)
+      setError(results.flatMap((r, i) => r.status === 'rejected' ? [['MCP servers', 'skills', 'instructions'][i]!] : []))
+      setBusy(false)
     }}>{busy ? 'Refreshing...' : 'Refresh'}</button>{' '}
-    Rediscover installed harness configurations. Running agents keep their current servers.
-    {error && <span role="alert"> Could not refresh MCP servers.</span>}
+    Rediscover MCP servers, skills and instructions. Running agents keep their current setup until their next turn.
+    {skills !== null && <span role="status"> {skills} shared skills found.</span>}
+    {error.length > 0 && <span role="alert"> Could not refresh {error.join(', ')}.{error.length < 3 && ' Other sources were refreshed.'}</span>}
   </div>
 }
 

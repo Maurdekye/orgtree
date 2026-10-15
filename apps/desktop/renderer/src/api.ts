@@ -506,6 +506,10 @@ export const getMcpServers = (): Promise<McpServersPayload> =>
   req('/api/mcp-servers')
 export const refreshMcpServers = (): Promise<McpServersPayload> =>
   req('/api/mcp-servers/refresh', { method: 'POST' })
+export const refreshSkills = (): Promise<{ skills: { name: string; sources: string[] }[]; digest: string }> =>
+  req('/api/skills/refresh', { method: 'POST' })
+export const refreshGlobalInstructions = (): Promise<{ files: number; refreshed: boolean }> =>
+  req('/api/global-instructions/refresh', { method: 'POST' })
 export const getCharters = (): Promise<ChartersPayload> =>
   req('/api/charters')
 // Seed ~/.orgtree/charters from the bundled presets; never overwrites a
