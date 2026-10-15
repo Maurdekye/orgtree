@@ -2718,3 +2718,8 @@ Cold archived docket projections covered by the existing policy spec use its typ
   [decided: user/coordinator 2026-10-15; verified: `providers/skills.rs`,
   `providers/plugins.rs`, `runtime/actor.rs`; contract and limits:
   `docs/rust-engine/shared-skills.md`]
+- Launch, idle recheck and forecast must use the same combined instruction/skill
+  startup digest; a raw-vs-combined comparison retires unchanged parked CLIs.
+  The idle check retains applicable skill folders, not a frozen skill snapshot.
+  [verified: `runtime/actor.rs`; regression: `tools/rig/proofs/skills-idle.mjs`;
+  2026-10-15]

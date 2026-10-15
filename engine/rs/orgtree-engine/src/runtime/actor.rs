@@ -615,6 +615,20 @@ fn hash(s: &str) -> String {
     hex::encode(&Sha256::digest(s.as_bytes())[..12])
 }
 
+/// Launch, idle recheck and forecast must compare the same startup namespace.
+#[nolog]
+fn shared_startup_digest(startup_digest: &str, skills: &crate::providers::skills::Registry) -> String {
+    hash(&format!("{}|skills:{}", startup_digest, skills.digest))
+}
+
+#[nolog]
+fn skill_folders(ctx: &Ctx) -> Vec<PathBuf> {
+    let mut folders = vec![ctx.scratch.clone()];
+    folders.extend(ctx.effective["add_dirs"].as_array().into_iter().flatten()
+        .filter_map(|d| d["path"].as_str()).map(PathBuf::from));
+    folders
+}
+
 #[derive(Default)]
 struct McpState {
     waiting: bool,
@@ -642,7 +656,7 @@ struct Actor {
     /// keepalive reads that CLI's prefix, not the file as it is now
     proc_notes: Option<String>,
     /// the startup files of the last forecast, and when they were last re-read
-    startup_seen: Option<(startup::Inputs, String)>,
+    startup_seen: Option<(startup::Inputs, Vec<PathBuf>, String)>,
     startup_checked: Instant,
     proc_effort: Option<String>,
     pending_effort: Option<String>,
@@ -981,8 +995,9 @@ impl Actor {
         // respawns through the fingerprint instead.
         if self.turn.is_none() && self.keepalive.is_none() && self.startup_checked.elapsed() >= STARTUP_RECHECK {
             self.startup_checked = Instant::now();
-            if let Some((inputs, seen)) = self.startup_seen.clone() {
-                let now = startup::digest(&inputs);
+            if let Some((inputs, folders, seen)) = self.startup_seen.clone() {
+                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders);
+                let now = shared_startup_digest(&startup::digest(&inputs), &skills);
                 // stale against what the parked CLI was LAUNCHED with, which
                 // an edit during the last turn leaves behind the forecast's
                 let stale = self.proc.is_some() && self.proc_print.as_ref().and_then(|p| p.part("startup")) != Some(now.as_str());
@@ -1866,10 +1881,7 @@ impl Actor {
         }
         let startup = startup::snapshot(&self.startup_inputs(ctx));
         let base = self.identity(ctx, &external, &startup);
-        let mut skill_folders = vec![ctx.scratch.clone()];
-        skill_folders.extend(ctx.effective["add_dirs"].as_array().into_iter().flatten()
-            .filter_map(|d| d["path"].as_str()).map(PathBuf::from));
-        let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders);
+        let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders(ctx));
         // the org's shared notes as read now, last in the prompt. A CLI keeps
         // the copy it started with: the text stays out of the system prompt
         // part, so another agent's edit never respawns a warm CLI
@@ -1921,7 +1933,7 @@ impl Actor {
                 ("permission_mode", ctx.effective["permission_mode"].as_str().unwrap_or("").to_string()),
                 ("folders", hash(&dirs_print)),
                 ("account", self.account_print(ctx)),
-                ("startup", hash(&format!("{}|skills:{}", startup.digest, skills.digest))),
+                ("startup", shared_startup_digest(&startup.digest, &skills)),
             ],
             org_notes: Some(hash(&notes)),
         };
@@ -6785,8 +6797,10 @@ impl Actor {
                     .filter(|current| self.turn.is_some() && *current != &ctx.effort)
                     .map(|_| ctx.effort.clone());
                 let inputs = self.startup_inputs(&ctx);
-                let digest = startup::digest(&inputs);
-                self.startup_seen = Some((inputs, digest));
+                let folders = skill_folders(&ctx);
+                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders);
+                let digest = shared_startup_digest(&startup::digest(&inputs), &skills);
+                self.startup_seen = Some((inputs, folders, digest));
                 self.forecast_for(&ctx)
             },
             Err(_) => Value::Null,

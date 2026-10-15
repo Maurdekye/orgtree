@@ -84,6 +84,12 @@ snapshot paths and exported bytes. Content-addressed snapshots are staged and
 published by rename, never rewritten underneath active agents. Old snapshots are
 retained so existing sessions' paths remain valid.
 
+Launch planning, the 20-second idle recheck and the forecast's remembered startup
+value all use `shared_startup_digest`: instruction-file digest plus skill digest.
+The idle check retains the agent's applicable folders and re-discovers local skills
+against the current global registry. Comparing the raw instruction digest against
+the combined launch digest would spuriously retire every unchanged parked CLI.
+
 Workspace-only copies are replaced only after closing the old process, immediately
 before starting its successor; owned old copies are removed, user-created files
 are preserved. A running turn is not interrupted by Refresh. The changed startup
@@ -122,6 +128,7 @@ Under the normal rig lock, fake-home-only commands:
 cargo test --locked -j 2 -p orgtree-engine --bin orgtree-engine skills_import_ -- --test-threads=1
 node tools/rig/rig.mjs run tools/rig/proofs/skills-import.mjs
 node tools/rig/rig.mjs run tools/rig/proofs/skills-delivery.mjs
+node tools/rig/rig.mjs run tools/rig/proofs/skills-idle.mjs
 ```
 
 There are six focused unit cases. Import proof: nine checks, expected predecessor
@@ -135,3 +142,10 @@ base API/modal implementation as the red control. Compose global-instructions an
 the standalone start-mode guide, then verify its alias and complete resources are
 present in each native layout. The nested-category unit fixture separately verifies
 that leaf `SKILL.md` pages never become extra catalog entries.
+
+The separate idle regression has three checks: initial native loading, then two
+unchanged Refresh cycles, each spanning 22 seconds and a subsequent turn. It checks
+the original PID remains alive, the start count is unchanged, the forecast has no
+startup change and exported bytes remain identical. Run the identical proof at
+`2bf5e71` for the focused digest-mismatch red (expected one pass/two failures),
+then the fix for green. These are expected outcomes until independently measured.
