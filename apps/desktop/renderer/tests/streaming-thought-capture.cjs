@@ -24,7 +24,7 @@ app.whenReady().then(async()=>{
           ${kind==='expanded'?"document.querySelector('.thoughtline').click();":''}`)
         const state=await win.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
           const transcript=document.querySelector('.msgs'),target=document.querySelector('[data-fixture="target"]');
-          const el=target.querySelector('.thoughtbody,.thinking,.thoughtline'),css=getComputedStyle(el);
+          const el=target.querySelector(${JSON.stringify(kind==='expanded'?'.thoughtbody':'.thoughtbody,.thinking,.thoughtline')}),css=getComputedStyle(el);
           transcript.scrollTop=transcript.scrollHeight;
           const original=el.style.flexShrink;el.style.flexShrink='0';const natural=el.getBoundingClientRect().height;el.style.flexShrink=original;
           const r=el.getBoundingClientRect();
@@ -32,7 +32,7 @@ app.whenReady().then(async()=>{
           const line=range.getClientRects()[0];
           resolve({height:r.height,natural,lineHeight:parseFloat(css.lineHeight),scrollHeight:el.scrollHeight,clientHeight:el.clientHeight,
             fontStyle:css.fontStyle,color:css.color,dim:getComputedStyle(transcript).getPropertyValue('--dim').trim(),
-            border:css.borderLeftWidth,maxHeight:css.maxHeight,overflowY:css.overflowY,flexShrink:css.flexShrink,
+            border:css.borderLeftWidth,maxHeight:css.maxHeight,boxSizing:css.boxSizing,overflowY:css.overflowY,flexShrink:css.flexShrink,
             animation:css.animationName,bodyCount:target.querySelectorAll('.thoughtbody').length,
             top:r.top,bottom:r.bottom,firstLineTop:line?.top,firstLineBottom:line?.bottom,
             transcriptHeight:transcript.clientHeight,transcriptScrollHeight:transcript.scrollHeight,
@@ -53,7 +53,7 @@ app.whenReady().then(async()=>{
           check(Math.abs(state.height-state.natural)<=0.5,'streaming thought retains natural capped height under pressure')
           check(state.height>=state.lineHeight+8-0.5,'at least one full line plus existing padding visible')
           check(state.border==='2px'&&state.maxHeight==='320px'&&state.overflowY==='auto','border/cap/scroll unchanged')
-          if(size==='long')check(state.scrollHeight>state.clientHeight&&Math.abs(state.height-328)<=0.5,'long thought capped at320px plus8px padding and scrollable')
+          if(size==='long')check(state.scrollHeight>state.clientHeight&&state.boxSizing==='border-box'&&Math.abs(state.height-320)<=0.5,'long thought capped at320px border-box and scrollable')
         }else if(kind==='sealed')check(state.animation==='think-breathe'&&state.bodyCount===0,'sealed pulse unchanged')
         else if(kind==='collapsed')check(state.bodyCount===0,'collapsed thought stays collapsed')
         else check(state.bodyCount===1&&state.maxHeight==='320px'&&state.overflowY==='auto','expanded body unchanged')
