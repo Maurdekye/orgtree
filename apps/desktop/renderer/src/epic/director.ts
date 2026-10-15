@@ -110,6 +110,9 @@ export interface Act extends Omit<EpicEvent, 'kind'> {
   kind: Kind
   /** who it happened to, written under the effect's word (default: `node`) */
   caption?: string
+  /** the app feed notice it came from (another org's): an alarm it starts
+   *  ends when that notice goes, its mail read */
+  notice?: string
 }
 
 /* ── the combo ─────────────────────────────────────────────────────────── */
@@ -235,8 +238,9 @@ class Show implements EpicShow {
   /** where and when the user last pressed, for effects with no subject */
   private pressed: { x: number; y: number; doc: Document; at: number } | null = null
   private cleanups: (() => void)[] = []
-  /** urgent mail's alarm while it sounds: whose mail it is, and how to end it */
-  private alarm: { org: string | null; end: () => void } | null = null
+  /** urgent mail's alarm while it sounds: whose mail it is (this window's org,
+   *  or another org's notice), and how to end it */
+  private alarm: { org: string | null; notice: string | null; end: () => void } | null = null
   private ended = false
   private count = 0
   private comboN = 0
@@ -422,18 +426,23 @@ class Show implements EpicShow {
     // the baseline is the first COMPLETE copy: what waited before EPIC Mode
     // turned on is history, not news
     if (!this.noticed) { if (read.current) this.noticed = new Set(now.keys()); return }
-    const fresh: NoticeRow[] = []
-    for (const [key, n] of now) if (!this.noticed.has(key)) { this.noticed.add(key); fresh.push(n) }
-    // a resolved notice is forgotten, so the set never grows with history
-    for (const key of this.noticed) if (!now.has(key)) this.noticed.delete(key)
+    const fresh: [string, NoticeRow][] = []
+    for (const [key, n] of now) if (!this.noticed.has(key)) { this.noticed.add(key); fresh.push([key, n]) }
+    // a resolved notice is forgotten, so the set never grows with history;
+    // the alarm its urgent mail started ends with it: that mail was read
+    for (const key of this.noticed) {
+      if (now.has(key)) continue
+      this.noticed.delete(key)
+      if (this.alarm?.notice === key) this.alarm.end()
+    }
     if (!fresh.length || !this.looking()) return
-    for (const n of fresh.slice(0, 4)) {
+    for (const [key, n] of fresh.slice(0, 4)) {
       const org = n.org as string
       if (this.snaps.has(org)) continue
       const kind = NOTICE_KINDS[typeof n.kind === 'string' ? n.kind : ''] ?? 'notice'
       const docs = this.theaters().map(t => t.doc)
       const caption = [typeof n.agent === 'string' ? n.agent : '', org].filter(Boolean).join(' · ')
-      this.cue(kind, { spot: anchorFor(kind, docs), caption })
+      this.cue(kind, { spot: anchorFor(kind, docs), caption, notice: key })
     }
   }
 
@@ -592,7 +601,8 @@ class Show implements EpicShow {
    *  loud but very attention demanding and obnoxious"): every window this
    *  show draws in is tinted in slow pulses under a banner, and the klaxon
    *  and a ping from the inbox sound once a pulse. It ends when the mail is
-   *  read (onTree), when the show stops, when another urgent mail starts its
+   *  read (onTree; for another org's notice, when that notice goes:
+   *  onNotices), when the show stops, when another urgent mail starts its
    *  own, or by itself after URGENT_MS. */
   soundAlarm(c: Cue): void {
     this.alarm?.end()
@@ -604,7 +614,7 @@ class Show implements EpicShow {
       for (const fn of ends) fn()
       if (this.alarm === alarm) this.alarm = null
     }
-    const alarm = { org: c.org, end }
+    const alarm = { org: c.org, notice: c.ev.notice ?? null, end }
     this.alarm = alarm
     let pulses = Math.round(URGENT_MS / URGENT_PULSE_MS)
     const pulse = () => {
