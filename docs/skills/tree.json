@@ -6178,7 +6178,7 @@
    "covers": [
     "route:openrouter"
    ],
-   "purpose": "OpenRouter seats: which harness each key routes through, what that changes per topic, spend caps and reasoning.",
+   "purpose": "OpenRouter seats: which harness each key routes through (Claude Code, Codex or OpenCode), what that changes per topic, spend caps and reasoning.",
    "must_cover": [
     "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
     "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
@@ -6187,19 +6187,21 @@
     "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
     "tools, permissions and sandbox, incl. Windows/Session 0",
     "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
-    "only the differences from the underlying harness page; link it for the rest",
+    "which harnesses it runs through (Claude Code, Codex, OpenCode per harnesses.rs) and only the differences from each harness page; link them for the rest",
     "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/openrouter.rs",
     "engine/rs/orgtree-engine/src/runtime/actor.rs",
-    "docs/rust-engine/openrouter-keys.md"
+    "docs/rust-engine/openrouter-keys.md",
+    "engine/rs/orgtree-engine/src/harnesses.rs"
    ],
    "see_also": [
     "openrouter",
     "harness-opencode",
     "harness-codex",
-    "harness-comparison"
+    "harness-comparison",
+    "harness-claude-code"
    ],
    "writer": "providers-sol",
    "status": "fixed"
@@ -6213,7 +6215,7 @@
    "covers": [
     "route:langserver"
    ],
-   "purpose": "Local language-server seats (e.g. llama.cpp): the harness they run through, agents-at-once limit, context size, no usage windows.",
+   "purpose": "Local language-server seats (e.g. llama.cpp): which harness they run through (Claude Code, Codex or OpenCode), agents-at-once limit, context size, no usage windows.",
    "must_cover": [
     "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
     "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
@@ -6222,18 +6224,20 @@
     "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
     "tools, permissions and sandbox, incl. Windows/Session 0",
     "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
-    "only the differences from the underlying harness page; link it for the rest",
+    "which harnesses it runs through (Claude Code, Codex, OpenCode per harnesses.rs) and only the differences from each harness page; link them for the rest",
     "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/langserver.rs",
-    "engine/rs/orgtree-engine/src/runtime/actor.rs"
+    "engine/rs/orgtree-engine/src/runtime/actor.rs",
+    "engine/rs/orgtree-engine/src/harnesses.rs"
    ],
    "see_also": [
     "language-servers",
     "harness-opencode",
     "harness-codex",
-    "harness-comparison"
+    "harness-comparison",
+    "harness-claude-code"
    ],
    "writer": "providers-sol",
    "status": "fixed"
