@@ -89,6 +89,37 @@ pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
 }
 
 #[cfg(test)]
+mod mail_size_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn mail(body: String) -> Mail {
+        Mail { uid: "large-mail".into(), sender: "sender".into(), kind: "message".into(), body,
+            at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]),
+            notice: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}) }
+    }
+
+    #[test]
+    fn oversized_mail_is_referenced_on_opening_replay_and_steering_paths() {
+        let mails = [mail("x".repeat(1_048_577))];
+        for text in [turn_text(&mails, "context", &HashMap::new(), None),
+            replay_text(&mails, &HashMap::new()), steer_text(&mails, &HashMap::new())] {
+            assert!(text.len() < 65_536, "a giant body must not be composed inline ({} bytes)", text.len());
+            assert!(text.contains("large-mail") && text.contains("orgtree_inbox") && text.contains("chunk"));
+        }
+        assert_eq!(mails[0].body.len(), 1_048_577, "stored mail is unchanged");
+    }
+
+    #[test]
+    fn oversized_reply_context_cannot_bypass_mail_reference_limit() {
+        let mut m = mail("small body".into());
+        m.reply_to = json!({"from":"sender","gist":"q".repeat(1_048_577)});
+        let text = turn_text(&[m], "", &HashMap::new(), None);
+        assert!(text.len() < 65_536 && text.contains("orgtree_inbox"));
+    }
+}
+
+#[cfg(test)]
 mod phone_authority_tests {
     use super::*;
     use serde_json::json;
