@@ -1,0 +1,54 @@
+/* EPIC Mode (user 2026-10-14 23:38Z–23:43Z). Two things live here: the secret
+   switch at the bottom of Settings › Developer, and the effects stage that only
+   exists while EPIC Mode is on. */
+
+/* ── THE SECRET SWITCH ─────────────────────────────────────────────────────
+   Off and not hovered, the row is drawn in NOTHING BUT THE BACKGROUND: the
+   checkbox has no box, no fill and no ring, and the label is transparent ink,
+   so whatever the panel is painted with shows through unchanged in every
+   theme, contrast setting and Rainbow frame. It still takes its row's space
+   and still answers the pointer. */
+.settings .epic-switch {
+  border-top: 0;
+  border-radius: 6px;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: background-color .3s ease;
+}
+.settings .epic-switch:not(.on) .set-lead input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+.settings .epic-switch:not(.on) .epic-switch-label { color: transparent; }
+/* select-all must not paint a highlight box around the hidden words */
+.settings .epic-switch:not(.on) ::selection { background: transparent; color: transparent; }
+/* THE ONE HINT: a subtle highlight under the pointer — the panel's own hover
+   surface (tabs use it too) — and the pointer cursor `label.set-row` already
+   has. Keyboard focus shows the same highlight instead of a focus ring, so a
+   keyboard user is never parked on an invisible stop. */
+.settings .epic-switch:not(.on):hover,
+.settings .epic-switch:not(.on):has(input:focus-visible) {
+  background: var(--panel-2);
+}
+/* On: an ordinary checked checkbox (the settings sheet's own accent-colour
+   rule applies again) and the name in the theme accent. */
+.settings .epic-switch.on .epic-switch-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── THE STAGE ─────────────────────────────────────────────────────────────
+   One canvas over the whole window, above every modal, menu, toast and the
+   Quick chat popover (z 1000 today), and never in the way of a click. */
+.epic-stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 2147483000;
+}

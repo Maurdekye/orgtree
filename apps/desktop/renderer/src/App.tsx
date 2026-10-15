@@ -149,6 +149,7 @@ import type {
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
 import { EngineDebugPanel, setEngineDebugOn, useEngineDebug } from './canvas/enginedebug'
 import { bindRoomSocket } from './streamrooms'
+import { epic } from './epic/tap'
 // every tier picker reads the runtime tier registries during render: fill
 // them as the providers payload arrives, before any consumer re-renders
 onAppValue('providers', syncProviderRegistries)
@@ -902,6 +903,7 @@ export default function App() {
           replay as Extract<WsEvent, { type: 'node_stream' }>[])
         const shown = applyPrimedAsks(want, t, readStartedAt)
         setTree(shown)
+        epic?.tree(want, shown)
         // point 31: forget submitted cards this tree has caught up with
         settleFromTree(want, shown)
         // and mail reads it counts (a read saved before this read began)
@@ -931,6 +933,7 @@ export default function App() {
         replaceNodeMetadata(slug, shown.roots)
         const visible = applyPrimedAsks(slug, shown, readStartedAt)
         setTree(visible)
+        epic?.tree(slug, visible)
         settleFromTree(slug, visible)
         if (readStartedAt) settleReadsFromTree(slug, readStartedAt)
         setTreeRead({ at: Date.now(), error: null })
@@ -1128,10 +1131,12 @@ export default function App() {
         if (connection !== null) recordSocket.current.close(connection)
         connection = null
         bindRoomSocket(slug, null)
+        if (!dead) epic?.frame(slug, { type: 'epic_link', up: false })
         if (!dead) timer = setTimeout(connect, 1500)
       }, () => {
         if (dead || socket !== currentSocket) return
         opened(socket)
+        epic?.frame(slug, { type: 'epic_link', up: true })
         void recordController.current?.feed.reconnect()
       })
       currentSocket = socket; wsRef.current = socket
@@ -1143,6 +1148,8 @@ export default function App() {
       let data: WsEvent | null = null
       const recordOn = recordController.current?.slug === slug
       try { data = JSON.parse(ev.data) as WsEvent } catch { /* ignore */ }
+      // EPIC Mode's tap: null (one check, arguments unevaluated) unless it is on
+      epic?.frame(slug, data)
       const answer = data as unknown as RecordEvent | null
       if (answer?.type === 'record_changes' || answer?.type === 'record_reset'
           || answer?.type === 'record_snapshot' || answer?.type === 'record_subscribed'

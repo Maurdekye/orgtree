@@ -16,6 +16,7 @@ import './shell.css'
 import { startThemeSync } from './themes'
 import { startContrastSync } from './contrast'
 import { startAgentColorSync } from './agentcolors'
+import { startEpicSync } from './epic/sync'
 import { startHeldEvents } from './events/heldbus'
 
 // ⚠ FIRST, AND BEFORE EVERY OTHER `onEvent` SUBSCRIPTION IN THIS DOCUMENT.
@@ -31,6 +32,9 @@ startHeldEvents()
 startThemeSync()
 startContrastSync()
 startAgentColorSync()
+// EPIC Mode (Settings › Developer's secret switch): off, this is one
+// preference subscription and nothing else — see epic/sync.ts
+startEpicSync()
 
 flushPendingReports()
 

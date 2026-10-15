@@ -51,6 +51,7 @@ import { AboutSection, StartupWindowsSetting, useAppVersion } from '../shell/gen
 import { DefaultsForm } from '../shell/defaults'
 import { setQuickChatPosition, useQuickChatPosition, type QuickChatPosition } from '../quickchat'
 import { EngineDebugToggle } from './enginedebug'
+import { EpicModeSwitch } from '../epic/EpicSwitch'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -940,6 +941,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
               } finally { setOpeningLogs(false) }
             }}>{openingLogs ? 'Opening…' : 'Open logs folder'}</button>} />}
       </SetGroup>
+      {/* BELOW ALL THE OTHERS, AND INVISIBLE UNTIL HOVERED (user 2026-10-14
+          23:42Z): the secret EPIC Mode switch. See epic/EpicSwitch.tsx. */}
+      <EpicModeSwitch />
     </SettingsTabPanel>
     <SettingsTabPanel id="shortcuts" idBase="app-settings" active={tab === 'shortcuts'}>
       <ShortcutsSettings />

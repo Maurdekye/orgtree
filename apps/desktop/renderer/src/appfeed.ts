@@ -46,6 +46,13 @@ function subscribe(listener: () => void) {
     if (!listeners.size) connection.stop()
   }
 }
+/** A plain subscription for code outside React (EPIC Mode's director, while
+ *  it is on): `fn` runs after every feed change until the returned function
+ *  stops it. Same contract as a hook's subscription, so the last one out
+ *  stops the shared connection exactly as an unmounting view does. */
+export function watchAppFeed(fn: () => void): () => void { return subscribe(fn) }
+/** One app-feed value as it stands, outside React. */
+export function appValueNow<T>(key: string): T | undefined { return connection.state.value<T>(key) }
 const inactive = () => () => {}
 const snapshot = () => revision
 

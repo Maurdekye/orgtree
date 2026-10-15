@@ -15,6 +15,7 @@ import { decodeTree, type TreeWire } from './treedelta'
 import { ForegroundTreeReader } from './foregroundtree'
 import { AgentReferences } from './agentrefs'
 import { TreeViewReader } from './treeview'
+import { epic } from './epic/tap'
 import type { TreeSelection } from './treeview'
 import type {
   AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
@@ -573,8 +574,11 @@ export const dissolveAll = (slug: string): Promise<{ freed: number; nodes: numbe
   req(`/api/orgs/${slug}/dissolve-all`, { method: 'POST' })
 export const interruptNode = (
   slug: string, nid: string,
-): Promise<{ interrupted: boolean; reason?: string }> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/interrupt`, { method: 'POST' })
+): Promise<{ interrupted: boolean; reason?: string }> => {
+  // EPIC Mode's tap: an interrupt leaves no mark in the tree to stage
+  epic?.action(slug, 'interrupt', nid)
+  return req(`/api/orgs/${slug}/nodes/${nid}/interrupt`, { method: 'POST' })
+}
 /** A halt that does not finish inside the request now hands off to a named
  *  background operation instead of answering an unowned "still halting":
  *  `operation` identifies it, `blocking` says in plain sentences what is
