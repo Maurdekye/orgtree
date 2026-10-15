@@ -4,7 +4,7 @@ import {pathToFileURL} from 'node:url';
 for(const k of ['ORGTREE_MULTI_DEPENDENCIES','ORGTREE_MULTI_OUTPUT']) if(!process.env[k]) throw Error('Missing '+k);
 if(process.env.ORGTREE_MULTI_JOB_CONTAINED!=='1') throw Error('Existing Rig lock and kernel Job required');
 const repo=process.env.ORGTREE_MULTI_ROOT||process.cwd(),out=path.resolve(process.env.ORGTREE_MULTI_OUTPUT),base=process.env.ORGTREE_MULTI_BASE;
-if(!/^c:\/orgtree-build\/(hubchat-dm-sol|rig-opus|rig-sol)\//i.test(out.replaceAll('\\','/'))) throw Error('Owned C output required');
+if(!/^c:\/orgtree-build\/(hubchat-dm-sol|rig-opus|rig-sol|rig-sol-b)\//i.test(out.replaceAll('\\','/'))) throw Error('Owned C output required');
 const deps=createRequire(path.join(process.env.ORGTREE_MULTI_DEPENDENCIES,'package.json')),esbuild=deps('esbuild');fs.mkdirSync(out,{recursive:true});
 const file=path.join(out,'multireply.test.mjs');
 // Match the standard runner's package resolution; only jsdom stays external.
