@@ -647,6 +647,11 @@ export const FAREWELL_MS = 1600
  *  enough never to strobe (at least 0.4 s; at most three a second) */
 export const URGENT_MS = 8000
 const URGENT_PULSE_MS = 800
+/** how far apart an effect's repeated flashes come: at most three a second,
+ *  under the photosensitivity guideline (user 2026-10-15: "slow it to at most
+ *  3 per second, keeping the same look"). 360 ms also lands a halt's first
+ *  and last flash on the first and last beat of its alarm. */
+const FLASH_EVERY_MS = 360
 
 const TWO_ENDED = new Set<Kind>(['zap', 'userSend', 'toUser', 'bark', 'orgInbox', 'audience', 'unaudience'])
 /** events whose card React has not drawn yet when the tree arrives */
@@ -1181,8 +1186,8 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   halt: c => {
     const s = c.t.stage
     c.show.sound('halt', c)
-    for (let i = 0; i < 3; i++) setTimeout(() => s.flash(RED, 0.28, 0.22), i * 240)
-    for (let i = 0; i < 3; i++) s.ring(c.at.x, c.at.y, { color: RED, radius: 160, width: 9, life: 0.6, delay: i * 0.24 })
+    for (let i = 0; i < 3; i++) setTimeout(() => s.flash(RED, 0.28, 0.22), i * FLASH_EVERY_MS)
+    for (let i = 0; i < 3; i++) s.ring(c.at.x, c.at.y, { color: RED, radius: 160, width: 9, life: 0.6, delay: i * FLASH_EVERY_MS / 1000 })
     s.word(c.at.x, above(c, 90), 'HALTED', { color: RED, ink: '#2a0000', size: 58, caption: captionOf(c) })
     s.pulse(c.at.el, RED, 1600)
     s.shake(10, 500)
@@ -1462,7 +1467,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   attention: c => {
     const s = c.t.stage
     c.show.sound('siren', c)
-    for (let i = 0; i < 4; i++) setTimeout(() => s.flash(i % 2 ? '#3b6bff' : RED, 0.2, 0.2), i * 210)
+    for (let i = 0; i < 4; i++) setTimeout(() => s.flash(i % 2 ? '#3b6bff' : RED, 0.2, 0.2), i * FLASH_EVERY_MS)
     s.glyph(c.at.x, c.at.y + 60, '!', { color: '#ffb35c', size: 110 })
     s.word(c.at.x, c.at.y + 130, 'ATTENTION!', { color: RED, ink: '#2a0000', size: 34, caption: captionOf(c) })
   },
