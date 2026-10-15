@@ -836,10 +836,13 @@ mod tests {
         std::os::unix::fs::symlink(target, link).unwrap();
         #[cfg(windows)]
         {
+            let link = crate::config::strip_verbatim(link).to_string_lossy().replace('/', "\\");
+            let target = crate::config::strip_verbatim(target).to_string_lossy().replace('/', "\\");
             let result = std::process::Command::new("cmd")
-                .args(["/c", "mklink", "/J"])
-                .arg(link).arg(target).output().unwrap();
-            assert!(result.status.success(), "fixture junction creation failed");
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(&link).arg(&target).output().unwrap();
+            assert!(result.status.success(), "fixture junction creation failed: status={:?}, stdout={}, stderr={}",
+                result.status.code(), String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
         }
     }
 
