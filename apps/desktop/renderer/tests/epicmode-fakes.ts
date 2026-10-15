@@ -1,5 +1,6 @@
 // Test doubles for EPIC Mode's suites: a counting AudioContext whose nodes
-// accept every call the synth makes, and a quiet canvas.
+// accept every call the synth makes, a quiet canvas, and a clock the test
+// moves by hand.
 //
 // jsdom has no Web Audio and no canvas drawing. The fake records how many
 // contexts were built and closed and how many nodes were created, which is
@@ -73,6 +74,61 @@ export function fakeAudio(): { Ctor: new () => AudioContext; log: AudioLog } {
 // exactly what most of these suites want, so answer null quietly.
 const quiet = () => null
 ;(window.HTMLCanvasElement.prototype as unknown as { getContext: () => null }).getContext = quiet
+
+/** The stage's time, taken over: `performance.now` reads a clock the test
+ *  moves, and the window's requestAnimationFrame and setTimeout run only when
+ *  it does (`run`: due timers first, then the frames asked for, at 60 Hz), so
+ *  half a minute of lingering effects takes no real time and a test can count
+ *  the frames the loop drew. `skip` moves the clock with nothing running, as
+ *  for a window the system has hidden. Undo with `restore`. */
+export interface Clock {
+  readonly now: number
+  /** frames run so far */
+  readonly frames: number
+  /** a frame or a timer is waiting: false once the loop sleeps */
+  readonly busy: boolean
+  run(ms: number): void
+  skip(ms: number): void
+  restore(): void
+}
+
+export function clockwork(): Clock {
+  const w = window as unknown as Record<string, unknown>
+  const perf = performance as unknown as Record<string, unknown>
+  const names = ['requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'clearTimeout'] as const
+  const had = names.map(n => Object.getOwnPropertyDescriptor(w, n))
+  const hadNow = Object.getOwnPropertyDescriptor(perf, 'now')
+  let now = 100_000, frames = 0, ids = 0
+  let pending = new Map<number, (t: number) => void>()
+  const timers = new Map<number, { due: number; fn: () => void }>()
+  const put = (key: string, value: unknown) => Object.defineProperty(w, key, { value, configurable: true, writable: true })
+  put('requestAnimationFrame', (cb: (t: number) => void) => { pending.set(++ids, cb); return ids })
+  put('cancelAnimationFrame', (id: number) => { pending.delete(id) })
+  put('setTimeout', (fn: () => void, ms = 0) => { timers.set(++ids, { due: now + Number(ms), fn }); return ids })
+  put('clearTimeout', (id: number) => { timers.delete(id) })
+  Object.defineProperty(perf, 'now', { value: () => now, configurable: true, writable: true })
+  return {
+    get now() { return now },
+    get frames() { return frames },
+    get busy() { return pending.size > 0 || timers.size > 0 },
+    run(ms: number) {
+      const end = now + ms
+      while (now < end) {
+        now = Math.min(end, now + 1000 / 60)
+        const due = [...timers].filter(([, t]) => t.due <= now).sort((a, b) => a[1].due - b[1].due)
+        for (const [id, t] of due) { if (timers.delete(id)) t.fn() }
+        const run = pending
+        pending = new Map()
+        for (const cb of run.values()) { frames++; cb(now) }
+      }
+    },
+    skip(ms: number) { now += ms },
+    restore() {
+      names.forEach((n, i) => { const d = had[i]; if (d) Object.defineProperty(w, n, d); else delete w[n] })
+      if (hadNow) Object.defineProperty(perf, 'now', hadNow); else delete perf.now
+    },
+  }
+}
 
 /** A 2D context that records every drawing call (method name, and the text of
  *  fillText/strokeText) instead of drawing, for asserting that an effect

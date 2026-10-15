@@ -34,7 +34,7 @@ import { interruptNode, req } from '../src/api'
 import { registerWindow } from '../src/windowlife'
 import { Preferences } from '../../main/preferences'
 import type { TreeNode, TreePayload } from '../src/types'
-import { fakeAudio, recordCanvas } from './epicmode-fakes'
+import { clockwork, fakeAudio, recordCanvas } from './epicmode-fakes'
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 const at = (x: number, y: number, doc: Document = document): Spot => ({ x, y, rect: null, el: null, doc })
@@ -186,29 +186,24 @@ test('words draw over every glow and particle, so a name stays readable', () => 
 })
 
 test('the meter keeps the frame loop alive only while its combo lasts, then lets it sleep', () => {
-  const pending: ((t: number) => void)[] = []
-  const view = window as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown }
-  view.requestAnimationFrame = (cb: (t: number) => void) => { pending.push(cb); return pending.length }
-  view.cancelAnimationFrame = () => {}
+  const clock = clockwork()
   const stage = new Stage(document)
   let reading: { n: number; rank: string; color: string; left: number } | null =
     { n: 30, rank: 'OVERDRIVE', color: '#ff3b3b', left: 1 }
   try {
     stage.meter(() => reading)
     stage.meter(() => reading)
-    assert.equal(pending.length, 1, 'one frame requested, one meter')
-    let t = 1000
-    for (let i = 0; i < 20; i++) { const run = pending.splice(0); for (const cb of run) cb(t += 16) }
-    assert.equal(pending.length, 1, 'a live combo keeps one frame coming')
-    assert.equal(stage.metering, true)
+    clock.run(1500)
+    assert.equal(clock.frames <= 91, true, `one loop for one meter: at most a frame per display frame (${clock.frames} in 1.5 s)`)
+    assert.equal(stage.metering, true, 'still showing')
+    assert.equal(clock.busy, true, 'a live combo keeps the loop going')
     reading = null
-    for (let i = 0; i < 60 && pending.length; i++) { const run = pending.splice(0); for (const cb of run) cb(t += 16) }
+    clock.run(1500)
     assert.equal(stage.metering, false, 'the dropped combo\'s meter faded out')
-    assert.equal(pending.length, 0, 'and nothing asks for frames any more')
+    assert.equal(clock.busy, false, 'and nothing asks for frames any more')
   } finally {
     stage.destroy()
-    delete view.requestAnimationFrame
-    delete view.cancelAnimationFrame
+    clock.restore()
   }
 })
 

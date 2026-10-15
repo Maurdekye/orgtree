@@ -344,6 +344,14 @@ declare global {
       blur(o: Parameters<Stage['blur']>[0]): void
       stop(): void
     }
+    __lingerStage?: {
+      /** on a stage of its own, every kind of residue a strike leaves */
+      strike(): void
+      lingering(): { kind: string; x: number; y: number }[]
+      /** the frames that stage has drawn (its canvas cleared) */
+      frames(): number
+      stop(): void
+    }
     __typing?: {
       carets: CaretRecord[]
       /** pan the camera by (dx, dy) screen px, the way a drag moves `.space` */
@@ -402,6 +410,33 @@ if (scene === 'switch') {
   window.__blurStage = {
     blur(o) { (blurStage ??= new Stage(document)).blur(o) },
     stop() { blurStage?.destroy(); blurStage = null },
+  }
+  // residue on a stage of its own: frost on carol's card, cracks at the top
+  // right, a meteor's scorch and embers at the bottom left, an afterglow, and
+  // confetti and coins falling to the floor; and the frames it draws
+  let lingerStage: Stage | null = null
+  let lingerFrames = 0
+  window.__lingerStage = {
+    strike() {
+      lingerStage?.destroy()
+      const stage = lingerStage = new Stage(document)
+      const g = stage.canvas.getContext('2d')
+      if (g) {
+        const clear = g.clearRect.bind(g)
+        g.clearRect = (x: number, y: number, w: number, h: number) => { lingerFrames++; clear(x, y, w, h) }
+      }
+      const card = document.querySelector('[data-first-use-agent="carol"]')
+      const r = card?.getBoundingClientRect()
+      if (card && r) stage.iceBlock({ x: r.left, y: r.top, w: r.width, h: r.height }, 2.4, card)
+      stage.cracks(860, 170, { count: 9, length: 110 })
+      stage.meteor(170, 600)
+      stage.afterglow(330, 660, { strength: 0.8, radius: 100, life: 16 })
+      stage.rain('confetti', { count: 160 })
+      stage.rain('coin', { count: 40 })
+    },
+    lingering() { return lingerStage?.lingering ?? [] },
+    frames() { return lingerFrames },
+    stop() { lingerStage?.destroy(); lingerStage = null },
   }
   if (typing) {
     window.__typing = {

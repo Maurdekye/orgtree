@@ -484,6 +484,80 @@ app.whenReady().then(async () => {
       write(false)
       if (!receipt.pass) throw new Error('blur not as specified: ' + JSON.stringify(q) + ' base ' + JSON.stringify(base))
     }
+
+    // ── lingering: what strikes leave behind ─────────────────────────────
+    // (docket epic-mode-next-round-more-shake-and-blur-a-small, part 4). On a
+    // stage of its own in the stage scene (Charcoal): frost on carol's card,
+    // cracks at the top right, a meteor's scorch and embers at the bottom
+    // left, an afterglow, and confetti and coins falling to the floor. Each
+    // place is compared with the picture before, pixel by pixel (the share of
+    // pixels whose brightness moved by 8 or more): changed 6 s on, the frost
+    // and the floor still there 13 s on, and as before 31 s on, with nothing
+    // left and no frame drawn. While only residue is left, the stage draws
+    // about 15 frames a second (the capture paints at 30).
+    {
+      await win.loadURL(`${url}/fixture.html?scene=stage&n=${++loads}`)
+      await waitFor(`!!window.__lingerStage && document.querySelectorAll('[data-first-use-agent]').length === 6`, 'the fixture org')
+      await js(`window.__contrast('charcoal'); true`)
+      await sleep(300)
+      const carol = await js(`(() => { const r = document.querySelector('[data-first-use-agent="carol"]').getBoundingClientRect()
+        return { left: r.left, top: r.top, right: r.right, bottom: r.bottom } })()`)
+      const PLACES = {
+        frost: { left: carol.left - 6, top: carol.top - 6, right: carol.right + 6, bottom: carol.bottom + 6 },
+        cracks: { left: 760, top: 80, right: 960, bottom: 260 },
+        scorch: { left: 130, top: 560, right: 210, bottom: 640 },
+        afterglow: { left: 260, top: 600, right: 400, bottom: 690 },
+        floor: { left: 0, top: 690, right: 1000, bottom: 700 },
+      }
+      const lum = (bmp, i) => 0.114 * bmp[i] + 0.587 * bmp[i + 1] + 0.299 * bmp[i + 2]
+      /** the share of a place's pixels whose brightness moved by 8 or more */
+      const moved = (a, b, r) => {
+        const { width, height } = a.getSize()
+        const pa = a.toBitmap(), pb = b.toBitmap()
+        let n = 0, changed = 0
+        for (let y = Math.max(0, Math.round(r.top)); y < Math.min(height, Math.round(r.bottom)); y++) {
+          for (let x = Math.max(0, Math.round(r.left)); x < Math.min(width, Math.round(r.right)); x++) {
+            const i = (y * width + x) * 4
+            n++
+            if (Math.abs(lum(pa, i) - lum(pb, i)) >= 8) changed++
+          }
+        }
+        return n ? +(changed / n).toFixed(4) : 0
+      }
+      const compare = (image, base) => Object.fromEntries(Object.entries(PLACES).map(([k, r]) => [k, moved(image, base, r)]))
+      const base = await shot('linger-before')
+      await js(`window.__lingerStage.strike(); true`)
+      const started = Date.now()
+      // each shot lands about 100 ms after it is asked for
+      const at = async ms => { const left = ms - 100 - (Date.now() - started); if (left > 0) await sleep(left) }
+      await at(1500)
+      await shot('linger-fresh')
+      await at(6000)
+      const s6 = compare(await shot('linger-6s'), base)
+      const kinds6 = await js(`window.__lingerStage.lingering().map(r => r.kind)`)
+      await at(6500)
+      const f0 = await js(`window.__lingerStage.frames()`)
+      await at(8500)
+      const fps = (await js(`window.__lingerStage.frames()`) - f0) / 2
+      await at(13000)
+      const s13 = compare(await shot('linger-13s'), base)
+      await at(31000)
+      const gone = compare(await shot('linger-gone'), base)
+      const left31 = await js(`window.__lingerStage.lingering().length`)
+      const g0 = await js(`window.__lingerStage.frames()`)
+      await sleep(1000)
+      const framesAfter = await js(`window.__lingerStage.frames()`) - g0
+      await js(`window.__lingerStage.stop(); true`)
+      const receipt = { linger: 'charcoal', places: PLACES, s6, s13, gone, kinds6, fps, left31, framesAfter }
+      receipt.showed = Object.values(s6).every(v => v >= 0.01)
+      receipt.lingered = s13.frost >= 0.01 && s13.floor >= 0.01
+      receipt.cleared = Object.values(gone).every(v => v <= 0.001) && left31 === 0 && framesAfter === 0
+      receipt.slow = fps >= 8 && fps <= 17
+      receipt.pass = receipt.showed && receipt.lingered && receipt.cleared && receipt.slow
+      receipts.push(receipt)
+      write(false)
+      if (!receipt.pass) throw new Error('lingering not as specified: ' + JSON.stringify({ s6, s13, gone, kinds6, fps, left31, framesAfter }))
+    }
     write(true)
   } finally { win.destroy() }
 }).then(() => app.exit(0), error => {
