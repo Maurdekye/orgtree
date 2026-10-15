@@ -49,6 +49,9 @@ pub struct AgySpec {
     pub effort: Option<String>,
     pub conversation: Option<String>,
     pub identity: String,
+    /// where the standing notes begin in `identity`: they start their own
+    /// numbered rule part (user 2026-10-15 12:41Z, D2)
+    pub notes_from: usize,
     /// granted MCP servers (registry entries), besides orgtree's own
     pub servers: Map<String, Value>,
     /// tool switches and write rights from the agent's scope
@@ -444,7 +447,7 @@ fn validate_identity_output(root: &Path, path: &Path) -> Result<()> {
 }
 
 #[nolog] // contains private identity text
-fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
+fn write_identity_rules(cwd: &Path, identity: &str, notes_from: usize) -> Result<()> {
     let root = identity_output_root(cwd)?;
     let rules = root.join(".agents/rules");
     validate_identity_output(&root, &rules)?;
@@ -463,21 +466,28 @@ fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
         }
         old.push(entry.path());
     }
-    let mut rest = identity;
+    // the engine's rules, then the standing notes, each from a fresh part
+    let mut split = notes_from.min(identity.len());
+    while !identity.is_char_boundary(split) { split -= 1; }
+    let (head, notes) = identity.split_at(split);
     let mut part = 0;
-    loop {
-        let mut end = rest.len().min(IDENTITY_PART_BYTES);
-        while !rest.is_char_boundary(end) { end -= 1; }
-        let path = rules.join(format!("{IDENTITY_RULE_PREFIX}{part:04}.md"));
-        validate_identity_output(&root, &path)?;
-        let content = format!("{IDENTITY_RULE_HEADER}{}", &rest[..end]);
-        if std::fs::read(&path).ok().as_deref() != Some(content.as_bytes()) {
-            std::fs::write(&path, content)?;
+    for section in [head, notes] {
+        if section.is_empty() && (part > 0 || !notes.is_empty()) { continue; }
+        let mut rest = section;
+        loop {
+            let mut end = rest.len().min(IDENTITY_PART_BYTES);
+            while !rest.is_char_boundary(end) { end -= 1; }
+            let path = rules.join(format!("{IDENTITY_RULE_PREFIX}{part:04}.md"));
+            validate_identity_output(&root, &path)?;
+            let content = format!("{IDENTITY_RULE_HEADER}{}", &rest[..end]);
+            if std::fs::read(&path).ok().as_deref() != Some(content.as_bytes()) {
+                std::fs::write(&path, content)?;
+            }
+            old.retain(|p| p != &path);
+            part += 1;
+            rest = &rest[end..];
+            if rest.is_empty() { break; }
         }
-        old.retain(|p| p != &path);
-        rest = &rest[end..];
-        if rest.is_empty() { break; }
-        part += 1;
     }
     for path in old {
         validate_identity_output(&root, &path)?;
@@ -545,7 +555,7 @@ fn move_generated_identity(root: &Path, source: &Path, backup: &Path, bytes: usi
 fn write_workspace(spec: &AgySpec, pipe: &str, data_root: &Path) -> Result<()> {
     let cwd = &spec.cwd;
     std::fs::create_dir_all(cwd)?;
-    write_identity_rules(cwd, &spec.identity)?;
+    write_identity_rules(cwd, &spec.identity, spec.notes_from)?;
     let agents = cwd.join(".agents");
     let plugin = agents.join("plugins").join("orgtree");
     std::fs::create_dir_all(&plugin)?;
@@ -692,7 +702,7 @@ mod workspace_notes_tests {
         std::fs::create_dir_all(&root).unwrap();
         let spec = AgySpec {
             exe: PathBuf::from("unused-fake-agy"), cwd: root.join("agent"), model: "fake".into(),
-            effort: None, conversation: None, identity: "Synthetic generated identity".into(),
+            effort: None, conversation: None, identity: "Synthetic generated identity".into(), notes_from: usize::MAX,
             servers: Map::new(), bash: true, edit: true, web: true, subagents: true,
             env: vec![], turn_timeout_s: 60, host: None,
         };
@@ -937,7 +947,7 @@ mod workspace_notes_tests {
         spec.identity = format!("{prefix}{}{closing}", "x".repeat(56_918 - prefix.len() - closing.len()));
         std::fs::write(spec.cwd.join("AGENTS.md"), &spec.identity).unwrap();
         assert!(migrate_generated_identity(&spec.cwd).unwrap());
-        write_identity_rules(&spec.cwd, &spec.identity).unwrap();
+        write_identity_rules(&spec.cwd, &spec.identity, spec.identity.len()).unwrap();
         let rules = spec.cwd.join(".agents/rules");
         let mut paths: Vec<_> = std::fs::read_dir(&rules).unwrap().flatten().map(|e| e.path()).collect();
         paths.sort();
@@ -946,12 +956,12 @@ mod workspace_notes_tests {
         assert!(parts.iter().all(|s| s.len() < 24_000));
         assert_eq!(parts.iter().map(|s| s.strip_prefix(IDENTITY_RULE_HEADER).unwrap()).collect::<String>(), spec.identity);
         assert!(crate::runtime::startup::agy_project(&spec.cwd).is_empty());
-        write_identity_rules(&spec.cwd, &spec.identity).unwrap();
+        write_identity_rules(&spec.cwd, &spec.identity, spec.identity.len()).unwrap();
         assert_eq!(paths.iter().map(|p| std::fs::read_to_string(p).unwrap()).collect::<Vec<_>>(), parts);
         // UTF-8 boundaries and stale part cleanup after an identity shrinks.
         let unicode = "🦀".repeat(12_000);
-        write_identity_rules(&spec.cwd, &unicode).unwrap();
-        write_identity_rules(&spec.cwd, "short identity").unwrap();
+        write_identity_rules(&spec.cwd, &unicode, unicode.len()).unwrap();
+        write_identity_rules(&spec.cwd, "short identity", usize::MAX).unwrap();
         assert_eq!(std::fs::read_dir(&rules).unwrap().count(), 1);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -989,7 +999,7 @@ mod workspace_notes_tests {
         std::fs::create_dir_all(&rules).unwrap();
         let path = rules.join("orgtree-identity-0000.md");
         std::fs::write(&path, "my own unrelated rule").unwrap();
-        assert!(write_identity_rules(&spec.cwd, &spec.identity).is_err());
+        assert!(write_identity_rules(&spec.cwd, &spec.identity, spec.identity.len()).is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), "my own unrelated rule");
         std::fs::remove_dir_all(root).unwrap();
     }

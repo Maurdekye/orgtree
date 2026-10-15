@@ -216,6 +216,9 @@ struct Plan {
     print: Fingerprint,
     /// the org's shared notes block, the end of `identity`
     notes: String,
+    /// where the standing notes begin in `identity`: everything before is
+    /// engine-written rules (a lane with a per-file limit splits there)
+    rules_len: usize,
 }
 
 /// A plan as the log shows it: granted MCP servers by name only (their
@@ -234,6 +237,7 @@ impl std::fmt::Debug for Plan {
             .field("external", &self.external)
             .field("print", &self.print)
             .field("notes", &self.notes.len())
+            .field("rules_len", &self.rules_len)
             .finish()
     }
 }
@@ -1953,10 +1957,11 @@ impl Actor {
         Ok(OrRoute { key: r.key.clone(), codex: r.codex, reasoning: false, local: Some(r) })
     }
 
-    /// The system prompt for this launch (runtime::identity). Reads the
+    /// The system prompt for this launch (runtime::identity) as (engine rules,
+    /// standing notes). Reads the
     /// agent's own and its granted folders' AGENTS.md and legacy CLAUDE.md; no side effects.
     #[nolog] // snapshot and return value contain private instruction text
-    fn identity(&self, ctx: &Ctx, external: &[String], own_notes: &startup::Notes, folder_notes: &startup::Notes) -> String {
+    fn identity(&self, ctx: &Ctx, external: &[String], own_notes: &startup::Notes, folder_notes: &startup::Notes) -> (String, String) {
         let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
         let lane = if ctx.harness.as_deref() == Some("opencode") {
             prompt::Lane::OpenCode
@@ -1976,7 +1981,7 @@ impl Actor {
         // a read-only seat without the OS sandbox is held by the approval policy instead
         let sandbox = if sb.approval == "untrusted" { "untrusted" } else { sb.mode };
         let skills = crate::rig::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
-        prompt::identity(&prompt::Identity {
+        prompt::identity_parts(&prompt::Identity {
             name: &ctx.name,
             title: &ctx.title,
             org_name: &ctx.org_name,
@@ -1995,6 +2000,7 @@ impl Actor {
             folder_notes,
             own_notes,
             skills_dir: &skills,
+            builtin_skills: prompt::builtin_skills_lane(lane),
         })
     }
 
@@ -2027,7 +2033,9 @@ impl Actor {
             .filter(|d| !scope::is_shared(d))
             .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
         let (own_notes, folder_notes) = startup.standing_notes(&ctx.scratch, &folders);
-        let base = self.identity(ctx, &external, &own_notes, &folder_notes);
+        let (rules, standing) = self.identity(ctx, &external, &own_notes, &folder_notes);
+        let rules_len = rules.len();
+        let base = rules + &standing;
         let mut instructions = startup.instructions.clone();
         for (path, text) in &own_notes { instructions.text(std::path::Path::new(path), "own_scratch", text); }
         for (path, text) in &folder_notes { instructions.text(std::path::Path::new(path), "granted_folder", text); }
@@ -2098,7 +2106,7 @@ impl Actor {
             ],
             org_notes: Some(hash(&notes)),
         };
-        Plan { skills, identity, settings, mcp, disallowed, allowed, add_dirs, external, print, notes }
+        Plan { skills, identity, settings, mcp, disallowed, allowed, add_dirs, external, print, notes, rules_len }
     }
 
     /// The fingerprint's account part: the seat's binding, and once the
@@ -3119,6 +3127,7 @@ impl Actor {
             effort: Some(catalog::antigravity_effort(&ctx.tier, &ctx.effort).to_string()),
             conversation,
             identity: plan.identity.clone(),
+            notes_from: plan.rules_len,
             servers: granted,
             bash: on("bash"),
             edit: on("edit") && pm != "plan",

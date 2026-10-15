@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::runtime::envelope;
 
-pub use super::identity::{identity, org_notes, team_notes, Identity, Lane};
+pub use super::identity::{builtin_skills_lane, identity, identity_parts, org_notes, team_notes, Identity, Lane};
 
 /// One waiting message, as the agent reads it.
 #[derive(Clone, serde::Serialize)]
@@ -342,7 +342,7 @@ mod phone_authority_tests {
             charter: None, team_charter: None, cascade: &[], superior: Some("lead"),
             org_md: notes, lane, scope: &json!({"tools":{"orgtree":{"messaging":messaging}}}),
             codex_sandbox: None, mcp_servers: &[], extern_holder: messaging,
-            folder_notes: &[], own_notes: &[], skills_dir: "D:/fixture-skills",
+            folder_notes: &[], own_notes: &[], skills_dir: "D:/fixture-skills", builtin_skills: false,
         })
     }
 
