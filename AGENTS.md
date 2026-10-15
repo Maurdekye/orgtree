@@ -39,6 +39,14 @@
   [decided: coordinator 2026-10-15 10:09Z; verified: `usage.rs`; contract and
   evidence limits: `docs/rust-engine/claude-usage-waits.md`]
 
+- Startup reveals every restored main window, including org-bound error windows;
+  background starts retain the set hidden. Quit/update/installer/signal/final
+  Windows session paths capture all open placements before teardown; only the
+  first final session event captures, so later closes cannot shrink membership.
+  A cancelled session query and a refused installer do not latch shutdown.
+  [decided: user/coordinator 2026-10-15; verified: `main/index.ts`; contract and
+  measured limits: `docs/rust-engine/org-window-reopen.md`]
+
 - The revealed Rainbow mode row appears only for Custom themes. Selecting a
   preset hides it without altering saved revealed/enabled/epoch preferences;
   returning to Custom restores its prior state. [decided: user/coordinator
