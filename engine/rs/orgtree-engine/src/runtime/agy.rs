@@ -771,6 +771,28 @@ mod workspace_notes_tests {
         assert!(!backup, "no backup may be created outside scratch");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn agy_native_notes_leaf_symlink_is_not_migrated_or_refused() {
+        let (root, spec) = fixture();
+        std::fs::create_dir_all(&spec.cwd).unwrap();
+        let source = root.join("native-notes.md");
+        let legacy = format!("You are \"ann\", an agent in the organization \"Proof\" (orgtree). {}", LEGACY_CLOSINGS[0]);
+        std::fs::write(&source, &legacy).unwrap();
+        let link = spec.cwd.join("AGENTS.md");
+        std::os::unix::fs::symlink(&source, &link).unwrap();
+        let outcome = migrate_generated_identity(&spec.cwd);
+        let preserved = std::fs::read(&source).unwrap() == legacy.as_bytes();
+        let link_preserved = std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink();
+        let backup = std::fs::read_dir(&spec.cwd).unwrap().flatten()
+            .any(|e| e.file_name().to_string_lossy().ends_with(".bak"));
+        std::fs::remove_file(&link).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(matches!(outcome, Ok(false)), "native leaf symlink must be skipped without launch error");
+        assert!(preserved && link_preserved, "native notes and their link must remain untouched");
+        assert!(!backup, "native leaf symlink must not be backed up");
+    }
+
     #[test]
     fn agy_legacy_envelope_is_backed_up_once_and_other_notes_are_untouched() {
         let (root, spec) = fixture();
