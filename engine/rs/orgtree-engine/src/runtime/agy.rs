@@ -624,6 +624,55 @@ mod workspace_notes_tests {
         (root, spec)
     }
 
+    #[cfg(any(unix, windows))]
+    fn linked_rule_output(component: &str) {
+        let (root, spec) = fixture();
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let link = spec.cwd.join(component);
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        let redirected_rules = if component == ".agents" { outside.join("rules") } else { outside.clone() };
+        std::fs::create_dir_all(&redirected_rules).unwrap();
+        let old_path = redirected_rules.join("orgtree-identity-9999.md");
+        let old_bytes = format!("{IDENTITY_RULE_HEADER}outside old rule");
+        std::fs::write(&old_path, &old_bytes).unwrap();
+        std::fs::write(outside.join("canary"), "untouched").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        #[cfg(windows)]
+        {
+            let result = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"]).arg(&link).arg(&outside).output().unwrap();
+            assert!(result.status.success(), "fixture junction creation failed");
+        }
+        let refused = write_identity_rules(&spec.cwd, &spec.identity).is_err();
+        let preserved = std::fs::read(&old_path).ok().as_deref() == Some(old_bytes.as_bytes());
+        let wrote = redirected_rules.join("orgtree-identity-0000.md").exists();
+        let canary = std::fs::read_to_string(outside.join("canary")).unwrap();
+        // Unlink explicitly before recursive fixture cleanup, including red runs.
+        #[cfg(windows)]
+        std::fs::remove_dir(&link).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(&link).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(refused, "linked output ancestor must be refused");
+        assert!(preserved, "marked external rules must not be deleted");
+        assert!(!wrote, "identity must not be written outside scratch");
+        assert_eq!(canary, "untouched");
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn agy_rule_output_rejects_linked_agents_directory() {
+        linked_rule_output(".agents");
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn agy_rule_output_rejects_linked_rules_directory() {
+        linked_rule_output(".agents/rules");
+    }
+
     #[test]
     fn agy_workspace_preserves_standing_notes_across_starts() {
         let (root, spec) = fixture();
