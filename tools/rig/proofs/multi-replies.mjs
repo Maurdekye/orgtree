@@ -21,7 +21,8 @@ export default async function(rig) {
   const mixedRefs=[ids[0],own];
   const mixed=own ? await rig.tool('writer','orgtree_message',{metadata:{to:'user',replies:mixedRefs},body:'Mixed direction answer'}) : {ok:false};
   const mixedRows=rig.sql("SELECT recipient_name,replies FROM ot.mail WHERE body='Mixed direction answer'");
-  p.check('mixed authors in one conversation keep all references and one recipient',mixed.ok&&mixedRows.length===1&&mixedRows[0].recipient_name==='user'&&mixedRows[0].replies.map(q=>q.id).join()===mixedRefs.join(),{mixed:mixed.text,mixedRows});
+  // Tool input accepts "user"; persisted user-recipient names are "@user".
+  p.check('mixed authors in one conversation keep all references and one recipient',mixed.ok&&mixedRows.length===1&&mixedRows[0].recipient_name==='@user'&&mixedRows[0].replies.map(q=>q.id).join()===mixedRefs.join(),{mixed:mixed.text,mixedRows});
   const fanout=await rig.tool('writer','orgtree_message',{metadata:{to:['user','writer'],replies:ids},body:'REFUSED fanout'});
   p.check('multi-reply never fans out to several recipients',!fanout.ok&&/one recipient/.test(fanout.text||'')&&rig.sql("SELECT id FROM ot.mail WHERE body='REFUSED fanout'").length===0,fanout.text);
   const fetched=own ? await rig.tool('writer','orgtree_inbox',{action:'fetch',message_ids:[own]}) : {};
@@ -89,7 +90,9 @@ export default async function(rig) {
   rig.exec(`INSERT INTO ot.convo(agent_id,seq,ver,body) VALUES (${id},90004,90004,'${sqlQuote(JSON.stringify(aggregate))}')`);
   await rig.api('POST',`/api/orgs/${rig.org}/nodes/writer/message`,{text:'Aggregate reply',replies:[event('e90001'),event('e90004')]});
   const aggregateReply=rig.one("SELECT recipient_name,replies FROM ot.mail WHERE body='Aggregate reply'");
-  p.check('a multi-author delivered turn can be quoted with other transcript events',aggregateReply?.recipient_name==='writer'&&aggregateReply.replies[1].quoted_context==='First author\n\nSecond author'&&!JSON.stringify(aggregateReply.replies).includes('HIDDEN'),aggregateReply);
+  // event_context preserves paragraph breaks; HTTP snapshots use gist(text,4000),
+  // which intentionally collapses whitespace without changing the source event.
+  p.check('a multi-author delivered turn can be quoted with other transcript events',aggregateReply?.recipient_name==='writer'&&aggregateReply.replies[1].quoted_context==='First author Second author'&&!JSON.stringify(aggregateReply.replies).includes('HIDDEN'),aggregateReply);
   await rig.tool('neighbour','orgtree_message',{metadata:{to:'writer',notice:true},body:'NEIGHBOUR source'});
   const neighbourMail=rig.one("SELECT uid FROM ot.mail WHERE body='NEIGHBOUR source'").uid;
   const mailTarget=id=>({source_event_ref:{org:rig.org,agent:'writer',generation,eventId:'mail:'+id},mail_id:id,quoted_context:'Spoofed envelope'});
