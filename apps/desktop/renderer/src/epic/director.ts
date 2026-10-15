@@ -86,6 +86,8 @@ export type DomKind =
   | 'scroll' | 'focus' | 'undo' | 'redo' | 'shortcut' | 'doubleClick'
   // a click on a control that confirms: save, apply, create, OK … (Wonder Full)
   | 'confirm'
+  // arrow, page, home and end keys outside text fields (Astra)
+  | 'navigate'
   // staged by the director itself: a usage limit learned just after the ice
   | 'brownout'
   // the org socket dropping and coming back (an engine restart, a sleep)
@@ -204,7 +206,7 @@ const GAP: Partial<Record<Kind, number>> = {
   // writing plays one note of its agent's run per gap: a melody, not a buzz
   thinking: 900, writing: 240, credits: 250, cost: 3000, queued: 300, mailbox: 300,
   ready: 400, wake: 300, sleep: 300, settings: 400, reorder: 300, toast: 120,
-  dialogOpen: 150, dialogClose: 150, popup: 120, menu: 120, scroll: 140, focus: 80, shortcut: 120,
+  dialogOpen: 150, dialogClose: 150, popup: 120, menu: 120, scroll: 140, focus: 80, shortcut: 120, navigate: 70,
   linkDown: 4000, linkUp: 4000, confirm: 60, refused: 400, notice: 300,
   // an interrupt is seen by the API tap and again as the killed turn
   interrupt: 3000,
@@ -650,6 +652,11 @@ const CONTROL = 'button, a[href], [role="button"], [role="tab"], [role="menuitem
 const TYPEABLE = 'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="number"], '
   + 'input[type="email"], input[type="url"], input[type="password"], [contenteditable="true"], [contenteditable=""]'
 const POPUPS = '.overlay, .ctxmenu, .toasts > *, .lb-overlay, .quickchat-pop, .picker, .shell-menu'
+/** navigation keys, and the direction each one moves (radians) */
+const NAV_KEYS: Record<string, number> = {
+  ArrowUp: -Math.PI / 2, ArrowDown: Math.PI / 2, ArrowLeft: Math.PI, ArrowRight: 0,
+  PageUp: -Math.PI / 2, PageDown: Math.PI / 2, Home: -Math.PI / 2, End: Math.PI / 2,
+}
 /** the controls that pop when pressed: buttons, not fields or whole labels */
 const POPPABLE: ReadonlySet<string> = new Set(['BUTTON', 'SUMMARY', 'A'])
 
@@ -689,6 +696,8 @@ function attachHands(show: Show, t: Theater): () => void {
       // and an interrupt by the API tap once the engine accepted it
       if (POPPABLE.has(control.tagName) || /^(button|tab|menuitem|option|switch)$/.test(control.getAttribute('role') || '')) t.stage.pop(control)
       if (control.getAttribute('role') === 'tab') show.cue('tab', { spot })
+      else if (/\bundo\b/.test(label)) show.cue('undo', { spot })
+      else if (/\bredo\b/.test(label)) show.cue('redo', { spot })
       else if (/\b(send|reply|post)\b/.test(label) && control.tagName === 'BUTTON') show.cue('send', { spot })
       else if (/\b(delete|remove|retire|discard|dismiss|drop)\b/.test(label)) show.cue('destroy', { spot })
       else if (/\b(save|apply|confirm|create|add|ok|done|accept|approve|submit|grant)\b/.test(label)) show.cue('confirm', { spot })
@@ -723,7 +732,15 @@ function attachHands(show: Show, t: Theater): () => void {
       else if (k !== 'c' && k !== 'v' && k !== 'x') show.cue('shortcut', { spot, text: k.toUpperCase() })
       return
     }
-    if (!target || !target.closest(TYPEABLE)) return
+    if (!target || !target.closest(TYPEABLE)) {
+      // moving through lists, menus and the chart with the keyboard (the
+      // Astra take's SHIFT): chevrons streaking the way it went
+      const way = NAV_KEYS[e.key]
+      if (way !== undefined && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        show.cue('navigate', { spot: (target && spotOfElement(target)) || null, n: way })
+      }
+      return
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return
     const field = target.closest(TYPEABLE)!
     const spot = caretSpot(field, doc) ?? spotOfElement(field)
@@ -1477,6 +1494,12 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   scroll: c => {
     c.show.sound('tick', c, { pitch: (c.ev.n ?? 1) < 0 ? 1.3 : 0.8 })
     c.t.stage.burst(c.at.x, c.at.y, { count: 6, kind: 'streak', colors: ['#ffffff', CYAN], speed: [260, 460], size: [3, 5], life: [0.15, 0.3], angle: (c.ev.n ?? 1) < 0 ? -Math.PI / 2 : Math.PI / 2, spread: 0.5 })
+  },
+  // keyboard navigation outside text fields: chevron streaks the way it went
+  navigate: c => {
+    const a = c.ev.n ?? 0
+    c.show.sound('warp', c, { pitch: Math.sin(a) < 0 ? 1.25 : 0.85, gain: 0.8 })
+    c.t.stage.burst(c.at.x, c.at.y, { count: 10, kind: 'streak', colors: ['#ffffff', CYAN, PURPLE], speed: [260, 520], size: [4, 7], life: [0.15, 0.3], angle: a, spread: 0.6 })
   },
   focus: c => {
     c.show.sound('blip', c, { pitch: 1.4 })
