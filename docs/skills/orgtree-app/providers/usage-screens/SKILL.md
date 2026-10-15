@@ -16,6 +16,8 @@ Read status/error and observation date with the bars; unavailable is not zero. S
 
 Refresh buttons can be pending, disabled by recent attempts/cooldown, or fail while retaining dated old observations. Do not interpret click success as newly measured capacity. The detailed window definitions belong in `orgtree-usage-windows` (orgtree-working › accounts), and agent refresh rules in `orgtree-tool-usage` there.
 
+Claude usage-service waits can leave recent bars quietly visible with their original date, or show a dim unavailable card saying `usage updates paused; next retry in N s`. This pause is distinct from a real authentication or refresh error. The exact age/wait thresholds, shared attempt floor and retry timing live in `orgtree-usage-windows` (orgtree-working › accounts). Concurrent desktop refreshes for the same key await the shared result; the agent tool retains its explicit status response rather than the desktop waiting behavior.
+
 ## Usage history
 
 The initial period is seven days; buttons offer 24 hours, 7, 30 and 90 days. Provider, Account, Window and Model scope filters narrow the displayed series. Each chart is one account/window/model-scope series, grouped by account, with its own percent or monetary units.

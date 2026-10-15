@@ -36,6 +36,16 @@ Use [usage](../tool-usage/SKILL.md) for the complete query schema, bounded pages
 
 Automatic native-lane cadence increases with pressure: normally five minutes below 80%, two minutes from 80%, 45 seconds from 95%; existing provider idle caps and an open-window cap can shorten that. Reset catch-up may recheck every ten seconds up to four times. These schedules explain observation age, not a guarantee of fresh data or an instruction for agents to poll.
 
+## Claude usage-service waits
+
+Claude desktop, automatic and permitted tool readers share an ordinary 60-second attempt floor per usage key; failed attempts count, and desktop `force=true` does not bypass it. A floor hit returns the preceding result. A provider cooldown instead projects its remaining wait against the last-good reading's age. If that reading is younger than 900 seconds and the remaining wait is at most 60 seconds, the original reading returns quietly without a refresh error. At exactly 900 seconds it is stale. Longer waits, stale readings or no last-good reading return unavailable with `usage updates paused; next retry in N s`.
+
+Retained bars keep their original observation time and cache age. A provider wait supplies neither a successful authentication observation nor a new usage-history reading; real authentication failures and other errors retain their existing handling. A normal HTTP response therefore does not establish a new provider measurement.
+
+An expired provider retry deadline permits one new probe even within the ordinary attempt floor. Pending native and registered Claude deadlines are checked on the next existing scheduler pass: its nominal ten-second tick follows the sequential provider work, so it is not a retry-time guarantee. A registered deadline retry updates that account without refreshing siblings or moving their periodic cadence.
+
+Same-key Claude desktop callers await one shared result, including authentication failures and other errors; unrelated keys stay independent. Tool refresh still returns explicit `in_progress` or `rate_limited` statuses instead of queuing behind the read. For the complete tool response contract use [usage](../tool-usage/SKILL.md).
+
 ## See also
 
 - [orgtree-tool-usage](../tool-usage/SKILL.md)
