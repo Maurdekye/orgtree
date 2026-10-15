@@ -585,7 +585,7 @@ at a peak 3.6 s on and after it ended (9 s). It measures the redness (red minus
 the mean of green and blue) of a corner and of the middle against the picture
 before it.
 
-### Flashes at most three a second (2026-10-15)
+### Attention and halt flash at most three a second (2026-10-15)
 
 The user found the "ticket flagged" (attention) effect flashing red and blue
 four times about 210 ms apart, roughly 4.8 flashes a second, above the
@@ -597,7 +597,12 @@ is slowed the same way. Both now space their flashes `FLASH_EVERY_MS` = 360 ms
 apart (2.8 a second), with the same count, colours, strength and length, and
 the halt's three red rings still go out with its flashes. 360 ms also lands the
 halt's first and last flash on the first and last beat of its alarm, whose
-sound is unchanged. Every other flash is a single one per event.
+sound is unchanged. The guarantee covers these two effects only. Still open
+(see Limits): the brown-out flicker (`stage.flicker`, played for a usage limit,
+**LIMIT HIT** and a dropped socket) dips the window dark up to five times in
+about a second, and a flood of flashing events can flash it more than three
+times a second. Both are left to the next slice of the round (coordinator
+ruling after review, 2026-10-15).
 
 **Tests.** `epicmode-comfort` notes every `Stage.flash` and `Stage.ring` call
 while one attention and one halt play. Each must keep its look (the same count,
