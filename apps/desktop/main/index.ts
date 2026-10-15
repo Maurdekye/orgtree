@@ -298,6 +298,17 @@ else {
     try { placement.captureWindow(record.placementKey, record.window) }
     catch (error) { console.warn("Window position could not be saved", error) }
   }
+  /** Capture before any window closes. Keep this synchronous: Windows
+   *  session-end cannot await a renderer flush. Its caller latches quitting,
+   *  so later final session events cannot shrink the complete snapshot. */
+  const captureOpenWindowsForShutdown = () => {
+    const open = [...records.values()].filter(record => !record.window.isDestroyed())
+    for (const record of open) savePlacement(record)
+    try {
+      placement?.beginShutdown(open.map(record => record.placementKey)
+        .filter((key): key is string => !!key))
+    } catch (error) { console.warn('The open windows could not be recorded', error) }
+  }
   let restoreWindows = !process.argv.includes('--background')
   const windowState = (record?: MainWindowRecord) => ({
     visible: !!record && !record.window.isDestroyed() && record.window.isVisible(),
@@ -892,6 +903,7 @@ else {
         return
       }
       updateLog.record('installer-upgrade-engine-stopped')
+      captureOpenWindowsForShutdown()
       quitting = true
       if (poll) clearInterval(poll)
       trayPopupSeq++; closeTrayPopup()
@@ -1229,12 +1241,7 @@ else {
     // on this path; the deliberate-close and ordinary-Quit routes are the ones
     // that confirm.
     quitConfirmed = true
-    try {
-      placement?.beginShutdown([...records.values()]
-        .filter(record => !record.window.isDestroyed())
-        .map(record => record.placementKey)
-        .filter((key): key is string => !!key))
-    } catch (error) { console.warn('The open windows could not be recorded', error) }
+    captureOpenWindowsForShutdown()
     if (poll) clearInterval(poll)
     // Every step from here is bounded and recorded by prepareAndHandOff, which
     // is driven end to end in tests precisely because this is the window that
@@ -1622,7 +1629,11 @@ else {
         // Recorded before anything else: an exit nobody could explain is how
         // this arrived, and the log is the only thing that outlives it.
         try { updateLog.record('startup', `shutting down on ${signal} — a console this process was attached to closed, or was interrupted`) } catch { /* never worth failing the shutdown over */ }
-        if (coreLifecycle) { coreLifecycle.stop(); quitComplete = true }
+        if (coreLifecycle) {
+          captureOpenWindowsForShutdown()
+          quitting = true
+          coreLifecycle.stop(); quitComplete = true
+        }
         app.quit()
       })
     } catch { /* a platform without this signal simply has no handler */ }
@@ -1712,12 +1723,7 @@ else {
     // closes every window, and if those closes counted as the user closing
     // them the reopen set would be emptied and the next launch would restore
     // nothing at all.
-    try {
-      placement?.beginShutdown([...records.values()]
-        .filter(record => !record.window.isDestroyed())
-        .map(record => record.placementKey)
-        .filter((key): key is string => !!key))
-    } catch (error) { console.warn('The open windows could not be recorded', error) }
+    captureOpenWindowsForShutdown()
     if (poll) clearInterval(poll)
     void credentialBridge.release(engine.origin, engine.token)
     trayPopupSeq++; closeTrayPopup()
@@ -2304,6 +2310,14 @@ else {
         // runs on the paths the first has just refused. See window-close.ts:
         // the rule and its teardown live in one function precisely so that
         // shape cannot be written again.
+        // Windows logout/shutdown skips app.before-quit. This final event is
+        // not cancelable; query-session-end can be cancelled and must not latch
+        // the session. Snapshot all windows on the first final event only.
+        window.on('session-end', () => {
+          if (quitting) return
+          captureOpenWindowsForShutdown()
+          quitting = true
+        })
         window.on('close', event => {
           savePlacement(record)
           performClose({
@@ -2566,7 +2580,12 @@ else {
       appFeed.start()
       app.once('will-quit', () => appFeed.stop())
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
-      if (!process.argv.includes('--background')) revealWindow(first)
+      if (!process.argv.includes('--background')) {
+        // Every main window starts hidden, including org-bound error windows.
+        // Reveal the entire restored set, retaining the first as the focus.
+        for (const record of records.values()) if (record !== first) revealWindow(record)
+        revealWindow(first)
+      }
       // Not awaited: start-up must still reach the poll below (engine stats,
       // update checks) while nobody has dismissed this, e.g. on a fresh machine.
       if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) void dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' }).catch(() => {})

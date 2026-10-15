@@ -120,7 +120,7 @@ async function fixture() {
     install: async () => { await run(context, 'requestInstallerUpgradeShutdown()') },
   }
 }
-async function startup(file, { background = false, mode = 'restore' } = {}) {
+async function startup(file, { background = false, mode = 'restore', unavailableOrg } = {}) {
   const placement = new OrgPlacement(file), records = new Map()
   const context = vm.createContext({ console, placement, records, planRestore, orgOfKey,
     preferences: { get: () => ({ startupMode: mode }) }, process: { argv: background ? ['--background'] : [] },
@@ -128,7 +128,9 @@ async function startup(file, { background = false, mode = 'restore' } = {}) {
       const key = org ? `org:${org}` : 'homepage'
       const record = { id: key, org, kind, placementKey: key,
         window: new Window(placement.restoreWindow(key, screens) || placements[0], false) }
-      records.set(key, record); return record
+      records.set(key, record)
+      if (org === unavailableOrg && org) { record.unavailable = true; throw new Error('synthetic unavailable org') }
+      return record
     }, revealWindow: record => { record.window.visible = true },
   })
   await run(context, `(async () => { ${startupCode} ${revealCode} })()`)
@@ -185,6 +187,7 @@ for (const reason of ['shutdown', 'logoff']) test(`Windows ${reason}: session-en
   // Windows does not emit app.before-quit for this route. Exercise the final,
   // noncancelable event, followed by teardown callbacks in arbitrary order.
   f.records.get('alpha').window.emit('session-end', { reasons: [reason] })
+  assert.deepEqual(new OrgPlacement(f.file).restoreWindow('org:alpha', screens), latest, 'session event persists latest geometry before any close callback')
   for (const record of [...f.records.values()]) f.close(record)
   const store = new OrgPlacement(f.file)
   assert.deepEqual(store.sessionWindows(), slugs.map(slug => `org:${slug}`), 'session end must retain every open org')
@@ -227,4 +230,25 @@ test('updater pre-handoff snapshot preserves all three orgs through completed qu
   run(f.context, `(function() { ${updateCaptureCode} })()`)
   f.context.quitComplete = true; f.context.app.quit()
   await expectThree(f.file)
+})
+
+test('later session-end callbacks cannot shrink the first complete snapshot', async () => {
+  const f = await fixture()
+  f.records.get('alpha').window.emit('session-end', { reasons: ['shutdown'] })
+  f.close(f.records.get('alpha'))
+  f.records.get('beta').window.emit('session-end', { reasons: ['shutdown'] })
+  f.close(f.records.get('beta'))
+  f.records.get('gamma').window.emit('session-end', { reasons: ['shutdown'] })
+  f.close(f.records.get('gamma'))
+  await expectThree(f.file)
+})
+
+test('an unavailable saved org retains its own visible org-bound window and placement', async () => {
+  const f = await fixture(); await f.quit()
+  const restored = await startup(f.file, { unavailableOrg: 'beta' })
+  const beta = restored.records.get('org:beta')
+  assert.equal(beta.unavailable, true); assert.equal(beta.kind, 'org'); assert.equal(beta.org, 'beta')
+  assert.deepEqual(beta.window.at, placements[1])
+  assert.deepEqual(restored.placement.sessionWindows(), slugs.map(slug => `org:${slug}`))
+  assert.deepEqual(restored.visible.map(record => record.org).sort(), [...slugs])
 })

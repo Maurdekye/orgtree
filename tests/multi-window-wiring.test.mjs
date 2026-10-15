@@ -165,13 +165,15 @@ test('an unfinished creation form is confirmed on a deliberate close and on a qu
   assert.equal(main.split('quitConfirmed = true').length - 1, 4)
 })
 
-test('a quit records what was open BEFORE teardown, in both shutdown routes', () => {
+test('shutdown routes share a capture of all open windows BEFORE teardown', () => {
   const main = read('apps/desktop/main/index.ts')
   // teardown closes every window; if those closes counted as the user closing
   // them the reopen set would be emptied and the next launch would restore
   // nothing at all
-  assert.equal(main.split('placement?.beginShutdown(').length - 1, 2,
-    'the ordinary quit and the update path both capture it')
+  assert.equal(main.split('placement?.beginShutdown(').length - 1, 1,
+    'one shared helper captures the full reopen set')
+  assert.equal(main.split('captureOpenWindowsForShutdown()').length - 1, 5,
+    'Quit, updater, installer, signals and final Windows session all capture it')
   assert.match(main, /if \(record\.placementKey && !quitting\) placement\?\.closedWindow\(record\.placementKey\)/,
     'a close during a shutdown is not the user closing a window')
 })
