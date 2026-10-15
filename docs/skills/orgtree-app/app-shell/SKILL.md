@@ -16,7 +16,7 @@ The app's frame: windows, homepage, header and menus, status bar, quick chat, tr
 - [orgtree-org-header-and-menu](org-header-and-menu/SKILL.md): The org window header and the Orgtree app menu: view toggle, Inbox, Work, Presentations, Org settings, and the menu items.
 - [orgtree-kill-switch](kill-switch/SKILL.md): STOP ALL: arming, latching an org-wide halt, and releasing it.
 - [orgtree-status-bar](status-bar/SKILL.md): The bottom status bar chips: active agents, hub, audit, connectivity.
-- [orgtree-quick-chat](quick-chat/SKILL.md): The quick chat box: messaging or hiring from the window chrome.
+- [orgtree-quick-chat](quick-chat/SKILL.md): The quick chat box: hiring and starting a new agent from the window chrome.
 - [orgtree-toasts-and-undo](toasts-and-undo/SKILL.md): Toasts with Undo, Ctrl+Z/Ctrl+Y undo/redo, and the undo-hire confirmation.
 - [orgtree-confirm-dialogs](confirm-dialogs/SKILL.md): Every confirmation dialog: delete org, delete/retire/dissolve/rescind agent, batch halt, cheap compact, compact now, undo hire.
 - [orgtree-folder-picker](folder-picker/SKILL.md): The in-app folder chooser used by every folder field.
