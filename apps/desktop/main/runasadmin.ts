@@ -19,6 +19,10 @@ import { execFile } from 'node:child_process'
 export const RUN_AS_ADMIN_KEY = 'SOFTWARE\\Orgtree\\Runtime'
 export const RUN_AS_ADMIN_VALUE = 'RunAsAdministrator'
 export const BOOT_TASK = 'Orgtree Background Engine'
+/** The engine at sign-in (docket option-to-run-the-background-engine-in-the-
+ *  user-s): with "Run Orgtree as administrator" on, its task runs with the
+ *  highest privileges, which its host keeps; off, with least privilege. */
+export const SIGNIN_TASK = 'Orgtree Sign-in Engine'
 /** ERROR_CANCELLED: the user declined the UAC prompt. */
 export const UAC_CANCELLED = 1223
 const PROTECTED_KEY_SDDL = 'O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)'
@@ -46,13 +50,35 @@ export async function readRunAsAdministrator(runner: Runner = run): Promise<bool
   return result.code === 0 && parseRegQuery(result.stdout)
 }
 
-/** The script the ELEVATED PowerShell runs: create (or re-protect) the key
- *  with the protected ACL, then set the DWORD. */
+/** The script the ELEVATED PowerShell runs: set the sign-in engine task's run
+ *  level, then create (or re-protect) the key with the protected ACL and set
+ *  the DWORD. The task comes first, so a refusal leaves the setting as it was.
+ *  Only the installer's own task is changed: its description carries the
+ *  installer record's id. */
 export function elevatedWriteScript(enabled: boolean): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')",
     'try {',
+    "  $record = $hive.OpenSubKey('SOFTWARE\\Orgtree\\BootEngine')",
+    '  if ($null -ne $record) {',
+    '    try {',
+    "      $id = [string]$record.GetValue('Id'); $sid = [string]$record.GetValue('OperatorSid')",
+    '      $service = New-Object -ComObject Schedule.Service',
+    '      $service.Connect()',
+    "      $folder = $service.GetFolder('\\')",
+    '      $task = $null',
+    `      try { $task = $folder.GetTask('${SIGNIN_TASK}') } catch { if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw } }`,
+    '      if ($null -ne $task) {',
+    `        if (-not $id -or [string]([xml]$task.Xml).Task.RegistrationInfo.Description -cne ('com.maurdekye.orgtree.signin-engine.v1:' + $id)) { throw 'Refusing to change a task Orgtree did not install: ${SIGNIN_TASK}' }`,
+    '        $definition = $task.Definition',
+    // 1 = TASK_RUNLEVEL_HIGHEST, 0 = least privilege
+    `        $definition.Principal.RunLevel = ${enabled ? 1 : 0}`,
+    // 20 = TASK_UPDATE | TASK_DONT_ADD_PRINCIPAL_ACE, 3 = the operator's interactive token, the installer's ACL
+    `        $null = $folder.RegisterTaskDefinition('${SIGNIN_TASK}', $definition, 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")`,
+    '      }',
+    '    } finally { $record.Dispose() }',
+    '  }',
     '  $acl = [Security.AccessControl.RegistrySecurity]::new()',
     `  $acl.SetSecurityDescriptorSddlForm('${PROTECTED_KEY_SDDL}')`,
     `  $key = $hive.CreateSubKey('${RUN_AS_ADMIN_KEY}', [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, $acl)`,
@@ -99,9 +125,14 @@ export async function writeRunAsAdministrator(enabled: boolean, runner: Runner =
   if (await readRunAsAdministrator(runner) !== enabled) throw new Error('The setting was written but reads back differently; it was not changed.')
 }
 
-/** Start the boot task. Its ACL gives the operator read and execute, so this
- *  needs no elevation. */
-export async function startBootTask(runner: Runner = run): Promise<void> {
-  const result = await runner('schtasks', ['/Run', '/TN', BOOT_TASK], 15000)
+/** Start one of the installer's engine tasks. Their ACL gives the operator
+ *  read and execute, so this needs no elevation. */
+export async function startTask(name: string, runner: Runner = run): Promise<void> {
+  const result = await runner('schtasks', ['/Run', '/TN', name], 15000)
   if (result.code !== 0) throw new Error(`Could not start the background engine task: ${(result.stderr || result.stdout).trim() || `exit code ${result.code}`}`)
+}
+
+/** Start the boot task. */
+export function startBootTask(runner: Runner = run): Promise<void> {
+  return startTask(BOOT_TASK, runner)
 }

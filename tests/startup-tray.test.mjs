@@ -5,8 +5,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import vm from 'node:vm'
-import { transformSync } from 'esbuild'
+import { build, transformSync } from 'esbuild'
+import { createRequire } from 'node:module'
 
 const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
 const slice = (from, to) => {
@@ -18,13 +21,20 @@ const code = transformSync(
   slice('  const loginPreference = () => {', '  /** What the switch shows is what really starts') +
   slice('  const rebuildTray = () => {', '\n  /**'), { loader: 'ts', target: 'node22' }).code
 
+// the real reading of what starts by itself (either engine task enabled)
+const bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-startup-tray-'))
+await build({ entryPoints: ['apps/desktop/main/runonstartup.ts'], outfile: path.join(bundleDir, 'runonstartup.cjs'),
+  bundle: true, platform: 'node', format: 'cjs', logLevel: 'error' })
+const { startupOn } = createRequire(import.meta.url)(path.join(bundleDir, 'runonstartup.cjs'))
+test.after(() => { fs.rmSync(bundleDir, { recursive: true, force: true }) })
+
 const PENDING = 'Run on startup (changing…)'
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-function fixture(initial) {
+function fixture(initial, mode = 'boot') {
   let prefs = { startAtLogin: initial, automaticUpdates: true, notificationsEnabled: true }
   let buildCount = 0, boot = initial
-  const writes = [], warnings = [], pending = []
+  const writes = [], modes = [], warnings = [], pending = []
   class MenuDouble {
     constructor(items) { this.items = items; this.events = new Map() }
     getMenuItemById(id) { return this.items.find(i => i.id === id) }
@@ -47,17 +57,20 @@ function fixture(initial) {
     app: { isPackaged: true, quit() { throw new Error('not part of this test') }, setLoginItemSettings() {} },
     process: { platform: 'win32' },
     notifications: { configure() {} }, broadcastAll() {}, setTimeout,
-    // the boot task as Windows reports it; a write waits until the test decides
-    readStartupTasks: async () => ({ boot, helper: boot }),
-    writeRunOnStartup(next) {
-      writes.push(next)
+    // the tasks as Windows reports them (the engine starting at boot or at
+    // sign-in); a write waits until the test decides
+    readStartupTasks: async () => mode === 'signin' ? { boot: false, helper: boot, signin: boot, mode }
+      : { boot, helper: boot, signin: false, mode },
+    startupOn,
+    writeRunOnStartup(next, recorded) {
+      writes.push(next); modes.push([next, recorded])
       return new Promise((yes, no) => pending.push({ yes: () => { boot = next; yes() }, no }))
     },
   }
   vm.runInNewContext(code + '\nthis.rebuild = rebuildTray; this.change = changeRunOnStartup', ctx)
   ctx.rebuild()
   return {
-    ctx, writes, warnings,
+    ctx, writes, modes, warnings,
     get menu() { return ctx.tray.menu }, get builds() { return buildCount },
     get prefs() { return prefs },
     // the permission prompt answered and the change read back (or declined)
@@ -218,4 +231,18 @@ test('a menu open when the change starts or ends is rebuilt once it closes', asy
   settled.emit('menu-will-show'); settled.emit('menu-will-close')
   await new Promise(resolve => setTimeout(resolve))
   assert.equal(f.builds, builds, 'an unchanged menu is not rebuilt on close')
+})
+
+test('turning "run on startup" off and on again keeps where the engine starts', async () => {
+  const f = fixture(true, 'signin')
+  const off = f.ctx.change(false)
+  await f.commit()
+  assert.equal((await off).startAtLogin, false)
+  const on = f.ctx.change(true)
+  await f.commit()
+  assert.equal((await on).startAtLogin, true)
+  assert.deepEqual(f.modes, [[false, 'signin'], [true, 'signin']], 'every on/off change carries the recorded start mode')
+  // already on at sign-in: nothing to change, no permission prompt
+  await f.ctx.change(true)
+  assert.deepEqual(f.writes, [false, true])
 })

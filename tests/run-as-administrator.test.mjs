@@ -153,11 +153,15 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
   // Deliberate restart remains excluded from the legacy path as before.
   assert.match(main, /if \(stats === null && !engine\.managed && !backgroundEngineRestart && !coreLifecycle\)/)
   const setter = main.slice(main.indexOf("handleApp('desktop:set-run-as-admin'"))
-  const order = ['engine.stopAttachedForUpdate()', 'startBootTask()', 'engine.reattachBackground(']
-  const at = order.map(s => setter.indexOf(s))
-  assert.ok(at.every(i => i > 0) && at[0] < at[1] && at[1] < at[2], `graceful stop, then the task, then reattach: ${at}`)
-  assert.match(setter, /finally \{ backgroundEngineRestart = false/)
   assert.match(setter, /if \(state\.enabled !== enabled\) await writeRunAsAdministrator\(enabled\)/)
+  assert.match(setter, /if \(restartNow\) await restartBackgroundEngine\(\)/)
+  // the restart this setting shares with "engine starts": graceful stop, then
+  // whichever engine task is enabled (the boot task or the sign-in engine), then reattach
+  const restart = main.slice(main.indexOf('const restartBackgroundEngine = async'), main.indexOf('const runAsAdministratorState'))
+  const order = ['engine.stopAttachedForUpdate()', 'startEngineTask()', 'engine.reattachBackground(']
+  const at = order.map(s => restart.indexOf(s))
+  assert.ok(at.every(i => i > 0) && at[0] < at[1] && at[1] < at[2], `graceful stop, then the task, then reattach: ${at}`)
+  assert.match(restart, /finally \{ backgroundEngineRestart = false/)
   const preload = read('apps/desktop/preload/index.ts')
   assert.match(preload, /getRunAsAdministrator: \(\) => ipcRenderer\.invoke\('desktop:run-as-admin'\)/)
   assert.match(preload, /ipcRenderer\.invoke\('desktop:set-run-as-admin', enabled, restartNow\)/)

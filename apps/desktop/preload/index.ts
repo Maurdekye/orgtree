@@ -74,6 +74,9 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getRunAsAdministrator: () => ipcRenderer.invoke('desktop:run-as-admin'),
     setRunAsAdministrator: (enabled: boolean, restartNow: boolean) =>
       ipcRenderer.invoke('desktop:set-run-as-admin', enabled, restartNow),
+    getEngineStart: () => ipcRenderer.invoke('desktop:engine-start'),
+    setEngineStart: (mode: 'boot' | 'signin', restartNow: boolean) =>
+      ipcRenderer.invoke('desktop:set-engine-start', mode, restartNow),
     addPhoneFirewallRule: (scope: 'tailnet' | 'lan') => ipcRenderer.invoke('desktop:phone-firewall', scope),
     removePhoneFirewallRule: () => ipcRenderer.invoke('desktop:phone-firewall-remove'),
     getPopoutState: (name: string) => ipcRenderer.invoke('desktop:popout-state', name),

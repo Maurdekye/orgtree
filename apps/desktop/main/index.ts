@@ -40,14 +40,14 @@ import type { InstallableUpdater, UpdateStatus } from './updater'
 import { appImagePath, appImageRelaunch, appImageRelaunchEnv, replaceAppImage } from './appimage-update'
 import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { PreparedFixture } from './update-fixture'
-import type { DesktopEvent, RunAsAdministratorState } from '../../../packages/contracts/index'
+import type { DesktopEvent, RunAsAdministratorState, EngineStartState } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
-import { readRunAsAdministrator, startBootTask, writeRunAsAdministrator } from './runasadmin'
-import { readStartupTasks, writeRunOnStartup } from './runonstartup'
+import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
+import { readStartupTasks, startEngineTask, startupOn, writeRunOnStartup, writeEngineStart, type EngineStartMode } from './runonstartup'
 import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
@@ -638,7 +638,8 @@ else {
       if (process.platform === 'win32' && app.isPackaged) {
         const tasks = await readStartupTasks()
         if (!tasks) throw new Error('Orgtree could not read its startup tasks, so "run on startup" was not changed.')
-        if (tasks.boot !== null && tasks.boot !== enabled) await writeRunOnStartup(enabled)
+        // where the engine starts is kept: on again restores the recorded mode
+        if (tasks.boot !== null && startupOn(tasks) !== enabled) await writeRunOnStartup(enabled, tasks.mode)
       } else if (unixBootInputs) {
         if (enabled) {
           const outcome = await enableBootEngine(unixBootInputs)
@@ -651,16 +652,32 @@ else {
       rebuildTray()
     }
   }
+  /** WHERE THE ENGINE STARTS while "run on startup" is on (docket
+   *  option-to-run-the-background-engine-in-the-user-s): at boot, before
+   *  sign-in, or at sign-in, in the operator's own session. One Windows
+   *  permission prompt per change, under the same one-at-a-time guard. */
+  const changeEngineStart = async (mode: EngineStartMode) => {
+    if (startupChanging) throw new Error('Orgtree is still changing how it starts. Try again once that has finished.')
+    startupChanging = true
+    try {
+      rebuildTray()
+      await writeEngineStart(mode)
+    } finally {
+      startupChanging = false
+      rebuildTray()
+    }
+  }
   /** What the switch shows is what really starts: on an all-users Windows
-   *  installation the boot task's state wins over a stored value that
-   *  disagrees (an administrator changed the task, or an older version left
-   *  it running while the switch said off). */
+   *  installation the engine tasks' state wins over a stored value that
+   *  disagrees (an administrator changed a task, or an older version left
+   *  one running while the switch said off). */
   const reconcileRunOnStartup = async () => {
     if (process.platform !== 'win32' || !app.isPackaged) return
     const tasks = await readStartupTasks().catch(() => null)
-    if (!tasks || tasks.boot === null || tasks.boot === preferences.get().startAtLogin) return
-    console.warn(`run on startup: the boot task is ${tasks.boot ? 'enabled' : 'disabled'}, so the switch shows ${tasks.boot ? 'on' : 'off'}`)
-    setPreferences({ startAtLogin: tasks.boot })
+    if (!tasks || tasks.boot === null || startupOn(tasks) === preferences.get().startAtLogin) return
+    const on = startupOn(tasks)
+    console.warn(`run on startup: ${on ? 'an engine task is enabled' : 'no engine task is enabled'}, so the switch shows ${on ? 'on' : 'off'}`)
+    setPreferences({ startAtLogin: on })
   }
   const setEffectiveTheme = (value: unknown) => {
     if (!isVisualTheme(value)) throw new Error('Unknown visual theme')
@@ -2170,6 +2187,34 @@ else {
       // The preload origin is fixed per window; session signing reads LIVE
       // engine values so a recovered attachment's new token keeps working.
       const initialOrigin = engine.origin
+      /** "Restart the background engine now" after a change to how it starts
+       *  ("Run Orgtree as administrator", where it starts): graceful and
+       *  authenticated, with proof of exit - the stop an update uses - so
+       *  PostgreSQL shuts down cleanly. Then whichever engine task is enabled,
+       *  which the operator may start without elevation. */
+      const restartBackgroundEngine = async () => {
+        if (backgroundEngineRestart || engineRestartBlocked()) throw new Error('Orgtree is busy restarting or updating; try again in a moment.')
+        backgroundEngineRestart = true
+        try {
+          await coreLifecycle?.transition(true)
+          await engine.stopAttachedForUpdate()
+          await startEngineTask()
+          if (!await engine.reattachBackground(engineOptions, 120000)) {
+            throw new Error('The background engine was restarted, but Orgtree has not reconnected to it yet. It keeps trying.')
+          }
+          if (engine.origin === initialOrigin) {
+            await coreLifecycle?.complete()
+            for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
+          }
+          else {
+            // The new desktop completes the bounded replacement. Quitting
+            // this old origin must not stop the engine we just attached to.
+            await saveWindowLayout()
+            coreLifecycle?.stop(); quitComplete = true
+            relaunchApp(); app.quit()
+          }
+        } finally { backgroundEngineRestart = false; rebuildTray() }
+      }
       const runAsAdministratorState = async (): Promise<RunAsAdministratorState> => {
         if (process.platform !== 'win32') return { available: false, enabled: false, reason: 'Only Windows has this setting.' }
         const enabled = await readRunAsAdministrator()
@@ -2192,32 +2237,40 @@ else {
         // "Restart now" after a change repeats the value already stored; only
         // a real change needs Windows' permission.
         if (state.enabled !== enabled) await writeRunAsAdministrator(enabled)
-        if (restartNow) {
-          backgroundEngineRestart = true
-          try {
-            // Graceful and authenticated, with proof of exit - the stop an
-            // update uses - so PostgreSQL shuts down cleanly. Then the task,
-            // which the operator may start without elevation.
-            await coreLifecycle?.transition(true)
-            await engine.stopAttachedForUpdate()
-            await startBootTask()
-            if (!await engine.reattachBackground(engineOptions, 120000)) {
-              throw new Error('The background engine was restarted, but Orgtree has not reconnected to it yet. It keeps trying.')
-            }
-            if (engine.origin === initialOrigin) {
-              await coreLifecycle?.complete()
-              for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
-            }
-            else {
-              // The new desktop completes the bounded replacement. Quitting
-              // this old origin must not stop the engine we just attached to.
-              await saveWindowLayout()
-              coreLifecycle?.stop(); quitComplete = true
-              relaunchApp(); app.quit()
-            }
-          } finally { backgroundEngineRestart = false; rebuildTray() }
-        }
+        if (restartNow) await restartBackgroundEngine()
         return runAsAdministratorState()
+      })
+      /** Where the background engine starts (docket option-to-run-the-
+       *  background-engine-in-the-user-s). Shown only on an installation for
+       *  all users on Windows whose installer registered both engine tasks;
+       *  changeable only while "run on startup" is on. What it shows is what
+       *  starts: the enabled engine task, else the recorded mode. */
+      const engineStartState = async (): Promise<EngineStartState> => {
+        const tasks = process.platform === 'win32' && app.isPackaged ? await readStartupTasks().catch(() => null) : null
+        if (!tasks || tasks.boot === null || tasks.signin === null) {
+          return { installed: false, available: false, mode: tasks?.mode ?? 'boot', restartable: false,
+            reason: 'Only an installation of Orgtree for all users on Windows has this choice.' }
+        }
+        const mode: EngineStartMode = tasks.signin ? 'signin' : tasks.boot ? 'boot' : tasks.mode
+        const restartable = engine.usesBackgroundTask
+        if (!startupOn(tasks)) return { installed: true, available: false, mode, restartable, reason: 'Turn on "run on startup" to choose where the background engine starts.' }
+        if (startupChanging) return { installed: true, available: false, mode, restartable, reason: 'Orgtree is still changing how it starts.' }
+        return { installed: true, available: true, mode, restartable }
+      }
+      handleApp('desktop:engine-start', () => engineStartState())
+      handleApp('desktop:set-engine-start', async (mode: unknown, restartNow: unknown) => {
+        if ((mode !== 'boot' && mode !== 'signin') || typeof restartNow !== 'boolean') throw new Error('Invalid setting')
+        const state = await engineStartState()
+        if (!state.available) throw new Error(state.reason || 'This setting is not available.')
+        // "Restart now" after a change repeats the mode already chosen; only
+        // a real change needs Windows' permission. A running engine is left
+        // running until then (DECISIONS 70).
+        if (state.mode !== mode) await changeEngineStart(mode)
+        if (restartNow) {
+          if (!engine.usesBackgroundTask) throw new Error('Orgtree started this engine itself, so the change applies the next time the engine starts at sign-in or boot.')
+          await restartBackgroundEngine()
+        }
+        return engineStartState()
       })
       const register = configureEngineSession(browserSession, () => engine.origin, () => engine.token)
       const openArtifact = (url: string) => {
@@ -2460,7 +2513,7 @@ else {
       coreLifecycle?.configureRecovery(async allowSpawn => {
         if (quitting || installerUpgradeShutdown || backgroundEngineRestart || updateApplying) return
         const before = engine.origin || initialOrigin
-        await engine.recoverUnexpected(engineOptions, allowSpawn, startBootTask)
+        await engine.recoverUnexpected(engineOptions, allowSpawn, startEngineTask)
         if (quitting || installerUpgradeShutdown || !engine.origin) return
         await coreLifecycle?.complete()
         if (engine.origin === before) {
