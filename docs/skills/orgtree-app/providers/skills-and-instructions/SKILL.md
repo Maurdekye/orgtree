@@ -6,7 +6,7 @@ Up: [orgtree-providers](../SKILL.md)
 
 # Skills and instructions
 
-This page separates the native instruction behavior at source base `b77512f` from the pending cross-harness sharing pipeline. The shared-skills contract below was source-checked on unlanded `agy-astra/skills-share` at `a8b71bc`; it requires composition, compilation and independent verification before delivery. No real-harness loading or model use of these bundles was verified by this documentation pass.
+This page separates the native instruction behavior in the library's `72ea305` source base from the pending cross-harness sharing pipeline. Shared skills were source-checked on unlanded `agy-astra/skills-share` at `a8b71bc`; personal global instructions were checked on unapproved `astra/global-instructions` at `8088df1`. These changes require composition and independent verification before delivery. This documentation pass did not run a harness or model; dated native-file observations below belong to the implementation owner's evidence, not a claim of end-to-end model use.
 
 ## Built-in guides and user skills
 
@@ -55,11 +55,26 @@ Refresh does not interrupt an active turn. A changed startup fingerprint applies
 
 ## Instruction files and pending global sharing
 
-At `b77512f`, native startup files and otherwise omitted scratch/granted `AGENTS.md` and legacy `CLAUDE.md` notes are accounted for separately. Native files are excluded from mirrored standing notes to avoid duplicate delivery. The harness pages explain their own native file selection; having a file on disk does not establish that another harness reads it.
+In the `72ea305` base, native startup files and otherwise omitted scratch/granted `AGENTS.md` and legacy `CLAUDE.md` notes are accounted for separately. Native files are excluded from mirrored standing notes to avoid duplicate delivery. The harness pages explain their own native file selection; having a file on disk does not establish that another harness reads it.
 
-The separate `astra/global-instructions` branch at `71924ec` contains a synthetic proof specification, not a delivered implementation. Its intended contract is cross-harness global-note delivery once, native-file deduplication, unchanged-prefix stability, metadata-only Refresh and changes deferred until the next turn boundary while preserving the session. These are pending requirements, not measured behavior. The shared-skills branch alone does not provide `/api/global-instructions/refresh`; complete global source coverage and real delivery remain unverified here.
+The separate `astra/global-instructions` branch at `8088df1` implements a read-only snapshot of personal global notes. It is committed but not independently approved, composed or present in the library's source base. The earlier `71924ec` was its test-only baseline. The shared-skills branch alone does not provide this implementation; its presence in a private branch does not establish availability in a running app.
 
-The implementation owner's pending contract reads personal global notes without editing them and supplies them to every agent without a per-agent folder grant. Planned sources are Claude config `CLAUDE.md` and unscoped rules; Codex `$CODEX_HOME/AGENTS.md` and its override; `~/.gemini/GEMINI.md`; Antigravity `~/.gemini/config/rules`; and `$XDG_CONFIG_HOME/opencode/AGENTS.md`. Native-file deduplication must use the actual account/profile, empty notes are skipped, and captured text and digest must describe the same startup snapshot. Muse's global filename and Antigravity's legacy native-loading behavior were still under investigation when this page was written. This source list is a design contract awaiting approved implementation, not an inventory this base can already deliver.
+Its source contract supplies nonempty personal globals to every agent without requiring per-agent folder grants, leaving source files unchanged. Canonical identity deduplicates aliases. The snapshot excludes files the actual account/profile loads natively, including isolated Claude/Codex profile differences. Original readable text and its digest come from the same snapshot. Native CLI file/token limits still apply; supplied text is not proof that a model received or followed every byte.
+
+| Source in `8088df1` | Selection and evidence boundary |
+| --- | --- |
+| Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md`, default `~/.claude/CLAUDE.md`, plus recursive Markdown rules without a `paths` restriction. Existing native-manifest evidence, checked against Claude Code 2.1.292. |
+| Codex | `$CODEX_HOME/AGENTS.override.md`, otherwise `AGENTS.md`, default `~/.codex`. Shipped 0.160.0 instruction-file selection source; global override precedence is inferred from that contract. |
+| Gemini CLI personal notes | `~/.gemini/GEMINI.md`, or simple filenames selected by user `settings.json` → `context.fileName`. `GEMINI_CLI_HOME` replaces home, so `.gemini` is appended to it. Comment-aware settings parsing and roots were inspected in shipped 0.57.0 source/docs. Importing these notes does not add Gemini CLI as an Orgtree runtime harness. |
+| Antigravity | `~/.gemini/{GEMINI,AGENTS}.md`, `~/.gemini/config/{GEMINI,AGENTS}.md`, and unconditional Markdown under `~/.gemini/config/rules`. Shipped 1.3.5 customization/changelog evidence names those native roots; rules with an explicit non-`always_on` trigger remain on demand. Gemini's home override does not relocate these roots. |
+| Muse | `$XDG_CONFIG_HOME/muse/AGENTS.md`, otherwise `CLAUDE.md`, default `~/.config/muse`. The owner observed canonical and absent-canonical fallback with pinned Muse 1.4.6, synthetic roots and an offline echo provider on 2026-10-15; no authenticated model request. |
+| OpenCode | `$XDG_CONFIG_HOME/opencode/AGENTS.md`, default `~/.config/opencode/AGENTS.md`, from shipped 2.0.28 instruction-plugin/root resolution source. |
+
+Muse launches in that branch set `context.foreign_personal_rules=false` without editing saved settings, preventing its foreign-personal-rule loader from supplying a second copy. The owner's offline `/rules` observation retained Muse's native fallback and workspace positive controls and showed the fixture Claude/Codex globals not read. This is native file-loading evidence, not a model-use test; Muse's separate foreign-skills setting is unaffected.
+
+`POST /api/global-instructions/refresh` has no body and returns only `{ "files": N, "refreshed": true }`; the count includes canonical nonempty files even if a particular CLI loads them natively. Unreadable or invalid existing sources produce a sanitized error count, while readable sources remain usable. No instruction bodies or paths are returned by that endpoint. Startup takes fresh snapshots independently, so a button press is not required for the next permitted boundary to see an edit. An active turn or held process is not rewritten mid-turn; the next permitted process boundary resumes the same session with changed startup text and fingerprint.
+
+For full evidence and composition limits, read `docs/rust-engine/global-instructions.md` in that implementation branch. Its documented pre-existing Antigravity project-note feedback issue is separate work; this global snapshot does not claim to fix managed scratch `AGENTS.md` overwrites or remove native truncation limits.
 
 ## Startup fingerprints and provider cache
 
