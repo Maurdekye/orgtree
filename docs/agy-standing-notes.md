@@ -69,7 +69,7 @@ repository fixture, and was deleted after the metadata-only classification recei
 - Product tip adds five workspace cases total and one native-startup case, including
   recoverable migration, outside-envelope preservation, 56,918-byte parts, UTF-8,
   unchanged writes, shrink cleanup and reserved-name collision preservation.
-- `node tools/rig/rig.mjs run tools/rig/proofs/agy-own-notes.mjs`: nine checks,
+- `node tools/rig/rig.mjs run tools/rig/proofs/agy-own-notes.mjs`: ten checks,
   synthetic scratch and fake AGY only. Includes the real idle timer, unchanged PID,
   a native-note edit, migration, backup bytes and nonmatching notes. Run against
   base `72ea305` and the composed candidate; inspect raw red results.

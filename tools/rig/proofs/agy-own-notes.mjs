@@ -37,6 +37,8 @@ export default async function (rig) {
   await turn('notesowner')
   const first = starts('notesowner').at(-1)
   const firstParts = parts('notesowner')
+  p.check('control: fake AGY completes a turn in the original scratch cwd',
+    !!first?.pid && path.resolve(first.cwd) === path.resolve(scratch('notesowner')) && !rig.turns('notesowner').at(-1)?.error)
   p.check('authored standing notes survive first launch byte-for-byte', read(path.join(scratch('notesowner'), 'AGENTS.md')) === notes)
   p.check('native notes do not appear again in generated identity', firstParts.length > 0 && !body('notesowner').includes('NOTES_ONLY_ONCE_SENTINEL'))
   p.check('discoverable rules have always_on frontmatter and bounded bytes', firstParts.length > 0 && firstParts.every(s => s.startsWith('---\ntrigger: always_on\n') && Buffer.byteLength(s) < 24000))
