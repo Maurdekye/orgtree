@@ -5,6 +5,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTheme, ThemeSetting } from '../src/themes'
 import type { NativePreferences } from '../src/desktop'
+import { DEFAULT_PREFERENCES } from '../../main/policy'
 import type { RainbowPreference } from '../src/rainbow'
 import { VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
 import type { VisualTheme } from '../../../../packages/contracts/visual-theme'
@@ -15,7 +16,7 @@ const preference = (enabled: boolean): RainbowPreference => ({ revealed: true, e
 async function setting(t: TestContext, theme: VisualTheme, rainbow: RainbowPreference) {
   const native = window as unknown as { orgtreeDesktop?: unknown }
   const previous = native.orgtreeDesktop
-  let saved: NativePreferences = { visualTheme: theme, visualThemeExplicit: true, rainbowTheme: { ...rainbow } }
+  let saved: NativePreferences = { ...DEFAULT_PREFERENCES, visualTheme: theme, visualThemeExplicit: true, rainbowTheme: { ...rainbow } }
   const writes: Partial<NativePreferences>[] = []
   native.orgtreeDesktop = {
     getPreferences: async () => saved,
