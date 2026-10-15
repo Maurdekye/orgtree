@@ -2,7 +2,7 @@
 name: orgtree-harness-opencode
 description: Explain OpenCode's compatible provider routes, permission policy, queued mail and unknown accounting.
 ---
-Up: [orgtree-providers](../SKILL.md)
+Up: [orgtree-harnesses](../SKILL.md)
 
 # OpenCode over ACP
 
@@ -30,11 +30,11 @@ Approvals are once-only; Orgtree does not choose always-allow or save an approva
 
 Usage comes from per-prompt results. Custom-provider zero cost has no verified price provenance, so cost stays unknown; the provider key's own usage is authoritative. Cache lifetime is unknown. Generic ACP error wording does not establish a typed quota/reset freeze. Saved effort is not proof that a supported custom-provider option was negotiated.
 
-At the checked base this adapter uses empty isolated skill/instruction lists. The pending native delivery contract and its verification limits live in [skills and instructions](../skills-and-instructions/SKILL.md); external server import lives in [MCP servers](../mcp-servers/SKILL.md).
+At the checked base this adapter uses empty isolated skill/instruction lists. The pending native delivery contract and its verification limits live in [skills and instructions](../../providers/skills-and-instructions/SKILL.md); external server import lives in [MCP servers](../../providers/mcp-servers/SKILL.md).
 
 ## See also
 
-- [orgtree-openrouter](../openrouter/SKILL.md)
-- [orgtree-language-servers](../language-servers/SKILL.md)
-- [orgtree-mcp-servers](../mcp-servers/SKILL.md)
-- [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)
+- [orgtree-openrouter](../../providers/openrouter/SKILL.md)
+- [orgtree-language-servers](../../providers/language-servers/SKILL.md)
+- [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+- [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)

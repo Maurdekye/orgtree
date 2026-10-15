@@ -32,4 +32,4 @@ Do not expose stored keys in troubleshooting. Distinguish missing model selectio
 
 ## See also
 
-- [orgtree-harness-opencode](../harness-opencode/SKILL.md)
+- [orgtree-harness-opencode](../../harnesses/harness-opencode/SKILL.md)

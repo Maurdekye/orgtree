@@ -2,7 +2,7 @@
 name: orgtree-harness-codex
 description: Explain Codex's Orgtree app-server, sandbox posture, approvals and native instruction loading.
 ---
-Up: [orgtree-providers](../SKILL.md)
+Up: [orgtree-harnesses](../SKILL.md)
 
 # Codex seats
 
@@ -10,7 +10,7 @@ Codex runs OpenAI seats and is a selectable harness for OpenRouter/language serv
 
 ## Provider and model
 
-Native Codex uses its chosen OpenAI login/profile. OpenRouter and language-server routes configure the selected provider separately. A local Codex route needs Responses API compatibility; see [language servers](../language-servers/SKILL.md). Current model discovery supplies offered model versions and supported reasoning levels. A saved effort/model string is not proof of support.
+Native Codex uses its chosen OpenAI login/profile. OpenRouter and language-server routes configure the selected provider separately. A local Codex route needs Responses API compatibility; see [language servers](../../providers/language-servers/SKILL.md). Current model discovery supplies offered model versions and supported reasoning levels. A saved effort/model string is not proof of support.
 
 For quota windows and cache estimates see `orgtree-usage-windows` and `orgtree-cache-continuity` (orgtree-working › accounts).
 
@@ -26,10 +26,10 @@ Codex reads home AGENTS.md plus the project chain from a .git root to cwd (cwd a
 
 Startup files enter the launch fingerprint; their edit can replace a parked app-server on the next turn while resuming its session. That changes startup context and can cost provider-cache continuity.
 
-The common [skills and instructions](../skills-and-instructions/SKILL.md) page owns the pending shared-skill delivery contract and global-instruction limits. [MCP servers](../mcp-servers/SKILL.md) owns external server discovery and Refresh. Installation, sign-in, model entitlement, scope and tool readiness are independent checks.
+The common [skills and instructions](../../providers/skills-and-instructions/SKILL.md) page owns the pending shared-skill delivery contract and global-instruction limits. [MCP servers](../../providers/mcp-servers/SKILL.md) owns external server discovery and Refresh. Installation, sign-in, model entitlement, scope and tool readiness are independent checks.
 
 ## See also
 
-- [orgtree-providers-tab](../providers-tab/SKILL.md)
-- [orgtree-mcp-servers](../mcp-servers/SKILL.md)
-- [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)
+- [orgtree-providers-tab](../../providers/providers-tab/SKILL.md)
+- [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+- [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)

@@ -2,7 +2,7 @@
 name: orgtree-harnesses-tab
 description: Explain the installed-harness registry, versions, compatibility tags and missing-install guidance.
 ---
-Up: [orgtree-providers](../SKILL.md)
+Up: [orgtree-harnesses](../SKILL.md)
 
 # Harnesses tab
 

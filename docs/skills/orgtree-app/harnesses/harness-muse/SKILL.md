@@ -2,7 +2,7 @@
 name: orgtree-harness-muse
 description: Explain Muse model entitlement, MSP permissions, Session 0 limits and dated usage.
 ---
-Up: [orgtree-providers](../SKILL.md)
+Up: [orgtree-harnesses](../SKILL.md)
 
 # Muse Code seats
 
@@ -12,7 +12,7 @@ Muse Code uses MSP v1 through one `muse serve` host per agent. Orgtree launches 
 
 Wonder costs four organizational seat credits, Wonder Full ten, Spark two. The login's authenticated catalog must offer the exact model/version; a bundled model row without account entitlement is not an offer. Wonder Full is not assumed to share Wonder's quota pool. Each model supplies its own supported effort names; compatibility clamping preserves a saved choice rather than silently rewriting it.
 
-Registered logins are isolated; each is checked independently for placement, continuation and fallback. The own login's catalog cannot prove another login's entitlement. Account controls are in [accounts registry](../accounts-registry/SKILL.md).
+Registered logins are isolated; each is checked independently for placement, continuation and fallback. The own login's catalog cannot prove another login's entitlement. Account controls are in [accounts registry](../../providers/accounts-registry/SKILL.md).
 
 ## Runtime and permissions
 
@@ -20,7 +20,7 @@ MSP supplies sessions, steering, tools, usage and scope-based approvals. Current
 
 On Windows Session 0, write seats run with Muse's OS sandbox disabled. Some shell/file operations can exceed folder grants without an approval callback. Requests that do arrive are answered from scope once, including all open stages; persistent approval rules are never chosen. This posture must be stated accurately rather than inferred from “ask” mode alone.
 
-Muse reads the first existing workspace-root rule file among AGENTS.md, CLAUDE.md, .agents/AGENTS.md and .claude/CLAUDE.md. Additional granted-folder notes are supplied by Orgtree. Muse advertises its session-loaded skills and read_skill. The pending common sharing contract is in [skills and instructions](../skills-and-instructions/SKILL.md); external server import is in [MCP servers](../mcp-servers/SKILL.md).
+Muse reads the first existing workspace-root rule file among AGENTS.md, CLAUDE.md, .agents/AGENTS.md and .claude/CLAUDE.md. Additional granted-folder notes are supplied by Orgtree. Muse advertises its session-loaded skills and read_skill. The pending common sharing contract is in [skills and instructions](../../providers/skills-and-instructions/SKILL.md); external server import is in [MCP servers](../../providers/mcp-servers/SKILL.md).
 
 ## Usage and unknown values
 
@@ -31,5 +31,5 @@ For detailed window interpretation see `orgtree-usage-windows` (orgtree-working 
 ## See also
 
 - See `orgtree-usage-windows` (orgtree-working › accounts).
-- [orgtree-mcp-servers](../mcp-servers/SKILL.md)
-- [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)
+- [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+- [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)

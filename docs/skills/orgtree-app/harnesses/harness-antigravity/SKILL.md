@@ -2,7 +2,7 @@
 name: orgtree-harness-antigravity
 description: Explain Antigravity model pools, hook-based scope and mail delivery, and its Claude-model opt-in.
 ---
-Up: [orgtree-providers](../SKILL.md)
+Up: [orgtree-harnesses](../SKILL.md)
 
 # Antigravity seats
 
@@ -27,5 +27,5 @@ For exact applicable Gemini versus third-party windows and uncertainty, see `org
 ## See also
 
 - See `orgtree-tool-message` (orgtree-working › mail).
-- [orgtree-mcp-servers](../mcp-servers/SKILL.md)
-- [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)
+- [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+- [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)

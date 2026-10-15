@@ -85,5 +85,5 @@ A local process restart does not itself prove a provider miss. Unchanged snapsho
 ## See also
 
 - [orgtree-mcp-servers](../mcp-servers/SKILL.md)
-- [orgtree-harness-claude-code](../harness-claude-code/SKILL.md)
+- [orgtree-harness-claude-code](../../harnesses/harness-claude-code/SKILL.md)
 - See `orgtree-cache-continuity` (orgtree-working › accounts).

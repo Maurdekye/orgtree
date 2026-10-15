@@ -4,16 +4,16 @@
  "registered_description_bytes": 403,
  "counts": {
   "categories": 2,
-  "sections": 17,
-  "leaves": 160,
+  "sections": 18,
+  "leaves": 163,
   "tools": 41,
-  "total": 179
+  "total": 183
  },
  "leaves_per_writer": {
   "org-sol": 33,
   "comms-sol": 28,
   "runtime-sol": 33,
-  "providers-sol": 30,
+  "providers-sol": 33,
   "skills-docs-sol": 13,
   "rig-opus": 1,
   "orgsettings-sol": 13,
@@ -58,6 +58,7 @@
     "org-settings",
     "agent-settings",
     "providers",
+    "harnesses",
     "mailhub"
    ],
    "writer": "skilltree-opus",
@@ -5531,17 +5532,11 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "Providers, harnesses and accounts (App settings > Providers and Harnesses), plus the usage windows.",
+   "purpose": "Providers and accounts (App settings > Providers): sign-in, accounts, API-key fallback, OpenRouter and local servers, MCP servers, skills delivery and the usage windows.",
    "children": [
     "providers-tab",
     "accounts-registry",
     "api-key-fallback",
-    "harnesses-tab",
-    "harness-claude-code",
-    "harness-codex",
-    "harness-opencode",
-    "harness-antigravity",
-    "harness-muse",
     "openrouter",
     "language-servers",
     "mcp-servers",
@@ -5700,163 +5695,6 @@
      "label": "`fall back to ${p.label} API-key accounts`"
     }
    ]
-  },
-  {
-   "path": "orgtree-app/providers/harnesses-tab",
-   "name": "orgtree-harnesses-tab",
-   "level": 3,
-   "kind": "setting",
-   "registered": false,
-   "covers": [
-    "screen:harnesses-tab"
-   ],
-   "purpose": "Harnesses tab: installed harnesses and install guidance.",
-   "must_cover": [
-    "detection"
-   ],
-   "sources": [
-    "apps/desktop/renderer/src/canvas/harnesses.tsx:71"
-   ],
-   "see_also": [
-    "harness-claude-code",
-    "harness-codex"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed"
-  },
-  {
-   "path": "orgtree-app/providers/harness-claude-code",
-   "name": "orgtree-harness-claude-code",
-   "level": 3,
-   "kind": "concept",
-   "registered": false,
-   "covers": [
-    "harness:claude-code"
-   ],
-   "purpose": "Claude Code seats: tiers, auth lanes, skills, sandbox and quirks.",
-   "must_cover": [
-    "capabilities and limits"
-   ],
-   "sources": [
-    "engine/rs/orgtree-engine/src/runtime/claude.rs",
-    "docs/provider-capability-evidence.md"
-   ],
-   "see_also": [
-    "providers-tab"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed"
-  },
-  {
-   "path": "orgtree-app/providers/harness-codex",
-   "name": "orgtree-harness-codex",
-   "level": 3,
-   "kind": "concept",
-   "registered": false,
-   "covers": [
-    "harness:codex-cli"
-   ],
-   "purpose": "Codex seats: sandbox modes, read-only seats, limits.",
-   "must_cover": [
-    "capabilities and limits"
-   ],
-   "sources": [
-    "engine/rs/orgtree-engine/src/runtime/codex.rs",
-    "docs/rust-engine/codex-sandbox-runner.md"
-   ],
-   "see_also": [
-    "providers-tab"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed"
-  },
-  {
-   "path": "orgtree-app/providers/harness-opencode",
-   "name": "orgtree-harness-opencode",
-   "level": 3,
-   "kind": "concept",
-   "registered": false,
-   "covers": [
-    "harness:opencode"
-   ],
-   "purpose": "OpenCode seats over ACP.",
-   "must_cover": [
-    "capabilities and limits"
-   ],
-   "sources": [
-    "engine/rs/orgtree-engine/src/runtime/opencode.rs",
-    "docs/rust-engine/opencode-acp.md"
-   ],
-   "see_also": [
-    "openrouter",
-    "language-servers"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed"
-  },
-  {
-   "path": "orgtree-app/providers/harness-antigravity",
-   "name": "orgtree-harness-antigravity",
-   "level": 3,
-   "kind": "concept",
-   "registered": false,
-   "covers": [
-    "harness:antigravity",
-    "rt:antigravity_claude_enabled"
-   ],
-   "purpose": "Antigravity seats, the flat mail tools, and enabling Claude models through Antigravity.",
-   "must_cover": [
-    "no-shell limits",
-    "Claude-through-Antigravity switch"
-   ],
-   "sources": [
-    "engine/rs/orgtree-engine/src/runtime/agy.rs",
-    "apps/desktop/renderer/src/canvas/accounts.tsx:865",
-    "docs/antigravity-provider-parity.md"
-   ],
-   "see_also": [
-    "tool-message"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed",
-   "ui_labels": [
-    {
-     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
-    }
-   ],
-   "key_sources": [
-    {
-     "key": "rt:antigravity_claude_enabled",
-     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "needles": [
-      "antigravity_claude_enabled"
-     ]
-    }
-   ]
-  },
-  {
-   "path": "orgtree-app/providers/harness-muse",
-   "name": "orgtree-harness-muse",
-   "level": 3,
-   "kind": "concept",
-   "registered": false,
-   "covers": [
-    "harness:muse"
-   ],
-   "purpose": "Muse seats: limits and usage reporting.",
-   "must_cover": [
-    "capabilities and limits"
-   ],
-   "sources": [
-    "engine/rs/orgtree-engine/src/runtime/muse.rs",
-    "docs/rust-engine/muse-code.md"
-   ],
-   "see_also": [
-    "usage-windows"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed"
   },
   {
    "path": "orgtree-app/providers/openrouter",
@@ -6092,6 +5930,336 @@
     "apps/desktop/renderer/src/App.tsx#UsageModal",
     "apps/desktop/renderer/src/usagehistory.tsx#UsageHistoryModal"
    ]
+  },
+  {
+   "path": "orgtree-app/harnesses",
+   "name": "orgtree-harnesses",
+   "level": 2,
+   "kind": "section",
+   "registered": false,
+   "purpose": "Every harness Orgtree runs agents on, and the routes through them: how each runs, reports, caches, compacts, loads instructions and skills, and how they differ.",
+   "children": [
+    "harness-comparison",
+    "harness-claude-code",
+    "harness-codex",
+    "harness-opencode",
+    "harness-antigravity",
+    "harness-muse",
+    "route-openrouter",
+    "route-local-server",
+    "harnesses-tab"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/harness-comparison",
+   "name": "orgtree-harness-comparison",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "concept:harness-comparison"
+   ],
+   "purpose": "Side-by-side table of every harness and route across the seven topics; each cell links to the harness page that is its home.",
+   "must_cover": [
+    "one row per topic, one column per harness/route",
+    "cells summarize and link; facts live on the harness pages",
+    "n/a and unknown stated explicitly",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it",
+    "a gotchas column/row per harness, linking each gotcha's home"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/runtime/claude.rs",
+    "engine/rs/orgtree-engine/src/runtime/codex.rs",
+    "engine/rs/orgtree-engine/src/runtime/agy.rs",
+    "engine/rs/orgtree-engine/src/runtime/muse.rs",
+    "engine/rs/orgtree-engine/src/runtime/opencode.rs",
+    "engine/rs/orgtree-engine/src/runtime/acp.rs",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs"
+   ],
+   "see_also": [
+    "harness-claude-code",
+    "harness-codex",
+    "harness-antigravity",
+    "harness-muse",
+    "harness-opencode",
+    "route-openrouter",
+    "route-local-server",
+    "cache-continuity",
+    "context-and-compaction",
+    "skills-and-instructions"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/harness-claude-code",
+   "name": "orgtree-harness-claude-code",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "harness:claude-code"
+   ],
+   "purpose": "Claude Code seats: tiers, auth lanes, skills, sandbox and quirks.",
+   "must_cover": [
+    "capabilities and limits",
+    "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
+    "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
+    "caching: cached prefix, TTL by auth lane (unknown unless sourced), what breaks and what keeps the cache",
+    "compaction: native behaviour and threshold, what Orgtree does, what survives",
+    "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
+    "tools, permissions and sandbox, incl. Windows/Session 0",
+    "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/runtime/claude.rs",
+    "docs/provider-capability-evidence.md"
+   ],
+   "see_also": [
+    "providers-tab"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/harness-codex",
+   "name": "orgtree-harness-codex",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "harness:codex-cli"
+   ],
+   "purpose": "Codex seats: sandbox modes, read-only seats, limits.",
+   "must_cover": [
+    "capabilities and limits",
+    "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
+    "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
+    "caching: cached prefix, TTL by auth lane (unknown unless sourced), what breaks and what keeps the cache",
+    "compaction: native behaviour and threshold, what Orgtree does, what survives",
+    "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
+    "tools, permissions and sandbox, incl. Windows/Session 0",
+    "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/runtime/codex.rs",
+    "docs/rust-engine/codex-sandbox-runner.md"
+   ],
+   "see_also": [
+    "providers-tab"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/harness-opencode",
+   "name": "orgtree-harness-opencode",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "harness:opencode"
+   ],
+   "purpose": "OpenCode seats over ACP.",
+   "must_cover": [
+    "capabilities and limits",
+    "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
+    "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
+    "caching: cached prefix, TTL by auth lane (unknown unless sourced), what breaks and what keeps the cache",
+    "compaction: native behaviour and threshold, what Orgtree does, what survives",
+    "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
+    "tools, permissions and sandbox, incl. Windows/Session 0",
+    "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/runtime/opencode.rs",
+    "docs/rust-engine/opencode-acp.md"
+   ],
+   "see_also": [
+    "openrouter",
+    "language-servers"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/harness-antigravity",
+   "name": "orgtree-harness-antigravity",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "harness:antigravity",
+    "rt:antigravity_claude_enabled"
+   ],
+   "purpose": "Antigravity seats, the flat mail tools, and enabling Claude models through Antigravity.",
+   "must_cover": [
+    "no-shell limits",
+    "Claude-through-Antigravity switch",
+    "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
+    "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
+    "caching: cached prefix, TTL by auth lane (unknown unless sourced), what breaks and what keeps the cache",
+    "compaction: native behaviour and threshold, what Orgtree does, what survives",
+    "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
+    "tools, permissions and sandbox, incl. Windows/Session 0",
+    "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it",
+    "instruction limits: 24 KB per file, 20k-token total; how Orgtree splits the identity into numbered always-on rule parts",
+    "native steer vs interrupt: which Orgtree tool or action maps to which native boundary"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/runtime/agy.rs",
+    "apps/desktop/renderer/src/canvas/accounts.tsx:865",
+    "docs/antigravity-provider-parity.md"
+   ],
+   "see_also": [
+    "tool-message"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:antigravity_claude_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "antigravity_claude_enabled"
+     ]
+    }
+   ]
+  },
+  {
+   "path": "orgtree-app/harnesses/harness-muse",
+   "name": "orgtree-harness-muse",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "harness:muse"
+   ],
+   "purpose": "Muse seats: limits and usage reporting.",
+   "must_cover": [
+    "capabilities and limits",
+    "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
+    "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
+    "caching: cached prefix, TTL by auth lane (unknown unless sourced), what breaks and what keeps the cache",
+    "compaction: native behaviour and threshold, what Orgtree does, what survives",
+    "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
+    "tools, permissions and sandbox, incl. Windows/Session 0",
+    "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/runtime/muse.rs",
+    "docs/rust-engine/muse-code.md"
+   ],
+   "see_also": [
+    "usage-windows"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/route-openrouter",
+   "name": "orgtree-route-openrouter",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "route:openrouter"
+   ],
+   "purpose": "OpenRouter seats: which harness each key routes through, what that changes per topic, spend caps and reasoning.",
+   "must_cover": [
+    "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
+    "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
+    "caching: cached prefix, TTL by auth lane (unknown unless sourced), what breaks and what keeps the cache",
+    "compaction: native behaviour and threshold, what Orgtree does, what survives",
+    "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
+    "tools, permissions and sandbox, incl. Windows/Session 0",
+    "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
+    "only the differences from the underlying harness page; link it for the rest",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/openrouter.rs",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs",
+    "docs/rust-engine/openrouter-keys.md"
+   ],
+   "see_also": [
+    "openrouter",
+    "harness-opencode",
+    "harness-codex",
+    "harness-comparison"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/route-local-server",
+   "name": "orgtree-route-local-server",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "route:langserver"
+   ],
+   "purpose": "Local language-server seats (e.g. llama.cpp): the harness they run through, agents-at-once limit, context size, no usage windows.",
+   "must_cover": [
+    "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
+    "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
+    "caching: cached prefix, TTL by auth lane (unknown unless sourced), what breaks and what keeps the cache",
+    "compaction: native behaviour and threshold, what Orgtree does, what survives",
+    "instructions and skills: files read natively, size limits, how Orgtree delivers identity, skills and MCP",
+    "tools, permissions and sandbox, incl. Windows/Session 0",
+    "models, effort levels, quirks; state n/a or unknown explicitly, never guess",
+    "only the differences from the underlying harness page; link it for the rest",
+    "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/langserver.rs",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs"
+   ],
+   "see_also": [
+    "language-servers",
+    "harness-opencode",
+    "harness-codex",
+    "harness-comparison"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-app/harnesses/harnesses-tab",
+   "name": "orgtree-harnesses-tab",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "screen:harnesses-tab"
+   ],
+   "purpose": "Harnesses tab: installed harnesses and install guidance.",
+   "must_cover": [
+    "detection"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/harnesses.tsx:71"
+   ],
+   "see_also": [
+    "harness-claude-code",
+    "harness-codex"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
   },
   {
    "path": "orgtree-app/mailhub",

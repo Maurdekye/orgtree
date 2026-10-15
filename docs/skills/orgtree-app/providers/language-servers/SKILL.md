@@ -43,4 +43,4 @@ Agents explain configuration and suggest changes; the user operates these contro
 
 ## See also
 
-- [orgtree-harness-opencode](../harness-opencode/SKILL.md)
+- [orgtree-harness-opencode](../../harnesses/harness-opencode/SKILL.md)
