@@ -46,7 +46,7 @@ send, superseding alpha.4's per-send separation. No hub schema/runtime/pin
 change is required. Orgtree records linked replies; it does not invent a new
 question-state database or infer answer identities from quote lines.
 
-## Sender correction verification — pending
+## Sender correction verification — 2026-10-15, Rig round 445
 
 The corrected source removes author-based checks from the desk/mail collectors,
 tool/domain admission and whole-turn quotes, while retaining source identity,
@@ -54,7 +54,38 @@ visibility, generation, bounds and transcript/conversation membership. New
 focused cases combine agent/user events and mail from several authors, keep
 every reference and one recipient, and refuse another transcript or fan-out.
 The revised renderer predecessor control includes `eventReply.ts` as well as
-desk/mail. Source-only hand-in goes to rig-sol; runtime results are pending.
+desk/mail. Rig-sol-b measured the final candidate Orgtree `37b00ff` and Hubchat
+`0ddfa14` under the shared lock and kernel Jobs:
+
+- Actual-engine scratch proof passes20/20. Initial18/20 had two proof contract
+  mistakes, corrected only in `e346e03`: user recipient_name is canonically
+  `@user`, and HTTP reply snapshots use the existing one-line `gist(text,4000)`.
+  Original event content and visible paragraph projection remain unchanged.
+  The corrected proof reused the same product-identical `05729d5` engine;
+  original failed receipts remain preserved.
+- Mounted desk/inbox checks pass6/6. Exact `a47bb16` desk/mail/eventReply
+  collectors produce exactly4 target failures and2 passing controls.
+- Hubchat focused core passes4/4. Mixed-author browser checks pass35/35;
+  exact `9d46e62` Conversation red gives4 named failures and31 controls.
+  Preparation regression passes40/40. Rig inspected all18 green/red captures.
+- Engine units pass255/255 and all-targets check passes. Clippy retains106
+  baseline warning lines, with none newly attributed to changed locations.
+  Root and Hubchat typechecks pass. Strict renderer/tests diagnostics remain
+  baseline29/830, with no added or removed normalized diagnostics.
+
+The full renderer does not pass:3519 pass,88 baseline failures and4 skips
+(not executed). Rig attributed the one added failure name to the existing
+context-menu B4 assertion under its new title, reproduced at untouched base;
+the allocation-failing worklifecycle case remains explicitly skipped, not fixed.
+Source audits retain6 baseline hub-isolation environment errors. These are
+qualified source-specific results, not a clean full-suite claim.
+
+All runtime used synthetic scratch state/fake CLI and browser/DOM fixtures.
+No native installed-app, real Android device or external-hub transport
+acceptance is claimed. The coordinator integrated the verified source locally
+at rust-engine `8d4c570` and Hubchat main `0ddfa14`; it was not yet in a built
+alpha at that point. Build/delivery are separate coordinator steps; the source
+author ran no competing runtime/build jobs.
 
 ## Historical verification — 2026-10-14, Rig round 438
 
