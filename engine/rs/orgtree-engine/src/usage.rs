@@ -18,6 +18,9 @@ use crate::util::{gist, iso};
 
 pub mod query;
 
+#[cfg(test)]
+mod claude_wait_tests;
+
 const TTL: Duration = Duration::from_secs(30);
 /// a peek older than this is no claim about now
 const PEEK_MAX: Duration = Duration::from_secs(900);
