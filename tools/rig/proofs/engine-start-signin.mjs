@@ -30,7 +30,12 @@ import path from 'node:path'
 import { TOKEN_HEADER, alive, cleanEnv, engineExe, processes, stopRun, writeRun } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+// `promise`'s value, or null after `ms`; the timer goes once either settles, so
+// a finished proof does not wait out the limit.
+const within = (promise, ms) => {
+  let timer
+  return Promise.race([promise, new Promise(resolve => { timer = setTimeout(() => resolve(null), ms) })]).finally(() => clearTimeout(timer))
+}
 const STOP_WAIT_MS = 200000
 
 export default async function (rig) {
@@ -114,12 +119,12 @@ export default async function (rig) {
     })
     let out = ''
     desk.stdout.on('data', chunk => { out += chunk })
-    const deskExit = await Promise.race([new Promise(resolve => desk.once('exit', code => resolve({ code }))), sleep(60000).then(() => null)])
+    const deskExit = await within(new Promise(resolve => desk.once('exit', code => resolve({ code }))), 60000)
     if (!deskExit) desk.kill()
     p.check('B: a desktop-style engine on the same data is refused as root-owned and leaves', !!deskExit && /"type":"refused"/.test(out) && /root-owned/.test(out),
       { exit: deskExit?.code, out: out.slice(0, 600) })
     const second = launch()
-    const secondExit = await Promise.race([second.exited, sleep(60000).then(() => null)])
+    const secondExit = await within(second.exited, 60000)
     if (!secondExit) second.child.kill()
     p.check('B: a second launcher\'s host leaves at once (75: another engine owns the data)', secondExit?.code === 75, { exit: secondExit?.code })
     const still = readDescriptor()

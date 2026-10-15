@@ -33,6 +33,12 @@ import { TOKEN_HEADER, alive, cleanEnv, stopRun, writeRun } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+// `promise`'s value, or null after `ms`; the timer goes once either settles, so
+// a finished proof does not wait out the limit.
+const within = (promise, ms) => {
+  let timer
+  return Promise.race([promise, new Promise(resolve => { timer = setTimeout(() => resolve(null), ms) })]).finally(() => clearTimeout(timer))
+}
 const AGENTS = ['ada', 'lu']
 const STOP_WAIT_MS = 200000
 
@@ -130,7 +136,7 @@ export default async function (rig) {
     const t0 = Date.now()
     const res = await fetch(`http://127.0.0.1:${a.attach.port}/api/desktop/shutdown`, { method: 'POST', headers: { [TOKEN_HEADER]: a.attach.token } })
     p.check('A: the engine takes the shutdown request', res.ok, { status: res.status })
-    const exit = await Promise.race([a.exited, sleep(STOP_WAIT_MS).then(() => null)])
+    const exit = await within(a.exited, STOP_WAIT_MS)
     const seconds = exit ? Number(((exit.at - t0) / 1000).toFixed(1)) : null
     p.check('A: the host exits 0 once its engine has gone (restart-on-failure leaves it stopped)', exit?.code === 0 && !alive(a.attach.enginePid), { code: exit?.code, seconds })
     p.check('A: the host removed the attach descriptor', !fs.existsSync(descriptor))
