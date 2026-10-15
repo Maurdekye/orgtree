@@ -16,7 +16,8 @@
 //   the rig home defaults to the caller's own D:\orgtree-work\rig\<agent> and
 //   the lock to D:\orgtree-work\cargo-target (when D:\orgtree-work exists);
 //   the shared D:\orgtree-work\rig, or a home with another rig home inside
-//   it, is refused; CARGO_TARGET_DIR on C: or E: is refused
+//   it, is refused; CARGO_TARGET_DIR under C:/orgtree-build/<agent> is accepted,
+//   other C: paths and E: are refused
 // Run: node tools/rig/proofs/build-lock.mjs   (no engine, no rig run, no real build lock)
 
 import { spawn, spawnSync } from 'node:child_process'
@@ -236,10 +237,21 @@ try {
       if (prev === undefined) delete process.env.CARGO_TARGET_DIR; else process.env.CARGO_TARGET_DIR = prev
     }
   }
-  const t = cases.cargoTarget = { unset: target(undefined), c: target('C:\\cargo-target\\x'), e: target('E:\\cargo-target\\x'), d: target(path.join(WORK, 'cargo-target', 'x')) }
+  const t = cases.cargoTarget = {
+    unset: target(undefined),
+    cBuild: target('C:\\orgtree-build\\x'),
+    cOther: target('C:\\cargo-target\\x'),
+    cSibling: target('C:\\orgtree-build-old\\x'),
+    cEscape: target('C:\\orgtree-build\\..\\cargo-target\\x'),
+    e: target('E:\\cargo-target\\x'),
+    d: target(path.join(WORK, 'cargo-target', 'x')),
+  }
   if (fs.existsSync(WORK)) {
-    p.check('CARGO_TARGET_DIR unset is refused with a D:\\orgtree-work example; on C: or E: it is refused; on D: it is taken',
-      /orgtree-work\\cargo-target/.test(t.unset.error ?? '') && !!t.c.error && !!t.e.error && same(t.d.ok, path.join(WORK, 'cargo-target', 'x')), t)
+    p.check('CARGO_TARGET_DIR unset names C:/orgtree-build/<agent>; that tree is allowed, other C: and E: are refused, D: is taken',
+      t.unset.error?.includes('C:/orgtree-build/<agent>') &&
+      same(t.cBuild.ok, path.resolve('C:\\orgtree-build\\x')) &&
+      !!t.cOther.error && !!t.cSibling.error && !!t.cEscape.error && !!t.e.error &&
+      same(t.d.ok, path.join(WORK, 'cargo-target', 'x')), t)
   }
 } finally {
   if (busy) busy.kill()

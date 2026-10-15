@@ -1722,9 +1722,13 @@ ring layout/hire-arrow direction stay unchanged. [verified from source:
 **Engine priority and agent build caches (2026-10-07).** The boot task requests Normal
 CPU priority (Task Scheduler value 5), matching desktop launches. The app has no build-cache
 setting or launcher override; a previously saved value is ignored. Rust builders in this org
-set their own `CARGO_TARGET_DIR` on E: as a team instruction. [recorded-decision: user,
-2026-10-07 07:56Z, DECISIONS 47 superseded; verified from source:
-`tools/boot-engine-task.ps1`, Rust `settings.rs`, `http/settings.rs`, `runtime/{claude,codex,agy}.rs`]
+set their own `CARGO_TARGET_DIR` on E: under the 2026-10-07 team instruction. Superseded
+2026-10-15: new build artifacts go under the assigned `C:/orgtree-build/<agent>` scope;
+the rig accepts that subtree, rejects other C: paths and continues to refuse E:.
+[recorded-decision: user, 2026-10-07 07:56Z; superseded: coordinator 2026-10-15;
+verified from source:
+`tools/boot-engine-task.ps1`, Rust `settings.rs`, `http/settings.rs`, `runtime/{claude,codex,agy}.rs`,
+`tools/rig/lib.mjs`]
 
 **Codex Windows runner timeouts (2026-10-07).** A workspace-write seat can fail
 before shell startup while its authorized per-command escalated retry succeeds;

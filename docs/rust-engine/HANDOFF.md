@@ -55,8 +55,11 @@ Current verification and its limits: [freeze recovery](freeze-recovery.md).
 3. Agent build caches: on 2026-10-07 drive C: fell to 100 MB free because several agents keep their
    own multi-GB Rust `target` folders in their scratch folders (the caches were cleared once).
    Resolved by the user (2026-10-07 07:56Z): Rust builders in this org set a per-agent
-   `CARGO_TARGET_DIR` on E: through team instructions. Remove the app setting and launcher
-   override; already-saved values are ignored. See superseded DECISIONS 47.
+   `CARGO_TARGET_DIR` on E: through team instructions. This E: target rule was superseded
+   2026-10-15 by the current team rule: new build artifacts go under the assigned
+   `C:/orgtree-build/<agent>` scope; the rig accepts only that C: subtree and continues to
+   refuse other C: paths and E:. Remove the app setting and launcher override; already-saved
+   values are ignored. See superseded DECISIONS 47.
 
 ## The user's sign-off of the 3.x to 4.0 changes
 

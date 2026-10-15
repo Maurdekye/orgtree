@@ -266,10 +266,12 @@ export function withBuildLock(what, fn, { freeRam = freeRamGB } = {}) {
 export function cargoTarget() {
   const t = process.env.CARGO_TARGET_DIR
   const onD = fs.existsSync(WORK_ROOT)
-  const example = onD ? `${WORK_ROOT}\\cargo-target\\<agent>` : 'E:\\cargo-target\\<agent>'
+  const example = 'C:/orgtree-build/<agent>'
   if (!t) throw new Error(`set CARGO_TARGET_DIR to your own build folder (team rule), e.g. ${example}`)
   const resolved = path.resolve(t)
-  if (/^c:/i.test(resolved)) throw new Error(`CARGO_TARGET_DIR is on drive C: (${t}); team rule: build output never goes on C:, e.g. ${example}`)
+  if (/^c:/i.test(resolved) && !/^c:\\orgtree-build\\/i.test(resolved)) {
+    throw new Error(`CARGO_TARGET_DIR is on drive C: (${t}); only paths under C:/orgtree-build/<agent> are allowed there, e.g. ${example}`)
+  }
   if (onD && /^e:/i.test(resolved)) throw new Error(`CARGO_TARGET_DIR is on drive E: (${t}); team rule 2026-10-10: E: holds only the repositories, build output goes in ${example}`)
   return resolved
 }

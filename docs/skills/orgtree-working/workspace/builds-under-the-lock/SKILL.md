@@ -17,7 +17,7 @@ The rig's build-lock implementation can take a free lock when the queue permits,
 
 For current Rust work, use Cargo `-j 2`, at least 3 GB free RAM before starting, and the kernel Job containment/resource limits assigned to that phase. Aggregate generated build artifacts must remain within the team's 100 GB allowance. Cleanup is limited to authorized old inactive generated output after resolved-path and activity checks; protect source, live data, evidence and required deliverables.
 
-The current team ruling puts **all new build artifacts in the exact assigned scope under `C:/orgtree-build`**. Source worktrees remain on D:. Older rig documentation/defaults require D: targets and may reject C:; do not bypass that refusal or run with the old target. Resolve the runner/target mismatch with the coordinator before building. The lock's D: location does not authorize D: build output.
+The current team ruling puts **all new build artifacts in the exact assigned scope under `C:/orgtree-build`**. Source worktrees remain on D:. The rig's `cargoTarget()` accepts only paths under `C:/orgtree-build/<agent>` on C:, rejects other C: paths, and continues to refuse E:. The lock's D: location does not authorize D: build output.
 
 Use only the assigned synthetic rig with fake CLI, scratch database and isolated data root. A bare SAFE_START engine can still read live sign-ins and run usage probes; it is not an isolated test environment. Never touch live data to obtain a check result.
 
