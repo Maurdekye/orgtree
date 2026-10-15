@@ -851,7 +851,15 @@ function attachHands(show: Show, t: Theater): () => void {
 
 /** Roughly where the caret is in a text field: the text before it measured in
  *  the field's own font. Wrapped lines are not modelled — close is enough for
- *  sparks. */
+ *  sparks.
+ *
+ *  The field's box can be SCALED on screen (user report 2026-10-15: typing
+ *  sparks ran off the caret in a desk on the canvas, never in a pinned one). A
+ *  canvas desk sits inside the camera's `scale(view.z)` and `.desk-inner`'s
+ *  counter-scale, so getBoundingClientRect() is in screen px while the text,
+ *  padding, border and scroll offsets are in the field's own px. The box's
+ *  screen size over its untransformed one (offsetWidth/offsetHeight) carries
+ *  them onto the screen; a pinned or popped-out desk is unscaled, 1. */
 function caretSpot(field: Element, doc: Document): Spot | null {
   const view = doc.defaultView
   if (!view) return null
@@ -875,9 +883,12 @@ function caretSpot(field: Element, doc: Document): Spot | null {
   const width = measure(doc, style.font || `${style.fontSize} ${style.fontFamily}`, last)
   const padL = parseFloat(style.paddingLeft) || 0
   const padT = parseFloat(style.paddingTop) || 0
-  const x = Math.min(box.right - 4, box.left + padL + width - field.scrollLeft)
+  // screen px per field px
+  const sx = field.offsetWidth > 0 ? box.width / field.offsetWidth : 1
+  const sy = field.offsetHeight > 0 ? box.height / field.offsetHeight : sx
+  const x = Math.min(box.right - 4, box.left + (field.clientLeft + padL + width - field.scrollLeft) * sx)
   const y = field.tagName === 'TEXTAREA'
-    ? Math.min(box.bottom - 4, box.top + padT + (lines.length - 0.5) * lineHeight - field.scrollTop)
+    ? Math.min(box.bottom - 4, box.top + (field.clientTop + padT + (lines.length - 0.5) * lineHeight - field.scrollTop) * sy)
     : box.top + box.height / 2
   return { x, y: Math.max(box.top + 4, y), rect: null, el: field, doc }
 }
