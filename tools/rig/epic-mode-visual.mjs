@@ -41,14 +41,25 @@ const git = (...args) => {
 }
 const head = git('rev-parse', 'HEAD').trim()
 const dirty = !!git('status', '--porcelain').trim()
-// changed since --before: bundled as it was there (every one must exist there)
+// changed since --before: bundled as it was there. A file added since then has
+// no "before": there it is a stub whose exports are all undefined
 const sinceBefore = BEFORE
   ? git('diff', '--name-only', BEFORE, 'HEAD', '--', 'apps/desktop/renderer/src', 'packages')
     .split(/\r?\n/).map(f => f.trim()).filter(f => /\.(tsx?|mts)$/.test(f))
   : []
+const addedSinceBefore = new Set(BEFORE
+  ? git('diff', '--name-only', '--diff-filter=A', BEFORE, 'HEAD', '--', 'apps/desktop/renderer/src', 'packages')
+    .split(/\r?\n/).map(f => f.trim()).filter(Boolean)
+  : [])
+const stubOf = f => {
+  const names = [...fs.readFileSync(path.join(root, f), 'utf8')
+    .matchAll(/^export (?:async )?(?:const|let|var|function\*?|class) ([A-Za-z_$][\w$]*)/gm)].map(m => m[1])
+  return names.length ? `export const ${names.map(n => `${n} = undefined`).join(', ')}\n` : 'export {}\n'
+}
 
 if (bundling) {
-  const text = new Map(sinceBefore.map(f => [path.resolve(root, f).toLowerCase(), git('show', `${BEFORE}:${f}`)]))
+  const text = new Map(sinceBefore.map(f => [path.resolve(root, f).toLowerCase(),
+    addedSinceBefore.has(f) ? stubOf(f) : git('show', `${BEFORE}:${f}`)]))
   await esbuild.build({
     entryPoints: [path.join(root, 'apps/desktop/renderer/tests/epicmode-visual.tsx')],
     outfile: path.join(out, 'fixture.js'), bundle: true, platform: 'browser', format: 'iife',

@@ -329,3 +329,24 @@ test('the corner badge alone keeps the loop at the slow lane, until its combo dr
     assert.equal(clock.busy, false, 'and the loop sleeps')
   } finally { stage.destroy(); clock.restore() }
 })
+
+test('a mark that momentum leaves to linger longer stretches its embers with it: it never lingers empty', () => {
+  const clock = clockwork()
+  const rec = recordMarks()
+  const stage = new Stage(document)
+  const more = stage as unknown as { intensity?: number }
+  try {
+    // what the director does while it stages an event in a busy spell
+    more.intensity = 2
+    stage.embers(500, 400)
+    more.intensity = 1
+    let alive = 0, drawn = 0
+    for (let t = 250; t <= 20_000; t += 250) {
+      clock.run(250)
+      if (stage.lingering.some(r => r.kind === 'embers')) alive = t
+      if (latest(rec).some(m => m.op === 'image' && Math.abs(m.x - 500) <= 200)) drawn = t
+    }
+    assert.equal(alive > 8000, true, `the embers' mark outlasts its 8 s at rest (${alive} ms)`)
+    assert.equal(alive - drawn <= 250, true, `and draws its embers until it goes (drawn until ${drawn} of ${alive} ms)`)
+  } finally { stage.destroy(); rec.restore(); clock.restore() }
+})

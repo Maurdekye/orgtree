@@ -83,7 +83,7 @@ const OPUS_MISSING = {
   'apps/desktop/renderer/src/epic/director.ts': ['COMBO_DECAY_MS', 'METER_FROM', 'MILESTONES', 'RANKS', 'climbFor', 'noteRatio', 'rankOf'],
   'apps/desktop/renderer/src/epic/stage.ts': ['MAX_DPR', 'MAX_PIXELS'],
 }
-const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-final', 'epicmode-caret', 'epicmode-wheel', 'epicmode-urgent', 'epicmode-comfort', 'epicmode-linger']
+const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-final', 'epicmode-caret', 'epicmode-wheel', 'epicmode-urgent', 'epicmode-comfort', 'epicmode-linger', 'epicmode-progress']
 // What the suites import from modules that do not exist at the base.
 const STUBS = {
   sync: 'export const startEpicSync = undefined',
@@ -110,12 +110,23 @@ const opusText = new Map(SINCE_OPUS.map(f => {
   return [key(f), missing ? `${text}\nexport const ${missing.map(n => `${n} = undefined`).join(', ')}\n` : text]
 }))
 assert.equal(baseText.size, CHANGED.length)
-// changed since --before: loaded from it in the before run (every one must exist there)
+// changed since --before: loaded from it in the before run. A file added since
+// then has no "before": there it is a stub whose exports are all undefined, so
+// the tests of what it adds fail, as they must
 const SINCE_BEFORE = BEFORE
   ? git('diff', '--name-only', BEFORE, 'HEAD', '--', 'apps/desktop/renderer/src', 'apps/desktop/main', 'packages')
     .split(/\r?\n/).map(f => f.trim()).filter(f => /\.(tsx?|mts)$/.test(f))
   : []
-const beforeText = new Map(SINCE_BEFORE.map(f => [key(f), git('show', `${BEFORE}:${f}`)]))
+const ADDED_SINCE_BEFORE = new Set(BEFORE
+  ? git('diff', '--name-only', '--diff-filter=A', BEFORE, 'HEAD', '--', 'apps/desktop/renderer/src', 'apps/desktop/main', 'packages')
+    .split(/\r?\n/).map(f => f.trim()).filter(Boolean)
+  : [])
+const stubOf = f => {
+  const names = [...fs.readFileSync(path.join(root, f), 'utf8')
+    .matchAll(/^export (?:async )?(?:const|let|var|function\*?|class) ([A-Za-z_$][\w$]*)/gm)].map(m => m[1])
+  return names.length ? `export const ${names.map(n => `${n} = undefined`).join(', ')}\n` : 'export {}\n'
+}
+const beforeText = new Map(SINCE_BEFORE.map(f => [key(f), ADDED_SINCE_BEFORE.has(f) ? stubOf(f) : git('show', `${BEFORE}:${f}`)]))
 
 fs.mkdirSync(out, { recursive: true })
 const log = (name, text) => fs.writeFileSync(path.join(out, name), text)
