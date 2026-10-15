@@ -2738,3 +2738,13 @@ Cold archived docket projections covered by the existing policy spec use its typ
   resource tree, including Windows junctions/reparse points; marker files never
   authorize following links. See shared-skills.md export guard.
   [verified from source: providers/skills.rs; rig review finding 2026-10-15]
+
+- Waiting mail is bounded before opening/steering/hook delivery: rendered items
+  over 64 KiB become inbox fetch/chunk references, and final text is split into
+  ordered batches (Codex 1,000,000 UTF-8 bytes; unknown lanes conservatively
+  256 KiB). Only already-admitted deferred notices can continue a budget tail;
+  unrelated passive notices remain passive. Original mail stays unchanged.
+  Length refusals report sizes on each actual attempt without self-retry.
+  Generated oversized org/usage context stays in own scratch; handoff history is
+  referenced, not copied. Limits and verification: [mail input budgets](docs/rust-engine/mail-input-budgets.md).
+  [decided: coordinator 2026-10-15; verified: `engine/rs/orgtree-engine/src/runtime/prompt.rs`]
