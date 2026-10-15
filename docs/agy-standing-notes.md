@@ -97,3 +97,5 @@ ancestor guard before reading legacy AGENTS.md and immediately before renaming
 source to backup. A third negative case points scratch at an external envelope
 and requires unchanged external bytes with no backup. The envelope predicate and
 normal migration behavior are unchanged; native read discovery is not restricted.
+
+Migration validates scratch ancestors before inspecting AGENTS.md. A native leaf symlink is then skipped without error or rename; regular candidates and backup destinations retain full output validation. The focused Unix symlink regression is source-only until run on Unix; Windows junction ancestor controls remain separate.

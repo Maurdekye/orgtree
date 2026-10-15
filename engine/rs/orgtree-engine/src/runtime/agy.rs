@@ -473,13 +473,15 @@ fn legacy_identity_envelope(text: &str) -> bool {
 pub fn migrate_generated_identity(cwd: &Path) -> Result<bool> {
     validate_identity_output(cwd)?;
     let path = cwd.join("AGENTS.md");
-    validate_identity_output(&path)?;
     let meta = match std::fs::symlink_metadata(&path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e.into()),
     };
     if !meta.is_file() || meta.file_type().is_symlink() { return Ok(false); }
+    // Native leaf symlinks remain native; only regular migration candidates
+    // undergo output validation. The scratch ancestors were checked above.
+    validate_identity_output(&path)?;
     let bytes = std::fs::read(&path)?;
     if !std::str::from_utf8(&bytes).is_ok_and(legacy_identity_envelope) { return Ok(false); }
     let backup = cwd.join(format!("AGENTS.generated-identity-{}.bak", uuid::Uuid::new_v4()));
