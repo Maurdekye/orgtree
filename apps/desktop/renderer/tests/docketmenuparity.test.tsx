@@ -33,7 +33,7 @@ async function choose(label:string,root:Element=top()!){
 }
 async function ownerItems(){
   const owner=named('Owner… ▸');assert.ok(Boolean(owner),'owner submenu exists')
-  await inAct(()=>owner!.closest('.ctxmenu-branch')!.dispatchEvent(new window.MouseEvent('mouseover',{bubbles:true})))
+  await inAct(()=>{owner!.closest('.ctxmenu-branch')!.dispatchEvent(new window.MouseEvent('mouseover',{bubbles:true}))})
   await flush()
   const submenu=document.querySelector('.ctxmenu-submenu');assert.ok(Boolean(submenu))
   return entries(submenu!)
@@ -112,7 +112,7 @@ test('Open details selects once and never toggles closed; primary click still to
   await right(f.row);await choose('Open details')
   assert.equal(f.row.classList.contains('on'),true)
   assert.deepEqual(f.calls,['row-select:parity-ticket'])
-  await inAct(()=>f.row.dispatchEvent(new window.MouseEvent('click',{bubbles:true})));await flush()
+  await inAct(()=>{f.row.dispatchEvent(new window.MouseEvent('click',{bubbles:true}))});await flush()
   assert.equal(f.row.classList.contains('on'),false)
 })
 
