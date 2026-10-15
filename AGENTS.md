@@ -7,6 +7,27 @@
   See [streaming thoughts](docs/rust-engine/streaming-thought-height.md).
   [measured: b77512f base Electron reproduction, 2026-10-15]
 
+- EPIC Mode, the final version (branch `epic/final`): the Opus take's architecture
+  with the best of the four takes folded in; comparison, credits, inventory and
+  verification in [EPIC Mode final](docs/rust-engine/epic-mode-final.md). The secret
+  switch is the last row of Settings › Developer, drawn in nothing but the background
+  until hovered (`--panel-2`), revealed in the theme accent when checked, invisible
+  again when unticked; stored as optional native `DesktopPreferences.epicMode`
+  (boolean only, absent = off). OFF CONTRACT: one preference subscription per window
+  (`epic/sync.ts`) and null-checked taps (`epic?.frame`/`epic?.tree` in App.tsx,
+  `epic?.refused` on `req`'s failure path; `interruptNode` returns the bare request
+  while off). Never add listeners, DOM or audio outside `epic/director.ts`, which
+  loads only by `import()` when on and removes everything when it stops. A tree is a
+  selection: a hire needs a recent `created`, a retirement live→archived. No effect
+  celebrates a request the engine refused or did not carry out (the interrupt waits
+  for `interrupted: true`), and a 100% usage reading is a reading, never "LIMIT".
+  One stage frame loop that sleeps when idle; the combo meter keeps it awake only
+  until its combo drops. Sounds are Web Audio synthesis and art is canvas drawing,
+  never assets. Check the strict renderer and test configs as well as root: the
+  test overlay must clear the inherited `exclude: ["tests"]`.
+  [decided: user 2026-10-14 23:38–23:43Z; verified from source: `epic/*`, `api.ts`,
+  `appfeed.ts`, 2026-10-15; branch `epic/final`]
+
 - The revealed Rainbow mode row appears only for Custom themes. Selecting a
   preset hides it without altering saved revealed/enabled/epoch preferences;
   returning to Custom restores its prior state. [decided: user/coordinator
