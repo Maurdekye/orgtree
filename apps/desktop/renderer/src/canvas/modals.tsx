@@ -18,10 +18,10 @@ import { lineageCount } from '../archived'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ChatInit, DirGrant, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
+  ChatInit, DirGrant, McpServerInfo, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
 } from '../types'
 import {
-  assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, getOrgAccounts,
+  assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, refreshMcpServers, getOrgAccounts,
   req, saveScope, watchdogAction,
 } from '../api'
 import { pickFolder } from '../picker'
@@ -311,8 +311,9 @@ export const orgDefaultTools = (tree: TreePayload): ToolGrant => ({
   mcp: [...(tree.default_tools?.mcp ?? ['*'])],
 })
 
-export function McpCurrentServers({ servers }: {
+export function McpCurrentServers({ servers, details = [] }: {
   servers: string[]
+  details?: McpServerInfo[]
 }) {
   return (
     <div className="hire-mcp-current">
@@ -325,7 +326,7 @@ export function McpCurrentServers({ servers }: {
         <div className="hire-mcp-tags" role="list" aria-label="currently registered MCP servers">
           {servers.map((s) => (
             <span key={s} className="chip mono" role="listitem">
-              {s}
+              <McpServerLabel name={s} details={details} />
             </span>
           ))}
         </div>
@@ -341,6 +342,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
   useAgyModelsRefresh()
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
   const [servers, setServers] = useState<string[]>(propServers ?? [])
+  const [mcpDetails, setMcpDetails] = useState<McpServerInfo[]>([])
   const [newPath, setNewPath] = useState('')
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
   // who `default` IS, straight off the same payload as the rows — the host
@@ -369,6 +371,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
       getMcpServers().then((r) => {
         if (!active) return
         setServers(r.servers ?? [])
+        setMcpDetails(r.details ?? [])
       }).catch(() => {})
     }
     if (propServers === undefined) {
@@ -513,13 +516,14 @@ export function HireDefaultsTab({ tree, slug, toast, close,
           <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetBlock>
         <SetBlock label="MCP Servers" hint={MCP_SERVERS_HINT}>
+          <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
           <SetToggle label="all registered MCP servers"
             labelContent="All registered servers (current and future)" checked={allMcp}
             onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
           {allMcp && (
-            <McpCurrentServers servers={servers} />
+            <McpCurrentServers servers={servers} details={mcpDetails} />
           )}
-          {!allMcp && <McpChecklist servers={servers}
+          {!allMcp && <McpChecklist servers={servers} details={mcpDetails}
             checked={(s) => tools.mcp.includes(s)}
             onToggle={(s, on) => setTools({
               ...tools,
@@ -580,6 +584,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   const [effort, setEffort] = useState(base.effort ?? '')
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
+  const [mcpDetails, setMcpDetails] = useState<McpServerInfo[]>([])
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
   const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
   useEffect(() => {
@@ -652,6 +657,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   useEffect(() => {
     getMcpServers().then((r) => {
       setServers(r.servers ?? [])
+      setMcpDetails(r.details ?? [])
     }).catch(() => {})
   }, [])
   const allMcp = tools.mcp.includes('*')
@@ -732,10 +738,11 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
         <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
         <div className="field-label">MCP Servers</div>
+        <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
         <p className="set-hint">{MCP_SERVERS_HINT}</p>
         <SetToggle label="all registered MCP servers" labelContent="All registered servers (current and future)" checked={allMcp}
           onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
-        {!allMcp && <McpChecklist servers={servers}
+        {!allMcp && <McpChecklist servers={servers} details={mcpDetails}
           checked={(s) => tools.mcp.includes(s)}
           onToggle={(s, on) => setTools({
             ...tools,
@@ -759,22 +766,45 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
 // MCP server checklist shared by the org / per-agent / pre-hire scope panels.
 interface McpChecklistProps {
   servers: string[]
+  details?: McpServerInfo[]
   checked: (s: string) => boolean
   onToggle: (s: string, on: boolean) => void
 }
 
-function McpChecklist({ servers, checked, onToggle }: McpChecklistProps) {
+function McpChecklist({ servers, details = [], checked, onToggle }: McpChecklistProps) {
   return (
     <>
       {servers.length === 0 && (
         <div className="hint dim">No MCP servers registered.</div>
       )}
       {servers.map((s) => (
-        <SetToggle key={s} label={s} labelContent={<span className="mono">{s}</span>}
+        <SetToggle key={s} label={s} labelContent={<McpServerLabel name={s} details={details} />}
           checked={checked(s)} onChange={next => onToggle(s, next)} />
       ))}
     </>
   )
+}
+
+const MCP_SOURCE_LABELS: Record<string, string> = {
+  'claude-code': 'Claude Code', 'codex-cli': 'Codex', antigravity: 'Antigravity', muse: 'Muse', opencode: 'OpenCode',
+}
+function McpServerLabel({ name, details }: { name: string; details: McpServerInfo[] }) {
+  const info = details.find(d => d.name === name)
+  return <span><span className="mono">{name}</span>{info && <span className="dim"> / {info.sources.map(s => MCP_SOURCE_LABELS[s] ?? s).join(', ')} / {info.transport}</span>}</span>
+}
+function McpRefresh({ onRead }: { onRead: (names: string[], details: McpServerInfo[]) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(false)
+  return <div className="set-hint">
+    <button type="button" disabled={busy} aria-label="Refresh MCP servers" onClick={async () => {
+      setBusy(true); setError(false)
+      try { const r = await refreshMcpServers(); onRead(r.servers ?? [], r.details ?? []) }
+      catch { setError(true) }
+      finally { setBusy(false) }
+    }}>{busy ? 'Refreshing...' : 'Refresh'}</button>{' '}
+    Rediscover installed harness configurations. Running agents keep their current servers.
+    {error && <span role="alert"> Could not refresh MCP servers.</span>}
+  </div>
 }
 
 const VIS_OPTIONS = [
@@ -1026,6 +1056,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     : { account_fallback: accountFallback === 'on' }
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
+  const [mcpDetails, setMcpDetails] = useState<McpServerInfo[]>([])
   // multi-account (D5): the node's binding — chosen WITH a cross-provider
   // switch (atomic, backend-required) or reassigned on its own; disclosure
   // (billing/standing) surfaces in the toast at the point of action
@@ -1048,6 +1079,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   useEffect(() => {
     getMcpServers().then((r) => {
       setServers(r.servers ?? [])
+      setMcpDetails(r.details ?? [])
     }).catch(() => {})
     getChat(slug, node.id, 1).then((c) => setInitInfo(c.init ?? null))
       .catch(() => {})
@@ -1490,9 +1522,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         </SetGroup>
 
         <SetGroup title="MCP Servers">
+        <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
         <p className="set-hint">{MCP_SERVERS_HINT} Changes restart this agent.</p>
         {servers.length === 0 && <div className="hint">No MCP servers registered.</div>}
-        {servers.map((s) => <SetToggle key={s} label={s}
+        {servers.map((s) => <SetToggle key={s} label={s} labelContent={<McpServerLabel name={s} details={mcpDetails} />}
           checked={(holdsAllMcp || tools.mcp.includes(s)) && parentHoldsMcp(s)}
           disabled={!parentHoldsMcp(s)} hint={!parentHoldsMcp(s) ? "The superior does not have this tool." : undefined}
           onChange={checked => setTools({ ...tools,

@@ -1320,8 +1320,14 @@ export interface CharterTemplateDirsPayload {
 }
 
 // GET /api/mcp-servers
+export interface McpServerInfo {
+  name: string
+  sources: string[]
+  transport: string
+}
 export interface McpServersPayload {
   servers: string[]
+  details?: McpServerInfo[]
 }
 
 // GET /api/host

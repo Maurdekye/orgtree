@@ -501,6 +501,8 @@ export const assignAccount = (slug: string, nid: string, account: string):
   }))
 export const getMcpServers = (): Promise<McpServersPayload> =>
   req('/api/mcp-servers')
+export const refreshMcpServers = (): Promise<McpServersPayload> =>
+  req('/api/mcp-servers/refresh', { method: 'POST' })
 export const getCharters = (): Promise<ChartersPayload> =>
   req('/api/charters')
 // Seed ~/.orgtree/charters from the bundled presets; never overwrites a
