@@ -27,7 +27,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Halt… / Unhalt… | Single-agent stop/release plus subtree/all subordinates variants when a team exists; read counts and partial outcome messages. |
 | Retire… / Dissolve… | Retire a leaf or explicitly dissolve a manager's subtree; submenu can leave the manager live while retiring all subordinates. Confirmation states the selected scope. |
 
-Some rows are submenu roots with distinct click and expansion behavior; read their visible effect and count. Do not infer a new management power from the same menu being reachable on a second surface. Tool-side authority and parameters live in `orgtree-team` and `orgtree-runtime` (orgtree-working › team/runtime).
+Some rows are submenu roots with distinct click and expansion behavior; read their visible effect and count. Do not infer a new management power from the same menu being reachable on a second surface. Tool-side authority and parameters live in `orgtree-team` (orgtree-working › team) and `orgtree-runtime` (orgtree-working › runtime).
 
 The user-root menu has a different organization-wide scope; see [user node](../user-node/SKILL.md). Pinned frame title bars also have menus for returning/opening windows, pinning and close; see [pinned windows](../pinned-windows/SKILL.md). A copy action copies the displayed object's identity and does not execute a path or modify the object.
 

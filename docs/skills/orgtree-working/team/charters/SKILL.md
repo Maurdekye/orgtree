@@ -19,5 +19,5 @@ Keep reusable agent/team notes in the appropriate workspace instead of editing o
 ## See also
 
 - [orgtree-tool-retool](../tool-retool/SKILL.md)
-- `orgtree-org-charter-md` (orgtree-app > org-settings)
-- `orgtree-agent-charter-tab` (orgtree-app > agent-settings)
+- `orgtree-org-charter-md` (orgtree-app › org-settings)
+- `orgtree-agent-charter-tab` (orgtree-app › agent-settings)

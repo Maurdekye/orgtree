@@ -12,9 +12,9 @@ Click opens the org-inbox viewer or raises an already pinned viewer. At far zoom
 
 The hub dot summarizes enabled, non-hidden connections: all connected, some connected or none connected use distinct styles. Hover for each hub's name/address and connected version, error or connecting state. It is connection evidence, not proof that a particular recipient has read a message. See [org connections](../../mailhub/org-connections/SKILL.md) for configuration.
 
-On desktop, dropping an agent on this tile grants the org-inbox audience; it does not change the agent's parent. The action can be refused by policy and reports an error. For routing, holder selection and outside-sender authority see `orgtree-org-inbox` and `orgtree-external-mail` (orgtree-working › mail). Hiding/disabling the tile is not a way to clear an agent's individual pending mail.
+On desktop, dropping an agent on this tile grants the org-inbox audience; it does not change the agent's parent. The action can be refused by policy and reports an error. For routing, holder selection and outside-sender authority see `orgtree-org-inbox` (orgtree-working › mail) and `orgtree-external-mail` (orgtree-working › mail). Hiding/disabling the tile is not a way to clear an agent's individual pending mail.
 
 ## See also
 
 - [orgtree-inbox-screens](../../desk/inbox-screens/SKILL.md)
-- `orgtree-org-inbox` (orgtree-working > mail)
+- `orgtree-org-inbox` (orgtree-working › mail)

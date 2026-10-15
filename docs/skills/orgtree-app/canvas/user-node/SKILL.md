@@ -26,7 +26,7 @@ The switchboard's auto toggle controls whether a newly arriving direct line open
 | Halt all agents… / Unhalt all agents… | Counted live set; the label becomes Unhalt only when every target is halted. Read per-target results. |
 | Retire all agents… | Whole-organization retirement confirmation; context retention does not mean unfinished docket work is complete. |
 
-These are human controls. They do not extend an agent's downward authority or turn a top-level agent into the user. Inspect the counted set and confirmation before a bulk action. For the relevant stop/session mechanics see `orgtree-tool-halt`, `orgtree-tool-unhalt` and `orgtree-tool-cheap-compact` (orgtree-working › runtime); for archiving a team see `orgtree-tool-dissolve` (orgtree-working › team).
+These are human controls. They do not extend an agent's downward authority or turn a top-level agent into the user. Inspect the counted set and confirmation before a bulk action. For the relevant stop/session mechanics see `orgtree-tool-halt` (orgtree-working › runtime), `orgtree-tool-unhalt` (orgtree-working › runtime) and `orgtree-tool-cheap-compact` (orgtree-working › runtime); for archiving a team see `orgtree-tool-dissolve` (orgtree-working › team).
 
 ## See also
 

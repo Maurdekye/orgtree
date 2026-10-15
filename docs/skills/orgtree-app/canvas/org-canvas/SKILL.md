@@ -16,7 +16,7 @@ The bottom-left HUD offers switchboard, full view, zoom in and zoom out. Off-scr
 
 On desktop, drag an agent's card body to move its subtree; buttons, fields, the credit bar and desk content keep their own interactions. The moving group includes descendant cards and their watchdog satellites. Near an edge the camera can pan to expose a distant destination. Escape or pointer cancellation abandons the drag without committing its structural operation.
 
-A valid drop on another live parent reparents the agent; a drop on the user root promotes it to top level through the human UI. Dropping among its current siblings uses the row/ring insertion preview for reordering. The engine still validates the operation; an optimistic landing can return on refusal. Do not describe an animation alone as a committed move. For exact tool-side authority/accounting, see `orgtree-tool-move` and `orgtree-tool-reorder` (orgtree-working › team).
+A valid drop on another live parent reparents the agent; a drop on the user root promotes it to top level through the human UI. Dropping among its current siblings uses the row/ring insertion preview for reordering. The engine still validates the operation; an optimistic landing can return on refusal. Do not describe an animation alone as a committed move. For exact tool-side authority/accounting, see `orgtree-tool-move` (orgtree-working › team) and `orgtree-tool-reorder` (orgtree-working › team).
 
 Dropping on the org inbox tile is a different action: it grants that agent the org-inbox audience rather than reparenting it. Read [org inbox tile](../org-inbox-tile/SKILL.md) before suggesting this gesture. A toast may offer undo; the broader contract is [toasts and undo](../../app-shell/toasts-and-undo/SKILL.md).
 

@@ -24,11 +24,11 @@ Native switches are bash (shell), web (web capability), edit (file editing), and
 
 Status reporting is always available. Missing group switches default on; explicit ancestor denials remain effective. The scope API rejects unknown group names and non-boolean values.
 
-Permission modes form the engine hierarchy plan < default < acceptEdits < bypassPermissions, bounded by ancestors. The staffing tool schema offers the latter three. Headless agents cannot answer an interactive plan/approval workflow merely because a guide names it. Each harness maps these modes differently; see `orgtree-harness-claude-code`, `orgtree-harness-codex`, `orgtree-harness-muse`, `orgtree-harness-opencode` and `orgtree-harness-antigravity` (orgtree-app › providers).
+Permission modes form the engine hierarchy plan < default < acceptEdits < bypassPermissions, bounded by ancestors. The staffing tool schema offers the latter three. Headless agents cannot answer an interactive plan/approval workflow merely because a guide names it. Each harness maps these modes differently; see `orgtree-harness-claude-code` (orgtree-app › providers), `orgtree-harness-codex` (orgtree-app › providers), `orgtree-harness-muse` (orgtree-app › providers), `orgtree-harness-opencode` (orgtree-app › providers) and `orgtree-harness-antigravity` (orgtree-app › providers).
 
 On the Claude/Codex lanes whose startup instructions describe the sensitive-path gate, writable grants alone do not clear protected components such as .git, .claude, .cargo and .vscode. A required approval can fail headlessly at a non-bypass mode. Use normal git operations for git's own internals, not manual lock-file manipulation or path respelling. This is not a universal claim about every harness's protected-path system; read the active lane's instructions.
 
-For a genuinely needed missing capability, use [request scope](../../user/tool-request-scope/SKILL.md) when that tool is available. Without its user group, ask your superior to grant the scope; do not work around the restriction. User settings are explained in `orgtree-agent-visibility-access`, `orgtree-agent-folders-tab` and `orgtree-agent-tools-tab` (orgtree-app › agent-settings).
+For a genuinely needed missing capability, use [request scope](../../user/tool-request-scope/SKILL.md) when that tool is available. Without its user group, ask your superior to grant the scope; do not work around the restriction. User settings are explained in `orgtree-agent-visibility-access` (orgtree-app › agent-settings), `orgtree-agent-folders-tab` (orgtree-app › agent-settings) and `orgtree-agent-tools-tab` (orgtree-app › agent-settings).
 
 ## See also
 

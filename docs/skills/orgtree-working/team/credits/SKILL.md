@@ -20,4 +20,4 @@ When a tool refuses capacity, report the actual payer, available room and requir
 
 - [orgtree-tool-reallocate](../tool-reallocate/SKILL.md)
 - [orgtree-tool-request-credits](../../user/tool-request-credits/SKILL.md)
-- `orgtree-org-policies-cost` (orgtree-app > org-settings)
+- `orgtree-org-policies-cost` (orgtree-app › org-settings)
