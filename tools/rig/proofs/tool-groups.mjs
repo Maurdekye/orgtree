@@ -6,7 +6,7 @@ import { startFakeLlm } from '../fakellm.mjs'
 import { seed } from '../fixture.mjs'
 import { Proof } from '../proof.mjs'
 
-const groups = ['docket','team','messaging','inspection','watchdogs','runtime','user']
+const groups = ['docket','team','messaging','inspection','watchdogs','runtime','user','logo']
 const off = Object.fromEntries(groups.map(g => [g,false]))
 const cases = [
   ['default', {}],
@@ -45,7 +45,7 @@ export default async function(rig) {
       p.check(name+': identity instructions captured',identity.length>1000)
       p.check(name+': always has status',org.includes('orgtree_status'),org)
       if(mode==='default') p.check(name+': all groups enabled by default',
-        ['work','hire','message','chart','watchdog','halt','ask'].every(n=>org.includes('orgtree_'+n)),org)
+        ['work','hire','message','chart','watchdog','halt','ask','org_logo'].every(n=>org.includes('orgtree_'+n)),org)
       if(mode==='alloff'||mode==='groupsoff') {
         p.check(name+': all Orgtree groups omitted',org.length===1,org)
         p.check(name+': docket/staff/watchdog instructions omitted',!identity.includes('THE DOCKET')&&!identity.includes('orgtree_hire')&&!identity.includes('orgtree_watchdog'))

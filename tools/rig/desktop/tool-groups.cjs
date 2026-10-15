@@ -14,6 +14,7 @@ module.exports = async (page, { args }) => {
   await open('boss')
   const before = await snapshot()
   await page.click('input[aria-label="Docket work"]')
+  await page.click('input[aria-label="Organization Logo"]')
   await page.screenshot('scope-docket-off')
   await page.click({selector:'button',text:'^save$',regex:true,scroll:true})
   await page.waitFor('input[aria-label="Docket work"]',{gone:true})

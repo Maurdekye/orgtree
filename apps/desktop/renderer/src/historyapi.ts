@@ -2,7 +2,7 @@ import { req, markTreeStale } from './api'
 import type { OpRequest, OpResult } from './types'
 import type { HistoryDirection } from './undokeys'
 
-export type HistoryKind = 'move' | 'hire' | 'retire' | 'retool'
+export type HistoryKind = 'move' | 'hire' | 'retire' | 'retool' | 'logo'
 export interface HistoryEntryRef { id: number; kind: HistoryKind; label: string }
 export interface HistoryTarget extends HistoryEntryRef { at: string; confirm_required?: boolean }
 export interface HistoryRow extends HistoryEntryRef { at: string; state: 'done' | 'undone' | 'refused'; reason?: string }

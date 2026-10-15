@@ -19,7 +19,7 @@ async function key(doc = document, init: KeyboardEventInit = {}, element: EventT
   return event
 }
 
-for (const kind of ['move', 'hire', 'retire', 'retool'] as const) test(`durable ${kind} shortcuts survive absent toasts and walk several entries then redo`, async t => {
+for (const kind of ['move', 'hire', 'retire', 'retool', 'logo'] as const) test(`durable ${kind} shortcuts survive absent toasts and walk several entries then redo`, async t => {
   shown(document)
   const calls: [string, number][] = []
   const controller = new HistoryController({ read: async () => history(3, null, kind), report: () => {}, changed: () => {},

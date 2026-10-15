@@ -69,7 +69,7 @@ export interface DirGrant {
 }
 
 // schema.py ToolGrant — `mcp` is a sorted server-name list; ["*"] = all
-export type OrgtreeToolGroup = 'docket' | 'team' | 'messaging' | 'inspection' | 'watchdogs' | 'runtime' | 'user'
+export type OrgtreeToolGroup = 'docket' | 'team' | 'messaging' | 'inspection' | 'watchdogs' | 'runtime' | 'user' | 'logo'
 export interface ToolGrant {
   bash: boolean
   web: boolean

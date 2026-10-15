@@ -74,9 +74,9 @@ function scopeBodies() {
   return sent
 }
 
-async function mount(n: CanvasNode = node()): Promise<HTMLElement> {
+async function mount(n: CanvasNode = node(), others: CanvasNode[] = []): Promise<HTMLElement> {
   const view = await mountView(
-    <NodeConfig node={n} map={new Map([[n.id, n]])} tree={tree()} slug="org"
+    <NodeConfig node={n} map={new Map<string, CanvasNode>([n, ...others].map(row => [row.id, row]))} tree={tree()} slug="org"
       op={() => Promise.resolve({} as OpResult)}
       toast={() => {}} codexProvider={codexProvider()} close={() => {}} />,
     (el) => el,
@@ -135,7 +135,7 @@ test('settings retain configured rights while the current chain narrows the disp
   assert.equal(selectWith(el, 'bypassPermissions').value, 'acceptEdits')
   assert.equal(selectWith(el, 'full').value, 'team')
   assert.equal([...el.querySelectorAll<HTMLInputElement>('.set-row input[type="checkbox"]')]
-    .filter((box) => box.checked).length, 11)
+    .filter((box) => box.checked).length, 12)
   await pickEffort(el, 2)
   await save(el)
   assert.equal(sent.length, 1, 'the configured panel must reach the actual scope POST')
@@ -188,4 +188,34 @@ test('§3 CONTROL: an edited tool and permission mode are sent whole', async (t:
   assert.equal(Object.values(tools).filter((v) => v === false).length, 1)
   assert.equal(sent[0]!.permission_mode, 'default')
   assert.equal('add_dirs' in sent[0]!, false)
+})
+
+test('Logo group defaults on and an explicit off is saved in the inherited tool grant', async (t: TestContext) => {
+  useFakeClock(); installFetch(new FakeServer())
+  t.after(async () => { realClock() })
+  const sent = scopeBodies()
+  const el = await mount()
+  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization Logo"]')
+  assert.equal(box?.checked === true, true, 'Logo group must exist and default on')
+  assert.equal(box?.disabled === false, true)
+  const { act } = await import('react')
+  await act(async () => { box!.click() })
+  await save(el)
+  assert.equal(sent.length, 1)
+  const tools = sent[0]!.tools as { orgtree?: { logo?: boolean } }
+  assert.equal(tools.orgtree?.logo, false)
+})
+
+test('Logo group cannot exceed the superior grant', async (t: TestContext) => {
+  useFakeClock(); installFetch(new FakeServer())
+  t.after(async () => { realClock() })
+  const child = node(), parent = node()
+  parent.id = 'manager'
+  parent.scope!.tools.orgtree = { logo: false }
+  child.parent = parent.id
+  child.scope!.tools.orgtree = { logo: true }
+  const el = await mount(child, [parent])
+  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization Logo"]')
+  assert.equal(box?.checked === false, true, 'Logo group must reflect inherited denial')
+  assert.equal(box?.disabled === true, true, 'inherited denial must disable the switch')
 })

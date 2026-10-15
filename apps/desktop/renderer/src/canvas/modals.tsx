@@ -909,6 +909,7 @@ const ORGTREE_GROUPS: ReadonlyArray<readonly [OrgtreeToolGroup, string, string]>
   ['watchdogs', 'Watchdogs', 'Create and manage persistent watchers. Command watchers also need Run commands.'],
   ['runtime', 'Runtime and accounts', 'Interrupt, halt or resume agents, change their account and inspect capacity marks.'],
   ['user', 'User questions and delivery', 'Ask questions, present documents, send files and request more scope or credits.'],
+  ['logo', 'Organization Logo', 'Set or remove the organization Logo immediately, with logging and undo history.'],
 ]
 
 function OrgtreeGroupToggles({ value, ceiling, onChange }: {
