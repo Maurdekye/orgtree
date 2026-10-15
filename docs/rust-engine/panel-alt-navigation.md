@@ -26,12 +26,32 @@ serves organization and agent galleries, dockets, team dockets and desk tabs.
 
 The follow-up's base is release4.3.0 `f1eed04`; it belongs to the patch after
 that release. Tests-only `7694157` prepares actual-active-element opening
-events without a fixture row click. The final prepared suite has51 cases:
-the original36, ten opening/foreign-document arrows, four no-focus-reclaim
-poll controls and one already-focused-child control. Expected baseline
-10 failures/41 passes and patched51 passes are unmeasured. No author renderer
-runtime or typecheck was run; coordinator will arrange exact-SHA rig review.
+events without a fixture row click. Rig-haiku independently approved exact
+`013d43bb7e5661bd64e359075940d27ad1086b23` with these measured results:
+
+- Final suite: 51/51 pass, exit0/3s. It includes the original36, ten
+  opening/foreign-document arrows, four no-focus-reclaim poll/parent-refresh
+  controls and one already-focused-child control. The same51 tests with only
+  the exact release helper injected give41 passes and10 genuine opening-focus
+  assertion failures, exit1/2s. Neither run skips or cancels tests. The earlier
+  tests-only checkpoint executes50 cases:40 pass and the same10 fail.
+- Original release-base suite:36/36 pass. Four adjacent suites execute43 cases
+  at both base and tip:42 pass and the same shortcuts inventory assertion fails
+  because existing EPIC director bindings are not listed. Author compared all
+  per-test result lines; none changed. This is not a full green adjacent run.
+- Root TypeScript check:0 diagnostics at both base and tip over320 source files.
+  Strict renderer diagnostics remain29/29, and strict tests remain830/830.
+  Author compared all diagnostic lines:0 added or removed. The test config
+  explicitly includes the renderer tests with `exclude:[]`; strict checks are
+  not clean. Skills-tree coverage passes9/9 at both base and tip.
+
 The portable `panel-focus-check.mjs` injects only the release helper for red.
+Saved receipts are `panel-{red,green}-013d43b.log`, `adjacent-*.log`,
+`tc-*.log` and `skills-coverage-*.log` in the verifier's
+`batch-panelfocus-013d43b` evidence. The author inspected the saved logs and
+complete result JSON; no separate author runtime/typecheck was launched.
+Native OS focus, real keyboard delivery and switching desk tabs while typing
+in an external composer remain unmeasured. These are synthetic jsdom checks.
 
 Already-consumed chords, inputs, textareas, selects, contenteditable elements,
 question cards and controls owning arrows keep the event. Lookups use the

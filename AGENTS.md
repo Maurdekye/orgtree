@@ -14,10 +14,10 @@
   over their filtered, unfolded row order. Their list root takes focus once
   on opening so auto-selected entries accept arrows without a click; keep an
   already focused descendant and never reclaim focus on later list polls.
-  Preserve editor/ask ownership and
-  boolean draft markers on reply/ask components, including attachments and
-  inactive question tabs; virtualized docket selections mount before nearest
-  scrolling. Mail's own handler stays unchanged. Contract/evidence:
+  Preserve editor/ask ownership and boolean draft markers on reply/ask
+  components, including attachments and inactive question tabs; virtualized
+  docket selections mount before nearest scrolling. Mail's own handler stays
+  unchanged. Contract/evidence:
   [panel Alt arrows](docs/rust-engine/panel-alt-navigation.md).
   [decided: user/coordinator 2026-10-15; verified from source:
   `canvas/{panelsteps,gallery,docket,mail,asks}.ts*`, `shortcuts.ts`]
