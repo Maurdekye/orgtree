@@ -7,9 +7,14 @@
 //      now do first. The engine ends its agents' CLIs itself (each logs a clean
 //      exit), stops PostgreSQL cleanly, and the host removes the descriptor and
 //      exits 0, so the task's restart-on-failure would not start it again.
-//   B  the task ended: Task Scheduler's End terminates the host process alone
-//      (the boot step's way when the engine cannot be asked). The engine sees
-//      its host exit and stops the same way by itself.
+//   B  the installer's fallback when it cannot ask (another administrator):
+//      it records a stop request in its own record, then Task Scheduler's End
+//      terminates the host process alone. Since the core-lifecycle recovery
+//      (2026-10-12) the engine outlives its host; it reads the request (in a
+//      rig run from its own HKCU key, ORGTREE_RIG_STOP_KEY) and stops the same
+//      way by itself (docket installer-s-end-task-fallback-no-longer-stops-th).
+//   C  a bare host exit, with no request: the engine keeps running (the
+//      recovery rule), and B's request, older than this engine, stops nothing.
 //   Both with a Claude agent (ada) and a Codex agent (lu) mid-turn. Either
 //   way the engine runs its OWN shutdown and stops each agent itself; nothing
 //   kills the engine. How gently that shutdown ends each CLI is the engine's
@@ -48,6 +53,8 @@ export default async function (rig) {
   writeRun(rig.dir, { busy: new Date().toISOString() })
   await stopRun(rig.dir, { keep: true })
 
+  // where this run's engines read the installer's stop request (rig mode only)
+  const stopKey = `Software\\OrgtreeRigStop-${path.basename(rig.dir)}`
   const ui = path.join(rig.dir, 'host-ui')
   fs.mkdirSync(ui, { recursive: true })
   fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>rig</title>')
@@ -69,6 +76,7 @@ export default async function (rig) {
     ORGTREE_TAILSCALE_BIN: path.join(rig.dir, 'bin', 'tailscale.cmd'),
     ORGTREE_FAKECLI_DIR: rig.fakeDir,
     ORGTREE_FAKECLI_HOME: path.join(rig.data, 'rig-home'),
+    ORGTREE_RIG_STOP_KEY: stopKey,
   }
   const descriptor = path.join(rig.data, 'engine-attach.json')
   const pgLog = path.join(rig.data, 'pg', 'cluster', 'log', 'postgres.log')
@@ -135,26 +143,59 @@ export default async function (rig) {
     p.file('host-A.stderr.txt', a.stderr())
   }
 
-  // ------------------------------------------------------------ B: the task ended
+  // ------------------------------------------------------------ B: the installer's fallback
+  const reg = args => spawnSync('reg', args, { encoding: 'utf8', windowsHide: true })
+  try {
   {
     const b = await startHost()
     const before = await agentsMidTurn(b.view, 'B')
     const pgFrom = size(pgLog), logFrom = engineText().length
     const t0 = Date.now()
+    // The installer's own record (here the run's HKCU key): the request's time in Unix ms.
+    const recorded = reg(['add', `HKCU\\${stopKey}`, '/v', 'StopRequested', '/t', 'REG_QWORD', '/d', String(Date.now()), '/f'])
+    p.check('B: the stop request is recorded', recorded.status === 0, { out: (recorded.stdout || recorded.stderr || '').trim() })
     // Task Scheduler's End: the host process alone is terminated (no tree kill).
     const killed = spawnSync('taskkill', ['/PID', String(b.host.pid), '/F'], { encoding: 'utf8', windowsHide: true })
     p.check('B: the host process alone is terminated', killed.status === 0, { out: (killed.stdout || killed.stderr || '').trim() })
     const gone = await rig.waitFor(() => !alive(b.attach.enginePid) ? Date.now() : null, { what: 'the engine to stop after its host', timeout: STOP_WAIT_MS }).catch(() => null)
     const seconds = gone ? Number(((gone - t0) / 1000).toFixed(1)) : null
-    p.check('B: the engine stops by itself once its host is gone', !!gone, { seconds })
+    p.check('B: the engine stops by itself once its host is gone and the request is recorded', !!gone, { seconds })
     const textB = engineText().slice(logFrom)
-    p.check('B: the engine saw its host exit and ran its own shutdown', /parent process exited; shutting down/.test(textB) && /engine stopping/.test(textB))
+    p.check('B: the engine read the installer\'s request and ran its own shutdown', /stop requested by the installer's record/.test(textB) && /engine stopping/.test(textB))
     const byEngineB = stoppedByEngine(textB)
     p.check('B: the engine stopped each agent itself', AGENTS.every(name => byEngineB[name]), byEngineB)
     p.note('B: how each agent\'s CLI ended (an exit line: ended cleanly; none: terminated)', ends(before))
     p.check('B: PostgreSQL shut down cleanly', cleanShutdown(pgFrom))
     p.note('B: the attach descriptor the terminated host could not remove', { left: fs.existsSync(descriptor) })
     p.file('host-B.stderr.txt', b.stderr())
+    if (!gone && alive(b.attach.enginePid)) {
+      // still running (an engine from before the request existed): stop it the asked way
+      await fetch(`http://127.0.0.1:${b.attach.port}/api/desktop/shutdown`, { method: 'POST', headers: { [TOKEN_HEADER]: b.attach.token } }).catch(() => null)
+      await rig.waitFor(() => !alive(b.attach.enginePid), { what: 'the engine B left running to stop', timeout: STOP_WAIT_MS }).catch(() => null)
+    }
+    fs.rmSync(descriptor, { force: true })
+  }
+
+  // ------------------------------------------------------------ C: a bare host exit
+  {
+    const c = await startHost()
+    const logFrom = engineText().length
+    const killed = spawnSync('taskkill', ['/PID', String(c.host.pid), '/F'], { encoding: 'utf8', windowsHide: true })
+    p.check('C: the host process alone is terminated, with no request', killed.status === 0, { out: (killed.stdout || killed.stderr || '').trim() })
+    await sleep(10000)
+    const answer = await fetch(`http://127.0.0.1:${c.attach.port}/api/desktop/identity`, { headers: { [TOKEN_HEADER]: c.attach.token } }).then(r => r.ok ? r.json() : null).catch(() => null)
+    p.check('C: the engine keeps running and answering after its host exits (the recovery rule)', alive(c.attach.enginePid) && answer?.pid === c.attach.enginePid)
+    const textC = engineText().slice(logFrom)
+    p.check('C: B\'s request, older than this engine, stopped nothing', !/stop requested by the installer's record/.test(textC))
+    p.note('C: what the engine said about the older request', { stale: /a stop request from before this engine started is ignored/.test(textC) })
+    // stopped the asked way, so the run's own engine can start again
+    await fetch(`http://127.0.0.1:${c.attach.port}/api/desktop/shutdown`, { method: 'POST', headers: { [TOKEN_HEADER]: c.attach.token } }).catch(() => null)
+    const stopped = await rig.waitFor(() => !alive(c.attach.enginePid) ? true : null, { what: 'the engine C left running to stop when asked', timeout: STOP_WAIT_MS }).catch(() => null)
+    p.check('C: asked through its descriptor, that engine then stops', !!stopped)
+    p.file('host-C.stderr.txt', c.stderr())
+  }
+  } finally {
+    reg(['delete', `HKCU\\${stopKey}`, '/f'])
   }
 
   // The run's own engine again, so `rig down` ends it the usual way.
