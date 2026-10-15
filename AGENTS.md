@@ -108,6 +108,16 @@
   `canvas/OrgCanvas.tsx`; measured: `tools/rig/epic-mode-visual.mjs` wheel scene,
   2026-10-15]
 
+- EPIC Mode must not strobe: never more than three flashes of the window in a second
+  (photosensitivity). An effect's repeated flashes come `FLASH_EVERY_MS` (360 ms) apart
+  (floods of flashing events and the brown-out flicker are not bounded yet: see the doc's
+  Limits), and urgent mail's alarm tints every window showing the org in smooth pulses
+  0.8 s apart (never under 0.4 s), with a klaxon at EPIC's normal level, until the mail
+  is read or for 8 s ([EPIC Mode final](docs/rust-engine/epic-mode-final.md)).
+  [decided: user 2026-10-15; verified: `epic/director.ts`, `epic/stage.ts`; measured:
+  `epicmode-comfort`, `epicmode-urgent`, `tools/rig/epic-mode-visual.mjs` urgent section,
+  2026-10-15]
+
 - Personal global instruction files are shared read-only across harnesses, with
   canonical dedup against the CLI's actual account/profile native files. Use
   `startup::snapshot` for launch text and digest together; edits belong to the

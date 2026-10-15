@@ -219,7 +219,7 @@ means the agent's name rides under the word.
 | **Freeze** (`frozen` pulse or `frozen` set) | **The ice spike**: a crown of crystals erupts from the card, spikes burst out of it and an ice slab frosts over it, snow falls, then the crystals shatter; **FROZEN!** + name, cold flash, shake | Ice crack, crystalline cluster, deep whump (`ice`) |
 | Usage-limit freeze (`frozen.until`/`limit`, `limit_locked`) | The ice spike with a brown-out flicker and falling sparks, **LIMIT HIT!** + name | Ice and power failing (`powerFail`) |
 | Thaw | Ice shards burst out, warm glow, **THAWED!** + name | Rising glassy arpeggio, melting sweep (`thaw`) |
-| Halt | Three red flashes and rings, **HALTED** + name, shake | Klaxon over a boom (`halt`) |
+| Halt | Three red flashes and rings, 0.36 s apart, **HALTED** + name, shake | Klaxon over a boom (`halt`) |
 | Unhalt | Green flash, beam, **RESUMED!** + name | Power back up into a chord (`resume`) |
 | **Interrupt** (the call, once the engine answered `interrupted`; a killed turn) | **A stop sign slammed down** on the card, its name under it, red shockwave, sparks, hard shake | Brake screech into a metallic impact (`stop`) |
 | Killswitch on / off | Red screen, **ALL STOP**, meteors, cracked glass, biggest shake / green flash, **ALL GO!**, fireworks | Klaxon and explosion / power up and victory fanfare |
@@ -248,10 +248,10 @@ means the agent's name rides under the word.
 | **Message spark** (agent → agent) | **Lightning** from sender to recipient, sparks at both ends, **ZAP!** | Electric arc with crackle (`zap`) |
 | The user sends / mail to the user | Gold comet from the eye, **INCOMING!** / gold lightning to the eye, **FOR YOU!** | Rocket launch / high zap and notice |
 | Org inbox (outside mail) | A meteor strikes the org-inbox tile, **OUTSIDE MAIL!** | Explosion |
-| User inbox grew / urgent mail | **MAIL!** at the ask bell / red-blue siren flashes, a giant **!** | Chime / siren |
+| User inbox grew / urgent mail | **MAIL!** at the ask bell / **the alarm**: every window showing the org tinted red, deepest at the edges, in smooth pulses 0.8 s apart under **URGENT MAIL!** + sender, until the mail is read or for 8 s; a giant **!**, shake | Chime / a klaxon and a red ping from the ask bell every pulse (`klaxon`) |
 | Question opened / answered | Giant **?**, lightning from the sky, flash, ring, name / **ANSWERED!** + name, rising sparks | Three brass hits over a timpani roll (`question`) / harp glissando |
 | Document presented | Beam, **TA-DA!** + name, confetti | Two-note brass ta-da |
-| Ticket opened / closed / flagged | **NEW TICKET!** at the docket bell / fireworks, confetti rain, **TICKET CLOSED!** / siren flashes, **!**, **ATTENTION!** | Rubber stamp / victory fanfare / siren |
+| Ticket opened / closed / flagged | **NEW TICKET!** at the docket bell / fireworks, confetti rain, **TICKET CLOSED!** / red and blue flashes 0.36 s apart, **!**, **ATTENTION!** | Rubber stamp / victory fanfare / siren |
 | **Watchdog fires** | A radar sweep at the watchdog, a comet from it, paw prints, **WOOF!** + name | Two synthesized barks over a sonar ping (`bark`, `ping`) |
 | Watchdog created / removed | Paw prints, **GOOD DOG!** / grey puff | Small bark / sleep |
 | Audience granted / revoked | Triple rainbow lightning between the pair, **AUDIENCE!** / grey puff | Chime / deflate |
@@ -526,6 +526,95 @@ visual-before):
 | Wheel capture (tip) | Passed, with native wheel input: every one of 11 wheels played what it moved. The canvas zoomed in and out (0.24 ↔ 0.277): one zoom effect each. The pinned chat scrolled up and back (1256 ↔ 1136 px), the agents list and the docket down (0 → 120 px): one scroll effect each, pointing the way it went. The pinned chat at its newest line, the agents list and the docket at their tops, and the camera at its limit (12): nothing. Zooming back out from the limit played zoomOut. Each effect started 37 to 68 ms after its wheel (the capture draws at 30 frames a second). No console errors. 47 PNGs: 41 as before and 6 of the wheel |
 | Wheel capture (`7f5f27f`) | Failed as expected, 7 of 11: the pinned chat scrolling up and down played zoomIn and zoomOut, and at its newest line zoomOut; the agents list scrolling down played zoomOut, and at its top zoomIn; the docket at its top played scroll; the camera at its limit played zoomIn. The canvas zooms and the docket's scroll were already right |
 
+### Urgent mail sounds the alarm (2026-10-15)
+
+The user tested urgent mail on the 4.3.0 candidate: "yep, it has an effect,
+but it's not significantly more impressive or eye catching than anything else",
+and asked for "a massive blaring alarm that tints and fades the entire screen",
+"not excessively loud but very attention demanding and obnoxious" (docket
+`epic-mode-make-urgent-mail-s-effect-much-more-ey`, merged into
+`epic-mode-next-round-more-shake-and-blur-a-small` as its part 5). The old
+effect was a siren whoop, four red and blue full-window flashes 210 ms apart and
+a giant **!**: short, and at 4.8 flashes a second above the three-a-second
+limit.
+
+**The alarm.** Urgent mail is now the loudest moment in the show:
+
+- every window the show draws in (the main window and any popped-out one) is
+  tinted red, deepest at its edges (the middle at about a third of the edge's
+  strength, so the content stays readable), at most 0.34 opaque, under a big
+  **URGENT MAIL!** banner naming the sender (`Stage.alarm`);
+- the tint and the banner rise and fall in smooth pulses, one every 0.8 s
+  (1.25 a second), never a hard flash;
+- once a pulse, a klaxon cycle (`klaxon`: two notes a minor third apart, each a
+  buzzing square ground against a sawtooth a semitone below it, under an 11 Hz
+  warble) and a red ping ring from the ask bell. The klaxon peaks at the
+  siren's level and plays at EPIC's normal gain: it is obnoxious by its
+  character, not by its volume;
+- a short shake and a giant **!** at the ask bell mark the start.
+
+It ends when the urgent mail is read (the org's `urgent_unread` falls), when
+another urgent mail starts its own alarm, when EPIC Mode stops, or by itself
+after 8 s (ten pulses), fading out over 0.8 s. It plays once per urgent
+message: it fires when `urgent_unread` rises, so the same tree delivered again
+plays nothing, and urgent mail already waiting when EPIC Mode turns on is part
+of the first tree, the baseline. Another organization's urgent-mail notice, in
+the window the user is looking at, sounds the same alarm, which then ends only
+by its bound. EPIC Mode has no mute or volume setting of its own, so the alarm
+plays at the normal level. All of it is in `src/epic` (director, stage and
+audio), loaded only while EPIC Mode is on.
+
+**Tests.** `epicmode-urgent` gives each window's stage a recording context that
+remembers its `globalAlpha` and notes, frame by frame (a frame starts at the
+stage's `clearRect`), the strongest fill covering the whole window: the tint's
+level over time. Urgent mail must tint the whole window strongly, still be
+tinting almost three seconds on, pulse with each rise at least 0.4 s after the
+last and never more than three in a second, and tint a popped-out window
+showing the org too. One sound must repeat as the alarm, at no gain above 1.
+Reading the mail must end it within a second, and unread it must end within ten
+seconds. Ordinary mail must not tint the window or repeat a sound, and the same
+urgent mail delivered again must stage nothing. The visual capture's urgent
+section photographs the alarm in the stage scene (now with an ask bell) in
+Charcoal and in Light: before it, at a pulse's peak (0.4 s) and trough (0.8 s),
+at a peak 3.6 s on and after it ended (9 s). It measures the redness (red minus
+the mean of green and blue) of a corner and of the middle against the picture
+before it.
+
+### Flashes at most three a second (2026-10-15)
+
+The user found the "ticket flagged" (attention) effect flashing red and blue
+four times about 210 ms apart, roughly 4.8 flashes a second, above the
+three-a-second photosensitivity guideline, and asked to "slow it to at most 3
+per second, keeping the same look" (docket
+`epic-mode-next-round-more-shake-and-blur-a-small`, part 6). A halt flashed red
+three times 240 ms apart, about 4.2 a second, and the coordinator ruled that it
+is slowed the same way. Both now space their flashes `FLASH_EVERY_MS` = 360 ms
+apart (2.8 a second), with the same count, colours, strength and length, and
+the halt's three red rings still go out with its flashes. 360 ms also lands the
+halt's first and last flash on the first and last beat of its alarm, whose
+sound is unchanged. Every other flash is a single one per event.
+
+**Tests.** `epicmode-comfort` notes every `Stage.flash` and `Stage.ring` call
+while one attention and one halt play. Each must keep its look (the same count,
+colours, strength and length, and the halt's rings starting with its flashes)
+and flash at most three times a second: each flash at least a third of a second
+after the one before, and never more than three starting in any one second.
+
+Measured at `93f201d` with a clean tree, under the machine build lock and a
+4,096 MB kernel job (C:\orgtree-build\epic-final\next1: check, visual,
+visual-before):
+
+| Check | Result |
+| --- | --- |
+| Root typecheck | Exit 0 |
+| Strict renderer configuration | 29 diagnostics at the tip and 29 at `f1eed04` (clean checkout): none added, none removed, none in EPIC files |
+| Strict test configuration | 830 and 830: none added, none removed; all eight EPIC suites are in the file list |
+| Green (tip) | 63 of 63 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9, urgent 6, comfort 2 |
+| Before (`f1eed04`) | 57 of 63 pass. The six that fail are the four alarm tests and the two flash-rate tests |
+| Red (`b77512f`) and Opus (`fdd645f`) controls | Not executed: their bundles no longer build, because the tip's `canvas/modals.tsx` imports `refreshSkills` and `refreshGlobalInstructions`, which their `api.ts` lacks |
+| Urgent capture (tip) | Passed in Charcoal and Light: the corner's redness 70 and 72 at a pulse's peak, 21 and 22 at a trough, 70 and 72 at a peak 3.6 s on, 0 after the 8 s end; the middle's 26 and 25. 57 PNGs, no console errors |
+| Urgent capture (`f1eed04`) | Failed as expected: no redness at any moment, in either theme |
+
 ## Limits
 
 - Synthetic state and transports only: no live organization, provider
@@ -550,6 +639,10 @@ visual-before):
   they land at the field's right edge on the line of the last hard break, on
   the canvas and in a pinned desk alike. The caret fix left this alone: the
   4.3.0 release cut asked for nothing new.
+- Until the stage merges flashes (the next slice of the round), a flood of
+  flashing events, such as several questions at once, can still flash more than
+  three times a second, and the brown-out flicker (a usage limit, a dropped
+  socket) dips the window dark up to five times in about a second.
 - A wheel's effect waits for its outcome, so it starts one or two frames after
   the wheel (37 to 68 ms in the 30 frames-a-second capture) instead of at once.
   A scroll the page makes on its own within those six frames, such as a chat
