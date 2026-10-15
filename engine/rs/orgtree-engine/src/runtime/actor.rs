@@ -726,6 +726,11 @@ struct Actor {
     /// Claude: the lines now arriving belong to a turn the CLI started by
     /// itself, cancelled here, until its result or the next turn's start
     claude_own: bool,
+    /// A provider compaction in progress: its desk row's seq and body. Set
+    /// only by a harness-reported start, never invented.
+    compact_open: Option<(i64, Value)>,
+    /// Codex: the compaction item closed the row, so `thread/compacted` adds none
+    compact_settled: bool,
     /// wake notes for background results that settled while a turn ran: that
     /// turn took them, unless the CLI starts a turn of its own within
     /// `BG_GRACE` of its end (`bg_grace`), which shows it did not
@@ -839,6 +844,8 @@ impl Actor {
             bg_wake: Vec::new(),
             bg_wake_due: None,
             claude_own: false,
+            compact_open: None,
+            compact_settled: false,
             bg_in_turn: Vec::new(),
             bg_grace: None,
             held: false,
@@ -3947,15 +3954,15 @@ impl Actor {
                         self.own_turn_cancelled("Claude Code CLI", &session).await;
                     }
                 }
+                Some("status") => match v["status"].as_str() {
+                    Some("compacting") => self.compact_start().await?,
+                    None if v["compact_result"] == "failed" => self.compact_close("failed", Value::Null).await?,
+                    _ => {}
+                },
                 Some("compact_boundary") => {
-                    let client = self.engine.db.get().await?;
                     crate::domain::runtime_notices::compacted(&self.engine,self.org_id,self.id,!self.turn.as_ref().map(|t|t.compact).unwrap_or(false)).await?;
                     let pre = v.pointer("/compact_metadata/pre_tokens").cloned().unwrap_or(Value::Null);
-                    let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact",
-                                      "pre_tokens": pre });
-                    self.convo.append(&client, row).await?;
-                    drop(client);
-                    self.text_landed();
+                    self.compact_close("done", pre).await?;
                 }
                 _ => {}
             },
@@ -4026,6 +4033,13 @@ impl Actor {
                 }
                 self.stream("thinking", json!({ "text": text }));
             }
+            "item/started" if p["item"]["type"] == "contextCompaction" => self.compact_start().await?,
+            "item/completed" if p["item"]["type"] == "contextCompaction" => {
+                self.compact_settled = self.compact_open.is_some();
+                if self.compact_settled {
+                    self.compact_close("done", Value::Null).await?;
+                }
+            }
             "item/started" => self.on_codex_item(&p["item"], false).await?,
             "item/completed" => self.on_codex_item(&p["item"], true).await?,
             "turn/plan/updated" => self.on_codex_plan(p).await?,
@@ -4048,11 +4062,10 @@ impl Actor {
             }
             "thread/compacted" => {
                 crate::domain::runtime_notices::compacted(&self.engine,self.org_id,self.id,true).await?;
-                let client = self.engine.db.get().await?;
-                let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact" });
-                self.convo.append(&client, row).await?;
-                drop(client);
-                self.text_landed();
+                // the compaction item may already have closed its row
+                if !std::mem::take(&mut self.compact_settled) {
+                    self.compact_close("done", Value::Null).await?;
+                }
             }
             "turn/completed" => {
                 let turn = &p["turn"];
@@ -4109,7 +4122,9 @@ impl Actor {
                 let item = &p["item"];
                 let done = method == "item/completed" || item["status"].as_str().is_some_and(|s| s != "inProgress");
                 // a compaction may run outside any turn (`/compact`)
-                if item["kind"] == "compaction" && item["status"] != "inProgress" {
+                if item["kind"] == "compaction" && item["status"] == "inProgress" {
+                    self.compact_start().await?;
+                } else if item["kind"] == "compaction" {
                     self.on_muse_compaction(item).await?;
                 } else if of_ours(&item["turnId"]) {
                     self.on_muse_item(item, done).await?;
@@ -4458,12 +4473,64 @@ impl Actor {
         let outcome = item["outcome"].as_str().unwrap_or("");
         if outcome != "compacted" {
             tracing::info!(agent = %self.name, outcome, reason = ?item["reason"], "Muse compaction did not compact");
-            return Ok(());
+            return self.compact_close("failed", Value::Null).await;
         }
         crate::domain::runtime_notices::compacted(&self.engine, self.org_id, self.id, true).await?;
+        self.compact_close("done", Value::Null).await
+    }
+
+    /// The harness reported a compaction start: the desk gets one live row,
+    /// timed from this receipt (the harness reports no earlier time).
+    async fn compact_start(&mut self) -> Result<()> {
+        if self.compact_open.is_some() {
+            return Ok(());
+        }
+        self.compact_settled = false;
+        let mut row = json!({ "role": "system", "text": "Compacting context", "ts": now_iso(), "kind": "compact",
+                              "compact_state": "running", "compact_started_at": now_iso() });
         let client = self.engine.db.get().await?;
-        let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact" });
-        self.convo.append(&client, row).await?;
+        let seq = self.convo.append(&client, row.clone()).await?;
+        drop(client);
+        row["seq"] = json!(seq);
+        self.compact_open = Some((seq, row));
+        self.text_landed();
+        Ok(())
+    }
+
+    /// The compaction ended (`done`, `failed`) or was cut off (`interrupted`):
+    /// the open row becomes the finished record. With no reported start there
+    /// is no row to close, so a finished one is added without a duration.
+    async fn compact_close(&mut self, state: &str, pre_tokens: Value) -> Result<()> {
+        let text = match state {
+            "done" => "Context compacted",
+            "failed" => "Context compaction failed",
+            _ => "Context compaction interrupted",
+        };
+        let Some((seq, mut row)) = self.compact_open.take() else {
+            if state != "done" {
+                return Ok(());
+            }
+            let mut row = json!({ "role": "system", "text": text, "ts": now_iso(), "kind": "compact" });
+            if !pre_tokens.is_null() {
+                row["pre_tokens"] = pre_tokens;
+            }
+            let client = self.engine.db.get().await?;
+            self.convo.append(&client, row).await?;
+            drop(client);
+            self.text_landed();
+            return Ok(());
+        };
+        row["text"] = json!(text);
+        row["compact_state"] = json!(state);
+        // a cut-off compaction has no reported end, so none is written
+        if state != "interrupted" {
+            row["compact_ended_at"] = json!(now_iso());
+        }
+        if !pre_tokens.is_null() {
+            row["pre_tokens"] = pre_tokens;
+        }
+        let client = self.engine.db.get().await?;
+        self.convo.update(&client, seq, row).await?;
         drop(client);
         self.text_landed();
         Ok(())
@@ -5958,6 +6025,9 @@ impl Actor {
         self.unpark();
         self.bg_reset();
         self.claude_own = false;
+        if let Err(e) = self.compact_close("interrupted", Value::Null).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "an open compaction row could not be closed");
+        }
         self.orphans(&format!("the CLI exited: {reason}"));
         self.claude_lost(&format!("the CLI exited: {reason}")).await;
         self.muse_lost(&format!("the host exited: {reason}")).await;
@@ -6059,6 +6129,10 @@ impl Actor {
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
         let Some(turn) = self.take_turn() else { return Ok(()) };
+        // a compaction the turn ended before the harness reported its end
+        if let Err(e) = self.compact_close("interrupted", Value::Null).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "an open compaction row could not be closed");
+        }
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
         // background results settled during this turn: a turn the CLI starts
         // by itself right after it shows it did not take them

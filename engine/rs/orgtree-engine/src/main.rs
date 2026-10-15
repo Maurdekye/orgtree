@@ -318,6 +318,7 @@ async fn run_with_cluster(
     let app = http::router(engine.clone());
     let listener = tokio::net::TcpListener::from_std(listener)?;
     let shutdown = engine.shutdown.clone();
+    runtime::convo::close_open_compactions(&engine).await;
     tokio::spawn(runtime::convo::repair_old_args(engine.clone()));
     // Missing members cannot register until control is available. Keep the
     // stamped-identity startup watcher until this point, then hand off once.

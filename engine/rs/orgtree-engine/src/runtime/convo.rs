@@ -828,6 +828,29 @@ pub async fn repair_old_args(engine: std::sync::Arc<crate::engine::Engine>) {
     }
 }
 
+/// At start, before any harness runs: a compaction row the engine left
+/// `running` (it crashed or was killed mid-compaction) becomes `interrupted`,
+/// with no end time, so no desk row ticks for a compaction nobody is running.
+#[logged]
+pub async fn close_open_compactions(engine: &std::sync::Arc<crate::engine::Engine>) {
+    let run = async {
+        let client = engine.db.get().await?;
+        let n = client
+            .execute(
+                r#"UPDATE ot.convo SET body = body || '{"text":"Context compaction interrupted","compact_state":"interrupted"}'::jsonb
+                    WHERE body @> '{"kind":"compact","compact_state":"running"}'"#,
+                &[],
+            )
+            .await?;
+        anyhow::Ok(n)
+    };
+    match run.await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(rows = n, "compaction rows left running by the last engine closed as interrupted"),
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "open compaction rows could not be closed"),
+    }
+}
+
 /// Text of a tool_result's content (string, or text blocks); counts images.
 #[logged]
 pub fn tool_result_text(content: &Value) -> (String, usize) {
