@@ -66,7 +66,7 @@
   (`changes.rs`); read every other agent change from trees. No effect
   celebrates a request the engine refused or did not carry out (the interrupt waits
   for `interrupted: true`), and a 100% usage reading is a reading, never "LIMIT".
-  One stage frame loop that sleeps when idle; the combo meter keeps it awake only
+  One stage frame loop that sleeps when idle; the combo badge keeps it awake only
   until its combo drops. Sounds are Web Audio synthesis and art is canvas drawing,
   never assets. Check the strict renderer and test configs as well as root: the
   test overlay must clear the inherited `exclude: ["tests"]`.
@@ -118,17 +118,31 @@
   `canvas/OrgCanvas.tsx`; measured: `tools/rig/epic-mode-visual.mjs` wheel scene,
   2026-10-15]
 
-- EPIC Mode must not strobe: never more than three flashes of the window in a second
-  (photosensitivity). So far that holds for the attention and halt effects only, whose
-  flashes come `FLASH_EVERY_MS` (360 ms) apart. Open: the brown-out flicker
-  (`stage.flicker`: a usage limit, **LIMIT HIT**, a dropped socket) still dips the window
-  up to five times in about a second, and floods of flashing events are not merged (see
-  the doc's Limits). Urgent mail's alarm tints every window showing the org in smooth pulses
-  0.8 s apart (never under 0.4 s), with a klaxon at EPIC's normal level, until the mail
-  is read or for 8 s ([EPIC Mode final](docs/rust-engine/epic-mode-final.md)).
-  [decided: user 2026-10-15; verified: `epic/director.ts`, `epic/stage.ts`; measured:
-  `epicmode-comfort`, `epicmode-urgent`, `tools/rig/epic-mode-visual.mjs` urgent section,
-  2026-10-15]
+- EPIC Mode must not strobe, and its shakes and blurs stay within comfort bounds
+  (photosensitivity). The stage enforces them for every effect, so a new effect flashes,
+  dips, shakes and blurs the window only through `Stage.flash`, `flicker`, `shake` and
+  `blur`: no two flashes or brown-out dips start closer than `FLASH_GAP_MS` (340 ms; a
+  flash asked for sooner waits and later ones join it), so at most three a second, on
+  screen too (each is timed from the frame it first shows in, never from its schedule); a
+  shake is at most 20 px for 0.9 s, a weaker one never cuts a stronger one short, and the
+  window shakes at most 1 s of any 2 s; a blur (a `backdrop-filter` layer of the stage's
+  own) is at most 6 px over the window or 10 px at its edges, for 0.7 s, one per 0.6 s;
+  under `prefers-reduced-motion` nothing shakes or blurs and flashes are half as strong. An
+  event's shake and blur come from its weight (`WEIGHT` in the director). Attention and
+  halt space their repeated flashes `FLASH_EVERY_MS` (360 ms) apart, and urgent mail's
+  alarm tints every window showing the org in smooth pulses 0.8 s apart (never under
+  0.4 s), with a klaxon at EPIC's normal level, until the mail is read or for 8 s
+  ([EPIC Mode final](docs/rust-engine/epic-mode-final.md)). [decided: user 2026-10-15;
+  coordinator 2026-10-15 (flash merging, the flicker cap); verified: `epic/director.ts`,
+  `epic/stage.ts`; measured: `epicmode-comfort`, `epicmode-urgent`,
+  `tools/rig/epic-mode-visual.mjs` urgent and blur sections, 2026-10-15]
+
+- EPIC Mode's combo stays diminutive and in its corner: a 112 × 30 px badge in the
+  bottom-right corner (rank, count, a 2 px bar), which a new rank flares; nothing of the
+  combo reaches across the window, and there are no neon rank titles
+  ([EPIC Mode final](docs/rust-engine/epic-mode-final.md)). [decided: user 2026-10-15
+  ("less emphasis on the combo progress, keep it diminutive and to the corner");
+  verified: `epic/stage.ts` `meter`, `flare`; measured: `epicmode-final`, 2026-10-15]
 
 - Personal global instruction files are shared read-only across harnesses, with
   canonical dedup against the CLI's actual account/profile native files. Use
