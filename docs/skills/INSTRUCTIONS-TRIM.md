@@ -63,7 +63,7 @@ counts are estimates at 4 bytes per token.
 |---|---|---|---|---|
 | skilltree-opus (non-top; docket, messaging and inspection groups) | 34,109 | 4,420 | 8,797 | **20,892** |
 | hubchat-logs-sonnet (non-top) | 33,444 | 4,163 | 8,019 | 21,262 |
-| epic-wonder-full (Muse) | 33,250 | 4,355 | 8,019 | 20,876 |
+| a Muse seat | 33,250 | 4,355 | 8,019 | 20,876 |
 | rig-opus | 37,443 | 4,831 | 11,178 | 21,434 |
 | coordinator-opus (top-level, every group, account balancing) | 49,050 | 4,979 | 8,787 | **35,284** |
 
