@@ -1979,7 +1979,7 @@ impl Actor {
             return startup::Inputs::Codex { cwd: ctx.scratch.clone(), home };
         }
         if ctx.provider == catalog::GOOGLE {
-            return startup::Inputs::Agy { home: crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")) };
+            return startup::Inputs::Agy { home: crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")), cwd: ctx.scratch.clone() };
         }
         if ctx.provider == catalog::MUSE {
             // Match muse_account_env without creating profile directories or
@@ -2744,7 +2744,7 @@ impl Actor {
             Ok(stamp) => stamp,
             Err(e) => { self.close_proc().await; return Err(e.into()); }
         };
-        let plan = self.plan(ctx);
+        let mut plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => {
                 matches!(&*p, Proc::Agy(a) if a.auth_stamp == stamp)
@@ -2761,6 +2761,11 @@ impl Actor {
         self.close_proc().await;
         self.reconfigured = false;
         std::fs::create_dir_all(&ctx.scratch)?;
+        if agyrt::migrate_generated_identity(&ctx.scratch)? {
+            // Removing a native legacy file changes startup, not the identity.
+            // Capture the post-migration manifest before saving proc_print.
+            plan = self.plan(ctx);
+        }
         let tools = &ctx.effective["tools"];
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");

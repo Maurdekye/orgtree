@@ -377,14 +377,100 @@ fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
+pub const IDENTITY_RULE_PREFIX: &str = "orgtree-identity-";
+const IDENTITY_RULE_HEADER: &str = "---\ntrigger: always_on\ndescription: Orgtree generated agent identity; read all numbered parts together\n---\n<!-- orgtree:generated-identity:v1 -->\n";
+// Native rules are truncated at 24,000 bytes, including expanded includes.
+const IDENTITY_PART_BYTES: usize = 23_000;
+
+#[nolog] // contains private identity text
+fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
+    let rules = cwd.join(".agents/rules");
+    std::fs::create_dir_all(&rules)?;
+    let mut old = Vec::new();
+    for entry in std::fs::read_dir(&rules)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with(IDENTITY_RULE_PREFIX) || !name.ends_with(".md") { continue; }
+        let meta = std::fs::symlink_metadata(entry.path())?;
+        if !meta.is_file() || meta.file_type().is_symlink()
+            || !std::fs::read_to_string(entry.path())?.starts_with(IDENTITY_RULE_HEADER) {
+            return Err(anyhow!("identity rule path is not engine-owned: {}", entry.path().display()));
+        }
+        old.push(entry.path());
+    }
+    let mut rest = identity;
+    let mut part = 0;
+    loop {
+        let mut end = rest.len().min(IDENTITY_PART_BYTES);
+        while !rest.is_char_boundary(end) { end -= 1; }
+        let path = rules.join(format!("{IDENTITY_RULE_PREFIX}{part:04}.md"));
+        let content = format!("{IDENTITY_RULE_HEADER}{}", &rest[..end]);
+        if std::fs::read(&path).ok().as_deref() != Some(content.as_bytes()) {
+            std::fs::write(&path, content)?;
+        }
+        old.retain(|p| p != &path);
+        rest = &rest[end..];
+        if rest.is_empty() { break; }
+        part += 1;
+    }
+    for path in old { std::fs::remove_file(path)?; }
+    Ok(())
+}
+
+const LEGACY_CLOSINGS: &[&str] = &[
+    "Your scratch folder is your own: keep a CLAUDE.md there as standing notes — it is loaded automatically every turn and survives compaction. ",
+    "Your scratch folder is your own: keep a CLAUDE.md there as standing notes. It is delivered to you at the start of every session and survives compaction; editing it restarts your process, so the notes you add apply from your next turn. ",
+    "Your scratch folder is your own: keep a CLAUDE.md there as standing notes. It is delivered to you at the start of every session and survives compaction; notes you add apply from your next session. ",
+];
+
+/// Coordinator's 2026-10-15 ruling: an exact generated envelope may be backed
+/// up even though authored text INSIDE it cannot be distinguished. No trimming:
+/// any extra bytes before/after the envelope exclude the file from migration.
+#[nolog]
+fn legacy_identity_envelope(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix("You are \"") else { return false; };
+    let Some((name, rest)) = rest.split_once("\", an agent in the organization \"") else { return false; };
+    let Some((org, _)) = rest.split_once("\" (orgtree). ") else { return false; };
+    if [name, org].iter().any(|s| s.is_empty() || s.contains(['\"', '\r', '\n'])) { return false; }
+    LEGACY_CLOSINGS.iter().any(|ending| text.ends_with(ending))
+        || (text.contains("\n\n[TEAM NOTES - ") && text.ends_with("[END TEAM NOTES]"))
+        || (text.contains("\n\n[ORG SHARED NOTES - ") && text.ends_with("[END ORG SHARED NOTES]"))
+}
+
+/// Called only after the old CLI has stopped, never during a turn. Ambiguous
+/// nonmatching notes stay native; all migrated bytes survive in a unique backup.
+#[logged]
+pub fn migrate_generated_identity(cwd: &Path) -> Result<bool> {
+    let path = cwd.join("AGENTS.md");
+    let meta = match std::fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
+    if !meta.is_file() || meta.file_type().is_symlink() { return Ok(false); }
+    let bytes = std::fs::read(&path)?;
+    if !std::str::from_utf8(&bytes).is_ok_and(legacy_identity_envelope) { return Ok(false); }
+    let backup = cwd.join(format!("AGENTS.generated-identity-{}.bak", uuid::Uuid::new_v4()));
+    move_generated_identity(&path, &backup, bytes.len())?;
+    Ok(true)
+}
+
+#[logged] // paths only, never the identity or notes
+fn move_generated_identity(source: &Path, backup: &Path, bytes: usize) -> Result<()> {
+    std::fs::rename(source, backup)?;
+    tracing::info!(source = %source.display(), backup = %backup.display(), bytes,
+        reason = "exact generated preamble and closing envelope", "preserved legacy generated agy identity outside native notes");
+    Ok(())
+}
+
 /// Everything the CLI discovers in the agent's folder: the identity
-/// (AGENTS.md), the tools (a workspace plugin), and — for a narrowed seat —
+/// (always_on rules), the tools (a workspace plugin), and — for a narrowed seat —
 /// the rights hook; a full-rights seat gets the hook files removed.
 #[logged]
 fn write_workspace(spec: &AgySpec, pipe: &str, data_root: &Path) -> Result<()> {
     let cwd = &spec.cwd;
     std::fs::create_dir_all(cwd)?;
-    std::fs::write(cwd.join("AGENTS.md"), &spec.identity)?;
+    write_identity_rules(cwd, &spec.identity)?;
     let agents = cwd.join(".agents");
     let plugin = agents.join("plugins").join("orgtree");
     std::fs::create_dir_all(&plugin)?;
@@ -556,13 +642,84 @@ mod workspace_notes_tests {
         let (root, spec) = fixture();
         write_workspace(&spec, "fake-pipe", &root).unwrap();
         let own_exists = spec.cwd.join("AGENTS.md").exists();
-        let rule = std::fs::read_to_string(spec.cwd.join(".agents/rules/orgtree-identity.md")).unwrap_or_default();
+        let rule = std::fs::read_to_string(spec.cwd.join(".agents/rules/orgtree-identity-0000.md")).unwrap_or_default();
         let (own, _) = crate::runtime::startup::standing_notes(
             &crate::runtime::startup::Inputs::None, &spec.cwd, &[]);
         std::fs::remove_dir_all(root).unwrap();
         assert!(!own_exists && own.is_empty(), "generated identity must not feed back as own notes");
         assert!(rule.starts_with("---\ntrigger: always_on\n"));
         assert_eq!(rule.matches(&spec.identity).count(), 1);
+    }
+
+    #[test]
+    fn agy_legacy_envelope_is_backed_up_once_and_other_notes_are_untouched() {
+        let (root, spec) = fixture();
+        std::fs::create_dir_all(&spec.cwd).unwrap();
+        let preamble = "You are \"ann\", an agent in the organization \"Proof\" (orgtree). ";
+        let legacy = format!("{preamble}Old charter, including any interior edits.{}", LEGACY_CLOSINGS[0]);
+        let path = spec.cwd.join("AGENTS.md");
+        std::fs::write(&path, &legacy).unwrap();
+        assert!(migrate_generated_identity(&spec.cwd).unwrap());
+        assert!(!path.exists());
+        assert!(!migrate_generated_identity(&spec.cwd).unwrap());
+        let backups: Vec<_> = std::fs::read_dir(&spec.cwd).unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".bak")).collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read_to_string(backups[0].path()).unwrap(), legacy);
+        for notes in [format!("my notes\n{legacy}"), format!("{legacy}\nmy notes"),
+            format!("{legacy}\n"), format!("{preamble}unrecognized ending"), "# Own memories\nkeep me".into()] {
+            std::fs::write(&path, &notes).unwrap();
+            assert!(!migrate_generated_identity(&spec.cwd).unwrap());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), notes);
+        }
+        for ending in LEGACY_CLOSINGS {
+            assert!(legacy_identity_envelope(&format!("{preamble}{ending}")));
+        }
+        assert!(legacy_identity_envelope(&format!("{preamble}\n\n[TEAM NOTES - path]\ntext\n[END TEAM NOTES]")));
+        assert!(legacy_identity_envelope(&format!("{preamble}\n\n[ORG SHARED NOTES - path]\ntext\n[END ORG SHARED NOTES]")));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agy_largest_observed_identity_has_complete_bounded_parts_without_native_legacy_duplicate() {
+        let (root, mut spec) = fixture();
+        std::fs::create_dir_all(&spec.cwd).unwrap();
+        let prefix = "You are \"ann\", an agent in the organization \"Proof\" (orgtree). ";
+        let closing = LEGACY_CLOSINGS[0];
+        // Largest read-only snapshot was 56,918 bytes. This exercises byte
+        // preservation, NOT the proprietary native tokenizer/aggregate budget.
+        spec.identity = format!("{prefix}{}{closing}", "x".repeat(56_918 - prefix.len() - closing.len()));
+        std::fs::write(spec.cwd.join("AGENTS.md"), &spec.identity).unwrap();
+        assert!(migrate_generated_identity(&spec.cwd).unwrap());
+        write_identity_rules(&spec.cwd, &spec.identity).unwrap();
+        let rules = spec.cwd.join(".agents/rules");
+        let mut paths: Vec<_> = std::fs::read_dir(&rules).unwrap().flatten().map(|e| e.path()).collect();
+        paths.sort();
+        assert_eq!(paths.len(), 3);
+        let parts: Vec<_> = paths.iter().map(|p| std::fs::read_to_string(p).unwrap()).collect();
+        assert!(parts.iter().all(|s| s.len() < 24_000));
+        assert_eq!(parts.iter().map(|s| s.strip_prefix(IDENTITY_RULE_HEADER).unwrap()).collect::<String>(), spec.identity);
+        assert!(crate::runtime::startup::agy_project(&spec.cwd).is_empty());
+        write_identity_rules(&spec.cwd, &spec.identity).unwrap();
+        assert_eq!(paths.iter().map(|p| std::fs::read_to_string(p).unwrap()).collect::<Vec<_>>(), parts);
+        // UTF-8 boundaries and stale part cleanup after an identity shrinks.
+        let unicode = "🦀".repeat(12_000);
+        write_identity_rules(&spec.cwd, &unicode).unwrap();
+        write_identity_rules(&spec.cwd, "short identity").unwrap();
+        assert_eq!(std::fs::read_dir(&rules).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agy_rule_name_collision_preserves_nonengine_content() {
+        let (root, spec) = fixture();
+        let rules = spec.cwd.join(".agents/rules");
+        std::fs::create_dir_all(&rules).unwrap();
+        let path = rules.join("orgtree-identity-0000.md");
+        std::fs::write(&path, "my own unrelated rule").unwrap();
+        assert!(write_identity_rules(&spec.cwd, &spec.identity).is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "my own unrelated rule");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

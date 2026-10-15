@@ -44,9 +44,9 @@ pub enum Inputs {
     Codex { cwd: PathBuf, home: PathBuf },
     /// Muse Code: the actual config/muse root and trusted workspace rules.
     Muse { cwd: PathBuf, config: PathBuf },
-    /// Antigravity's personal rules still load natively. Its existing project
-    /// note behavior is unchanged by global sharing.
-    Agy { home: PathBuf },
+    /// Antigravity's personal rules and workspace notes load natively;
+    /// generated identity rules are excluded from startup input hashing.
+    Agy { home: PathBuf, cwd: PathBuf },
     /// A lane with no native instruction manifest (e.g. isolated OpenCode).
     None,
     /// The native account/profile inputs plus the user's personal global
@@ -105,10 +105,27 @@ fn native_files(inputs: &Inputs) -> BTreeMap<String, String> {
         Inputs::Claude { cwd, config, home, .. } => claude(cwd, config, home),
         Inputs::Codex { cwd, home } => codex(cwd, home),
         Inputs::Muse { cwd, config } => muse(cwd, config),
-        Inputs::Agy { home } => super::global_instructions::native_agy(home),
+        Inputs::Agy { home, cwd } => {
+            let mut files = super::global_instructions::native_agy(home);
+            files.extend(agy_project(cwd));
+            files
+        },
         Inputs::None => BTreeMap::new(),
         Inputs::Shared { native, .. } => native_files(native),
     }
+}
+
+/// The scratch workspace is agy's only --add-dir. Native standing notes must
+/// not also be mirrored in identity. The generated rules are already accounted
+/// for by system_prompt/org_notes, so never hash them back into startup.
+#[nolog]
+pub fn agy_project(cwd: &Path) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::new();
+    for name in ["AGENTS.md", "GEMINI.md", ".agents/AGENTS.md", ".agents/GEMINI.md"] {
+        let path = cwd.join(name);
+        if let Ok(bytes) = std::fs::read(&path) { files.insert(norm(&path), sha(&bytes)); }
+    }
+    files
 }
 
 /// Muse 1.4.6 reads, in the session's workspace root, the first of these that
@@ -384,6 +401,30 @@ fn norm(p: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agy_notes_are_native_once_and_rule_writes_do_not_feed_back_into_startup() {
+        let root = std::env::temp_dir().join(format!("agy-native-notes-{}", uuid::Uuid::new_v4()));
+        let own = root.join("own");
+        let grant = root.join("grant");
+        std::fs::create_dir_all(own.join(".agents/rules")).unwrap();
+        std::fs::create_dir_all(&grant).unwrap();
+        std::fs::write(own.join("AGENTS.md"), "own notes").unwrap();
+        std::fs::write(own.join("CLAUDE.md"), "legacy own notes").unwrap();
+        std::fs::write(grant.join("AGENTS.md"), "granted notes").unwrap();
+        let inputs = Inputs::Agy { cwd: own.clone() };
+        let notes = standing_notes(&inputs, &own, &[grant.clone()]);
+        assert_eq!(notes.0.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>(), ["legacy own notes"]);
+        assert_eq!(notes.1.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>(), ["granted notes"]);
+        let first = digest(&inputs);
+        std::fs::write(own.join(".agents/rules/orgtree-identity-0000.md"), "generated identity").unwrap();
+        assert_eq!(first, digest(&inputs));
+        assert_eq!(notes, standing_notes(&inputs, &own, &[grant]));
+        std::fs::write(own.join("AGENTS.md"), "own notes changed").unwrap();
+        assert_ne!(first, digest(&inputs));
+        assert!(native_files(&inputs).keys().any(|p| p.ends_with("AGENTS.md")));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn standing_notes_preserve_both_files_and_skip_native_imports_and_repeat_grants() {
