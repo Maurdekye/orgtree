@@ -11,17 +11,19 @@
    ⚠ FRAMES ONLY WHILE SOMETHING IS ALIVE. The loop is requested when an effect
    is added and stops by itself when the last one dies: an idle organization in
    EPIC Mode costs no frames at all. Every collection is capped (PARTICLE_CAP,
-   ACTOR_CAP), and past the cap new particles are simply not born, so a flood
-   of events degrades into "very busy" rather than into a stalled window. The
-   combo badge (`meter`) is one more thing alive: it fades out when its combo
-   drops, and then the loop sleeps again.
+   ACTOR_CAP, LINGER_CAP), and past the cap new particles are simply not born,
+   so a flood of events degrades into "very busy" rather than into a stalled
+   window. What strikes leave behind (residue, see LINGER_CAP) and the combo
+   badge (`meter`) are alive too, but slow: while only they are left the loop
+   draws SLOW_FPS frames a second, and it sleeps once the residue has faded
+   and the badge's combo has dropped.
 
    The final EPIC Mode combines four takes; the stage is the Opus take's, with
    the crystal ice spike (Argon), the summoning portal (Astra, Argon), the
    watchdog radar (Astra, Argon), the warning sign (Astra), the combo badge's
    count and ranks (Wonder Full, Argon) and the button pop (Wonder Full) added,
-   and the comfort bounds every shake, blur and flash keeps to (below) — see
-   docs/rust-engine/epic-mode-final.md. */
+   the comfort bounds every shake, blur and flash keeps to, and the residue
+   (below) — see docs/rust-engine/epic-mode-final.md. */
 
 export const PARTICLE_CAP = 2600
 export const ACTOR_CAP = 160
@@ -56,6 +58,26 @@ export const BLUR_EVERY_MS = 600
 export const FLASH_GAP_MS = 340
 /** the combo badge: small, in the bottom-right corner */
 const BADGE = { w: 112, h: 30, inset: 14 }
+
+/* Lingering effects (docket epic-mode-next-round-more-shake-and-blur-a-small,
+   part 4: "more lingering effects that remain on screen for longer"; plan
+   approved 2026-10-15). What a strike leaves behind fades slowly where it
+   happened: cracks in the glass, a scorch mark and embers, frost thawing on
+   its card, confetti and coins lying on the window's floor, an afterglow.
+   Residue is drawn under every other effect and ages on the clock, not on
+   frames, so a window the system stopped drawing comes back without it. At
+   most LINGER_CAP at a time, each for at most LINGER_MAX_S since it was left
+   or last built up; past the cap new residue is simply not left. While only
+   residue or the combo badge is alive, the loop draws SLOW_FPS frames a
+   second, not one per display frame, and it sleeps once they are gone. */
+export const LINGER_CAP = 48
+export const LINGER_MAX_S = 30
+export const SLOW_FPS = 15
+/** pieces lying on the floor at most, and how long each stays (s) */
+const FLOOR_CAP = 240
+const FLOOR_S = 14
+/** afterglows closer than this (px) are one, built up */
+const GLOW_MERGE_PX = 48
 
 export type ParticleKind = 'glow' | 'streak' | 'shard' | 'confetti' | 'snow' | 'coin' | 'paw' | 'smoke' | 'star'
 
@@ -94,6 +116,27 @@ interface Actor {
   top?: boolean
 }
 
+export type ResidueKind = 'cracks' | 'scorch' | 'embers' | 'frost' | 'floor' | 'afterglow'
+
+/** what a strike leaves behind (see LINGER_CAP): an actor aged on the clock */
+interface Residue extends Actor {
+  kind: ResidueKind
+  /** when it was left or last built up (performance.now, ms) */
+  born: number
+  /** where it is: frost follows its card */
+  where(): { x: number; y: number }
+  /** an afterglow's strength, or how many pieces lie on the floor */
+  amount?(): number
+  /** another afterglow close by builds this one up */
+  boost?(strength: number, life: number): void
+}
+
+/** what lingers, for tests and the curious */
+export interface Lingering { kind: ResidueKind; x: number; y: number; amount?: number }
+
+/** a piece of confetti or a coin lying on the floor */
+interface Piece { x: number; y: number; size: number; rot: number; color: string; coin: boolean; at: number }
+
 export interface BurstOptions {
   count?: number
   colors?: string[]
@@ -128,6 +171,14 @@ export class Stage {
   private actors: Actor[] = []
   /** the combo badge: drawn last, alive until its combo drops (see `meter`) */
   private hud: Actor | null = null
+  /** what strikes left behind: drawn first, aged on the clock (see LINGER_CAP) */
+  private residue: Residue[] = []
+  /** the pieces lying on the floor, oldest first (the 'floor' residue draws them) */
+  private floor: Piece[] = []
+  /** the slow lane's wait for its next frame (see `slow`), and whether the
+   *  frame asked for came from it */
+  private slowTimer = 0
+  private slowly = false
   private rafId = 0
   private last = 0
   private dpr = 1
@@ -209,6 +260,8 @@ export class Stage {
     this.dead = true
     if (this.rafId) this.caf(this.rafId)
     this.rafId = 0
+    if (this.slowTimer) this.view.clearTimeout(this.slowTimer)
+    this.slowTimer = 0
     this.resizeObserver?.()
     this.resizeObserver = null
     try { this.shakeAnim?.cancel() } catch { /* gone */ }
@@ -224,6 +277,8 @@ export class Stage {
     this.pool = []
     this.actors = []
     this.hud = null
+    this.residue = []
+    this.floor = []
     this.sprites.clear()
   }
 
@@ -243,9 +298,30 @@ export class Stage {
   }
 
   private wake(): void {
-    if (this.dead || this.rafId || this.ticking) return
+    if (this.dead || this.ticking) return
+    if (this.slowTimer) { this.view.clearTimeout(this.slowTimer); this.slowTimer = 0 }
+    if (this.rafId) {
+      // a frame the slow lane asked for: draw it as a first frame, not as
+      // one that waited a slow lane's step
+      if (this.slowly) { this.slowly = false; this.last = 0 }
+      return
+    }
     this.last = 0
     this.rafId = this.raf(this.tick)
+  }
+
+  /** The slow lane: only residue or the combo badge is alive, so the next
+   *  frame comes in 1/SLOW_FPS s instead of at the next display frame.
+   *  Anything new wakes the loop at once (`wake` cancels the wait). */
+  private slow(): void {
+    const v = this.view
+    if (typeof v.setTimeout !== 'function') { this.rafId = this.raf(this.tick); return }
+    this.slowTimer = v.setTimeout(() => {
+      this.slowTimer = 0
+      if (this.dead || this.rafId) return
+      this.slowly = true
+      this.rafId = this.raf(this.tick)
+    }, 1000 / SLOW_FPS)
   }
 
   /* ⚠ ONE LOOP. Effects spawn from inside a frame (a firework's rocket, a
@@ -260,7 +336,9 @@ export class Stage {
     this.rafId = 0
     if (this.dead) return
     this.ticking = true
-    const dt = this.last ? Math.min(0.05, (now - this.last) / 1000) : 1 / 60
+    const longest = this.slowly ? 0.1 : 0.05
+    this.slowly = false
+    const dt = this.last ? Math.min(longest, (now - this.last) / 1000) : 1 / 60
     this.last = now
     const t0 = performance.now()
     try {
@@ -270,7 +348,8 @@ export class Stage {
     const spent = performance.now() - t0
     this.quality = spent > 12 ? Math.max(0.25, this.quality * 0.85) : Math.min(1, this.quality + 0.01)
     if (this.dead) return
-    if (this.parts.length || this.actors.length || this.hud) this.rafId = this.raf(this.tick)
+    if (this.parts.length || this.actors.length) this.rafId = this.raf(this.tick)
+    else if (this.residue.length || this.hud) this.slow()
     else this.clear()
   }
 
@@ -282,7 +361,9 @@ export class Stage {
   }
 
   private update(dt: number): void {
+    const now = performance.now()
     const parts = this.parts
+    const floorY = this.height - 3
     let w = 0
     for (let i = 0; i < parts.length; i++) {
       const p = parts[i]!
@@ -294,9 +375,23 @@ export class Stage {
       p.x += p.vx * dt; p.y += p.vy * dt
       p.rot += p.vr * dt
       p.size = Math.max(0, p.size + p.grow * dt)
+      // confetti and coins that reach the floor lie there a while
+      if ((p.kind === 'confetti' || p.kind === 'coin') && p.vy > 0 && p.y >= floorY) {
+        this.settle(p, now)
+        this.pool.push(p)
+        continue
+      }
       parts[w++] = p
     }
     parts.length = w
+    const residue = this.residue
+    let r = 0
+    for (let i = 0; i < residue.length; i++) {
+      const it = residue[i]!
+      it.age = (now - it.born) / 1000
+      if (it.step?.(dt) !== false && it.age < it.life) residue[r++] = it
+    }
+    residue.length = r
     const actors = this.actors
     let a = 0
     for (let i = 0; i < actors.length; i++) {
@@ -319,6 +414,14 @@ export class Stage {
     this.frameAt = performance.now()
     this.clear()
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
+    // what strikes left behind lies under everything else
+    for (const it of this.residue) {
+      g.save()
+      g.globalCompositeOperation = it.blend ?? 'source-over'
+      it.draw(g, Math.min(1, it.age / it.life), this)
+      g.restore()
+    }
+    g.globalCompositeOperation = 'source-over'
     for (const actor of this.actors) {
       if (actor.blend === 'lighter' || actor.top) continue
       g.save(); actor.draw(g, Math.min(1, actor.age / actor.life), this); g.restore()
@@ -515,6 +618,65 @@ export class Stage {
     this.actors.push(actor)
     this.wake()
     return true
+  }
+
+  /** leave residue (see LINGER_CAP): under every effect, aged on the clock */
+  private leave(it: Residue): boolean {
+    if (this.idle || this.residue.length >= LINGER_CAP) return false
+    it.life = Math.min(it.life, LINGER_MAX_S)
+    this.residue.push(it)
+    this.wake()
+    return true
+  }
+
+  /** what lingers (see LINGER_CAP), for tests and the curious */
+  get lingering(): Lingering[] {
+    return this.residue.map(it => ({ kind: it.kind, ...it.where(), ...(it.amount ? { amount: it.amount() } : {}) }))
+  }
+
+  /** a piece of confetti or a coin reaching the floor lies there for
+   *  FLOOR_S, at most FLOOR_CAP of them (the oldest give way) */
+  private settle(p: Particle, now: number): void {
+    let floor = this.residue.find(it => it.kind === 'floor')
+    if (!floor) {
+      const stage = this
+      const made: Residue = {
+        kind: 'floor', born: now, age: 0, life: FLOOR_S,
+        where: () => ({ x: stage.width / 2, y: stage.height }),
+        amount: () => stage.floor.length,
+        step() {
+          const t = performance.now()
+          while (stage.floor.length && t - stage.floor[0]!.at >= FLOOR_S * 1000) stage.floor.shift()
+          return stage.floor.length > 0
+        },
+        draw(g) {
+          const t = performance.now()
+          for (const f of stage.floor) {
+            const k = (t - f.at) / (FLOOR_S * 1000)
+            g.globalAlpha = k > 0.6 ? Math.max(0, 1 - (k - 0.6) / 0.4) : 1
+            if (f.coin) {
+              g.fillStyle = '#f5c518'
+              g.beginPath(); g.ellipse(f.x, f.y, f.size, f.size * 0.32, f.rot, 0, TAU); g.fill()
+              g.strokeStyle = '#a87b00'; g.lineWidth = 1.5; g.stroke()
+            } else {
+              g.save(); g.translate(f.x, f.y); g.rotate(f.rot)
+              g.fillStyle = f.color
+              g.fillRect(-f.size / 2, -f.size / 8, f.size, f.size / 4)
+              g.restore()
+            }
+          }
+        },
+      }
+      if (!this.leave(made)) return
+      floor = made
+    }
+    // the floor lasts FLOOR_S from its newest piece
+    floor.born = now
+    floor.age = 0
+    if (this.floor.length >= FLOOR_CAP) this.floor.shift()
+    const coin = p.kind === 'coin'
+    this.floor.push({ x: p.x, y: this.height - rand(1.5, 5), size: coin ? p.size * 0.9 : p.size,
+      rot: coin ? rand(-0.12, 0.12) : rand(-0.5, 0.5), color: p.color, coin, at: now })
   }
 
   /** an expanding shockwave ring */
@@ -923,7 +1085,8 @@ export class Stage {
     })
   }
 
-  /** radial cracks across the glass of the window */
+  /** radial cracks across the glass of the window, which stay a while after,
+   *  faint and fading (12 s) */
   cracks(x: number, y: number, o: { count?: number; length?: number; life?: number } = {}): void {
     const lines: [number, number][][] = []
     const count = o.count ?? 9
@@ -956,6 +1119,22 @@ export class Stage {
         }
       },
     })
+    this.leave({
+      kind: 'cracks', born: performance.now(), age: 0, life: 12,
+      where: () => ({ x, y }),
+      draw(g, k) {
+        g.globalAlpha = 0.55 * (1 - k) ** 1.4
+        g.lineJoin = 'round'
+        for (const [w, color] of [[2, 'rgba(0,0,0,0.4)'], [0.9, 'rgba(255,255,255,0.75)']] as const) {
+          g.strokeStyle = color; g.lineWidth = w
+          for (const pts of lines) {
+            g.beginPath()
+            pts.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)))
+            g.stroke()
+          }
+        }
+      },
+    })
   }
 
   /** a glowing frame pulsing around a rectangle (an agent card, a control) */
@@ -977,12 +1156,15 @@ export class Stage {
     })
   }
 
-  /** a translucent slab of ice over a rectangle, frosting over and melting */
-  iceBlock(r: Rect, life = 2.2): void {
+  /** A translucent slab of ice over a rectangle, frosting over and melting.
+   *  It leaves frost on the rectangle that thaws over 20 s, following `el`
+   *  (the frozen card) while it is on the page and going when it goes. */
+  iceBlock(r: Rect, life = 2.2, el: Element | null = null): void {
     const cracks = Array.from({ length: 6 }, () => {
       const sx = r.x + rand(0, r.w), sy = r.y + rand(0, r.h)
       return [[sx, sy], [sx + rand(-40, 40), sy + rand(-30, 30)], [sx + rand(-70, 70), sy + rand(-50, 50)]] as [number, number][]
     })
+    this.frost(r, cracks, el)
     this.add({
       age: 0, life,
       draw(g, k) {
@@ -1007,6 +1189,146 @@ export class Stage {
           g.beginPath()
           pts.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)))
           g.stroke()
+        }
+      },
+    })
+  }
+
+  /** frost on a frozen card, thawing from its middle out over 20 s: the
+   *  slab's crystal lines (`lines`, in window px) fade with it. While `el` is
+   *  on the page the frost follows it (one layout read a frame), and it goes
+   *  when `el` does. */
+  private frost(r: Rect, lines: [number, number][][], el: Element | null): void {
+    // the lines as fractions of the rectangle, so they move with the card
+    const rel = lines.map(pts => pts.map(([px, py]) => [(px - r.x) / r.w, (py - r.y) / r.h] as [number, number]))
+    let box = { ...r }
+    this.leave({
+      kind: 'frost', born: performance.now(), age: 0, life: 20,
+      where: () => ({ x: box.x + box.w / 2, y: box.y + box.h / 2 }),
+      step() {
+        if (!el) return true
+        if (!el.isConnected) return false
+        const b = el.getBoundingClientRect()
+        if (b.width > 0 && b.height > 0) box = { x: b.left, y: b.top, w: b.width, h: b.height }
+        return true
+      },
+      draw(g, k) {
+        const left = 1 - k
+        const { x, y, w, h } = box
+        // a frosted pane, thinning from the middle out
+        const pane = g.createRadialGradient(x + w / 2, y + h / 2, 0, x + w / 2, y + h / 2, Math.max(w, h) * 0.75)
+        pane.addColorStop(0, 'rgba(210,240,255,0)')
+        pane.addColorStop(Math.min(0.95, 0.2 + k * 0.75), 'rgba(210,240,255,0)')
+        pane.addColorStop(1, 'rgba(225,246,255,0.9)')
+        g.globalAlpha = 0.5 * left
+        g.fillStyle = pane
+        roundRect(g, x - 4, y - 4, w + 8, h + 8, 10)
+        g.fill()
+        g.globalAlpha = 0.6 * left
+        g.strokeStyle = 'rgba(235,250,255,1)'
+        g.lineWidth = 1.5 + 5 * left
+        g.stroke()
+        g.globalAlpha = 0.55 * left
+        g.lineWidth = 1
+        g.strokeStyle = 'rgba(255,255,255,1)'
+        for (const pts of rel) {
+          g.beginPath()
+          pts.forEach(([u, v], i) => { const px = x + u * w, py = y + v * h; if (i) g.lineTo(px, py); else g.moveTo(px, py) })
+          g.stroke()
+        }
+      },
+    })
+  }
+
+  /** A soft glow left where something happened, fading over `life` s. One
+   *  closer than GLOW_MERGE_PX to an afterglow still showing builds that one
+   *  up instead: stronger, and fading again from now. */
+  afterglow(x: number, y: number, o: { color?: string; strength?: number; life?: number; radius?: number } = {}): void {
+    if (this.idle) return
+    const strength = Math.min(1, o.strength ?? 0.4)
+    const life = o.life ?? 8
+    const near = this.residue.find(it => {
+      if (it.kind !== 'afterglow') return false
+      const at = it.where()
+      return Math.hypot(at.x - x, at.y - y) < GLOW_MERGE_PX
+    })
+    if (near?.boost) { near.boost(strength, life); return }
+    const color = o.color ?? '#ffd34d'
+    const radius = o.radius ?? 80
+    let power = strength
+    const stage = this
+    this.leave({
+      kind: 'afterglow', born: performance.now(), age: 0, life,
+      blend: 'lighter',
+      where: () => ({ x, y }),
+      amount: () => power,
+      boost(more, longer) {
+        const rest = this.life - this.age
+        power = Math.min(1, power + more * 0.6)
+        this.born = performance.now()
+        this.age = 0
+        this.life = Math.min(LINGER_MAX_S, Math.max(rest, longer))
+      },
+      draw(g, k) {
+        g.globalAlpha = power * 0.42 * (1 - k) ** 1.5
+        const s = radius * 2 * (1 + k * 0.2)
+        g.drawImage(stage.sprite(color), x - s / 2, y - s / 2, s, s)
+      },
+    })
+  }
+
+  /** a scorch mark on the glass where something struck, glowing for its
+   *  first seconds and fading slowly (14 s): soot for a light theme, a faint
+   *  ember rim for a dark one */
+  scorch(x: number, y: number, o: { radius?: number; life?: number } = {}): void {
+    const radius = o.radius ?? 34
+    const stage = this
+    this.leave({
+      kind: 'scorch', born: performance.now(), age: 0, life: o.life ?? 14,
+      where: () => ({ x, y }),
+      draw(g, k) {
+        const soot = g.createRadialGradient(x, y, radius * 0.1, x, y, radius)
+        soot.addColorStop(0, 'rgba(18,10,6,0.62)')
+        soot.addColorStop(0.55, 'rgba(30,16,8,0.36)')
+        soot.addColorStop(1, 'rgba(30,16,8,0)')
+        g.globalAlpha = (1 - k) ** 0.8
+        g.fillStyle = soot
+        g.beginPath(); g.arc(x, y, radius, 0, TAU); g.fill()
+        g.globalCompositeOperation = 'lighter'
+        g.globalAlpha = 0.28 * (1 - k) ** 1.2
+        g.strokeStyle = '#ff7a1a'
+        g.lineWidth = 2.5
+        g.beginPath(); g.arc(x, y, radius * 0.6, 0, TAU); g.stroke()
+        const hot = 1 - k * 5
+        if (hot > 0) {
+          g.globalAlpha = hot * 0.5
+          const s = radius * 1.6
+          g.drawImage(stage.sprite('#ff7a1a'), x - s / 2, y - s / 2, s, s)
+        }
+      },
+    })
+  }
+
+  /** embers drifting up from a point and dying out one by one (5 to 8 s,
+   *  each lingering mark at least 5 s) */
+  embers(x: number, y: number, o: { count?: number; color?: string } = {}): void {
+    const color = o.color ?? '#ff8a2a'
+    const list = Array.from({ length: o.count ?? 12 }, () => ({
+      x: x + rand(-22, 22), y: y + rand(-8, 8), vx: rand(-8, 8), vy: rand(-30, -12),
+      wob: rand(0, TAU), life: rand(5, 8), size: rand(5, 9),
+    }))
+    const stage = this
+    this.leave({
+      kind: 'embers', born: performance.now(), age: 0, life: Math.max(...list.map(e => e.life)),
+      blend: 'lighter',
+      where: () => ({ x, y }),
+      draw(g) {
+        const t = this.age
+        for (const e of list) {
+          if (t >= e.life) continue
+          g.globalAlpha = (1 - t / e.life) * (0.65 + 0.35 * Math.sin(t * 9 + e.wob))
+          const px = e.x + e.vx * t + Math.sin(t * 1.7 + e.wob) * 7, py = e.y + e.vy * t
+          g.drawImage(stage.sprite(color), px - e.size / 2, py - e.size / 2, e.size, e.size)
         }
       },
     })
@@ -1059,7 +1381,8 @@ export class Stage {
     })
   }
 
-  /** a meteor streaking in from the top corner and exploding on a point */
+  /** a meteor streaking in from the top corner and exploding on a point,
+   *  where it leaves a scorch mark and embers */
   meteor(x: number, y: number, o: { color?: string; onImpact?: () => void } = {}): void {
     const fromX = x + (x > this.width / 2 ? -1 : 1) * rand(260, 420)
     const fromY = -40
@@ -1074,7 +1397,12 @@ export class Stage {
         const px = fromX + (x - fromX) * k, py = fromY + (y - fromY) * k
         stage.burst(px, py, { count: 4, colors: [color, '#ffd34d', '#ffffff'], speed: [20, 120], size: [4, 10], life: [0.25, 0.6] })
         stage.burst(px, py, { count: 1, kind: 'smoke', colors: ['#6b6b6b'], speed: [5, 30], size: [14, 22], life: [0.6, 1.1], grow: 30 })
-        if (k >= 1 && !hit) { hit = true; o.onImpact?.() }
+        if (k >= 1 && !hit) {
+          hit = true
+          stage.scorch(x, y)
+          stage.embers(x, y)
+          o.onImpact?.()
+        }
       },
       draw() { /* all particles */ },
     })

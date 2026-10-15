@@ -1169,7 +1169,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     const s = c.t.stage
     c.show.sound('ice', c)
     s.spikes(c.at.x, c.at.y, { count: 11, length: 150, color: ICE })
-    if (c.at.rect) s.iceBlock(c.at.rect, 2.6)
+    if (c.at.rect) s.iceBlock(c.at.rect, 2.6, c.at.el)
     s.crystal(c.at.x, c.at.rect ? c.at.rect.y + c.at.rect.h * 0.9 : c.at.y + 60, { size: c.at.rect ? Math.max(140, c.at.rect.h * 1.35) : 170 })
     s.burst(c.at.x, c.at.y, { count: 46, kind: 'snow', colors: ['#ffffff', ICE], speed: [40, 200], size: [5, 10], life: [1.6, 2.6], gravity: 60, drag: 0.8 })
     s.word(c.at.x, above(c, 110) - 30, 'FROZEN!', { color: '#9fe6ff', ink: '#06283d', size: 56, caption: captionOf(c) })
@@ -1183,7 +1183,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     c.show.sound('powerFail', c)
     s.flicker(1)
     s.spikes(c.at.x, c.at.y, { count: 9, length: 120, color: ICE })
-    if (c.at.rect) s.iceBlock(c.at.rect, 2.4)
+    if (c.at.rect) s.iceBlock(c.at.rect, 2.4, c.at.el)
     s.crystal(c.at.x, c.at.rect ? c.at.rect.y + c.at.rect.h * 0.9 : c.at.y + 60, { size: c.at.rect ? Math.max(120, c.at.rect.h * 1.1) : 140 })
     s.burst(c.at.x, c.at.y - 30, { count: 40, kind: 'streak', colors: [GOLD, '#ffffff', CYAN], speed: [200, 520], size: [5, 9], life: [0.3, 0.7], gravity: 900, angle: -Math.PI / 2, spread: 1.6 })
     s.word(c.at.x, above(c, 110) - 30, 'LIMIT HIT!', { color: '#ffe066', ink: '#2b1d00', size: 52, caption: captionOf(c) })
@@ -1778,22 +1778,25 @@ export const WEIGHT: Partial<Record<Kind, 1 | 2 | 3>> = {
   // the biggest moments
   epicOn: 3, killswitch: 3, urgent: 3,
 }
-/** what each weight feels like: a shake (px, ms) and a blur, which a medium
- *  event keeps to the window's edges. The stage holds every one to its
- *  comfort bounds, and an effect's own stronger shake is never cut short. */
+/** what each weight feels like: a shake (px, ms), a blur, which a medium
+ *  event keeps to the window's edges, and the afterglow it leaves where it
+ *  happened (user 2026-10-15: "more lingering effects that remain on screen
+ *  for longer"). The stage holds every one to its comfort bounds and its
+ *  residue cap, and an effect's own stronger shake is never cut short. */
 const FEEL = {
-  1: { shake: [3, 220], blur: { px: 4, ms: 420, edges: true } },
-  2: { shake: [8, 420], blur: { px: 4, ms: 500 } },
-  3: { shake: [14, 650], blur: { px: 6, ms: 650 } },
+  1: { shake: [3, 220], blur: { px: 4, ms: 420, edges: true }, glow: { strength: 0.3, life: 8, radius: 70, color: GOLD } },
+  2: { shake: [8, 420], blur: { px: 4, ms: 500 }, glow: { strength: 0.55, life: 12, radius: 95, color: ORANGE } },
+  3: { shake: [14, 650], blur: { px: 6, ms: 650 }, glow: { strength: 0.8, life: 16, radius: 130, color: RED } },
 } as const
 
 /** an event's weight, felt in its own window */
 function felt(c: Cue): void {
   const weight = WEIGHT[c.ev.kind]
   if (!weight) return
-  const { shake, blur } = FEEL[weight]
+  const { shake, blur, glow } = FEEL[weight]
   c.t.stage.shake(shake[0], shake[1])
   c.t.stage.blur(blur)
+  c.t.stage.afterglow(c.at.x, c.at.y, glow)
 }
 
 /** the playbook's coverage, for the inventory doc and its test */
