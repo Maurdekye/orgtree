@@ -169,7 +169,9 @@ leaf in it.
 | comms-sol | working › mail, working › user, working › workspace, app › mailhub | 28 |
 | runtime-sol | working › runtime, working › watchdogs, working › inspection, app › app-shell | 33 |
 | providers-sol | working › accounts, app › providers, app › desk | 28 |
-| skills-docs-sol | app › app-settings, app › org-settings, app › agent-settings; plus the coverage guard, category pages and final source review | 35 |
+| skills-docs-sol | app › app-settings; plus the coverage guard, category pages and final source review | 13 |
+| orgsettings-sol | app › org-settings | 13 |
+| agentsettings-sol | app › agent-settings | 9 |
 | rig-opus | `engine-start-mode` (already written) | 1 |
 
 - **Section pages** (`<section>/SKILL.md`) are written by the section's writer, using
@@ -485,7 +487,7 @@ App settings (Orgtree menu > App settings…): Runtime, Display, Default org set
 | `app-keyboard-shortcuts` | setting | `screen:keyboard-shortcuts` | Keyboard shortcuts: the read-only list of bindings. Must cover: every binding. | `apps/desktop/renderer/src/shortcutsettings.tsx` | toasts-and-undo |
 | `app-about` | setting | `screen:about` | About: version, engine commit, update check. Must cover: fields. | `apps/desktop/renderer/src/canvas/accounts.tsx:769` | app-runtime-desktop |
 
-#### Section `org-settings` — `orgtree-app/org-settings/` — writer skills-docs-sol
+#### Section `org-settings` — `orgtree-app/org-settings/` — writer orgsettings-sol
 
 Org settings (header > Org settings): Basic, Hire defaults, Policies, Connections, Autonomy, Accounts, History.
 
@@ -505,7 +507,7 @@ Org settings (header > Org settings): Basic, Hire defaults, Policies, Connection
 | `org-history` | setting | `screen:org-history` | History: the org's history browser (read-only; not undo). Must cover: what it lists. | `apps/desktop/renderer/src/history.tsx:17` | toasts-and-undo |
 | `org-advanced` | setting | `screen:advanced-org` | The advanced org modal (legacy new-org form): General and Mail hub tabs. Must cover: fields. | `apps/desktop/renderer/src/shell/advancedorg.tsx:19` | create-organization |
 
-#### Section `agent-settings` — `orgtree-app/agent-settings/` — writer skills-docs-sol
+#### Section `agent-settings` — `orgtree-app/agent-settings/` — writer agentsettings-sol
 
 Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope and Tools tabs.
 

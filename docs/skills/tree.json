@@ -14,8 +14,10 @@
   "comms-sol": 28,
   "runtime-sol": 33,
   "providers-sol": 28,
-  "skills-docs-sol": 35,
-  "rig-opus": 1
+  "skills-docs-sol": 13,
+  "rig-opus": 1,
+  "orgsettings-sol": 13,
+  "agentsettings-sol": 9
  },
  "nodes": [
   {
@@ -3714,7 +3716,7 @@
     "org-history",
     "org-advanced"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3743,7 +3745,7 @@
     "credits",
     "app-default-org-settings"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3767,7 +3769,7 @@
     "charters",
     "external-mail"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3790,7 +3792,7 @@
     "app-charters-and-templates",
     "create-organization"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3813,7 +3815,7 @@
    "see_also": [
     "scope-and-permissions"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3838,7 +3840,7 @@
     "visibility",
     "account-lanes"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3863,7 +3865,7 @@
    "see_also": [
     "scope-and-permissions"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3886,7 +3888,7 @@
    "see_also": [
     "context-and-compaction"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3909,7 +3911,7 @@
    "see_also": [
     "credits"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3932,7 +3934,7 @@
    "see_also": [
     "org-inbox"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3956,7 +3958,7 @@
    "see_also": [
     "usage-freezes"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -3978,7 +3980,7 @@
    "see_also": [
     "account-lanes"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -4000,7 +4002,7 @@
    "see_also": [
     "toasts-and-undo"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -4022,7 +4024,7 @@
    "see_also": [
     "create-organization"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "orgsettings-sol",
    "status": "fixed"
   },
   {
@@ -4043,7 +4045,7 @@
     "agent-folders-tab",
     "agent-tools-tab"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4068,7 +4070,7 @@
    "see_also": [
     "team-shape"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4091,7 +4093,7 @@
    "see_also": [
     "charters"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4115,7 +4117,7 @@
    "see_also": [
     "tool-switch-model"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4138,7 +4140,7 @@
    "see_also": [
     "account-lanes"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4160,7 +4162,7 @@
    "see_also": [
     "context-and-compaction"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4182,7 +4184,7 @@
    "see_also": [
     "credits"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4206,7 +4208,7 @@
     "visibility",
     "scope-and-permissions"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4229,7 +4231,7 @@
     "scope-and-permissions",
     "folder-picker"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
@@ -4255,7 +4257,7 @@
     "scope-and-permissions",
     "tool-request-scope"
    ],
-   "writer": "skills-docs-sol",
+   "writer": "agentsettings-sol",
    "status": "fixed"
   },
   {
