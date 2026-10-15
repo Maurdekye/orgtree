@@ -101,20 +101,51 @@ and explicit sanitized Refresh failure. Unit tests cover canonical native
 exclusion, account isolation, source selection, empty/scoped files, stable
 snapshots, edits/deletions, JSON comments, aliases and confined roots.
 
-Final green and independent exact-commit verification are pending. Tests use
-synthetic homes and CLIs, without live profile writes or provider inference.
+Independent review on 2026-10-15 approved the runtime and endpoint at
+`8088df1ff5be7eda6125a70f044ee907b8218d8e`, integrated as `7f5f27f`:
 
-Pre-existing Antigravity limitation: its launcher writes the managed identity to
-scratch `AGENTS.md`, which the next plan can read back as standing notes. This
-project-note feedback path belongs to the separate
-`antigravity-agents-own-agents-md-is-overwritten-b` item (coordinator ruling,
-2026-10-15 12:15Z); this change does not rewrite that project mechanism. Native
-global-file discovery is independently covered.
+| Check | Measured result |
+| --- | --- |
+| Engine build | Exit 0; no compiler warnings |
+| Global instruction units | 15/15 on Windows |
+| Startup neighbors and Muse launch arguments | 2/2 and 1/1 |
+| Synthetic behavioral proof | 14/14, retaining the original 12 assertions |
+| Clippy | Exit 0; 95 warnings, none with a primary span on changed lines; not a full baseline comparison |
+
+The subsequent skills/global composition at
+`de6d356193c6c839b0813ec4d95303fbc8b87237` was independently approved and landed.
+Its global proof passed 14/14 again. The unchanged-refresh idle proof passed 3/3,
+retaining one process and one start through two 22-second cycles; the same proof
+failed two semantic assertions on the earlier inconsistent-digest implementation.
+Mounted renderer checks passed 18/18, including four MCP/shared Refresh checks
+and 14 neighboring org-settings checks. Engine build and all-targets Cargo check
+both exited 0 without compiler warnings.
+
+The retained review reports are `global-instructions-final.md` and
+`shared-skills-final.md` on the corresponding docket items. Global receipts are
+`global-instructions-20261015T140043/result.json` (standalone) and
+`global-instructions-20261015T143405/result.json` (skills composition).
+These checks use synthetic homes, scratch databases and fake CLIs, without live
+profile writes or provider inference. The Unix-only symlink test was not executed
+on Windows; native Muse file-loading evidence is described separately above.
+
+The Antigravity project-note fix remains a separate verification gate under
+`antigravity-agents-own-agents-md-is-overwritten-b` (coordinator ruling,
+2026-10-15 12:15Z). Before that fix, the launcher writes the managed identity to
+scratch `AGENTS.md`, which the next plan can read back as standing notes. The
+approved personal-global and skills changes leave that mechanism unchanged.
+Their results do not approve its migration or the later composition of native
+project and global manifests.
 
 ## Composition with skills sharing
 
-The skills patch's `shared_startup_digest` must retain its skills digest in all
-three sites: launch planning, idle checking and forecast state. At launch, feed
-the captured `startup::Snapshot.digest` into that helper, so it describes the
-same text that is sent. Idle/forecast calls may compute `startup::digest(inputs)`
-fresh. Do not replace the combined value with the instructions-only digest.
+The landed skills composition retains its skills digest in
+`shared_startup_digest` at all three sites: launch planning, idle checking and
+forecast state. Launch passes the captured `startup::Snapshot.digest` into that
+helper, so it describes the same text that is sent. Idle/forecast calls compute
+`startup::digest(inputs)` fresh. Preserve this combined value when composing
+further changes; an instructions-only digest would lose the skills component.
+
+The separate Antigravity project-note fix must unite the native global and
+project manifests in `Agy { home, cwd }` while retaining the `Shared` wrapper.
+Its generated rule files must not feed back into the startup fingerprint.
