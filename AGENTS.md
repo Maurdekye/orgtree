@@ -2704,3 +2704,17 @@ Cold archived docket projections covered by the existing policy spec use its typ
   allowlist (name/source/transport), never definition values. Reference paths,
   normalization and OAuth limits: [MCP imports](docs/rust-engine/mcp-imports.md).
   [verified: `engine/rs/orgtree-engine/src/providers/mcp.rs`]
+
+### Shared skills and installed plugin imports (2026-10-15)
+
+- Skill discovery reads installed native roots and recorded Claude plugin installs,
+  never marketplace listings or generated copies. Whole bundles deduplicate by
+  content; differing names receive suffixes, with built-in names taking priority.
+  Native exports are immutable or replaced only at process boundaries; unchanged
+  content keeps the startup fingerprint stable. Public metadata excludes contents
+  and paths. Built-in category entries alone live in native discovery roots;
+  nested SKILL.md guides/resources are embedded and exported outside those roots
+  with links preserved. One Settings Refresh covers MCP, skills and global notes.
+  [decided: user/coordinator 2026-10-15; verified: `providers/skills.rs`,
+  `providers/plugins.rs`, `runtime/actor.rs`; contract and limits:
+  `docs/rust-engine/shared-skills.md`]
