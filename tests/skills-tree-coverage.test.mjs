@@ -65,6 +65,12 @@ test('literal settings rows and generated notification options have homes', () =
   for (const entry of exempt) assert.ok(entry.reason?.trim(), `${identity(entry)}: missing exemption reason`)
   const documented = new Set([...homes, ...exempt].map(identity))
   assert.deepEqual([...documented].sort(), [...actual].sort(), 'settings labels differ from source; assign each new row a leaf')
+  // Dynamic labels are keyed by their component and expression, so adding a
+  // second setting with a generated label cannot disappear from this scan.
+  const dynamicId = row => `${row.file}#${row.component}#${row.label}`
+  const dynamicHomes = nodes.flatMap(node => node.ui_dynamic_labels ?? [])
+  assert.equal(new Set(dynamicHomes.map(dynamicId)).size, dynamicHomes.length, 'dynamic row has more than one home')
+  assert.deepEqual(dynamicHomes.map(dynamicId).sort(), [...new Set(inventory.dynamicLabels.map(dynamicId))].sort(), 'dynamic settings rows differ from source; assign their reference home')
 })
 
 test('each storage key retains explicit source evidence', () => {

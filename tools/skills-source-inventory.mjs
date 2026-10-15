@@ -15,7 +15,7 @@ export function filesUnder(repo, dir) {
 // Read a complete opening JSX tag. A > inside an arrow callback or quoted hint
 // is not the end of the tag; a regex ending at the first > misses those rows.
 function settingLabels(text) {
-  const rows = []
+  const rows = [], dynamic = []
   for (const match of text.matchAll(/<(SetRow|SetToggle|SetBlock|LimitRow)\b/g)) {
     let depth = 0, quote = '', escaped = false, end = match.index + match[0].length
     for (; end < text.length; end++) {
@@ -33,13 +33,36 @@ function settingLabels(text) {
     }
     const tag = text.slice(match.index, end + 1)
     const literal = tag.match(/\slabel\s*=\s*(?:"([^"]+)"|'([^']+)'|\{\s*"([^"]+)"\s*\}|\{\s*'([^']+)'\s*\}|\{<\w+\b[^>]*>([^<{}]+)<\/\w+>\})/)
-    if (literal) rows.push({ label: literal.slice(1).find(value => value !== undefined), line: text.slice(0, match.index).split('\n').length })
+    const line = text.slice(0, match.index).split('\n').length
+    if (literal) rows.push({ label: literal.slice(1).find(value => value !== undefined), line })
+    else {
+      const start = /\slabel\s*=\s*\{/.exec(tag)
+      if (start) {
+        let nest = 1, quoted = '', escape = false, cursor = start.index + start[0].length
+        const from = cursor
+        for (; cursor < tag.length && nest; cursor++) {
+          const c = tag[cursor]
+          if (quoted) {
+            if (escape) escape = false
+            else if (c === '\\') escape = true
+            else if (c === quoted) quoted = ''
+          } else if (c === '"' || c === "'" || c === '`') quoted = c
+          else if (c === '{') nest++
+          else if (c === '}') nest--
+        }
+        if (nest) throw new Error(`unclosed setting label near line ${line}`)
+        const functions = [...text.slice(0,match.index).matchAll(/^(?:export\s+)?(?:default\s+)?(?:function|class)\s+([A-Z]\w*)\b/gm)]
+        const component = functions.at(-1)?.[1]
+        if (!component) throw new Error(`setting label has no component near line ${line}`)
+        dynamic.push({ component, label: tag.slice(from,cursor-1).replace(/\s+/g,' ').trim(), line })
+      }
+    }
   }
-  return rows
+  return { rows, dynamic }
 }
 
 export function sourceInventory(repo) {
-  const components = [], labels = []
+  const components = [], labels = [], dynamicLabels = []
   for (const file of filesUnder(repo, rendererRoot).filter(file => file.endsWith('.tsx') && !file.startsWith(privateRendererRoot))) {
     const text = fs.readFileSync(path.join(repo, file), 'utf8')
     // React components start with a capital. This excludes exported helpers such
@@ -47,12 +70,14 @@ export function sourceInventory(repo) {
     for (const match of text.matchAll(/export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const)\s+([A-Z]\w*(?:Panel|Modal|Dialog|View|Page|Sheet|Desk|Menu|Picker))\b/g)) {
       components.push(`${file}#${match[1]}`)
     }
-    labels.push(...settingLabels(text).map(row => ({ file, ...row })))
+    const setting = settingLabels(text)
+    labels.push(...setting.rows.map(row => ({ file, ...row })))
+    dynamicLabels.push(...setting.dynamic.map(row => ({ file, ...row })))
   }
   // Notification rows are generated from this shared contract, not JSX literals.
   const notifications = 'packages/contracts/notifications.ts'
   for (const match of fs.readFileSync(path.join(repo, notifications), 'utf8').matchAll(/\{ key: '[^']+', label: '([^']+)', default: (?:true|false) \}/g)) {
     labels.push({ file: notifications, label: match[1] })
   }
-  return { components: components.sort(), labels }
+  return { components: components.sort(), labels, dynamicLabels }
 }

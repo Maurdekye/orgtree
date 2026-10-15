@@ -2957,6 +2957,13 @@
    "components": [
     "apps/desktop/renderer/src/canvas/modals.tsx#DraftScopeModal",
     "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet"
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "component": "DraftScopeModal",
+     "label": "label"
+    }
    ]
   },
   {
@@ -3633,6 +3640,13 @@
       "notifyWhileFocused"
      ]
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "component": "DesktopSettings",
+     "label": "label"
+    }
    ]
   },
   {
@@ -3718,6 +3732,13 @@
      "needles": [
       "turn_idle_s"
      ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/turnlimitssetting.tsx",
+     "component": "LimitRow",
+     "label": "label"
     }
    ]
   },
@@ -4349,7 +4370,14 @@
     "toasts-and-undo"
    ],
    "writer": "skills-docs-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/shortcutsettings.tsx",
+     "component": "ShortcutsSettings",
+     "label": "item.action"
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-about",
@@ -4729,6 +4757,18 @@
       "mcp"
      ]
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "component": "HireDefaultsTab",
+     "label": "label"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "component": "OrgtreeGroupToggles",
+     "label": "label"
+    }
    ]
   },
   {
@@ -4958,6 +4998,13 @@
      "needles": [
       "disabled_accounts"
      ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/orgaccounts.tsx",
+     "component": "OrgAccountsTab",
+     "label": "l.label"
     }
    ]
   },
@@ -5464,6 +5511,18 @@
       "mcp"
      ]
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "component": "NodeConfig",
+     "label": "label"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "component": "NodeConfig",
+     "label": "s"
+    }
    ]
   },
   {
@@ -5538,6 +5597,13 @@
       "orgtree-show-legacy-models"
      ]
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "component": "ProviderSwitch",
+     "label": "`${provider.label} enabled for new agents`"
+    }
    ]
   },
   {
@@ -5580,6 +5646,13 @@
       "/enabled"
      ]
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accountsregistry.tsx",
+     "component": "ActiveBox",
+     "label": "`${who} active`"
+    }
    ]
   },
   {
@@ -5618,6 +5691,13 @@
      "needles": [
       "setApikeyFallbackEnabled"
      ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "component": "AccountsPanel",
+     "label": "`fall back to ${p.label} API-key accounts`"
     }
    ]
   },
@@ -5814,6 +5894,13 @@
      "file": "apps/desktop/renderer/src/canvas/openrouter.tsx",
      "label": "group by provider"
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/openrouterkeys.tsx",
+     "component": "KeyActive",
+     "label": "`${k.name} active`"
+    }
    ]
   },
   {
@@ -5888,6 +5975,13 @@
      "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
      "label": "offer this server’s models to new hires"
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
+     "component": "ServerCard",
+     "label": "`${s.label} active`"
+    }
    ]
   },
   {
@@ -5928,6 +6022,13 @@
      "needles": [
       "/api/mcp-servers/refresh"
      ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "component": "McpChecklist",
+     "label": "s"
     }
    ]
   },
@@ -6105,6 +6206,13 @@
       "public_listener"
      ]
     }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "component": "HostHub",
+     "label": "`Also serve a relay-only door on port ${config.public_listener_port || 7371}`"
+    }
    ]
   },
   {
@@ -6167,6 +6275,23 @@
      "needles": [
       "net_hubs"
      ]
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "component": "Connections",
+     "label": "<span className=\"mono-sm\">{address || 'Not connected'}</span>"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "component": "Connections",
+     "label": "secret ? <span className=\"mono-sm\">{secret}</span> : 'Secret'"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/connections.tsx",
+     "component": "Connections",
+     "label": "<><span className={'oi-dot' + (h.connected ? ' ok' : '')} />{' '} <b>{h.name || (h.id === 'local' ? 'This computer' : h.address)}</b></>"
     }
    ]
   },
