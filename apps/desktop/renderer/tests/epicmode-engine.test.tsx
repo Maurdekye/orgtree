@@ -12,7 +12,7 @@ import { PARTICLE_CAP, Stage } from '../src/epic/stage'
 import { PLAYBOOK_KINDS, startEpic } from '../src/epic/director'
 import * as taps from '../src/epic/tap'
 import type { TreeNode, TreePayload } from '../src/types'
-import { fakeAudio } from './epicmode-fakes'
+import { fakeAudio, recordCanvas } from './epicmode-fakes'
 
 const NOW = 1_800_000_000_000
 
@@ -192,6 +192,55 @@ test('the stage caps its particles and leaves nothing behind', () => {
   assert.equal(document.querySelectorAll('canvas.epic-stage').length, 0)
   stage.burst(1, 1)
   assert.equal(stage.particleCount, 0, 'a destroyed stage spawns nothing')
+})
+
+test('every effect in the playbook really draws, and the word effects draw their words', async () => {
+  const rec = recordCanvas()
+  const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+  // the slow ones: a move lands after the chart carries the card; fireworks climb first
+  const SLOW = new Set(['move', 'ticketDone', 'killswitch', 'killswitchOff', 'epicOn', 'halt', 'urgent', 'attention', 'compact', 'interrupt'])
+  try {
+    const blank: string[] = []
+    for (const kind of PLAYBOOK_KINDS) {
+      if (kind === 'dialogClose') continue   // a whoosh and nothing else, by design
+      const before = rec.calls.length
+      const show = startEpic({ audio: null, greet: 'none' })
+      show.cue(kind, { node: 'alice', other: 'boss', text: 'Bash', n: 2 })
+      await wait(SLOW.has(kind) ? 1200 : 70)
+      show.stop()
+      if (rec.calls.length === before) blank.push(kind)
+    }
+    assert.deepEqual(blank, [], 'effects that drew nothing')
+    for (const word of ['EPIC MODE', 'FROZEN!', 'STOP', 'ZAP!', 'HIRED!', 'TELEPORTED!', 'TICKET CLOSED!', 'WOOF!', 'BASH!', 'HALTED', 'UNDO!']) {
+      assert.equal(rec.texts.includes(word), true, `never drew ${word}`)
+    }
+  } finally { rec.restore() }
+})
+
+test('the stage runs one frame loop, however many effects spawn from inside a frame', () => {
+  const pending: ((t: number) => void)[] = []
+  const view = window as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown }
+  view.requestAnimationFrame = (cb: (t: number) => void) => { pending.push(cb); return pending.length }
+  view.cancelAnimationFrame = () => {}
+  const stage = new Stage(document)
+  try {
+    // rockets and comets burst from inside their own step: the old loop forked here
+    for (let i = 0; i < 4; i++) stage.firework(100 + i * 50, 300)
+    stage.comet(10, 10, 400, 300)
+    stage.meteor(300, 300)
+    assert.equal(pending.length, 1, 'one frame requested')
+    let most = 0
+    for (let frame = 0; frame < 90 && pending.length; frame++) {
+      const run = pending.splice(0)
+      for (const cb of run) cb(1000 + frame * 16)
+      most = Math.max(most, pending.length)
+    }
+    assert.equal(most, 1, `at most one frame is ever pending (saw ${most})`)
+  } finally {
+    stage.destroy()
+    delete view.requestAnimationFrame
+    delete view.cancelAnimationFrame
+  }
 })
 
 test('a direct show stages taps, survives unknown frames and stops cleanly', () => {

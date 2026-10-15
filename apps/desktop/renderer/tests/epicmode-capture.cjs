@@ -137,8 +137,8 @@ app.whenReady().then(async () => {
       await js(code + '; true')
       await sleep(delay)
       await shot(name)
-      const live = await js(`(() => { const c = document.querySelector('canvas.epic-stage'); return { stage: !!c } })()`)
-      receipts.push({ effect: name, delay, stage: live.stage })
+      const live = await js(`(() => { const c = document.querySelector('canvas.epic-stage'); return { stage: !!c, words: window.__drawn.splice(0) } })()`)
+      receipts.push({ effect: name, delay, stage: live.stage, words: live.words })
       await js(`window.__epic.stop(); true`)
       write(false)
     }

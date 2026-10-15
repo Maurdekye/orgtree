@@ -70,5 +70,36 @@ export function fakeAudio(): { Ctor: new () => AudioContext; log: AudioLog } {
 
 // jsdom logs "Not implemented: HTMLCanvasElement.prototype.getContext" on
 // every call; the stage treats a missing context as "draw nothing", which is
-// exactly what these suites want, so answer null quietly.
-;(window.HTMLCanvasElement.prototype as unknown as { getContext: () => null }).getContext = () => null
+// exactly what most of these suites want, so answer null quietly.
+const quiet = () => null
+;(window.HTMLCanvasElement.prototype as unknown as { getContext: () => null }).getContext = quiet
+
+/** A 2D context that records every drawing call (method name, and the text of
+ *  fillText/strokeText) instead of drawing, for asserting that an effect
+ *  really put something on the stage. Undo with `restore`. */
+export function recordCanvas(): { calls: string[]; texts: string[]; restore: () => void } {
+  const calls: string[] = [], texts: string[] = []
+  const DRAW = new Set(['fill', 'stroke', 'fillRect', 'strokeRect', 'drawImage', 'fillText', 'strokeText', 'arc', 'ellipse', 'lineTo'])
+  const context = () => {
+    const store: Record<string | symbol, unknown> = {}
+    const gradient = () => ({ addColorStop: () => undefined })
+    return new Proxy(store, {
+      get(target, key) {
+        if (key in target) return target[key]
+        if (key === 'createLinearGradient' || key === 'createRadialGradient') return gradient
+        if (key === 'measureText') return (t: string) => ({ width: String(t).length * 7 })
+        if (key === 'then') return undefined
+        return (...args: unknown[]) => {
+          const name = String(key)
+          if (DRAW.has(name)) calls.push(name)
+          if ((name === 'fillText' || name === 'strokeText') && typeof args[0] === 'string') texts.push(args[0])
+          return undefined
+        }
+      },
+      set(target, key, value) { target[key] = value; return true },
+    })
+  }
+  const proto = window.HTMLCanvasElement.prototype as unknown as { getContext: () => unknown }
+  proto.getContext = context
+  return { calls, texts, restore: () => { proto.getContext = quiet } }
+}

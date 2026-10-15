@@ -52,6 +52,14 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 }
 
 applyTheme('orgtree')
+// every word the stage paints, so a capture can say what was on screen
+const drawn: string[] = []
+;(window as unknown as { __drawn: string[] }).__drawn = drawn
+const fillText = CanvasRenderingContext2D.prototype.fillText
+CanvasRenderingContext2D.prototype.fillText = function (this: CanvasRenderingContext2D, text: string, x: number, y: number, max?: number) {
+  if (!drawn.includes(text)) drawn.push(text)
+  return max === undefined ? fillText.call(this, text, x, y) : fillText.call(this, text, x, y, max)
+}
 // ?scene=… rather than #…: a hash change is a same-document navigation and
 // would never re-run this bundle
 const scene = new URLSearchParams(location.search).get('scene') || 'switch'
