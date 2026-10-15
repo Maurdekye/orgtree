@@ -22,7 +22,7 @@ The configured permission mode and current folder/tool grants determine approval
 
 Claude startup reads its native managed/user/project notes, applicable rules/imports and limited auto-memory prefix. In the measured CLI, project AGENTS.md is a fallback when the project chain lacks nonempty Claude notes; granted-folder notes are also supplied by Orgtree when not loaded natively. Native startup-file edits are fingerprinted for subsequent launches/turns. For the rule-file sharing home, see the relevant instruction settings rather than copying another harness's precedence.
 
-At the checked source base, generated skill guidance points to global and permitted project `.claude/skills` folders. That text is not evidence that every other harness auto-loads them. Cross-harness shared-skill/global-instruction work was pending relative to this base; do not claim verified universal loading from these documentation bundles alone.
+For built-in guides, discovered user bundles, pending cross-harness exports and global-instruction limits, read [skills and instructions](../skills-and-instructions/SKILL.md). For external server discovery and Refresh, read [MCP servers](../mcp-servers/SKILL.md).
 
 ## Diagnose a missing capability
 
@@ -31,3 +31,5 @@ Check the current provider/account, installed executable, effective scope, disco
 ## See also
 
 - [orgtree-providers-tab](../providers-tab/SKILL.md)
+- [orgtree-mcp-servers](../mcp-servers/SKILL.md)
+- [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)

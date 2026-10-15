@@ -30,9 +30,11 @@ Approvals are once-only; Orgtree does not choose always-allow or save an approva
 
 Usage comes from per-prompt results. Custom-provider zero cost has no verified price provenance, so cost stays unknown; the provider key's own usage is authoritative. Cache lifetime is unknown. Generic ACP error wording does not establish a typed quota/reset freeze. Saved effort is not proof that a supported custom-provider option was negotiated.
 
-At the checked base this adapter does not auto-load skills and uses empty isolated skill/instruction lists. Shared-skills delivery was pending at that base; do not claim real loading was verified. Source implementation and a historical contract's test plan are not new runtime acceptance evidence.
+At the checked base this adapter uses empty isolated skill/instruction lists. The pending native delivery contract and its verification limits live in [skills and instructions](../skills-and-instructions/SKILL.md); external server import lives in [MCP servers](../mcp-servers/SKILL.md).
 
 ## See also
 
 - [orgtree-openrouter](../openrouter/SKILL.md)
 - [orgtree-language-servers](../language-servers/SKILL.md)
+- [orgtree-mcp-servers](../mcp-servers/SKILL.md)
+- [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)

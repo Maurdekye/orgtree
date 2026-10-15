@@ -26,8 +26,10 @@ Codex reads home AGENTS.md plus the project chain from a .git root to cwd (cwd a
 
 Startup files enter the launch fingerprint; their edit can replace a parked app-server on the next turn while resuming its session. That changes startup context and can cost provider-cache continuity.
 
-The checked source predates the shared-skills integration. Use the catalog and paths actually delivered to the session; do not infer native loading from Claude-style paths in generic identity text. Installation, sign-in, model entitlement, scope and tool readiness are independent checks.
+The common [skills and instructions](../skills-and-instructions/SKILL.md) page owns the pending shared-skill delivery contract and global-instruction limits. [MCP servers](../mcp-servers/SKILL.md) owns external server discovery and Refresh. Installation, sign-in, model entitlement, scope and tool readiness are independent checks.
 
 ## See also
 
 - [orgtree-providers-tab](../providers-tab/SKILL.md)
+- [orgtree-mcp-servers](../mcp-servers/SKILL.md)
+- [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)

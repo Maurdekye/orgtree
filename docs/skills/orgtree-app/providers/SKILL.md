@@ -15,6 +15,8 @@ Providers, harnesses and accounts (App settings > Providers and Harnesses), plus
 - [orgtree-harness-opencode](harness-opencode/SKILL.md): OpenCode seats over ACP.
 - [orgtree-harness-antigravity](harness-antigravity/SKILL.md): Antigravity seats, the flat mail tools, and enabling Claude models through Antigravity.
 - [orgtree-harness-muse](harness-muse/SKILL.md): Muse seats: limits and usage reporting.
+- [orgtree-mcp-servers](mcp-servers/SKILL.md): MCP servers: read-only discovery and import from every supported source, the Refresh button, collisions and redaction, and how servers are granted to agents.
+- [orgtree-skills-and-instructions](skills-and-instructions/SKILL.md): Skills and global instructions: built-in Orgtree skills, discovered user skills, global instruction files, how each harness receives them, and why edits change the startup prefix.
 
 ## Screens
 
