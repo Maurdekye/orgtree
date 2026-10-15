@@ -290,7 +290,7 @@ mod mail_size_tests {
     fn exact_final_budget_and_single_reference_fallback_are_checked() {
         let m = mail("tiny".into());
         let rels = HashMap::new();
-        let exact = turn_text(&[m.clone()], "context", &rels, None).len();
+        let exact = turn_text(std::slice::from_ref(&m), "context", &rels, None).len();
         let b = batch(&[m], "context", &rels, None, exact, false).unwrap();
         assert_eq!(b.text.len(), exact);
         let b = batch(&[mail("x".repeat(10_000))], "context", &rels, None, 4096, false).unwrap();
