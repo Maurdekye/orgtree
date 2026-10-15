@@ -33,13 +33,32 @@ pre-key calibration. The latter selected the first status section although
 Open follows Blocked and In progress. Tests-only `48d400b` targets the selected
 alpha row's own category and retains hidden-row and remaining-row assertions.
 
-The current mounted suite prepares 36 cases, adding draft-release checks on
-all four surfaces and real question-option/inactive-batch-tab draft checks.
-Corrected red, green, adjacent suites and typechecks are pending rig-sol-b;
-no green execution is claimed by this source hand-in. The portable runner
-injects all four changed existing panel/composer files from the exact base for
-red, using current tests and existing dependencies read in place. Generated
-bundles stay under the rig's assigned C build directory.
+Rig-sol-b approved exact `0e1f91fd19e2653780f08e6a05ce46ddd98a9cda`:
+
+- Final mounted suite: 36/36 pass, exit0/3s. Exact-base control: ten pass,
+  26 genuine navigation assertion failures, exit1/2s. Both have zero skips or
+  cancellations. The inactive-batch heading calibration trims Markdown's
+  trailing newline; expected heading and draft assertions remain intact.
+- Nine adjacent suites execute 89 cases at both base and tip: 85 pass and the
+  same four fail (base16s/tip14s). The retained failures are docketsearch's
+  empty-result notice; docketwindow's unchanged-neighbour selection and
+  variable-height selection cases; and shortcuts' unlisted EPIC director
+  bindings. No new or removed failure names; this is not a full green result.
+- Root TypeScript7 API check: zero diagnostics over 320 source files, exit0/4s.
+  Strict renderer diagnostics remain29/29 and strict test diagnostics830/830.
+  Author normalized path roots/line positions and compared complete diagnostic
+  multisets: zero added or removed. Test configs explicitly use `exclude:[]`
+  and include this suite. Base uses the current new test in a read-only memory
+  overlay (SHA256d0acad566fdfb31018a4dc8789998afa7410c093740d35bd6e44fb7f6d6e2611),
+  with no source copy or junction. Strict configurations are not clean.
+
+The portable runner injects all four changed existing panel/composer files
+from the exact base for red, using current tests and existing dependencies
+read in place. Generated bundles stay under the rig's assigned C build
+directory. Final logs are `panel-final-{red,green}.log`,
+`panel-neighbors-{base,tip}.log`, and `panel-tc-*` in the verifier's
+`batch-panel-steps` evidence. The legacy TypeScript helper setup failure was
+excluded; measured comparison uses the shipped TypeScript7 API.
 
 These are synthetic jsdom checks: the detached case uses a separate iframe
 document, and `scrollIntoView` is observed as a nearest-scroll request.
