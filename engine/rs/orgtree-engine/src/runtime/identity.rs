@@ -1057,3 +1057,129 @@ and a compatible prefix never guarantees a provider cache hit. While you remain 
 without a real wake, even with no actionable docket work. Docket reminders are separate; when both are due, only the \
 docket reminder wakes you and counts as a real wake for the checkup timer. Checkups wait while you are busy or have queued work and \
 respect normal turn-admission limits; they are not a precise timer or a guaranteed cache hit. ";
+
+/// The trimmed instructions (docket shrink-agents-built-in-instructions-by-moving-ho,
+/// user approval 2026-10-15 12:41Z: D1 split approved, D3 docket summary about 1.3 KB).
+/// A seat that receives the built-in skill library gets short always-in-force rules plus
+/// pointers to skill pages; every other seat keeps the full text byte for byte.
+#[cfg(test)]
+mod trim_tests {
+    use super::*;
+    use crate::domain::tool_groups::{self, GROUPS};
+    use serde_json::{json, Map};
+
+    #[nolog]
+    fn render(scope: &Value, lane: Lane, top: bool, builtin_skills: bool) -> String {
+        let teams = [json!({ "path": "D:/data/scratch/org/_teams/601", "own_team": true, "mode": "rw" })];
+        let mut scope = crate::domain::scope::with_org_notes(scope, "D:/data/scratch/org/_shared");
+        if let Some(dirs) = scope["add_dirs"].as_array_mut() { dirs.extend(teams.iter().map(|t| {
+            let mut t = t.clone(); t["team_workspace"] = json!(true); t })); }
+        identity(&Identity {
+            name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
+            charter: None, team_charter: None, cascade: &[],
+            superior: if top { None } else { Some("coordinator") }, org_md: None, lane, scope: &scope,
+            codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
+            own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills,
+        })
+    }
+
+    fn all_on() -> Value {
+        json!({ "permission_mode": "acceptEdits", "add_dirs": [{ "path": "E:/repo", "mode": "rw" }] })
+    }
+
+    /// The approved budget: well under Antigravity's 24 KB per file, measured on the
+    /// largest engine-written profile (top-level, every group, org-inbox holder).
+    #[test]
+    fn trimmed_engine_text_fits_the_budget_on_every_lane() {
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            for top in [false, true] {
+                let full = render(&all_on(), lane, top, false);
+                let trimmed = render(&all_on(), lane, top, true);
+                assert!(trimmed.len() < 10_000, "{lane:?} top={top}: {} bytes", trimmed.len());
+                assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
+            }
+        }
+    }
+
+    /// A seat without the built-in skills keeps today's text exactly.
+    #[test]
+    fn seats_without_builtin_skills_keep_the_full_text() {
+        let full = render(&all_on(), Lane::Claude, false, false);
+        for whole in [DOCKET, QUESTIONS_AND_FILES, ACCOUNT_LANES, CACHE_CONTINUITY, WATCHDOGS, BREADCRUMBS, CHECKUPS] {
+            assert!(full.contains(whole));
+        }
+        assert!(!full.contains("HOW-TO LIVES IN SKILLS"));
+    }
+
+    /// The rules that must hold before an agent would open a skill stay inline, in
+    /// the wording other tests and rulings pin.
+    #[test]
+    fn trimmed_text_keeps_the_always_in_force_rules() {
+        let s = render(&all_on(), Lane::Claude, true, true);
+        assert!(s.contains("HOW-TO LIVES IN SKILLS") && s.contains("orgtree-working") && s.contains("orgtree-app"));
+        assert!(s.contains(EXTERNAL_AUTHORITY.trim()) && s.contains(BACKGROUND));
+        assert!(s.contains("ALWAYS answer with orgtree_message to that @net: address"));
+        assert!(s.contains("HIRING ALONE STARTS NO ONE"));
+        assert!(s.contains("DOCUMENTS ARE PRESENTED, FILES ARE SENT (user rule 2026-10-09)"));
+        assert!(s.contains("NEVER start a model on an account where a usage window that model spends is at 100%"));
+        assert!(s.contains("THE DOCKET") && s.contains("problem") && s.contains("attention_reason"));
+        assert!(s.contains("BREADCRUMBS (user ruling 2026-08-12)") && s.contains("orgtree_watchdog"));
+        assert!(s.contains("[ORGTREE MAIL — delivered mid-task]") && s.contains("REQUIRED: call orgtree_status"));
+        assert!(s.contains("it does NOT message the user"));
+        for gone in [DOCKET, QUESTIONS_AND_FILES, ACCOUNT_LANES, CACHE_CONTINUITY, READ_REPORTS, GATE_GATED] {
+            assert!(!s.contains(gone));
+        }
+    }
+
+    /// The trimmed text names only tools the seat holds, for every group combination.
+    #[test]
+    fn trimmed_text_follows_every_combination_of_group_switches() {
+        for bits in 0..(1 << GROUPS.len()) {
+            let groups: Map<String, Value> = GROUPS.iter().enumerate()
+                .map(|(n, g)| ((*g).to_owned(), json!(bits & (1 << n) != 0))).collect();
+            let scope = json!({"tools":{"orgtree":groups}});
+            for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+                for top in [false, true] {
+                    let text = render(&scope, lane, top, true);
+                    assert!(text.contains("orgtree_status"));
+                    for name in crate::tools::defs::implemented() {
+                        if !tool_groups::allows(&render_scope(&scope), name) {
+                            assert!(!text.contains(name), "disabled {name} in {bits} {lane:?} top={top}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_scope(scope: &Value) -> Value { scope["tools"].clone() }
+
+    /// Every skill page the trimmed text points to exists in the library manifest.
+    /// The trim lands only together with the library, so a missing manifest is red.
+    #[test]
+    fn every_skill_pointer_names_a_page_in_the_library() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/skills/tree.json");
+        let manifest: Value = serde_json::from_str(&std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("the skill library manifest {} must ship with the trim: {e}", path.display()))).unwrap();
+        let names: std::collections::BTreeSet<String> = manifest["nodes"].as_array().unwrap().iter()
+            .filter_map(|n| n["name"].as_str().map(str::to_owned)).collect();
+        let text = [render(&all_on(), Lane::Claude, true, true), render(&all_on(), Lane::Claude, false, true)].concat();
+        let mut pointers = std::collections::BTreeSet::new();
+        for (i, _) in text.match_indices("orgtree-") {
+            let name: String = text[i..].chars().take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-').collect();
+            let name = name.trim_end_matches('-').to_owned();
+            if name != "orgtree-tool" { pointers.insert(name); }
+        }
+        assert!(pointers.len() > 15, "{pointers:?}");
+        let missing: Vec<_> = pointers.iter().filter(|p| !names.contains(*p)).collect();
+        assert!(missing.is_empty(), "pointers without a page: {missing:?}");
+    }
+
+    /// Only the lanes the rig verified to load the built-in skills get the trim.
+    #[test]
+    fn only_verified_lanes_receive_the_trim() {
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            assert_eq!(builtin_skills_lane(lane), SKILL_LANES.contains(&lane));
+        }
+    }
+}
