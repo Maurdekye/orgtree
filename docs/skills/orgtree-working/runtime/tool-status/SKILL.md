@@ -1,0 +1,35 @@
+---
+name: orgtree-tool-status
+description: Report your work status and understand which reports reach your superior.
+---
+
+Up: [orgtree-runtime](../SKILL.md)
+
+# orgtree_status
+
+Report a meaningful change in your own work. Call it when finished (`done`) or stuck (`blocked`); use `working` when work resumes. It updates your status chip and history. It does not complete a docket item or end the turn that is currently running.
+
+## Parameters
+
+| Parameter | Required | Meaning |
+|---|---|---|
+| `status` | Yes | `working`, `done`, `blocked`, or `idle`. |
+| `summary` | Yes | One or two sentences describing the result, next step, or blocker. The handler collapses whitespace and shortens it to a 600-character gist. Put durable detail in the docket. |
+
+`done` records an idle current status, while the event records that you reported done. Do not follow it with a separate idle report. `blocked` describes work needing input or an external change; it does not install a wake trigger. Arrange how the answer or event will reach you.
+
+## Delivery and permissions
+
+This tool has no Orgtree tool-group prerequisite: status reporting stays available even when all groups are disabled. It still acts as your authenticated agent; it has no `node` argument for reporting somebody else's status.
+
+Only `done` and `blocked` send the summary to your direct superior, as a passive notice. `working` and `idle` update the record without that mail. A top-level agent has no superior, so its report updates its chip without sending a duplicate user digest. Communicate actual results through the appropriate mail channel when needed.
+
+A status never wakes the superior. If action is needed now, send a [message](../../mail/tool-message/SKILL.md) as well. Keep the [docket](../../docket/tool-work/SKILL.md) current separately.
+
+An unsupported status is refused with `status must be working, done, blocked or idle`; a missing/empty status is refused as required. Supply both declared arguments even though the handler tolerates an absent summary as empty text.
+
+## Example
+
+```json
+{"status":"done","summary":"The parser fix is committed and its focused checks pass; the review evidence is on the docket."}
+```
