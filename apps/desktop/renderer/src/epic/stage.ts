@@ -77,10 +77,19 @@ export class Stage {
   private width = 0
   private height = 0
   private sprites = new Map<string, HTMLCanvasElement>()
+  /** 0.25…1: how many of the particles asked for are actually born. A frame
+   *  that took too long lowers it, quiet frames raise it back, so a flood of
+   *  events thins its sparks instead of stalling the window's main thread. */
+  private quality = 1
   private resizeObserver: (() => void) | null = null
   private dead = false
   private shakeAnim: Animation | null = null
-  /** the app element that shakes; null in a test document without one */
+  /** the element that shakes: the document's root element. Its box IS the
+   *  viewport (html is 100% high), so while its transform makes it the
+   *  containing block for fixed-position descendants — dialogs, menus, this
+   *  stage — they keep exactly their geometry. #root would not: it is only
+   *  min-height 100vh, and in a document where #root is not full-window the
+   *  fixed layers inside it collapsed for the length of a shake. */
   shakeTarget: () => HTMLElement | null
 
   constructor(doc: Document, shakeTarget?: () => HTMLElement | null) {
@@ -97,7 +106,7 @@ export class Stage {
     let g: CanvasRenderingContext2D | null = null
     try { g = c.getContext('2d') } catch { g = null }
     this.g = g
-    this.shakeTarget = shakeTarget ?? (() => doc.getElementById('root'))
+    this.shakeTarget = shakeTarget ?? (() => doc.documentElement)
     doc.body.appendChild(c)
     const onResize = () => this.resize()
     this.view.addEventListener('resize', onResize)
@@ -126,6 +135,9 @@ export class Stage {
     this.resizeObserver?.()
     this.resizeObserver = null
     try { this.shakeAnim?.cancel() } catch { /* gone */ }
+    this.shakeAnim = null
+    this.unclip?.()
+    this.unclip = null
     this.canvas.remove()
     this.parts = []
     this.pool = []
@@ -149,18 +161,33 @@ export class Stage {
   }
 
   private wake(): void {
-    if (this.dead || this.rafId) return
+    if (this.dead || this.rafId || this.ticking) return
     this.last = 0
     this.rafId = this.raf(this.tick)
   }
 
+  /* ⚠ ONE LOOP. Effects spawn from inside a frame (a firework's rocket, a
+     comet's trail, a meteor all burst in their `step`), and a spawn calls
+     wake(). Were the frame id already cleared then, that wake would request a
+     second frame and the end of this frame a third: loops multiply, every
+     effect ages several times too fast and the frame cost explodes. So the
+     frame in progress counts as scheduled until it has scheduled its own
+     successor. */
+  private ticking = false
   private tick = (now: number): void => {
     this.rafId = 0
     if (this.dead) return
+    this.ticking = true
     const dt = this.last ? Math.min(0.05, (now - this.last) / 1000) : 1 / 60
     this.last = now
-    this.update(dt)
-    this.draw()
+    const t0 = performance.now()
+    try {
+      this.update(dt)
+      this.draw()
+    } finally { this.ticking = false }
+    const spent = performance.now() - t0
+    this.quality = spent > 12 ? Math.max(0.25, this.quality * 0.85) : Math.min(1, this.quality + 0.01)
+    if (this.dead) return
     if (this.parts.length || this.actors.length) this.rafId = this.raf(this.tick)
     else this.clear()
   }
@@ -343,7 +370,7 @@ export class Stage {
 
   burst(x: number, y: number, o: BurstOptions = {}): void {
     if (this.idle) return
-    const count = o.count ?? 40
+    const count = Math.ceil((o.count ?? 40) * this.quality)
     const colors = o.colors ?? ['#ffd34d', '#ff7a1a', '#ffffff']
     const [s0, s1] = o.speed ?? [120, 520]
     const [z0, z1] = o.size ?? [3, 9]
@@ -824,7 +851,7 @@ export class Stage {
   /** weather over the whole window: confetti, snow or coins falling */
   rain(kind: 'confetti' | 'snow' | 'coin' | 'glow', o: { count?: number; colors?: string[] } = {}): void {
     if (this.idle) return
-    const count = o.count ?? 120
+    const count = Math.ceil((o.count ?? 120) * this.quality)
     const colors = o.colors ?? (kind === 'snow' ? ['#ffffff', '#dff6ff'] : kind === 'coin' ? ['#f5c518'] : CONFETTI)
     for (let i = 0; i < count; i++) {
       const p = this.particle()
@@ -908,9 +935,27 @@ export class Stage {
     }
     try {
       this.shakeAnim?.cancel()
-      this.shakeAnim = el.animate(frames, { duration: ms, easing: 'linear' })
+      // a translated root overflows the window by a few pixels, which would
+      // flash scrollbars at its edges: clip it for exactly as long as it shakes
+      if (!this.unclip) {
+        const before = el.style.overflow
+        el.style.overflow = 'hidden'
+        this.unclip = () => { el.style.overflow = before }
+      }
+      const anim = el.animate(frames, { duration: ms, easing: 'linear' })
+      this.shakeAnim = anim
+      const done = () => {
+        if (this.shakeAnim !== anim) return
+        this.shakeAnim = null
+        this.unclip?.()
+        this.unclip = null
+      }
+      anim.onfinish = done
+      anim.oncancel = done
     } catch { /* no Web Animations: the stage still plays */ }
   }
+  /** puts the shaken element's own overflow back */
+  private unclip: (() => void) | null = null
 
   /** a one-off glow on an element of the app, reverting by itself */
   pulse(el: Element | null, color: string, ms = 900): void {

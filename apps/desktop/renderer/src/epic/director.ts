@@ -1235,6 +1235,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   focus: c => {
     c.show.sound('blip', c, { pitch: 1.4 })
     if (c.at.rect) c.t.stage.frame(c.at.rect, { color: CYAN, life: 0.45, width: 3, pad: 3 })
+    c.t.stage.ring(c.at.x, c.at.y, { color: CYAN, radius: 40, width: 3, life: 0.35 })
   },
   undo: c => {
     const s = c.t.stage
@@ -1297,6 +1298,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   popup: c => {
     c.show.sound('whooshIn', c, { gain: 0.5 })
     if (c.at.rect) c.t.stage.frame(c.at.rect, { color: PURPLE, life: 0.4, width: 3, pad: 2 })
+    c.t.stage.ring(c.at.x, c.at.y, { color: PURPLE, radius: 70, width: 4, life: 0.35 })
   },
   toast: c => {
     c.show.sound('notice', c)

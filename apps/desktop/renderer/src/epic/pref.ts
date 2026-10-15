@@ -68,9 +68,11 @@ const show = (on: boolean) => { if (on !== shown) { shown = on; notify() } }
 function subscribe(fn: () => void): () => void {
   subs.add(fn)
   if (!stopShared) stopShared = watchEpic(on => { stored = on; show(on) })
+  // the last known value stays for the next mount, so reopening settings with
+  // EPIC Mode on does not draw the switch hidden for a frame before the read
   return () => {
     subs.delete(fn)
-    if (!subs.size && stopShared) { stopShared(); stopShared = null; stored = shown = false }
+    if (!subs.size && stopShared) { stopShared(); stopShared = null }
   }
 }
 
