@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 import type { DesktopIdentity } from './build-channel'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', activeAgentsOnly: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -54,6 +54,9 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       // optional and absent by default: an untouched install stores nothing
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.epicMode = val
+    } else if (key === 'activeAgentsOnly') {
+      if (typeof val !== 'boolean') throw new Error('Invalid preference')
+      result.activeAgentsOnly = val
     } else {
       if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded', 'notificationsEnabled', ...NOTIFICATION_OPTIONS.map(o => o.key)].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key as 'exitOnClose' | 'startAtLogin' | 'automaticUpdates' | 'routineNotifications' | 'onboarded' | 'notificationsEnabled'] = val

@@ -322,6 +322,8 @@ export interface AttentionViewProps {
   map: Map<string, CanvasNode>
   /** the host's layout position for an agent, for the list's visual order */
   posOf?: (id: string) => Pt | undefined
+  activeAgentsOnly?: boolean
+  onActiveAgentsOnly?: (value: boolean) => void
   /** routes out of the simplified workflow; each omitted one draws no control */
   onOpenItem?: (itemSlug: string) => void
   onFocusAgent?: (agentId: string) => void
@@ -557,6 +559,8 @@ export function AttentionView(props: AttentionViewProps) {
             close={() => unpinModal(DESK_KIND, slug)}>
             <AgentDeskPanel slug={slug} tree={props.tree} op={props.op}
               toast={props.toast} map={props.map} posOf={props.posOf}
+              activeAgentsOnly={props.activeAgentsOnly}
+              onActiveAgentsOnly={props.onActiveAgentsOnly}
               eligible={deskEligible} claim={deskClaim}
               deskExtras={props.deskExtras} />
           </PinFrame>

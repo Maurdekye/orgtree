@@ -12,6 +12,8 @@ Filter agents matches the agent name case-insensitively. A filtered-out ancestor
 
 Archived rows are initially folded behind Show archived when any exist; Hide archived folds them again. The count concerns the list's loaded agent set, not a claim that every historical identity has been fetched. A retired card hidden from the canvas can still be found through the appropriate list/navigation path; hidden is not deleted.
 
+The **active only** toggle filters to agents whose live-turn `busy` flag is true when the list is rendered. Idle, halted, blocked, queued-mail, and frozen status do not count as active unless that flag is true. Nonmatching ancestors stay as dim ghost rows when needed to preserve hierarchy. The toggle is shared by the canvas tray and Attention drawer and its choice persists in desktop preferences; turning it off restores the ordinary list.
+
 Rows include tier, pending-model badge, context wheel, live/queued/halted/frozen/idle status and age, plus the reported summary. If only a previous status is available it is shown dimmed rather than asserted as a new status. See [agent card](../agent-card/SKILL.md) for indicator meanings. Pin/popout actions live in the context menu rather than separate per-row buttons.
 
 Use the list to locate evidence or the correct identity before advising a lifecycle action. Displaying a row does not itself resume a turn or grant a peer management rights; the agent-side read boundary is described by `orgtree-visibility` (orgtree-working › inspection).

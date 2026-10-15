@@ -29,6 +29,8 @@ export interface DesktopPreferences extends NotificationPreferences {
   startAtLogin: boolean
   automaticUpdates: boolean
   routineNotifications: boolean
+  /** The Agents List shows only agents currently running a turn. */
+  activeAgentsOnly?: boolean
   onboarded: boolean
   /** Whether an ordinary launch reopens the windows that were open last time,
    *  or starts at a fresh Homepage. See StartupMode. */

@@ -38,14 +38,15 @@ export interface TrayRow {
  *  (`agentRows`) — and so does Quick chat's superior menu, so the three
  *  cannot list agents in different orders. */
 export function trayRows(map: Map<string, CanvasNode>, opts: {
-  archived?: boolean; query?: string
+  archived?: boolean; query?: string; activeOnly?: boolean
   compare?: ((a: CanvasNode, b: CanvasNode) => number) | null
 } = {}): TrayRow[] {
   const all = [...map.values()].filter((n) =>
     n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
   const q = (opts.query ?? '').trim().toLowerCase()
   const match = (n: CanvasNode) =>
-    (opts.archived || n.state === 'live') && (!q || n.id.toLowerCase().includes(q))
+    (opts.archived || n.state === 'live') && (!opts.activeOnly || n.busy === true)
+      && (!q || n.id.toLowerCase().includes(q))
   const kids = new Map<string, CanvasNode[]>()
   for (const n of all) {
     const parent = n.parent && map.has(n.parent) && n.parent !== USER ? n.parent : USER
@@ -78,6 +79,8 @@ export interface AgentTrayProps {
   onQuery: (q: string) => void
   archived: boolean
   onArchived: (v: boolean) => void
+  activeOnly?: boolean
+  onActiveOnly?: (v: boolean) => void
   /** press on a row */
   onPick: (id: string) => void
   /** right-click on a row; `go` is the same action a press takes */
@@ -102,6 +105,7 @@ export interface AgentTrayProps {
 export function AgentTray({
   map, rows, query, onQuery, archived, onArchived, onPick, onRowMenu, compactAt,
   refs, selected, listProps, mainProps, rowProps, filterLabel, leadingRows, empty,
+  activeOnly = false, onActiveOnly,
 }: AgentTrayProps) {
   const archN = archivedCount(map)
   return (
@@ -114,6 +118,10 @@ export function AgentTray({
         <button type="button" className="tray-arch" onClick={() => onArchived(!archived)}>
           {archived ? '▾ hide' : '▸ show'} {archN} archived
         </button>
+      )}
+      {onActiveOnly && (
+        <button type="button" className="tray-active" aria-pressed={activeOnly}
+          onClick={() => onActiveOnly(!activeOnly)}>active only</button>
       )}
       {leadingRows}
       {rows.map(({ node: n, depth, ghost }) => {

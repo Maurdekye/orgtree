@@ -3056,9 +3056,9 @@
    "covers": [
     "screen:agents-list"
    ],
-   "purpose": "The agents list tray: every agent by hierarchy, search, archived toggle.",
+   "purpose": "The agents list tray: hierarchy, search, active-only and archived filters.",
    "must_cover": [
-    "search and archived"
+    "search, active-only meaning and persistence, and archived"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/agenttray.tsx:102"

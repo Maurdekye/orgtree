@@ -783,6 +783,12 @@ export default function App() {
   // desktop preferences, only for the first-run gate below; the onboarding
   // card manages its own live copy once shown
   const [deskPrefs, setDeskPrefs] = useState<NativePreferences | null>(null)
+  const activeAgentsOnly = deskPrefs?.activeAgentsOnly ?? false
+  const setActiveAgentsOnly = useCallback((activeAgentsOnly: boolean) => {
+    setDeskPrefs(current => current ? { ...current, activeAgentsOnly } : current)
+    const bridge = desktop()
+    if (bridge?.setPreferences) void bridge.setPreferences({ activeAgentsOnly }).catch(() => {})
+  }, [])
   const persistAttentionOrgs = useCallback((slug: string, view: OrgView) => {
     // a bridge without setPreferences (an older preload, a test double) must
     // not throw out of the effect that restores the view
@@ -1794,6 +1800,7 @@ export default function App() {
               <OrgCanvas tree={tree} op={op} slug={slug} toast={toast}
                 mailEvt={mailEvt}
                 canvasShortcuts={canvasShortcuts}
+                activeAgentsOnly={activeAgentsOnly} onActiveAgentsOnly={setActiveAgentsOnly}
                 /* ⚠ THE SHELL SAYS WHICH VIEW IS PRESENTED; THE HOST DOES THE
                    HIDING. This must never become `display: none` on the canvas
                    or on `.viewport` here — `adoptPinLayer` appends the pin
@@ -1813,6 +1820,7 @@ export default function App() {
                 renderOrgSlot={v3 ? (ctx) => (
                   <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
                     toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}
+                    activeAgentsOnly={activeAgentsOnly} onActiveAgentsOnly={setActiveAgentsOnly}
                     onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
                     onOpenDoc={ctx.onOpenDoc} onOpenMail={ctx.onOpenMail}
                     onNotificationFocus={registerAttentionNotification}

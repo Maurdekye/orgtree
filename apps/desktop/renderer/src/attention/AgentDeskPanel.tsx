@@ -58,6 +58,8 @@ export interface AgentDeskPanelProps {
    *  agent" means the same agent in both views. A host with no layout yet
    *  returns undefined and the tree's own child order stands in. */
   posOf?: (id: string) => Pt | undefined
+  activeAgentsOnly?: boolean
+  onActiveAgentsOnly?: (value: boolean) => void
   /** the routes the canonical Desk already takes from its host (jump, mail
    *  links, docket links, documents). Passed through untouched — this panel
    *  invents none of them and supplies no stubs. */
@@ -93,7 +95,7 @@ type ListRow = TrayRow
 
 export function agentRows(
   map: Map<string, CanvasNode>, posOf?: (id: string) => Pt | undefined,
-  opts: { archived?: boolean; query?: string } = {},
+  opts: { archived?: boolean; query?: string; activeOnly?: boolean } = {},
 ): ListRow[] {
   // the tree's own order is the tie-break AND the whole answer when the host
   // has no layout, so it is captured before any sort touches the arrays
@@ -139,6 +141,7 @@ export function inCloseZone(
 
 export function AgentDeskPanel({
   slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
+  activeAgentsOnly = false, onActiveAgentsOnly,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -148,8 +151,8 @@ export function AgentDeskPanel({
   // off screen is what "reopening the view" looks like from in here
   useEffect(() => { if (!eligible) setOpen(false) }, [eligible])
 
-  const rows = useMemo(() => agentRows(map, posOf, { archived, query }),
-    [map, posOf, archived, query])
+  const rows = useMemo(() => agentRows(map, posOf, { archived, query, activeOnly: activeAgentsOnly }),
+    [map, posOf, archived, query, activeAgentsOnly])
   const fallback = useMemo(() => defaultAgent(map, posOf), [map, posOf])
 
   // ⚠ THE SELECTION IS THE STORED ONE WHILE IT STILL NAMES A LIVE AGENT, and
@@ -294,6 +297,7 @@ export function AgentDeskPanel({
             (`data-agent-nav`), because this host builds no menu of its own. */}
         <AgentTray map={map} rows={rows} query={query} onQuery={setQuery}
           archived={archived} onArchived={setArchived}
+          activeOnly={activeAgentsOnly} onActiveOnly={onActiveAgentsOnly}
           onPick={(id) => { select(id); close() }}
           compactAt={tree.compact_at} refs={refs} selected={selectedId}
           filterLabel="Filter agents"

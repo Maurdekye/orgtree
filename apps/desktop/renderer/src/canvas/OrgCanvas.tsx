@@ -147,6 +147,8 @@ export interface OrgCanvasProps {
    *  inherited visibility, which also PRESERVES LAYOUT: the camera, the
    *  springs and `posOf` survive the switch. */
   canvasContent?: 'shown' | 'hidden'
+  activeAgentsOnly?: boolean
+  onActiveAgentsOnly?: (value: boolean) => void
   /** filled with the Agents List on screen (its map and rows, in its
    *  order, for a filter) — Quick chat's superior picker reads it (App owns
    *  the ref) */
@@ -404,7 +406,8 @@ const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery, canvasShortcuts,
-  renderOrgSlot, canvasContent = 'shown', agentList }: OrgCanvasProps) {
+  renderOrgSlot, canvasContent = 'shown', agentList, activeAgentsOnly = false,
+  onActiveAgentsOnly }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
@@ -1130,8 +1133,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // otherwise. Read while the picker is open.
   if (agentList) agentList.current = (query) => ({
     map: mapRef.current,
-    rows: worldHidden ? agentRows(mapRef.current, posOf, { query })
-      : trayRows(mapRef.current, { query, compare: canvasTrayCompare() }),
+    rows: worldHidden ? agentRows(mapRef.current, posOf, { query, activeOnly: activeAgentsOnly })
+      : trayRows(mapRef.current, { query, activeOnly: activeAgentsOnly, compare: canvasTrayCompare() }),
   })
 
   // ---------------------------------------------- wires: geometry + sparks
@@ -4156,7 +4159,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             // Rings already follow tree order counterclockwise. Sorting their
             // siblings by y/x zig-zags across the arc; only rows use position.
             const rows = trayRows(map,
-              { archived: trayArch, query: trayQ, compare: canvasTrayCompare() })
+              { archived: trayArch, query: trayQ, activeOnly: activeAgentsOnly, compare: canvasTrayCompare() })
             // the rows themselves are canvas/agenttray.tsx, shared with the
             // Attention view's agents drawer (user 2026-09-30). A press goes
             // to the agent — a piled-away agent comes to the FRONT of its
@@ -4164,6 +4167,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             // the registry that serves every other surface's menu.
             return <AgentTray map={map} rows={rows} query={trayQ} onQuery={setTrayQ}
               archived={trayArch} onArchived={setTrayArch} onPick={goToAgent}
+              activeOnly={activeAgentsOnly} onActiveOnly={onActiveAgentsOnly}
               compactAt={tree.compact_at} refs={canvasRefs}
               /* the row's menu is the agent's own (canvas/agentmenu.tsx),
                  opened from the ROW. NOT at compact, exactly where the card
