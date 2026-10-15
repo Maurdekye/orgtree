@@ -65,6 +65,8 @@ interface Actor {
   draw(g: CanvasRenderingContext2D, k: number, stage: Stage): void
   /** additive ('lighter') or normal compositing */
   blend?: 'lighter' | 'source-over'
+  /** drawn after every glow and particle: words must stay readable */
+  top?: boolean
 }
 
 export interface BurstOptions {
@@ -273,7 +275,7 @@ export class Stage {
     this.clear()
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
     for (const actor of this.actors) {
-      if (actor.blend === 'lighter') continue
+      if (actor.blend === 'lighter' || actor.top) continue
       g.save(); actor.draw(g, Math.min(1, actor.age / actor.life), this); g.restore()
     }
     g.globalCompositeOperation = 'source-over'
@@ -281,11 +283,17 @@ export class Stage {
     g.globalCompositeOperation = 'lighter'
     for (const p of this.parts) if (p.kind === 'glow' || p.kind === 'streak') this.drawParticle(g, p)
     for (const actor of this.actors) {
-      if (actor.blend !== 'lighter') continue
+      if (actor.blend !== 'lighter' || actor.top) continue
       g.save(); actor.draw(g, Math.min(1, actor.age / actor.life), this); g.restore()
     }
     g.globalCompositeOperation = 'source-over'
     g.globalAlpha = 1
+    // the words (impact words, their names, rank titles, glyphs) go over every
+    // glow and particle: a name washed out by a portal's light says nothing
+    for (const actor of this.actors) {
+      if (!actor.top) continue
+      g.save(); actor.draw(g, Math.min(1, actor.age / actor.life), this); g.restore()
+    }
     // the combo meter goes over everything else
     if (this.hud) { g.save(); this.hud.draw(g, 0, this); g.restore() }
   }
@@ -546,7 +554,7 @@ export class Stage {
     const life = o.life ?? 1.25
     const caption = captionText(o.caption)
     this.add({
-      age: 0, life,
+      age: 0, life, top: true,
       draw(g, k, stage) {
         const t = this.age
         const scale = t < 0.18 ? 2.4 - 1.4 * easeOutBack(t / 0.18) : 1 + (t - 0.18) * 0.08
@@ -587,7 +595,7 @@ export class Stage {
     const caption = captionText(o.caption)
     if (this.titled) this.titled.life = Math.min(this.titled.life, this.titled.age)
     this.add(this.titled = {
-      age: 0, life,
+      age: 0, life, top: true,
       draw(g, k, stage) {
         const { w, h } = stage.size
         const size = Math.min(96, w / Math.max(7, text.length * 0.62))
@@ -967,7 +975,7 @@ export class Stage {
     const color = o.color ?? '#ffffff'
     const size = o.size ?? 90
     this.add({
-      age: 0, life: o.life ?? 1.4,
+      age: 0, life: o.life ?? 1.4, top: true,
       draw(g, k) {
         const pulse = 1 + Math.sin(this.age * 18) * 0.06 * (1 - k)
         const pop = Math.min(1, easeOutBack(Math.min(1, this.age / 0.2)))
