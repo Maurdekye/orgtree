@@ -30,9 +30,11 @@ export function projectEvent(event: KnownEvent): EventView {
   switch (event.variant) {
     case "ordinary.message": return layout(event, "Message", [["body", "Message", "body"]])
     case "ordinary.question": return layout(event, "Question", [["body", "Message", "body"]])
-    case "ordinary.request": return layout(event, "Request", [["body", "Message", "body"]])
-    case "ordinary.decision": return layout(event, "Decision", [["body", "Message", "body"]])
-    case "ordinary.status": return layout(event, "Status message", [["body", "Message", "body"]])
+    // retired kinds (user ruling 2026-10-15): stored mail that still
+    // carries one renders as a plain message, like ordinary.message
+    case "ordinary.request": return layout(event, "Message", [["body", "Message", "body"]])
+    case "ordinary.decision": return layout(event, "Message", [["body", "Message", "body"]])
+    case "ordinary.status": return layout(event, "Message", [["body", "Message", "body"]])
     case "ordinary.notice": return layout(event, "Notice", [["body", "Message", "body"]])
     case "reply.docket": return layout(event, "Docket reply", [["body", "Message", "body"], ["role", "Role", "header"], ["owner", "Assigned to", "header"]])
     case "reply.document": return layout(event, "Presentation reply", [["body", "Message", "body"]])

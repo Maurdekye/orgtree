@@ -104,7 +104,7 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
     out
 }
 
-const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
+const KINDS: &[&str] = &["message", "question"];
 
 /// The message tools take `metadata` (who the message is for and how it is
 /// sent), written FIRST, then `body` (user and coordinator 2026-10-13, docket
@@ -766,7 +766,7 @@ mod mail_shape_tests {
             "inputSchema": { "type": "object", "properties": {
                 "to": to.clone(),
                 "body": { "type": "string" },
-                "kind": { "type": "string", "enum": ["message", "question", "request", "decision", "status"] },
+                "kind": { "type": "string", "enum": ["message", "question"] },
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
                 "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
                                  "description": "files to send, relative to your working folder or absolute" },

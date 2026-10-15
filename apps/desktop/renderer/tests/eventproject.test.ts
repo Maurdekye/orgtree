@@ -29,6 +29,18 @@ test('every canonical leaf places all and only its human fields', () => {
 })
 
 
+test('retired ordinary kinds render as plain messages', () => {
+  const message = fixtures.find(f => f.variant === 'ordinary.message')
+  assert.ok(message)
+  for (const variant of ['ordinary.request', 'ordinary.decision', 'ordinary.status']) {
+    const f = fixtures.find(f => f.variant === variant)
+    assert.ok(f, variant)
+    assert.ok(isEvent(f.private))
+    assert.equal(projectEvent(f.private).title, projectEvent(message.private).title, variant)
+    assert.equal(projectEvent(f.private).title, 'Message', variant)
+  }
+})
+
 test('all generated human field types have a recursive value presentation', () => {
   let values=0, nestedEvents=0
   function check(value:HumanValue) {

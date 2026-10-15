@@ -13,7 +13,24 @@ use crate::changes::{self, Change};
 use crate::runtime::Caller;
 use crate::util::{gist, iso};
 
-const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
+const KINDS: &[&str] = &["message", "question"];
+
+/// The kinds retired by the user ruling of 2026-10-15. An agent (or an old
+/// client) that still sends one is not refused: it is stored as `message`.
+/// Any other unknown kind is refused, as before.
+const REMOVED_KINDS: &[&str] = &["request", "decision", "status"];
+
+/// The kind a send is stored under: a live kind as named, a retired kind
+/// as `message`, anything else refused (`None`).
+fn stored_kind(raw: &str) -> Option<&str> {
+    if KINDS.contains(&raw) {
+        Some(raw)
+    } else if REMOVED_KINDS.contains(&raw) {
+        Some("message")
+    } else {
+        None
+    }
+}
 
 /// The agent's working folder.
 #[logged]
@@ -68,10 +85,10 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
     drop(client);
-    let kind = arg_str(args, "kind").unwrap_or("message");
-    if !KINDS.contains(&kind) {
-        crate::refuse!(BadRequest, "kind must be one of {}", KINDS.join(", "));
-    }
+    let kind = match stored_kind(arg_str(args, "kind").unwrap_or("message")) {
+        Some(k) => k,
+        None => crate::refuse!(BadRequest, "kind must be one of {}", KINDS.join(", ")),
+    };
     // a question to a Hubchat address may carry preset answers: a numbered
     // list in the body, which the hub payload turns into the buttons Hubchat
     // shows (net_cards; the user's design 2026-10-11)
@@ -238,9 +255,7 @@ pub(crate) fn typing_peers(meta: &Value) -> Option<Vec<String>> {
         None | Some(Value::Null) => "message",
         Some(k) => k.as_str()?,
     };
-    if !KINDS.contains(&kind) {
-        return None;
-    }
+    let kind = stored_kind(kind)?;
     let net = |t: &str| t.trim().trim_start_matches('@').strip_prefix("net:").map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
     match obj.get("options").filter(|v| !v.is_null()) {
         Some(o) => {
@@ -428,7 +443,6 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
                 &sup,
                 &format!("Status: {status} — {summary}"),
             );
-            out.kind = "status".into();
             out.notice = true;
             out.ev = Some(crate::events::status_report(&caller.org_slug, &me.name, me.generation as i64, status, &summary));
             if mail::send(engine, me.org_id, out).await.is_ok() {
@@ -499,7 +513,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         let has_more = rows.len() > limit as usize;
         let rows = &rows[..rows.len().min(limit as usize)];
         let items: Vec<Value> = rows.iter().map(|r| json!({"id":r.get::<_,String>(1), "message_id":r.get::<_,String>(1),
-            "from":r.get::<_,String>(2), "kind":r.get::<_,String>(3), "state":r.get::<_,String>(4),
+            "from":r.get::<_,String>(2), "kind":crate::domain::mail::shown_kind(&r.get::<_,String>(3)), "state":r.get::<_,String>(4),
             "at":iso(r.get(5)), "preview":gist(&r.get::<_,String>(6),200), "notice":r.get::<_,bool>(7)})).collect();
         let cursor = if has_more { rows.last().map(|r| format!("{}:{}", me.id, r.get::<_,i64>(0))) } else { None };
         return Done::json(&json!({"messages":items, "next_cursor":cursor, "has_more":has_more}));
@@ -535,7 +549,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         if bytes > budget { deferred.push(id); continue; }
         budget -= bytes;
         item["id"] = json!(id); item["message_id"] = json!(id); item["delivery_id"] = json!(did);
-        item["from"] = json!(r.get::<_,String>(1)); item["kind"] = json!(r.get::<_,String>(2));
+        item["from"] = json!(r.get::<_,String>(1)); item["kind"] = json!(crate::domain::mail::shown_kind(&r.get::<_,String>(2)));
         let state: String = r.get(3);
         item["state"] = json!(state); item["at"] = json!(iso(r.get(4)));
         item["attachments"] = Value::Array(r.get::<_,Value>(6).as_array().into_iter().flatten().filter(|a| a["transfer_removed"] != true).cloned().collect());
@@ -623,6 +637,23 @@ async fn conversation(engine: &Arc<Engine>, client: &tokio_postgres::Client, me:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retired_kinds_are_stored_as_message_and_unknown_kinds_refused() {
+        assert_eq!(stored_kind("message"), Some("message"));
+        assert_eq!(stored_kind("question"), Some("question"));
+        for retired in ["request", "decision", "status"] {
+            assert_eq!(stored_kind(retired), Some("message"), "{retired}");
+        }
+        assert_eq!(stored_kind("memo"), None);
+        assert_eq!(stored_kind("notice"), None);
+        // a retired kind in a send that would go still goes (as a message)
+        let peers = |m: Value| typing_peers(&m);
+        assert_eq!(peers(json!({ "to": "@net:a.1", "kind": "request" })), Some(vec!["a.1".to_string()]));
+        assert_eq!(peers(json!({ "to": "@net:a.1", "kind": "status" })), Some(vec!["a.1".to_string()]));
+        // but options still belong to questions only, retired kinds included
+        assert_eq!(peers(json!({ "to": "@net:a.1", "kind": "decision", "options": ["Tue", "Thu"] })), None);
+    }
 
     #[test]
     fn recipients_collapse_duplicates_and_are_bounded() {

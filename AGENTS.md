@@ -1400,6 +1400,23 @@ verified from source:
 `feed/compute.rs::mail_entry`, renderer `canvas/shared.ts` and `canvas/mail.tsx`;
 recorded decision: user inbox styling request 2026-10-07]
 
+**Mail kinds reduced (2026-10-15).** Agent-facing mail tools offer only
+`message` and `question`; `request`, `decision` and `status` are retired as
+agent-chosen kinds (user ruling 2026-10-15, superseding the 2026-10-07
+keep-all-typed-variants parity instruction for these three). Nothing ever
+branched on them: wake is `notice`, ask answers link by `answer_mail`. A
+send naming a retired kind is stored as `message`, never refused; unknown
+kinds still refuse. Engine-generated mail (orgtree_status notices,
+ask-answer mail, kickoff default, superior-routed scope requests) is stored
+as `message` too. Stored rows are never rewritten: retired kinds display
+as `message` (envelope header, inbox lists, renderer cards). Untouched on
+purpose: the 2.x import mapping `kind: status|notice` -> passive notice
+(`import2x.rs`) and the asks-tab `decision` vocabulary. [decided: user
+2026-10-15; verified: `tools/defs.rs`, `tools/mailtools.rs`,
+`domain/ops.rs`, `domain/asks.rs`, `domain/mail.rs::shown_kind`,
+`runtime/envelope.rs`, renderer `events/project.ts`; docket
+`reduce-orgtree-message-kinds-to-message-and-ques`]
+
 **Activity summary strip (2026-10-07).** `ActiveAgentSummary` uses the org list's
 `active/live` count and spinning-arrow styles, but keeps counting its own live
 tree nodes (`busy` means active); per-tier totals and tooltip use that same tree.

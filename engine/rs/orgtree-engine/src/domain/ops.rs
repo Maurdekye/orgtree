@@ -665,10 +665,13 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
             fx.docket = Some(post);
         }
         if let Some(kick) = str_arg(req, "kickoff") {
-            let kind = str_arg(req, "kickoff_kind").unwrap_or("request");
-            if !["message", "question", "request", "decision", "status"].contains(&kind) {
-                refuse!(BadRequest, "unknown kickoff_kind {kind}");
-            }
+            let raw_kind = str_arg(req, "kickoff_kind").unwrap_or("message");
+            let kind = match raw_kind {
+                "message" | "question" => raw_kind,
+                // retired kinds (user ruling 2026-10-15) are stored as message
+                "request" | "decision" | "status" => "message",
+                other => refuse!(BadRequest, "unknown kickoff_kind {other}"),
+            };
             let target = node_by_name(&tx, org.id, &node).await?;
             let (sender, generation) = match &who {
                 crate::domain::docket::Who::User => (None, None),

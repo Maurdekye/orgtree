@@ -696,7 +696,7 @@ pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
         }
         let ev=crate::events::typed("access.scope_requested", &a.name, crate::events::node_ref(&org.slug,&a.name,a.generation as i64),
             json!({"items":clean.iter().map(item_label).collect::<Vec<_>>(),"reason":reason,"wanted":wanted}));
-        return route_to_superior(engine, org, a, "request", &text, ev).await;
+        return route_to_superior(engine, org, a, "message", &text, ev).await;
     }
     let uid = amend(engine, org, a.id, |p| {
         let previous = p.scope.as_ref().and_then(|s| s["items"].as_array().cloned()).unwrap_or_default();
@@ -857,7 +857,7 @@ async fn settle(
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id,
                               recipient_name, kind, notice, body, ev, state)
-         VALUES ($1, $2, '@user', 'agent', $3, $4, 'decision', false, $5, $6, 'pending')",
+         VALUES ($1, $2, '@user', 'agent', $3, $4, 'message', false, $5, $6, 'pending')",
         &[&mail_uid, &org.id, &open.agent_id, &open.agent, &crate::util::pg_text(&text).as_ref(), &crate::util::pg_json_option(&ev).as_ref()],
     ).await?;
     tx.execute(

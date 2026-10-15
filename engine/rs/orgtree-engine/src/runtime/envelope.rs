@@ -653,7 +653,7 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         let mut b = if m.notice {
             format!("NOTICE FROM {from} ({rel}{tag}) · {at}{id} — informational, delivered passively; no reply is expected")
         } else {
-            format!("FROM {from} ({rel}{tag}) · {} · {at}{id}", m.kind)
+            format!("FROM {from} ({rel}{tag}) · {} · {at}{id}", crate::domain::mail::shown_kind(&m.kind))
         };
         if m.urgent {
             b.push_str(" · URGENT");
