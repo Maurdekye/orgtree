@@ -54,7 +54,7 @@ Account-window observation is separate from turn-token reporting. Model/window a
 | Codex | [Windows runner can fail before shell start; eligible approval-based retry only. Graceful shutdown and durable forced-stop records matter.](../harness-codex/SKILL.md#gotchas-and-workarounds) |
 | Antigravity | [Expanded-file truncation/aggregate rules budget; numbered parts do not raise total budget. Base overwrites managed AGENTS; split fix unapproved. Interrupt stops process tree.](../harness-antigravity/SKILL.md#gotchas-and-workarounds) |
 | Muse | [Session 0 callbacks do not contain all writes; staged approvals/background custody matter. Usage cannot be freshly queried on demand; restart retention/reset-label improvement is pending.](../harness-muse/SKILL.md#gotchas-and-workarounds) |
-| OpenCode | [No mid-turn steer; explicit interruption/follow-up is manual. Tools may appear late; Code Mode denial is deliberate.](../harness-opencode/SKILL.md#gotchas-and-workarounds) |
+| OpenCode | [No imported skill roots at this base; explicitly read an authorized skill file while sharing is pending. No mid-turn steer; explicit interruption/follow-up is manual. Tools may appear late; Code Mode denial is deliberate.](../harness-opencode/SKILL.md#gotchas-and-workarounds) |
 | OpenRouter | [CLI brand is not billing, keys can share balance, and harness changes replace context.](../route-openrouter/SKILL.md#gotchas-and-workarounds) |
 | Local server | [Match the actual protocol; separate model loading/overflow from quotas; cache retention remains unknown.](../route-local-server/SKILL.md#gotchas-and-workarounds) |
 

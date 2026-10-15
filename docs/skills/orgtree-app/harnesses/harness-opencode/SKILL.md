@@ -54,6 +54,7 @@ The custom model comes from the selected OpenRouter/local route with explicit co
 
 Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a different source/date is named.
 
+- **No imported skill roots at this base:** `configuration.skills` is empty, so Orgtree-discovered cross-harness bundles are not supplied as additional native roots. Use the linked pending [skills and instructions](../../providers/skills-and-instructions/SKILL.md) contract or explicitly read an authorized skill file. Native default/project discovery is not proved disabled. Source: `runtime/opencode.rs:263`.
 - **No live mail steer:** wait for the next turn, or deliberately interrupt at a tool-call boundary and send follow-up input when urgent. The current adapter does not automatically interrupt on new mail. Do not assume a cancelled command's side effects rolled back. Source: `runtime/actor.rs:1414`, `runtime/opencode.rs:139`, `runtime/actor.rs:3346`.
 - **Tools may appear late:** startup waits up to five seconds for bridge initialize/tools-list and then 250 ms to settle. This observes the handshake, not the model's catalog. A timeout continues with an explicit tools-may-appear-late note. Source: `runtime/opencode.rs:81`, `runtime/opencode.rs:127`.
 - **Code Mode is not direct tool approval:** do not bypass a denial by wrapping it in `execute`; bypass mode intentionally changes the policy and is not a folder-scope workaround. Source: `runtime/acp_scope.rs:35`, `runtime/opencode.rs:251`.
