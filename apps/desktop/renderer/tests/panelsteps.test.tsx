@@ -215,7 +215,7 @@ for (const batch of [false, true]) test(`org-work: blurred ${batch ? 'inactive b
   const option = f.root.querySelector<HTMLButtonElement>('.askcard .ask-row')
   assert.ok(option, 'real question card and selectable option mounted')
   await inAct(async () => { option.click(); await flush(6) })
-  if (batch) assert.equal(f.root.querySelector('.ask-q')?.textContent, 'Choose second',
+  if (batch) assert.equal(f.root.querySelector('.ask-q')?.textContent?.trim(), 'Choose second',
     'the selected answer belongs to a different tab after auto-advance')
   else assert.equal(f.root.querySelectorAll('.ask-row.on').length, 1)
   f.root.focus()
