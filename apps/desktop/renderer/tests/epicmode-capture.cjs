@@ -262,6 +262,110 @@ app.whenReady().then(async () => {
       }
     }
     if (failed.length) throw new Error('typing sparks off the caret: ' + failed.join('; '))
+
+    // ── the wheel: what it moved decides its effect ──────────────────────
+    // (docket epic-mode-scrolling-a-pinned-window-on-the-canva). The REAL
+    // canvas with cto's desk pinned to screen space and the agents list open,
+    // then cto's docket over it: native wheel input over each, and over a
+    // free point of the canvas, out to the camera's zoom limit. The page
+    // records every wheel apart from the director (whether the canvas took
+    // it, the camera's zoom and every scroll offset that moved), and the
+    // effects the director played for it. A scroll must play one scroll
+    // effect pointing the way it went, a zoom one zoom effect, and a wheel
+    // that moved nothing nothing.
+    const consoleErrors = []
+    const onConsole = (_e, level, message) => { if (level >= 3 && consoleErrors.length < 20) consoleErrors.push(String(message).slice(0, 300)) }
+    win.webContents.on('console-message', onConsole)
+    await win.loadURL(`${url}/fixture.html?scene=wheel&n=${++loads}`)
+    await waitFor(`!!window.__epic && window.__epic.ready && !!window.__wheel && window.__wheel.ready()`, 'the real canvas with a pinned desk and the agents list')
+    await js(`window.__contrast('charcoal'); window.__epic.start(); true`)
+    await sleep(1500)   // the canvas's opening glide settles
+    await js(`window.__wheel.take(); true`)
+    const wheelFailed = []
+    const sendWheel = (p, ticks) => {
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y })
+      win.webContents.sendInputEvent({ type: 'mouseWheel', x: p.x, y: p.y, deltaX: 0, deltaY: ticks * 120, wheelTicksX: 0, wheelTicksY: ticks, canScroll: true })
+    }
+    // which tick sign scrolls up (a negative DOM deltaY) is read off the first wheel
+    let up = 1
+    const wheelCase = async (name, where, dir, expect, { shoot = false, setup = null } = {}) => {
+      if (setup) await js(setup)
+      await sleep(250)   // past the director's gap between two effects of one kind
+      const p = await js(`window.__wheel.point(${JSON.stringify(where)})`)
+      if (!p) { wheelFailed.push(`${name}: no point over ${where}`); receipts.push({ wheel: name, where, pass: false, error: 'no point' }); return null }
+      const ticks = dir === 'up' ? up : -up
+      sendWheel(p, ticks)
+      if (shoot) await shot(`wheel-${name}`)
+      await sleep(650)   // the page's own record closes 400 ms after the wheel
+      const got = await js(`window.__wheel.take()`)
+      const w = got.wheels[0] || null
+      let truth = null
+      if (w) {
+        if (w.zoomBefore !== null && w.zoomAfter !== null && w.zoomAfter !== w.zoomBefore) truth = { kind: w.zoomAfter > w.zoomBefore ? 'zoomIn' : 'zoomOut' }
+        else if (w.scrolled.length) truth = { kind: 'scroll', n: Math.sign(w.scrolled[0].to - w.scrolled[0].from) }
+      }
+      const effects = got.effects.map(e => ({ kind: e.kind, ...(e.n === undefined ? {} : { n: e.n }), after: w ? Math.round(e.t - w.t) : null }))
+      const category = truth ? (truth.kind === 'scroll' ? 'scroll' : 'zoom') : 'none'
+      const asPlayed = effects.map(e => e.kind + (e.n === undefined ? '' : ':' + e.n)).join(',')
+      const asTruth = truth ? truth.kind + (truth.n === undefined ? '' : ':' + truth.n) : ''
+      const receipt = { wheel: name, where, dir, ticks, point: p, wheels: got.wheels.length, deltaY: w && w.deltaY, target: w && w.target,
+        taken: w && w.taken, zoomBefore: w && w.zoomBefore, zoomAfter: w && w.zoomAfter, scrolled: w ? w.scrolled : [],
+        moved: category, expected: expect, played: asPlayed, truth: asTruth, effects, shots: shoot ? [`wheel-${name}`] : [] }
+      receipt.pass = got.wheels.length === 1 && category === expect && asPlayed === asTruth
+      if (!receipt.pass) wheelFailed.push(`${name}: moved ${category} (expected ${expect}), played [${asPlayed}] for [${asTruth}]`)
+      receipts.push(receipt)
+      write(false)
+      return receipt
+    }
+    const first = await wheelCase('canvas-zoom-in', 'canvas', 'up', 'zoom', { shoot: true })
+    if (first && first.deltaY > 0) {
+      // this platform's positive tick scrolls down: the first case went the
+      // other way, so it is recorded as such and then taken again
+      up = -1
+      first.note = 'probe: a positive tick gave a positive DOM deltaY; up is the negative tick from here on'
+      await wheelCase('canvas-zoom-in-again', 'canvas', 'up', 'zoom', { shoot: true })
+    }
+    await wheelCase('canvas-zoom-out', 'canvas', 'down', 'zoom')
+    // the pinned chat follows its newest line: down at the bottom moves nothing
+    await wheelCase('pinned-end', 'chat', 'down', 'none', { shoot: true, setup: `window.__wheel.setTop('chat', 1e6); true` })
+    await wheelCase('pinned-up', 'chat', 'up', 'scroll', { shoot: true })
+    await wheelCase('pinned-down', 'chat', 'down', 'scroll')
+    await wheelCase('tray-down', 'tray', 'down', 'scroll', { shoot: true, setup: `window.__wheel.setTop('tray', 0); true` })
+    await wheelCase('tray-top', 'tray', 'up', 'none', { setup: `window.__wheel.setTop('tray', 0); true` })
+    const docket = await js(`window.__wheel.openDocket()`)
+    if (!docket) wheelFailed.push('could not open cto\'s docket from the agents list')
+    else {
+      await wheelCase('docket-down', 'panel', 'down', 'scroll', { shoot: true, setup: `window.__wheel.setTop('panel', 0); true` })
+      await wheelCase('docket-top', 'panel', 'up', 'none', { setup: `window.__wheel.setTop('panel', 0); true` })
+      win.webContents.focus()
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      await sleep(300)
+      if (await js(`!!window.__wheel.scroller('panel')`)) { await mouse('mouseDown', 6, 690); await mouse('mouseUp', 6, 690); await sleep(300) }
+      if (await js(`!!window.__wheel.scroller('panel')`)) wheelFailed.push('the docket did not close')
+    }
+    // out to the camera's zoom limit, a free point at a time
+    let zoom = await js(`window.__wheel.zoom()`)
+    for (let i = 0; i < 12 && zoom !== 12; i++) {
+      const p = await js(`window.__wheel.point('canvas')`)
+      if (!p) break
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y })
+      win.webContents.sendInputEvent({ type: 'mouseWheel', x: p.x, y: p.y, deltaX: 0, deltaY: up * 1200, wheelTicksX: 0, wheelTicksY: up * 10, canScroll: true })
+      await sleep(350)
+      zoom = await js(`window.__wheel.zoom()`)
+    }
+    await sleep(300)
+    await js(`window.__wheel.take(); true`)
+    receipts.push({ wheel: 'to-the-limit', zoom })
+    if (zoom !== 12) wheelFailed.push(`the camera did not reach its zoom limit (12): ${zoom}`)
+    else {
+      await wheelCase('zoom-limit', 'canvas', 'up', 'none', { shoot: true })
+      await wheelCase('zoom-limit-back', 'canvas', 'down', 'zoom')
+    }
+    win.webContents.off('console-message', onConsole)
+    receipts.push({ wheel: 'page', unanswered: await js(`window.__unknown.slice()`), consoleErrors })
+    write(false)
+    if (wheelFailed.length) throw new Error('wheel effects not what the wheel did: ' + wheelFailed.join('; '))
     write(true)
   } finally { win.destroy() }
 }).then(() => app.exit(0), error => {
