@@ -2376,6 +2376,19 @@ rulings go here and on their ticket.
   or cap; warming is a user setting, on by default. [decided: user 2026-08-30, 2026-09-26]
 - After a crash or restart, agents that were mid-turn resume with session continuity, and
   uncertain tool results are reconciled, never repeated. [decided: user 2026-09-07]
+- **Live compaction row** (docket show-a-live-compacting-for-xs-event-while-an-age): when a
+  harness reports a provider compaction's start (Claude Code `system` status `compacting`,
+  Codex `contextCompaction` item, Muse `compaction` item `inProgress`) the actor appends one
+  desk row (`kind: compact`, `compact_state: running`, `compact_started_at` = the engine's
+  receipt time) and its end closes the same row (`done`/`failed`, `compact_ended_at`); an end
+  with no start adds the old finished row with no times. A CLI exit or a turn ending
+  mid-compaction closes it `interrupted` with no end time, and `convo::close_open_compactions`
+  does the same at engine start for rows a killed engine left `running`. No start or duration
+  is ever invented, and harnesses that report no start (Antigravity, OpenCode, OpenRouter,
+  language servers) show nothing. Transcript only; cheap compact is a different thing. The
+  desk counts up with `CompactingLine` (`toolclock.tsx`). [decided: user 2026-10-15; verified:
+  `tools/rig/proofs/compaction-live.mjs`; the CLI events are from the 2.1.292 binary and
+  the Codex 0.160 schema, not a live run]
 
 ### Docket, questions and attention
 
