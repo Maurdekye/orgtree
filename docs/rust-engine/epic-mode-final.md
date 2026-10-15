@@ -46,7 +46,9 @@ pixel in all four contrast themes (round 451 and again here).
 
 Each take was read in full (source, tests, docs and rig receipts: rounds 448
 Wonder Full, 449 Astra and 451 Opus; Argon's own logs, its round was still
-pending), and every screenshot was inspected.
+pending), and every screenshot was inspected. Argon is compared as reviewed,
+at `5650ef0`; round 452 later approved it at `6a078fc`, which is covered
+after the credits.
 
 | | Wonder Full `3f1efb4` | Astra `b04ed19` | Opus `fdd645f` | Argon `5650ef0` |
 | --- | --- | --- | --- | --- |
@@ -54,10 +56,10 @@ pending), and every screenshot was inspected.
 | Inventory | 46 kinds | 27 cues | 57 org events, 38 user actions | 38 kinds |
 | Pictures | Canvas sparks, confetti, shards, flakes, stars, octagon, bolt; word banners; combo meter; shake; ambient dust | Neon geometric glyph per kind; OVERDRIVE/HYPERDRIVE/ABSOLUTE CHAOS titles; heat halo, speed lines, arena corners | Lightning that re-forks; ice spikes, ice slab and snow; stop-sign slam; beams, vortices, comets, meteors, fireworks, coins, paw prints, cracks; CRT power-off; big outlined words; window shake and element glow | SVG crystal ice spike, octagon, bolts; canvas particles; emoji pill banners; combo HUD with ranks |
 | Sounds | One recipe per kind; compressor; 14 voices; pitch climbs with the combo | 27 short cues; compressor; 48 voices; root climbs with the combo | 52 recipes (FM bells, brass, drums, filtered noise) through generated reverb and a limiter; 40 voices, light sounds capped first; stereo pan | Arpeggio table per kind; 18 voices; pentatonic notes for streamed tokens; no shared limiter |
-| Off | Renders nothing; one preference subscription | Null-checked transport taps; one reused preference listener | One preference subscription per window; the director is a lazily imported chunk that is never fetched; three null-checked taps | Stage unmounted, but `epicModeOn()` reads localStorage on every socket frame and every API response |
+| Off | Renders nothing; one preference subscription | Null-checked transport taps; one reused preference listener | One preference subscription per window; the director is a lazily imported chunk that is never fetched; three null-checked taps | Stage unmounted, but `epicModeOn()` reads localStorage on every socket frame and every API response (cached in its approved `8be2ecc`) |
 | On | 700 particles; the frame loop runs for as long as it is on (ambient dust) | 40 impacts, 800 particles; canvas at most DPR 1.5 and 2.5 MP; stops when idle | 2,600 particles, 160 actors; one frame loop that sleeps when idle; adaptive quality; hidden windows draw nothing | Frame loop always running while mounted; a React state update per effect |
 | Popped-out windows | None (documented) | Each adopted window follows | Each gets its own stage and listeners (wired, not exercised before) | None |
-| Faults found | A remote retirement only shows as a generic pulse | — | A 100% usage reading staged as "LIMIT!" with a brown-out, against the user's ruling that a 100% reading is not exhaustion (extra credits); the stop sign staged before the interrupt request is answered, even when nothing was running | Interrupt tap matches `/nodes/:id/stop`, but the real endpoint is `/interrupt`, so the stop sign never fires from the app; a node missing from a tree is read as DISSOLVED and any first-seen node as HIRED (a tree is a selection, `treepresence.ts`) |
+| Faults found | A remote retirement only shows as a generic pulse | — | A 100% usage reading staged as "LIMIT!" with a brown-out, against the user's ruling that a 100% reading is not exhaustion (extra credits); the stop sign staged before the interrupt request is answered, even when nothing was running | Interrupt tap matches `/nodes/:id/stop`, but the real endpoint is `/interrupt`, so the stop sign never fires from the app; a node missing from a tree is read as DISSOLVED and any first-seen node as HIRED (a tree is a selection, `treepresence.ts`). All fixed in its approved `8be2ecc` |
 | Tests | 13 | 22, plus a 27-cue OfflineAudioContext check | 26, plus pixel-measured switch captures | 4 |
 
 The base is the Opus take: the strongest architecture (nothing loaded while
@@ -103,6 +105,24 @@ glued on beside it.
   effect.** Everything here is drawn on one canvas by the stage itself, in
   system fonts. Argon's on-state accent pill and on/off word go beyond the
   ruling, which names the checkbox and the label only.
+
+**Argon's approved tip.** Round 452 approved Argon at `6a078fc` (product
+commit `8be2ecc`), after this comparison. It fixes the faults above inside
+Argon's own event plumbing, which the final version does not use, and widens
+the routes and socket events Argon recognises. Re-read before the hand-in, it
+adds nothing the final version lacks:
+
+- The routes it now matches are staged here from what they change in the
+  tree: a process started or stopped (the CLI waking or going to sleep), a
+  compaction, a reorder, each retirement of a dissolve-all, the kill switch
+  released, and frozen agents resumed or unstuck (**THAWED!**).
+- An org-inbox read or a settings save is the user's own click: a Save gets
+  the stars and the confirm ding, and a change to the org's own settings
+  also turns the gears.
+- Its new socket events (`hired`, `retired`, `interrupted`, `halted` and the
+  rest) are not ones this engine sends. The org socket's only node pulses
+  are `turn_done`, `frozen` and `renamed` (`changes.rs`, `Change::Pulse`).
+- Its frame loop still runs on every frame while it is on.
 
 ## Off means off
 
@@ -331,9 +351,9 @@ painted.
 
 ### Measured
 
-At the hand-in code, `72e6c44`, with a clean tree. The two commits after it
-change only the check runner (`06a0c92` adds `--neighbors`) and this
-document. Measured under the machine build lock and a 4,096 MB kernel job
+At the hand-in code, `72e6c44`, with a clean tree. The commits after it
+change only the check runner (`06a0c92` adds `--neighbors`), this document
+and AGENTS.md. Measured under the machine build lock and a 4,096 MB kernel job
 (C:\orgtree-build\epic-final\check-4, visual-3 and, at `06a0c92`, check-5):
 
 | Check | Result |
