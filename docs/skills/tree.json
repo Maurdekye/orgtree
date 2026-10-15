@@ -3512,7 +3512,16 @@
     "app-runtime-desktop"
    ],
    "writer": "rig-opus",
-   "status": "fixed"
+   "status": "fixed",
+   "key_sources": [
+    {
+     "key": "bridge:setEngineStart",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "bridge.setEngineStart"
+     ]
+    }
+   ]
   },
   {
    "path": "orgtree-app/app-settings/app-notifications",
