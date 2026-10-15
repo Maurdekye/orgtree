@@ -1333,6 +1333,18 @@ mod trim_tests {
         }
     }
 
+    /// Measured sizes for the hand-in (`--nocapture`): full and trimmed bytes per
+    /// lane for a non-top and a top-level seat with every group.
+    #[test]
+    fn print_trimmed_sizes() {
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            for top in [false, true] {
+                println!("identity bytes {lane:?} top={top}: full {} trimmed {}",
+                    render(&all_on(), lane, top, false).len(), render(&all_on(), lane, top, true).len());
+            }
+        }
+    }
+
     /// A seat without the built-in skills keeps today's text exactly.
     #[test]
     fn seats_without_builtin_skills_keep_the_full_text() {
