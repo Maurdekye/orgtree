@@ -263,7 +263,9 @@ test('a disowned child exit cannot clobber a live attachment (forced ordering)',
   } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
 })
 
-test('the real trust check accepts an owner-exclusive file (positive control)', async t => {
+// The real trust check on an owner-exclusive file: { result } from the first
+// fixture base whose ancestors are trusted, else { refused } (callers skip).
+async function ownerExclusiveVerdict() {
   const { execFileSync } = await import('node:child_process')
   const me = process.env.USERDOMAIN + '\\' + process.env.USERNAME
   // Build runners may redirect TEMP to a shared drive. Also try the Windows
@@ -282,12 +284,40 @@ test('the real trust check accepts an owner-exclusive file (positive control)', 
         refused.push(`${base}: ${result.detail}`)
         continue
       }
-      assert.equal(result.ok, true, result.detail)
-      assert.match(result.detail, /^owner S-/)
-      return
+      return { result }
     } finally { fs.rmSync(clean, { recursive: true, force: true }) }
   }
-  t.skip(`No trusted ancestor chain for the positive control: ${refused.join(' | ')}`)
+  return { refused }
+}
+
+test('the real trust check accepts an owner-exclusive file (positive control)', async t => {
+  const { result, refused } = await ownerExclusiveVerdict()
+  if (!result) return t.skip(`No trusted ancestor chain for the positive control: ${refused.join(' | ')}`)
+  assert.equal(result.ok, true, result.detail)
+  assert.match(result.detail, /^owner S-/)
+})
+
+// v4.3.0 release smoke (2026-10-15): a desktop started from PowerShell 7
+// inherits a PSModulePath that lists PowerShell 7's modules first, and Windows
+// PowerShell 5.1 then cannot load Get-Acl's module ("found in the module
+// 'Microsoft.PowerShell.Security', but the module could not be loaded"). The
+// trust check must not depend on the module path the desktop inherited.
+test('the real trust check works when the desktop inherited a PowerShell 7 module path', async t => {
+  const modules = path.join(temp, 'ps7-modules')
+  const security = path.join(modules, 'Microsoft.PowerShell.Security')
+  fs.mkdirSync(security, { recursive: true })
+  // what PowerShell 7's copy of the module looks like to Windows PowerShell 5.1
+  fs.writeFileSync(path.join(security, 'Microsoft.PowerShell.Security.psd1'),
+    "@{ GUID = 'a94c8c7e-9810-47c0-b8af-65089c13a35a'; ModuleVersion = '7.0.0.0'; CompatiblePSEditions = @('Core'); " +
+    "PowerShellVersion = '7.0'; NestedModules = 'Microsoft.PowerShell.Security.dll'; CmdletsToExport = @('Get-Acl', 'Set-Acl') }\r\n")
+  const saved = process.env.PSModulePath
+  process.env.PSModulePath = saved ? `${modules};${saved}` : modules
+  let verdict
+  try { verdict = await ownerExclusiveVerdict() }
+  finally { if (saved === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = saved }
+  if (!verdict.result) return t.skip(`No trusted ancestor chain for the positive control: ${verdict.refused.join(' | ')}`)
+  assert.equal(verdict.result.ok, true, verdict.result.detail)
+  assert.match(verdict.result.detail, /^owner S-/)
 })
 
 test('the real trust check rejects foreign write access, measured with actual ACLs', async () => {
