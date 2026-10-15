@@ -10,6 +10,15 @@
   `usage/muse_cache.rs`, `usage.rs`, `domain/account_removal.rs`; contract and
   measured limits: `docs/rust-engine/muse-usage-cache.md`]
 
+- Presentations and docket panels share panel-level Alt+Up/Down navigation
+  over their filtered, unfolded row order. Preserve editor/ask ownership and
+  boolean draft markers on reply/ask components, including attachments and
+  inactive question tabs; virtualized docket selections mount before nearest
+  scrolling. Mail's own handler stays unchanged. Contract/evidence:
+  [panel Alt arrows](docs/rust-engine/panel-alt-navigation.md).
+  [decided: user/coordinator 2026-10-15; verified from source:
+  `canvas/{panelsteps,gallery,docket,mail,asks}.ts*`, `shortcuts.ts`]
+
 - Live thought bodies must not flex-shrink inside the transcript: the
   display:contents reply wrapper exposes .thoughtbody.live as a .msgs flex
   item, and its overflow:auto otherwise permits an 8px padding-only sliver.

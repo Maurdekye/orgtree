@@ -73,6 +73,11 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
       { keys: ['Alt+ArrowUp', 'Alt+ArrowDown'], action: 'Previous or next message',
         sources: [R('canvas/mail.tsx')] },
     ] },
+    { title: 'Presentations and tickets', items: [
+      { keys: ['Alt+ArrowUp', 'Alt+ArrowDown'], action: 'Open the previous or next entry',
+        note: 'in the focused panel; leaves editors and unfinished drafts alone',
+        sources: [R('canvas/panelsteps.ts')] },
+    ] },
     { title: 'Questions and requests', items: [
       { keys: ['Mod+Enter'], action: 'Submit the answer', sources: [R('canvas/asks.tsx')] },
       { keys: ['Alt+ArrowLeft', 'Alt+ArrowRight'], action: 'Previous or next question',
