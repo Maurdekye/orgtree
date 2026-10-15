@@ -2,23 +2,25 @@
 
    The stage draws every effect itself: particles, shockwave rings, lightning,
    impact words, ice spikes, stop signs, light beams, cracks, coins, paw
-   prints. Nothing here touches the app's own DOM except two deliberate,
-   self-reverting Web Animations (`shake` on the app root and `pulse` on one
-   element), so React's tree is never edited and nothing is left behind.
+   prints. Nothing here touches the app's own DOM except deliberate,
+   self-reverting Web Animations (`shake` on the app root, `pulse` and `pop`
+   on one element); a blur is a layer of the stage's own beside its canvas,
+   removed when it ends. React's tree is never edited and nothing is left
+   behind.
 
    ⚠ FRAMES ONLY WHILE SOMETHING IS ALIVE. The loop is requested when an effect
    is added and stops by itself when the last one dies: an idle organization in
    EPIC Mode costs no frames at all. Every collection is capped (PARTICLE_CAP,
    ACTOR_CAP), and past the cap new particles are simply not born, so a flood
    of events degrades into "very busy" rather than into a stalled window. The
-   combo meter (`meter`) is one more thing alive: it fades out when its combo
+   combo badge (`meter`) is one more thing alive: it fades out when its combo
    drops, and then the loop sleeps again.
 
    The final EPIC Mode combines four takes; the stage is the Opus take's, with
    the crystal ice spike (Argon), the summoning portal (Astra, Argon), the
-   watchdog radar (Astra, Argon), the warning sign and the neon rank titles,
-   heat and arena of the combo meter (Astra), its count, ranks and stars
-   (Wonder Full, Argon) and the button pop (Wonder Full) added — see
+   watchdog radar (Astra, Argon), the warning sign (Astra), the combo badge's
+   count and ranks (Wonder Full, Argon) and the button pop (Wonder Full) added,
+   and the comfort bounds every shake, blur and flash keeps to (below) — see
    docs/rust-engine/epic-mode-final.md. */
 
 export const PARTICLE_CAP = 2600
@@ -30,9 +32,34 @@ export const ACTOR_CAP = 160
 export const MAX_DPR = 1.5
 export const MAX_PIXELS = 2_500_000
 
+/* The comfort bounds (docket epic-mode-next-round-more-shake-and-blur-a-small,
+   part 1: "more screen shake effects and screen blurs", bounded and never
+   strobing; plan approved 2026-10-15). The stage enforces them, so no effect
+   can break them: a shake moves the window at most SHAKE_MAX_PX for at most
+   SHAKE_MAX_MS, and the window shakes at most SHAKE_BUDGET_MS of any
+   SHAKE_SPAN_MS; a blur softens it at most BLUR_MAX_PX (BLUR_EDGE_MAX_PX at
+   its edges only) for at most BLUR_MAX_MS, one at most every BLUR_EVERY_MS;
+   and two flashes or dips never start closer than FLASH_GAP_MS, so however
+   many events flash at once the window flashes at most three times a second
+   (photosensitivity, user 2026-10-15). Under the system's reduced motion
+   nothing shakes or blurs and flashes are half as strong. */
+export const SHAKE_MAX_PX = 20
+export const SHAKE_MAX_MS = 900
+export const SHAKE_SPAN_MS = 2000
+export const SHAKE_BUDGET_MS = 1000
+/** a shake the budget would cut shorter than this is not worth starting */
+const SHAKE_MIN_MS = 150
+export const BLUR_MAX_PX = 6
+export const BLUR_EDGE_MAX_PX = 10
+export const BLUR_MAX_MS = 700
+export const BLUR_EVERY_MS = 600
+export const FLASH_GAP_MS = 340
+/** the combo badge: small, in the bottom-right corner */
+const BADGE = { w: 112, h: 30, inset: 14 }
+
 export type ParticleKind = 'glow' | 'streak' | 'shard' | 'confetti' | 'snow' | 'coin' | 'paw' | 'smoke' | 'star'
 
-/** what the combo meter shows; null once the combo has dropped */
+/** what the combo badge shows; null once the combo has dropped */
 export interface ComboReading {
   /** events in the current burst, each within the decay window of the last */
   n: number
@@ -41,8 +68,6 @@ export interface ComboReading {
   color: string
   /** 1 just after an event, falling to 0 as the combo runs out */
   left: number
-  /** 0…1: how hot the arena runs (the combo's size, cooling as it runs out) */
-  heat: number
 }
 
 interface Particle {
@@ -101,10 +126,8 @@ export class Stage {
   private parts: Particle[] = []
   private pool: Particle[] = []
   private actors: Actor[] = []
-  /** the combo meter: drawn last, alive until its combo drops (see `meter`) */
+  /** the combo badge: drawn last, alive until its combo drops (see `meter`) */
   private hud: Actor | null = null
-  /** the neon title on screen, if any (see `title`) */
-  private titled: Actor | null = null
   private rafId = 0
   private last = 0
   private dpr = 1
@@ -118,6 +141,23 @@ export class Stage {
   private resizeObserver: (() => void) | null = null
   private dead = false
   private shakeAnim: Animation | null = null
+  /** the shake running: when it started, how far and for how long */
+  private shaking: { from: number; amp: number; ms: number } | null = null
+  /** the shakes of the last SHAKE_SPAN_MS, [start, end] in ms, for the budget */
+  private shaken: [number, number][] = []
+  /** the blur running, its layer, and when it started */
+  private blurAnim: Animation | null = null
+  private blurEl: HTMLElement | null = null
+  private blurAt = -Infinity
+  /** when the next flash or dip may start (ms), and a flash waiting for it */
+  private flashFree = -Infinity
+  private flashWaiting: { color: string; strength: number; life: number; at: number } | null = null
+  /** when the frame being drawn started (ms), and the frame the last flash or
+   *  dip first showed in */
+  private frameAt = 0
+  private shownAt = -Infinity
+  /** the combo badge's age when a new rank last flared it */
+  private flaredAt = -Infinity
   /** the element that shakes: the document's root element. Its box IS the
    *  viewport (html is 100% high), so while its transform makes it the
    *  containing block for fixed-position descendants — dialogs, menus, this
@@ -175,6 +215,10 @@ export class Stage {
     this.shakeAnim = null
     this.unclip?.()
     this.unclip = null
+    try { this.blurAnim?.cancel() } catch { /* gone */ }
+    this.blurAnim = null
+    this.blurEl?.remove()
+    this.blurEl = null
     this.canvas.remove()
     this.parts = []
     this.pool = []
@@ -272,6 +316,7 @@ export class Stage {
   private draw(): void {
     const g = this.g
     if (!g) return
+    this.frameAt = performance.now()
     this.clear()
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
     for (const actor of this.actors) {
@@ -288,13 +333,13 @@ export class Stage {
     }
     g.globalCompositeOperation = 'source-over'
     g.globalAlpha = 1
-    // the words (impact words, their names, rank titles, glyphs) go over every
+    // the words (impact words, their names, glyphs) go over every
     // glow and particle: a name washed out by a portal's light says nothing
     for (const actor of this.actors) {
       if (!actor.top) continue
       g.save(); actor.draw(g, Math.min(1, actor.age / actor.life), this); g.restore()
     }
-    // the combo meter goes over everything else
+    // the combo badge goes over everything else
     if (this.hud) { g.save(); this.hud.draw(g, 0, this); g.restore() }
   }
 
@@ -428,6 +473,13 @@ export class Stage {
     return this.dead || this.canvas.ownerDocument.visibilityState === 'hidden'
   }
 
+  /** the system asks for reduced motion (Windows: Settings › Accessibility ›
+   *  Visual effects › Animation effects off): nothing shakes or blurs, and
+   *  flashes and dips are half as strong */
+  get calm(): boolean {
+    try { return this.view.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true } catch { return false }
+  }
+
   burst(x: number, y: number, o: BurstOptions = {}): void {
     if (this.idle) return
     const count = Math.ceil((o.count ?? 40) * this.quality)
@@ -458,10 +510,11 @@ export class Stage {
     this.wake()
   }
 
-  private add(actor: Actor): void {
-    if (this.idle || this.actors.length >= ACTOR_CAP) return
+  private add(actor: Actor): boolean {
+    if (this.idle || this.actors.length >= ACTOR_CAP) return false
     this.actors.push(actor)
     this.wake()
+    return true
   }
 
   /** an expanding shockwave ring */
@@ -585,59 +638,58 @@ export class Stage {
     })
   }
 
-  /** a big neon title across the middle of the window, split into magenta and
-   *  cyan ghosts (the Astra take's OVERDRIVE): the combo's new rank. One title
-   *  at a time: a new one ends the one before, or two ranks reached in one
-   *  burst would print over each other */
-  title(text: string, o: { caption?: string; color?: string; life?: number } = {}): void {
-    const color = o.color ?? '#ff4fd8'
-    const life = o.life ?? 2.1
-    const caption = captionText(o.caption)
-    if (this.titled) this.titled.life = Math.min(this.titled.life, this.titled.age)
-    this.add(this.titled = {
-      age: 0, life, top: true,
-      draw(g, k, stage) {
-        const { w, h } = stage.size
-        const size = Math.min(96, w / Math.max(7, text.length * 0.62))
-        const t = this.age
-        const pop = t < 0.16 ? 2.2 - 1.2 * easeOutBack(t / 0.16) : 1 + (t - 0.16) * 0.05
-        const fade = k > 0.72 ? 1 - (k - 0.72) / 0.28 : 1
-        const jitter = (1 - k) * 4
-        g.translate(w / 2, h * 0.3)
-        g.scale(pop, pop)
-        g.globalAlpha = Math.max(0, fade)
-        g.font = `900 ${size}px ${IMPACT}`
-        g.textAlign = 'center'
-        g.textBaseline = 'middle'
-        g.shadowColor = color
-        g.shadowBlur = 26
-        g.fillStyle = '#ff3dd0'
-        g.fillText(text, -3 - jitter * Math.sin(t * 50), 1)
-        g.fillStyle = '#48f2ff'
-        g.fillText(text, 3 + jitter * Math.sin(t * 43), -1)
-        g.shadowBlur = 0
-        g.lineJoin = 'round'
-        g.lineWidth = size * 0.08
-        g.strokeStyle = 'rgba(20,0,30,0.85)'
-        g.strokeText(text, 0, 0)
-        g.fillStyle = '#ffffff'
-        g.fillText(text, 0, 0)
-        if (caption) drawCaption(g, caption, size * 0.8, Math.max(14, size * 0.3), '#2a0030')
-      },
-    })
+  /** May a flash or dip whose time has come begin in the frame being drawn?
+   *  Only once FLASH_GAP_MS have passed since the frame the last one began
+   *  in; this frame is then the one this one began in. */
+  private begin(): boolean {
+    if (this.frameAt - this.shownAt < FLASH_GAP_MS) return false
+    this.shownAt = this.frameAt
+    return true
   }
 
-  /** the whole window flashes a colour */
+  /** The whole window flashes a colour. Two flashes (or dips, see `flicker`)
+   *  never start closer than FLASH_GAP_MS: a flash asked for sooner waits for
+   *  its turn, and every flash asked for while one waits joins it (the
+   *  strongest colour wins), so a flood of flashing events flashes at most
+   *  three times a second. Flashes run on the clock, not on the frames' ages,
+   *  each timed from the frame it first shows in, and one begins only in a
+   *  frame at least FLASH_GAP_MS after the frame the one before began in: so
+   *  neither a slow frame nor a late one brings two closer together on screen. */
   flash(color: string, strength = 0.45, life = 0.35): void {
-    this.add({
-      age: 0, life,
-      draw(g, k, stage) {
-        g.globalAlpha = strength * (1 - k) ** 2
-        g.fillStyle = color
+    if (this.idle) return
+    if (this.calm) strength /= 2
+    const now = performance.now()
+    const waiting = this.flashWaiting
+    if (waiting && waiting.at > now) {
+      if (strength > waiting.strength) { waiting.color = color; waiting.strength = strength }
+      waiting.life = Math.max(waiting.life, life)
+      return
+    }
+    const f = { color, strength, life, at: Math.max(now, this.flashFree) }
+    /** the frame it first showed in */
+    let shown: number | null = null
+    const added = this.add({
+      age: 0, life: Infinity,
+      // over a life after it showed, or, never drawn (no frames, no canvas),
+      // a life after it would have been at the latest
+      step: () => performance.now() < (shown ?? f.at + FLASH_GAP_MS) + f.life * 1000,
+      draw(g, _k, stage) {
+        const t = stage.frameAt
+        if (shown === null) {
+          if (t < f.at || !stage.begin()) return
+          shown = t
+        }
+        const k = (t - shown) / (f.life * 1000)
+        if (k >= 1) return
+        g.globalAlpha = f.strength * (1 - k) ** 2
+        g.fillStyle = f.color
         const { w, h } = stage.size
         g.fillRect(0, 0, w, h)
       },
     })
+    if (!added) return
+    this.flashFree = f.at + FLASH_GAP_MS
+    this.flashWaiting = f.at > now ? f : null
   }
 
   /** URGENT MAIL (user 2026-10-15: "a massive blaring alarm that tints and
@@ -1104,15 +1156,38 @@ export class Stage {
     this.wake()
   }
 
-  /** the lights browning out: a few uneven dark flickers over the window */
+  /** the lights browning out: up to three uneven dark dips over the window in
+   *  its first 85%, spaced like flashes (never closer than FLASH_GAP_MS to
+   *  each other or to a flash, on screen too: each dip lasts from the frame
+   *  it first shows in, see `flash`) */
   flicker(life = 0.9): void {
-    const dips = Array.from({ length: 5 }, () => [rand(0, 0.85), rand(0.04, 0.1), rand(0.25, 0.55)] as const)
-    this.add({
-      age: 0, life,
-      draw(g, k, stage) {
-        const t = k * life
+    if (this.idle) return
+    const now = performance.now()
+    const soft = this.calm ? 0.5 : 1
+    /** when each dip is due, how long and how dark it is, and the frame it first showed in */
+    const dips: { at: number; len: number; depth: number; shown: number | null }[] = []
+    for (let at = Math.max(now + rand(0, 120), this.flashFree); dips.length < 3 && at < now + life * 850; at += FLASH_GAP_MS + rand(0, 160)) {
+      dips.push({ at, len: rand(40, 100), depth: rand(0.25, 0.55) * soft, shown: null })
+    }
+    if (!dips.length) return
+    const last = dips[dips.length - 1]!
+    const end = now + life * 1000
+    const added = this.add({
+      age: 0, life: Infinity,
+      // its time is up once every dip has shown and gone out (or, never
+      // drawn, would have by then at the latest; see `flash`)
+      step: () => performance.now() < end || dips.some(d => performance.now() < (d.shown ?? d.at + FLASH_GAP_MS) + d.len),
+      draw(g, _k, stage) {
+        const t = stage.frameAt
         let dark = 0
-        for (const [at, len, depth] of dips) if (t >= at && t <= at + len) dark = Math.max(dark, depth)
+        for (const d of dips) {
+          if (d.shown === null) {
+            // the dips begin in turn
+            if (t < d.at || !stage.begin()) break
+            d.shown = t
+          }
+          if (t < d.shown + d.len) dark = Math.max(dark, d.depth)
+        }
         if (!dark) return
         g.globalAlpha = dark
         g.fillStyle = '#000'
@@ -1120,6 +1195,7 @@ export class Stage {
         g.fillRect(0, 0, w, h)
       },
     })
+    if (added) this.flashFree = Math.max(this.flashFree, last.at + FLASH_GAP_MS)
   }
 
   /** an old picture tube switching off: the image collapses to a line, then
@@ -1150,21 +1226,40 @@ export class Stage {
     })
   }
 
-  /** a short, decaying shake of the whole app */
+  /** A short, decaying shake of the whole app: `intensity` px in a random
+   *  direction, falling to nothing over `ms`. Within the comfort bounds: at
+   *  most SHAKE_MAX_PX and SHAKE_MAX_MS; a weaker shake never cuts a stronger
+   *  one short; and the window shakes at most SHAKE_BUDGET_MS of any
+   *  SHAKE_SPAN_MS, so a shake the budget cannot afford is cut short, or not
+   *  played at all. Never under reduced motion. */
   shake(intensity = 8, ms = 380): void {
-    if (this.idle) return
+    if (this.idle || this.calm) return
     const el = this.shakeTarget()
     if (!el || typeof el.animate !== 'function') return
+    const now = performance.now()
+    intensity = Math.min(intensity, SHAKE_MAX_PX)
+    const running = this.shakeAnim ? this.shaking : null
+    if (running && intensity <= running.amp * Math.max(0, 1 - (now - running.from) / running.ms)) return
+    // the budget: the last SHAKE_SPAN_MS, the running shake (which this one
+    // replaces) counted only until now
+    this.shaken = this.shaken.filter(([, end]) => end > now - SHAKE_SPAN_MS)
+    let spent = 0
+    for (const [from, end] of this.shaken) spent += Math.max(0, Math.min(end, now) - Math.max(from, now - SHAKE_SPAN_MS))
+    ms = Math.min(ms, SHAKE_MAX_MS, SHAKE_BUDGET_MS - spent)
+    if (ms < SHAKE_MIN_MS) return
     const frames: Keyframe[] = []
     const steps = 9
     for (let i = 0; i <= steps; i++) {
-      const fall = 1 - i / steps
-      const dx = i === steps ? 0 : rand(-1, 1) * intensity * fall
-      const dy = i === steps ? 0 : rand(-1, 1) * intensity * fall
-      frames.push({ translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px` })
+      const r = i === steps ? 0 : intensity * (1 - i / steps)
+      const turn = rand(0, TAU)
+      frames.push({ translate: `${(Math.cos(turn) * r).toFixed(1)}px ${(Math.sin(turn) * r).toFixed(1)}px` })
     }
     try {
       this.shakeAnim?.cancel()
+      const last = this.shaken[this.shaken.length - 1]
+      if (running && last) last[1] = Math.min(last[1], now)
+      this.shaking = { from: now, amp: intensity, ms }
+      this.shaken.push([now, now + ms])
       // a translated root overflows the window by a few pixels, which would
       // flash scrollbars at its edges: clip it for exactly as long as it shakes
       if (!this.unclip) {
@@ -1186,6 +1281,53 @@ export class Stage {
   }
   /** puts the shaken element's own overflow back */
   private unclip: (() => void) | null = null
+
+  /** A soft blur of the app behind the stage that rises and falls once:
+   *  over the whole window, or only towards its edges (`edges`, the middle
+   *  kept sharp). It is a layer of the stage's own just under its canvas, so
+   *  the effects stay sharp over it; a self-reverting Web Animation of its
+   *  backdrop-filter drives it (the compositor's work, no frames of the
+   *  loop), and the layer is removed when it ends. Within the comfort
+   *  bounds: at most BLUR_MAX_PX (BLUR_EDGE_MAX_PX at the edges) for at most
+   *  BLUR_MAX_MS, and at most one every BLUR_EVERY_MS. Never under reduced
+   *  motion. */
+  blur(o: { px?: number; ms?: number; edges?: boolean } = {}): void {
+    if (this.idle || this.calm) return
+    const now = performance.now()
+    if (now - this.blurAt < BLUR_EVERY_MS) return
+    const edges = o.edges === true
+    const px = Math.min(o.px ?? 4, edges ? BLUR_EDGE_MAX_PX : BLUR_MAX_PX)
+    const ms = Math.min(o.ms ?? 500, BLUR_MAX_MS)
+    if (!(px > 0 && ms > 0)) return
+    const el = this.canvas.ownerDocument.createElement('div')
+    if (typeof el.animate !== 'function') return
+    el.dataset.epic = 'blur'
+    el.dataset.blur = edges ? 'edges' : 'window'
+    el.setAttribute('aria-hidden', 'true')
+    const mask = edges ? 'radial-gradient(ellipse at center, transparent 35%, #000 85%)' : ''
+    el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147482999;'
+      + (mask ? `-webkit-mask-image:${mask};mask-image:${mask};` : '')
+    try { this.blurAnim?.cancel() } catch { /* gone */ }
+    this.canvas.before(el)
+    this.blurAt = now
+    try {
+      const anim = el.animate([
+        { backdropFilter: 'blur(0px)' },
+        { backdropFilter: `blur(${px}px)`, offset: 0.3 },
+        { backdropFilter: 'blur(0px)' },
+      ], { duration: ms, easing: 'ease-out' })
+      this.blurAnim = anim
+      this.blurEl = el
+      const done = () => {
+        el.remove()
+        if (this.blurAnim !== anim) return
+        this.blurAnim = null
+        this.blurEl = null
+      }
+      anim.onfinish = done
+      anim.oncancel = done
+    } catch { el.remove() }
+  }
 
   /** a one-off glow on an element of the app, reverting by itself */
   pulse(el: Element | null, color: string, ms = 900): void {
@@ -1302,13 +1444,14 @@ export class Stage {
     })
   }
 
-  /** The combo meter (the Wonder Full take's count, the Argon take's ranks,
-   *  the Astra take's heat and arena): bottom right, the combo and its rank
-   *  over a bar that runs down to the moment the combo drops. The hotter the
-   *  combo, the more the window's edges glow, speed lines stream outward and
-   *  the corners close in like an arena. `read` is asked every frame; null
-   *  means the combo has dropped, and the meter fades out and lets the loop
-   *  sleep. One meter per stage: asking again while it shows keeps it. */
+  /** The combo badge (the Wonder Full take's count, the Argon take's ranks;
+   *  user 2026-10-15: "less emphasis on the combo progress, keep it
+   *  diminutive and to the corner"): a small plate in the bottom-right corner
+   *  with the combo's rank, its count and a thin bar that runs down to the
+   *  moment the combo drops, which a new rank flares (`flare`). Nothing of it
+   *  reaches across the window. `read` is asked every frame; null means the
+   *  combo has dropped, and the badge fades out and lets the loop sleep. One
+   *  badge per stage: asking again while it shows keeps it. */
   meter(read: () => ComboReading | null): void {
     if (this.idle || this.hud) return
     let last: ComboReading | null = null
@@ -1329,92 +1472,62 @@ export class Stage {
       },
       draw(g, _k, stage) {
         if (!last) return
-        const { w, h } = stage.size
         const fade = 1 - Math.min(1, gone / 0.35)
-        const heat = last.heat * fade
         const hot = last.color
-        if (heat > 0.01) {
-          const halo = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75)
-          halo.addColorStop(0, 'rgba(0,0,0,0)')
-          halo.addColorStop(1, hot)
-          g.globalAlpha = heat * 0.22
-          g.fillStyle = halo
-          g.fillRect(0, 0, w, h)
-          g.globalAlpha = heat * 0.5
-          g.strokeStyle = hot
-          g.lineWidth = 2
-          const far = Math.max(w, h)
-          for (let i = 0; i < 18; i++) {
-            const a = (i * TAU) / 18 + 0.3
-            const r = far * (0.42 + ((this.age * 0.55 + i * 0.13) % 0.3))
-            g.beginPath()
-            g.moveTo(w / 2 + Math.cos(a) * r, h / 2 + Math.sin(a) * r)
-            g.lineTo(w / 2 + Math.cos(a) * r * 1.18, h / 2 + Math.sin(a) * r * 1.18)
-            g.stroke()
-          }
-          const inset = 12 + (1 - heat) * 10
-          const arm = 34 + heat * 56
-          g.globalAlpha = Math.min(1, heat * 1.4)
-          g.lineWidth = 3 + heat * 3
-          for (const [cx, cy, sx, sy] of [[inset, inset, 1, 1], [w - inset, inset, -1, 1],
-            [inset, h - inset, 1, -1], [w - inset, h - inset, -1, -1]] as const) {
-            g.beginPath(); g.moveTo(cx, cy + sy * arm); g.lineTo(cx, cy); g.lineTo(cx + sx * arm, cy); g.stroke()
-          }
-        }
-        // the meter itself
-        const bw = 262, bh = 80
-        const x0 = w - bw - 22, y0 = h - bh - 22
+        const { x: x0, y: y0, w: bw, h: bh } = stage.badge
+        const flare = Math.max(0, 1 - (this.age - stage.flaredAt) / 0.6)
         g.globalAlpha = fade * 0.9
-        roundRect(g, x0, y0, bw, bh, 12)
-        g.fillStyle = 'rgba(10,12,20,0.88)'
+        roundRect(g, x0, y0, bw, bh, 8)
+        g.fillStyle = 'rgba(10,12,20,0.85)'
         g.fill()
-        g.lineWidth = 2
+        g.shadowColor = hot
+        g.shadowBlur = 16 * flare
+        g.lineWidth = 1.5 + 2 * flare
         g.strokeStyle = hot
         g.stroke()
+        g.shadowBlur = 0
         g.globalAlpha = fade
         g.textAlign = 'left'
         g.textBaseline = 'middle'
-        g.font = `800 11px ${IMPACT}`
+        g.font = `800 9px ${IMPACT}`
         g.fillStyle = hot
-        g.fillText('COMBO', x0 + 16, y0 + 20)
-        g.font = `900 13px ${IMPACT}`
-        g.fillStyle = '#ffffff'
-        g.fillText(last.rank, x0 + 16, y0 + 42)
-        const bump = 1 + Math.max(0, 0.3 - (this.age - bumped)) * 1.1
+        g.fillText(last.rank, x0 + 8, y0 + 12, bw - 56)
+        const bump = 1 + Math.max(0, 0.25 - (this.age - bumped)) * 0.8
         g.save()
-        g.translate(x0 + bw - 16, y0 + 34)
+        g.translate(x0 + bw - 8, y0 + 12)
         g.scale(bump, bump)
-        g.font = `900 36px ${IMPACT}`
+        g.font = `900 13px ${IMPACT}`
         g.textAlign = 'right'
-        g.lineJoin = 'round'
-        g.lineWidth = 6
-        g.strokeStyle = '#1a0d00'
-        const count = `×${last.n}`
-        g.strokeText(count, 0, 0)
-        const grad = g.createLinearGradient(0, -18, 0, 18)
-        grad.addColorStop(0, '#ffffff')
-        grad.addColorStop(0.45, '#ffd34d')
-        grad.addColorStop(1, shade('#ffd34d'))
-        g.fillStyle = grad
-        g.fillText(count, 0, 0)
+        g.fillStyle = '#ffd34d'
+        g.fillText(`×${last.n}`, 0, 0)
         g.restore()
-        const barX = x0 + 16, barW = bw - 32, barY = y0 + bh - 16
+        const barX = x0 + 8, barW = bw - 16, barY = y0 + bh - 7
         g.fillStyle = 'rgba(255,255,255,0.14)'
-        g.fillRect(barX, barY, barW, 5)
+        g.fillRect(barX, barY, barW, 2)
         g.fillStyle = hot
-        g.fillRect(barX, barY, barW * Math.max(0, Math.min(1, last.left)), 5)
+        g.fillRect(barX, barY, barW * Math.max(0, Math.min(1, last.left)), 2)
       },
     }
     this.wake()
   }
 
-  /** whether the combo meter is showing (for tests and the curious) */
+  /** where the combo badge sits: the bottom-right corner */
+  get badge(): Rect {
+    return { x: this.width - BADGE.w - BADGE.inset, y: this.height - BADGE.h - BADGE.inset, w: BADGE.w, h: BADGE.h }
+  }
+
+  /** a new rank: the combo badge glows up for a moment */
+  flare(): void {
+    if (this.hud) this.flaredAt = this.hud.age
+  }
+
+  /** whether the combo badge is showing (for tests and the curious) */
   get metering(): boolean { return !!this.hud }
 }
 
 /* ── geometry helpers ───────────────────────────────────────────────────── */
 
-/** the impact lettering every word, title and meter uses (system fonts only) */
+/** the impact lettering every word and the combo badge use (system fonts only) */
 const IMPACT = '"Segoe UI Black", "Arial Black", Impact, system-ui, sans-serif'
 
 /** a caption is a name: small capitals, never longer than a card is wide */

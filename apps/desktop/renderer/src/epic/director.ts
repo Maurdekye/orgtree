@@ -24,10 +24,14 @@
    THE FINAL VERSION (docs/rust-engine/epic-mode-final.md) is the Opus take's
    director with the best of the other three folded in, as one system:
    • THE COMBO — every staged event feeds one combo (the Wonder Full take's
-     count and milestones, the Argon take's ranks, the Astra take's neon
-     titles, heat and arena): a meter in the corner, a new rank announced at
-     10, 25, 50, 100, 200 and 400, and the frequent little sounds climbing up
-     to an octave as it grows, so a busy organization audibly heats up;
+     count and milestones, the Argon take's ranks): a small badge in the
+     corner that flares with each new rank at 10, 25, 50, 100, 200 and 400
+     (user 2026-10-15: "less emphasis on the combo progress, keep it
+     diminutive and to the corner"), and the frequent little sounds climbing
+     up to an octave as it grows, so a busy organization audibly heats up;
+   • WEIGHT — a medium event shakes the window lightly and blurs its edges,
+     a heavy one shakes it and blurs it whole (user 2026-10-15: "more screen
+     shake effects and screen blurs"), within the stage's comfort bounds;
    • WHO — impact words carry the agent's name (the Argon and Astra takes);
    • the crystal ice spike (Argon), the summoning portal (Astra, Argon), the
      watchdog radar and ping (Astra, Argon), streamed text played as each
@@ -71,7 +75,7 @@ export interface EpicShow {
   readonly staged: number
   /** the current combo: events in this burst so far (0 once it dropped) */
   readonly combo: number
-  /** whether the combo meter is on screen in the main window */
+  /** whether the combo badge is on screen in the main window */
   readonly metering: boolean
   /** a direct cue, for anything outside the taps */
   cue(kind: Kind, ev?: Partial<Omit<Act, 'kind'>> & { spot?: Spot | null }): void
@@ -131,7 +135,7 @@ export const RANKS: readonly { at: number; name: string; color: string }[] = [
 ]
 /** the combo sizes that announce a new rank (the Wonder Full take's milestones) */
 export const MILESTONES = RANKS.slice(1).map(r => r.at)
-/** the meter shows from this many events in a burst */
+/** the combo badge shows from this many events in a burst */
 export const METER_FROM = 3
 /** the rank (and its place on the ladder) a combo of `n` has earned */
 export function rankOf(n: number): { name: string; color: string; level: number } {
@@ -285,8 +289,8 @@ class Show implements EpicShow {
 
   /* ── the combo ────────────────────────────────────────────────────── */
 
-  /** Every staged event feeds the combo: the meter shows from the third,
-   *  and each milestone announces the new rank across the main window. */
+  /** Every staged event feeds the combo: the badge shows from the third,
+   *  and each milestone flares it with the new rank, in the main window. */
   private feedCombo(kind: Kind): void {
     if (UNCOUNTED.has(kind)) return
     const now = performance.now()
@@ -294,9 +298,9 @@ class Show implements EpicShow {
     this.comboAt = now
     if (this.comboN >= METER_FROM) this.main.stage.meter(this.reading)
     if (MILESTONES.includes(this.comboN)) {
-      const { w, h } = this.main.stage.size
+      const b = this.main.stage.badge
       this.perform({ ev: { kind: 'combo', n: this.comboN }, org: null,
-        at: { x: w / 2, y: h * 0.3, rect: null, el: null, doc: this.doc }, from: null, t: this.main, show: this })
+        at: { x: b.x + b.w / 2, y: b.y + b.h / 2, rect: null, el: null, doc: this.doc }, from: null, t: this.main, show: this })
     }
   }
 
@@ -305,7 +309,7 @@ class Show implements EpicShow {
     if (this.ended || this.comboN < METER_FROM || age >= COMBO_DECAY_MS) return null
     const left = 1 - age / COMBO_DECAY_MS
     const rank = rankOf(this.comboN)
-    return { n: this.comboN, rank: rank.name, color: rank.color, left, heat: Math.min(1, this.comboN / 40) * left }
+    return { n: this.comboN, rank: rank.name, color: rank.color, left }
   }
 
   /** the next note of an agent's pentatonic run, as a pitch multiplier */
@@ -582,6 +586,7 @@ class Show implements EpicShow {
     if (!play) return
     this.count++
     try { play(c) } catch { /* one effect failing must never break the app */ }
+    try { felt(c) } catch { /* likewise */ }
     this.feedCombo(c.ev.kind)
   }
 
@@ -1740,21 +1745,55 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.burst(c.at.x, c.at.y, { count: 18, colors: [CYAN, '#ffffff'], speed: [60, 220], size: [3, 6], life: [0.4, 0.8] })
     s.word(c.at.x, c.at.y - 50, 'REPORT!', { color: CYAN, ink: '#00222b', size: 30, life: 1.2, caption: captionOf(c) })
   },
-  // the combo reaching a new rank: its name across the window in neon (the
-  // Astra take), a fountain of confetti and stars (Wonder Full), the
-  // fanfare climbing rank by rank, and a shake that grows with it
+  // the combo reaching a new rank (user 2026-10-15: "less emphasis on the
+  // combo progress, keep it diminutive and to the corner"): the corner badge
+  // names it and flares, a small ring and a few stars leave it, and the
+  // fanfare plays softly, climbing rank by rank
   combo: c => {
-    const s = c.t.stage, { w, h } = s.size
+    const s = c.t.stage
     const n = Math.max(c.ev.n ?? MILESTONES[0]!, MILESTONES[0]!)
     const rank = rankOf(n)
-    c.show.sound('combo', c, { pitch: 1 + rank.level * 0.06 })
-    s.title(rank.name + '!', { caption: `COMBO ×${n}`, color: rank.color })
-    s.flash(rank.color, 0.12 + rank.level * 0.03, 0.4)
-    s.burst(w / 2, h + 10, { count: 70 + rank.level * 25, kind: 'confetti', colors: [rank.color, GOLD, '#ffffff', PINK, CYAN], speed: [380, 820], size: [7, 12], life: [1.2, 2], gravity: 620, angle: -Math.PI / 2, spread: 0.9, drag: 0.6 })
-    s.burst(w / 2, h * 0.3, { count: 20 + rank.level * 6, kind: 'star', colors: [GOLD, '#ffffff', rank.color], speed: [120, 420], size: [6, 12], life: [0.8, 1.5], gravity: 240 })
-    for (let i = 0; i <= Math.min(3, rank.level); i++) s.ring(w / 2, h * 0.3, { color: i % 2 ? '#ffffff' : rank.color, radius: Math.max(w, h) * 0.35, width: 8, life: 0.8, delay: i * 0.12 })
-    s.shake(6 + rank.level * 2, 380 + rank.level * 60)
+    c.show.sound('combo', c, { pitch: 1 + rank.level * 0.06, gain: 0.4 })
+    s.flare()
+    s.ring(c.at.x, c.at.y, { color: rank.color, radius: 60, width: 3, life: 0.6 })
+    s.burst(c.at.x, c.at.y, { count: 10 + rank.level * 3, kind: 'star', colors: [GOLD, '#ffffff', rank.color], speed: [60, 200], size: [3, 6], life: [0.5, 0.9], gravity: 160 })
   },
+}
+
+/** How heavy each event is (user 2026-10-15: "more screen shake effects and
+ *  screen blurs", scaled to the event's weight). Everything not listed is
+ *  light: the user's own hands and the frequent ticks of agents' work get no
+ *  shake and no blur. */
+export const WEIGHT: Partial<Record<Kind, 1 | 2 | 3>> = {
+  // medium: turns, mail, questions and the like
+  move: 1, thaw: 1, unhalt: 1, compact: 1, question: 1, answer: 1, docs: 1, turnStart: 1, turnEnd: 1,
+  zap: 1, userSend: 1, toUser: 1, bark: 1, dogFired: 1, orgInbox: 1, userMail: 1, externalMail: 1,
+  audience: 1, creditRequest: 1, mailbox: 1, linkUp: 1, usageWarn: 1, dialogOpen: 1,
+  fileDrop: 1, destroy: 1,
+  // heavy: an agent arriving, leaving or stopped, a failure, a ticket opened,
+  // closed or flagged
+  hire: 2, rehire: 2, retire: 2, freeze: 2, limit: 2, halt: 2, interrupt: 2, error: 2, refused: 2,
+  toastError: 2, ticket: 2, ticketDone: 2, attention: 2, brownout: 2, linkDown: 2, killswitchOff: 2,
+  epicLaunch: 2, usageMax: 2,
+  // the biggest moments
+  epicOn: 3, killswitch: 3, urgent: 3,
+}
+/** what each weight feels like: a shake (px, ms) and a blur, which a medium
+ *  event keeps to the window's edges. The stage holds every one to its
+ *  comfort bounds, and an effect's own stronger shake is never cut short. */
+const FEEL = {
+  1: { shake: [3, 220], blur: { px: 4, ms: 420, edges: true } },
+  2: { shake: [8, 420], blur: { px: 4, ms: 500 } },
+  3: { shake: [14, 650], blur: { px: 6, ms: 650 } },
+} as const
+
+/** an event's weight, felt in its own window */
+function felt(c: Cue): void {
+  const weight = WEIGHT[c.ev.kind]
+  if (!weight) return
+  const { shake, blur } = FEEL[weight]
+  c.t.stage.shake(shake[0], shake[1])
+  c.t.stage.blur(blur)
 }
 
 /** the playbook's coverage, for the inventory doc and its test */
