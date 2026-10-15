@@ -45,7 +45,7 @@ try {
 } finally { esbuild.stop() }
 console.log(JSON.stringify({ mode, base, suites, sourceOnly: true, output: out,
   control: mode === 'red' ? 'tip tests with exact base themes.tsx' : 'tip tests with tip source' }))
-const run = spawnSync(process.execPath, ['--max-old-space-size=768', '--test', '--test-concurrency=1',
+const run = spawnSync(process.execPath, ['--max-old-space-size=768', '--test', '--test-force-exit', '--test-concurrency=1',
   '--test-timeout=10000', ...suites.map(name => path.join(out, `${name}.test.mjs`))],
   { cwd: root, stdio: 'inherit', windowsHide: true })
 if (run.error) throw run.error
