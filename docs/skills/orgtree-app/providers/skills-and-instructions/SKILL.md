@@ -1,12 +1,12 @@
 ---
 name: orgtree-skills-and-instructions
-description: Explain built-in and imported skills, native delivery, instruction-file boundaries and pending sharing status.
+description: Explain built-in and imported skills, native delivery, instruction-file boundaries and Refresh.
 ---
 Up: [orgtree-providers](../SKILL.md)
 
 # Skills and instructions
 
-This page separates the native instruction behavior in the library's `72ea305` source base from the pending cross-harness sharing pipeline. Shared skills were source-checked on unlanded `agy-astra/skills-share` at `a8b71bc`; personal global instructions were checked on unapproved `astra/global-instructions` at `8088df1`. These changes require composition and independent verification before delivery. This documentation pass did not run a harness or model; dated native-file observations below belong to the implementation owner's evidence, not a claim of end-to-end model use.
+Shared skills and personal global instructions are implemented in the integrated source at `de6d356` (including global instructions from `7f5f27f`). This page describes that source contract. This documentation pass did not run a harness or model; native-file observations below belong to the implementation owner's dated evidence. Source inclusion and emitted native bindings do not prove that a model chose or followed a skill.
 
 ## Built-in guides and user skills
 
@@ -14,9 +14,9 @@ In the sharing pipeline, the engine build embeds every file under `docs/skills`;
 
 Only category entry files enter native discovery roots. Their complete resource trees, including nested `SKILL.md` pages, live beside those roots; category entry links are retargeted and nested links keep their relative meaning. A recursive native loader therefore does not advertise every leaf description. Follow the delivered entry links rather than inventing paths from a developer checkout.
 
-The importer accepts a top-level bundle from the source tree; it does not hard-code those two category names. The large library was excluded from the 4.3.0 release cut; that cut required only the standalone engine-start-mode guide. Do not infer this library is present from its source files or the app version alone.
+The importer accepts a top-level bundle from the source tree; it does not hard-code those two category names. The library is included in the 4.3.0 release scope. Its landing moves the standalone engine-start-mode guide into its category and removes the old copy. Use the catalog and resources supplied to the current session to establish availability.
 
-Global imports require the corresponding harness to be installed. The pending pipeline reads:
+Global imports require the corresponding harness to be installed. The pipeline reads:
 
 | Source | Global skill roots |
 | --- | --- |
@@ -38,9 +38,9 @@ Discovery skips malformed entries, linked bundles/resources, generated copies, `
 
 Discovery does not execute a skill, authenticate or change a native user configuration. Loading guidance does not itself authorize its scripts or external actions; apply the session's actual scope and instructions.
 
-## Native delivery contract, pending integration
+## Native delivery contract
 
-| Harness | Delivery in the sharing branch |
+| Harness | Native delivery |
 | --- | --- |
 | Claude Code | `--add-dir` points to an immutable snapshot containing `.claude/skills`. |
 | Codex | `skills/extraRoots/set` supplies the snapshot root before thread start or resume. |
@@ -53,15 +53,15 @@ Global discovery is cached at startup and explicit refresh. Launch planning comb
 
 Refresh does not interrupt an active turn. A changed startup fingerprint applies the new set at the next launch boundary; unchanged content retains the same snapshot paths and bytes. Direct user edits in native folders can still be observed by a harness's own watchers. The shared Refresh button's partial-success behavior is documented in [MCP servers](../mcp-servers/SKILL.md).
 
-## Instruction files and pending global sharing
+## Instruction files and global sharing
 
-In the `72ea305` base, native startup files and otherwise omitted scratch/granted `AGENTS.md` and legacy `CLAUDE.md` notes are accounted for separately. Native files are excluded from mirrored standing notes to avoid duplicate delivery. The harness pages explain their own native file selection; having a file on disk does not establish that another harness reads it.
+Native startup files and otherwise omitted scratch/granted `AGENTS.md` and legacy `CLAUDE.md` notes are accounted for separately. Native files are excluded from mirrored standing notes to avoid duplicate delivery. The harness pages explain their own native file selection; having a file on disk does not establish that another harness reads it.
 
-The separate `astra/global-instructions` branch at `8088df1` implements a read-only snapshot of personal global notes. It is committed but not independently approved, composed or present in the library's source base. The earlier `71924ec` was its test-only baseline. The shared-skills branch alone does not provide this implementation; its presence in a private branch does not establish availability in a running app.
+Personal global instructions use a read-only snapshot, integrated at `7f5f27f` and composed with shared skills at `de6d356`. The runtime/endpoint implementation was independently approved; the library's composed delivery receipt is a separate check. No source-status claim establishes availability in an older installed build.
 
 Its source contract supplies nonempty personal globals to every agent without requiring per-agent folder grants, leaving source files unchanged. Canonical identity deduplicates aliases. The snapshot excludes files the actual account/profile loads natively, including isolated Claude/Codex profile differences. Original readable text and its digest come from the same snapshot. Native CLI file/token limits still apply; supplied text is not proof that a model received or followed every byte.
 
-| Source in `8088df1` | Selection and evidence boundary |
+| Personal source | Selection and evidence boundary |
 | --- | --- |
 | Claude Code | `$CLAUDE_CONFIG_DIR/CLAUDE.md`, default `~/.claude/CLAUDE.md`, plus recursive Markdown rules without a `paths` restriction. Existing native-manifest evidence, checked against Claude Code 2.1.292. |
 | Codex | `$CODEX_HOME/AGENTS.override.md`, otherwise `AGENTS.md`, default `~/.codex`. Shipped 0.160.0 instruction-file selection source; global override precedence is inferred from that contract. |
@@ -70,15 +70,15 @@ Its source contract supplies nonempty personal globals to every agent without re
 | Muse | `$XDG_CONFIG_HOME/muse/AGENTS.md`, otherwise `CLAUDE.md`, default `~/.config/muse`. The owner observed canonical and absent-canonical fallback with pinned Muse 1.4.6, synthetic roots and an offline echo provider on 2026-10-15; no authenticated model request. |
 | OpenCode | `$XDG_CONFIG_HOME/opencode/AGENTS.md`, default `~/.config/opencode/AGENTS.md`, from shipped 2.0.28 instruction-plugin/root resolution source. |
 
-Muse launches in that branch set `context.foreign_personal_rules=false` without editing saved settings, preventing its foreign-personal-rule loader from supplying a second copy. The owner's offline `/rules` observation retained Muse's native fallback and workspace positive controls and showed the fixture Claude/Codex globals not read. This is native file-loading evidence, not a model-use test; Muse's separate foreign-skills setting is unaffected.
+Muse launches set `context.foreign_personal_rules=false` without editing saved settings, preventing its foreign-personal-rule loader from supplying a second copy. The owner's offline `/rules` observation retained Muse's native fallback and workspace positive controls and showed the fixture Claude/Codex globals not read. This is native file-loading evidence, not a model-use test; Muse's separate foreign-skills setting is unaffected.
 
 `POST /api/global-instructions/refresh` has no body and returns only `{ "files": N, "refreshed": true }`; the count includes canonical nonempty files even if a particular CLI loads them natively. Unreadable or invalid existing sources produce a sanitized error count, while readable sources remain usable. No instruction bodies or paths are returned by that endpoint. Startup takes fresh snapshots independently, so a button press is not required for the next permitted boundary to see an edit. An active turn or held process is not rewritten mid-turn; the next permitted process boundary resumes the same session with changed startup text and fingerprint.
 
-For full evidence and composition limits, read `docs/rust-engine/global-instructions.md` in that implementation branch. Its documented pre-existing Antigravity project-note feedback issue is separate work; this global snapshot does not claim to fix managed scratch `AGENTS.md` overwrites or remove native truncation limits.
+For full evidence and composition limits, read `docs/rust-engine/global-instructions.md`. Its documented pre-existing Antigravity project-note feedback issue is separate work; this global snapshot does not claim to fix managed scratch `AGENTS.md` overwrites or remove native truncation limits.
 
 ## Startup fingerprints and provider cache
 
-In the sharing branch, launch planning, idle rechecks and cache forecasts use the same combined instruction-file and skill-content digest. Resource edits matter as well as entry-file edits. A changed digest can replace a parked process at the next boundary while retaining its conversation session; it changes startup input and may cost provider cache continuity.
+Launch planning, idle rechecks and cache forecasts use the same combined instruction-file and skill-content digest. Resource edits matter as well as entry-file edits. A changed digest can replace a parked process at the next boundary while retaining its conversation session; it changes startup input and may cost provider cache continuity.
 
 A local process restart does not itself prove a provider miss. Unchanged snapshots show compatible input, not a guaranteed provider hit. Provider/account/model/session changes and changes to already-sent prompt content have their own namespace or prefix effects. See `orgtree-cache-continuity` (orgtree-working › accounts) for the receipt and freshness rules.
 

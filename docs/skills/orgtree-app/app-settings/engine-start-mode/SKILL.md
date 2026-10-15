@@ -69,6 +69,17 @@ engine started at sign-in. You can also ask the user.
 - You run only while the user is signed in to Windows. Signing out stops the
   engine and every agent. After a reboot nothing runs until they sign in again.
 
+## Upsides and downsides
+
+| At boot (Session 0) | At sign-in (the user's session) |
+| --- | --- |
+| **Upsides:** starts before sign-in, the earliest of these two automatic triggers; agents can work unattended while signed out and after reboots. The boot engine does not depend on who is currently signed in; the data-root lock still permits only one engine for that data root. | **Upsides:** access to the real desktop, input and screen, the user's apps and their sign-ins. Codex and Muse sandboxes work directly in the user's session. |
+| **Downsides:** no interactive desktop, real input or real screen; the display is a 1024×768 stand-in. Desktop sign-ins are not directly available. git/GitHub credentials reach agents through the helper only while the user is signed in. Codex's sandbox needs the helper while signed in; otherwise it runs without its sandbox. Muse's sandbox is off for writers in Session 0. | **Downsides:** work runs only while the user is signed in. Signing out stops the engine and every agent; PostgreSQL recovers at the next start. After reboot, automatic work waits for sign-in. Switching modes requires a Windows permission prompt and a subsequent engine start to apply it. |
+
+Changing either mode requires the user's Windows approval. A running engine stays in its current session until it restarts: use the offered restart, which interrupts running turns, or wait for the next sign-in or boot. These trade-offs follow decisions 79/80 and `docs/rust-engine/engine-start-mode.md`; an installer stop request is separate from merely ending a boot task.
+
+Choose boot for unattended work before or without sign-in; choose sign-in when the task needs the user's interactive desktop, sign-ins or directly working sandboxes.
+
 ## When to suggest a change
 
 Suggest **"At sign-in, in my session"** when the work needs any of these:

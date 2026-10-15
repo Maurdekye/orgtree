@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "source_commit": "296deb0",
+ "source_commit": "de6d356193c6c839b0813ec4d95303fbc8b87237",
  "registered_description_bytes": 403,
  "counts": {
   "categories": 2,
@@ -3499,7 +3499,8 @@
    "must_cover": [
     "the two modes (at boot, before sign-in, in Session 0 — the default; at sign-in, in the user's session) and what each means for agents",
     "when to suggest switching, to the user or a superior; agents never change the setting themselves",
-    "owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); approved and integrated at rust-engine 7b7dd2e"
+    "owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); approved and integrated at rust-engine 7b7dd2e",
+    "explicit upsides and downsides for boot versus sign-in, including unattended work, desktop/sign-ins, sandbox posture, sign-out, UAC and restart timing; a one-line choice rule"
    ],
    "sources": [
     "docs/rust-engine/engine-start-mode.md",

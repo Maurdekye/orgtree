@@ -63,9 +63,9 @@ To control which discovered names an agent receives, use [agent Tools](../../age
 
 ## Sharing pipeline status
 
-The five-source reader above is present at source base `b77512f`. The unlanded `agy-astra/skills-share` branch (`a8b71bc` checked) additionally imports installed Claude plugins through `.claude/plugins/installed_plugins.json`: applicable recorded installs, not marketplace catalogs or arbitrary cache directories. Its `.mcp.json` and declared plugin `mcpServers` use the same normalizer; `${CLAUDE_PLUGIN_ROOT}` resolves privately and file references stay inside the installed package. Private OAuth stores remain excluded.
+The integrated sharing pipeline at `de6d356` additionally imports installed Claude plugins through `.claude/plugins/installed_plugins.json`: applicable recorded installs, not marketplace catalogs or arbitrary cache directories. Its `.mcp.json` and declared plugin `mcpServers` use the same normalizer; `${CLAUDE_PLUGIN_ROOT}` resolves privately and file references stay inside the installed package. Private OAuth stores remain excluded.
 
-That branch also expands the shared Refresh button to request MCP, skills and global-instruction refresh independently. Successful responses are retained and failed sources are named. The global-instruction endpoint belongs to a separate change; the combined button requires that composition before delivery. Treat this as pending pipeline behavior, not a claim about the currently running build or successful real-harness loading. See [skills and instructions](../skills-and-instructions/SKILL.md) for the common delivery contract.
+The shared Refresh button requests MCP, skills and global-instruction refresh independently. Successful responses are retained and failed sources are named. The global-instruction endpoint is composed in this source. A successful refresh is not proof of model-side loading or use. See [skills and instructions](../skills-and-instructions/SKILL.md) for the common delivery contract.
 
 ## See also
 

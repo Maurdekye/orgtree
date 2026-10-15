@@ -9,7 +9,9 @@ coverage guard reads it. The tables at the end of this file are generated from
 Revision **v1.2**: complete. v1.2 added the section `orgtree-app › harnesses` (docket item `skill-pages-exact-differences-between-all-suppor`): the five harness pages and `harnesses-tab` moved there from `providers`, plus `harness-comparison`, `route-openrouter` and `route-local-server`. v1.1 added `mcp-servers` and `skills-and-instructions` (app › providers), fixed source paths and corrected the `desk-history` and `hubchat` purposes. Everything was enumerated from source at `296deb0`
 (rust-engine local tip): tools from `engine/rs/orgtree-engine/src/tools/defs.rs`
 `implemented()`, screens from `apps/desktop/renderer/src` and `apps/desktop/main`, and
-settings from the App settings, Org settings and Agent settings sources.
+settings from the App settings, Org settings and Agent settings sources. The release
+reconciliation checks that inventory and the current behavior against integrated
+source `de6d356`, including Muse retained usage, personal globals and shared skills.
 
 | | Count |
 |---|---|
@@ -126,7 +128,7 @@ These rulings explain choices a reader might otherwise question.
   ground truth in `AGENTS.md` and `docs/`, not as engine features.
 - **`orgtree-engine-start-mode`** (owner rig-opus, item
   `option-to-run-the-background-engine-in-the-user-s`; approved and integrated at
-  rust-engine `7b7dd2e`). The 4.3.0 release keeps it as a standalone registered skill. In the
+  rust-engine `7b7dd2e`). It landed first as a standalone registered skill. In the 4.3.0
   library it is the leaf `engine-start-mode` under `orgtree-app › app-settings`, next to
   `app-runtime-desktop` ("Run on startup"), with its `name` and content unchanged. It is
   no longer registered, keeping the "only categories are registered" ruling (coordinator
