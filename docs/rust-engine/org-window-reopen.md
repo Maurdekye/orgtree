@@ -40,9 +40,22 @@ with the real placement JSON store in a synthetic host, using only the
 assigned C build directory. The green suite adds repeated final-session
 callbacks, synchronous geometry inspection before any close, and an
 unavailable org window. Green and adjacent placement/window-close checks
-are prepared and await rig-sol-b execution; no pass is claimed yet.
+ran through rig-sol-b on exact `6a4a009`: 19/19 route cases passed, no skips
+or cancellations, exit0/1s. Root TypeScript had 0 diagnostics across 310
+checkout files, exit0/6s. The exact source was approved for the release cut.
 
-The tests do not start Electron, an installer, an engine or a provider.
-Actual installed Electron/NSIS/Windows event order, interactive focus and
-on-screen geometry remain unmeasured. The updater case exercises its actual
-pre-handoff capture block, not the full updater or an installer process.
+Five adjacent suites at `b77512f` and `6a4a009` each executed 109 cases:
+108 passed and the same pre-existing source assertion failed. Its regex in
+`multi-window-wiring.test.mjs` omits `coreStopRequested = true` from the
+unchanged `stopCoreApplication` helper. Both narrow real Electron probes
+(sender/popout/discard/placement and native popout bounds) passed at both
+revisions. There was no new adjacent failure; the full adjacent run is not
+claimed all-green. Initial dependency/resolver failures were preserved and
+excluded from the final native execution evidence.
+
+The route suite does not start Electron, an installer, an engine or a
+provider. Actual installed Electron/NSIS/Windows event order, interactive
+focus and on-screen geometry remain unmeasured. The updater case exercises
+its actual pre-handoff capture block, not the full updater or an installer
+process. The adjacent native probes cover their narrow fixtures rather than
+the complete lifecycle routes.
