@@ -18,6 +18,14 @@
   [panel Alt arrows](docs/rust-engine/panel-alt-navigation.md).
   [decided: user/coordinator 2026-10-15; verified from source:
   `canvas/{panelsteps,gallery,docket,mail,asks}.ts*`, `shortcuts.ts`]
+- 2026-10-15: Antigravity identity is delivered as bounded, numbered always-on rules,
+  never by writing scratch AGENTS.md. Own AGENTS.md is native and excluded from the
+  identity mirror. Exact legacy generated envelopes move to unique byte-preserving
+  backups at process replacement; other notes stay untouched. Interior edits in an
+  envelope are recoverable from backup, not automatically active. See
+  [AGY standing notes](docs/agy-standing-notes.md) for the approved migration and
+  native budget limits. [verified: `runtime/agy.rs`, `runtime/startup.rs`;
+  decided: coordinator 2026-10-15]
 
 - Live thought bodies must not flex-shrink inside the transcript: the
   display:contents reply wrapper exposes .thoughtbody.live as a .msgs flex
