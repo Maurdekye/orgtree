@@ -53,6 +53,12 @@ function subscribe(listener: () => void) {
 export function watchAppFeed(fn: () => void): () => void { return subscribe(fn) }
 /** One app-feed value as it stands, outside React. */
 export function appValueNow<T>(key: string): T | undefined { return connection.state.value<T>(key) }
+/** Every active org's notices as they stand (the cross-org attention
+ *  projection native notifications come from), outside React; `current`
+ *  says whether they are a complete copy yet. */
+export function appNoticesNow(): { current: boolean; notices: unknown[] } {
+  return { current: connection.status === 'current', notices: connection.state.allNotices() }
+}
 const inactive = () => () => {}
 const snapshot = () => revision
 

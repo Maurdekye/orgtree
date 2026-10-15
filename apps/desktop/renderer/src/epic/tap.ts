@@ -14,8 +14,13 @@ export interface EpicTaps {
   frame(org: string, frame: unknown): void
   /** an org tree App.tsx just published to the screen */
   tree(org: string, tree: TreePayload): void
-  /** a user action that leaves no trace in the tree (an interrupt) */
+  /** a user action that leaves no trace in the tree: an interrupt the
+   *  engine accepted (api.ts calls this only once it answers `interrupted`) */
   action(org: string, kind: 'interrupt', node: string): void
+  /** a change the engine refused: api.ts's `req` calls this for a failed
+   *  non-GET request, on the failure path only (the Astra take: a refused
+   *  request never celebrates; it gets its own alarm) */
+  refused(path: string, status: number): void
 }
 
 export let epic: EpicTaps | null = null

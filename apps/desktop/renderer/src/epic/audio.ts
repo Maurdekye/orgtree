@@ -25,6 +25,8 @@ export type SoundName =
   | 'tada' | 'whirr' | 'coins' | 'epicOn' | 'epicOff' | 'whooshIn'
   | 'whooshOut' | 'boom' | 'thunder' | 'warp' | 'grab' | 'thud' | 'chime'
   | 'shimmer' | 'wake' | 'sleep' | 'glass' | 'scribble' | 'blip'
+  // the final version's additions (docs/rust-engine/epic-mode-final.md)
+  | 'combo' | 'note' | 'confirm' | 'refused' | 'maxed' | 'ping'
 
 export interface PlayOptions {
   /** -1 (left) … 1 (right): where on screen the effect happened */
@@ -37,7 +39,7 @@ export interface PlayOptions {
 
 /** frequent, cheap sounds that are the first to go when the budget is full */
 const LIGHT: ReadonlySet<SoundName> = new Set<SoundName>([
-  'click', 'type', 'tick', 'blip', 'toolDone', 'warp', 'grab', 'thud', 'scribble',
+  'click', 'type', 'tick', 'blip', 'toolDone', 'warp', 'grab', 'thud', 'scribble', 'note',
 ])
 export const VOICE_CAP = 40
 export const LIGHT_CAP = 22
@@ -579,6 +581,60 @@ const RECIPES: Record<SoundName, Recipe> = {
     return 0.18
   },
   blip: (k, t) => { tone(k, { type: 'square', f: 1760, at: t, dur: 0.03, peak: 0.04 }); return 0.04 },
+
+  /* ── the final version's additions ───────────────────────────────────── */
+
+  // a combo reaching a new rank (the Wonder Full take's milestone fanfare):
+  // a brass run up the scale into a held chord, timpani and a crash. The
+  // director raises its pitch rank by rank.
+  combo: (k, t) => {
+    ;[60, 64, 67, 72, 76, 79].forEach((n, i) => brass(k, hz(n), t + i * 0.055, 0.1, 0.22, 4200))
+    const hit = t + 0.34
+    for (const n of [72, 76, 79, 84]) brass(k, hz(n), hit, 0.9, 0.2, 5200)
+    drum(k, 82, hit, 0.7, 0.8)
+    crash(k, hit, 1.6, 0.22)
+    RECIPES.shimmer(k, hit + 0.1)
+    return 1.9
+  },
+  // one plucked note of an agent's streamed text (the Argon take's
+  // pentatonic arpeggio): the director picks the pitch, step by step
+  note: (k, t) => {
+    bell(k, hz(72), t, 0.42, 0.06, 2, 1.1, k.wet)
+    tone(k, { type: 'triangle', f: hz(72), at: t, dur: 0.22, peak: 0.05 })
+    return 0.45
+  },
+  // a confirming click (save, apply, create, OK …): a two-coin ding
+  confirm: (k, t) => {
+    bell(k, 1568, t, 0.5, 0.12, 2, 2.2)
+    bell(k, 2349, t + 0.08, 0.75, 0.12, 2, 2.2)
+    for (let i = 0; i < 3; i++) bell(k, rand(3500, 5200), t + 0.12 + i * 0.05, 0.2, 0.03, 1.41, 2, k.wet)
+    return 0.9
+  },
+  // a request the engine refused (the Astra take's FAULT): a denied double
+  // buzz over a dull thud
+  refused: (k, t) => {
+    tone(k, { type: 'square', f: 233, at: t, dur: 0.13, peak: 0.16, filter: { type: 'lowpass', f: 2400 } })
+    tone(k, { type: 'square', f: 175, to: 110, at: t + 0.14, dur: 0.3, peak: 0.16, filter: { type: 'lowpass', f: 2000 } })
+    drum(k, 86, t, 0.3, 0.5)
+    return 0.5
+  },
+  // a usage reading reaching 100% — a meter maxing out, not a power failure:
+  // a reading is not exhaustion (the Astra take's rule; user 2026-10-14)
+  maxed: (k, t) => {
+    tone(k, { type: 'sawtooth', f: 220, to: 1320, at: t, dur: 0.45, peak: 0.14, attack: 0.05,
+      filter: { type: 'lowpass', f: 600, to: 5200, q: 2 } })
+    ;[84, 88, 91].forEach((n, i) => tone(k, { type: 'square', f: hz(n), at: t + 0.42 + i * 0.08, dur: 0.07, peak: 0.07,
+      filter: { type: 'lowpass', f: 3600 } }))
+    bell(k, hz(96), t + 0.66, 0.9, 0.12, 2, 2)
+    return 1.5
+  },
+  // a sonar ping (the Astra and Argon takes' watchdog radar)
+  ping: (k, t) => {
+    tone(k, { f: 988, at: t, dur: 0.14, peak: 0.12, dest: k.wet })
+    tone(k, { f: 1568, at: t + 0.13, dur: 0.7, peak: 0.12 })
+    tone(k, { f: 1568, at: t + 0.13, dur: 0.9, peak: 0.08, dest: k.wet })
+    return 1
+  },
 }
 
 export const SOUND_NAMES = Object.keys(RECIPES) as SoundName[]

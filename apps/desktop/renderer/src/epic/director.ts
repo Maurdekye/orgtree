@@ -19,17 +19,36 @@
 
    THE PLAYBOOK below gives every event its own picture and its own sound —
    the user's examples first: FREEZE is an ice spike, an INTERRUPT is a stop
-   sign slammed down, a MESSAGE SPARK is a lightning zap. */
+   sign slammed down, a MESSAGE SPARK is a lightning zap.
+
+   THE FINAL VERSION (docs/rust-engine/epic-mode-final.md) is the Opus take's
+   director with the best of the other three folded in, as one system:
+   • THE COMBO — every staged event feeds one combo (the Wonder Full take's
+     count and milestones, the Argon take's ranks, the Astra take's neon
+     titles, heat and arena): a meter in the corner, a new rank announced at
+     10, 25, 50, 100, 200 and 400, and the frequent little sounds climbing up
+     to an octave as it grows, so a busy organization audibly heats up;
+   • WHO — impact words carry the agent's name (the Argon and Astra takes);
+   • the crystal ice spike (Argon), the summoning portal (Astra, Argon), the
+     watchdog radar and ping (Astra, Argon), streamed text played as each
+     agent's own pentatonic run (Argon), the button pop and confirming
+     clicks (Wonder Full);
+   • REFUSED — a change the engine turns down gets its own alarm, and an
+     interrupt gets its stop sign only once the engine accepted it (Astra);
+   • OTHER ORGS — the app feed's notices from organizations this window does
+     not draw (Wonder Full, Astra), in the window the user is looking at;
+   • a usage reading of 100% is a reading, never a limit (Astra; user
+     2026-10-14): only a frozen or limit-locked agent says LIMIT HIT. */
 import { EpicSynth, type AudioContextCtor, type PlayOptions, type SoundName } from './audio'
-import { Stage, type Rect } from './stage'
+import { Stage, type ComboReading, type Rect } from './stage'
 import { setEpicTaps } from './tap'
 import {
-  diffOrg, pulseEvent, snapshotOrg, sparkEvent, streamEvent,
+  diffOrg, isInboxEnd, isUserEnd, pulseEvent, snapshotOrg, sparkEvent, streamEvent,
   type EpicEvent, type EventKind, type OrgSnap,
 } from './diff'
 import { locate, spotOfElement, type Spot } from './locate'
 import { openSurfaces, subscribeWindows } from '../windowlife'
-import { appValueNow, watchAppFeed } from '../appfeed'
+import { appNoticesNow, appValueNow, watchAppFeed } from '../appfeed'
 import type { UsagePeek } from '../types'
 
 export interface EpicOptions {
@@ -50,8 +69,12 @@ export interface EpicShow {
   stop(opts?: { farewell?: boolean; quiet?: boolean }): void
   /** for tests and the curious: how many effects have been staged */
   readonly staged: number
+  /** the current combo: events in this burst so far (0 once it dropped) */
+  readonly combo: number
+  /** whether the combo meter is on screen in the main window */
+  readonly metering: boolean
   /** a direct cue, for anything outside the taps */
-  cue(kind: Kind, ev?: Partial<EpicEvent>): void
+  cue(kind: Kind, ev?: Partial<Omit<Act, 'kind'>> & { spot?: Spot | null }): void
 }
 
 /** user actions, seen by the listeners rather than the org's data */
@@ -61,18 +84,85 @@ export type DomKind =
   | 'dialogOpen' | 'dialogClose' | 'toast' | 'toastError' | 'popup' | 'fileDrop'
   | 'send' | 'destroy' | 'epicOn' | 'epicLaunch' | 'epicOff'
   | 'scroll' | 'focus' | 'undo' | 'redo' | 'shortcut' | 'doubleClick'
+  // a click on a control that confirms: save, apply, create, OK … (Wonder Full)
+  | 'confirm'
   // staged by the director itself: a usage limit learned just after the ice
   | 'brownout'
   // the org socket dropping and coming back (an engine restart, a sleep)
   | 'linkDown' | 'linkUp'
-  // the app feed's usage readings crossing a line
-  | 'usageWarn' | 'usageLimit' | 'usageReset'
+  // the app feed's usage readings crossing a line: 90%, 100% (a reading,
+  // never a limit), and back under 100%
+  | 'usageWarn' | 'usageMax' | 'usageReset'
+  // a change the engine refused (api.ts's request tap)
+  | 'refused'
+  // another org's routine notice (the app feed)
+  | 'notice'
+  // the combo reaching a new rank
+  | 'combo'
 
 /** everything the playbook knows how to stage */
 export type Kind = EventKind | DomKind
 
 /** one thing to stage: an org event, or something the user did */
-export interface Act extends Omit<EpicEvent, 'kind'> { kind: Kind }
+export interface Act extends Omit<EpicEvent, 'kind'> {
+  kind: Kind
+  /** who it happened to, written under the effect's word (default: `node`) */
+  caption?: string
+}
+
+/* ── the combo ─────────────────────────────────────────────────────────── */
+
+/** events closer together than this keep one combo going */
+export const COMBO_DECAY_MS = 2500
+/** the ranks a combo earns: Argon's ladder with Astra's drives in the middle */
+export const RANKS: readonly { at: number; name: string; color: string }[] = [
+  { at: 1, name: 'SPECTACLE ONLINE', color: '#ffd34d' },
+  { at: 10, name: 'HYPER-STREAK', color: '#ff8a2a' },
+  { at: 25, name: 'OVERDRIVE', color: '#ff3b3b' },
+  { at: 50, name: 'HYPERDRIVE', color: '#ff5ccf' },
+  { at: 100, name: 'SUPERNOVA', color: '#c58bff' },
+  { at: 200, name: 'ABSOLUTE CHAOS', color: '#5fe3ff' },
+  { at: 400, name: 'CACOPHONY MAXIMA', color: '#ffffff' },
+]
+/** the combo sizes that announce a new rank (the Wonder Full take's milestones) */
+export const MILESTONES = RANKS.slice(1).map(r => r.at)
+/** the meter shows from this many events in a burst */
+export const METER_FROM = 3
+/** the rank (and its place on the ladder) a combo of `n` has earned */
+export function rankOf(n: number): { name: string; color: string; level: number } {
+  let level = 0
+  for (let i = 0; i < RANKS.length; i++) if (n >= RANKS[i]!.at) level = i
+  const r = RANKS[level]!
+  return { name: r.name, color: r.color, level }
+}
+/** continuous gestures and the director's own fanfares do not count */
+const UNCOUNTED: ReadonlySet<Kind> = new Set<Kind>(['pan', 'epicOff', 'combo'])
+/** the little, frequent sounds that climb with the combo (Wonder Full's
+ *  pitch ladder: up to an octave at 36 events) */
+const CLIMB: ReadonlySet<SoundName> = new Set<SoundName>([
+  'click', 'type', 'tick', 'blip', 'toolDone', 'warp', 'grab', 'scribble', 'clack', 'notice', 'tool', 'confirm',
+])
+export const climbFor = (combo: number): number => 2 ** (Math.min(Math.max(combo, 0), 36) / 36)
+
+/** an agent's streamed text as notes (the Argon take's arpeggio): up and down
+ *  the major pentatonic, each agent from its own degree so several writers
+ *  sound like one chord */
+const PENTA = [0, 2, 4, 7, 9]
+const RUN = [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1]
+export function noteRatio(agent: string, step: number): number {
+  let h = 0
+  for (let i = 0; i < agent.length; i++) h = (h * 31 + agent.charCodeAt(i)) | 0
+  const degree = RUN[step % RUN.length]! + (Math.abs(h) % 5)
+  const semis = 12 * Math.floor(degree / 5) + PENTA[degree % 5]!
+  return 2 ** (semis / 12)
+}
+
+/** what another org's notice is staged as (DesktopNotification kinds) */
+const NOTICE_KINDS: Record<string, Kind> = {
+  question: 'question', 'urgent-mail': 'urgent', 'terminal-failure': 'error', 'agent-frozen': 'freeze',
+  'work-attention': 'attention', document: 'docs', routine: 'notice',
+}
+interface NoticeRow { id?: unknown; org?: unknown; agent?: unknown; kind?: unknown }
 
 const GOLD = '#ffd34d'
 const ICE = '#bfefff'
@@ -111,10 +201,11 @@ interface Cue {
 /** the minimum gap (ms) between two cues of one kind for one subject */
 const GAP: Partial<Record<Kind, number>> = {
   type: 22, erase: 40, zoomIn: 70, zoomOut: 70, pan: 45, tool: 60, toolDone: 60,
-  thinking: 900, writing: 700, credits: 250, cost: 3000, queued: 300, mailbox: 300,
+  // writing plays one note of its agent's run per gap: a melody, not a buzz
+  thinking: 900, writing: 240, credits: 250, cost: 3000, queued: 300, mailbox: 300,
   ready: 400, wake: 300, sleep: 300, settings: 400, reorder: 300, toast: 120,
   dialogOpen: 150, dialogClose: 150, popup: 120, menu: 120, scroll: 140, focus: 80, shortcut: 120,
-  linkDown: 4000, linkUp: 4000,
+  linkDown: 4000, linkUp: 4000, confirm: 60, refused: 400, notice: 300,
   // an interrupt is seen by the API tap and again as the killed turn
   interrupt: 3000,
 }
@@ -135,9 +226,17 @@ class Show implements EpicShow {
   private lastRect = new Map<string, Rect>()
   private linkDown = new Set<string>()
   private usage = new Map<string, number>()
+  /** other orgs' notices already seen (null until the first read: the baseline) */
+  private noticed: Set<string> | null = null
+  /** each agent's place in its pentatonic run */
+  private runs = new Map<string, number>()
+  /** where and when the user last pressed, for effects with no subject */
+  private pressed: { x: number; y: number; doc: Document; at: number } | null = null
   private cleanups: (() => void)[] = []
   private ended = false
   private count = 0
+  private comboN = 0
+  private comboAt = -Infinity
 
   constructor(opts: EpicOptions) {
     this.view = opts.view ?? window
@@ -150,16 +249,18 @@ class Show implements EpicShow {
       try { this.synth = new EpicSynth(Ctor) } catch { this.synth = null }
     }
     this.main = this.theater(this.view)
-    // the org's own data, handed over by App.tsx
+    // the org's own data, handed over by App.tsx and api.ts
     setEpicTaps({
       frame: (org, frame) => this.onFrame(org, frame),
       tree: (org, tree) => this.onTree(org, tree),
       action: (org, kind, node) => this.onAction(org, kind, node),
+      refused: (_path, status) => this.onRefused(status),
     })
     this.cleanups.push(() => setEpicTaps(null))
-    // the app feed: usage readings crossing 90% and 100%, and resetting
-    this.cleanups.push(watchAppFeed(() => this.onUsage()))
-    this.onUsage()
+    // the app feed: usage readings crossing 90% and 100%, and resetting; and
+    // the notices of every other org
+    this.cleanups.push(watchAppFeed(() => this.onAppFeed()))
+    this.onAppFeed()
     // popped-out windows each get their own stage and listeners
     const sync = () => this.syncWindows()
     this.cleanups.push(subscribeWindows(sync))
@@ -170,6 +271,50 @@ class Show implements EpicShow {
   }
 
   get staged(): number { return this.count }
+
+  get combo(): number { return performance.now() - this.comboAt < COMBO_DECAY_MS ? this.comboN : 0 }
+  get metering(): boolean { return this.main.stage.metering }
+
+  /* ── the combo ────────────────────────────────────────────────────── */
+
+  /** Every staged event feeds the combo: the meter shows from the third,
+   *  and each milestone announces the new rank across the main window. */
+  private feedCombo(kind: Kind): void {
+    if (UNCOUNTED.has(kind)) return
+    const now = performance.now()
+    this.comboN = now - this.comboAt < COMBO_DECAY_MS ? this.comboN + 1 : 1
+    this.comboAt = now
+    if (this.comboN >= METER_FROM) this.main.stage.meter(this.reading)
+    if (MILESTONES.includes(this.comboN)) {
+      const { w, h } = this.main.stage.size
+      this.perform({ ev: { kind: 'combo', n: this.comboN }, org: null,
+        at: { x: w / 2, y: h * 0.3, rect: null, el: null, doc: this.doc }, from: null, t: this.main, show: this })
+    }
+  }
+
+  private reading = (): ComboReading | null => {
+    const age = performance.now() - this.comboAt
+    if (this.ended || this.comboN < METER_FROM || age >= COMBO_DECAY_MS) return null
+    const left = 1 - age / COMBO_DECAY_MS
+    const rank = rankOf(this.comboN)
+    return { n: this.comboN, rank: rank.name, color: rank.color, left, heat: Math.min(1, this.comboN / 40) * left }
+  }
+
+  /** the next note of an agent's pentatonic run, as a pitch multiplier */
+  noteFor(agent: string): number {
+    const step = this.runs.get(agent) ?? 0
+    if (this.runs.size > 400) this.runs.clear()
+    this.runs.set(agent, step + 1)
+    return noteRatio(agent, step)
+  }
+
+  /** where the user last pressed, while that is recent enough to be the
+   *  place an effect without a subject belongs */
+  pressedSpot(ms = 4000): Spot | null {
+    const p = this.pressed
+    return p && performance.now() - p.at < ms ? { x: p.x, y: p.y, rect: null, el: null, doc: p.doc } : null
+  }
+  notePress(x: number, y: number, doc: Document): void { this.pressed = { x, y, doc, at: performance.now() } }
 
   /* ── windows ──────────────────────────────────────────────────────── */
 
@@ -243,9 +388,62 @@ class Show implements EpicShow {
     if (kind === 'interrupt') this.stageEvent(org, { kind: 'interrupt', node })
   }
 
+  /** A change the engine refused: where the user just pressed, if they did. */
+  private onRefused(status: number): void {
+    if (this.ended) return
+    this.cue('refused', { spot: this.pressedSpot(), text: status ? `HTTP ${status}` : undefined })
+  }
+
+  private onAppFeed(): void {
+    if (this.ended) return
+    this.onUsage()
+    this.onNotices()
+  }
+
+  /** Other orgs' notices (the Wonder Full and Astra takes): the app feed's
+   *  cross-org attention projection, the rows native notifications come
+   *  from. An org this window draws is staged from its own tree instead, and
+   *  every window holds the same feed, so a notice plays only in the window
+   *  the user is looking at. The first read is the baseline. */
+  private onNotices(): void {
+    let read: { current: boolean; notices: unknown[] }
+    try { read = appNoticesNow() } catch { return }
+    const now = new Map<string, NoticeRow>()
+    for (const raw of read.notices) {
+      const n = raw as NoticeRow | null
+      if (n && typeof n.id === 'string' && typeof n.org === 'string') now.set(JSON.stringify([n.org, n.id]), n)
+    }
+    // the baseline is the first COMPLETE copy: what waited before EPIC Mode
+    // turned on is history, not news
+    if (!this.noticed) { if (read.current) this.noticed = new Set(now.keys()); return }
+    const fresh: NoticeRow[] = []
+    for (const [key, n] of now) if (!this.noticed.has(key)) { this.noticed.add(key); fresh.push(n) }
+    // a resolved notice is forgotten, so the set never grows with history
+    for (const key of this.noticed) if (!now.has(key)) this.noticed.delete(key)
+    if (!fresh.length || !this.looking()) return
+    for (const n of fresh.slice(0, 4)) {
+      const org = n.org as string
+      if (this.snaps.has(org)) continue
+      const kind = NOTICE_KINDS[typeof n.kind === 'string' ? n.kind : ''] ?? 'notice'
+      const docs = this.theaters().map(t => t.doc)
+      const caption = [typeof n.agent === 'string' ? n.agent : '', org].filter(Boolean).join(' · ')
+      this.cue(kind, { spot: anchorFor(kind, docs), caption })
+    }
+  }
+
+  /** whether the user is looking at one of this show's windows */
+  private looking(): boolean {
+    for (const t of this.theaters()) {
+      try { if (t.doc.hasFocus()) return true } catch { /* a window going away */ }
+    }
+    return false
+  }
+
   /** Usage readings (the same cache-only peeks the header's usage button
    *  reads): the first sight of each limit is the baseline; crossing 90% and
-   *  100% and dropping back under 100% are staged at the usage button. */
+   *  100% and dropping back under 100% are staged at the usage button. A
+   *  reading of 100% is staged as a reading, never as a limit: an account at
+   *  100% can still have credit to spend (the Astra take; user 2026-10-14). */
   private onUsage(): void {
     if (this.ended) return
     for (const key of USAGE_KEYS) {
@@ -258,7 +456,7 @@ class Show implements EpicShow {
         if (was === undefined) continue
         const spot = anchorSpot('button[title*="usage" i], .usage-history-btn', this.theaters().map(t => t.doc))
         const name = (peek?.provider || key.replace(/_?usage_peek$/, '') || 'claude').toUpperCase()
-        if (was < 100 && limit.percent >= 100) this.cue('usageLimit', { spot, text: name })
+        if (was < 100 && limit.percent >= 100) this.cue('usageMax', { spot, text: name })
         else if (was < 90 && limit.percent >= 90) this.cue('usageWarn', { spot, text: name, n: limit.percent })
         else if (was >= 100 && limit.percent < 100) this.cue('usageReset', { spot, text: name })
       }
@@ -301,6 +499,8 @@ class Show implements EpicShow {
     const last = this.lastAt.get(kind + '\u0000' + subject)
     return last !== undefined && performance.now() - last < ms
   }
+  /** did a subject-less cue of this kind fire in the last `ms`? */
+  firedWithin(kind: Kind, ms: number): boolean { return this.recent(kind, '', ms) }
 
   private fallbackSpot(): Spot {
     const v = this.view
@@ -353,7 +553,7 @@ class Show implements EpicShow {
   /** Stage one effect directly: at `spot`, else at `node` wherever it is
    *  drawn (with `other` as a two-ended effect's far end), else somewhere
    *  central. The user's hands come in this way, and so can anything else. */
-  cue(kind: Kind, ev: Partial<EpicEvent> & { spot?: Spot | null } = {}): void {
+  cue(kind: Kind, ev: Partial<Omit<Act, 'kind'>> & { spot?: Spot | null } = {}): void {
     if (this.ended) return
     const { spot = null, ...rest } = ev
     if (GAP[kind] && this.gated(kind, rest.node ?? '', GAP[kind]!)) return
@@ -367,14 +567,18 @@ class Show implements EpicShow {
     if (!play) return
     this.count++
     try { play(c) } catch { /* one effect failing must never break the app */ }
+    this.feedCombo(c.ev.kind)
   }
 
-  /** play a sound, panned to where its picture is */
+  /** play a sound, panned to where its picture is; the little frequent
+   *  sounds climb with the combo */
   sound(name: SoundName, c: Cue | null, opts: PlayOptions = {}): void {
     if (!this.synth) return
     const w = c ? (c.t.view.innerWidth || 1) : 1
     const pan = c ? Math.max(-1, Math.min(1, (c.at.x / w) * 2 - 1)) * 0.8 : 0
-    this.synth.play(name, { pan, ...opts, gain: (opts.gain ?? 1) * (SOFT[name] ?? 1) })
+    const climb = CLIMB.has(name) ? climbFor(this.combo) : 1
+    const pitch = opts.pitch !== undefined || climb !== 1 ? (opts.pitch ?? rand(0.95, 1.05)) * climb : undefined
+    this.synth.play(name, { pan, ...opts, pitch, gain: (opts.gain ?? 1) * (SOFT[name] ?? 1) })
   }
 
   /* ── the end ──────────────────────────────────────────────────────── */
@@ -446,6 +650,8 @@ const CONTROL = 'button, a[href], [role="button"], [role="tab"], [role="menuitem
 const TYPEABLE = 'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="number"], '
   + 'input[type="email"], input[type="url"], input[type="password"], [contenteditable="true"], [contenteditable=""]'
 const POPUPS = '.overlay, .ctxmenu, .toasts > *, .lb-overlay, .quickchat-pop, .picker, .shell-menu'
+/** the controls that pop when pressed: buttons, not fields or whole labels */
+const POPPABLE: ReadonlySet<string> = new Set(['BUTTON', 'SUMMARY', 'A'])
 
 /** The event's target as an element. Duck-typed, not `instanceof`: nodes in a
  *  popped-out window were created by the opener's document and keep its
@@ -470,6 +676,7 @@ function attachHands(show: Show, t: Theater): () => void {
     const card = target.closest('[data-first-use-agent]')
     const canvas = !card && !!target.closest('.viewport') && !target.closest(CONTROL)
     press = { x: e.clientX, y: e.clientY, card, canvas, moved: false }
+    show.notePress(e.clientX, e.clientY, doc)
     view.addEventListener('pointermove', onMove, opts)
     const control = target.closest(CONTROL)
     if (card) show.cue('grab', { spot: at(e.clientX, e.clientY, card) })
@@ -477,10 +684,14 @@ function attachHands(show: Show, t: Theater): () => void {
       const label = ((control.getAttribute('aria-label') || '') + ' ' + (control.getAttribute('title') || '')
         + ' ' + (control.textContent || '').slice(0, 60)).toLowerCase()
       const spot = at(e.clientX, e.clientY, control)
-      // (an interrupt button is staged by the API tap, at the agent's card)
+      // the pressed control pops (Wonder Full); what it changes in the org is
+      // staged from the org's own data when it happens (a hire, a freeze …),
+      // and an interrupt by the API tap once the engine accepted it
+      if (POPPABLE.has(control.tagName) || /^(button|tab|menuitem|option|switch)$/.test(control.getAttribute('role') || '')) t.stage.pop(control)
       if (control.getAttribute('role') === 'tab') show.cue('tab', { spot })
       else if (/\b(send|reply|post)\b/.test(label) && control.tagName === 'BUTTON') show.cue('send', { spot })
       else if (/\b(delete|remove|retire|discard|dismiss|drop)\b/.test(label)) show.cue('destroy', { spot })
+      else if (/\b(save|apply|confirm|create|add|ok|done|accept|approve|submit|grant)\b/.test(label)) show.cue('confirm', { spot })
       else show.cue('click', { spot })
     }
   }
@@ -687,6 +898,20 @@ const shortTool = (name: string | undefined): string => {
 
 const above = (c: Cue, by = 70): number => (c.at.rect ? c.at.rect.y - 18 : c.at.y - by)
 
+/** Who an effect is about, written under its word (the Argon and Astra takes
+ *  name the agent): an explicit caption, else the agent — never the user's
+ *  eye, the org inbox or a watchdog's id. */
+const captionOf = (c: Cue): string | undefined => {
+  if (c.ev.caption) return c.ev.caption
+  const who = c.ev.node
+  return who && !isUserEnd(who) && !isInboxEnd(who) && !who.startsWith('dog:') ? who : undefined
+}
+/** for effects without a word of their own: the caption alone, under them */
+const tag = (c: Cue, y: number): void => {
+  const caption = captionOf(c)
+  if (caption) c.t.stage.word(c.at.x, y, caption.toUpperCase(), { size: 22, color: '#ffffff', ink: '#1a1033', tilt: 0, life: 1.5 })
+}
+
 const PLAYBOOK: Partial<Record<Kind, Play>> = {
   /* ── EPIC Mode itself ─────────────────────────────────────────────── */
   epicOn: c => {
@@ -723,13 +948,17 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   },
 
   /* ── who is in the org ────────────────────────────────────────────── */
+  // a hire: a summoning portal opens (Astra, Argon), a beam of light lands
+  // on the new card and the confetti flies (Opus)
   hire: c => {
     const s = c.t.stage
     c.show.sound('hire', c)
+    s.portal(c.at.x, c.at.y, { color: GOLD, radius: 96, life: 1.5 })
     s.beam(c.at.x, c.at.y, { color: '#fff3b0', width: 140, life: 1.4 })
-    s.word(c.at.x, above(c), 'HIRED!', { color: GOLD, size: 50 })
+    s.word(c.at.x, above(c), 'HIRED!', { color: GOLD, size: 50, caption: captionOf(c) })
     s.ring(c.at.x, c.at.y, { color: GOLD, radius: 170, width: 8 })
     s.burst(c.at.x, c.at.y, { count: 90, kind: 'confetti', colors: ['#ff4d6d', '#ffd166', '#06d6a0', '#4cc9f0', '#b388ff'], speed: [150, 520], size: [7, 12], life: [1, 1.8], gravity: 480, drag: 1.2 })
+    s.burst(c.at.x, c.at.y, { count: 16, kind: 'star', colors: [GOLD, '#ffffff'], speed: [80, 300], size: [6, 11], life: [0.7, 1.3], gravity: 200 })
     s.pulse(c.at.el, GOLD, 1400)
     s.shake(6, 300)
   },
@@ -737,9 +966,10 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     const s = c.t.stage
     c.show.sound('hire', c, { pitch: 1.12 })
     c.show.sound('shimmer', c)
+    s.portal(c.at.x, c.at.y, { color: CYAN, radius: 110, life: 1.5 })
     s.vortex(c.at.x, c.at.y, { color: CYAN, inward: false, radius: 150 })
     s.beam(c.at.x, c.at.y, { color: '#b9f3ff', width: 120 })
-    s.word(c.at.x, above(c), 'BACK FROM THE ARCHIVE!', { color: CYAN, size: 34 })
+    s.word(c.at.x, above(c), 'BACK FROM THE ARCHIVE!', { color: CYAN, size: 34, caption: captionOf(c) })
     s.pulse(c.at.el, CYAN, 1400)
   },
   retire: c => {
@@ -748,7 +978,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.burst(c.at.x, c.at.y, { count: 26, kind: 'smoke', colors: ['#8b949e', '#c9d1d9'], speed: [20, 90], size: [16, 30], life: [1.2, 2.2], gravity: -90, grow: 26, drag: 0.8 })
     s.vortex(c.at.x, c.at.y, { color: GREY, inward: true, radius: 130, life: 0.9 })
     s.ring(c.at.x, c.at.y, { color: '#c9d1d9', radius: 220, width: 5, life: 1.4 })
-    s.word(c.at.x, above(c), 'RETIRED', { color: '#d0d6dd', ink: '#20242a', size: 44, life: 1.8 })
+    s.word(c.at.x, above(c), 'RETIRED', { color: '#d0d6dd', ink: '#20242a', size: 44, life: 1.8, caption: captionOf(c) })
     s.burst(c.at.x, c.at.y - 20, { count: 30, colors: ['#ffffff', '#e8f1ff'], speed: [30, 140], size: [3, 6], life: [1.2, 2], gravity: -180 })
   },
   // a move is a teleport: the card is sucked into a vortex where it stood, and
@@ -768,7 +998,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
       setTimeout(() => {
         t.vortex(to.x, to.y, { color: PURPLE, inward: false, radius: 120, life: 0.55 })
         t.ring(to.x, to.y, { color: PURPLE, radius: 140, width: 6 })
-        t.word(to.x, to.rect ? to.rect.y - 18 : to.y - 70, 'TELEPORTED!', { color: PURPLE, size: 40 })
+        t.word(to.x, to.rect ? to.rect.y - 18 : to.y - 70, 'TELEPORTED!', { color: PURPLE, size: 40, caption: captionOf(c) })
         t.pulse(to.el, PURPLE)
       }, 380)
     }, 650)
@@ -781,19 +1011,23 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     const s = c.t.stage
     c.show.sound('scribble', c)
     c.show.sound('chime', c)
-    s.word(c.at.x, above(c), 'RENAMED!', { color: PINK, size: 40 })
+    s.word(c.at.x, above(c), 'RENAMED!', { color: PINK, size: 40, caption: captionOf(c) })
     s.burst(c.at.x, c.at.y, { count: 40, colors: [PINK, '#ffffff', GOLD], speed: [60, 260], size: [3, 7], life: [0.6, 1.1] })
     s.pulse(c.at.el, PINK)
   },
 
   /* ── freeze, halt, interrupt ──────────────────────────────────────── */
+  // THE ICE SPIKE (the user's own example): a crown of crystals erupts from
+  // the card (Argon), spikes burst out of it and a slab of ice frosts over it
+  // (Opus), then the crystals shatter and the snow falls
   freeze: c => {
     const s = c.t.stage
     c.show.sound('ice', c)
-    s.spikes(c.at.x, c.at.y, { count: 13, length: 150, color: ICE })
+    s.spikes(c.at.x, c.at.y, { count: 11, length: 150, color: ICE })
     if (c.at.rect) s.iceBlock(c.at.rect, 2.6)
+    s.crystal(c.at.x, c.at.rect ? c.at.rect.y + c.at.rect.h * 0.9 : c.at.y + 60, { size: c.at.rect ? Math.max(140, c.at.rect.h * 1.35) : 170 })
     s.burst(c.at.x, c.at.y, { count: 46, kind: 'snow', colors: ['#ffffff', ICE], speed: [40, 200], size: [5, 10], life: [1.6, 2.6], gravity: 60, drag: 0.8 })
-    s.word(c.at.x, above(c, 90), 'FROZEN!', { color: '#9fe6ff', ink: '#06283d', size: 56 })
+    s.word(c.at.x, above(c, 110) - 30, 'FROZEN!', { color: '#9fe6ff', ink: '#06283d', size: 56, caption: captionOf(c) })
     s.flash('#bfefff', 0.32, 0.5)
     s.pulse(c.at.el, '#7fd8ff', 1800)
     s.shake(7, 320)
@@ -805,8 +1039,9 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.flicker(1)
     s.spikes(c.at.x, c.at.y, { count: 9, length: 120, color: ICE })
     if (c.at.rect) s.iceBlock(c.at.rect, 2.4)
+    s.crystal(c.at.x, c.at.rect ? c.at.rect.y + c.at.rect.h * 0.9 : c.at.y + 60, { size: c.at.rect ? Math.max(120, c.at.rect.h * 1.1) : 140 })
     s.burst(c.at.x, c.at.y - 30, { count: 40, kind: 'streak', colors: [GOLD, '#ffffff', CYAN], speed: [200, 520], size: [5, 9], life: [0.3, 0.7], gravity: 900, angle: -Math.PI / 2, spread: 1.6 })
-    s.word(c.at.x, above(c, 90), 'LIMIT HIT!', { color: '#ffe066', ink: '#2b1d00', size: 52 })
+    s.word(c.at.x, above(c, 110) - 30, 'LIMIT HIT!', { color: '#ffe066', ink: '#2b1d00', size: 52, caption: captionOf(c) })
     s.shake(9, 450)
   },
   thaw: c => {
@@ -815,7 +1050,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.burst(c.at.x, c.at.y, { count: 46, kind: 'shard', colors: [ICE, '#ffffff', '#8fd3ff'], speed: [160, 460], size: [6, 12], life: [0.7, 1.3], gravity: 700, drag: 0.5 })
     s.burst(c.at.x, c.at.y, { count: 40, colors: [ORANGE, GOLD, '#fff2c0'], speed: [80, 300], size: [5, 10], life: [0.5, 1] })
     s.ring(c.at.x, c.at.y, { color: ORANGE, radius: 150, width: 7 })
-    s.word(c.at.x, above(c), 'THAWED!', { color: ORANGE, size: 46 })
+    s.word(c.at.x, above(c), 'THAWED!', { color: ORANGE, size: 46, caption: captionOf(c) })
     s.pulse(c.at.el, ORANGE)
   },
   halt: c => {
@@ -823,7 +1058,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     c.show.sound('halt', c)
     for (let i = 0; i < 3; i++) setTimeout(() => s.flash(RED, 0.28, 0.22), i * 240)
     for (let i = 0; i < 3; i++) s.ring(c.at.x, c.at.y, { color: RED, radius: 160, width: 9, life: 0.6, delay: i * 0.24 })
-    s.word(c.at.x, above(c, 90), 'HALTED', { color: RED, ink: '#2a0000', size: 58 })
+    s.word(c.at.x, above(c, 90), 'HALTED', { color: RED, ink: '#2a0000', size: 58, caption: captionOf(c) })
     s.pulse(c.at.el, RED, 1600)
     s.shake(10, 500)
   },
@@ -832,13 +1067,13 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     c.show.sound('resume', c)
     s.flash(GREEN, 0.2, 0.4)
     s.beam(c.at.x, c.at.y, { color: '#b6ffd3', width: 110 })
-    s.word(c.at.x, above(c), 'RESUMED!', { color: GREEN, ink: '#002a12', size: 46 })
+    s.word(c.at.x, above(c), 'RESUMED!', { color: GREEN, ink: '#002a12', size: 46, caption: captionOf(c) })
     s.pulse(c.at.el, GREEN)
   },
   interrupt: c => {
     const s = c.t.stage
     c.show.sound('stop', c)
-    s.stopSign(c.at.x, c.at.y, { size: 70 })
+    s.stopSign(c.at.x, c.at.y, { size: 70, caption: captionOf(c) })
     setTimeout(() => {
       s.ring(c.at.x, c.at.y, { color: RED, radius: 180, width: 10, life: 0.55 })
       s.burst(c.at.x, c.at.y, { count: 46, kind: 'streak', colors: [RED, '#ffffff', GOLD], speed: [240, 640], size: [5, 9], life: [0.3, 0.6], drag: 2.4 })
@@ -897,8 +1132,11 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     c.show.sound('shimmer', c, { gain: 0.5 })
     c.t.stage.burst(c.at.x, c.at.y - 20, { count: 14, colors: [PURPLE, '#e7d2ff'], speed: [20, 80], size: [4, 8], life: [0.8, 1.4], gravity: -120 })
   },
+  // streamed text plays as notes, each agent its own pentatonic run (the
+  // Argon take's arpeggio), with a scratch of the pen under them
   writing: c => {
-    c.show.sound('scribble', c, { gain: 0.6 })
+    c.show.sound('note', c, { pitch: c.show.noteFor(c.ev.node ?? '') * climbFor(c.show.combo), gain: 0.9 })
+    c.show.sound('scribble', c, { gain: 0.35 })
     c.t.stage.burst(c.at.x + rand(-30, 30), c.at.y + rand(-10, 25), { count: 8, colors: ['#ffffff', GOLD], speed: [30, 120], size: [2, 4], life: [0.3, 0.6] })
   },
   compact: c => {
@@ -909,14 +1147,14 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
       s.burst(c.at.x, c.at.y, { count: 30, kind: 'shard', colors: ['#c9d1d9', '#8b949e'], speed: [120, 360], size: [5, 9], life: [0.5, 1], gravity: 600 })
       s.shake(6, 260)
     }, 700)
-    s.word(c.at.x, above(c), 'CRUNCH!', { color: '#d0d6dd', ink: '#1a1d21', size: 46 })
+    s.word(c.at.x, above(c), 'CRUNCH!', { color: '#d0d6dd', ink: '#1a1d21', size: 46, caption: captionOf(c) })
   },
   error: c => {
     const s = c.t.stage
     c.show.sound('error', c)
     s.cracks(c.at.x, c.at.y, { count: 9, length: 160 })
     s.burst(c.at.x, c.at.y, { count: 30, kind: 'shard', colors: [RED, '#ff9a9a', '#ffffff'], speed: [120, 380], size: [5, 10], life: [0.6, 1.1], gravity: 500 })
-    s.word(c.at.x, above(c), 'ERROR!', { color: RED, ink: '#2a0000', size: 46 })
+    s.word(c.at.x, above(c), 'ERROR!', { color: RED, ink: '#2a0000', size: 46, caption: captionOf(c) })
     s.shake(7, 300)
   },
 
@@ -928,33 +1166,34 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.flash(PURPLE, 0.18, 0.5)
     s.bolt(c.at.x, -10, c.at.x, c.at.y, { color: PURPLE, life: 0.4, width: 4, branches: 3 })
     s.ring(c.at.x, c.at.y, { color: PURPLE, radius: 170, width: 7, life: 0.8 })
+    tag(c, c.at.y + 92)
   },
   answer: c => {
     const s = c.t.stage
     c.show.sound('answer', c)
-    s.word(c.at.x, above(c), 'ANSWERED!', { color: GREEN, ink: '#002a12', size: 42 })
+    s.word(c.at.x, above(c), 'ANSWERED!', { color: GREEN, ink: '#002a12', size: 42, caption: captionOf(c) })
     s.burst(c.at.x, c.at.y, { count: 50, colors: [GREEN, '#ffffff', CYAN], speed: [80, 320], size: [4, 8], life: [0.8, 1.4], gravity: -140 })
   },
   docs: c => {
     const s = c.t.stage
     c.show.sound('tada', c)
     s.beam(c.at.x, c.at.y, { color: '#fff3b0', width: 100, life: 1.1 })
-    s.word(c.at.x, above(c), 'TA-DA!', { color: GOLD, size: 50 })
+    s.word(c.at.x, above(c), 'TA-DA!', { color: GOLD, size: 50, caption: captionOf(c) })
     s.burst(c.at.x, c.at.y, { count: 60, kind: 'confetti', colors: ['#ffd166', '#ffffff', '#4cc9f0', '#ff4d6d'], speed: [140, 420], size: [7, 11], life: [1, 1.6], gravity: 420 })
   },
   working: c => {
     c.show.sound('wake', c)
-    c.t.stage.word(c.at.x, above(c), 'ON IT!', { color: ORANGE, size: 30, life: 1 })
+    c.t.stage.word(c.at.x, above(c), 'ON IT!', { color: ORANGE, size: 30, life: 1, caption: captionOf(c) })
   },
   blocked: c => {
     const s = c.t.stage
     c.show.sound('drop', c)
-    s.word(c.at.x, above(c), 'BLOCKED!', { color: RED, ink: '#2a0000', size: 42 })
+    s.word(c.at.x, above(c), 'BLOCKED!', { color: RED, ink: '#2a0000', size: 42, caption: captionOf(c) })
     s.burst(c.at.x, c.at.y, { count: 24, kind: 'shard', colors: [RED, '#ffb3b3'], speed: [80, 260], size: [6, 10], life: [0.6, 1], gravity: 500 })
   },
   idle: c => {
     c.show.sound('chime', c)
-    c.t.stage.word(c.at.x, above(c), 'REPORTED IN', { color: '#9fe6ff', size: 28, life: 1.1 })
+    c.t.stage.word(c.at.x, above(c), 'REPORTED IN', { color: '#9fe6ff', size: 28, life: 1.1, caption: captionOf(c) })
   },
   waiting: c => {
     c.show.sound('tick', c)
@@ -966,25 +1205,25 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     const s = c.t.stage
     c.show.sound('slots', c)
     for (const [i, col] of [PINK, GOLD, GREEN, CYAN, PURPLE].entries()) s.ring(c.at.x, c.at.y, { color: col, radius: 110 + i * 22, width: 5, life: 0.7, delay: i * 0.06 })
-    s.word(c.at.x, above(c), (c.ev.text || 'NEW MODEL').toUpperCase() + '!', { color: GOLD, size: 44 })
+    s.word(c.at.x, above(c), (c.ev.text || 'NEW MODEL').toUpperCase() + '!', { color: GOLD, size: 44, caption: captionOf(c) })
     s.pulse(c.at.el, GOLD)
   },
   account: c => {
     c.show.sound('slots', c, { pitch: 1.1 })
-    c.t.stage.word(c.at.x, above(c), 'NEW ACCOUNT!', { color: CYAN, size: 38 })
+    c.t.stage.word(c.at.x, above(c), 'NEW ACCOUNT!', { color: CYAN, size: 38, caption: captionOf(c) })
     c.t.stage.vortex(c.at.x, c.at.y, { color: CYAN, inward: false })
   },
   effort: c => {
     c.show.sound('clack', c)
     c.t.stage.gear(c.at.x, c.at.y, { size: 34, color: GOLD })
-    c.t.stage.word(c.at.x, above(c), `EFFORT: ${(c.ev.text || '').toUpperCase()}`, { color: GOLD, size: 32 })
+    c.t.stage.word(c.at.x, above(c), `EFFORT: ${(c.ev.text || '').toUpperCase()}`, { color: GOLD, size: 32, caption: captionOf(c) })
   },
   credits: c => {
     const s = c.t.stage
     c.show.sound('coins', c)
     s.burst(c.at.x, c.at.y, { count: 26, kind: 'coin', speed: [160, 420], size: [7, 10], life: [0.9, 1.5], gravity: 900, angle: -Math.PI / 2, spread: 1.5, drag: 0.3 })
     const n = c.ev.n ?? 0
-    s.word(c.at.x, above(c), `${n > 0 ? '+' : ''}${Math.round(n * 100) / 100} CREDITS`, { color: GOLD, size: 30 })
+    s.word(c.at.x, above(c), `${n > 0 ? '+' : ''}${Math.round(n * 100) / 100} CREDITS`, { color: GOLD, size: 30, caption: captionOf(c) })
   },
   wake: c => {
     c.show.sound('wake', c, { gain: 0.6 })
@@ -1040,13 +1279,19 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.word(c.at.x, above(c), 'FOR YOU!', { color: GOLD, size: 36 })
     s.burst(c.at.x, c.at.y, { count: 30, colors: [GOLD, '#ffffff'], speed: [80, 300], size: [4, 8], life: [0.5, 1] })
   },
+  // a watchdog firing: the Opus take's bark, comet and paw prints over the
+  // Astra and Argon takes' radar sweep and sonar ping
   bark: c => {
     const s = c.t.stage
     c.show.sound('bark', c)
+    c.show.sound('ping', c, { gain: 0.8 })
     const from = c.from
-    if (from && from.doc === c.at.doc) s.comet(from.x, from.y, c.at.x, c.at.y, { color: '#ffb35c', duration: 0.4 })
+    if (from && from.doc === c.at.doc) {
+      s.radar(from.x, from.y, { color: '#69f0ae', radius: 90, life: 1.1 })
+      s.comet(from.x, from.y, c.at.x, c.at.y, { color: '#ffb35c', duration: 0.4 })
+    } else s.radar(c.at.x, c.at.y, { color: '#69f0ae', radius: 120 })
     s.burst(c.at.x, c.at.y, { count: 12, kind: 'paw', colors: ['#c98a3c', '#8a5a24', '#e0a85a'], speed: [80, 260], size: [9, 14], life: [1, 1.6], gravity: 200, drag: 1 })
-    s.word(c.at.x, above(c), 'WOOF!', { color: '#ffb35c', ink: '#2b1500', size: 48 })
+    s.word(c.at.x, above(c), 'WOOF!', { color: '#ffb35c', ink: '#2b1500', size: 48, caption: captionOf(c) })
     s.shake(5, 250)
   },
   orgInbox: c => {
@@ -1069,6 +1314,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     c.show.sound('siren', c)
     for (let i = 0; i < 4; i++) setTimeout(() => s.flash(i % 2 ? '#3b6bff' : RED, 0.22, 0.2), i * 210)
     s.glyph(c.at.x, c.at.y + 60, '!', { color: RED, size: 110 })
+    tag(c, c.at.y + 140)
   },
 
   /* ── the docket ───────────────────────────────────────────────────── */
@@ -1091,7 +1337,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     c.show.sound('siren', c)
     for (let i = 0; i < 4; i++) setTimeout(() => s.flash(i % 2 ? '#3b6bff' : RED, 0.2, 0.2), i * 210)
     s.glyph(c.at.x, c.at.y + 60, '!', { color: '#ffb35c', size: 110 })
-    s.word(c.at.x, c.at.y + 130, 'ATTENTION!', { color: RED, ink: '#2a0000', size: 34 })
+    s.word(c.at.x, c.at.y + 130, 'ATTENTION!', { color: RED, ink: '#2a0000', size: 34, caption: captionOf(c) })
   },
 
   /* ── watchdogs, audiences, credits, settings ──────────────────────── */
@@ -1280,14 +1526,16 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.word(c.at.x, c.at.y + 50, `${c.ev.text ?? ''} ${Math.round(c.ev.n ?? 90)}%!`, { color: ORANGE, size: 34 })
     s.ring(c.at.x, c.at.y, { color: ORANGE, radius: 90, width: 5 })
   },
-  usageLimit: c => {
+  // a usage reading reaching 100%: the meter pegs. A reading, never a limit
+  // (the Astra take; user 2026-10-14: an account at 100% may still have
+  // credit), so nothing here says LIMIT or browns the window out
+  usageMax: c => {
     const s = c.t.stage, { w, h } = s.size
-    c.show.sound('powerFail', c)
-    c.show.sound('boom', c, { gain: 0.5 })
-    s.flicker(1.1)
-    s.word(w / 2, h * 0.4, `${c.ev.text ?? ''} LIMIT!`, { color: '#ffe066', ink: '#2b1d00', size: Math.min(100, w / 9), life: 2 })
-    s.burst(c.at.x, c.at.y, { count: 50, kind: 'streak', colors: [GOLD, '#ffffff', CYAN], speed: [200, 560], size: [5, 9], life: [0.3, 0.8], gravity: 900 })
-    s.shake(10, 500)
+    c.show.sound('maxed', c)
+    s.word(w / 2, h * 0.4, `${c.ev.text ?? ''} 100%!`, { color: ORANGE, ink: '#2b1000', size: Math.min(100, w / 9), life: 2 })
+    s.burst(c.at.x, c.at.y, { count: 50, kind: 'streak', colors: [ORANGE, GOLD, '#ffffff'], speed: [200, 560], size: [5, 9], life: [0.3, 0.8], gravity: 900 })
+    s.ring(c.at.x, c.at.y, { color: ORANGE, radius: 120, width: 6 })
+    s.shake(8, 400)
   },
   usageReset: c => {
     c.show.sound('resume', c)
@@ -1307,11 +1555,57 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   },
   toastError: c => {
     const s = c.t.stage
-    c.show.sound('glass', c)
-    c.show.sound('error', c, { gain: 0.6 })
+    if (!c.show.firedWithin('refused', 1500)) {
+      c.show.sound('glass', c)
+      c.show.sound('error', c, { gain: 0.6 })
+    }
     s.cracks(c.at.x, c.at.y, { count: 8, length: 140 })
     if (c.at.rect) s.frame(c.at.rect, { color: RED, life: 0.7, width: 4 })
     s.shake(6, 260)
+  },
+
+  /* ── the final version's additions ────────────────────────────────── */
+  // a confirming click (save, apply, create, OK …): a two-coin ding and a
+  // burst of stars (the Wonder Full take)
+  confirm: c => {
+    const s = c.t.stage
+    c.show.sound('confirm', c)
+    s.burst(c.at.x, c.at.y, { count: 18, kind: 'star', colors: [GOLD, '#ffffff', '#ffe9a8'], speed: [90, 300], size: [5, 9], life: [0.4, 0.8], gravity: 300 })
+    s.ring(c.at.x, c.at.y, { color: GOLD, radius: 60, width: 4, life: 0.4 })
+  },
+  // a change the engine refused (the Astra take's FAULT): a warning sign
+  // where the user pressed, the glass cracking around it
+  refused: c => {
+    const s = c.t.stage
+    c.show.sound('refused', c)
+    s.warn(c.at.x, c.at.y - 10, { size: 54 })
+    s.cracks(c.at.x, c.at.y, { count: 7, length: 120 })
+    s.word(c.at.x, c.at.y - 84, 'REFUSED!', { color: RED, ink: '#2a0000', size: 40, caption: captionOf(c) ?? c.ev.text })
+    s.flash(RED, 0.14, 0.3)
+    s.shake(5, 220)
+  },
+  // another org's routine notice
+  notice: c => {
+    const s = c.t.stage
+    c.show.sound('notice', c)
+    s.ring(c.at.x, c.at.y, { color: CYAN, radius: 90, width: 4, life: 0.5 })
+    s.burst(c.at.x, c.at.y, { count: 18, colors: [CYAN, '#ffffff'], speed: [60, 220], size: [3, 6], life: [0.4, 0.8] })
+    s.word(c.at.x, c.at.y - 50, 'REPORT!', { color: CYAN, ink: '#00222b', size: 30, life: 1.2, caption: captionOf(c) })
+  },
+  // the combo reaching a new rank: its name across the window in neon (the
+  // Astra take), a fountain of confetti and stars (Wonder Full), the
+  // fanfare climbing rank by rank, and a shake that grows with it
+  combo: c => {
+    const s = c.t.stage, { w, h } = s.size
+    const n = Math.max(c.ev.n ?? MILESTONES[0]!, MILESTONES[0]!)
+    const rank = rankOf(n)
+    c.show.sound('combo', c, { pitch: 1 + rank.level * 0.06 })
+    s.title(rank.name + '!', { caption: `COMBO ×${n}`, color: rank.color })
+    s.flash(rank.color, 0.12 + rank.level * 0.03, 0.4)
+    s.burst(w / 2, h + 10, { count: 70 + rank.level * 25, kind: 'confetti', colors: [rank.color, GOLD, '#ffffff', PINK, CYAN], speed: [380, 820], size: [7, 12], life: [1.2, 2], gravity: 620, angle: -Math.PI / 2, spread: 0.9, drag: 0.6 })
+    s.burst(w / 2, h * 0.3, { count: 20 + rank.level * 6, kind: 'star', colors: [GOLD, '#ffffff', rank.color], speed: [120, 420], size: [6, 12], life: [0.8, 1.5], gravity: 240 })
+    for (let i = 0; i <= Math.min(3, rank.level); i++) s.ring(w / 2, h * 0.3, { color: i % 2 ? '#ffffff' : rank.color, radius: Math.max(w, h) * 0.35, width: 8, life: 0.8, delay: i * 0.12 })
+    s.shake(6 + rank.level * 2, 380 + rank.level * 60)
   },
 }
 

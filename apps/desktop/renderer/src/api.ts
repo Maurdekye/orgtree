@@ -189,6 +189,8 @@ export const req = <T,>(path: string, init?: RequestInit,
     // call it rode in on failed
     noteInstance(r)
     if (!r.ok && !expectedStatuses.includes(r.status)) {
+      // EPIC Mode's tap (null unless it is on): a refused change gets its alarm
+      if ((init?.method ?? 'GET') !== 'GET') epic?.refused(path, r.status)
       return failure(r).then((e) => { throw e })
     }
     // the client's G2 (see livebus.ts): every successful mutation THIS tab
@@ -575,9 +577,12 @@ export const dissolveAll = (slug: string): Promise<{ freed: number; nodes: numbe
 export const interruptNode = (
   slug: string, nid: string,
 ): Promise<{ interrupted: boolean; reason?: string }> => {
-  // EPIC Mode's tap: an interrupt leaves no mark in the tree to stage
-  epic?.action(slug, 'interrupt', nid)
-  return req(`/api/orgs/${slug}/nodes/${nid}/interrupt`, { method: 'POST' })
+  const asked = req<{ interrupted: boolean; reason?: string }>(`/api/orgs/${slug}/nodes/${nid}/interrupt`, { method: 'POST' })
+  // EPIC Mode's tap: an interrupt leaves no mark in the tree to stage, and
+  // only one the engine accepted gets the stop sign (the Astra take: a
+  // request never celebrates what did not happen). Off, `epic` is null and
+  // this is one check.
+  return epic ? asked.then(r => { if (r?.interrupted === true) epic?.action(slug, 'interrupt', nid); return r }) : asked
 }
 /** A halt that does not finish inside the request now hands off to a named
  *  background operation instead of answering an unowned "still halting":

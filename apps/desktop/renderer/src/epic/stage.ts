@@ -10,12 +10,40 @@
    is added and stops by itself when the last one dies: an idle organization in
    EPIC Mode costs no frames at all. Every collection is capped (PARTICLE_CAP,
    ACTOR_CAP), and past the cap new particles are simply not born, so a flood
-   of events degrades into "very busy" rather than into a stalled window. */
+   of events degrades into "very busy" rather than into a stalled window. The
+   combo meter (`meter`) is one more thing alive: it fades out when its combo
+   drops, and then the loop sleeps again.
+
+   The final EPIC Mode combines four takes; the stage is the Opus take's, with
+   the crystal ice spike (Argon), the summoning portal (Astra, Argon), the
+   watchdog radar (Astra, Argon), the warning sign and the neon rank titles,
+   heat and arena of the combo meter (Astra), its count, ranks and stars
+   (Wonder Full, Argon) and the button pop (Wonder Full) added — see
+   docs/rust-engine/epic-mode-final.md. */
 
 export const PARTICLE_CAP = 2600
 export const ACTOR_CAP = 160
+/** The canvas's pixel budget (Astra's take): a full-window canvas costs its
+ *  size in every frame, so it renders at most 1.5 device pixels per CSS pixel
+ *  and 2.5 million pixels in all. The effects are big and soft; the browser
+ *  scales the canvas up to the window. */
+export const MAX_DPR = 1.5
+export const MAX_PIXELS = 2_500_000
 
-export type ParticleKind = 'glow' | 'streak' | 'shard' | 'confetti' | 'snow' | 'coin' | 'paw' | 'smoke'
+export type ParticleKind = 'glow' | 'streak' | 'shard' | 'confetti' | 'snow' | 'coin' | 'paw' | 'smoke' | 'star'
+
+/** what the combo meter shows; null once the combo has dropped */
+export interface ComboReading {
+  /** events in the current burst, each within the decay window of the last */
+  n: number
+  /** the rank that many events earn, and its colour */
+  rank: string
+  color: string
+  /** 1 just after an event, falling to 0 as the combo runs out */
+  left: number
+  /** 0…1: how hot the arena runs (the combo's size, cooling as it runs out) */
+  heat: number
+}
 
 interface Particle {
   kind: ParticleKind
@@ -71,6 +99,8 @@ export class Stage {
   private parts: Particle[] = []
   private pool: Particle[] = []
   private actors: Actor[] = []
+  /** the combo meter: drawn last, alive until its combo drops (see `meter`) */
+  private hud: Actor | null = null
   private rafId = 0
   private last = 0
   private dpr = 1
@@ -120,12 +150,15 @@ export class Stage {
 
   private resize(): void {
     const v = this.view
-    this.dpr = Math.min(2, v.devicePixelRatio || 1)
     this.width = v.innerWidth || 1
     this.height = v.innerHeight || 1
-    this.canvas.width = Math.floor(this.width * this.dpr)
-    this.canvas.height = Math.floor(this.height * this.dpr)
+    this.dpr = Math.min(MAX_DPR, v.devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / (this.width * this.height)))
+    this.canvas.width = Math.max(1, Math.floor(this.width * this.dpr))
+    this.canvas.height = Math.max(1, Math.floor(this.height * this.dpr))
   }
+
+  /** the canvas's backing size in device pixels, for the budget's test */
+  get pixels(): number { return this.canvas.width * this.canvas.height }
 
   destroy(): void {
     if (this.dead) return
@@ -142,6 +175,7 @@ export class Stage {
     this.parts = []
     this.pool = []
     this.actors = []
+    this.hud = null
     this.sprites.clear()
   }
 
@@ -188,7 +222,7 @@ export class Stage {
     const spent = performance.now() - t0
     this.quality = spent > 12 ? Math.max(0.25, this.quality * 0.85) : Math.min(1, this.quality + 0.01)
     if (this.dead) return
-    if (this.parts.length || this.actors.length) this.rafId = this.raf(this.tick)
+    if (this.parts.length || this.actors.length || this.hud) this.rafId = this.raf(this.tick)
     else this.clear()
   }
 
@@ -224,6 +258,11 @@ export class Stage {
       if (alive) actors[a++] = actor
     }
     actors.length = a
+    const hud = this.hud
+    if (hud) {
+      hud.age += dt
+      if (hud.step?.(dt) === false) this.hud = null
+    }
   }
 
   private draw(): void {
@@ -245,6 +284,8 @@ export class Stage {
     }
     g.globalCompositeOperation = 'source-over'
     g.globalAlpha = 1
+    // the combo meter goes over everything else
+    if (this.hud) { g.save(); this.hud.draw(g, 0, this); g.restore() }
   }
 
   /** a soft radial glow, rendered once per colour and stamped thereafter */
@@ -302,6 +343,15 @@ export class Stage {
         g.scale(1, Math.cos(p.rot * 2.3))
         g.fillStyle = p.color
         g.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2)
+        g.restore()
+        break
+      }
+      case 'star': {
+        g.save(); g.translate(p.x, p.y); g.rotate(p.rot)
+        g.fillStyle = p.color
+        starPath(g, p.size)
+        g.fill()
+        g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1; g.stroke()
         g.restore()
         break
       }
@@ -482,14 +532,17 @@ export class Stage {
     })
   }
 
-  /** a huge impact word: slams in oversized, settles, then floats away */
+  /** a huge impact word: slams in oversized, settles, then floats away. A
+   *  `caption` (who it happened to: the Argon and Astra takes name the agent)
+   *  rides under it in small capitals. */
   word(x: number, y: number, text: string,
-    o: { color?: string; ink?: string; size?: number; life?: number; tilt?: number } = {}): void {
+    o: { color?: string; ink?: string; size?: number; life?: number; tilt?: number; caption?: string } = {}): void {
     const color = o.color ?? '#ffdd33'
     const ink = o.ink ?? '#1a0d00'
     const size = o.size ?? 54
     const tilt = o.tilt ?? rand(-0.14, 0.14)
     const life = o.life ?? 1.25
+    const caption = captionText(o.caption)
     this.add({
       age: 0, life,
       draw(g, k, stage) {
@@ -504,7 +557,7 @@ export class Stage {
         g.rotate(tilt)
         g.scale(scale, scale)
         g.globalAlpha = Math.max(0, fade)
-        g.font = `900 ${size}px "Segoe UI Black", "Arial Black", Impact, system-ui, sans-serif`
+        g.font = `900 ${size}px ${IMPACT}`
         g.textAlign = 'center'
         g.textBaseline = 'middle'
         g.lineJoin = 'round'
@@ -517,6 +570,46 @@ export class Stage {
         grad.addColorStop(1, shade(color))
         g.fillStyle = grad
         g.fillText(text, 0, 0)
+        if (caption) drawCaption(g, caption, size * 0.82, Math.max(13, size * 0.36), ink)
+      },
+    })
+  }
+
+  /** a big neon title across the middle of the window, split into magenta and
+   *  cyan ghosts (the Astra take's OVERDRIVE): the combo's new rank */
+  title(text: string, o: { caption?: string; color?: string; life?: number } = {}): void {
+    const color = o.color ?? '#ff4fd8'
+    const life = o.life ?? 2.1
+    const caption = captionText(o.caption)
+    this.add({
+      age: 0, life,
+      draw(g, k, stage) {
+        const { w, h } = stage.size
+        const size = Math.min(96, w / Math.max(7, text.length * 0.62))
+        const t = this.age
+        const pop = t < 0.16 ? 2.2 - 1.2 * easeOutBack(t / 0.16) : 1 + (t - 0.16) * 0.05
+        const fade = k > 0.72 ? 1 - (k - 0.72) / 0.28 : 1
+        const jitter = (1 - k) * 4
+        g.translate(w / 2, h * 0.3)
+        g.scale(pop, pop)
+        g.globalAlpha = Math.max(0, fade)
+        g.font = `900 ${size}px ${IMPACT}`
+        g.textAlign = 'center'
+        g.textBaseline = 'middle'
+        g.shadowColor = color
+        g.shadowBlur = 26
+        g.fillStyle = '#ff3dd0'
+        g.fillText(text, -3 - jitter * Math.sin(t * 50), 1)
+        g.fillStyle = '#48f2ff'
+        g.fillText(text, 3 + jitter * Math.sin(t * 43), -1)
+        g.shadowBlur = 0
+        g.lineJoin = 'round'
+        g.lineWidth = size * 0.08
+        g.strokeStyle = 'rgba(20,0,30,0.85)'
+        g.strokeText(text, 0, 0)
+        g.fillStyle = '#ffffff'
+        g.fillText(text, 0, 0)
+        if (caption) drawCaption(g, caption, size * 0.8, Math.max(14, size * 0.3), '#2a0030')
       },
     })
   }
@@ -614,9 +707,74 @@ export class Stage {
     })
   }
 
-  /** a stop sign slammed down at a point */
-  stopSign(x: number, y: number, o: { size?: number; life?: number } = {}): void {
+  /** The Argon take's ice spike: a crown of faceted crystals erupting
+   *  upward from `y` (the foot of a card), glowing, ringed with frost, then
+   *  shattering into falling shards. */
+  crystal(x: number, y: number, o: { size?: number; life?: number } = {}): void {
+    const u = (o.size ?? 160) / 180
+    const life = o.life ?? 1.25
+    const breakAt = life - 0.1
+    const stage = this
+    let shattered = false
+    this.add({
+      age: 0, life,
+      step() {
+        if (shattered || this.age < breakAt) return
+        shattered = true
+        for (const shape of CRYSTAL) {
+          const [cx, cy] = centroid(shape.points)
+          stage.burst(x + cx * u, y + cy * u, { count: 7, kind: 'shard', colors: ['#e1f5fe', '#80d8ff', '#40c4ff', '#ffffff'],
+            speed: [80, 300], size: [5, 12], life: [0.5, 1.1], gravity: 640, drag: 0.5 })
+        }
+        stage.burst(x, y - 90 * u, { count: 24, colors: ['#ffffff', '#bfefff'], speed: [60, 260], size: [3, 6], life: [0.3, 0.7] })
+      },
+      draw(g) {
+        if (shattered) return
+        const t = this.age
+        const rise = Math.min(1, t / 0.26)
+        const sy = 0.1 + 0.9 * easeOutBack(rise)
+        const sx = 0.4 + 0.6 * easeOutCubic(rise)
+        g.translate(x, y)
+        g.scale(u * sx, u * sy)
+        g.globalAlpha = 0.95
+        g.shadowColor = 'rgba(64,196,255,0.85)'
+        g.shadowBlur = 18
+        g.lineJoin = 'round'
+        for (const shape of CRYSTAL) {
+          g.beginPath()
+          shape.points.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)))
+          g.closePath()
+          if (shape.fill === 'core') {
+            const grad = g.createLinearGradient(0, -177, 0, 0)
+            grad.addColorStop(0, 'rgba(255,255,255,0.96)')
+            grad.addColorStop(0.45, 'rgba(128,216,255,0.88)')
+            grad.addColorStop(1, 'rgba(0,145,234,0.78)')
+            g.fillStyle = grad
+          } else g.fillStyle = shape.fill
+          g.fill()
+          g.strokeStyle = shape.edge
+          g.lineWidth = shape.width
+          g.stroke()
+        }
+        g.shadowBlur = 0
+        // the light running down the tallest facet, and the frost ring
+        g.globalAlpha = 0.6 + 0.35 * Math.sin(t * 14)
+        g.strokeStyle = '#ffffff'; g.lineWidth = 2
+        g.beginPath(); g.moveTo(0, -173); g.lineTo(-4, -70); g.lineTo(4, -5); g.stroke()
+        g.globalAlpha = 0.85
+        g.setLineDash([8, 6])
+        g.lineDashOffset = -t * 40
+        g.strokeStyle = '#80d8ff'; g.lineWidth = 2.5
+        g.beginPath(); g.arc(0, -40, 56 + rise * 14, 0, TAU); g.stroke()
+        g.setLineDash([])
+      },
+    })
+  }
+
+  /** a stop sign slammed down at a point; `caption` names who was stopped */
+  stopSign(x: number, y: number, o: { size?: number; life?: number; caption?: string } = {}): void {
     const size = o.size ?? 64
+    const caption = captionText(o.caption)
     this.add({
       age: 0, life: o.life ?? 1.3,
       draw(g, k) {
@@ -637,6 +795,7 @@ export class Stage {
         g.font = `900 ${size * 0.5}px "Segoe UI Black", "Arial Black", Impact, sans-serif`
         g.textAlign = 'center'; g.textBaseline = 'middle'
         g.fillText('STOP', 0, size * 0.03)
+        if (caption) drawCaption(g, caption, size * 1.32, Math.max(14, size * 0.3), '#2a0000')
       },
     })
   }
@@ -968,9 +1127,270 @@ export class Stage {
       ], { duration: ms, easing: 'ease-out' })
     } catch { /* unsupported filter: skip */ }
   }
+
+  /** a pressed control pops (the Wonder Full take): the individual `scale`
+   *  property composes with whatever transform the control already has, and
+   *  the animation reverts by itself */
+  pop(el: Element | null, by = 1.12, ms = 200): void {
+    if (this.idle || !el || typeof (el as HTMLElement).animate !== 'function') return
+    try {
+      (el as HTMLElement).animate([{ scale: '1' }, { scale: String(by), offset: 0.3 }, { scale: '1' }],
+        { duration: ms, easing: 'ease-out' })
+    } catch { /* no individual transforms: skip */ }
+  }
+
+  /** a summoning portal (the Astra and Argon takes' hire): three orbits
+   *  spinning open around a glowing core */
+  portal(x: number, y: number, o: { color?: string; radius?: number; life?: number } = {}): void {
+    const color = o.color ?? '#ffd34d'
+    const radius = o.radius ?? 90
+    const stage = this
+    this.add({
+      age: 0, life: o.life ?? 1.4,
+      blend: 'lighter',
+      draw(g, k) {
+        const open = easeOutBack(Math.min(1, this.age / 0.3))
+        const fade = k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1
+        const r = Math.max(1, radius * open)
+        const spin = this.age * 5
+        g.translate(x, y)
+        g.globalAlpha = fade
+        const s = r * 1.4
+        g.drawImage(stage.sprite(color), -s / 2, -s / 2, s, s)
+        for (const [w, stroke] of [[3.5, color], [1.2, '#ffffff']] as const) {
+          g.lineWidth = w
+          g.strokeStyle = stroke
+          for (let i = 0; i < 3; i++) {
+            g.save()
+            g.rotate(spin + (i * TAU) / 3)
+            g.scale(1, 0.38)
+            g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke()
+            g.restore()
+          }
+        }
+      },
+    })
+  }
+
+  /** a radar sweep (the Astra and Argon takes' watchdog): rings and a turning
+   *  arm with a fading wake */
+  radar(x: number, y: number, o: { color?: string; radius?: number; life?: number } = {}): void {
+    const color = o.color ?? '#69f0ae'
+    const radius = o.radius ?? 110
+    this.add({
+      age: 0, life: o.life ?? 1.3,
+      blend: 'lighter',
+      draw(g, k) {
+        const r = Math.max(1, radius * easeOutCubic(Math.min(1, this.age / 0.25)))
+        const fade = k > 0.65 ? 1 - (k - 0.65) / 0.35 : 1
+        const arm = this.age * 7
+        g.translate(x, y)
+        g.strokeStyle = color
+        g.lineWidth = 2
+        for (let i = 1; i <= 3; i++) {
+          g.globalAlpha = fade * (0.3 + 0.15 * i)
+          g.beginPath(); g.arc(0, 0, (r * i) / 3, 0, TAU); g.stroke()
+        }
+        g.globalAlpha = fade * 0.4
+        g.fillStyle = color
+        g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, r, arm - 0.8, arm); g.closePath(); g.fill()
+        g.globalAlpha = fade
+        g.strokeStyle = '#ffffff'
+        g.lineWidth = 3
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(arm) * r, Math.sin(arm) * r); g.stroke()
+      },
+    })
+  }
+
+  /** a warning sign that pops up and throbs (the Astra take's FAULT) */
+  warn(x: number, y: number, o: { size?: number; life?: number } = {}): void {
+    const size = o.size ?? 60
+    this.add({
+      age: 0, life: o.life ?? 1.3,
+      draw(g, k) {
+        const pop = easeOutBack(Math.min(1, this.age / 0.18))
+        const throb = 1 + Math.sin(this.age * 22) * 0.06 * (1 - k)
+        const fade = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1
+        g.translate(x, y)
+        g.scale(pop * throb, pop * throb)
+        g.globalAlpha = Math.max(0, fade)
+        g.lineJoin = 'round'
+        g.beginPath()
+        g.moveTo(0, -size); g.lineTo(size * 0.95, size * 0.68); g.lineTo(-size * 0.95, size * 0.68)
+        g.closePath()
+        g.lineWidth = size * 0.18; g.strokeStyle = '#1a0000'; g.stroke()
+        g.fillStyle = '#ffcc00'; g.fill()
+        g.lineWidth = size * 0.07; g.strokeStyle = '#ff3b3b'; g.stroke()
+        g.fillStyle = '#1a0000'
+        g.beginPath()
+        g.moveTo(-size * 0.09, -size * 0.48); g.lineTo(size * 0.09, -size * 0.48)
+        g.lineTo(size * 0.05, size * 0.2); g.lineTo(-size * 0.05, size * 0.2)
+        g.closePath(); g.fill()
+        g.beginPath(); g.arc(0, size * 0.4, size * 0.085, 0, TAU); g.fill()
+      },
+    })
+  }
+
+  /** The combo meter (the Wonder Full take's count, the Argon take's ranks,
+   *  the Astra take's heat and arena): bottom right, the combo and its rank
+   *  over a bar that runs down to the moment the combo drops. The hotter the
+   *  combo, the more the window's edges glow, speed lines stream outward and
+   *  the corners close in like an arena. `read` is asked every frame; null
+   *  means the combo has dropped, and the meter fades out and lets the loop
+   *  sleep. One meter per stage: asking again while it shows keeps it. */
+  meter(read: () => ComboReading | null): void {
+    if (this.idle || this.hud) return
+    let last: ComboReading | null = null
+    let gone = 0
+    let bumped = 0
+    this.hud = {
+      age: 0, life: Infinity,
+      step(dt) {
+        const now = read()
+        if (now) {
+          if (!last || now.n !== last.n) bumped = this.age
+          last = now
+          gone = 0
+          return true
+        }
+        gone += dt
+        return gone < 0.35
+      },
+      draw(g, _k, stage) {
+        if (!last) return
+        const { w, h } = stage.size
+        const fade = 1 - Math.min(1, gone / 0.35)
+        const heat = last.heat * fade
+        const hot = last.color
+        if (heat > 0.01) {
+          const halo = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75)
+          halo.addColorStop(0, 'rgba(0,0,0,0)')
+          halo.addColorStop(1, hot)
+          g.globalAlpha = heat * 0.22
+          g.fillStyle = halo
+          g.fillRect(0, 0, w, h)
+          g.globalAlpha = heat * 0.5
+          g.strokeStyle = hot
+          g.lineWidth = 2
+          const far = Math.max(w, h)
+          for (let i = 0; i < 18; i++) {
+            const a = (i * TAU) / 18 + 0.3
+            const r = far * (0.42 + ((this.age * 0.55 + i * 0.13) % 0.3))
+            g.beginPath()
+            g.moveTo(w / 2 + Math.cos(a) * r, h / 2 + Math.sin(a) * r)
+            g.lineTo(w / 2 + Math.cos(a) * r * 1.18, h / 2 + Math.sin(a) * r * 1.18)
+            g.stroke()
+          }
+          const inset = 12 + (1 - heat) * 10
+          const arm = 34 + heat * 56
+          g.globalAlpha = Math.min(1, heat * 1.4)
+          g.lineWidth = 3 + heat * 3
+          for (const [cx, cy, sx, sy] of [[inset, inset, 1, 1], [w - inset, inset, -1, 1],
+            [inset, h - inset, 1, -1], [w - inset, h - inset, -1, -1]] as const) {
+            g.beginPath(); g.moveTo(cx, cy + sy * arm); g.lineTo(cx, cy); g.lineTo(cx + sx * arm, cy); g.stroke()
+          }
+        }
+        // the meter itself
+        const bw = 262, bh = 80
+        const x0 = w - bw - 22, y0 = h - bh - 22
+        g.globalAlpha = fade * 0.9
+        roundRect(g, x0, y0, bw, bh, 12)
+        g.fillStyle = 'rgba(10,12,20,0.88)'
+        g.fill()
+        g.lineWidth = 2
+        g.strokeStyle = hot
+        g.stroke()
+        g.globalAlpha = fade
+        g.textAlign = 'left'
+        g.textBaseline = 'middle'
+        g.font = `800 11px ${IMPACT}`
+        g.fillStyle = hot
+        g.fillText('COMBO', x0 + 16, y0 + 20)
+        g.font = `900 13px ${IMPACT}`
+        g.fillStyle = '#ffffff'
+        g.fillText(last.rank, x0 + 16, y0 + 42)
+        const bump = 1 + Math.max(0, 0.3 - (this.age - bumped)) * 1.1
+        g.save()
+        g.translate(x0 + bw - 16, y0 + 34)
+        g.scale(bump, bump)
+        g.font = `900 36px ${IMPACT}`
+        g.textAlign = 'right'
+        g.lineJoin = 'round'
+        g.lineWidth = 6
+        g.strokeStyle = '#1a0d00'
+        const count = `×${last.n}`
+        g.strokeText(count, 0, 0)
+        const grad = g.createLinearGradient(0, -18, 0, 18)
+        grad.addColorStop(0, '#ffffff')
+        grad.addColorStop(0.45, '#ffd34d')
+        grad.addColorStop(1, shade('#ffd34d'))
+        g.fillStyle = grad
+        g.fillText(count, 0, 0)
+        g.restore()
+        const barX = x0 + 16, barW = bw - 32, barY = y0 + bh - 16
+        g.fillStyle = 'rgba(255,255,255,0.14)'
+        g.fillRect(barX, barY, barW, 5)
+        g.fillStyle = hot
+        g.fillRect(barX, barY, barW * Math.max(0, Math.min(1, last.left)), 5)
+      },
+    }
+    this.wake()
+  }
+
+  /** whether the combo meter is showing (for tests and the curious) */
+  get metering(): boolean { return !!this.hud }
 }
 
 /* ── geometry helpers ───────────────────────────────────────────────────── */
+
+/** the impact lettering every word, title and meter uses (system fonts only) */
+const IMPACT = '"Segoe UI Black", "Arial Black", Impact, system-ui, sans-serif'
+
+/** a caption is a name: small capitals, never longer than a card is wide */
+function captionText(text: string | undefined): string {
+  const t = (text ?? '').trim().toUpperCase()
+  return t.length > 28 ? t.slice(0, 27) + '…' : t
+}
+
+/** a caption under a word, in the word's own transform */
+function drawCaption(g: CanvasRenderingContext2D, text: string, y: number, size: number, ink: string): void {
+  g.font = `800 ${size}px ${IMPACT}`
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.lineJoin = 'round'
+  g.lineWidth = size * 0.3
+  g.strokeStyle = ink
+  g.strokeText(text, 0, y)
+  g.fillStyle = '#ffffff'
+  g.fillText(text, 0, y)
+}
+
+/** a five-pointed star around the origin */
+function starPath(g: CanvasRenderingContext2D, r: number): void {
+  g.beginPath()
+  for (let i = 0; i < 10; i++) {
+    const rr = i % 2 ? r * 0.45 : r
+    const a = (i / 10) * TAU - Math.PI / 2
+    g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr)
+  }
+  g.closePath()
+}
+
+/** The ice-spike crown, from the Argon take's drawing: points relative to the
+ *  foot of the middle crystal, in a 180-unit-tall frame, back to front. */
+const CRYSTAL: { points: [number, number][]; fill: string; edge: string; width: number }[] = [
+  { points: [[-92, -93], [-32, -60], [-42, -10], [-76, -31]], fill: 'rgba(128,216,255,0.75)', edge: '#e1f5fe', width: 1.5 },
+  { points: [[92, -93], [76, -31], [42, -10], [32, -60]], fill: 'rgba(128,216,255,0.75)', edge: '#e1f5fe', width: 1.5 },
+  { points: [[-62, -147], [-12, -89], [-24, -7], [-48, -23]], fill: 'rgba(64,196,255,0.82)', edge: '#ffffff', width: 2 },
+  { points: [[62, -147], [48, -23], [24, -7], [12, -89]], fill: 'rgba(0,176,255,0.82)', edge: '#ffffff', width: 2 },
+  { points: [[0, -177], [26, -97], [14, 0], [-14, 0], [-26, -97]], fill: 'core', edge: '#e1f5fe', width: 2.5 },
+]
+
+function centroid(points: [number, number][]): [number, number] {
+  let x = 0, y = 0
+  for (const [px, py] of points) { x += px; y += py }
+  return [x / points.length, y / points.length]
+}
 
 const FIREWORK = ['#ff4d6d', '#ffd166', '#06d6a0', '#4cc9f0', '#b388ff', '#ff9f1c']
 const CONFETTI = ['#ff4d6d', '#ffd166', '#06d6a0', '#4cc9f0', '#b388ff', '#ff9f1c', '#ffffff']
