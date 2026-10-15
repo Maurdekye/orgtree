@@ -81,6 +81,11 @@ This prevents notification/retry loops. A completed turn clears the failure run.
 The typed launch notice supplies the agent name; only sizes are recorded in the
 new composition logs. Body-bearing rendering helpers opt out of argument logging.
 
+Known pre-existing limit: unchanged `CodexProc::start_turn`, `freeze::replay_tail`
+and feed logging paths still serialize some mail text. Metadata-only logging is
+the contract of the new budget-composition code, not a claim that all engine
+logging is body-free. Those older paths are outside this release fix's scope.
+
 ## Verification and limits
 
 Red tests were committed before product changes: original `e3a4bf5` on `7b7dd2e`,
