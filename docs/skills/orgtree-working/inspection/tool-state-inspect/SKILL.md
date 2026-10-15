@@ -46,3 +46,8 @@ Folder grants are ancestor-clamped effective grants, not merely the target's con
 ```
 
 For conversations use [read transcript](../tool-read-transcript/SKILL.md); for a human-readable roster use [chart](../tool-chart/SKILL.md).
+
+## See also
+
+- [orgtree-visibility](../visibility/SKILL.md)
+- [orgtree-reading-reports](../reading-reports/SKILL.md)

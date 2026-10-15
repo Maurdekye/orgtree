@@ -35,3 +35,11 @@ An interrupt is not an undo of tool side effects. Check the descendant's state o
 ```
 
 Inspect afterward with [state inspection](../../inspection/tool-state-inspect/SKILL.md) or [transcript reading](../../inspection/tool-read-transcript/SKILL.md).
+
+## See also
+
+- [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)
+- [orgtree-turn-envelope](../turn-envelope/SKILL.md)
+- [orgtree-checkups-and-reminders](../checkups-and-reminders/SKILL.md)
+- [orgtree-context-and-compaction](../context-and-compaction/SKILL.md)
+- [orgtree-halts-and-restarts](../halts-and-restarts/SKILL.md)

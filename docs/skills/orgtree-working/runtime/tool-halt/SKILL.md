@@ -39,3 +39,11 @@ Common refusals include `name the agent (node) or agents (nodes)`, `nodes must b
 ```
 
 Use [unhalt](../tool-unhalt/SKILL.md) to release the persistent halt, or [interrupt](../tool-interrupt/SKILL.md) when only the current turn should be stopped.
+
+## See also
+
+- [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)
+- [orgtree-turn-envelope](../turn-envelope/SKILL.md)
+- [orgtree-checkups-and-reminders](../checkups-and-reminders/SKILL.md)
+- [orgtree-context-and-compaction](../context-and-compaction/SKILL.md)
+- [orgtree-halts-and-restarts](../halts-and-restarts/SKILL.md)

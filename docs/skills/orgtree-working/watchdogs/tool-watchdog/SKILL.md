@@ -173,3 +173,7 @@ Read and remove a kept dog:
 ```json
 {"action":"remove","id":"worker/review-log","reason":"The review result is recorded."}
 ```
+
+## See also
+
+- [orgtree-waiting-for-events](../waiting-for-events/SKILL.md)

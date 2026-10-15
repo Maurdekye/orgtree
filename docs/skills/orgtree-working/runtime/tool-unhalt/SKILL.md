@@ -37,3 +37,11 @@ Common refusals are `name the agent (node) or agents (nodes)`, `nodes must be a 
 ```
 
 Use [state inspection](../../inspection/tool-state-inspect/SKILL.md) to distinguish a remaining freeze, halt, retirement or mid-turn state.
+
+## See also
+
+- [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)
+- [orgtree-turn-envelope](../turn-envelope/SKILL.md)
+- [orgtree-checkups-and-reminders](../checkups-and-reminders/SKILL.md)
+- [orgtree-context-and-compaction](../context-and-compaction/SKILL.md)
+- [orgtree-halts-and-restarts](../halts-and-restarts/SKILL.md)

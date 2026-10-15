@@ -35,3 +35,8 @@ Common refusals include missing `node`, `no agent named … in this organization
 ```
 
 To discover files first, call `{"node":"worker"}`. For the saved conversation itself use [read transcript](../tool-read-transcript/SKILL.md).
+
+## See also
+
+- [orgtree-visibility](../visibility/SKILL.md)
+- [orgtree-reading-reports](../reading-reports/SKILL.md)

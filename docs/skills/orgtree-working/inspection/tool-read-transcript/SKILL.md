@@ -35,3 +35,8 @@ Missing `node`, unknown/deleted names, or an out-of-chain target are refused. Th
 ```
 
 For exact scope/state use [state inspection](../tool-state-inspect/SKILL.md). For a saved handoff file use [read scratch](../tool-read-scratch/SKILL.md).
+
+## See also
+
+- [orgtree-visibility](../visibility/SKILL.md)
+- [orgtree-reading-reports](../reading-reports/SKILL.md)
