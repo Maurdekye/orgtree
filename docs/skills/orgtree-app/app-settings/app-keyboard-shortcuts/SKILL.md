@@ -27,6 +27,9 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Shift+F1 | Open a new Homepage window. |
 | Shift+F2 | Toggle the app menu focused on Open organization. |
 | Shift+F3 | Open the create-organization window. |
+| Shift+F6 | Fit the whole org in view. |
+| Shift+F7 | Focus the last live agent desk and bring it into view. |
+| Shift+F8 | Focus the switchboard. |
 
 ## Focus-dependent bindings
 

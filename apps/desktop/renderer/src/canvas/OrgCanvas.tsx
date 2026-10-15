@@ -7,7 +7,7 @@ import { toggleAgentHalt } from './haltcontrol'
 import { withPendingOrder, type PendingOrder, type ReorderSlot } from './pendingorder'
 import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } from './draftfocus'
 import { useAppRead } from '../appfeed'
-import { adoptPinLayer, canvasBox, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
+import { adoptPinLayer, canvasBox, readPinSurfaces, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
@@ -91,6 +91,7 @@ import { ObjectNavHost } from './objectnavhost'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
+import type { CanvasShortcutRef } from '../shell/appshortcuts'
 
 /** What the org host hands a view rendered in its slot. Every field is
  *  something this component already holds, which is the point: a sibling view
@@ -150,6 +151,8 @@ export interface OrgCanvasProps {
    *  order, for a filter) — Quick chat's superior picker reads it (App owns
    *  the ref) */
   agentList?: { current: AgentListSource | null }
+  /** Main-window function-key routes to this canvas's existing camera actions. */
+  canvasShortcuts?: CanvasShortcutRef
   /** open the user's inbox, optionally jumped to a specific mail id */
   onInbox?: (jump?: string) => void
   /** Open the current org's global docket and full presentations gallery. */
@@ -400,7 +403,7 @@ const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
-  onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
+  onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery, canvasShortcuts,
   renderOrgSlot, canvasContent = 'shown', agentList }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
@@ -2895,6 +2898,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         onSelect: () => { if (can) centerOn(lastDesk!) }, disabled: !can },
     ]
   }
+  useLayoutEffect(() => {
+    if (!canvasShortcuts) return
+    const allowed = () => !readPinSurfaces().some(surface => surface.org === slug && surface.modal)
+    const actions = {
+      fitOrg: () => { if (allowed()) fitAll() },
+      lastDesk: () => {
+        const last = lastDesk ? map.get(lastDesk) : undefined
+        if (allowed() && last && last.state !== 'archived') centerOn(lastDesk!)
+      },
+      switchboard: () => { if (allowed()) centerOn(USER) },
+    }
+    canvasShortcuts.current = actions
+    return () => { if (canvasShortcuts.current === actions) canvasShortcuts.current = null }
+  }, [canvasShortcuts, fitAll, centerOn, lastDesk, map, modalSurfaces, slug])
   // empty background only: the viewport itself or the world plane under the
   // cards. Cards, desks, pins and the HUD are other elements and keep their
   // own menus (or the browser's); the dot grid and the wire layers are

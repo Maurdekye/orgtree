@@ -40,6 +40,10 @@ User requests on 2026-10-14, docket
   or the mouse arming delay, whether locally armed or already persistently
   halted. A synchronous busy guard admits only one in-flight request. Mouse
   Halt all retains its 500 ms arming delay and all existing response handling.
+- Shift+F6 fits the whole org, Shift+F7 focuses the last live agent desk, and
+  Shift+F8 focuses the switchboard. They call the same canvas camera actions as
+  the empty-canvas menu and HUD controls; all three are no-ops while a modal
+  surface for that org is open.
 - The local latch closes after five seconds instead of six. Mouse or F10
   arming starts that timer; a press at 4.9 seconds still works. Unmount and
   re-latching cancel its timers.
@@ -49,9 +53,9 @@ User requests on 2026-10-14, docket
 `shell/appshortcuts.ts` exports `APP_FKEYS` as the single data table used by
 the matcher and the Settings keyboard explainer. `App` installs one capture
 listener on its own window. It takes only bare assigned function keys plus
-Shift+F1/F2/F3/F10; other modifier combinations (Alt+F4, Ctrl+F4, etc.) are
-untouched. A held key consumes its default without repeatedly invoking an
-action. It does not listen in popped-out panel documents.
+Shift+F1/F2/F3/F6/F7/F8/F10; other modifier combinations (Alt+F4, Ctrl+F4,
+etc.) are untouched. A held key consumes its default without repeatedly
+invoking an action. It does not listen in popped-out panel documents.
 
 Coordinator rulings 10:51/10:52/10:53 UTC explicitly require the keys to work
 in input, textarea and contenteditable fields. This differs intentionally

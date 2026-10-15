@@ -15,6 +15,9 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { HUD_FIT, HUD_SWITCHBOARD, OrgCanvas, resetCanvasSessionForTests } from '../src/canvas/OrgCanvas'
 import { addPin, forgetPins } from '../src/canvas/pins'
+import { pinSurfaceKey, readPinSurfaces, updatePinSurface, removePinSurface } from '../src/canvas/pinspace'
+import { installAppShortcuts } from '../src/shell/appshortcuts'
+import type { CanvasShortcutActions } from '../src/shell/appshortcuts'
 import { resetConvos } from '../src/convo'
 import type { TreePayload } from '../src/types'
 
@@ -115,20 +118,33 @@ async function press(b: HTMLButtonElement) { await inAct(() => { b.click() }); a
 
 const FIT = 'Fit the whole org', SWB = 'Jump to the switchboard', LAST = 'Focus last desk'
 
-function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement, render: (ids: string[]) => Promise<void>) => Promise<void>) {
+function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement,
+  render: (ids: string[]) => Promise<void>, shortcut: (key: string) => Promise<void>) => Promise<void>) {
   test(name, async (t: TestContext) => {
     localStorage.clear(); resetCanvasSessionForTests(); useFakeClock(); installFetch(new FakeServer())
     const unrect = stubViewportRect(), uncap = stubPointerCapture()
+    const shortcutRef: { current: CanvasShortcutActions | null } = { current: null }
+    const stopShortcuts = installAppShortcuts(window, () => ({
+      fitOrg: () => shortcutRef.current?.fitOrg(),
+      lastDesk: () => shortcutRef.current?.lastDesk(),
+      switchboard: () => shortcutRef.current?.switchboard(),
+    }))
     const canvas = (ids: string[]) => <OrgCanvas tree={tree(ids)} op={() => Promise.resolve({} as never)}
-      slug={SLUG} toast={noop} mailEvt={null} />
+      slug={SLUG} toast={noop} mailEvt={null} canvasShortcuts={shortcutRef} />
     const v = await mountView(canvas(['ceo', 'cto', 'cfo']), (el) => el)
     t.after(async () => {
       try { await escape() } catch { /* closed */ }
-      await v.unmount(); uncap(); unrect(); forgetPins(SLUG); resetConvos(); realClock(); localStorage.clear()
+      stopShortcuts(); await v.unmount(); uncap(); unrect(); forgetPins(SLUG); resetConvos(); realClock(); localStorage.clear()
     })
     await flush(); await advance(2500)
     await body(v.el, v.el.querySelector('.viewport') as HTMLElement,
-      async (ids) => { await v.render(canvas(ids)); await flush(); await advance(1600) })
+      async (ids) => { await v.render(canvas(ids)); await flush(); await advance(1600) },
+      async (key) => {
+        await inAct(() => window.dispatchEvent(new KeyboardEvent('keydown', {
+          key, shiftKey: true, bubbles: true, cancelable: true,
+        })))
+        await flush(); await advance(1600)
+      })
   })
 }
 
@@ -157,6 +173,18 @@ uiTest('"Fit the whole org" lands exactly where the fit button does', async (hos
   assert.ok(same(cam(host), viaMenu), `button ${show(cam(host))} vs menu ${show(viaMenu)}`)
 })
 
+uiTest('Shift+F6 uses the same whole-org fit action as the existing HUD button', async (host, _viewport, _render, shortcut) => {
+  const zin = hud(host, 'zoom in')
+  await press(zin); await press(zin)
+  const zoomed = cam(host)
+  await shortcut('F6')
+  const viaShortcut = cam(host)
+  assert.ok(!same(viaShortcut, zoomed), `positive control: Shift+F6 moved from ${show(zoomed)}`)
+  await press(zin); await press(zin)
+  await press(hud(host, HUD_FIT))
+  assert.ok(same(cam(host), viaShortcut), 'Shift+F6 and the HUD fit share the same camera action')
+})
+
 uiTest('"Jump to the switchboard" lands exactly where the eye button does', async (host, viewport) => {
   await rightClick(viewport); await pick(SWB)
   const viaMenu = cam(host)
@@ -165,6 +193,16 @@ uiTest('"Jump to the switchboard" lands exactly where the eye button does', asyn
   assert.ok(!same(cam(host), viaMenu), 'positive control: fitting moved away from the switchboard')
   await press(hud(host, HUD_SWITCHBOARD))
   assert.ok(same(cam(host), viaMenu), `button ${show(cam(host))} vs menu ${show(viaMenu)}`)
+})
+
+uiTest('Shift+F8 uses the same switchboard focus action as the existing HUD button', async (host, _viewport, _render, shortcut) => {
+  await shortcut('F8')
+  const viaShortcut = cam(host)
+  assert.ok(host.querySelector('.eye-desk'), 'Shift+F8 opened the switchboard')
+  await press(hud(host, HUD_FIT))
+  assert.ok(!same(cam(host), viaShortcut), 'positive control: fit moved away from the switchboard')
+  await press(hud(host, HUD_SWITCHBOARD))
+  assert.ok(same(cam(host), viaShortcut), 'Shift+F8 and the HUD eye share the same camera action')
 })
 
 uiTest('switchboard card Focus uses the same camera move as the HUD switchboard action', async host => {
@@ -188,13 +226,40 @@ uiTest('"Focus last desk" focuses the most recently focused agent desk, named in
   // the switchboard is not an agent desk and does not replace the last desk
   await press(hud(host, HUD_SWITCHBOARD))
   await press(hud(host, HUD_FIT))
-  assert.equal(host.querySelector('.sq.desk:not(.user)'), null, 'no desk open before the menu')
+  assert.equal(host.querySelector('.sq.desk:not(.user)') === null, true, 'no desk open before the menu')
   await rightClick(viewport)
   assert.deepEqual(labels(), [FIT, SWB, `${LAST} (cto)`])
   assert.equal(items()[2]!.disabled, false)
   await pick(`${LAST} (cto)`)
   assert.equal(openDesk(host), 'cto', 'the cto desk is open again')
   assert.ok(same(cam(host), atCto), `same camera as clicking cto: ${show(cam(host))} vs ${show(atCto)}`)
+})
+
+uiTest('Shift+F7 focuses the last live desk using the same camera action as its context-menu entry', async (host, _viewport, _render, shortcut) => {
+  await clickCard(cardOf(host, 'cto'))
+  const atCto = cam(host)
+  await press(hud(host, HUD_SWITCHBOARD))
+  await press(hud(host, HUD_FIT))
+  assert.equal(host.querySelector('.sq.desk:not(.user)') === null, true, 'positive control: no agent desk is open')
+  await shortcut('F7')
+  assert.equal(openDesk(host), 'cto')
+  assert.ok(same(cam(host), atCto), `Shift+F7 camera ${show(cam(host))} vs last desk ${show(atCto)}`)
+})
+
+uiTest('Shift+F6/F7/F8 leave the camera alone while an org modal surface is open', async (host, _viewport, _render, shortcut) => {
+  await clickCard(cardOf(host, 'cto'))
+  const key = pinSurfaceKey(SLUG, 'shortcut-guard', true)
+  await inAct(() => updatePinSurface(key, SLUG, { x: 20, y: 20, w: 400, h: 300 }, true))
+  await flush()
+  try {
+    assert.ok(readPinSurfaces().some(surface => surface.key === key && surface.org === SLUG && surface.modal), 'modal surface is registered')
+    await advance(2000)
+    const before = cam(host)
+    for (const functionKey of ['F6', 'F7', 'F8']) {
+      await shortcut(functionKey)
+      assert.ok(same(cam(host), before), `Shift+${functionKey} moved the camera under a modal`)
+    }
+  } finally { await inAct(() => removePinSurface(key)) }
 })
 
 // review-sol 2026-10-01: a desk focused in its PINNED window is a focused desk

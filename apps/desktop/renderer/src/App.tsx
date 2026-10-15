@@ -49,6 +49,7 @@ import { ShellAction, ShellHeader } from './shell/header'
 import { OrgtreeMenu } from './shell/menu'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
+import type { CanvasShortcutRef } from './shell/appshortcuts'
 import { OrgStatusBar } from './shell/statusbar'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
@@ -1290,6 +1291,7 @@ export default function App() {
   const setViewMode = useCallback((m: OrgView) => setOrgView(v3 ? slug : null, m),
     [v3, slug])
   const mainKillswitch = useRef<KillSwitchActions | null>(null)
+  const canvasShortcuts = useRef<CanvasShortcutRef['current']>(null)
   const mainMenu = useRef<OrgtreeMenuActions | null>(null)
   // Keyboard toggles close their exact target, including a pinned one behind
   // another panel. Mouse controls keep the existing open/raise rule.
@@ -1351,6 +1353,9 @@ export default function App() {
       },
       unlatch: () => mainKillswitch.current?.unlatch(),
       halt: () => mainKillswitch.current?.haltNow(),
+      fitOrg: () => canvasShortcuts.current?.fitOrg(),
+      lastDesk: () => canvasShortcuts.current?.lastDesk(),
+      switchboard: () => canvasShortcuts.current?.switchboard(),
     } : {}),
   })
   // The freshness of the tree Attention reads its question rows out of. Owned
@@ -1788,6 +1793,7 @@ export default function App() {
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               <OrgCanvas tree={tree} op={op} slug={slug} toast={toast}
                 mailEvt={mailEvt}
+                canvasShortcuts={canvasShortcuts}
                 /* ⚠ THE SHELL SAYS WHICH VIEW IS PRESENTED; THE HOST DOES THE
                    HIDING. This must never become `display: none` on the canvas
                    or on `.viewport` here — `adoptPinLayer` appends the pin

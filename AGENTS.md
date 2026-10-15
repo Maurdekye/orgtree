@@ -296,12 +296,15 @@
   keep these keys active. F1 is app Settings, F9 org Settings. F10 arms only,
   never releases a persistent halt; Shift+F10 immediately uses killAll. Local
   arming expires after five seconds; keep mouse's 500 ms safety delay and other
-  modifier chords except assigned Shift+F1/F2/F3/F10. Shift+F1/F3 reuse menu
+  modifier chords except assigned Shift+F1/F2/F3/F6/F7/F8/F10. Shift+F1/F3 reuse menu
   New/Create window actions; Shift+F2 opens/focuses its organization submenu.
   F1-F3/F6-F9 and Shift+F2 toggle their exact open target via its normal close
   cleanup, even if pinned behind another; mouse open/raise rules stay unchanged.
   Different panel targets still stack. Repeated keydown events do nothing.
   Shift+F1/F3 remain native window navigation, never close windows on re-press.
+  Shift+F6 fits the org, Shift+F7 focuses the last live agent desk, and Shift+F8
+  focuses the switchboard through the canvas's existing camera actions; these
+  three are no-ops while an org modal surface is open.
   [decided: user/coordinator 2026-10-14 17:58/18:02UTC]
   See [function keys](docs/rust-engine/app-menu-shortcuts.md).
   [decided: user/coordinator 2026-10-14; verified from source: `App.tsx`,

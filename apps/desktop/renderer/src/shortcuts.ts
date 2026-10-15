@@ -52,7 +52,7 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
       { keys: ['Ctrl+Y', 'Mod+Shift+Z'], action: 'Redo the last undone action',
         note: 'not while typing in a field', sources: [R('undokeys.ts'), R('historyui.tsx')] },
     ] },
-    // F1-F10, the main window's function keys (usage-query-sol's
+    // F1-F10 and assigned Shift+F keys, the main window's function keys (usage-query-sol's
     // shell/appshortcuts.ts); its matcher reads the same table
     { title: 'Function keys', items: APP_FKEYS.map(({ keys, action }) =>
       ({ keys, action, sources: [R('shell/appshortcuts.ts')] })) },

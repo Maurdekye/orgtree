@@ -29,6 +29,16 @@ test('Shift+F1/F2/F3 rows are shared by matcher and Settings, with exact app-men
   assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F10', shiftKey: true })), 'halt')
 })
 
+test('Shift+F6/F7/F8 rows share their canvas actions with the matcher and Settings', () => {
+  for (const [key, id] of [['F6', 'fitOrg'], ['F7', 'lastDesk'], ['F8', 'switchboard']]) {
+    const row = APP_FKEYS.find(row => row.keys.includes('Shift+' + key))
+    assert.equal(row?.id, id)
+    assert.ok(row?.action)
+    assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key, shiftKey: true })), id)
+    assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key, shiftKey: true, ctrlKey: true })), undefined)
+  }
+})
+
 for (const count of [2, 7]) test(`Shift+F2 toggles the organization submenu (${count} organizations)`, async () => {
   const ref = React.createRef<OrgtreeMenuActions>()
   const opened: string[] = []

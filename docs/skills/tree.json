@@ -4381,7 +4381,7 @@
    "covers": [
     "screen:keyboard-shortcuts"
    ],
-   "purpose": "Keyboard shortcuts: the read-only list of bindings.",
+   "purpose": "Keyboard shortcuts: the read-only list of bindings, including org-canvas navigation.",
    "must_cover": [
     "every binding",
     "opening panel focus and auto-selected Alt-arrow navigation"
