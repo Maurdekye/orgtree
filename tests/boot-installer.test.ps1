@@ -444,7 +444,8 @@ $script:processes=@()
 # user-s; user 2026-10-15). "At sign-in, in my session" starts the engine from a
 # logon task in the operator's own session; "At boot, before sign-in", the
 # default, is the boot task as before. At most one of the two is enabled; the
-# credential helper only serves the boot engine; Run on startup off disables all three.
+# credential helper runs in both (the engine's lifecycle counts it as a member,
+# coordinator 11:13Z); Run on startup off disables all three.
 $script:folder | Add-Member -Force ScriptMethod DeleteTask { param($name,$flags) $script:events.Add('delete'); $script:task=$null }
 function Get-RegisteredEnabled($Task) { return ((Read-BootXml $Task.Xml).Task.Settings.Enabled -eq 'true') }
 $signinHost=Get-SigninHostPath $dir
@@ -491,8 +492,8 @@ Assert ($script:events -contains 'run' -and $script:events -contains 'helper-run
 $script:record['StartupMode']='signin'; $script:events.Clear()
 Invoke-BootLifecycle Register $dir
 Assert ($script:events -contains 'signin-register:20') "The verified sign-in engine task was not updated: $($script:events -join ',')"
-Assert (-not (Get-RegisteredEnabled $script:task) -and -not (Get-RegisteredEnabled $script:helper) -and (Get-RegisteredEnabled $script:signin)) 'Sign-in mode must enable the sign-in engine only'
-Assert ($script:events -contains 'signin-run' -and -not ($script:events -contains 'run') -and -not ($script:events -contains 'helper-run')) "Sign-in mode must start the sign-in engine only: $($script:events -join ',')"
+Assert (-not (Get-RegisteredEnabled $script:task) -and (Get-RegisteredEnabled $script:helper) -and (Get-RegisteredEnabled $script:signin)) 'Sign-in mode must enable the sign-in engine and the helper, and disable the boot task'
+Assert ($script:events -contains 'signin-run' -and $script:events -contains 'helper-run' -and -not ($script:events -contains 'run')) "Sign-in mode must start the sign-in engine and the helper, never the boot task: $($script:events -join ',')"
 Assert ((Read-BootXml $script:signin.Xml).Task.Principals.Principal.RunLevel -ceq 'LeastPrivilege') 'The sign-in engine must have least privilege while Run as administrator is off'
 $script:runAsAdmin=$true; $script:events.Clear()
 Invoke-BootLifecycle Register $dir

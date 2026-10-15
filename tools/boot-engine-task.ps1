@@ -314,10 +314,11 @@ function Get-BootMarker($Record) { return "com.maurdekye.orgtree.boot.v1:$($Reco
 # counts as on, the desktop's default.
 function Test-RunOnStartup($Record) { return ($null -eq $Record['RunOnStartup'] -or [int]$Record['RunOnStartup'] -ne 0) }
 # Where the engine starts while it is on (docket option-to-run-the-background-
-# engine-in-the-user-s): at boot, the boot task and the credential helper that
-# serves it (the default), or at sign-in, the sign-in engine task alone. The
-# helper has nothing to do for an engine in the user's own session: that engine
-# reads the user's credentials itself and starts Codex with its own sandbox.
+# engine-in-the-user-s): the boot task (the default) or the sign-in engine task,
+# never both. The credential helper runs in both modes (coordinator 2026-10-15
+# 11:13Z): an engine a task's host started counts it as a member of its
+# lifecycle (engine core_policy.rs), and an engine in the user's own session
+# simply never asks it for credentials or a Codex launch.
 function Test-SigninMode($Record) { return ([string]$Record['StartupMode'] -ceq 'signin') }
 function Test-BootStart($Record) { return ((Test-RunOnStartup $Record) -and -not (Test-SigninMode $Record)) }
 function Test-SigninStart($Record) { return ((Test-RunOnStartup $Record) -and (Test-SigninMode $Record)) }
@@ -414,7 +415,7 @@ function New-HelperTaskXml($Record) {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><LogonTrigger><Enabled>true</Enabled><UserId /></LogonTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-HelperMarker $Record
-    $doc.Task.Settings.Enabled = Get-EnabledText (Test-BootStart $Record)
+    $doc.Task.Settings.Enabled = Get-EnabledText (Test-RunOnStartup $Record)
     $doc.Task.Triggers.LogonTrigger.UserId = $Record.OperatorSid
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
     $doc.Task.Actions.Exec.Command = [string](Get-HelperPath $Record.InstallDir)
@@ -741,16 +742,16 @@ function Invoke-BootLifecycle {
             $runs = Test-BootStart $record
             if ($runs) { $null = $registered.Run($null) }
             # The sign-in credential broker ships with the native engine only.
-            # It serves the boot engine, so it follows the boot task. Started now
-            # as well when the operator is signed in; otherwise at their next
-            # sign-in. Its Run failing never fails the install.
+            # It follows Run on startup in both start modes. Started now as well
+            # when the operator is signed in; otherwise at their next sign-in.
+            # Its Run failing never fails the install.
             if ([IO.File]::Exists((Get-HelperPath $InstallDir))) {
                 $helperFlags = 18
                 $helper = Find-HelperTask $folder
                 if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir; $helperFlags = 20 }
                 $helperTask = Register-HelperTask $folder (New-HelperTaskXml $record) $helperFlags $record.OperatorSid $sddl
                 Assert-OwnedHelperTask $helperTask $record $InstallDir
-                if ($runs) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
+                if (Test-RunOnStartup $record) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
             }
             # The engine at sign-in: registered beside the boot task wherever its
             # windowless host is installed, enabled only in the sign-in mode, its
