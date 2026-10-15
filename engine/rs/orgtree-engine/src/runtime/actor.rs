@@ -3130,6 +3130,7 @@ impl Actor {
         Ok(())
     }
 
+    #[nolog] // pure per-delivery helper
     fn mail_input_budget(&self) -> usize {
         match self.proc.as_ref() {
             Some(Proc::Codex(_)) => prompt::CODEX_INPUT_BYTES,
