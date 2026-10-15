@@ -155,7 +155,7 @@ test('every event the detectors can produce has a picture and a sound in the pla
     'toastError', 'send', 'destroy', 'epicOn', 'epicLaunch', 'epicOff', 'scroll', 'focus', 'undo', 'redo',
     'shortcut', 'doubleClick', 'linkDown', 'linkUp', 'usageWarn', 'usageMax', 'usageReset', 'brownout',
     // the final version's additions
-    'confirm', 'refused', 'notice', 'combo'] as const) {
+    'confirm', 'refused', 'notice', 'combo', 'navigate'] as const) {
     assert.equal(PLAYBOOK_KINDS.includes(user), true, `no effect for the user action ${user}`)
   }
 })

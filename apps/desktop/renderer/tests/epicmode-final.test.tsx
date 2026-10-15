@@ -185,6 +185,36 @@ test('the words name who it happened to — never the user, the org inbox or a w
   } finally { show.stop(); rec.restore() }
 })
 
+test('the hands: a confirming click, an Undo button and keyboard navigation each get their own effect; typing stays typing', async () => {
+  const rec = recordCanvas()
+  const audio = fakeAudio()
+  const sounds: string[] = []
+  const original = EpicSynth.prototype.play
+  EpicSynth.prototype.play = function (this: EpicSynth, name, opts = {}) { sounds.push(name); return original.call(this, name, opts) }
+  const show = startEpic({ audio: audio.Ctor, greet: 'none' })
+  const box = document.createElement('div')
+  box.innerHTML = '<button type="button">Save changes</button><button type="button" title="Undo">↶</button><textarea></textarea>'
+  document.body.append(box)
+  const press = (el: Element) => el.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 40 }))
+  const key = (el: Element, k: string) => el.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, key: k }))
+  try {
+    const [save, undo] = [...box.querySelectorAll('button')]
+    press(save!)
+    assert.equal(sounds.includes('confirm'), true, 'a confirming click dings its coins')
+    press(undo!)
+    await wait(90)
+    assert.equal(rec.texts.includes('UNDO!'), true, 'an Undo button gets the undo vortex and its word')
+    const before = show.staged
+    key(document.body, 'ArrowDown')
+    assert.equal(show.staged, before + 1, 'moving with the arrow keys is staged')
+    assert.equal(sounds.at(-1), 'warp', 'with its warp')
+    key(document.body, 'q')
+    assert.equal(show.staged, before + 1, 'a plain letter outside a field is not')
+    key(box.querySelector('textarea')!, 'ArrowDown')
+    assert.equal(show.staged, before + 1, 'and arrows inside a text field are the field\'s own')
+  } finally { box.remove(); show.stop(); rec.restore(); EpicSynth.prototype.play = original }
+})
+
 test('the ice spike: a crown of crystals erupts, then shatters into shards', async () => {
   const rec = recordCanvas()
   const stage = new Stage(document)
