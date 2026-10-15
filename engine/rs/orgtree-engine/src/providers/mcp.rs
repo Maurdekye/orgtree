@@ -746,6 +746,31 @@ mod tests {
         let servers = Map::from_iter([("remote.dotted".into(), value)]);
         let (args, attached) = crate::runtime::codex::mcp_overrides(&servers);
         assert_eq!(attached, ["remote.dotted"]);
+        let spec = crate::runtime::codex::CodexSpec {
+            exe: "codex".into(),
+            cwd: ".".into(),
+            codex_home: None,
+            api_key: None,
+            model: "fixture".into(),
+            effort: None,
+            sandbox: crate::runtime::codex::Sandbox {
+                mode: "read-only",
+                approval: "on-request",
+                session0: false,
+            },
+            instructions: String::new(),
+            dynamic_tools: vec![],
+            config: args.clone(),
+            resume: None,
+            may_write: false,
+            may_shell: false,
+            may_subagents: false,
+            env: vec![],
+            host: None,
+        };
+        assert!(!format!("{spec:?}").contains("X-Api-Key"));
+        assert!(!format!("{spec:?}").contains("invalid.test"));
+
         assert!(args
             .iter()
             .any(|a| a.starts_with("mcp_servers.\"remote.dotted\".")));

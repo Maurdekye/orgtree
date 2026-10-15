@@ -55,7 +55,7 @@ impl std::fmt::Debug for CodexSpec {
             .field("effort", &self.effort)
             .field("sandbox", &self.sandbox)
             .field("dynamic_tools", &self.dynamic_tools.len())
-            .field("config", &self.config)
+            .field("config_count", &self.config.len())
             .field("resume", &self.resume)
             .field("may_write", &self.may_write)
             .field("may_shell", &self.may_shell)
