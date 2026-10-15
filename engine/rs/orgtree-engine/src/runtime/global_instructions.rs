@@ -429,7 +429,7 @@ mod tests {
         }
         assert!(!shared.contains("LAZY_RULE"));
         assert!(!shared.contains("FILE_RULE"));
-        let native = startup::snapshot(&f.shared(Inputs::Agy { home: f.roots.home.clone() }));
+        let native = startup::snapshot(&f.shared(Inputs::Agy { home: f.roots.home.clone(), cwd: f.root.join("workspace") }));
         assert!(native.global_notes.contains("FOREIGN_CLAUDE"));
         assert!(!native.global_notes.contains("LEGACY_"));
         assert!(!native.global_notes.contains("CONFIG_"));
@@ -584,7 +584,7 @@ mod tests {
         let native = Inputs::Codex { cwd: f.root.clone(), home: f.roots.codex.clone() };
         assert_eq!(startup::digest(&native), startup::digest(&f.shared(native.clone())));
         assert_eq!(startup::digest(&f.shared(Inputs::None)), "");
-        assert_eq!(startup::digest(&f.shared(Inputs::Agy { home: f.roots.home.clone() })), "");
+        assert_eq!(startup::digest(&f.shared(Inputs::Agy { home: f.roots.home.clone(), cwd: f.root.join("workspace") })), "");
         let empty = f.write(".gemini/GEMINI.md", " \r\n");
         assert_eq!(startup::digest(&f.shared(Inputs::None)), "");
         assert_eq!(std::fs::read_to_string(empty).unwrap(), " \r\n");
