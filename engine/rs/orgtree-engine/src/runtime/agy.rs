@@ -963,11 +963,7 @@ mod workspace_notes_tests {
     fn agy_notes_start_their_own_numbered_part() {
         let (root, spec) = fixture();
         let rules = "R".repeat(9_000);
-        let notes = format!("
-
-[TEAM NOTES - t]
-{}
-[END TEAM NOTES]", "n".repeat(30_000));
+        let notes = format!("\n\n[TEAM NOTES - t]\n{}\n[END TEAM NOTES]", "n".repeat(30_000));
         let identity = format!("{rules}{notes}");
         write_identity_rules(&spec.cwd, &identity, rules.len()).unwrap();
         let dir = spec.cwd.join(".agents/rules");
@@ -977,9 +973,7 @@ mod workspace_notes_tests {
         let bodies: Vec<&str> = parts.iter().map(|s| s.strip_prefix(IDENTITY_RULE_HEADER).unwrap()).collect();
         assert_eq!(bodies.len(), 3, "one rules part and two notes parts");
         assert_eq!(bodies[0], rules, "the rules part holds the rules only");
-        assert!(bodies[1].starts_with("
-
-[TEAM NOTES - t]"));
+        assert!(bodies[1].starts_with("\n\n[TEAM NOTES - t]"));
         assert!(parts.iter().all(|s| s.len() < 24_000));
         assert_eq!(bodies.concat(), identity);
         // no notes: one part, and a stale notes part is removed
