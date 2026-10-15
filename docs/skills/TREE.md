@@ -126,7 +126,7 @@ These rulings explain choices a reader might otherwise question.
   ground truth in `AGENTS.md` and `docs/`, not as engine features.
 - **`orgtree-engine-start-mode`** (owner rig-opus, item
   `option-to-run-the-background-engine-in-the-user-s`; approved and integrated at
-  rust-engine `7b7dd2e`). 4.3.0 shipped it as a standalone registered skill. In the
+  rust-engine `7b7dd2e`). The 4.3.0 release keeps it as a standalone registered skill. In the
   library it is the leaf `engine-start-mode` under `orgtree-app › app-settings`, next to
   `app-runtime-desktop` ("Run on startup"), with its `name` and content unchanged. It is
   no longer registered, keeping the "only categories are registered" ruling (coordinator
