@@ -14,6 +14,7 @@ pub mod convo;
 pub mod envelope;
 pub mod event_text;
 pub mod freeze;
+pub mod global_instructions;
 pub mod history;
 pub mod identity;
 pub mod keepalive;

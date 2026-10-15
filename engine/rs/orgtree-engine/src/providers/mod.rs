@@ -9,6 +9,7 @@ mod codex_models;
 pub mod muse_models;
 mod mcp;
 pub use mcp::McpRegistry;
+pub(crate) use mcp::jsonc;
 
 use std::path::PathBuf;
 use std::process::Stdio;

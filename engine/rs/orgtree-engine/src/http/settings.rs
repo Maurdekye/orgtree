@@ -746,6 +746,17 @@ pub async fn mcp_servers_refresh(State(e): State<Arc<Engine>>) -> ApiResult<Json
     Ok(Json(e.providers.refresh_mcp_registry().public()))
 }
 
+/// Only metadata leaves discovery. Refresh never writes a profile or touches
+/// an active CLI; the existing startup checks apply edits at their boundary.
+#[nolog]
+pub async fn global_instructions_refresh() -> ApiResult<Json<Value>> {
+    match tokio::task::spawn_blocking(crate::runtime::global_instructions::refresh).await {
+        Ok(Ok(summary)) => Ok(Json(summary)),
+        Ok(Err(count)) => Err(ApiError::internal(format!("Global instructions could not be fully refreshed: {count} source(s) could not be read."))),
+        Err(_) => Err(ApiError::internal("Global instructions could not be refreshed.")),
+    }
+}
+
 // ------------------------------------------------------------ charters
 
 const BUNDLED: &[(&str, &str)] = &[

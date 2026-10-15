@@ -80,6 +80,20 @@ export default async function (rig) {
     && rig.agentRow('globalnotes')?.session_id === sid)
   p.check('discovery never modifies original global files', [...fixtures].every(([file, text]) =>
     fs.readFileSync(path.join(home, file), 'utf8') === (file === '.gemini/GEMINI.md' ? 'FOREIGN_GEMINI_GLOBAL_v2\n' : text)))
+  const log = rig.engineLog()
+  p.check('private global instruction text is absent from verbose engine logs',
+    log.length > 0 && prefix().includes('FOREIGN_GEMINI_GLOBAL_v2')
+    && !log.includes('FOREIGN_GEMINI_GLOBAL_') && !log.includes('FOREIGN_CODEX_GLOBAL_SENTINEL'))
+  const bad = '.gemini/config/rules/unreadable.md'
+  write(bad, '')
+  fs.writeFileSync(path.join(home, bad), Buffer.from([0xff, 0xfe, 0x00]))
+  let failure = ''
+  try { await rig.api('POST', '/api/global-instructions/refresh', {}) }
+  catch (error) { failure = String(error) }
+  p.check('an existing unreadable file makes Refresh fail without exposing its path or contents',
+    failure.includes('Global instructions could not be fully refreshed') && !failure.includes('unreadable.md')
+    && !failure.includes(home) && !failure.includes('GLOBAL_SENTINEL'))
+  fs.unlinkSync(path.join(home, bad))
   p.keep(rig, { agents: ['globalnotes'] })
   return p.summary()
 }

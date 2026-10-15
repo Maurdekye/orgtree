@@ -77,6 +77,17 @@
   `canvas/docket.tsx`; measured: `tools/rig/epic-mode-visual.mjs` typing scene,
   2026-10-15]
 
+- Personal global instruction files are shared read-only across harnesses, with
+  canonical dedup against the CLI's actual account/profile native files. Use
+  `startup::snapshot` for launch text and digest together; edits belong to the
+  existing `startup` boundary, never a running turn. Refresh returns counts only
+  and fails explicitly for unreadable sources. Rig discovery stays inside
+  `rig-home`. Muse foreign-rule fallback is disabled only for Orgtree launches;
+  its own rules and separate skills setting stay native. Preserve the skills
+  digest in plan, idle checks and forecast during composition. [decided: user
+  2026-10-15 10:21Z; verified: `runtime/global_instructions.rs`, `startup.rs`,
+  `actor.rs`; [sources and limits](docs/rust-engine/global-instructions.md)]
+
 - The revealed Rainbow mode row appears only for Custom themes. Selecting a
   preset hides it without altering saved revealed/enabled/epoch preferences;
   returning to Custom restores its prior state. [decided: user/coordinator

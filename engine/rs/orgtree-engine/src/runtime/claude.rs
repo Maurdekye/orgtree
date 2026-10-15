@@ -457,7 +457,7 @@ async fn answer_keepalive(engine: &Arc<Engine>, caller: &Caller, req: &Value) ->
 }
 
 /// Files a Claude process reads at start; rewritten before every spawn.
-#[logged]
+#[nolog] // identity includes private global instructions; MCP may hold credentials
 pub fn write_launch_files(
     scratch: &Path,
     identity: &str,

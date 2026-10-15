@@ -236,7 +236,7 @@ pub fn canonical(p: &Path) -> Option<String> {
 }
 
 /// The host's command line, the developer prompt included when it fits.
-#[logged]
+#[nolog] // the returned arguments include private global instruction text
 pub fn host_args(spec: &MuseSpec, prompt_file: Option<&Path>) -> Vec<String> {
     let mut a: Vec<String> = vec!["serve".into(), "--provider".into(), "meta".into(), "--contributor-mode".into(), "off".into()];
     if !spec.may_shell {
@@ -259,6 +259,10 @@ pub fn host_args(spec: &MuseSpec, prompt_file: Option<&Path>) -> Vec<String> {
         a.push(format!("{k}={v}"));
     };
     set("run.developer_prompt", json!(prompt));
+    // Orgtree supplies these files once, from the user's personal roots even
+    // when this host uses an isolated login. Keep Muse's own native rules and
+    // its separate skills setting; do not use --no-foreign-personal-context.
+    set("context.foreign_personal_rules", json!(false));
     set("runtime_capabilities", observers_off());
     set("run.workflow_trigger_mode", json!("off"));
     if !spec.may_web {
@@ -1102,6 +1106,8 @@ mod tests {
         assert!(a.iter().any(|x| x == r#"tools.web_search.mode="off""#));
         assert!(a.iter().any(|x| x.starts_with("runtime_capabilities=") && x.contains("verify-reminder")));
         assert!(a.iter().any(|x| x == r#"run.developer_prompt="be useful""#));
+        assert!(a.iter().any(|x| x == "context.foreign_personal_rules=false"));
+        assert!(!a.iter().any(|x| x == "--no-foreign-personal-context" || x.starts_with("context.foreign_personal_skills=")));
         s.may_shell = false;
         s.may_write = false;
         s.may_web = true;

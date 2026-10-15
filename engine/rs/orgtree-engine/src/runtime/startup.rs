@@ -12,7 +12,7 @@
 //!   AGENTS.md fallback when the project chain has no nonempty Claude notes; unscoped rules in
 //!   <config>/rules and <cwd>/.claude/rules; `@` imports, five hops deep; and
 //!   the first 25 KiB / 200 lines of auto memory's MEMORY.md.
-//! - Codex: <CODEX_HOME>/AGENTS.md, and in each folder from a `.git` root (or
+//! - Codex: <CODEX_HOME>/AGENTS.override.md or AGENTS.md, and in each folder from a `.git` root (or
 //!   the cwd alone when there is none) down to the cwd, AGENTS.override.md or
 //!   else AGENTS.md (an override replaces AGENTS.md in its folder).
 //! - Deliberately not: memory topic files and path-scoped rules (read lazily,
@@ -42,19 +42,60 @@ const RULES_FILES: usize = 512;
 pub enum Inputs {
     Claude { cwd: PathBuf, config: PathBuf, home: PathBuf, add_dirs: Vec<PathBuf> },
     Codex { cwd: PathBuf, home: PathBuf },
-    /// Muse Code: the session workspace's project rules file (trusted)
-    Muse { cwd: PathBuf },
-    /// a lane whose CLI reads no such file at start (Antigravity)
+    /// Muse Code: the actual config/muse root and trusted workspace rules.
+    Muse { cwd: PathBuf, config: PathBuf },
+    /// Antigravity's personal rules still load natively. Its existing project
+    /// note behavior is unchanged by global sharing.
+    Agy { home: PathBuf },
+    /// A lane with no native instruction manifest (e.g. isolated OpenCode).
     None,
+    /// The native account/profile inputs plus the user's personal global
+    /// sources. Paths, not text, are retained for idle boundary rechecks.
+    Shared { native: Box<Inputs>, roots: super::global_instructions::Roots },
+}
+
+#[nolog]
+pub fn with_globals(native: Inputs) -> Inputs {
+    match super::global_instructions::Roots::current() {
+        Some(roots) => Inputs::Shared { native: Box::new(native), roots },
+        None => native,
+    }
 }
 
 /// The startup files' digest: equal exactly when no startup file changed.
 #[logged]
 pub fn digest(inputs: &Inputs) -> String {
-    if matches!(inputs, Inputs::None) { return String::new(); }
-    let files = native_files(inputs);
-    let manifest = serde_json::to_vec(&files).unwrap_or_default();
-    hex::encode(&Sha256::digest(&manifest)[..12])
+    snapshot(inputs).digest
+}
+
+/// No Debug/Serialize: this holds private instruction text for ONE plan.
+pub struct Snapshot {
+    pub digest: String,
+    pub global_notes: String,
+    handled: HashSet<String>,
+}
+
+/// Capture shared text and its digest together. A later edit cannot make the
+/// fingerprint describe different bytes than the prompt this plan supplies.
+#[nolog]
+pub fn snapshot(inputs: &Inputs) -> Snapshot {
+    let (native, global) = match inputs {
+        Inputs::Shared { native, roots } => (native.as_ref(), roots.read()),
+        native => (native, super::global_instructions::Snapshot::default()),
+    };
+    let files = native_files(native);
+    let native_keys: HashSet<String> = files.keys().map(|path| file_key(Path::new(path))).collect();
+    let global_notes = global.notes(&native_keys);
+    let mut handled = native_keys;
+    handled.extend(global.keys().cloned());
+    let native_digest = if matches!(native, Inputs::None) || (matches!(native, Inputs::Agy { .. }) && files.is_empty()) { String::new() } else {
+        hex::encode(&Sha256::digest(serde_json::to_vec(&files).unwrap_or_default())[..12])
+    };
+    let shared = global.fingerprint();
+    let digest = if shared.is_empty() { native_digest } else {
+        hex::encode(&Sha256::digest(format!("{native_digest}|global:{shared}").as_bytes())[..12])
+    };
+    Snapshot { digest, global_notes, handled }
 }
 
 /// Native files only: used both for cache invalidation and avoiding duplicate delivery.
@@ -63,8 +104,10 @@ fn native_files(inputs: &Inputs) -> BTreeMap<String, String> {
     match inputs {
         Inputs::Claude { cwd, config, home, .. } => claude(cwd, config, home),
         Inputs::Codex { cwd, home } => codex(cwd, home),
-        Inputs::Muse { cwd } => muse(cwd),
+        Inputs::Muse { cwd, config } => muse(cwd, config),
+        Inputs::Agy { home } => super::global_instructions::native_agy(home),
         Inputs::None => BTreeMap::new(),
+        Inputs::Shared { native, .. } => native_files(native),
     }
 }
 
@@ -73,8 +116,13 @@ fn native_files(inputs: &Inputs) -> BTreeMap<String, String> {
 /// as a trusted project rule, 2026-10-12). A further workspace root's file
 /// is not read (measured), so granted folders' notes stay in the prompt.
 #[nolog] // `digest` logs the call
-fn muse(cwd: &Path) -> BTreeMap<String, String> {
+fn muse(cwd: &Path, config: &Path) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
+    // Pinned Muse 1.4.6 /rules measured AGENTS.md, then CLAUDE.md fallback.
+    for name in ["AGENTS.md", "CLAUDE.md"] {
+        let global = config.join(name);
+        if let Some(bytes) = super::global_instructions::native_bytes(&global) { files.insert(norm(&global), sha(&bytes)); break; }
+    }
     for name in ["AGENTS.md", "CLAUDE.md", ".agents/AGENTS.md", ".claude/CLAUDE.md"] {
         let p = cwd.join(name);
         if let Ok(bytes) = std::fs::read(&p) {
@@ -91,24 +139,33 @@ pub type Notes = Vec<(String, String)>;
 /// files (including Claude imports) and repeated grants are delivered just once.
 #[logged]
 pub fn standing_notes(inputs: &Inputs, scratch: &Path, folders: &[PathBuf]) -> (Notes, Notes) {
-    let mut seen: HashSet<String> = native_files(inputs).keys().map(|p| file_key(Path::new(p))).collect();
-    let mut read = |root: &Path| -> Notes {
-        ["AGENTS.md", "CLAUDE.md"].into_iter().filter_map(|name| {
-            let path = root.join(name);
-            if seen.contains(&file_key(&path)) { return None; }
-            let text = std::fs::read_to_string(&path).ok()?;
-            seen.insert(file_key(&path));
-            Some((path.to_string_lossy().into_owned(), text))
-        }).collect()
-    };
-    let own = read(scratch);
-    let granted = folders.iter().flat_map(|p| read(p)).collect();
-    (own, granted)
+    snapshot(inputs).standing_notes(scratch, folders)
+}
+
+impl Snapshot {
+    /// Personal globals and native files are already delivered. Repeated
+    /// grants of those same files must not add another copy to the identity.
+    #[nolog]
+    pub fn standing_notes(&self, scratch: &Path, folders: &[PathBuf]) -> (Notes, Notes) {
+        let mut seen = self.handled.clone();
+        let mut read = |root: &Path| -> Notes {
+            ["AGENTS.md", "CLAUDE.md"].into_iter().filter_map(|name| {
+                let path = root.join(name);
+                if seen.contains(&file_key(&path)) { return None; }
+                let text = std::fs::read_to_string(&path).ok()?;
+                seen.insert(file_key(&path));
+                Some((path.to_string_lossy().into_owned(), text))
+            }).collect()
+        };
+        let own = read(scratch);
+        let granted = folders.iter().flat_map(|p| read(p)).collect();
+        (own, granted)
+    }
 }
 
 #[nolog] // per candidate path
 fn file_key(path: &Path) -> String {
-    norm(&std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+    super::global_instructions::key(path)
 }
 
 #[nolog] // per candidate file
@@ -159,12 +216,18 @@ fn claude(cwd: &Path, config: &Path, home: &Path) -> BTreeMap<String, String> {
 #[nolog] // `digest` logs the call
 fn codex(cwd: &Path, home: &Path) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
+    for name in ["AGENTS.override.md", "AGENTS.md"] {
+        let path = home.join(name);
+        if path.is_file() {
+            if let Some(bytes) = super::global_instructions::native_bytes(&path) { files.insert(norm(&path), sha(&bytes)); }
+            break;
+        }
+    }
     let mut add = |p: &Path| {
         if let Ok(bytes) = std::fs::read(p) {
             files.insert(norm(p), sha(&bytes));
         }
     };
-    add(&home.join("AGENTS.md"));
     // up to a `.git` root; without one codex reads the cwd alone
     let mut chain: Vec<&Path> = Vec::new();
     let mut rooted = false;
@@ -278,7 +341,7 @@ fn memory_prefix(data: &[u8]) -> &[u8] {
 
 /// A rule without a `paths:` key in its front matter loads at start.
 #[nolog] // works on a whole file
-fn startup_rule(data: &[u8]) -> bool {
+pub(super) fn startup_rule(data: &[u8]) -> bool {
     let text = String::from_utf8_lossy(data);
     let Some(rest) = text.strip_prefix("---") else { return true };
     let front = rest.find("\n---").map(|end| &rest[..end]).unwrap_or(rest);
@@ -368,7 +431,7 @@ mod tests {
         std::fs::write(own.join("AGENTS.md"), "own rules").unwrap();
         std::fs::write(grant.join("AGENTS.md"), "granted rules").unwrap();
         std::fs::write(grant.join("CLAUDE.md"), "granted legacy").unwrap();
-        let muse = Inputs::Muse { cwd: own.clone() };
+        let muse = Inputs::Muse { cwd: own.clone(), config: root.join("config/muse") };
         let (o, g) = standing_notes(&muse, &own, &[grant.clone()]);
         assert!(o.is_empty(), "the workspace root's AGENTS.md is Muse's own project rule");
         assert_eq!(g.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>(), ["granted rules", "granted legacy"]);

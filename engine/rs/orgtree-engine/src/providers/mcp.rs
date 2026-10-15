@@ -299,7 +299,7 @@ fn parse(source: &str, text: &str) -> Result<Vec<(String, Value)>, &'static str>
 
 /// JSONC comments and trailing commas, without touching quoted text or URLs.
 #[nolog]
-fn jsonc(text: &str) -> Result<String, &'static str> {
+pub(crate) fn jsonc(text: &str) -> Result<String, &'static str> {
     let mut b = text.as_bytes().to_vec();
     let mut i = 0;
     let mut quoted = false;

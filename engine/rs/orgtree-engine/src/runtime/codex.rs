@@ -378,6 +378,7 @@ impl CodexProc {
     }
 
     /// A request and its result (or the server's error, or a timeout).
+    #[nolog] // thread/start and thread/resume carry private global instructions
     pub async fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();

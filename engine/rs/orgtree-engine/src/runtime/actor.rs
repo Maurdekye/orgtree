@@ -1790,7 +1790,8 @@ impl Actor {
 
     /// The system prompt for this launch (runtime::identity). Reads the
     /// agent's own and its granted folders' AGENTS.md and legacy CLAUDE.md; no side effects.
-    fn identity(&self, ctx: &Ctx, external: &[String]) -> String {
+    #[nolog] // snapshot and return value contain private instruction text
+    fn identity(&self, ctx: &Ctx, external: &[String], startup: &startup::Snapshot) -> String {
         let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
         let lane = if ctx.harness.as_deref() == Some("opencode") {
             prompt::Lane::OpenCode
@@ -1814,7 +1815,7 @@ impl Actor {
         let folders: Vec<PathBuf> = ctx.effective["add_dirs"].as_array().into_iter().flatten()
             .filter(|d| !scope::is_shared(d))
             .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
-        let (own_notes, folder_notes) = startup::standing_notes(&self.startup_inputs(ctx), &ctx.scratch, &folders);
+        let (own_notes, folder_notes) = startup.standing_notes(&ctx.scratch, &folders);
         let skills = crate::rig::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
         prompt::identity(&prompt::Identity {
             name: &ctx.name,
@@ -1862,7 +1863,8 @@ impl Actor {
                 }
             }
         }
-        let base = self.identity(ctx, &external);
+        let startup = startup::snapshot(&self.startup_inputs(ctx));
+        let base = self.identity(ctx, &external, &startup);
         // the org's shared notes as read now, last in the prompt. A CLI keeps
         // the copy it started with: the text stays out of the system prompt
         // part, so another agent's edit never respawns a warm CLI
@@ -1873,7 +1875,7 @@ impl Actor {
         let team_notes: String = ctx.team_notes.iter()
             .map(|(file, label, text)| prompt::team_notes(&file.to_string_lossy(), label, text.as_deref())).collect();
         let notes = format!("{team_notes}{}", prompt::org_notes(&notes_file.to_string_lossy(), ctx.org_notes.as_deref()));
-        let identity = format!("{base}{notes}");
+        let identity = format!("{base}{}{notes}", startup.global_notes);
         let mcp = json!({ "mcpServers": servers });
         let mut allowed: Vec<String> = servers.keys().map(|k| format!("mcp__{k}")).collect();
         if on("bash") {
@@ -1909,7 +1911,7 @@ impl Actor {
                 ("permission_mode", ctx.effective["permission_mode"].as_str().unwrap_or("").to_string()),
                 ("folders", hash(&dirs_print)),
                 ("account", self.account_print(ctx)),
-                ("startup", startup::digest(&self.startup_inputs(ctx))),
+                ("startup", startup.digest),
             ],
             org_notes: Some(hash(&notes)),
         };
@@ -1935,6 +1937,10 @@ impl Actor {
     /// Where this launch's CLI finds its startup instruction files: the same
     /// cwd and homes `claude_spec` and `ensure_codex` start it with.
     fn startup_inputs(&self, ctx: &Ctx) -> startup::Inputs {
+        startup::with_globals(self.native_startup_inputs(ctx))
+    }
+
+    fn native_startup_inputs(&self, ctx: &Ctx) -> startup::Inputs {
         if ctx.harness.as_deref() == Some("opencode") { return startup::Inputs::None; }
         let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
         if codex {
@@ -1951,10 +1957,21 @@ impl Actor {
             return startup::Inputs::Codex { cwd: ctx.scratch.clone(), home };
         }
         if ctx.provider == catalog::GOOGLE {
-            return startup::Inputs::None;
+            return startup::Inputs::Agy { home: crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")) };
         }
         if ctx.provider == catalog::MUSE {
-            return startup::Inputs::Muse { cwd: ctx.scratch.clone() };
+            // Match muse_account_env without creating profile directories or
+            // reading a key. Ambient logins preserve the inherited XDG root.
+            let view = self.engine.accounts.view();
+            let profile = ctx.account.as_deref().and_then(|id| view.get(id)).and_then(|account| {
+                if account.is_apikey() { Some(crate::providers::muse_key_root(&self.engine, &account.id)) }
+                else { account.config_dir.as_ref().map(PathBuf::from) }
+            });
+            let config = profile.map(|root| root.join("config/muse")).unwrap_or_else(|| {
+                super::global_instructions::Roots::current().map(|roots| roots.config.join("muse"))
+                    .unwrap_or_else(|| PathBuf::from(".config/muse"))
+            });
+            return startup::Inputs::Muse { cwd: ctx.scratch.clone(), config };
         }
         let config = if ctx.provider == catalog::OPENROUTER {
             None
