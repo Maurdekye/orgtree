@@ -149,6 +149,19 @@ export default async function (rig) {
     p.check('C: PostgreSQL shut down cleanly', /database system is shut down/.test(after(pgLog, pgFrom)))
     p.check('C: the host removed its attach descriptor', !fs.existsSync(descriptor))
     p.file('boot-host.log', after(hostLog, 0))
+    if (!gone) {
+      // What outlived the launcher (a red run, or a failure) is stopped the asked
+      // way, with the descriptor's token, before the run's cleanup would kill it.
+      const live = readDescriptor() ?? attach
+      const asked = await fetch(`http://127.0.0.1:${live.port}/api/desktop/shutdown`, { method: 'POST', headers: { [TOKEN_HEADER]: live.token }, signal: AbortSignal.timeout(10000) })
+        .then(res => res.status).catch(err => String(err))
+      const pids = [...new Set([attach.hostPid, attach.enginePid, live.hostPid, live.enginePid])]
+      const stopped = await rig.waitFor(() => pids.every(pid => !alive(pid)), { what: 'what C left running to stop when asked', timeout: STOP_WAIT_MS }).catch(() => false)
+      const postmaster = (() => { try { return Number(fs.readFileSync(path.join(rig.data, 'pg', 'cluster', 'data', 'postmaster.pid'), 'utf8').split(/\r?\n/)[0]) || null } catch { return null } })()
+      p.note('C cleanup: asked to stop through the descriptor; whatever is left, the run\'s cleanup kills', {
+        asked, stopped, left: pids.filter(alive), postgres: postmaster && alive(postmaster) ? postmaster : null,
+      })
+    }
   }
 
   // The run's own engine again, so `rig down` ends it the usual way.
