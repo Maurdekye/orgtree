@@ -956,6 +956,38 @@ mod workspace_notes_tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// User 2026-10-15 12:41Z (D2): on Antigravity the user-written notes are their
+    /// own numbered part(s), never sharing a file with the engine's rules, so the
+    /// rules are never truncated by notes growth.
+    #[test]
+    fn agy_notes_start_their_own_numbered_part() {
+        let (root, spec) = fixture();
+        let rules = "R".repeat(9_000);
+        let notes = format!("
+
+[TEAM NOTES - t]
+{}
+[END TEAM NOTES]", "n".repeat(30_000));
+        let identity = format!("{rules}{notes}");
+        write_identity_rules(&spec.cwd, &identity, rules.len()).unwrap();
+        let dir = spec.cwd.join(".agents/rules");
+        let mut paths: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+        paths.sort();
+        let parts: Vec<String> = paths.iter().map(|p| std::fs::read_to_string(p).unwrap()).collect();
+        let bodies: Vec<&str> = parts.iter().map(|s| s.strip_prefix(IDENTITY_RULE_HEADER).unwrap()).collect();
+        assert_eq!(bodies.len(), 3, "one rules part and two notes parts");
+        assert_eq!(bodies[0], rules, "the rules part holds the rules only");
+        assert!(bodies[1].starts_with("
+
+[TEAM NOTES - t]"));
+        assert!(parts.iter().all(|s| s.len() < 24_000));
+        assert_eq!(bodies.concat(), identity);
+        // no notes: one part, and a stale notes part is removed
+        write_identity_rules(&spec.cwd, &rules, rules.len()).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn agy_rule_name_collision_preserves_nonengine_content() {
         let (root, spec) = fixture();
