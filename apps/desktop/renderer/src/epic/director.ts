@@ -235,6 +235,8 @@ class Show implements EpicShow {
   /** where and when the user last pressed, for effects with no subject */
   private pressed: { x: number; y: number; doc: Document; at: number } | null = null
   private cleanups: (() => void)[] = []
+  /** urgent mail's alarm while it sounds: whose mail it is, and how to end it */
+  private alarm: { org: string | null; end: () => void } | null = null
   private ended = false
   private count = 0
   private comboN = 0
@@ -379,6 +381,8 @@ class Show implements EpicShow {
     try { snap = snapshotOrg(tree) } catch { return }
     const prev = this.snaps.get(org)
     this.snaps.set(org, snap)
+    // an urgent mail was read: its alarm stops
+    if (prev && snap.urgent < prev.urgent && this.alarm?.org === org) this.alarm.end()
     const events = diffOrg(prev, snap)
     // a burst of hundreds (a whole subtree moved) is staged as its first few
     for (const ev of events.slice(0, 40)) this.stageEvent(org, ev)
@@ -583,11 +587,43 @@ class Show implements EpicShow {
     this.synth.play(name, { pan, ...opts, pitch, gain: (opts.gain ?? 1) * (SOFT[name] ?? 1) })
   }
 
+  /** URGENT MAIL, the loudest moment in the show (user 2026-10-15: "a massive
+   *  blaring alarm that tints and fades the entire screen", "not excessively
+   *  loud but very attention demanding and obnoxious"): every window this
+   *  show draws in is tinted in slow pulses under a banner, and the klaxon
+   *  and a ping from the inbox sound once a pulse. It ends when the mail is
+   *  read (onTree), when the show stops, when another urgent mail starts its
+   *  own, or by itself after URGENT_MS. */
+  soundAlarm(c: Cue): void {
+    this.alarm?.end()
+    const caption = captionOf(c)
+    const ends = this.theaters().map(t => t.stage.alarm({ period: URGENT_PULSE_MS / 1000, life: URGENT_MS / 1000, caption }).end)
+    let timer = 0
+    const end = () => {
+      this.view.clearTimeout(timer)
+      for (const fn of ends) fn()
+      if (this.alarm === alarm) this.alarm = null
+    }
+    const alarm = { org: c.org, end }
+    this.alarm = alarm
+    let pulses = Math.round(URGENT_MS / URGENT_PULSE_MS)
+    const pulse = () => {
+      if (this.alarm !== alarm) return
+      this.sound('klaxon', c)
+      c.t.stage.ring(c.at.x, c.at.y, { color: RED, radius: 240, width: 8, life: 0.7 })
+      if (--pulses > 0) timer = this.view.setTimeout(pulse, URGENT_PULSE_MS)
+      // the stage's tint fades itself out with its last pulse
+      else timer = this.view.setTimeout(() => { if (this.alarm === alarm) this.alarm = null }, URGENT_PULSE_MS)
+    }
+    pulse()
+  }
+
   /* ── the end ──────────────────────────────────────────────────────── */
 
   stop(opts: { farewell?: boolean; quiet?: boolean } = {}): void {
     if (this.ended) return
     this.ended = true
+    this.alarm?.end()
     if (opts.quiet) { this.synth?.close(); this.synth = null }
     for (const fn of this.cleanups.splice(0)) { try { fn() } catch { /* already gone */ } }
     for (const t of this.theaters()) t.detach()
@@ -607,6 +643,10 @@ class Show implements EpicShow {
 
 /** how long the power-down plays before the stage and the sound are gone */
 export const FAREWELL_MS = 1600
+/** how long urgent mail's alarm sounds at most, and one pulse of it: slow
+ *  enough never to strobe (at least 0.4 s; at most three a second) */
+export const URGENT_MS = 8000
+const URGENT_PULSE_MS = 800
 
 const TWO_ENDED = new Set<Kind>(['zap', 'userSend', 'toUser', 'bark', 'orgInbox', 'audience', 'unaudience'])
 /** events whose card React has not drawn yet when the tree arrives */
@@ -1394,12 +1434,14 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     c.t.stage.word(c.at.x, c.at.y + 46, 'MAIL!', { color: GOLD, size: 34 })
     c.t.stage.burst(c.at.x, c.at.y, { count: 30, colors: [GOLD, '#ffffff'], speed: [60, 240], size: [3, 7], life: [0.5, 1] })
   },
+  // the whole show's loudest moment: the alarm in every window (soundAlarm,
+  // whose banner names the sender), a shake, and a big ! at the inbox; no
+  // rapid flashing (never above three a second)
   urgent: c => {
     const s = c.t.stage
-    c.show.sound('siren', c)
-    for (let i = 0; i < 4; i++) setTimeout(() => s.flash(i % 2 ? '#3b6bff' : RED, 0.22, 0.2), i * 210)
-    s.glyph(c.at.x, c.at.y + 60, '!', { color: RED, size: 110 })
-    tag(c, c.at.y + 140)
+    c.show.soundAlarm(c)
+    s.shake(10, 450)
+    s.glyph(c.at.x, c.at.y + 60, '!', { color: RED, size: 130, life: 2.4 })
   },
 
   /* ── the docket ───────────────────────────────────────────────────── */

@@ -640,6 +640,64 @@ export class Stage {
     })
   }
 
+  /** URGENT MAIL (user 2026-10-15: "a massive blaring alarm that tints and
+   *  fades the entire screen"): the whole window tinted, deepest at its edges
+   *  so the middle stays readable, under a banner. Both rise and fall in
+   *  slow, smooth pulses, one every `period` seconds and never faster than
+   *  0.4 s, so it is never a strobe. It lasts `life` seconds, fading out over
+   *  the last 0.8, or starts fading out at once on `end()`. */
+  alarm(o: { color?: string; period?: number; life?: number; strength?: number; text?: string; caption?: string } = {}): { end(): void } {
+    const color = o.color ?? '#ff2a2a'
+    const period = Math.max(0.4, o.period ?? 0.8)
+    const strength = o.strength ?? 0.34
+    const text = o.text ?? 'URGENT MAIL!'
+    const caption = captionText(o.caption)
+    const FADE = 0.8
+    /** in over 0.2 s, out over the last FADE */
+    const shown = (a: Actor): number => Math.max(0, Math.min(1, a.age / 0.2, (a.life - a.age) / FADE))
+    /** 0 → 1 → 0 once a period, smoothly */
+    const wave = (a: Actor): number => 0.5 - 0.5 * Math.cos((2 * Math.PI * a.age) / period)
+    const tint: Actor = {
+      age: 0, life: o.life ?? 8,
+      draw(g, _k, stage) {
+        const { w, h } = stage.size
+        const edges = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.hypot(w, h) / 2)
+        edges.addColorStop(0, color + '59')
+        edges.addColorStop(1, color)
+        g.globalAlpha = strength * shown(this) * (0.3 + 0.7 * wave(this))
+        g.fillStyle = edges
+        g.fillRect(0, 0, w, h)
+      },
+    }
+    const banner: Actor = {
+      age: 0, life: tint.life, top: true,
+      draw(g, _k, stage) {
+        const { w, h } = stage.size
+        const size = Math.min(84, w / Math.max(7, text.length * 0.62))
+        const beat = wave(this)
+        g.translate(w / 2, h * 0.2)
+        g.scale(1 + 0.06 * beat, 1 + 0.06 * beat)
+        g.globalAlpha = shown(this) * (0.6 + 0.4 * beat)
+        g.font = `900 ${size}px ${IMPACT}`
+        g.textAlign = 'center'
+        g.textBaseline = 'middle'
+        g.shadowColor = color
+        g.shadowBlur = 30
+        g.lineJoin = 'round'
+        g.lineWidth = size * 0.1
+        g.strokeStyle = 'rgba(40,0,0,0.9)'
+        g.strokeText(text, 0, 0)
+        g.fillStyle = '#ffffff'
+        g.fillText(text, 0, 0)
+        g.shadowBlur = 0
+        if (caption) drawCaption(g, caption, size * 0.8, Math.max(14, size * 0.3), '#300000')
+      },
+    }
+    this.add(tint)
+    this.add(banner)
+    return { end: () => { for (const a of [tint, banner]) a.life = Math.min(a.life, a.age + FADE) } }
+  }
+
   /** a column of light from the top of the window down onto a point */
   beam(x: number, y: number, o: { color?: string; width?: number; life?: number } = {}): void {
     const color = o.color ?? '#fff3b0'

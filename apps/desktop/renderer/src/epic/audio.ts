@@ -27,6 +27,8 @@ export type SoundName =
   | 'shimmer' | 'wake' | 'sleep' | 'glass' | 'scribble' | 'blip'
   // the final version's additions (docs/rust-engine/epic-mode-final.md)
   | 'combo' | 'note' | 'confirm' | 'refused' | 'maxed' | 'ping'
+  // urgent mail's alarm, one cycle of it (the director repeats it)
+  | 'klaxon'
 
 export interface PlayOptions {
   /** -1 (left) … 1 (right): where on screen the effect happened */
@@ -409,6 +411,19 @@ const RECIPES: Record<SoundName, Recipe> = {
       tone(k, { f: 520, to: 1450, at: t + i * 0.42, dur: 0.4, peak: 0.2, attack: 0.04 })
     }
     return 0.9
+  },
+  // URGENT MAIL: one 0.8 s cycle of a klaxon, high then low a minor third
+  // apart. Each note is a buzzing square ground against a sawtooth a semitone
+  // below it, under a fast warble: obnoxious by its character, not its
+  // volume, which stays at the siren's (user 2026-10-15: "not excessively
+  // loud but very attention demanding and obnoxious")
+  klaxon: (k, t) => {
+    const harsh: FilterSpec = { type: 'lowpass', f: 3400, q: 0.8 }
+    for (const [at, f] of [[t, 784], [t + 0.4, 659]] as const) {
+      tone(k, { type: 'square', f, at, dur: 0.36, peak: 0.08, attack: 0.012, vib: [11, 16], filter: harsh })
+      tone(k, { type: 'sawtooth', f: f * 0.944, at, dur: 0.36, peak: 0.06, attack: 0.012, vib: [11, 16], filter: harsh })
+    }
+    return 0.8
   },
   // a watchdog firing: woof woof
   bark: (k, t) => {
