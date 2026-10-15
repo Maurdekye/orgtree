@@ -1056,6 +1056,20 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `crate::rig::active`). Never stop the engine by killing its host.
   [decided: coordinator 2026-10-15 11:54Z; verified: `src/install_stop.rs`,
   `tools/boot-engine-task.ps1`; proof `tools/rig/proofs/boot-host-stop.mjs` B/C; decision 80]
+- **Nothing on an engine's startup path may depend on `powershell.exe`.** A
+  desktop-managed engine inherits its desktop's environment, and a desktop
+  started from PowerShell 7 hands on a `PSModulePath` that lists PowerShell 7's
+  modules first. Windows PowerShell 5.1 then cannot load the modules PowerShell
+  7 also ships (`Get-Acl`: "found in the module 'Microsoft.PowerShell.Security',
+  but the module could not be loaded"). The attach descriptor's DACL read-back
+  ran `Get-Acl` that way, so in the v4.3.0 release smoke no managed engine
+  started ("cannot publish managed engine attachment"); it now reads the ACL
+  with `GetNamedSecurityInfoW` (`host::win::verify_restricted`). Use Win32 calls
+  for such checks; a PowerShell child that cannot avoid this needs an explicit
+  Windows PowerShell `PSModulePath`. The desktop's own `verifyDescriptorTrust`
+  still runs `Get-Acl` (docket desktop-can-t-verify-the-engine-descriptor-when-l).
+  [verified 2026-10-15: CI runs 38786926928 and 38794172790, `src/host.rs` tests;
+  details `docs/rust-engine/core-recovery.md`]
 
 
 - Antigravity Claude 5.5 uses separate `agy-sonnet` / `agy-opus` tiers (seats

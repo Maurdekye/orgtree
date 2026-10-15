@@ -205,3 +205,71 @@ Limits:
 - The test's process reading is not elevated, so it leaves out unreadable
   processes that do not name the scratch installation.
 - The boot step's own refusal of unverifiable processes remains.
+
+## Descriptor read-back without PowerShell (2026-10-15)
+
+The v4.3.0 release smoke (CI run 38786926928) failed. The desktop it started
+under the smoke's basic-user token stayed up, but every managed engine it
+started stopped about a second after its PostgreSQL was ready. The desktop's
+recovery then spent its whole budget (one start and three admitted retries) as
+designed. Version 4.2.0 had passed the same smoke because a managed engine did
+not publish a descriptor then.
+
+Diagnostic run 38794172790 (smoke-only changes on `ci-test/orgtree-release`)
+found the cause:
+
+- All four engines exited with code 1 and logged "engine stopped with an error
+  error=cannot publish managed engine attachment".
+- The publication's DACL read-back spawned `powershell.exe` to run `Get-Acl` in
+  the environment the engine inherited. In CI every Orgtree process descends
+  from the step's PowerShell 7, whose `PSModulePath` lists PowerShell 7's
+  module folders first. Windows PowerShell 5.1 then cannot load
+  `Microsoft.PowerShell.Security`: "The 'Get-Acl' command was found in the
+  module 'Microsoft.PowerShell.Security', but the module could not be loaded."
+- The same failure stopped a managed engine started directly as a plain
+  standard user. The token was never the cause: opening the token and the
+  process, the explicit-owner create and the rename all worked.
+
+`host::win::verify_restricted` now reads the owner and DACL with
+`GetNamedSecurityInfoW` and applies the same rule: the owner is the operator,
+and the DACL's allow and deny entries, none inherited, name exactly the
+operator, SYSTEM and Administrators. No child process runs, so the inherited
+environment, a missing or blocked `powershell.exe` and PowerShell's language
+mode no longer matter. The boot host's publication uses the same function. A
+managed engine's fatal error now names the failed step ("cannot publish managed
+engine attachment: <reason>").
+
+Measured (logs in `D:/orgtree-work/tmp/rig-opus/batch-smoke430/logs` and the CI
+runs named here):
+
+- Local, red (`7c6d78c`, the tests with the PowerShell read-back): 2 passed, and
+  `verification_ignores_an_incompatible_powershell_module_path` failed. That
+  test puts a PowerShell 7-style `Microsoft.PowerShell.Security` first in
+  `PSModulePath`; locally it reproduces the CI error string exactly.
+- Local, green (`ad3fbda`): 3 of 3 passed. The read-back took 0.01 s, against
+  3.39 s for the PowerShell one.
+- `cargo clippy --all-targets`: 109 warnings at `ff3fadc` and at the fix,
+  identical. None is on a changed line.
+- CI, red (run 38800365123, the runner's own PowerShell 7 environment): 1
+  passed and 2 failed. Even `protected_descriptor_verifies` failed there, which
+  is the production failure itself. The smoke failed as before.
+- CI, green (run 38800661874, the fix in that same environment): 3 of 3
+  passed. The launch smoke passed: attempt B's desktop stayed up and its engine
+  answered, as in 4.2.0. Its `engine-attach.json` carried exactly
+  `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;<operator>)`. A managed engine started
+  directly answered and published its descriptor both as a plain standard user
+  (owner and operator entry: that user) and under the basic-user token.
+
+Limits:
+
+- No real user's machine was used. That a desktop started from a PowerShell 7
+  prompt passes this environment to its engine is inferred from the CI
+  environment, not observed on a desktop.
+- The smoke's attempt A, Orgtree.exe as the standard user through
+  CreateProcessWithLogonW, still exits with code 1 during Chromium's first
+  startup lines, before any Orgtree code runs. It did the same in 4.2.0.
+- The desktop's own descriptor check (`verifyDescriptorTrust` in
+  `apps/desktop/main/policy.ts`) still runs `Get-Acl` through `powershell.exe`
+  in the desktop's environment. That is the docket item
+  desktop-can-t-verify-the-engine-descriptor-when-l (4.3.1).
+- The Android type-check was not run: every changed line is Windows-only.
