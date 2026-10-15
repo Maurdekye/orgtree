@@ -32,6 +32,12 @@
    • WEIGHT — a medium event shakes the window lightly and blurs its edges,
      a heavy one shakes it and blurs it whole (user 2026-10-15: "more screen
      shake effects and screen blurs"), within the stage's comfort bounds;
+   • LINGER and PROGRESS — what a strike leaves lingers (the stage's
+     residue, and an afterglow where each medium or heavy event happened),
+     and the session's progression (epic/progress.ts: momentum, charge,
+     level, chains) grows the show with the org's activity (user
+     2026-10-15: "more lingering effects that remain on screen for longer",
+     "more progressive idle game mechanics");
    • WHO — impact words carry the agent's name (the Argon and Astra takes);
    • the crystal ice spike (Argon), the summoning portal (Astra, Argon), the
      watchdog radar and ping (Astra, Argon), streamed text played as each
@@ -46,6 +52,7 @@
 import { EpicSynth, type AudioContextCtor, type PlayOptions, type SoundName } from './audio'
 import { Stage, type ComboReading, type Rect } from './stage'
 import { setEpicTaps } from './tap'
+import * as progress from './progress'
 import {
   diffOrg, isInboxEnd, isUserEnd, pulseEvent, snapshotOrg, sparkEvent, streamEvent,
   type EpicEvent, type EventKind, type OrgSnap,
@@ -247,6 +254,8 @@ class Show implements EpicShow {
   private alarm: { org: string | null; notice: string | null; end: () => void } | null = null
   private ended = false
   private count = 0
+  /** the lift of the event being staged (progression), for the little sounds' climb */
+  private lift = 1
   private comboN = 0
   private comboAt = -Infinity
 
@@ -333,6 +342,7 @@ class Show implements EpicShow {
   private theater(view: Window): Theater {
     const doc = view.document
     const stage = new Stage(doc)
+    stage.afterimages = progress.unlocked().includes('afterimages')
     const t: Theater = { view, doc, stage, detach: () => {} }
     t.detach = attachHands(this, t)
     return t
@@ -585,18 +595,53 @@ class Show implements EpicShow {
     const play = PLAYBOOK[c.ev.kind]
     if (!play) return
     this.count++
+    const gain = this.grow(c)
+    if (gain.unlock?.extra === 'afterimages') for (const t of this.theaters()) t.stage.afterimages = true
+    const stage = c.t.stage
+    stage.intensity = 1 + (gain.lift - 1) / 2
+    this.lift = gain.lift
     try { play(c) } catch { /* one effect failing must never break the app */ }
-    try { felt(c) } catch { /* likewise */ }
+    try { felt(c, gain.lift) } catch { /* likewise */ }
+    try { this.extras(c, gain) } catch { /* likewise */ }
+    stage.intensity = 1
+    this.lift = 1
     this.feedCombo(c.ev.kind)
   }
 
+  /** Progression (epic/progress.ts): the event's weight feeds momentum, its
+   *  agent's charge and the session's level. The org's own light events count
+   *  a little, the user's own hands not at all. */
+  private grow(c: Cue): progress.Gain {
+    const kind = c.ev.kind
+    const weight = WEIGHT[kind] ?? (c.org !== null ? 0.15 : 0)
+    const agent = c.ev.node ? `${c.org ?? ''}/${c.ev.node}` : undefined
+    const other = MEETS.has(kind) && c.ev.other ? `${c.org ?? ''}/${c.ev.other}` : undefined
+    return progress.feed(weight, performance.now(), agent, other)
+  }
+
+  /** what progression adds to an event: a crossed tier makes what lingers
+   *  flare, an unlock is announced in the corner, and the extras unlocked so
+   *  far play — embers for a heavy event, an echo ring, the aurora while
+   *  momentum is high (afterimages are the stage's, see `perform`) */
+  private extras(c: Cue, gain: progress.Gain): void {
+    if (gain.tier) for (const t of this.theaters()) t.stage.chain()
+    if (gain.unlock) this.main.stage.toast(`UNLOCKED · ${gain.unlock.label}`)
+    const weight = WEIGHT[c.ev.kind]
+    if (!weight) return
+    const open = progress.unlocked()
+    const s = c.t.stage
+    if (weight >= 2 && open.includes('embers')) s.embers(c.at.x, c.at.y, { count: 8 })
+    if (open.includes('echoes')) s.ring(c.at.x, c.at.y, { color: '#ffffff', radius: 60 + weight * 30, width: 2, life: 0.8, delay: 0.3 })
+    if (open.includes('aurora') && auroraLevel() > 0) for (const t of this.theaters()) t.stage.aurora(auroraLevel)
+  }
+
   /** play a sound, panned to where its picture is; the little frequent
-   *  sounds climb with the combo */
+   *  sounds climb with the combo, and a little more with momentum */
   sound(name: SoundName, c: Cue | null, opts: PlayOptions = {}): void {
     if (!this.synth) return
     const w = c ? (c.t.view.innerWidth || 1) : 1
     const pan = c ? Math.max(-1, Math.min(1, (c.at.x / w) * 2 - 1)) * 0.8 : 0
-    const climb = CLIMB.has(name) ? climbFor(this.combo) : 1
+    const climb = CLIMB.has(name) ? climbFor(this.combo) * 2 ** ((this.lift - 1) / 8) : 1
     const pitch = opts.pitch !== undefined || climb !== 1 ? (opts.pitch ?? rand(0.95, 1.05)) * climb : undefined
     this.synth.play(name, { pan, ...opts, pitch, gain: (opts.gain ?? 1) * (SOFT[name] ?? 1) })
   }
@@ -1789,14 +1834,25 @@ const FEEL = {
   3: { shake: [14, 650], blur: { px: 6, ms: 650 }, glow: { strength: 0.8, life: 16, radius: 130, color: RED } },
 } as const
 
-/** an event's weight, felt in its own window */
-function felt(c: Cue): void {
+/** an event's weight, felt in its own window, harder by progression's `lift`
+ *  (up to half as much again) */
+function felt(c: Cue, lift = 1): void {
   const weight = WEIGHT[c.ev.kind]
   if (!weight) return
   const { shake, blur, glow } = FEEL[weight]
-  c.t.stage.shake(shake[0], shake[1])
-  c.t.stage.blur(blur)
-  c.t.stage.afterglow(c.at.x, c.at.y, glow)
+  const more = 1 + (lift - 1) / 4
+  c.t.stage.shake(shake[0] * more, shake[1])
+  c.t.stage.blur({ ...blur, px: blur.px * more })
+  c.t.stage.afterglow(c.at.x, c.at.y, { ...glow, strength: Math.min(1, glow.strength * more) })
+}
+
+/** two-ended events that bring two agents together: their charges combine */
+const MEETS: ReadonlySet<Kind> = new Set<Kind>(['zap'])
+
+/** the aurora's strength now (0 under AURORA_FROM momentum) */
+function auroraLevel(): number {
+  const m = progress.momentum(performance.now())
+  return m < progress.AURORA_FROM ? 0 : Math.min(1, 0.4 + (m - progress.AURORA_FROM) / 90)
 }
 
 /** the playbook's coverage, for the inventory doc and its test */

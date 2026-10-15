@@ -116,7 +116,7 @@ interface Actor {
   top?: boolean
 }
 
-export type ResidueKind = 'cracks' | 'scorch' | 'embers' | 'frost' | 'floor' | 'afterglow'
+export type ResidueKind = 'cracks' | 'scorch' | 'embers' | 'frost' | 'floor' | 'afterglow' | 'afterimage' | 'aurora'
 
 /** what a strike leaves behind (see LINGER_CAP): an actor aged on the clock */
 interface Residue extends Actor {
@@ -179,6 +179,12 @@ export class Stage {
    *  frame asked for came from it */
   private slowTimer = 0
   private slowly = false
+  /** How much more the show gives for the event being staged (progression's
+   *  lift, 1 to 2; the director sets it around each event): more particles
+   *  within PARTICLE_CAP, residue that lingers longer within LINGER_MAX_S. */
+  intensity = 1
+  /** progression's extra: impact words leave a fading afterimage */
+  afterimages = false
   private rafId = 0
   private last = 0
   private dpr = 1
@@ -585,7 +591,7 @@ export class Stage {
 
   burst(x: number, y: number, o: BurstOptions = {}): void {
     if (this.idle) return
-    const count = Math.ceil((o.count ?? 40) * this.quality)
+    const count = Math.ceil((o.count ?? 40) * this.quality * this.intensity)
     const colors = o.colors ?? ['#ffd34d', '#ff7a1a', '#ffffff']
     const [s0, s1] = o.speed ?? [120, 520]
     const [z0, z1] = o.size ?? [3, 9]
@@ -620,10 +626,11 @@ export class Stage {
     return true
   }
 
-  /** leave residue (see LINGER_CAP): under every effect, aged on the clock */
+  /** leave residue (see LINGER_CAP): under every effect, aged on the clock,
+   *  lingering longer by the event's `intensity` */
   private leave(it: Residue): boolean {
     if (this.idle || this.residue.length >= LINGER_CAP) return false
-    it.life = Math.min(it.life, LINGER_MAX_S)
+    it.life = Math.min(it.life * this.intensity, LINGER_MAX_S)
     this.residue.push(it)
     this.wake()
     return true
@@ -798,6 +805,30 @@ export class Stage {
         if (caption) drawCaption(g, caption, size * 0.82, Math.max(13, size * 0.36), ink)
       },
     })
+    // progression's extra: as the word fades, a faint copy of it swells and
+    // rises, fading over a few seconds
+    if (this.afterimages) {
+      this.leave({
+        kind: 'afterimage', born: performance.now(), age: 0, life: life + 2.6,
+        blend: 'lighter',
+        where: () => ({ x, y }),
+        draw(g, _k, stage) {
+          const t = this.age - life * 0.7
+          if (t <= 0) return
+          const k = Math.min(1, t / (this.life - life * 0.7))
+          const { w } = stage.size
+          g.translate(Math.max(size * 2, Math.min(w - size * 2, x)), Math.max(size, y - 30 - k * 40))
+          g.rotate(tilt)
+          g.scale(1 + k * 0.5, 1 + k * 0.5)
+          g.globalAlpha = 0.3 * (1 - k)
+          g.font = `900 ${size}px ${IMPACT}`
+          g.textAlign = 'center'
+          g.textBaseline = 'middle'
+          g.fillStyle = color
+          g.fillText(text, 0, 0)
+        },
+      })
+    }
   }
 
   /** May a flash or dip whose time has come begin in the frame being drawn?
@@ -1252,7 +1283,7 @@ export class Stage {
       const at = it.where()
       return Math.hypot(at.x - x, at.y - y) < GLOW_MERGE_PX
     })
-    if (near?.boost) { near.boost(strength, life); return }
+    if (near?.boost) { near.boost(strength, life * this.intensity); return }
     const color = o.color ?? '#ffd34d'
     const radius = o.radius ?? 80
     let power = strength
@@ -1309,6 +1340,77 @@ export class Stage {
     })
   }
 
+  /** Progression's chain (a momentum tier crossed): what lingers flares once,
+   *  a quick glow over each of the newest residues, afterglows built up. */
+  chain(): void {
+    if (this.idle) return
+    const stage = this
+    for (const it of this.residue.slice(-24)) {
+      if (it.kind === 'afterglow') it.boost?.(0.25, 0)
+      const { x, y } = it.where()
+      this.add({
+        age: 0, life: 0.6, blend: 'lighter',
+        draw(g, k) {
+          g.globalAlpha = (1 - k) * 0.7
+          const s = 70 * (1 + k)
+          g.drawImage(stage.sprite('#ffd34d'), x - s / 2, y - s / 2, s, s)
+        },
+      })
+    }
+  }
+
+  /** a small note above the combo badge (progression's unlocks): in, held,
+   *  and out within 3 s */
+  toast(text: string): void {
+    this.add({
+      age: 0, life: 3, top: true,
+      draw(g, k, stage) {
+        const b = stage.badge
+        g.globalAlpha = Math.max(0, k < 0.1 ? k / 0.1 : k > 0.8 ? (1 - k) / 0.2 : 1)
+        g.font = `800 11px ${IMPACT}`
+        g.textAlign = 'right'
+        g.textBaseline = 'bottom'
+        g.lineJoin = 'round'
+        g.lineWidth = 3
+        g.strokeStyle = 'rgba(10,12,20,0.9)'
+        g.strokeText(text, b.x + b.w, b.y - 6)
+        g.fillStyle = '#ffd34d'
+        g.fillText(text, b.x + b.w, b.y - 6)
+      },
+    })
+  }
+
+  /** Progression's aurora: soft light along the top and bottom edges,
+   *  drifting through its colours, as strong as `level()` (0 to 1) says. It
+   *  goes when `level()` falls to 0, or LINGER_MAX_S after it was last asked
+   *  for; asking again while one shows keeps that one. */
+  aurora(level: () => number): void {
+    if (this.idle) return
+    const now = performance.now()
+    const showing = this.residue.find(it => it.kind === 'aurora')
+    if (showing) { showing.born = now; showing.age = 0; return }
+    const stage = this
+    this.leave({
+      kind: 'aurora', born: now, age: 0, life: LINGER_MAX_S,
+      blend: 'lighter',
+      where: () => ({ x: stage.width / 2, y: 0 }),
+      step: () => level() > 0,
+      draw(g) {
+        const v = Math.max(0, Math.min(1, level()))
+        const { w, h } = stage.size
+        const band = Math.min(140, h * 0.18)
+        const hue = (performance.now() / 1000 * 12) % 360
+        for (const [from, to, shift] of [[0, band, 0], [h, h - band, 120]] as const) {
+          const grad = g.createLinearGradient(0, from, 0, to)
+          grad.addColorStop(0, `hsla(${(hue + shift) % 360}, 90%, 60%, ${0.22 * v})`)
+          grad.addColorStop(1, `hsla(${(hue + shift + 60) % 360}, 90%, 60%, 0)`)
+          g.fillStyle = grad
+          g.fillRect(0, Math.min(from, to), w, band)
+        }
+      },
+    })
+  }
+
   /** embers drifting up from a point and dying out one by one (5 to 8 s,
    *  each lingering mark at least 5 s) */
   embers(x: number, y: number, o: { count?: number; color?: string } = {}): void {
@@ -1317,13 +1419,16 @@ export class Stage {
       x: x + rand(-22, 22), y: y + rand(-8, 8), vx: rand(-8, 8), vy: rand(-30, -12),
       wob: rand(0, TAU), life: rand(5, 8), size: rand(5, 9),
     }))
+    const last = Math.max(...list.map(e => e.life))
     const stage = this
     this.leave({
-      kind: 'embers', born: performance.now(), age: 0, life: Math.max(...list.map(e => e.life)),
+      kind: 'embers', born: performance.now(), age: 0, life: last,
       blend: 'lighter',
       where: () => ({ x, y }),
       draw(g) {
-        const t = this.age
+        // the embers' own time runs slower when their mark lingers longer
+        // (`intensity`), so they last as long as it does
+        const t = this.age * last / this.life
         for (const e of list) {
           if (t >= e.life) continue
           g.globalAlpha = (1 - t / e.life) * (0.65 + 0.35 * Math.sin(t * 9 + e.wob))
@@ -1461,7 +1566,7 @@ export class Stage {
   /** weather over the whole window: confetti, snow or coins falling */
   rain(kind: 'confetti' | 'snow' | 'coin' | 'glow', o: { count?: number; colors?: string[] } = {}): void {
     if (this.idle) return
-    const count = Math.ceil((o.count ?? 120) * this.quality)
+    const count = Math.ceil((o.count ?? 120) * this.quality * this.intensity)
     const colors = o.colors ?? (kind === 'snow' ? ['#ffffff', '#dff6ff'] : kind === 'coin' ? ['#f5c518'] : CONFETTI)
     for (let i = 0; i < count; i++) {
       const p = this.particle()
