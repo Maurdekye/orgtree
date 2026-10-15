@@ -180,7 +180,7 @@ reaches across the window (user 2026-10-15: "less emphasis on the combo
 progress, keep it diminutive and to the corner"). The frequent little sounds
 (clicks, typing, ticks, tool clacks …) climb up to an octave as the combo
 grows, so a busy organization audibly heats up. When the combo drops, the badge
-fades and the frame loop sleeps again.
+fades, and the frame loop sleeps again once nothing lingers.
 
 **Weight.** Every event has a weight (`WEIGHT` in the director). A medium one
 (turns, mail, questions and the like) shakes the window lightly and blurs its
@@ -192,8 +192,19 @@ no blur. The stage holds every shake, blur, flash and dip to the comfort
 bounds, and under the system's reduced motion nothing shakes or blurs (see
 [More shake and blur, a small corner badge](#more-shake-and-blur-within-comfort-bounds-a-small-corner-badge-2026-10-15)).
 
+**Lingering.** What a strike leaves behind fades slowly where it happened,
+under every other effect: cracks in the glass for 12 s, a meteor's scorch mark
+(14 s) with embers rising from it, frost on a frozen card that follows the card
+and thaws over 20 s, confetti and coins lying along the bottom of the window
+for 14 s, and an afterglow where every medium or heavy event happened (8, 12 or
+16 s by weight; one close to another still showing builds that one up). At most
+48 at a time, none for more than 30 s, and a hidden window leaves none (user
+2026-10-15: "more lingering effects that remain on screen for longer"; see
+[Lingering effects and the loop's slow lane](#lingering-effects-and-the-loops-slow-lane-2026-10-15)).
+
 **Budgets.** At most 2,600 particles and 160 actors per window. One frame loop
-per window, running only while something is alive. A frame over 12 ms thins
+per window, running only while something is alive, and at 15 frames a second
+while only lingering marks or the combo badge are. A frame over 12 ms thins
 the particles born, down to a quarter. A hidden window draws nothing. The
 canvas renders at most 1.5 device pixels per CSS pixel and 2.5 million pixels
 in all. At most 40 voices, with the light, frequent sounds capped at 22; the
@@ -206,8 +217,9 @@ their first four. Any effect that throws is dropped without touching the app.
 
 Sounds are generated (named after their recipe in `audio.ts`). **Name**
 means the agent's name rides under the word. On top of its picture, a medium or
-heavy event shakes and blurs the window by its weight (see **Weight** above);
-a shake named below is the effect's own, and the stronger of the two plays.
+heavy event shakes and blurs the window by its weight (see **Weight** above)
+and leaves an afterglow where it happened (see **Lingering**); a shake named
+below is the effect's own, and the stronger of the two plays.
 
 ### EPIC Mode itself and the combo
 
@@ -229,13 +241,13 @@ a shake named below is the effect's own, and the stronger of the two plays.
 | Move (parent changed) | Vortex where it stood, comet, vortex and **TELEPORTED!** + name where it lands | Teleport bwoop and whoosh (`move`) |
 | Reorder | Streaks | Two quick slides (`reorder`) |
 | Rename (`renamed` pulse) | **RENAMED!** + new name, sparkle | Scribble and chime |
-| **Freeze** (`frozen` pulse or `frozen` set) | **The ice spike**: a crown of crystals erupts from the card, spikes burst out of it and an ice slab frosts over it, snow falls, then the crystals shatter; **FROZEN!** + name, cold flash, shake | Ice crack, crystalline cluster, deep whump (`ice`) |
+| **Freeze** (`frozen` pulse or `frozen` set) | **The ice spike**: a crown of crystals erupts from the card, spikes burst out of it and an ice slab frosts over it, snow falls, then the crystals shatter, leaving frost on the card that thaws over 20 s; **FROZEN!** + name, cold flash, shake | Ice crack, crystalline cluster, deep whump (`ice`) |
 | Usage-limit freeze (`frozen.until`/`limit`, `limit_locked`) | The ice spike with a brown-out flicker and falling sparks, **LIMIT HIT!** + name | Ice and power failing (`powerFail`) |
 | Thaw | Ice shards burst out, warm glow, **THAWED!** + name | Rising glassy arpeggio, melting sweep (`thaw`) |
 | Halt | Three red flashes and rings, 0.36 s apart, **HALTED** + name, shake | Klaxon over a boom (`halt`) |
 | Unhalt | Green flash, beam, **RESUMED!** + name | Power back up into a chord (`resume`) |
 | **Interrupt** (the call, once the engine answered `interrupted`; a killed turn) | **A stop sign slammed down** on the card, its name under it, red shockwave, sparks, hard shake | Brake screech into a metallic impact (`stop`) |
-| Killswitch on / off | Red screen, **ALL STOP**, meteors, cracked glass, biggest shake / green flash, **ALL GO!**, fireworks | Klaxon and explosion / power up and victory fanfare |
+| Killswitch on / off | Red screen, **ALL STOP**, meteors that leave scorch marks and embers, cracked glass that lingers, biggest shake / green flash, **ALL GO!**, fireworks | Klaxon and explosion / power up and victory fanfare |
 
 ### Turns, tools and thought
 
@@ -246,7 +258,7 @@ a shake named below is the effect's own, and the stronger of the two plays.
 | Thinking | Purple motes rising | Shimmer |
 | Writing (streamed text) | Small sparks | **The agent's own pentatonic run**: one plucked note per 240 ms, up and down the scale, each agent from its own degree so writers sound like a chord (`note`), over a pen scratch |
 | Compaction | Grey vortex, then shards, **CRUNCH!** + name | Crusher grinding down (`compact`) |
-| Error (`last_error`) | Cracks, red shards, **ERROR!** + name | Buzzer and breaking glass (`error`) |
+| Error (`last_error`) | Cracks that linger 12 s, red shards, **ERROR!** + name | Buzzer and breaking glass (`error`) |
 | Status report: working / blocked / idle | **ON IT!** / **BLOCKED!** with red shards / **REPORTED IN**, + name | Wake / deflate / chime |
 | Waiting | A big pulsing **…** | Tick |
 | Model or tier / account / effort | Rainbow rings and the tier's name / **NEW ACCOUNT!** and vortex / gear and **EFFORT: HIGH**, + name | Slot reels and a ding / slot reels / clack |
@@ -260,7 +272,7 @@ a shake named below is the effect's own, and the stronger of the two plays.
 | --- | --- | --- |
 | **Message spark** (agent → agent) | **Lightning** from sender to recipient, sparks at both ends, **ZAP!** | Electric arc with crackle (`zap`) |
 | The user sends / mail to the user | Gold comet from the eye, **INCOMING!** / gold lightning to the eye, **FOR YOU!** | Rocket launch / high zap and notice |
-| Org inbox (outside mail) | A meteor strikes the org-inbox tile, **OUTSIDE MAIL!** | Explosion |
+| Org inbox (outside mail) | A meteor strikes the org-inbox tile, leaving a scorch mark with embers rising from it, **OUTSIDE MAIL!** | Explosion |
 | User inbox grew / urgent mail | **MAIL!** at the ask bell / **the alarm**: every window showing the org tinted red, deepest at the edges, in smooth pulses 0.8 s apart under **URGENT MAIL!** + sender, until the mail is read or for 8 s; a giant **!**, shake | Chime / a klaxon and a red ping from the ask bell every pulse (`klaxon`) |
 | Question opened / answered | Giant **?**, lightning from the sky, flash, ring, name / **ANSWERED!** + name, rising sparks | Three brass hits over a timpani roll (`question`) / harp glissando |
 | Document presented | Beam, **TA-DA!** + name, confetti | Two-note brass ta-da |
@@ -754,6 +766,97 @@ late-frame test came from it.
 | Capture (tip) | Passed. Blur, in Charcoal: at the peak of the whole-window blur the middle keeps 0.10 of its sharpness and the inbox bell 0.30; at the peak of the edge blur the bell keeps 0.22 and the middle 0.95; both come back to 1.00, with no blur layer left. The urgent section as before (the corner's redness 71 at a peak in both themes, 21 and 22 at a trough, 0 after the end). 62 PNGs, no console errors |
 | Capture (`0cb2502`) | Failed as expected at the blur section: the stage there has no `blur`, so the fixture's call throws. The 58 shots before it were taken |
 
+### Lingering effects and the loop's slow lane (2026-10-15)
+
+The user asked for "more lingering effects that remain on screen for longer"
+(docket `epic-mode-next-round-more-shake-and-blur-a-small`, part 4). The
+approved plan: marks that last 5 to 30 s under a count cap, and a frame loop
+that runs at about 15 frames a second while only such marks are left and
+sleeps once they are gone.
+
+**What lingers.** The stage keeps a lane of marks of its own (`Stage.leave`),
+drawn under every other effect and aged on the clock, not on frames:
+
+| Mark | Left by | Lasts |
+| --- | --- | --- |
+| Cracks in the glass, fading | Every crack effect (an error, a refused request, a failed action's toast, the kill switch), once its own effect ends | 12 s |
+| A scorch mark, glowing hot at first, with an ember rim | Every meteor, where it lands (outside mail, the kill switch) | 14 s |
+| Embers drifting up from the scorch | The same meteors | 5 to 8 s each |
+| Frost over a card, thawing from the middle out | A freeze or a usage-limit freeze (its ice slab), on the frozen card. It follows the card while the card is on the page, and goes when the card goes | 20 s |
+| Confetti and coins on the floor | Every piece of confetti or coin that reaches the bottom of the window; at most 240 pieces, the oldest giving way | 14 s from the newest piece |
+| An afterglow | Every medium or heavy event, where it happened (`FEEL` in the director): gold, orange or red by weight, and stronger. One closer than 48 px to an afterglow still showing builds that one up and restarts its fade | 8, 12 or 16 s |
+
+At most `LINGER_CAP` (48) marks at a time: past the cap no more are left. None
+lasts more than `LINGER_MAX_S` (30 s) since it was left or last built up. A
+hidden window leaves none, and a window hidden for a while shows only what is
+still within its time when it shows again. `Stage.lingering` lists what
+lingers, for tests and the curious.
+
+**The slow lane.** While only marks or the combo badge are alive, the loop
+draws `SLOW_FPS` (15) frames a second, on a timer in front of
+`requestAnimationFrame`. It waits out the timer and then the display's next
+frame, so it runs a little under 15: 10.5 in the capture, which paints 30
+frames a second. Anything new brings back every display frame at once,
+and the loop sleeps when the marks are gone and the combo has dropped. The
+plan had the badge drawn once while nothing else moves. It runs in the slow
+lane instead, because its bar runs down to the moment the combo drops: 15
+frames a second for the 2.5 s after the last event, and its fade.
+
+**Tests.** `epicmode-linger` (11 tests) takes the stage's time over:
+`clockwork` in `epicmode-fakes` runs `performance.now` and the window's
+`requestAnimationFrame` and `setTimeout` only when the test moves the clock,
+so half a minute takes no real time. It records where each mark lands, frame
+by frame:
+
+- a strike's cracks linger after their own effect, fainter 10 s on, gone by
+  31 s, with the loop asleep and the canvas clear;
+- with only marks left the loop draws 10 to 16 frames a second (25 or more in
+  half a second while a burst lives), and none once they are gone; a new
+  effect brings back every display frame at once;
+- the marks stop growing at a cap of at most 64, and an afterglow asked to last
+  two minutes is gone by 30.5 s;
+- a hidden window leaves none, and marks age on the clock: after a minute with
+  no frames they are gone when the window shows again;
+- confetti and coins that reach the bottom of the window lie there, still 11 s
+  on, gone by 31 s;
+- a frozen card's frost follows the card, thaws, and goes when the card goes;
+- a meteor leaves a scorch mark and embers rising above it, every ember
+  still there 4.8 s on (each lasts at least 5 s);
+- afterglows in one place build up instead of piling up, and a new one
+  restarts the fade;
+- medium and heavy events leave an afterglow at their spot, heavy ones
+  stronger; clicks, typing, tools and scrolling leave none;
+- the corner badge alone keeps the loop in the slow lane until its combo
+  drops.
+
+`epicmode-final`'s frame-loop test for the badge runs on the same clock, since
+the loop now also sleeps between frames on a timer.
+
+The visual capture's lingering section draws on a stage of its own (a fixture
+hook with no director) over the stage scene in Charcoal: frost on a card,
+cracks, a meteor's scorch and embers, an afterglow, and confetti and coins
+falling to the floor. At each place it measures the share of pixels whose
+brightness moved by 8 levels or more against the picture before. 6 s on every
+place must have changed; 13 s on the frost and the floor must still show; 31 s
+on every place must be as before, with nothing left and no frame drawn for a
+second. While only marks are left, the stage must draw 8 to 17 frames a second
+(the capture paints at 30).
+
+Measured at `dcdfac8` with a clean tree, under the machine build lock and a
+4,096 MB kernel job (C:\orgtree-build\epic-final\next3: check, visual,
+visual-before):
+
+| Check | Result |
+| --- | --- |
+| Root typecheck | Exit 0 |
+| Strict renderer configuration | 29 diagnostics at the tip and 29 at `786f727` (clean checkout): none added, none removed, none in EPIC files |
+| Strict test configuration | 830 and 830: none added, none removed; all nine EPIC suites are in the file list |
+| Green (tip) | 84 of 84 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9, urgent 7, comfort 11, linger 11 |
+| Before (`786f727`) | 73 of 84 pass. The eleven that fail are the lingering suite's |
+| Red (`b77512f`) and Opus (`fdd645f`) controls | Not executed: their bundles no longer build (see [Attention and halt flash at most three a second](#attention-and-halt-flash-at-most-three-a-second-2026-10-15)) |
+| Capture (tip) | Passed. Lingering, in Charcoal: 6 s on, the share of pixels changed was 63% at the frost, 2.6% at the cracks, 5.8% at the scorch mark, 71% at the afterglow and 25% along the floor; 13 s on, 21% at the frost and 16% along the floor; 31 s on, none anywhere, nothing left and no frame drawn for a second. While only marks were left the stage drew 10.5 frames a second. 67 PNGs, no console errors |
+| Capture (`786f727`) | Failed as expected at the lingering section: the stage there has no `afterglow` and leaves nothing behind, so the fixture's call throws. The 63 shots before it were taken |
+
 ## Limits
 
 - Synthetic state and transports only: no live organization, provider
@@ -783,6 +886,9 @@ late-frame test came from it.
   the strongest colour shows.
 - Reduced motion is read as each shake, blur, flash or dip starts, so changing
   the system setting takes effect from the next one.
+- Lingering marks stay where they were left in the window: when the canvas
+  pans or zooms, or a list scrolls, the cracks, scorch marks, afterglows and the
+  floor stay put. Only frost follows its card.
 - While a blur layer is up, the app's text under it may switch to greyscale
   antialiasing. During an edge blur, the window's middle (outside the mask)
   measured 0.95 of its sharpness before; the pixels that changed are

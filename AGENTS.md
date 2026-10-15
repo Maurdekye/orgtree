@@ -66,12 +66,15 @@
   (`changes.rs`); read every other agent change from trees. No effect
   celebrates a request the engine refused or did not carry out (the interrupt waits
   for `interrupted: true`), and a 100% usage reading is a reading, never "LIMIT".
-  One stage frame loop that sleeps when idle; the combo badge keeps it awake only
+  One stage frame loop that sleeps when idle; while only lingering marks
+  (`Stage.leave`: at most 48, none past 30 s, aged on the clock) or the combo badge are
+  alive it draws 15 frames a second on a timer, and the badge keeps it awake only
   until its combo drops. Sounds are Web Audio synthesis and art is canvas drawing,
   never assets. Check the strict renderer and test configs as well as root: the
   test overlay must clear the inherited `exclude: ["tests"]`.
-  [decided: user 2026-10-14 23:38–23:43Z; verified from source: `epic/*`, `api.ts`,
-  `appfeed.ts`, `changes.rs`, 2026-10-15; branch `epic/final`]
+  [decided: user 2026-10-14 23:38–23:43Z; the lingering marks and the slow lane: user
+  2026-10-15, plan approved by the coordinator; verified from source: `epic/*`, `api.ts`,
+  `appfeed.ts`, `changes.rs`, 2026-10-15; branch `epic/final`; measured: `epicmode-linger`]
 
 - Claude usage 429s retain quiet last-good bars only while younger than 900 s
   and the remaining wait is at most 60 s. Otherwise use the existing unavailable
