@@ -56,12 +56,19 @@ export default async function (rig) {
   const ask3 = await aud('alice', { action: 'request', target: 'user', reason: 'proof: alice wants to ask the user' })
   const pending = rig.sql(`SELECT requester, target, status FROM ot.audience_requests WHERE requester = 'alice' ORDER BY id DESC LIMIT 1`)[0]
   const ug = await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: 'alice', reason: 'proof: granted' })
+  const resolved = rig.sql(`SELECT requester, target, status FROM ot.audience_requests WHERE requester = 'alice' ORDER BY id DESC LIMIT 1`)[0]
   const toUser = await write('alice', 'user', 'alice to the user')
   const q = await rig.tool('alice', 'orgtree_ask', { question: 'May I proceed?', options: ['Yes', 'No'] })
   const card = rig.one(`SELECT status FROM ot.asks WHERE agent_id = ${id('alice')} ORDER BY id DESC LIMIT 1`)
   p.check('alice asks the user for an audience; once granted she writes to the user and her question is a card on the user\'s desk',
-    ask3.ok && pending?.status === 'pending' && ug && toUser.ok && q.ok && card?.status === 'open' && /user's desk/.test(q.text ?? ''),
-  { pending, toUser: toUser.ok || toUser.text, ask: q.text?.slice(0, 100), card })
+    ask3.ok && pending?.status === 'pending' && ug && resolved?.status === 'granted' && toUser.ok && q.ok && card?.status === 'open' && /user's desk/.test(q.text ?? ''),
+  { pending, resolved, toUser: toUser.ok || toUser.text, ask: q.text?.slice(0, 100), card })
+  const queued = rig.one(`SELECT uid, state FROM ot.mail WHERE sender = 'alice' AND recipient_kind = 'user' AND body = 'alice to the user' ORDER BY id DESC LIMIT 1`)
+  const revoked = await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'revoke', node: 'alice', target: 'user' })
+  const retained = queued && rig.one(`SELECT uid, state FROM ot.mail WHERE uid = '${queued.uid}'`)
+  p.check('revoking the user audience preserves mail already queued for the user',
+    !!revoked && queued?.state === 'pending' && retained?.uid === queued.uid && retained?.state === queued.state,
+  { queued, retained })
 
   p.keep(rig, { agents: ['bob', 'carol', 'alice'], grep: /audience/i })
   return p.summary()
