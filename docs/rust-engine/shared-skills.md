@@ -131,7 +131,7 @@ node tools/rig/rig.mjs run tools/rig/proofs/skills-delivery.mjs
 node tools/rig/rig.mjs run tools/rig/proofs/skills-idle.mjs
 ```
 
-There are six focused unit cases. Import proof: nine checks, expected predecessor
+There are eight focused unit cases (six original cases plus two export-link controls). Import proof: nine checks, expected predecessor
 red six failures/three passes. Delivery proof: eighteen checks, expected predecessor
 red seventeen failures/one pass. The latter inspects all five emitted native
 bindings, resource contents, unchanged paths/bytes, and a refresh during an active
@@ -160,3 +160,19 @@ cover a missing leaf below a linked digest parent, a linked cached workspace
 resource, and a linked immutable snapshot resource. This is boundary validation,
 not a claim of protection against a hostile concurrent filesystem replacement
 between validation and use. Source discovery and collision semantics are unchanged.
+
+## Partial independent receipts (2026-10-15 14:29Z)
+
+Rig measured all eight focused units passing at exact `de6d356` (exit 0).
+The corrected link red `aa084f9` executes both cases and fails at the intended
+workspace/cache assertions (0 passed, 2 failed). The earlier `0aea8af` run failed
+at junction fixture setup and is **not** a semantic red; it remains separately
+recorded. The fixture now normalizes Windows paths and reports command diagnostics.
+
+With the candidate fake CLI and saved `b77512f` engine, import gives 3 passes and
+6 expected feature failures; delivery gives 1 pass and 17 expected feature failures.
+The delivery source-integrity control passes. These are predecessor controls,
+not candidate runtime passes. Candidate runtime delivery/import, idle, renderer,
+and final composed regressions remain pending; no real native-provider invocation
+or model-obedience claim follows from these fixtures. Raw receipts are retained
+under the rig's `batch-shared-skills/logs` evidence directory.
