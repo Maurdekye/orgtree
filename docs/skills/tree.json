@@ -5,15 +5,15 @@
  "counts": {
   "categories": 2,
   "sections": 17,
-  "leaves": 158,
+  "leaves": 160,
   "tools": 41,
-  "total": 177
+  "total": 179
  },
  "leaves_per_writer": {
   "org-sol": 33,
   "comms-sol": 28,
   "runtime-sol": 33,
-  "providers-sol": 28,
+  "providers-sol": 30,
   "skills-docs-sol": 13,
   "rig-opus": 1,
   "orgsettings-sol": 13,
@@ -2649,7 +2649,7 @@
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/modals.tsx:87",
-    "apps/desktop/renderer/src/bulkcompact.tsx:184"
+    "apps/desktop/renderer/src/canvas/bulkcompact.tsx:184"
    ],
    "see_also": [
     "team-shape",
@@ -3161,9 +3161,10 @@
    "covers": [
     "screen:desk-history"
    ],
-   "purpose": "The History tab: retained transcript history.",
+   "purpose": "The History tab: the agent's event history records (event kind, actor, detail, time), not the conversation.",
    "must_cover": [
-    "what is kept"
+    "what kinds of records appear",
+    "difference from the Chat tab"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/desk.tsx:4304"
@@ -3223,7 +3224,7 @@
     "apps/desktop/renderer/src/canvas/mail.tsx:1146",
     "apps/desktop/renderer/src/canvas/mail.tsx:1376",
     "apps/desktop/renderer/src/canvas/mail.tsx:1424",
-    "apps/desktop/renderer/src/transfers.tsx:29"
+    "apps/desktop/renderer/src/canvas/transfers.tsx:29"
    ],
    "see_also": [
     "mail-basics",
@@ -3320,7 +3321,7 @@
     "apps/desktop/renderer/src/canvas/gallery.tsx:325",
     "apps/desktop/renderer/src/canvas/gallery.tsx:670",
     "apps/desktop/renderer/src/canvas/docs.tsx:222",
-    "apps/desktop/renderer/src/download.tsx:37"
+    "apps/desktop/renderer/src/canvas/download.tsx:37"
    ],
    "see_also": [
     "tool-present",
@@ -3878,9 +3879,9 @@
     "each choice"
    ],
    "sources": [
-    "apps/desktop/renderer/src/canvas/themes.tsx:234",
-    "apps/desktop/renderer/src/canvas/contrast.tsx:93",
-    "apps/desktop/renderer/src/canvas/agentcolors.tsx:142"
+    "apps/desktop/renderer/src/themes.tsx:234",
+    "apps/desktop/renderer/src/contrast.tsx:93",
+    "apps/desktop/renderer/src/agentcolors.tsx:142"
    ],
    "see_also": [],
    "writer": "skills-docs-sol",
@@ -4342,7 +4343,7 @@
     "every binding"
    ],
    "sources": [
-    "apps/desktop/renderer/src/shortcutsettings.tsx"
+    "apps/desktop/renderer/src/canvas/shortcutsettings.tsx"
    ],
    "see_also": [
     "toasts-and-undo"
@@ -4439,7 +4440,7 @@
    ],
    "sources": [
     "apps/desktop/renderer/src/App.tsx:3127-3155",
-    "apps/desktop/renderer/src/orgpicture.tsx:63"
+    "apps/desktop/renderer/src/canvas/orgpicture.tsx:63"
    ],
    "see_also": [
     "credits",
@@ -4943,7 +4944,7 @@
     "per-account toggles"
    ],
    "sources": [
-    "apps/desktop/renderer/src/canvas/orgaccounts.tsx:80"
+    "apps/desktop/renderer/src/orgaccounts.tsx:80"
    ],
    "see_also": [
     "account-lanes"
@@ -5484,6 +5485,8 @@
     "harness-muse",
     "openrouter",
     "language-servers",
+    "mcp-servers",
+    "skills-and-instructions",
     "usage-screens"
    ],
    "writer": "providers-sol",
@@ -5888,6 +5891,79 @@
    ]
   },
   {
+   "path": "orgtree-app/providers/mcp-servers",
+   "name": "orgtree-mcp-servers",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "api:mcp-servers/refresh",
+    "screen:mcp-refresh"
+   ],
+   "purpose": "MCP servers: read-only discovery and import from every supported source, the Refresh button, collisions and redaction, and how servers are granted to agents.",
+   "must_cover": [
+    "each discovery source and format",
+    "refresh and caching",
+    "aliases on collision, secret redaction",
+    "grants: link to the tools-tab and hire-defaults leaves, do not restate"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/providers/mcp.rs",
+    "engine/rs/orgtree-engine/src/providers/mod.rs:126",
+    "engine/rs/orgtree-engine/src/http/settings.rs:745",
+    "apps/desktop/renderer/src/canvas/modals.tsx:795",
+    "apps/desktop/renderer/src/api.ts:508"
+   ],
+   "see_also": [
+    "agent-tools-tab",
+    "org-hire-defaults-tools",
+    "skills-and-instructions"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed",
+   "key_sources": [
+    {
+     "key": "api:mcp-servers/refresh",
+     "file": "apps/desktop/renderer/src/api.ts",
+     "needles": [
+      "/api/mcp-servers/refresh"
+     ]
+    }
+   ]
+  },
+  {
+   "path": "orgtree-app/providers/skills-and-instructions",
+   "name": "orgtree-skills-and-instructions",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "concept:shared-skills",
+    "concept:global-instructions"
+   ],
+   "purpose": "Skills and global instructions: built-in Orgtree skills, discovered user skills, global instruction files, how each harness receives them, and why edits change the startup prefix.",
+   "must_cover": [
+    "built-in vs discovered skills and name collisions",
+    "only categories registered; nested pages read by path",
+    "per-harness delivery (common contract once; harness leaves link here)",
+    "global instructions",
+    "snapshot digest and prefix/cache effect"
+   ],
+   "sources": [
+    "agy-astra/skills-share: engine/rs/orgtree-engine/src/providers/skills.rs",
+    "agy-astra/skills-share: engine/rs/orgtree-engine/build.rs",
+    "agy-astra/skills-share: docs/rust-engine/shared-skills.md",
+    "engine/rs/orgtree-engine/src/runtime/identity.rs:145"
+   ],
+   "see_also": [
+    "mcp-servers",
+    "harness-claude-code",
+    "cache-continuity"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
    "path": "orgtree-app/providers/usage-screens",
    "name": "orgtree-usage-screens",
    "level": 3,
@@ -6140,10 +6216,10 @@
    "covers": [
     "surface:hubchat"
    ],
-   "purpose": "Hubchat, the hub's own web page used from the phone.",
+   "purpose": "Hubchat, the human chat client for people and orgs on a mail hub (used from a phone or browser).",
    "must_cover": [
-    "what the user sees",
-    "how it maps to org mail"
+    "what the user sees and can do",
+    "how it maps to org mail and @net: addresses"
    ],
    "sources": [
     "docs/team-setup.md",
