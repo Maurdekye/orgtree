@@ -75,6 +75,13 @@
   A cancelled session query and a refused installer do not latch shutdown.
   [decided: user/coordinator 2026-10-15; verified: `main/index.ts`; contract and
   measured limits: `docs/rust-engine/org-window-reopen.md`]
+- When an Orgtree system, tool, screen, panel or setting changes, update its
+  built-in skill leaf and the [skill-tree manifest](docs/skills/tree.json) in
+  the same landing. Add a leaf for a new public tool or setting and extend
+  the source inventory used by `tests/builtin-skills-coverage.test.mjs` when
+  its UI representation changes. The [tree](docs/skills/TREE.md) assigns
+  each fact one home; registered category descriptions stay short.
+  [decided: user 2026-10-15, built-in skills scope]
 
 - Measuring inside a desk on the canvas: `.space` carries the camera's `scale(view.z)`
   and `.desk-inner` its own `scale(0.13333 × --desk-dpi)`, so `getBoundingClientRect()`
