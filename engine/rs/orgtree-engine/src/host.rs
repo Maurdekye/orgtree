@@ -996,8 +996,14 @@ mod win {
     /// A new file born with an owner-only DACL and no sharing (no instant
     /// exists in which anyone else could open it).
     pub fn create_protected(path: &Path, sid: &str) -> Result<File, String> {
+        create_with_security(path, &format!("O:{sid}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})"))
+    }
+
+    /// A new file born with exactly the security descriptor `sddl` and no sharing.
+    #[logged]
+    pub fn create_with_security(path: &Path, sddl: &str) -> Result<File, String> {
         unsafe {
-            let sddl = wide(&format!("O:{sid}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})"));
+            let sddl = wide(sddl);
             let mut sd: *mut c_void = std::ptr::null_mut();
             if ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()) == 0 {
                 return Err("could not build the descriptor's security".into());
@@ -1135,5 +1141,81 @@ mod win {
         std::fs::symlink_metadata(path)
             .map(|m| m.file_type().is_file() && m.uid().to_string() == uid && m.mode() & 0o077 == 0)
             .unwrap_or(false)
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::win;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("orgtree-descriptor-{tag}-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn protected(dir: &std::path::Path, sid: &str) -> PathBuf {
+        let file = dir.join("engine-attach.tmp");
+        let mut f = win::create_protected(&file, sid).unwrap();
+        f.write_all(b"{}\n").unwrap();
+        file
+    }
+
+    #[test]
+    fn protected_descriptor_verifies() {
+        let dir = scratch("ok");
+        let sid = win::user_sid().unwrap();
+        let file = protected(&dir, &sid);
+        assert!(win::verify_restricted(&file, &sid));
+        // the rule names the operator: any other expected owner is refused
+        assert!(!win::verify_restricted(&file, "S-1-5-18"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn inherited_extra_or_missing_access_is_refused() {
+        let dir = scratch("refused");
+        let sid = win::user_sid().unwrap();
+        // a plain file carries the folder's inherited entries
+        let plain = dir.join("plain.tmp");
+        std::fs::write(&plain, b"{}\n").unwrap();
+        assert!(!win::verify_restricted(&plain, &sid), "inherited entries");
+        let everyone = dir.join("everyone.tmp");
+        drop(win::create_with_security(&everyone, &format!("O:{sid}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})(A;;FR;;;WD)")).unwrap());
+        assert!(!win::verify_restricted(&everyone, &sid), "an extra reader");
+        let narrow = dir.join("narrow.tmp");
+        drop(win::create_with_security(&narrow, &format!("O:{sid}D:P(A;;FA;;;{sid})")).unwrap());
+        assert!(!win::verify_restricted(&narrow, &sid), "a required entry missing");
+        assert!(!win::verify_restricted(&dir.join("absent.tmp"), &sid), "no such file");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// v4.3.0 release smoke (CI run 38786926928): a desktop-managed engine
+    /// inherits its desktop's environment. Started from a PowerShell 7
+    /// environment, whose PSModulePath lists PowerShell 7's modules first,
+    /// Windows PowerShell could not load Get-Acl's module, so a read-back
+    /// through powershell.exe refused every descriptor and no engine started.
+    /// The check must not depend on that environment.
+    #[test]
+    fn verification_ignores_an_incompatible_powershell_module_path() {
+        let dir = scratch("psmodulepath");
+        let module = dir.join("Modules").join("Microsoft.PowerShell.Security");
+        std::fs::create_dir_all(&module).unwrap();
+        // what PowerShell 7's copy of the module looks like to Windows PowerShell 5.1
+        std::fs::write(module.join("Microsoft.PowerShell.Security.psd1"),
+            "@{ GUID = 'a94c8c7e-9810-47c0-b8af-65089c13a35a'; ModuleVersion = '7.0.0.0'; CompatiblePSEditions = @('Core'); \
+             PowerShellVersion = '7.0'; NestedModules = 'Microsoft.PowerShell.Security.dll'; CmdletsToExport = @('Get-Acl', 'Set-Acl') }\r\n").unwrap();
+        let sid = win::user_sid().unwrap();
+        let file = protected(&dir, &sid);
+        let saved = std::env::var_os("PSModulePath");
+        let mut poisoned = dir.join("Modules").into_os_string();
+        if let Some(rest) = &saved { poisoned.push(";"); poisoned.push(rest); }
+        std::env::set_var("PSModulePath", &poisoned);
+        let verified = win::verify_restricted(&file, &sid);
+        match saved { Some(v) => std::env::set_var("PSModulePath", v), None => std::env::remove_var("PSModulePath") }
+        assert!(verified, "a protected descriptor must verify whatever PSModulePath this process inherited");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
