@@ -5,11 +5,31 @@ use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use super::{Error, Result, wire::{MAX_INPUT_BYTES,MAX_PIXELS,MAX_BYTES}};
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Crop { pub x: f64, pub y: f64, pub size: f64 }
 impl Default for Crop { #[nolog] fn default()->Self { Self{x:0.5,y:0.5,size:1.0} } }
 #[derive(Serialize)]
 pub struct Preview { pub data: String, pub width: u32, pub height: u32 }
+pub(crate) static DECODE:tokio::sync::Semaphore=tokio::sync::Semaphore::const_new(1);
+
+/// One decoder slot shared with the human preview/editor. The blocking task
+/// retains its permit even if the tool/HTTP caller is cancelled.
+#[nolog]
+pub(crate) async fn prepare(bytes:Option<Vec<u8>>,crop:Crop)->anyhow::Result<super::wire::PictureRecord> {
+    let permit=DECODE.acquire().await?;
+    tokio::task::spawn_blocking(move || -> Result<_> {
+        let _permit=permit;
+        let revision=super::wire::next_revision(None)?;
+        match bytes {
+            None=>Ok(super::wire::PictureRecord::removed(revision)),
+            Some(bytes)=>{
+                let (png,size)=normalize(&bytes,crop)?;
+                super::wire::from_png(revision,png,size)
+            }
+        }
+    }).await?.map_err(Into::into)
+}
 #[nolog]
 fn invalid()->Error { Error::Invalid("Choose a static PNG, JPEG or WebP up to 5 MiB and 16 megapixels".into()) }
 

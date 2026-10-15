@@ -2,11 +2,14 @@
 //! historical grant; explicit denial is inherited through the scope chain.
 use serde_json::{json, Map, Value};
 
-pub const GROUPS: &[&str] = &["docket", "team", "messaging", "inspection", "watchdogs", "runtime", "user"];
+pub const GROUPS: &[&str] = &["docket", "team", "messaging", "inspection", "watchdogs", "runtime", "user", "logo"];
+/// User 2026-10-15 22:10Z: on by default, as the other tool groups.
+pub const LOGO_DEFAULT: bool = true;
 
 #[nolog]
 pub fn enabled(tools: &Value, group: &str) -> bool {
-    tools.get("orgtree").and_then(|g| g.get(group)).and_then(Value::as_bool).unwrap_or(true)
+    tools.get("orgtree").and_then(|g| g.get(group)).and_then(Value::as_bool)
+        .unwrap_or(if group == "logo" { LOGO_DEFAULT } else { true })
 }
 
 /// Reject misspelled or non-boolean grants at mutation boundaries. A missing
@@ -45,6 +48,7 @@ pub fn intersect(child: &Value, parent: &Value) -> Value {
 pub fn required(name: &str) -> Option<&'static [&'static str]> {
     Some(match name.strip_prefix("orgtree_")? {
         "status" => &[],
+        "org_logo" => &["logo"],
         "work" => &["docket"],
         "staff" => &["docket", "team"],
         "hire" | "rehire" | "retire" | "dissolve" | "move" | "reorder" | "rename" | "reallocate"
@@ -110,5 +114,19 @@ mod tests {
         assert!(!allows(&json!({}), "orgtree_unknown"));
         assert!(!allows(&json!({"orgtree":{"docket":false}}), "orgtree_staff"));
         assert!(!allows(&json!({"orgtree":{"team":false}}), "orgtree_staff"));
+    }
+
+    #[test]
+    fn logo_defaults_on_and_inherits_denials_separately_from_user_and_team() {
+        assert!(LOGO_DEFAULT);
+        assert_eq!(required("orgtree_org_logo"),Some(&["logo"][..]));
+        assert!(allows(&json!({"orgtree":{"user":false,"team":false}}),"orgtree_org_logo"));
+        assert!(!allows(&json!({"orgtree":{"logo":false}}),"orgtree_org_logo"));
+        assert_eq!(intersect(&json!({"orgtree":{"logo":true}}),&json!({"orgtree":{"logo":false}}))["logo"],false);
+        assert!(validate(&json!({"orgtree":{"logo":true}})).is_ok());
+        let mut tools=json!({});
+        grant_requested(&mut tools,"orgtree.logo");
+        assert_eq!(tools["orgtree"]["logo"],true);
+        assert_eq!(schema()["properties"]["logo"]["type"],"boolean");
     }
 }

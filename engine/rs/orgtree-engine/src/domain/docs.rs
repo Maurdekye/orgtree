@@ -34,13 +34,19 @@ pub struct Presenter {
 #[logged]
 pub async fn presenter(engine: &Engine, org: &OrgHandle, agent_id: i64) -> Result<Presenter> {
     let client = engine.db.get().await?;
+    presenter_in(engine, org, agent_id, &**client).await
+}
+
+/// The same folder authority within a caller's mutation transaction.
+#[logged]
+pub(crate) async fn presenter_in<C: tokio_postgres::GenericClient + Sync>(engine: &Engine, org: &OrgHandle, agent_id: i64, client: &C) -> Result<Presenter> {
     let r = client
         .query_one(
             "SELECT a.name, a.scratch_dir, a.scope, o.settings,
                     a.parent_id IS NULL OR EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
                          AND au.grantor = '@user' AND au.revoked_at IS NULL AND NOT au.paused)
-               FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
-            &[&agent_id],
+               FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1 AND a.org_id = $2",
+            &[&agent_id, &org.id],
         )
         .await?;
     let name: String = r.get(0);
@@ -54,13 +60,13 @@ pub async fn presenter(engine: &Engine, org: &OrgHandle, agent_id: i64) -> Resul
            SELECT id, parent_id, scope, 0 AS depth FROM ot.agents WHERE id = $1 AND org_id = $2
            UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1
            FROM ot.agents a JOIN chain c ON a.id = c.parent_id WHERE a.org_id = $2 AND c.depth < 1024)
-         SELECT scope, parent_id FROM chain ORDER BY depth DESC LIMIT 1025",
+         SELECT c.scope, c.parent_id, c.id FROM chain c ORDER BY depth DESC LIMIT 1025",
         &[&agent_id, &org.id]).await?;
     if chain.first().map(|r| r.get::<_, Option<i64>>(1).is_some()).unwrap_or(true) {
         refuse!(Forbidden, "cannot resolve your complete folder authority chain");
     }
     let mut effective = scope::org_ceiling(&settings["dirs"]);
-    for ancestor in chain { effective = scope::clamp(&ancestor.get::<_, Value>(0), &effective); }
+    for ancestor in &chain { effective = scope::clamp(&ancestor.get::<_, Value>(0), &effective); }
     let mut dirs: Vec<String> = Vec::new();
     for d in effective["add_dirs"].as_array().into_iter().flatten() {
         if let Some(p) = d["path"].as_str() {
@@ -71,8 +77,8 @@ pub async fn presenter(engine: &Engine, org: &OrgHandle, agent_id: i64) -> Resul
     // every agent of the org holds its shared notes folder
     dirs.push(engine.cfg.org_notes_dir(&org.slug).to_string_lossy().to_string());
     // and the workspaces of the subtrees it is inside
-    for t in crate::domain::teams::held(engine, &org.slug, agent_id).await? {
-        dirs.push(t.dir.to_string_lossy().to_string());
+    for ancestor in &chain {
+        dirs.push(engine.cfg.teams_dir(&org.slug).join(ancestor.get::<_, i64>(2).to_string()).to_string_lossy().to_string());
     }
     Ok(Presenter { id: agent_id, name, may_present: r.get(4), scratch, dirs })
 }

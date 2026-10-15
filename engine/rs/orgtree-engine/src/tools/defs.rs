@@ -10,6 +10,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_message",
         "orgtree_send_notice",
         "orgtree_status",
+        "orgtree_org_logo",
         "orgtree_transfers", "orgtree_inbox",
         "orgtree_chart",
         "orgtree_state_inspect",
@@ -275,6 +276,20 @@ fn all() -> Vec<Value> {
     vec![
         message,
         notice,
+        tool(
+            "orgtree_org_logo",
+            "Set or remove your organization's Logo immediately. Any agent with the Logo tool group may use it; no user or org-inbox audience is required. Set reads path from your working folder or folders you hold (relative paths start in your working folder). Static PNG/JPEG/WebP only, at most 5 MiB and 16 megapixels. The existing native editor normalizes it to a stripped square PNG at most 512px/256 KiB. Default: largest centred square; optional crop x/y are fractions of available top-left travel (0..1), size is a fraction of the shorter side (0.1..1). Remove restores the orange org-colour letter. Changes are logged with your identity and can be undone/redone in the user's existing history. Publication uses the existing hub path and isolation policy; disconnected hubs converge later. No image bytes are returned.",
+            json!({
+                "action": {"type":"string", "enum":["set","remove"]},
+                "path": {"type":"string", "description":"set: local image file in your folders"},
+                "crop": {"type":"object", "additionalProperties":false, "properties":{
+                    "x":{"type":"number","minimum":0,"maximum":1},
+                    "y":{"type":"number","minimum":0,"maximum":1},
+                    "size":{"type":"number","minimum":0.1,"maximum":1}
+                }, "required":["x","y","size"]}
+            }),
+            &["action"],
+        ),
         tool(
             "orgtree_status",
             "Report your status. Required when you finish ('done') or get stuck ('blocked'): your superior gets \
@@ -547,7 +562,7 @@ fn all() -> Vec<Value> {
                         "kind": { "type": "string", "enum": ["dir", "tool", "mcp", "permission_mode"] },
                         "path": { "type": "string", "description": "dir: the absolute folder path" },
                         "mode": { "type": "string", "description": "dir: ro|rw; permission_mode: the mode" },
-                        "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents", "orgtree.docket", "orgtree.team", "orgtree.messaging", "orgtree.inspection", "orgtree.watchdogs", "orgtree.runtime", "orgtree.user"] },
+                        "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents", "orgtree.docket", "orgtree.team", "orgtree.messaging", "orgtree.inspection", "orgtree.watchdogs", "orgtree.runtime", "orgtree.user", "orgtree.logo"] },
                         "server": { "type": "string", "description": "mcp: the server name" } }, "required": ["kind"] } },
                     "reason": { "type": "string" } }),
             &["items", "reason"],

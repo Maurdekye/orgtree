@@ -9,6 +9,7 @@ pub(crate) use mailtools::typing_peers;
 mod orgview;
 mod treetools;
 mod usage;
+mod logo;
 
 use std::sync::Arc;
 
@@ -176,6 +177,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         }
     }
     match name {
+        "orgtree_org_logo" => logo::run(engine, caller, args).await,
         "orgtree_message" => mailtools::message(engine, caller, args, false).await,
         "orgtree_send_notice" => mailtools::message(engine, caller, args, true).await,
         "orgtree_status" => mailtools::status(engine, caller, args).await,
@@ -237,6 +239,11 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
 #[logged]
 async fn caller_tools(engine: &Engine, caller: &Caller) -> Result<Value> {
     let client = engine.db.get().await?;
+    caller_tools_in(&**client, caller).await
+}
+
+#[logged]
+pub(super) async fn caller_tools_in<C: tokio_postgres::GenericClient + Sync>(client: &C, caller: &Caller) -> Result<Value> {
     let rows = client.query(
         "WITH RECURSIVE chain(id,parent_id,scope,depth) AS (
            SELECT id,parent_id,scope,0 FROM ot.agents WHERE id=$1 AND org_id=$2

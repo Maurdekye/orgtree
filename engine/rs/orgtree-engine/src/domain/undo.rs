@@ -509,10 +509,16 @@ struct Pending {
     rescoped: Vec<i64>,
     /// the org's settings were written back directly
     org_settings: bool,
+    /// A Logo inverse uses the same feed/publication path as an explicit edit.
+    logo: bool,
 }
 
 #[logged]
 async fn publish(engine: &Arc<Engine>, org: &Arc<OrgHandle>, pending: Pending, results: &mut [Value]) {
+    if pending.logo {
+        crate::profile_pictures::published(engine, org.id);
+        tracing::info!(org=org.id, action="restore", "organization Logo changed by undo/redo");
+    }
     for (i, fx) in pending.ops {
         ops::finish(engine, org, fx, &mut results[i]).await;
     }
@@ -851,6 +857,98 @@ async fn default_label(tx: &Transaction<'_>, org: i64, kind: &str, data: &Value)
 
 // ------------------------------------------------------------ undo and redo
 
+/// The user explicitly made agent Logo changes undoable (2026-10-15).
+/// No payload-bearing argument or journal data may enter automatic tracing.
+#[nolog]
+pub(crate) async fn logo(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&crate::runtime::Caller,
+    generation:i32,record:crate::profile_pictures::wire::PictureRecord,source:Option<(&str,&std::path::Path)>)->Result<Value> {
+    record.decoded()?;
+    let mut attempt=0;
+    let out=loop {
+        attempt+=1;
+        match logo_once(engine,org,caller,generation,&record,source).await {
+            Ok(out)=>break out,
+            Err(e) if attempt<4 && ops::retryable(&e)=>{
+                tokio::time::sleep(std::time::Duration::from_millis(20*attempt)).await;
+            }
+            Err(e)=>return Err(e),
+        }
+    };
+    crate::profile_pictures::published(engine,org.id);
+    changed(engine,org);
+    tracing::info!(org=org.id,agent=caller.agent_id,name=%caller.name,
+        action=if record.data.is_some(){"set"}else{"remove"},entry=out["history_entry"]["id"].as_i64(),
+        "organization Logo changed");
+    Ok(out)
+}
+
+#[nolog]
+async fn logo_once(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&crate::runtime::Caller,
+    generation:i32,record:&crate::profile_pictures::wire::PictureRecord,source:Option<(&str,&std::path::Path)>)->Result<Value> {
+    let mut client=engine.db.get().await?;
+    // All picture/scope writers serialize on the org row. Read committed
+    // deliberately sees a scope change that committed while lock_head waited.
+    let tx=client.transaction().await?;
+    lock_head(&tx,org.id).await?;
+    let live=tx.query_opt("SELECT name,generation FROM ot.agents WHERE id=$1 AND org_id=$2 AND state='live'",&[&caller.agent_id,&org.id]).await?;
+    if caller.org_id!=org.id || live.as_ref().is_none_or(|r|r.get::<_,String>(0)!=caller.name || r.get::<_,i32>(1)!=generation) {
+        refuse!(Forbidden,"the calling agent changed or is no longer live in this organization");
+    }
+    if !crate::domain::tool_groups::allows(&crate::tools::caller_tools_in(&*tx,caller).await?,"orgtree_org_logo") {
+        refuse!(Forbidden,"orgtree_org_logo is disabled by your Orgtree tool group scope");
+    }
+    if let Some((raw,path))=source {
+        let presenter=crate::domain::docs::presenter_in(engine,org,caller.agent_id,&*tx).await?;
+        if crate::domain::docs::readable(&presenter,raw)?!=path {
+            refuse!(Forbidden,"Logo source changed while it was being read; retry the edit");
+        }
+    }
+    let before=crate::profile_pictures::load_in(&*tx,org.id).await?;
+    let after=crate::profile_pictures::save_in(&tx,org.id,record.clone(),true).await?;
+    let label=format!("{} Logo: {}",if after.data.is_some(){"Set"}else{"Remove"},caller.name);
+    let label:String=label.chars().take(LABEL_MAX).collect();
+    let data=json!({"agent":caller.agent_id,"generation":generation,"before":before,"after":after});
+    tx.execute("DELETE FROM ot.undo_entries WHERE org_id=$1 AND state='undone'",&[&org.id]).await?;
+    let id:i64=tx.query_one("INSERT INTO ot.undo_entries(org_id,kind,label,data) VALUES($1,'logo',$2,$3) RETURNING id",&[&org.id,&label,&data]).await?.get(0);
+    tx.execute("DELETE FROM ot.undo_entries WHERE org_id=$1 AND id NOT IN (SELECT id FROM ot.undo_entries WHERE org_id=$1 ORDER BY id DESC LIMIT $2)",&[&org.id,&BOUND]).await?;
+    bump(&tx,org.id).await?;
+    tx.commit().await?;
+    Ok(json!({"revision":after.meta.revision,"sha256":after.meta.sha256,"width":after.meta.width,
+        "height":after.meta.height,"bytes":after.meta.bytes,"removed":after.data.is_none(),
+        "history_entry":{"id":id,"kind":"logo","label":label}}))
+}
+
+/// A history replay is a new explicit revision, never a replay of old wire
+/// bytes/revision. Rebind snapshots of that exact restored revision in older
+/// and redoable entries so several consecutive Logo undos/redos remain valid.
+/// An unrelated UI or remote edit has a different revision and cannot pass.
+#[nolog]
+async fn apply_logo(org:&Arc<OrgHandle>,tx:&Transaction<'_>,dir:Dir,data:&Value,pending:&mut Pending)->Result<Value> {
+    use crate::profile_pictures::{self as pictures,wire::PictureRecord};
+    let (from,to)=sides(dir);
+    let expected:Option<PictureRecord>=serde_json::from_value(data[from].clone())?;
+    let current=pictures::load_in(tx,org.id).await?;
+    if current!=expected { refuse!(Conflict,"the organization Logo was changed again since this entry"); }
+    let destination:Option<PictureRecord>=serde_json::from_value(data[to].clone())?;
+    let original=destination.as_ref().map(|p|p.meta.revision.clone());
+    let desired=destination.unwrap_or_else(||PictureRecord::removed(String::new()));
+    let mut desired=desired;
+    // An initially absent record restores to a versioned removal.
+    desired.meta.revision=pictures::wire::next_revision(current.as_ref().map(|p|&p.meta))?;
+    let restored=pictures::save_in(tx,org.id,desired,false).await?;
+    if let Some(original)=original {
+        for side in ["before","after"] {
+            tx.execute("UPDATE ot.undo_entries SET data=jsonb_set(data,ARRAY[$2::text,'revision'],to_jsonb($4::text))
+                WHERE org_id=$1 AND kind='logo' AND state IN ('done','undone') AND data->$2->>'revision'=$3",
+                &[&org.id,&side,&original,&restored.meta.revision]).await?;
+        }
+    }
+    let mut next=data.clone();
+    next[to]=serde_json::to_value(&restored)?;
+    pending.logo=true;
+    Ok(next)
+}
+
 /// `POST …/undo-history/undo|redo {id, confirm?}`.
 #[logged]
 pub async fn step(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64, confirm: Option<&str>) -> Result<Value> {
@@ -956,6 +1054,7 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
         "move" => apply_move(engine, org, &tx, dir, &data, &mut pending).await,
         "hire" => apply_hire(engine, org, &tx, dir, &data, &mut pending).await,
         "retire" => apply_retire(engine, org, &tx, dir, &data, &mut pending).await,
+        "logo" => apply_logo(org, &tx, dir, &data, &mut pending).await,
         _ => apply_retool(engine, org, &tx, dir, &data, &mut pending).await,
     };
     match applied {
