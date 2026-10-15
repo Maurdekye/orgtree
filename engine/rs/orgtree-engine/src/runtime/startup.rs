@@ -413,7 +413,7 @@ mod tests {
         std::fs::write(own.join("CLAUDE.md"), "legacy own notes").unwrap();
         std::fs::write(grant.join("AGENTS.md"), "granted notes").unwrap();
         let inputs = Inputs::Agy { home: root.join("home"), cwd: own.clone() };
-        let notes = standing_notes(&inputs, &own, &[grant.clone()]);
+        let notes = standing_notes(&inputs, &own, std::slice::from_ref(&grant));
         assert_eq!(notes.0.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>(), ["legacy own notes"]);
         assert_eq!(notes.1.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>(), ["granted notes"]);
         let first = digest(&inputs);
