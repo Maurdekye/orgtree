@@ -215,11 +215,13 @@ for (const surface of ['org-work', 'agent-work'] as const) {
     const f = await fixture(t, surface, { items: [item('alpha'),
       item('beta', { status: 'in_progress' }), item('gamma', { status: 'blocked', blocked_reason: 'fixture' })] })
     await choose(f.el.querySelector<HTMLSelectElement>('.docket-group-select')!, 'status')
-    const first = f.root.querySelector('.docket-section')!
-    const toggle = first.querySelector<HTMLButtonElement>('.docket-category-toggle')!
+    const selectedCategory = f.rows().find(row => f.name(row) === 'alpha')?.closest('.docket-section')
+    assert.ok(selectedCategory, 'the selected Open category exists')
+    const toggle = selectedCategory.querySelector<HTMLButtonElement>('.docket-category-toggle')!
     await inAct(async () => { toggle.click(); await flush(6) })
     const names = f.rows().map(f.name)
-    assert.equal(names.includes('alpha'), false, 'first category really folded')
+    assert.equal(names.includes('alpha'), false, 'selected category really folded')
+    assert.equal(names.length, 2, 'other categories remain visible')
     await press(f.root, 'ArrowDown')
     assert.equal(f.selected(), names[0], 'hidden selection restarts at first displayed category')
   })
