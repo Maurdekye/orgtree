@@ -1402,7 +1402,10 @@ mod trim_tests {
     /// The trim lands only together with the library, so a missing manifest is red.
     #[test]
     fn every_skill_pointer_names_a_page_in_the_library() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/skills/tree.json");
+        // ORGTREE_SKILLS_TREE reads another checkout's manifest in place (rig checks
+        // before the library and the trim share a branch)
+        let path = std::env::var_os("ORGTREE_SKILLS_TREE").map(std::path::PathBuf::from).unwrap_or_else(||
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/skills/tree.json"));
         let manifest: Value = serde_json::from_str(&std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("the skill library manifest {} must ship with the trim: {e}", path.display()))).unwrap();
         let names: std::collections::BTreeSet<String> = manifest["nodes"].as_array().unwrap().iter()
