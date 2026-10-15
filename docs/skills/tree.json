@@ -3521,6 +3521,12 @@
       "bridge.setEngineStart"
      ]
     }
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "engine starts"
+    }
    ]
   },
   {

@@ -7,6 +7,8 @@ Up: [orgtree-app-settings](../SKILL.md)
 
 > Source status: independently approved at `23100ea` and integrated on local `rust-engine` at `7b7dd2e`. This guide preserves the approved author's content. Source integration does not establish that an installed build includes it.
 
+The control uses `bridge:setEngineStart`; the installation records its mode as `StartupMode` under `HKLM\SOFTWARE\Orgtree\BootEngine`. This protected engine-mode record differs from the desktop window-restoration preference also called startupMode. Agents explain the choice; the user changes it.
+
 # Engine start mode
 
 Agents run as children of Orgtree's engine, so they normally live where the
