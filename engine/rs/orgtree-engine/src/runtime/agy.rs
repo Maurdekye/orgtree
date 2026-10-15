@@ -641,9 +641,12 @@ mod workspace_notes_tests {
         std::os::unix::fs::symlink(&outside, &link).unwrap();
         #[cfg(windows)]
         {
+            let link_arg = crate::config::strip_verbatim(&link).to_string_lossy().replace('/', "\\");
+            let target_arg = crate::config::strip_verbatim(&outside).to_string_lossy().replace('/', "\\");
             let result = std::process::Command::new("cmd")
-                .args(["/c", "mklink", "/J"]).arg(&link).arg(&outside).output().unwrap();
-            assert!(result.status.success(), "fixture junction creation failed");
+                .args(["/d", "/c", "mklink", "/J"]).arg(&link_arg).arg(&target_arg).output().unwrap();
+            assert!(result.status.success(), "fixture junction creation failed: status={:?}, stdout={}, stderr={}",
+                result.status.code(), String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
         }
         let refused = write_identity_rules(&spec.cwd, &spec.identity).is_err();
         let preserved = std::fs::read(&old_path).ok().as_deref() == Some(old_bytes.as_bytes());
