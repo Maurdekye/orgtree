@@ -1,0 +1,1031 @@
+{
+ "schema": 1,
+ "source_commit": "296deb0",
+ "nodes": [
+  {
+   "path": "orgtree-working/team/tool-hire",
+   "name": "orgtree-tool-hire",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_hire"
+   ],
+   "tool_group": "team",
+   "purpose": "Hire a subordinate or insert a superior: tiers, harnesses, scope, charter, credits.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:460",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"hire\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-rehire",
+   "name": "orgtree-tool-rehire",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_rehire"
+   ],
+   "tool_group": "team",
+   "purpose": "Bring back a retired agent with its context.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:484",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"rehire\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-retire",
+   "name": "orgtree-tool-retire",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_retire"
+   ],
+   "tool_group": "team",
+   "purpose": "Retire an agent below you; what survives retirement.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:495",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"retire\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-dissolve",
+   "name": "orgtree-tool-dissolve",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_dissolve"
+   ],
+   "tool_group": "team",
+   "purpose": "Retire an agent together with its whole team.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:496",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"dissolve\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-retool",
+   "name": "orgtree-tool-retool",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_retool"
+   ],
+   "tool_group": "team",
+   "purpose": "Change an agent's folders, tools, permission mode or charter.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:498",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"retool\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-switch-model",
+   "name": "orgtree-tool-switch-model",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_switch_model"
+   ],
+   "tool_group": "team",
+   "purpose": "Move an agent below you to another tier/model.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:508",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"switch_model\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-move",
+   "name": "orgtree-tool-move",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_move"
+   ],
+   "tool_group": "team",
+   "purpose": "Reparent an agent within your subtree.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:514",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"move\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-rename",
+   "name": "orgtree-tool-rename",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_rename"
+   ],
+   "tool_group": "team",
+   "purpose": "Rename an agent below you.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:521",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"rename\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-reorder",
+   "name": "orgtree-tool-reorder",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_reorder"
+   ],
+   "tool_group": "team",
+   "purpose": "Set a descendant's position among its siblings.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:523",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"reorder\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-reallocate",
+   "name": "orgtree-tool-reallocate",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_reallocate"
+   ],
+   "tool_group": "team",
+   "purpose": "Give credits to or take them from a report.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:531",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"reallocate\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-swap",
+   "name": "orgtree-tool-swap",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_swap"
+   ],
+   "tool_group": "team",
+   "purpose": "Swap the seats of two agents below you.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:732",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"swap\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-self-subjugate",
+   "name": "orgtree-tool-self-subjugate",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_self_subjugate"
+   ],
+   "tool_group": "team",
+   "purpose": "Step down so a descendant takes your seat.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:734",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"self_subjugate\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-list-tiers",
+   "name": "orgtree-tool-list-tiers",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_list_tiers"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Model tiers you can hire on and their seat prices.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:350",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs list_tiers",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/docket/tool-work",
+   "name": "orgtree-tool-work",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_work"
+   ],
+   "tool_group": "docket",
+   "purpose": "The docket tool: every action, its arguments, refusals and retired actions.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:626",
+    "engine/rs/orgtree-engine/src/tools/mod.rs work_tool -> domain/docket.rs",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/docket/tool-staff",
+   "name": "orgtree-tool-staff",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_staff"
+   ],
+   "tool_group": "docket+team",
+   "purpose": "Create/update a docket item and hire or rehire its owner in one call.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:699",
+    "engine/rs/orgtree-engine/src/tools/mod.rs dispatch -> domain/staffing.rs staff",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "org-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/mail/tool-message",
+   "name": "orgtree-tool-message",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_message"
+   ],
+   "tool_group": "messaging",
+   "purpose": "Send mail: recipients, kinds, questions/options, attachments, urgent, replies; flat Antigravity variant.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:170",
+    "engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,false)",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/mail/tool-send-notice",
+   "name": "orgtree-tool-send-notice",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_send_notice"
+   ],
+   "tool_group": "messaging",
+   "purpose": "Passive mail that wakes nobody.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:179",
+    "engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,true)",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/mail/tool-inbox",
+   "name": "orgtree-tool-inbox",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_inbox"
+   ],
+   "tool_group": "messaging",
+   "purpose": "Read your own mail: list, fetch, chunk, conversation.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:296",
+    "engine/rs/orgtree-engine/src/tools/mailtools.rs inbox",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/mail/tool-audience",
+   "name": "orgtree-tool-audience",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_audience"
+   ],
+   "tool_group": "messaging",
+   "purpose": "Request, grant, deny, revoke audiences outside the chain of command.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:556",
+    "engine/rs/orgtree-engine/src/tools/mod.rs audience_tool -> domain/audiences.rs",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/mail/tool-transfers",
+   "name": "orgtree-tool-transfers",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_transfers"
+   ],
+   "tool_group": "messaging",
+   "purpose": "Inspect and control attachment transfers.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:290",
+    "engine/rs/orgtree-engine/src/tools/mailtools.rs transfers",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/mail/tool-list-orgs",
+   "name": "orgtree-tool-list-orgs",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_list_orgs"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Other organizations reachable as @org: and @net: addresses.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:351",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs list_orgs",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/user/tool-ask",
+   "name": "orgtree-tool-ask",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_ask"
+   ],
+   "tool_group": "user",
+   "purpose": "Ask the user on a question card (or the superior without a user audience).",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:418",
+    "engine/rs/orgtree-engine/src/tools/mod.rs ask_tool -> domain/asks.rs",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/user/tool-withdraw-ask",
+   "name": "orgtree-tool-withdraw-ask",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_withdraw_ask"
+   ],
+   "tool_group": "user",
+   "purpose": "Withdraw your open question card.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:438",
+    "engine/rs/orgtree-engine/src/tools/mod.rs ask_tool",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/user/tool-present",
+   "name": "orgtree-tool-present",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_present"
+   ],
+   "tool_group": "user",
+   "purpose": "Present a document for the user to read.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:440",
+    "engine/rs/orgtree-engine/src/tools/mod.rs doc_tool -> domain/docs.rs",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/user/tool-send-file",
+   "name": "orgtree-tool-send-file",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_send_file"
+   ],
+   "tool_group": "user",
+   "purpose": "Deliver a file to the user as a download card.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:451",
+    "engine/rs/orgtree-engine/src/tools/mod.rs doc_tool",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/user/tool-request-credits",
+   "name": "orgtree-tool-request-credits",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_request_credits"
+   ],
+   "tool_group": "user",
+   "purpose": "Ask the user for a larger credit grant.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:538",
+    "engine/rs/orgtree-engine/src/tools/mod.rs ask_tool",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/user/tool-request-scope",
+   "name": "orgtree-tool-request-scope",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_request_scope"
+   ],
+   "tool_group": "user",
+   "purpose": "Ask the user for more folders, tools, MCP servers or a permission mode.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:544",
+    "engine/rs/orgtree-engine/src/tools/mod.rs ask_tool",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/runtime/tool-status",
+   "name": "orgtree-tool-status",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_status"
+   ],
+   "tool_group": "none",
+   "purpose": "Report working/done/blocked/idle to your superior; always available.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:279",
+    "engine/rs/orgtree-engine/src/tools/mailtools.rs status",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/runtime/tool-interrupt",
+   "name": "orgtree-tool-interrupt",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_interrupt"
+   ],
+   "tool_group": "runtime",
+   "purpose": "Stop a report's current turn.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:368",
+    "engine/rs/orgtree-engine/src/tools/control.rs interrupt",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/runtime/tool-halt",
+   "name": "orgtree-tool-halt",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_halt"
+   ],
+   "tool_group": "runtime",
+   "purpose": "Halt agents below you.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:374",
+    "engine/rs/orgtree-engine/src/tools/control.rs halt(..,true)",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/runtime/tool-unhalt",
+   "name": "orgtree-tool-unhalt",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_unhalt"
+   ],
+   "tool_group": "runtime",
+   "purpose": "Release halted agents.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:380",
+    "engine/rs/orgtree-engine/src/tools/control.rs halt(..,false)",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/runtime/tool-unstick",
+   "name": "orgtree-tool-unstick",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_unstick"
+   ],
+   "tool_group": "runtime",
+   "purpose": "Release a usage-limit freeze.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:386",
+    "engine/rs/orgtree-engine/src/tools/control.rs unstick",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/runtime/tool-cheap-compact",
+   "name": "orgtree-tool-cheap-compact",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_cheap_compact"
+   ],
+   "tool_group": "team",
+   "purpose": "Restart an agent on a fresh session with a summary; what carries over.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:536",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"cheap_compact\")",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/watchdogs/tool-watchdog",
+   "name": "orgtree-tool-watchdog",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_watchdog"
+   ],
+   "tool_group": "watchdogs",
+   "purpose": "Persistent watchers (file/command/process/stream/activity/event) that mail you.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:573",
+    "engine/rs/orgtree-engine/src/tools/mod.rs dog_tool -> domain/watchdogs.rs",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/inspection/tool-chart",
+   "name": "orgtree-tool-chart",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_chart"
+   ],
+   "tool_group": "inspection",
+   "purpose": "The org chart within your visibility.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:317",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs chart",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/inspection/tool-state-inspect",
+   "name": "orgtree-tool-state-inspect",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_state_inspect"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Structured agent state: folders, tools, permission mode.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:328",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs state_inspect",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/inspection/tool-read-transcript",
+   "name": "orgtree-tool-read-transcript",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_read_transcript"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Read the recent conversation of yourself or a descendant.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:353",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs read_transcript",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/inspection/tool-read-scratch",
+   "name": "orgtree-tool-read-scratch",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_read_scratch"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Browse or read the working folder of yourself or a descendant.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:362",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs read_scratch",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "runtime-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/accounts/tool-usage",
+   "name": "orgtree-tool-usage",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_usage"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Provider usage readings, filters and refresh rules.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:339",
+    "engine/rs/orgtree-engine/src/tools/usage.rs usage",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/accounts/tool-continue-on",
+   "name": "orgtree-tool-continue-on",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_continue_on"
+   ],
+   "tool_group": "runtime",
+   "purpose": "Move a frozen agent to another account of the same provider.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:392",
+    "engine/rs/orgtree-engine/src/tools/control.rs continue_on",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/accounts/tool-account-mark",
+   "name": "orgtree-tool-account-mark",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_account_mark"
+   ],
+   "tool_group": "runtime",
+   "purpose": "Inspect or clear an account's capacity mark.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs:398",
+    "engine/rs/orgtree-engine/src/tools/control.rs account_mark",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "providers-sol",
+   "status": "fixed"
+  }
+ ]
+}
