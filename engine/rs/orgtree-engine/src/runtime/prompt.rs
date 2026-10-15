@@ -53,7 +53,7 @@ fn prefix(s: &str, bytes: usize) -> &str {
 fn reference(m: &Mail, preview: bool) -> Mail {
     let mut out = m.clone();
     let fetch = serde_json::json!({"action":"fetch", "message_ids":[m.uid]});
-    out.body = format!("[MAIL BY REFERENCE ? original body: {} UTF-8 bytes. This is a preview, not the complete message.]\n\
+    out.body = format!("[MAIL BY REFERENCE - original body: {} UTF-8 bytes. This is a preview, not the complete message.]\n\
         Read the complete message and attachment/reply metadata with orgtree_inbox {fetch}. \
         If complete=false, use orgtree_inbox action=chunk with the returned delivery_id, message_id and successive chunk_index values. \
         The stored message is unchanged; this reference counts as delivery.{}",
@@ -296,7 +296,7 @@ mod mail_size_tests {
         let b = batch(&[mail("x".repeat(10_000))], "context", &rels, None, 4096, false).unwrap();
         assert!(b.text.len() <= 4096 && b.text.contains("MAIL BY REFERENCE") && !b.text.contains("[PREVIEW]"));
         assert!(batch(&[mail("x".into())], "oversized context", &rels, None, 1, false).is_err());
-        let b = batch(&[mail("??".repeat(40_000))], "", &rels, None, OTHER_INPUT_BYTES, false).unwrap();
+        let b = batch(&[mail("\u{1f980}".repeat(40_000))], "", &rels, None, OTHER_INPUT_BYTES, false).unwrap();
         assert!(b.text.is_char_boundary(b.text.len()) && b.text.len() <= OTHER_INPUT_BYTES);
         assert!(b.text.chars().count() <= b.text.len());
     }

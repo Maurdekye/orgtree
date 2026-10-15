@@ -442,7 +442,7 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
                 store_roots(srv, &sid, roots);
             }
             let roots = srv.roots.lock().unwrap().clone();
-            srv.log("turn_start", json!({ "turn": turn, "if_busy": p["ifBusy"], "effort": p["reasoningEffort"], "images": images,
+            srv.log("turn_start", json!({ "input_text_bytes":prompt.len(), "mail_reference":prompt.contains("MAIL BY REFERENCE"), "turn": turn, "if_busy": p["ifBusy"], "effort": p["reasoningEffort"], "images": images,
                                           "roots_sent": sent.is_some(), "roots": roots }));
             for (item, wakes) in taken {
                 srv.log("bg_delivered", json!({ "item": item, "into": turn, "how": "into the client's next turn", "wakes": wakes }));

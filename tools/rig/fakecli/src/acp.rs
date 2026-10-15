@@ -93,7 +93,9 @@ pub fn run()->i32 {
                 peer.cancelled.store(false,Ordering::SeqCst);
                 // Secret-free start receipt lets the rig distinguish a new
                 // process from warm reuse and next-turn mail from injection.
+                let prompt=params["prompt"].as_array().into_iter().flatten().filter_map(|v|v["text"].as_str()).collect::<Vec<_>>().join("\n");
                 let observed=json!({"pid":std::process::id(),"session":session,
+                    "input_text_bytes":prompt.len(),"mail_reference":prompt.contains("MAIL BY REFERENCE"),
                     "home":std::env::var("HOME").unwrap_or_default(),
                     "model":config["model"],
                     "skills":config["skills"],
