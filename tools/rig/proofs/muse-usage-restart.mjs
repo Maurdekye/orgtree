@@ -61,6 +61,10 @@ export default async function (rig) {
     && expired.percent === null && expired.is_active === null && Date.parse(expired.resets_at) < Date.now(), expired)
   p.check('registered account survives independently with its original age', secondary.available === true
     && secondary.observed_at === secondaryObserved && secondary.limits?.find(w => w.group === 'window')?.percent === 83, secondary)
+  // Discovery establishes the native Muse lane's visibility after restart.
+  // An immediate call before discovery tests admission, not cache staleness.
+  await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find(x => x.id === 'muse' && x.muse?.catalog),
+    { what: 'fake Muse rediscovery', timeout: 60000 })
   const board = await rig.tool('rhea', 'orgtree_usage', { accounts: ['muse/primary', id] })
   const text = JSON.stringify(board)
   p.check('cached tool exposes original dates and stale freshness', text.includes(observed) && text.includes(secondaryObserved)
