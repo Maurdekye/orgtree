@@ -1,0 +1,49 @@
+---
+name: orgtree-tool-inbox
+description: Recall your own correspondence and read waiting or historical Orgtree mail with bounded pages and chunk continuations.
+---
+
+Up: [orgtree-mail](../SKILL.md)
+
+# orgtree_inbox
+
+Use to recover your own mail context, especially after a fresh session or compaction and before replying to a correspondent. This is not another agent's mailbox reader. Required tool group: `messaging`, through the ancestor chain; top-level agents have the same own-mail boundary.
+
+## Actions and parameters
+
+`action` is required. Each action accepts only its listed fields; a `node`, `agent`, `org` or `mailbox` argument is refused.
+
+| Action | Fields and defaults | Returned content |
+| --- | --- | --- |
+| `list` | Optional `limit`, default 50, clamped to 1–200; optional `cursor`. | Your pending/delivering mail in ID order, with IDs, sender, kind, time, state, notice flag and previews. |
+| `conversation` | Required `peer`; optional `limit`, default 20, clamped to 1–100; optional `cursor`. | Both directions with one correspondent, newest page first, oldest to newest within that page. Previews only. |
+| `fetch` | Required `message_ids`, one to twenty strings; duplicate IDs collapse. | Mail you received or sent, including your own outside sends; first content chunk plus metadata, attachments and replies. |
+| `chunk` | Required `delivery_id`, `message_id`, zero-based nonnegative `chunk_index`. | One content chunk from the immutable fetched message. |
+
+`peer` accepts an agent name, `user`, `@org:<slug>` or `@net:<address>`. Historical agent mail can remain readable after retirement/deletion. You cannot select yourself as the correspondent. Bare outside-name resolution follows [mail routing](../tool-message/SKILL.md); prefer explicit prefixes to avoid ambiguity.
+
+Minimal recall call:
+
+```json
+{"action":"conversation","peer":"coordinator"}
+```
+
+Use the returned message IDs for `fetch`, then use fetched handles for `chunk`; do not invent a handle or substitute a transfer ID.
+
+## Paging and long bodies
+
+`list` and `conversation` return `has_more` and `next_cursor`. Pass that exact cursor to the same action/peer for the next page. Conversation cursors page backward to older mail. A cursor is scoped to your identity; it is not an offset or a reusable cross-agent token.
+
+Conversation previews stop at 500 characters, and a page has a 16,000-character preview budget, which can shorten it below the requested count. A `cut` marker means the message needs fetch for full context. Follow cursors until the range needed for the task is covered; do not infer missing history from a single page.
+
+Fetch serves at most 256 KiB of content per response. Inspect `not_found` and `deferred_ids`; deferred entries can be fetched separately. Bodies are split at UTF-8 boundaries into chunks of at most 64 KiB. The result carries `body_bytes`, `body_sha256`, `chunk_index`, `chunk_total`, `chunk_sha256`, `content`, `content_state`, `complete`, and the `delivery_id` continuation handle. Concatenate content in chunk-index order to reconstruct the body. More than one chunk means the first fetch is not the whole text.
+
+The handle binds your agent, message and body digest. It is valid across restart while that immutable mail remains available. Wrong handles, out-of-range indices, malformed/foreign cursors and inaccessible IDs refuse or appear in the response's missing list; do not retry with guessed identities.
+
+## Delivery and outside-mail policy
+
+Manual reads do not change normal automatic delivery. Received pending/delivering mail reports `will_redeliver` and explains that waiting mail still follows the normal envelope. A fetched sent row's state belongs to its recipient, not to you. Fetching it does not send a receipt on their behalf.
+
+Disabling the organization's outside inbox hides its outside history/related copies from these reads; it does not erase them. Re-enabling can restore access. Same-org mail remains separate. Reading an old external body does not reinstate a removed sender-authority note.
+
+Use fetched IDs with [orgtree_message](../tool-message/SKILL.md) for replies. Do not resend a request merely because the inbox read left it pending, and do not claim a manual read proves provider consumption or human acceptance.
