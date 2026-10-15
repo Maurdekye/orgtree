@@ -282,7 +282,9 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     }
   }
   return (
-    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}>
+    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}
+      data-panel-draft={busy || drafts.some(d => d.q.sel.length > 0 || d.q.text.length > 0
+        || d.q.skip || d.credits.mode !== null || d.scope !== null) || undefined}>
       <AskHead
         label={`${tabs.length} request${tabs.length === 1 ? '' : 's'}`}
         node={ask.node} busy={busy}
@@ -620,7 +622,8 @@ function QuestionAsk({ ask, slug, toast }: {
     }
   }
   return (
-    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}>
+    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}
+      data-panel-draft={busy || drafts.some(d => d.sel.length > 0 || d.text.length > 0) || undefined}>
       <AskHead
         label={batch ? `${qs.length} questions` : (q.header || 'Question')}
         node={ask.node} busy={busy}
@@ -766,7 +769,8 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
   }
   return (
-    <div ref={visibilityRef} className="askcard credit" tabIndex={-1} onKeyDown={onKey}>
+    <div ref={visibilityRef} className="askcard credit" tabIndex={-1} onKeyDown={onKey}
+      data-panel-draft={busy || g !== askedG || undefined}>
       <AskHead label="Credit request" node={ask.node} busy={busy}
         closeTitle="deny the request" onClose={() => decide('deny')} />
       {/* EVERYTHING sits beside the bar (user ruling 2026-08-05) — the bar

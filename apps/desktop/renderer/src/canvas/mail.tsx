@@ -975,7 +975,9 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         </div>
       )}
       <StagingRows staging={staging} />
-      <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '')}>
+      <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '')}
+        data-panel-draft={draft.length > 0 || attached.length > 0 || staging.rows.length > 0
+          || sendState?.state === 'sending' || undefined}>
         {/* the composer's left column, exactly as the desk composer builds it
             (b38d9d9): the notice toggle ABOVE the attach button, both in the
             same `.cc-btnstack`, the stack's bottom on the composer baseline.

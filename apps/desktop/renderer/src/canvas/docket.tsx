@@ -25,6 +25,7 @@
 import { beginOpen, useOpenCommit } from '../opentiming'
 import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useDocketWindow } from './docketwindow'
+import { usePanelSteps } from './panelsteps'
 import { usePendingAttention } from '../pending-attention'
 import { askSubmitted, useSubmittedAsks } from '../asksubmitted'
 import { dismissAttention, flaggedNow, manualNow, useDismissedAttention } from '../attndismiss'
@@ -1376,7 +1377,9 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     rows: nestRows(section.items, searching ? NO_FOLD : collapsed),
     folded: Boolean(section.heading && !searching && collapsedCategories.has(section.key)),
   })), [sections, searching, collapsed, collapsedCategories])
-  const rowWindow = useDocketWindow(windowSections, flash)
+  const steps = usePanelSteps(windowSections.filter(section => !section.folded)
+    .flatMap(section => section.rows.map(row => row.item.slug)), selId, setSelId, '.docket-row')
+  const rowWindow = useDocketWindow(windowSections, steps.reveal ?? flash)
   const ageTick = Math.floor(Date.now() / 60_000)
 
   /** The FIRST ROW ACTUALLY ON SCREEN — what Enter in the search box opens.
@@ -1478,7 +1481,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                   </div>
                 : <div className="dim pad">no work items yet</div>
               : (
-                <div className="mailer">
+                <div className="mailer" tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown}>
                   <div className="mailer-list" ref={rowWindow.ref} onScroll={e => {
                     rowWindow.onScroll()
                     const box = e.currentTarget
@@ -1888,6 +1891,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
     rows: nestRows(section.items, searching ? NO_FOLD : collapsed),
     folded: Boolean(section.heading && !searching && collapsedCategories.has(section.key)),
   })), [sections, searching, collapsed, collapsedCategories])
+  const steps = usePanelSteps(windowSections.filter(section => !section.folded)
+    .flatMap(section => section.rows.map(row => row.item.slug)), selId, setSelId, '.docket-row')
   const rowWindow = useDocketWindow(windowSections, selId)
   useEffect(() => { paging?.setFilter?.({ query, sort: sortMode }) }, [query, sortMode, paging?.setFilter])
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -1926,7 +1931,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
               </>}
             </div>
           : (
-            <div className="mailer">
+            <div className="mailer" tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown}>
               <div className="mailer-list" ref={rowWindow.ref} onScroll={e => {
                 rowWindow.onScroll()
                 const box=e.currentTarget

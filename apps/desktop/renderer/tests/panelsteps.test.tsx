@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { AgentDocketView, buildNodeFacts, DocketModal } from '../src/canvas/docket'
 import type { DocRow } from '../src/api'
-import type { TreePayload, WorkItem } from '../src/types'
+import type { AskInfo, TreePayload, WorkItem } from '../src/types'
 
 type Surface = 'org-docs' | 'agent-docs' | 'org-work' | 'agent-work'
 const surfaces: Surface[] = ['org-docs', 'agent-docs', 'org-work', 'agent-work']
@@ -29,7 +29,7 @@ const item = (slug: string, extra: Partial<WorkItem> = {}): WorkItem => ({
 } as WorkItem)
 let sequence = 0
 async function fixture(t: TestContext, surface: Surface, options: {
-  blank?: boolean; foreign?: boolean; docs?: DocRow[]; items?: WorkItem[]
+  blank?: boolean; foreign?: boolean; docs?: DocRow[]; items?: WorkItem[]; asks?: AskInfo[]
 } = {}) {
   useFakeClock()
   const previous = globalThis.fetch
@@ -81,7 +81,7 @@ async function fixture(t: TestContext, surface: Surface, options: {
       ? <AgentGalleryView slug={slug} nid="worker" toast={noop} initialDocument={blank} />
       : surface === 'org-work'
         ? <DocketModal slug={slug} close={noop} toast={noop} jumpTo={blank}
-            tree={{ slug, name: slug, roots: [], asks: [], epoch: 1, rev: 1 } as unknown as TreePayload} />
+            tree={{ slug, name: slug, roots: [], asks: options.asks ?? [], epoch: 1, rev: 1 } as unknown as TreePayload} />
         : <AgentDocketView slug={slug} nid="worker" mine={items} facts={buildNodeFacts([])}
             toast={noop} onFocusAgent={noop} refs={{ world: { org: slug }, onOpen: noop }} />
   let unmount: (() => Promise<void>) | undefined
@@ -189,7 +189,45 @@ for (const surface of surfaces) {
     assert.equal(f.selected(), 'alpha')
     assert.equal(f.root.querySelector<HTMLTextAreaElement>('.mailer-read textarea')?.value, 'Keep this unfinished reply')
   })
+  test(`${surface}: clearing a reply draft releases Alt navigation`, async t => {
+    const f = await fixture(t, surface)
+    const box = f.root.querySelector<HTMLTextAreaElement>('.mailer-read textarea')
+    assert.ok(box, 'actual reply editor mounted')
+    await type(box, 'An editable draft')
+    await type(box, '')
+    f.root.focus()
+    await press(f.root, 'ArrowDown')
+    assert.equal(f.selected(), 'beta', 'clearing the draft releases panel navigation')
+  })
 }
+
+for (const batch of [false, true]) test(`org-work: blurred ${batch ? 'inactive batch-tab' : 'question-option'} draft survives navigation`, async t => {
+  const questions = [{ question: 'Choose first', options: [{ label: 'Keep' }, { label: 'Change' }] },
+    { question: 'Choose second', options: [{ label: 'Later' }, { label: 'Now' }] }]
+  const ask: AskInfo = { id: 'panel-question', node: 'worker', status: 'open',
+    at: '2026-10-15T12:00:00Z', ...(batch
+      ? { kind: 'batch', tabs: questions.map((q, index) => ({ ...q, index, kind: 'question' as const })) }
+      : { questions: [questions[0]!] }) }
+  const f = await fixture(t, 'org-work', { asks: [ask], items: [item('alpha', {
+    questions: [{ ask_id: ask.id, node: ask.node, rev: 1, at: ask.at,
+      tabs: [{ index: 0, question: questions[0]!.question }] }],
+  }), item('beta')] })
+  const option = f.root.querySelector<HTMLButtonElement>('.askcard .ask-row')
+  assert.ok(option, 'real question card and selectable option mounted')
+  await inAct(async () => { option.click(); await flush(6) })
+  if (batch) assert.equal(f.root.querySelector('.ask-q')?.textContent, 'Choose second',
+    'the selected answer belongs to a different tab after auto-advance')
+  else assert.equal(f.root.querySelectorAll('.ask-row.on').length, 1)
+  f.root.focus()
+  const event = await press(f.root, 'ArrowDown')
+  assert.equal(f.selected(), 'alpha')
+  assert.equal(event.defaultPrevented, false, 'draft guard leaves the chord unconsumed')
+  if (batch) {
+    const first = f.root.querySelector<HTMLButtonElement>('.ask-tabbtn')!
+    await inAct(async () => { first.click(); await flush(4) })
+  }
+  assert.equal(f.root.querySelector('.ask-row.on .ask-option-label')?.textContent, 'Keep')
+})
 
 for (const surface of ['agent-docs', 'agent-work'] as const) test(`${surface}: detached owner-document events select locally`, async t => {
   const f = await fixture(t, surface, { foreign: true })

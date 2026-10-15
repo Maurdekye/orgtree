@@ -17,7 +17,8 @@ assert.equal(fs.existsSync(out) && fs.readdirSync(out).length > 0, false, 'use a
 const require = createRequire(path.join(deps, 'package.json'))
 const esbuild = require('esbuild')
 const base = '72ea305a4718655c7c0ea123edfe187e97afe393'
-const sources = ['gallery.tsx', 'docket.tsx'].map(file => 'apps/desktop/renderer/src/canvas/' + file)
+const sources = ['gallery.tsx', 'docket.tsx', 'mail.tsx', 'asks.tsx']
+  .map(file => 'apps/desktop/renderer/src/canvas/' + file)
 const controls = new Map(sources.map(file => {
   const result = spawnSync('git', ['show', `${base}:${file}`], { cwd: root, encoding: 'utf8', windowsHide: true })
   assert.equal(result.status, 0, result.stderr)
@@ -34,14 +35,14 @@ try {
     banner: { js: `import {createRequire as __createRequire} from 'node:module'; const require = __createRequire(${JSON.stringify(path.join(deps, 'package.json'))});` },
     plugins: [{ name: 'shared-dependencies-and-exact-base', setup(build) {
       build.onResolve({ filter: /^jsdom$/ }, () => ({ path: pathToFileURL(require.resolve('jsdom')).href, external: true }))
-      if (mode === 'red') build.onLoad({ filter: /[\\/]src[\\/]canvas[\\/](gallery|docket)\.tsx$/ }, args => ({
+      if (mode === 'red') build.onLoad({ filter: /[\\/]src[\\/]canvas[\\/](gallery|docket|mail|asks)\.tsx$/ }, args => ({
         contents: controls.get(path.resolve(args.path).toLowerCase()), loader: 'tsx', resolveDir: path.dirname(args.path),
       }))
     } }],
   })
 } finally { esbuild.stop() }
 console.log(JSON.stringify({ mode, base, sources, suite: 'panelsteps', sourceOnly: true,
-  control: mode === 'red' ? 'exact base gallery and docket with current tests' : 'current source' }))
+  control: mode === 'red' ? 'exact base gallery/docket/mail/asks with current tests' : 'current source' }))
 const result = spawnSync(process.execPath, ['--max-old-space-size=768', '--test', '--test-force-exit',
   '--test-concurrency=1', '--test-timeout=15000', output], { cwd: root, stdio: 'inherit', windowsHide: true })
 if (result.error) throw result.error

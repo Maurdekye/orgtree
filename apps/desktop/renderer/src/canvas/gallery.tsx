@@ -35,6 +35,7 @@ import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from '.
 import { useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
 import { CollapsibleMailer, NARROW_DOCS_WIDTH } from './narrowlist'
+import { usePanelSteps } from './panelsteps'
 import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { resolveRef } from './reflinks'
@@ -421,6 +422,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     setSelId(id)
   }
   const cur = rows?.find((r) => r.id === selId)
+  const steps = usePanelSteps((rows ?? []).map(row => row.id), selId, openDocument, '.doc-gallery-row')
   // ⚠ A DOCUMENT REFERENCING A DOCUMENT STAYS HERE. This panel IS the
   // document reader; sending the reader off to the shell's copy would close
   // the list the reader is part of, to show the same kind of thing somewhere
@@ -483,6 +485,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
               </DocListEmpty>
             : (
                 <CollapsibleMailer collapsible threshold={NARROW_DOCS_WIDTH} listLabel="document list"
+                  tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown}
                   list={
                   <LazyDocList w={w} label="Presented documents">
                     {menu.node}
@@ -759,6 +762,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   // this as the surface's identity; see AgentGalleryModal.
   useEffect(() => { onShown?.(selId) }, [selId, onShown])
   const cur = rows.find((r) => r.id === selId)
+  const steps = usePanelSteps(rows.map(row => row.id), selId, setSelId, '.doc-gallery-row')
   // the row's context menu — the same entries as the org gallery's rows, with
   // this view's own dismiss bookkeeping (the optimistic `dismissed` list)
   const menu = useContextMenu()
@@ -798,6 +802,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
           {w.busy ? 'Loading…' : 'No presented documents.'}</DocListEmpty>
       ) : (
         <CollapsibleMailer collapsible={collapsible} threshold={NARROW_DOCS_WIDTH} listLabel="document list"
+          tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown}
           list={
           <LazyDocList w={w} label={`Presented documents from ${nid}`}>
             {menu.node}
