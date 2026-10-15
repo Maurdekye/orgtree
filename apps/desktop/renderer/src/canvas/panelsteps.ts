@@ -10,8 +10,19 @@ const KEY_OWNER = 'input, textarea, select, .askcard, [contenteditable]:not([con
 export function usePanelSteps(ids: readonly string[], selected: string | null,
   select: (id: string) => void, rowSelector: string) {
   const rootRef = useRef<HTMLDivElement>(null)
+  const opened = useRef(false)
   const [keyboardSelection, setKeyboardSelection] = useState<string | null>(null)
   const pendingScroll = useRef<string | null>(null)
+
+  // Auto-selection does not focus a DOM row. Claim the panel once its list
+  // mounts, so the first chord bubbles here without a click. A child editor
+  // that already took focus keeps it; later polls never reclaim focus.
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root || opened.current) return
+    opened.current = true
+    if (!root.contains(root.ownerDocument.activeElement)) root.focus({ preventScroll: true })
+  })
 
   // Selection may first reveal a row outside a virtualized viewport. Retry
   // after that commit, rather than scrolling the old window's row by index.
