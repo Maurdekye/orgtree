@@ -1,0 +1,34 @@
+---
+name: orgtree-usage-screens
+description: Explain account cards, quota readings, refresh states, history charts and exported observations.
+---
+Up: [orgtree-providers](../SKILL.md)
+
+# Usage and Usage history
+
+Usage is the current account snapshot; Usage history is the recorded timeline. Open them from the Orgtree menu. An org window defaults to its allowed accounts, with the other accounts behind “Show all accounts”; opening from Home is app-wide. That UI choice does not widen agent-tool account access or change recording.
+
+## Usage cards
+
+Cards group accounts by provider, keeping native and registered identities distinct without duplicating native-home rows. Native Claude/Codex/Antigravity/Muse cards show reported bars and observation freshness; OpenRouter cards show each key's spending/cap and account balance. Local servers show local/no-provider-limit and their concurrency cap. API-key accounts use local metering.
+
+Read status/error and observation date with the bars; unavailable is not zero. Structured credential rejection can expose Sign in again. That uses the same native desktop sign-in component as Providers, with terminal-opened versus verified-success distinguished. A provider/network error alone is not evidence that sign-in is required.
+
+Refresh buttons can be pending, disabled by recent attempts/cooldown, or fail while retaining dated old observations. Do not interpret click success as newly measured capacity. The detailed window definitions belong in `orgtree-usage-windows` (orgtree-working › accounts), and agent refresh rules in `orgtree-tool-usage` there.
+
+## Usage history
+
+The initial period is seven days; buttons offer 24 hours, 7, 30 and 90 days. Provider, Account, Window and Model scope filters narrow the displayed series. Each chart is one account/window/model-scope series, grouped by account, with its own percent or monetary units.
+
+Actual retained readings form the line. Missing observations are omitted and neighboring valid points can be connected; they are not zero consumption. Recorded resets break the line and have solid markers. The shaded right-hand future pane contains a dashed, labeled trend projection and dotted reported reset marker. A projection is a fit to recorded points, not a promised exhaustion time.
+
+No-history, no-series-in-period, unavailable-account and no-filter-match states are explicit. The view states retained date bounds/retention and truncation when returned. Changing display filters does not change stored observations.
+
+CSV/JSONL exports on a series save the recorded points supplied for that chart and their metadata, rather than its projection or aggregate statistics. The history response can be downsampled; this is not a promise of a complete raw observation archive. Reading-history refreshes while the window is open; an engine not running cannot backfill provider observations it never recorded.
+
+For sign-in/activation advise [Providers](../providers-tab/SKILL.md) or [account registry](../accounts-registry/SKILL.md) changes only when the actual status supports that diagnosis.
+
+## See also
+
+- See `orgtree-usage-windows` (orgtree-working > accounts).
+- See `orgtree-tool-usage` (orgtree-working > accounts).
