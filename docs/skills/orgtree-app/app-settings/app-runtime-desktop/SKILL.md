@@ -18,11 +18,11 @@ These Runtime-tab controls apply to the desktop installation on this machine. Th
 
 ## Startup and updates
 
-The stored startup key retains the older name startAtLogin. On an all-users Windows installation, the switch controls both the boot engine task and the sign-in credential-helper task, together with the desktop's login entry. The change uses one elevated Windows prompt and records the installer's choice. It disables tasks rather than deleting them. The actual boot-task state wins over a disagreeing saved preference when reconciled.
+The stored startup key retains the older name startAtLogin. On an all-users Windows installation, the switch controls the selected engine task, the sign-in credential-helper task, and the desktop's login entry. Turning it Off disables both engine tasks and the helper without deleting them. A running engine keeps running. Changing the switch uses one elevated Windows prompt and records the installer's choice. The actual engine-task state wins over a disagreeing saved preference when reconciled.
 
 On per-user Windows installs, macOS and Linux, startup uses the applicable login registration. Turning startup Off leaves an engine already running alone; it prevents the next automatic start. It is not an interrupt or shutdown control. A second startup change while the first is pending is refused; wait for the result before advising another attempt.
 
-[orgtree-engine-start-mode](../engine-start-mode/SKILL.md) arrives with the start-mode option and owns the choice of engine start mode. This page's startup description is the landed behavior at its source snapshot; update the two together when that option lands.
+[orgtree-engine-start-mode](../engine-start-mode/SKILL.md) owns the engine-start choice, its default, platform availability, Windows permission prompt and application timing. The separate **engine starts** control appears under **run on startup** on supported all-users Windows installations. It is disabled with an explanation while startup is Off; the stored choice is retained when startup is turned Off and On again.
 
 Automatic updates are disabled when the installation cannot perform an unattended install, for example because it cannot write its installation directory. The hint explains the detected limitation and points to Update now with the Windows prompt. A checked preference alone does not prove an update is available, eligible, installed or running. Update progress and version checks are described in [About](../app-about/SKILL.md).
 

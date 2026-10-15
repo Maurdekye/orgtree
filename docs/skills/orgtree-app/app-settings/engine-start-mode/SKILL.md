@@ -5,7 +5,7 @@ description: How Orgtree's two engine start modes on Windows ("At boot, before s
 
 Up: [orgtree-app-settings](../SKILL.md)
 
-> Arrives with the engine start-mode option. The content below is the feature author’s source-checked guide at `ac62580`; that feature is pending independent verification and is not present in the library’s `72ea305` source base. It is not evidence of availability in an installed build.
+> Source status: independently approved at `23100ea` and integrated on local `rust-engine` at `7b7dd2e`. This guide preserves the approved author's content. Source integration does not establish that an installed build includes it.
 
 # Engine start mode
 

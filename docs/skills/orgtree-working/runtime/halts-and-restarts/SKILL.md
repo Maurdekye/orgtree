@@ -26,7 +26,7 @@ A deliberate or unexpected engine stop can end running provider processes and th
 
 On a restart notice, re-read breadcrumbs, docket and mail, inspect the actual repository/files/process evidence, and decide what remains. Do not rerun a potentially applied mutation solely because its original reply was lost. Report incomplete or uncertain work honestly. An idle informational notice does not itself require an acknowledgement.
 
-No agent tool in this section restarts the whole app or changes its startup configuration. The desktop's restart/recovery surfaces are described in `orgtree-crash-and-restart` (orgtree-app › app-shell); startup mode is described by `orgtree-engine-start-mode` (orgtree-app › app-settings), which arrives with the start-mode option.
+No agent tool in this section restarts the whole app or changes its startup configuration. The desktop's restart/recovery surfaces are described in `orgtree-crash-and-restart` (orgtree-app › app-shell); the landed engine-start choice and its effect on agents are described by `orgtree-engine-start-mode` (orgtree-app › app-settings). Changing that choice leaves the current engine running until an explicit restart or the next automatic start.
 
 ## See also
 
