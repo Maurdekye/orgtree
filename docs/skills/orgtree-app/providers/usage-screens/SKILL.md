@@ -18,6 +18,8 @@ Refresh buttons can be pending, disabled by recent attempts/cooldown, or fail wh
 
 Claude usage-service waits can leave recent bars quietly visible with their original date, or show a dim unavailable card saying `usage updates paused; next retry in N s`. This pause is distinct from a real authentication or refresh error. The exact age/wait thresholds, shared attempt floor and retry timing live in `orgtree-usage-windows` (orgtree-working › accounts). Concurrent desktop refreshes for the same key await the shared result; the agent tool retains its explicit status response rather than the desktop waiting behavior.
 
+Muse Refresh remains visible, dimmed and disabled because Muse supplies observations during/after turns rather than an independent fresh query. At landed source `4447424`, its last-good reading survives engine restarts with the original observation date. After a reported reset, the card shows `reset; awaiting reading` without a percentage bar or badge; the original reset/date remain visible and capacity is unknown. The exact retention/freshness contract lives in `orgtree-usage-windows` (orgtree-working › accounts). Source: `apps/desktop/renderer/src/canvas/accounts.tsx:255`, `apps/desktop/renderer/src/usagerefreshpolicy.ts`, `engine/rs/orgtree-engine/src/usage.rs:638`.
+
 ## Usage history
 
 The initial period is seven days; buttons offer 24 hours, 7, 30 and 90 days. Provider, Account, Window and Model scope filters narrow the displayed series. Each chart is one account/window/model-scope series, grouped by account, with its own percent or monetary units.

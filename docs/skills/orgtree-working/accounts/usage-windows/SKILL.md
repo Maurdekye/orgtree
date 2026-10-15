@@ -30,6 +30,12 @@ Automatic fallback needs positive room in all required windows, not just absence
 
 An account mark is another recorded restriction, independent of the displayed percent. Use [account-mark](../tool-account-mark/SKILL.md) for its provenance and exact pool; clearing it does not create quota.
 
+## Muse retained readings
+
+At landed source `4447424`, Muse last-good normalized readings survive engine restarts per account. Restoration keeps the original observation time and age, supplying no new authentication evidence. A passed-reset Muse window projects percent, active state and severity as unknown while retaining observation/reset times; the board says `reset; awaiting reading`. A reset therefore establishes neither zero usage nor new capacity. Removing the account clears its durable entry. Other providers retain their existing cache/reset behavior. Source: `engine/rs/orgtree-engine/src/usage/muse_cache.rs:36`/`:77`, `usage.rs:627`/`:638`/`:2052`, `domain/account_removal.rs:405`.
+
+This retention does not add an independent fresh Muse query. Cached metadata can remain dated; repeated Refresh cannot manufacture a new measurement. The card presentation belongs in `orgtree-usage-screens` (orgtree-app › providers).
+
 ## Refresh without making work
 
 Use [usage](../tool-usage/SKILL.md) for the complete query schema, bounded pages, auth/scope gates and manual refresh statuses. Cached reads cause no provider probe. Its optional single-account refresh is rate-limited and does not run inference or switch accounts.

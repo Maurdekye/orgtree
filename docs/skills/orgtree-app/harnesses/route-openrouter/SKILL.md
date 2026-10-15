@@ -36,7 +36,7 @@ A harness switch already requires a fresh-session handoff. Manual/automatic chea
 
 ## Instructions and skills
 
-Identity delivery and native rule selection follow the underlying driver. Codex uses a dedicated OpenRouter home; OpenCode uses isolated homes/config and a custom system identity. Claude Code's route retains its own native startup behavior while routing inference to OpenRouter. Do not assume native personal files in a different profile were loaded.
+Identity delivery and native rule selection follow the underlying driver. Codex uses a dedicated OpenRouter home; OpenCode uses isolated homes/config and a custom system identity. Claude Code's route retains its own native startup behavior while routing inference to OpenRouter. At `7f5f27f`, Orgtree supplies the user's personal globals read-only even across isolated profiles, excluding files loaded natively. At `de6d356`, all three drivers also receive shared native skill roots using their own delivery APIs. Skill/instruction changes participate in the combined startup boundary; Refresh does not rewrite a running turn. Source: `runtime/startup.rs:81`; `runtime/actor.rs:620`/`:2301`/`:2653`/`:2827` at `de6d356`.
 
 Common bundle/global sharing is in [skills and instructions](../../providers/skills-and-instructions/SKILL.md), and grants/imports in [MCP servers](../../providers/mcp-servers/SKILL.md). A separate OpenRouter-specific instruction byte/token limit is unknown here; the harness/backend's actual limits still matter.
 

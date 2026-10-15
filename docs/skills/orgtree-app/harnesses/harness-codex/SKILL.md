@@ -38,7 +38,11 @@ Cheap compact preserves durable files/Orgtree records and exports earlier conver
 
 The checked native startup manifest reads the selected Codex home's `AGENTS.md` and the project chain from a `.git` root to cwd; without a root it uses cwd alone. In a project directory `AGENTS.override.md` wins over `AGENTS.md`. Codex does not natively read legacy `CLAUDE.md`; Orgtree supplies otherwise omitted scratch/granted notes. A general native instruction byte/token ceiling is unknown in this source review; do not substitute an Orgtree transcript-preview limit.
 
-Orgtree identity enters `developerInstructions` at thread start/resume. Shared skill roots and foreign global instructions are pending separate integration in the checked base; read the current status in [skills and instructions](../../providers/skills-and-instructions/SKILL.md). Orgtree tools are dynamic `item/tool/call` tools; granted external MCP definitions are private config overrides, documented in [MCP servers](../../providers/mcp-servers/SKILL.md).
+Orgtree identity enters `developerInstructions` at thread start/resume. At `7f5f27f`, personal global instructions from other harnesses and the user's ambient Codex home are supplied read-only where the actual account/profile does not already load them. Canonical native exclusion and text/digest capture use the same startup snapshot. Edits apply at the next permitted startup boundary, preserving the session; they can change the prefix and cache continuity. Source: `runtime/startup.rs:81`, `runtime/global_instructions.rs:143`, `runtime/actor.rs:1866`.
+
+At `de6d356`, the app-server receives the immutable shared `skills` root through `skills/extraRoots/set` before thread start/resume. The checked API is Codex 0.160.0; support in every older binary is unknown, and a root-loading error is explicit. Skill and instruction digests are combined for launch, idle recheck and forecast. Refresh does not mutate an active turn's skills. Source: `runtime/codex.rs:329` native `skills/extraRoots/set` request; `runtime/actor.rs:620`/`:2653` at `de6d356`.
+
+Common discovery and collision rules live in [skills and instructions](../../providers/skills-and-instructions/SKILL.md). Orgtree tools are dynamic `item/tool/call` tools; granted external MCP definitions are private config overrides, documented in [MCP servers](../../providers/mcp-servers/SKILL.md).
 
 ## Tools, permissions and sandbox
 

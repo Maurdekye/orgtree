@@ -42,7 +42,11 @@ The native startup manifest accounts for managed/user `CLAUDE.md`, the project a
 
 The manifest follows imports up to five hops and fingerprints only the native auto-memory prefix of 25 KiB/200 lines. These are the checked startup-reader bounds, not a universal instruction-file limit. A general native maximum for all instruction files is unknown here. Startup edits apply at a subsequent process/turn boundary, not by rewriting an active turn.
 
-Common built-in/user skill discovery, native export status and personal global sharing are owned by [skills and instructions](../../providers/skills-and-instructions/SKILL.md). Orgtree's own tools use its in-process MCP control channel; external definitions/grants use [MCP servers](../../providers/mcp-servers/SKILL.md).
+At `7f5f27f`, personal global instructions are delivered read-only across harnesses, including the user's globals when Claude runs in an isolated account home. One startup snapshot supplies the appended text and digest, excluding canonical files already loaded natively. Edits affect the next permitted startup boundary; an active turn or held process is not rewritten. Added instruction text changes the prefix and can cost cache continuity. Source: `runtime/startup.rs:81`, `runtime/global_instructions.rs:143`, `runtime/actor.rs:1866`.
+
+At `de6d356`, native skill delivery adds an immutable snapshot containing `.claude/skills` through `--add-dir`; generated edit/write denials protect that snapshot. Skill content participates in the combined startup digest. Refresh does not replace an active turn's set; changed content applies at the next permitted launch boundary. Native user watchers can still observe the user's direct edits. Source: `runtime/actor.rs:620`/`:1909`/`:2301` at `de6d356`.
+
+Common discovery, collision rules and loading limits are owned by [skills and instructions](../../providers/skills-and-instructions/SKILL.md). Orgtree's own tools use its in-process MCP control channel; external definitions/grants use [MCP servers](../../providers/mcp-servers/SKILL.md).
 
 ## Tools, permissions and sandbox
 

@@ -36,7 +36,9 @@ When recognized local context-full/failed-summary errors occur, Orgtree can perf
 
 ## Instructions and skills
 
-The selected driver owns identity/native file delivery; the local route supplies dedicated Claude/Codex configuration homes and explicit model/context settings. It does not make another harness's native rules or skills universal. Common discovery/export/personal-global status is in [skills and instructions](../../providers/skills-and-instructions/SKILL.md); MCP imports/grants are in [MCP servers](../../providers/mcp-servers/SKILL.md).
+The selected driver owns identity/native file delivery; the local route supplies dedicated Claude/Codex configuration homes and explicit model/context settings. At `7f5f27f`, personal globals are supplied read-only across those profiles with canonical native deduplication. At `de6d356`, shared skills use each driver's native delivery: Claude snapshot `--add-dir`, Codex `skills/extraRoots/set`, or OpenCode private `skills` roots and exact skill-ID allow rules. Combined startup digests preserve both instruction and skill state; changed content applies at the next permitted launch boundary. This does not prove a local model will select or obey a skill. Source: `runtime/startup.rs:81`; `runtime/actor.rs:620`/`:2301`/`:2653`/`:2827` at `de6d356`.
+
+Common discovery and limits are in [skills and instructions](../../providers/skills-and-instructions/SKILL.md); MCP imports/grants are in [MCP servers](../../providers/mcp-servers/SKILL.md).
 
 A server-specific instruction-file byte/token ceiling is unknown here; native harness limits and the configured model context still apply. Splitting a document does not manufacture additional model context or prove all pieces were sent.
 
