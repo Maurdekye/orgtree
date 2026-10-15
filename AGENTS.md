@@ -66,6 +66,17 @@
   [decided: user/coordinator 2026-10-15; verified: `main/index.ts`; contract and
   measured limits: `docs/rust-engine/org-window-reopen.md`]
 
+- Measuring inside a desk on the canvas: `.space` carries the camera's `scale(view.z)`
+  and `.desk-inner` its own `scale(0.13333 × --desk-dpi)`, so `getBoundingClientRect()`
+  is in screen px while offsets, padding, scroll and text measured in the element's
+  font stay in its own px. Multiply those by the element's screen scale
+  (`box.width / offsetWidth`) before adding them to a screen position. Pinned and
+  popped-out desks are scale 1, so the mistake shows only on the canvas: EPIC Mode's
+  typing sparks landed up to 92 px off the caret this way (fixed in `caretSpot`;
+  [EPIC Mode final](docs/rust-engine/epic-mode-final.md)). [verified: `epic/director.ts`,
+  `canvas/docket.tsx`; measured: `tools/rig/epic-mode-visual.mjs` typing scene,
+  2026-10-15]
+
 - The revealed Rainbow mode row appears only for Custom themes. Selecting a
   preset hides it without altering saved revealed/enabled/epoch preferences;
   returning to Custom restores its prior state. [decided: user/coordinator

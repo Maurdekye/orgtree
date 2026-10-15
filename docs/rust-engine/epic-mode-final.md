@@ -303,14 +303,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File apps/desktop/renderer/tests/
   -LimitMB 4096 -TimeoutSec 1500 -WorkDir <repo> -Exe <node.exe> -ArgFile <args.txt>
 args.txt: tools/rig/epic-mode-check.mjs, <dependency root>, <empty C:\orgtree-build\<agent>\... dir>,
           --base-tree, <clean checkout of b77512f>   (add --inside when the caller holds the lock;
-          --neighbors, <suite,suite,...> also runs those existing suites green on the tip)
+          --neighbors, <suite,suite,...> also runs those existing suites green on the tip;
+          --before, <sha> also runs the suites with the sources changed since <sha> loaded as there)
 ```
 
 It runs the root typecheck. It runs the strict renderer and test
 configurations at the tip and at the base, comparing diagnostics by file and
 code. The test overlay clears the inherited `exclude: ["tests"]`, which
-otherwise silently skips every suite. It then runs the four EPIC suites three
-ways:
+otherwise silently skips every suite. It then runs the EPIC suites (four at
+the hand-in, five since the caret fix below) three ways:
 
 - **green:** tip tests on tip source;
 - **red:** tip tests on the exact base `b77512f`, with the absent
@@ -326,7 +327,9 @@ every test's outcome per mode.
 `tools/rig/epic-mode-visual.mjs` photographs the real settings panel and a
 synthetic org chart in an offscreen Electron window. It measures the switch
 pixel by pixel in all four contrast themes and records every word each effect
-painted.
+painted. Since the caret fix it also types into desks on the canvas and a
+pinned one and measures where each typing effect lands; `--before <sha>`
+bundles the fixture with the sources changed since `<sha>` as they were there.
 
 - `epicmode-switch` (9), `epicmode-off` (3) and `epicmode-engine` (14) are the
   Opus take's suites. The engine suite now also requires the new kinds and
@@ -348,6 +351,9 @@ painted.
   - the canvas pixel budget;
   - a popped-out window's own stage, exercised for the first time;
   - the native preferences file surviving a restart.
+- `epicmode-caret` (4) is the caret fix's: typing, Enter and Backspace cued
+  at the caret in a field scaled 0.5 and 1.5, in a pinned one, and in
+  scrolled ones (below).
 
 ### Measured
 
@@ -377,6 +383,67 @@ and tested:
   BOSS under paw prints, EDIT! under a rank title. Impact words, names,
   titles and glyphs now draw after every glow and particle.
 
+### Typing at the caret in a canvas desk (fix, 2026-10-15)
+
+On the installed 4.3.0-alpha.5.epic-final build the user found the typing
+effects out of sync in a desk on the canvas, and in sync in a pinned one
+(docket `epic-mode-typing-effects-desync-in-canvas-desks`).
+
+**Cause.** `caretSpot` (`epic/director.ts`) places the effects of typing,
+Enter, Backspace and paste. It took the field's box from
+`getBoundingClientRect()`, in screen px, and added the text before the caret,
+the padding and the scroll offsets, all in the field's own px. A desk on the
+canvas sits inside the camera's `scale(view.z)` on `.space` and
+`.desk-inner`'s `scale(0.13333 × --desk-dpi)`. Its scale on screen is
+therefore `view.z × 0.13333 × dpi`: about 0.28 at the desk threshold (zoom
+2.1), 1.6 at the zoom limit (12), and close to 1 only near the usual focus
+zoom. Each effect landed (1 − scale) × the text width away from the caret:
+to the right zoomed out, to the left zoomed in or at a larger desk text size,
+and further with every character. A pinned desk renders outside both
+transforms, and a popped-out desk is its own window, so their scale is 1. The
+stage was never involved: it covers the window, so window coordinates map
+one to one.
+
+**Fix.** The field's screen scale, `box.width / offsetWidth` (and the same
+for heights), carries those offsets onto the screen. The field's border
+(`clientLeft`/`clientTop`) is counted too; the desk composer has none.
+Pinned and popped-out desks keep scale 1 and behave as before. While EPIC
+Mode is off nothing changes: the code is in `director.ts`.
+
+**Tests.** `epicmode-caret` gives jsdom fields the geometry a transform
+gives them: the screen box scaled, `offsetWidth/offsetHeight` not. The visual
+capture's typing scene has two composers on the canvas, nested as the app
+nests them (one at `--desk-dpi` 1.5), and a pinned one. It types real
+keystrokes into each at zoom 3.75 in Charcoal and at 11.25 in Light, and pans
+the camera between keystrokes. Every caret effect is compared with the true
+caret, computed from the fixture's own scale and a browser-laid-out text
+probe rather than from the director's estimate (tolerance 1.5 px), and with
+where its sparks were drawn. `--before 296deb0` runs both against the
+integrated final version, without the fix.
+
+Measured at `6ed3c77` with a clean tree, under the machine build lock and a
+4,096 MB kernel job (C:\orgtree-build\epic-final\canvas-typing: check-2,
+visual-2, visual-before):
+
+| Check | Result |
+| --- | --- |
+| Root typecheck | Exit 0 |
+| Strict renderer configuration | 29 diagnostics at the tip and 29 at `296deb0` (clean checkout): none added, none removed, none in EPIC files |
+| Strict test configuration | 830 and 830: none added, none removed; all five EPIC suites are in the file list |
+| Green (tip) | 46 of 46 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4 |
+| Before (`296deb0`) | 43 of 46 pass. The three that fail are the caret suite's canvas and scroll tests: at scale 0.5 the effect was cued at x 177 for a caret at 138.5, at 1.5 at 177 for 215.5, and in a scrolled one-line field at 140 for 160. The pinned control passes |
+| Red (`b77512f`) | 0 of 46 pass: all 46 executed and failed |
+| Opus control (`fdd645f`) | 26 of 46 pass. The 20 that fail are the 17 additions listed above and the same three caret tests: the Opus take has the same caret maths, and its pinned control passes |
+| Typing capture (tip) | Passed, with native keystrokes. Every caret effect lands within 0.02 px across and 0.21 px down of the true caret, at scale 0.5, 0.75 (`--desk-dpi` 1.5), 1.5 and 1 (pinned), before and after a pan. Every spark is drawn exactly at its effect's spot, and the stage is the window. 41 PNGs: the 34 above and 7 of typing |
+| Typing capture (`296deb0`) | Failed as expected. Zoomed out, the effects landed 35.7 to 92.4 px right of the caret (scale 0.5) and 17.8 to 46.2 px right (0.75); zoomed in, 35.7 to 92.4 px left (1.5); up to 14.7 px off vertically. The pinned desk was within 0.01 px both times |
+
+The first tip capture (before the capture's pacing fix, folded into the test
+commit) put every effect at the caret, but one keystroke in the pinned desk
+drew nothing. Two key events reached the page within the director's 22 ms
+gap between typing effects, so the second rightly played nothing. The capture
+now waits for each key to land, plus 60 ms, and records the gap between
+effects.
+
 ## Limits
 
 - Synthetic state and transports only: no live organization, provider
@@ -397,3 +464,7 @@ and tested:
 - A card that is off-screen, piled or hidden plays its effect at its open
   desk if any, else at a central spot. Pictures are skipped in a hidden
   window; sound still plays.
+- The typing effects follow hard line breaks only. When a line soft-wraps,
+  they land at the field's right edge on the line of the last hard break, on
+  the canvas and in a pinned desk alike. The caret fix left this alone: the
+  4.3.0 release cut asked for nothing new.
