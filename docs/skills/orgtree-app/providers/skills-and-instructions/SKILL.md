@@ -74,7 +74,7 @@ Muse launches set `context.foreign_personal_rules=false` without editing saved s
 
 `POST /api/global-instructions/refresh` has no body and returns only `{ "files": N, "refreshed": true }`; the count includes canonical nonempty files even if a particular CLI loads them natively. Unreadable or invalid existing sources produce a sanitized error count, while readable sources remain usable. No instruction bodies or paths are returned by that endpoint. Startup takes fresh snapshots independently, so a button press is not required for the next permitted boundary to see an edit. An active turn or held process is not rewritten mid-turn; the next permitted process boundary resumes the same session with changed startup text and fingerprint.
 
-For full evidence and composition limits, read `docs/rust-engine/global-instructions.md`. Its documented pre-existing Antigravity project-note feedback issue is separate work; this global snapshot does not claim to fix managed scratch `AGENTS.md` overwrites or remove native truncation limits.
+For full evidence and composition limits, read `docs/rust-engine/global-instructions.md`. The separate Antigravity own-notes fix is approved at `3454e80` and integrated at `0f41fc3`: native project notes remain separate from numbered generated identity rules, with byte-preserving backup of recognized old envelopes. Its global/project manifest retains the combined skill digest. Read the [Antigravity guide](../../harnesses/harness-antigravity/SKILL.md#instructions-and-skills) for migration caveats and native truncation limits; splitting does not raise the aggregate rules budget.
 
 ## Startup fingerprints and provider cache
 
