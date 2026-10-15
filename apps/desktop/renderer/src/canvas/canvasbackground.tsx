@@ -43,16 +43,19 @@ const PARALLAX_BG = 0.88
  *  themes keeps the floor's scale. */
 const TILE = 28
 const SQRT3 = Math.sqrt(3)
-/** Hexagon pattern unit: tile 4u × 7u with half-tile offsets (styles.css). */
-const HEX_U = 14
-/** Equilateral triangle side; the conic pair's tile is S × (3√3/4)S. */
+/** Equilateral triangle side; one filled triangle per S × (√3/2)S tile. */
 const TRI_S = 36
+/** Honeycomb mask tile (styles.css hex-lines): pointy-top hexagons of
+ *  radius HEX_R; the SVG tile is HEX_R·√3 × 3·HEX_R world px. */
+const HEX_R = 17
 
 const px = (n: number): string => `${Math.round(n * 100) / 100}px`
 
 /** Where a CSS theme's pattern sits for this camera. Pure, so the tests can
  *  pin the floor behaviour (and the dots' legacy values) without a DOM. */
-export function bgGeometry(theme: CanvasBackgroundTheme, view: View): { backgroundPosition: string; backgroundSize: string } {
+export function bgGeometry(theme: CanvasBackgroundTheme, view: View): {
+  backgroundPosition: string; backgroundSize: string; maskPosition?: string; maskSize?: string
+} {
   const { x, y, z } = view
   switch (theme) {
     case 'line-grid':
@@ -64,13 +67,18 @@ export function bgGeometry(theme: CanvasBackgroundTheme, view: View): { backgrou
       return { backgroundPosition: `${px(x)} ${px(y)}, ${px(x + w / 2)} ${px(y + h / 2)}`, backgroundSize: `${px(w)} ${px(h)}` }
     }
     case 'hex-lines':
-    case 'hex-tiles': {
-      const a = `${px(x)} ${px(y)}`
-      const b = `${px(x + 2 * HEX_U * z)} ${px(y + 3.5 * HEX_U * z)}`
-      return { backgroundPosition: `${a}, ${a}, ${b}, ${b}, ${a}, ${b}`, backgroundSize: `${px(4 * HEX_U * z)} ${px(7 * HEX_U * z)}` }
-    }
+    case 'hex-tiles':
+      // Hexagons are SVG masks, not gradients (styles.css): stripe families
+      // draw the whole triangular lattice and cannot select the honeycomb's
+      // edges or fill flat tiles — capture rounds measured diamonds, cube
+      // illusions and step columns instead. The mask moves with the same
+      // floor math as every other theme.
+      return {
+        backgroundPosition: '0px 0px', backgroundSize: 'auto',
+        maskPosition: `${px(x)} ${px(y)}`, maskSize: `${px(HEX_R * SQRT3 * z)} ${px(3 * HEX_R * z)}`,
+      }
     case 'triangle-tiles':
-      return { backgroundPosition: `${px(x)} ${px(y)}`, backgroundSize: `${px(TRI_S * z)} ${px(TRI_S * SQRT3 * 0.75 * z)}` }
+      return { backgroundPosition: `${px(x)} ${px(y)}`, backgroundSize: `${px(TRI_S * z)} ${px(TRI_S * SQRT3 * 0.5 * z)}` }
     default:
       // dots (and ascii, which never reaches here): the shipped backdrop,
       // values verbatim from the OrgCanvas div this component replaced
@@ -92,8 +100,14 @@ export function CanvasBackground({ view, viewRef, hidden }: {
   if (pref.theme === 'ascii') {
     return <AsciiLayer view={view} viewRef={viewRef} hidden={hidden} intensity={intensity} />
   }
+  const geo = bgGeometry(pref.theme, view)
   const style: CSSProperties = {
-    ...bgGeometry(pref.theme, view),
+    ...(geo.maskSize
+      ? {
+        maskPosition: geo.maskPosition, maskSize: geo.maskSize,
+        WebkitMaskPosition: geo.maskPosition, WebkitMaskSize: geo.maskSize,
+      }
+      : { backgroundPosition: geo.backgroundPosition, backgroundSize: geo.backgroundSize }),
     ...(pref.theme === 'dots' || pref.theme === 'hex-dots'
       ? { '--dot-r': `${Math.max(1, 1.1 * view.z).toFixed(2)}px` } : {}),
     ...(intensity < 1 ? { opacity: intensity } : {}),
@@ -116,7 +130,12 @@ const SHEET_GW = 24
 const SHEET_GH = 44
 const ASCII_DPR_CAP = 2
 const ASCII_FRAME_MS = 33
-const ASCII_TINT_MIX = 0.45
+const ASCII_TINT_MIX = 0.6
+/** Per-bucket glyph alpha before the theme intensity. The reference's ink
+ *  is very faint (median ~+20 luminance over its near-black), so even the
+ *  top bucket stays well under full strength; the first capture round's
+ *  linear 0.18..1 ramp read as uniform bright soup. */
+const BUCKET_ALPHA = [0.08, 0.18, 0.32, 0.52, 0.78]
 const ASCII_REBUILD_MS = 350
 
 interface Rgb { r: number; g: number; b: number }
@@ -181,7 +200,7 @@ function AsciiLayer({ view, viewRef, hidden, intensity }: {
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillStyle = tint
-        ctx.globalAlpha = 0.18 + (0.82 * b) / (ASCII_BUCKETS - 1)
+        ctx.globalAlpha = BUCKET_ALPHA[b] ?? 0.78
         for (let g = 0; g < ASCII_GLYPHS.length; g++) {
           ctx.fillText(ASCII_GLYPHS[g]!, g * SHEET_GW + SHEET_GW / 2, SHEET_GH / 2 + 1)
         }

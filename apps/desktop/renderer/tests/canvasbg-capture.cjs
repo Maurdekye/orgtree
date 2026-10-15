@@ -65,6 +65,8 @@ async function probe(win, scene) {
       cssLayer: !!bg,
       theme: bg ? (bg.getAttribute('data-canvas-bg') || 'dots') : (ascii ? 'ascii' : 'none'),
       backgroundImage: cs ? cs.backgroundImage.slice(0, 60) : '',
+      maskImage: cs ? (cs.maskImage || cs.webkitMaskImage || '').slice(0, 40) : '',
+      maskSize: bg ? (bg.style.maskSize || bg.style.webkitMaskSize || '') : '',
       opacity: cs ? cs.opacity : '',
       asciiCanvas: ascii ? { w: ascii.width, h: ascii.height, motion: ascii.getAttribute('data-motion') } : null,
     }
@@ -109,7 +111,8 @@ async function run() {
       theme: info.theme === expectTheme,
       painted: distinct > 12,
       asciiSized: expectTheme !== 'ascii' || (!!info.asciiCanvas && info.asciiCanvas.w > 0),
-      cssPainted: expectTheme === 'ascii' || expectTheme === 'dots' || info.backgroundImage !== 'none',
+      cssPainted: expectTheme === 'ascii' || expectTheme === 'dots'
+        || info.backgroundImage !== 'none' || (info.maskImage !== '' && info.maskImage !== 'none'),
     }
     const ok = Object.values(checks).every(Boolean)
     if (!ok) failed++

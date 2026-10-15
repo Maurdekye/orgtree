@@ -507,31 +507,41 @@ main {
     conic-gradient(from 90deg at 50% 50%, var(--canvas-dot) 25%, transparent 0 50%, var(--canvas-dot) 0 75%, transparent 0);
 }
 .canvas-bg[data-canvas-bg="triangle-tiles"] {
+  /* one downward equilateral triangle per tile; the upward triangles are
+     the gaps between tiles. (A two-wedge version measured as diamonds.) */
   background-image:
-    conic-gradient(from 150deg at 50% 33.333%, var(--canvas-dot) 60deg, transparent 0),
-    conic-gradient(from -30deg at 50% 66.667%, var(--canvas-dot) 60deg, transparent 0);
+    conic-gradient(from 150deg at 50% 0%, var(--canvas-dot) 60deg, transparent 0);
 }
-/* Hexagons from three stripe families on a 4u × 7u tile (u and the half-tile
-   layer offsets come from canvasbackground.tsx). Filled, the wide stripes
-   leave hexagon tiles standing in the gaps; narrowed to their inner edges,
-   the same geometry inks only the honeycomb's outlines. */
+/* Hexagon themes are SVG masks over a theme-colour fill — gradient stripe
+   families cannot draw them: they produce the whole triangular lattice
+   (measured as diamonds, cube illusions and step columns across capture
+   rounds), never flat hexagons or their outlines. Both masks share one
+   tile geometry (pointy-top, radius 17, tile 17√3 × 51 world px); TILES
+   fills each hexagon inset to 88% so the gaps read as grout. Colour still
+   comes from the theme variable, intensity is still the layer opacity,
+   and size/position still come from canvasbackground.tsx
+   (mask-size/mask-position) — only the geometry needed paths. */
 .canvas-bg[data-canvas-bg="hex-tiles"] {
-  background-image:
-    linear-gradient(30deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
-    linear-gradient(150deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
-    linear-gradient(30deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
-    linear-gradient(150deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
-    linear-gradient(60deg, var(--line-soft) 25%, transparent 25.5%, transparent 75%, var(--line-soft) 75.5%),
-    linear-gradient(60deg, var(--line-soft) 25%, transparent 25.5%, transparent 75%, var(--line-soft) 75.5%);
+  background-image: none;
+  background-color: var(--canvas-dot);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%202.04%20L27.68%209.52%20L27.68%2024.48%20L14.72%2031.96%20L1.77%2024.48%20L1.77%209.52%20Z%20M0.00%2027.54%20L12.96%2035.02%20L12.96%2049.98%20L0.00%2057.46%20L-12.96%2049.98%20L-12.96%2035.02%20Z%20M29.44%2027.54%20L42.40%2035.02%20L42.40%2049.98%20L29.44%2057.46%20L16.49%2049.98%20L16.49%2035.02%20Z%20M0.00%20-23.46%20L12.96%20-15.98%20L12.96%20-1.02%20L0.00%206.46%20L-12.96%20-1.02%20L-12.96%20-15.98%20Z%20M29.44%20-23.46%20L42.40%20-15.98%20L42.40%20-1.02%20L29.44%206.46%20L16.49%20-1.02%20L16.49%20-15.98%20Z'%20fill%3D'white'%2F%3E%3C%2Fsvg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%202.04%20L27.68%209.52%20L27.68%2024.48%20L14.72%2031.96%20L1.77%2024.48%20L1.77%209.52%20Z%20M0.00%2027.54%20L12.96%2035.02%20L12.96%2049.98%20L0.00%2057.46%20L-12.96%2049.98%20L-12.96%2035.02%20Z%20M29.44%2027.54%20L42.40%2035.02%20L42.40%2049.98%20L29.44%2057.46%20L16.49%2049.98%20L16.49%2035.02%20Z%20M0.00%20-23.46%20L12.96%20-15.98%20L12.96%20-1.02%20L0.00%206.46%20L-12.96%20-1.02%20L-12.96%20-15.98%20Z%20M29.44%20-23.46%20L42.40%20-15.98%20L42.40%20-1.02%20L29.44%206.46%20L16.49%20-1.02%20L16.49%20-15.98%20Z'%20fill%3D'white'%2F%3E%3C%2Fsvg%3E");
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
 }
 .canvas-bg[data-canvas-bg="hex-lines"] {
-  background-image:
-    linear-gradient(30deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
-    linear-gradient(150deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
-    linear-gradient(30deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
-    linear-gradient(150deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
-    linear-gradient(60deg, transparent 24%, var(--line) 25%, var(--line) 26%, transparent 27%, transparent 74%, var(--line) 75%, var(--line) 76%, transparent 77%),
-    linear-gradient(60deg, transparent 24%, var(--line) 25%, var(--line) 26%, transparent 27%, transparent 74%, var(--line) 75%, var(--line) 76%, transparent 77%);
+  /* Honeycomb outlines: the theme colour is the fill, an SVG tile of
+     pointy-top hexagon outlines (radius 17, tile 17√3 × 51 world px) is
+     the mask. Colour still comes from the theme variable, intensity is
+     still the layer opacity, and size/position still come from
+     canvasbackground.tsx (mask-size/mask-position) — only the geometry
+     needed a path instead of stripes. */
+  background-image: none;
+  background-color: var(--line);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%200.00%20L29.44%208.50%20L29.44%2025.50%20L14.72%2034.00%20L0.00%2025.50%20L0.00%208.50%20Z%20M0.00%2025.50%20L14.72%2034.00%20L14.72%2051.00%20L0.00%2059.50%20L-14.72%2051.00%20L-14.72%2034.00%20Z%20M29.44%2025.50%20L44.17%2034.00%20L44.17%2051.00%20L29.44%2059.50%20L14.72%2051.00%20L14.72%2034.00%20Z%20M0.00%20-25.50%20L14.72%20-17.00%20L14.72%200.00%20L0.00%208.50%20L-14.72%200.00%20L-14.72%20-17.00%20Z%20M29.44%20-25.50%20L44.17%20-17.00%20L44.17%200.00%20L29.44%208.50%20L14.72%200.00%20L14.72%20-17.00%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%200.00%20L29.44%208.50%20L29.44%2025.50%20L14.72%2034.00%20L0.00%2025.50%20L0.00%208.50%20Z%20M0.00%2025.50%20L14.72%2034.00%20L14.72%2051.00%20L0.00%2059.50%20L-14.72%2051.00%20L-14.72%2034.00%20Z%20M29.44%2025.50%20L44.17%2034.00%20L44.17%2051.00%20L29.44%2059.50%20L14.72%2051.00%20L14.72%2034.00%20Z%20M0.00%20-25.50%20L14.72%20-17.00%20L14.72%200.00%20L0.00%208.50%20L-14.72%200.00%20L-14.72%20-17.00%20Z%20M29.44%20-25.50%20L44.17%20-17.00%20L44.17%200.00%20L29.44%208.50%20L14.72%200.00%20L14.72%20-17.00%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
 }
 /* the flowing-ASCII theme's own layer: same slot and contract as
    `.canvas-bg` (and the `.glwires` canvas beside it), painted by
@@ -6304,7 +6314,7 @@ html.mobile .chip-x { min-width: 28px; min-height: 28px; }
 /* ---- compact canvas: the map tier ---- */
 @media (max-width: 640px) {
   /* the dot grid is the worst paint on a mobile GPU and conveys nothing */
-  html.mobile .canvas-bg { background-image: none; }
+  html.mobile .canvas-bg { background-image: none; background-color: transparent; -webkit-mask-image: none; mask-image: none; }
   /* canvas background themes stay off on mobile, exactly as the dot grid
      always has (the rule above outranks the [data-canvas-bg] variants);
      the ASCII layer is removed outright so its painter idles at zero size */

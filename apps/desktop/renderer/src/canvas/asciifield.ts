@@ -50,14 +50,14 @@ export const asciiGlyphAt = (i: number, j: number): number => hash2(i, j) % ASCI
  *  exactly 0 — the reference's dark negative space. Drift is a few tens of
  *  world pixels per second: present, never busy. */
 export function asciiField(x: number, y: number, t: number): number {
-  const lobe = Math.sin(x * 0.0016 + t * 0.050 + 1.9 * Math.sin(y * 0.0011 - t * 0.037))
-    + Math.sin(y * 0.0013 - t * 0.042 + 1.6 * Math.sin(x * 0.0009 + t * 0.029))
-    + Math.sin((x + y) * 0.0007 + t * 0.023)
-  const band = Math.sin(x * 0.0045 - t * 0.060 + 1.2 * Math.sin(y * 0.0031 + t * 0.045))
-    + Math.sin(y * 0.0052 + t * 0.052)
+  const lobe = Math.sin(x * 0.0016 + t * 0.080 + 1.9 * Math.sin(y * 0.0011 - t * 0.059))
+    + Math.sin(y * 0.0013 - t * 0.067 + 1.6 * Math.sin(x * 0.0009 + t * 0.046))
+    + Math.sin((x + y) * 0.0007 + t * 0.037)
+  const band = Math.sin(x * 0.0045 - t * 0.096 + 1.2 * Math.sin(y * 0.0031 + t * 0.072))
+    + Math.sin(y * 0.0052 + t * 0.083)
   const v = (lobe / 3) * 0.72 + (band / 2) * 0.28
   const u0 = v * 0.5 + 0.5
-  const cut = 0.42
+  const cut = 0.52
   if (u0 <= cut) return 0
   const u = (u0 - cut) / (1 - cut)
   return u * u * (3 - 2 * u)

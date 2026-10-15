@@ -94,15 +94,16 @@ test('grid themes pan and zoom 1:1 with the canvas like a floor', () => {
   const hexDots = bgGeometry('hex-dots', V)
   assert.equal(hexDots.backgroundPosition, '120px -40px, 141px -3.63px')
   assert.equal(hexDots.backgroundSize, '42px 72.75px')
-  const hex = bgGeometry('hex-tiles', V)
-  assert.equal(hex.backgroundSize, '84px 147px')
-  assert.equal(hex.backgroundPosition.split(', ').length, 6)
-  assert.equal(hex.backgroundPosition.startsWith('120px -40px, 120px -40px, 162px 33.5px'), true)
-  assert.deepEqual(bgGeometry('hex-lines', V), hex)
+  // both hexagon themes ride SVG masks with the same 1:1 floor math
+  for (const theme of ['hex-lines', 'hex-tiles'] as const) {
+    const hex = bgGeometry(theme, V)
+    assert.equal(hex.maskPosition, '120px -40px', theme)
+    assert.equal(hex.maskSize, '44.17px 76.5px', theme)
+  }
   const tri = bgGeometry('triangle-tiles', V)
   const [tw, th] = tri.backgroundSize.split(' ').map(s => parseFloat(s))
   assert.equal(tw, 54)
-  assert.ok(Math.abs((th ?? 0) / (tw ?? 1) - 1.299) < 0.01, `triangle tile ratio ${th}/${tw}`)
+  assert.ok(Math.abs((th ?? 0) / (tw ?? 1) - 0.866) < 0.01, `triangle tile ratio ${th}/${tw}`)
 })
 
 /* ── the ASCII field ───────────────────────────────────────────────────── */
