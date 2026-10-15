@@ -753,7 +753,16 @@ mod tests {
             fn clear(p: &Path) {
                 for e in sorted_entries(p) {
                     let p = e.path();
-                    if p.is_dir() {
+                    let meta = std::fs::symlink_metadata(&p).unwrap();
+                    #[cfg(windows)]
+                    let linked = {
+                        use std::os::windows::fs::MetadataExt;
+                        meta.file_attributes() & 0x400 != 0
+                    };
+                    #[cfg(not(windows))]
+                    let linked = meta.file_type().is_symlink();
+                    if linked { continue; }
+                    if meta.is_dir() {
                         clear(&p);
                     }
                     #[cfg(windows)]
@@ -767,6 +776,72 @@ mod tests {
             clear(&self.0);
             std::fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[cfg(any(unix, windows))]
+    fn directory_link(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        {
+            let result = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(link).arg(target).output().unwrap();
+            assert!(result.status.success(), "fixture junction creation failed");
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn skills_import_rejects_linked_resource_ancestors_and_cached_exports() {
+        let tmp = Temp::new();
+        let outside = tmp.0.join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("canary"), "untouched").unwrap();
+        let registry = merge(vec![fixture("builtin", "entry", "asset", "orgtree")]);
+        let scratch = tmp.0.join("scratch");
+        let resources = scratch.join(".agents/orgtree-skill-resources");
+        std::fs::create_dir_all(&resources).unwrap();
+        let link = resources.join(&registry.digest);
+        directory_link(&outside, &link);
+        assert!(registry.workspace(&scratch).is_err());
+        assert!(!outside.join("builtin").exists(), "must not write through digest ancestor");
+        #[cfg(windows)]
+        std::fs::remove_dir(&link).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(&link).unwrap();
+
+        registry.workspace(&scratch).unwrap();
+        let bundle = resources.join(&registry.digest).join("builtin");
+        std::fs::rename(bundle.join("references"), bundle.join("saved-references")).unwrap();
+        let link = bundle.join("references");
+        directory_link(&outside, &link);
+        assert!(registry.workspace(&scratch).is_err(), "cached marker cannot authorize linked resources");
+        #[cfg(windows)]
+        std::fs::remove_dir(&link).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(&link).unwrap();
+        assert_eq!(std::fs::read_to_string(outside.join("canary")).unwrap(), "untouched");
+        assert!(!outside.join("data.txt").exists());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn skills_import_rejects_linked_snapshot_cache() {
+        let tmp = Temp::new();
+        let registry = merge(vec![fixture("one", "entry", "asset", "claude")]);
+        let data = tmp.0.join("data");
+        let root = registry.materialize(&data).unwrap();
+        let outside = tmp.0.join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        let link = root.join("skills/one/references");
+        std::fs::rename(&link, root.join("skills/one/saved-references")).unwrap();
+        directory_link(&outside, &link);
+        assert!(registry.materialize(&data).is_err(), "complete marker cannot authorize linked cache");
+        #[cfg(windows)]
+        std::fs::remove_dir(&link).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(&link).unwrap();
     }
 
     #[test]
