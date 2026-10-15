@@ -66,7 +66,8 @@ repository fixture, and was deleted after the metadata-only classification recei
 
 - Pre-fix tests committed first at `e0eb352`: `workspace_notes_tests` originally
   contained two cases, expected to fail on the overwrite/feedback path.
-- Product tip adds five workspace cases total and one native-startup case, including
+- Final source `3454e80` has eight Windows workspace cases and one additional
+  Unix-only native leaf-symlink case, plus the native-startup case, including
   recoverable migration, outside-envelope preservation, 56,918-byte parts, UTF-8,
   unchanged writes, shrink cleanup and reserved-name collision preservation.
 - `node tools/rig/rig.mjs run tools/rig/proofs/agy-own-notes.mjs`: ten checks,
@@ -80,6 +81,27 @@ repository fixture, and was deleted after the metadata-only classification recei
 
 Only syntax/diff checks were performed by the author; compiled and runtime results
 belong to the independent rig receipt.
+
+Independent rig results on `3454e80` (2026-10-15): workspace 8, startup 3,
+global-instruction 15, Muse hostline 1 and skills 8 unit cases all passed (35 total,
+zero compiler warnings). The Unix-only leaf-symlink case was not executed on
+Windows. Runtime checks passed: own-notes 10/10, AGY lane 27/27, composed global
+instructions 14/14 and unchanged skills idle 3/3. The engine binary was built at
+`ea7d5ac` with no warnings; `3454e80` changes only a test assertion, so its production
+code is identical.
+
+Retained controls: original overwrite/feedback tests failed 2/2, output-link
+tests failed 2/2, and migration-link test failed 1/1 at their intended semantic
+assertions. The behavior baseline passed its normal-launch control and failed
+the nine feature checks, using the saved `b77512f` engine: AGY, startup and actor
+source files are byte-identical between that source and the requested `72ea305`
+baseline. The first candidate unit group at `ea7d5ac` passed workspace 8/8 but
+startup had 2 passes and 1 failure: its uppercase `AGENTS.md` suffix assertion
+could not match Windows-normalized lowercase keys. The one-line test correction
+compares the exact normalized expected key and preserves all behavioral assertions.
+The original failure remains in the logs; later groups were not executed in that
+failed-fast attempt. These are synthetic scratch/fake-CLI results, not native
+model obedience or provider-token budget measurements.
 
 ## Output path boundary (2026-10-15 source review)
 
