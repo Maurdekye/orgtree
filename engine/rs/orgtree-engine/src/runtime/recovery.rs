@@ -138,6 +138,7 @@ pub fn countdown_until(secs: i64, prior: &Value, now: chrono::DateTime<Utc>) -> 
 /// `died_in_flight`: the CLI exited after it had answered but before a result.
 #[logged]
 pub fn classify(error: &str, res: &Value, gateway: bool, died_in_flight: bool) -> Option<Class> {
+    if super::prompt::input_length_refusal(error) { return None; }
     let status = res.get("api_error_status").and_then(Value::as_i64);
     // a gateway (OpenRouter, a language server) answers with its own status
     if gateway {

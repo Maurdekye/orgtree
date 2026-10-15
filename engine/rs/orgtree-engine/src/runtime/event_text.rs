@@ -2435,7 +2435,7 @@ released; continue."
 
 /// The agent's text for a typed event (3.x `render_agent`): `None` for an
 /// unknown variant or for an event the Python renderer would raise on.
-#[logged]
+#[nolog]
 pub fn render_agent(ev: &serde_json::Value) -> Option<String> {
     render(ev)
 }

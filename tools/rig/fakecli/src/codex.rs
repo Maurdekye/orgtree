@@ -223,6 +223,11 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
                 .as_array()
                 .map(|a| a.iter().filter_map(|x| x["text"].as_str()).collect::<Vec<_>>().join("\n"))
                 .unwrap_or_default();
+            if prompt.chars().count() > 1_048_576 {
+                srv.log("turn_refused", json!({"input_bytes":prompt.len(),"input_chars":prompt.chars().count(),"message":"input length limit"}));
+                srv.fail(id, -32603, "Input exceeds the maximum length of 1048576 characters");
+                return;
+            }
             // the script is chosen here, so a first step can refuse the turn itself
             let (script, steps) = pick_for(srv.dir.as_deref(), &srv.agent, &prompt);
             if let Some(msg) = steps.first().and_then(|s| s["start_error"].as_str()) {

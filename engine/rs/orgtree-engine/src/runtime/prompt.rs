@@ -12,7 +12,7 @@ use crate::runtime::envelope;
 pub use super::identity::{identity, org_notes, team_notes, Identity, Lane};
 
 /// One waiting message, as the agent reads it.
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct Mail {
     pub uid: String,
     pub sender: String,
@@ -27,12 +27,140 @@ pub struct Mail {
     pub ev: Value,
 }
 
+// Bodies, reply snapshots and attachment paths must never enter tracing args.
+impl std::fmt::Debug for Mail {
+    #[nolog]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mail").field("uid", &self.uid).field("body_bytes", &self.body.len()).finish_non_exhaustive()
+    }
+}
+
+/// UTF-8 bytes upper-bound both Unicode scalar and UTF-16 character counts.
+/// Codex's observed text-field ceiling is 1,048,576 characters. Reserve 48,576.
+/// Other lanes use an explicitly conservative ceiling, not a model context limit.
+pub const CODEX_INPUT_BYTES: usize = 1_000_000;
+pub const OTHER_INPUT_BYTES: usize = 256 * 1024;
+pub const MAIL_INLINE_BYTES: usize = 64 * 1024;
+
+#[nolog]
+fn prefix(s: &str, bytes: usize) -> &str {
+    let mut end = s.len().min(bytes);
+    while !s.is_char_boundary(end) { end -= 1; }
+    &s[..end]
+}
+
+#[nolog]
+fn reference(m: &Mail, preview: bool) -> Mail {
+    let mut out = m.clone();
+    let fetch = serde_json::json!({"action":"fetch", "message_ids":[m.uid]});
+    out.body = format!("[MAIL BY REFERENCE ? original body: {} UTF-8 bytes. This is a preview, not the complete message.]\n\
+        Read the complete message and attachment/reply metadata with orgtree_inbox {fetch}. \
+        If complete=false, use orgtree_inbox action=chunk with the returned delivery_id, message_id and successive chunk_index values. \
+        The stored message is unchanged; this reference counts as delivery.{}",
+        m.body.len(), if preview { format!("\n[PREVIEW]\n{}\n[END PREVIEW]", prefix(&m.body, 1024)) } else { String::new() });
+    // A typed event can replace the body during rendering. A reference must
+    // stay a reference, including for org notices. Images are fetched on demand.
+    out.ev = Value::Null;
+    out.reply_to = Value::Null;
+    out.replies = Value::Null;
+    out.attachments = Value::Null;
+    out
+}
+
+#[nolog]
+fn inline_mail(mail: &[Mail], rels: &HashMap<String, String>) -> Vec<Mail> {
+    mail.iter().map(|m| {
+        // Both renderings matter: notice text, quoted context, attachment paths
+        // and the mid-turn image warning all count toward the threshold.
+        let size = envelope::mail_block(&[m], rels, true).len()
+            .max(envelope::mail_block(&[m], rels, false).len());
+        if size > MAIL_INLINE_BYTES { reference(m, true) } else { m.clone() }
+    }).collect()
+}
+
+pub struct Batch {
+    pub text: String,
+    /// Normalized selected prefix: use this for image delivery and replay too.
+    pub mail: Vec<Mail>,
+    pub candidate_bytes: usize,
+}
+
+/// Select a prefix only; the actor returns every other claimed row to pending.
+/// The exact final wrapper/context is counted on every admission, not estimated.
+#[nolog]
+pub fn batch(mail: &[Mail], context: &str, rels: &HashMap<String, String>, handoff: Option<&str>,
+    budget: usize, steering: bool) -> anyhow::Result<Batch> {
+    let render = |ms: &[Mail]| if steering { steer_text(ms, rels) } else { turn_text(ms, context, rels, handoff) };
+    let normalized = inline_mail(mail, rels);
+    let candidate_bytes = render(&normalized).len();
+    let mut selected = Vec::new();
+    let mut text = render(&[]);
+    anyhow::ensure!(text.len() <= budget, "non-mail turn context exceeds input budget ({} bytes, budget {budget})", text.len());
+    for m in normalized {
+        selected.push(m);
+        let mut next = render(&selected);
+        if next.len() > budget {
+            if selected.len() > 1 { selected.pop(); break; }
+            // Even a normal-size item may not fit in the remaining context.
+            selected[0] = reference(&selected[0], false);
+            next = render(&selected);
+            anyhow::ensure!(next.len() <= budget, "mail reference exceeds input budget ({} bytes, budget {budget})", next.len());
+        }
+        text = next;
+    }
+    Ok(Batch { text, mail: selected, candidate_bytes })
+}
+
+/// Persist only the engine-generated dynamic org-state/usage envelope under
+/// this agent's own scratch. No credential/config source or mail is read here.
+/// Unique create_new prevents overwriting agent files or following a file link.
+#[nolog]
+pub fn context_reference(scratch: &std::path::Path, context: &str, budget: usize) -> anyhow::Result<String> {
+    if context.len() <= budget { return Ok(context.to_string()); }
+    use std::io::Write;
+    std::fs::create_dir_all(scratch)?;
+    let path = scratch.join(format!("orgtree-turn-context-{}.txt", uuid::Uuid::new_v4()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)] {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(&path)?.write_all(context.as_bytes())?;
+    tracing::info!(bytes=context.len(), path=%path.display(), "oversized generated turn context retained in own scratch");
+    Ok(format!("[ORGTREE CONTEXT BY REFERENCE]\nThe generated org-state and provider-usage snapshot ({} UTF-8 bytes) is at {}. Read it before acting; its text was not inlined to respect the turn-input limit.\n[END ORGTREE CONTEXT REFERENCE]", context.len(), path.display()))
+}
+
+/// Handoff text may quote conversation content. Do not copy it into new context
+/// artifacts: take_handoff already saves the full history in this own scratch.
+#[nolog]
+pub fn handoff_reference(handoff: &str, budget: usize) -> String {
+    if handoff.len() <= budget { return handoff.to_string(); }
+    // Keep the history pointer appended by convo::handoff_note; no arbitrary
+    // source contents are written. The manual transcript also remains available.
+    let history = handoff.lines().rev().find(|l| l.starts_with("Your whole earlier conversation is saved at ")).unwrap_or("");
+    format!("Fresh-session handoff was too large to inline ({} UTF-8 bytes). Read your saved conversation before continuing, or use orgtree_read_transcript for your own node and orgtree_inbox fetch/chunk for referenced mail. {}",
+        handoff.len(), prefix(history, 4096))
+}
+
+/// A rejected input field is terminal, not a transient network/context-window
+/// failure. Explicit new wakes may try again; the engine must not loop itself.
+#[nolog]
+pub fn input_length_refusal(error: &str) -> bool {
+    let e = error.to_ascii_lowercase();
+    e.contains("input exceeds the maximum length") || e.contains("input exceeds maximum length")
+        || e.contains("stream-json input carried over") || e.contains("input too long")
+        || e.contains("message exceeds the maximum length")
+}
+
 /// The opening message of a turn: the per-turn envelope (`context`: ORG
 /// STATE, then the usage board), the `[ORG NOTICES]` block (org changes
 /// since the last turn, led by `handoff`, the fresh-session note) and the
 /// `[MAIL]` block (3.x layout).
-#[logged]
+#[nolog]
 pub fn turn_text(mail: &[Mail], context: &str, rels: &HashMap<String, String>, handoff: Option<&str>) -> String {
+    let bounded = inline_mail(mail, rels);
+    let mail = bounded.as_slice();
     let mut s = String::new();
     if !context.is_empty() {
         s.push_str(context);
@@ -59,9 +187,10 @@ pub fn turn_text(mail: &[Mail], context: &str, rels: &HashMap<String, String>, h
 
 /// The mail a turn was given, without the envelope or the org notices: what
 /// a usage-limit freeze gives again at the wake.
-#[logged]
+#[nolog]
 pub fn replay_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
-    let (_, mail) = envelope::split_notices(mail, None);
+    let bounded = inline_mail(mail, rels);
+    let (_, mail) = envelope::split_notices(&bounded, None);
     if mail.is_empty() {
         return String::new();
     }
@@ -69,8 +198,10 @@ pub fn replay_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
 }
 
 /// Mail handed over mid-turn, after a tool call (3.x's mid-task wrapper).
-#[logged]
+#[nolog]
 pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
+    let bounded = inline_mail(mail, rels);
+    let mail = bounded.as_slice();
     let ping = envelope::ping_for(mail);
     let (notices, mail) = envelope::split_notices(mail, None);
     let mut blocks: Vec<String> = Vec::new();
@@ -117,6 +248,86 @@ mod mail_size_tests {
         let text = turn_text(&[m], "", &HashMap::new(), None);
         assert!(text.len() < 65_536 && text.contains("orgtree_inbox"));
     }
+    #[test]
+    fn rendered_threshold_is_inclusive_and_accounts_for_metadata() {
+        let rels = HashMap::new();
+        let mut m = mail(String::new());
+        let overhead = envelope::mail_block(&[&m], &rels, true).len();
+        m.body = "x".repeat(MAIL_INLINE_BYTES - overhead);
+        assert_eq!(envelope::mail_block(&[&m], &rels, true).len(), MAIL_INLINE_BYTES);
+        assert!(!turn_text(&[m.clone()], "", &rels, None).contains("MAIL BY REFERENCE"));
+        m.body.push('x');
+        assert!(turn_text(&[m], "", &rels, None).contains("MAIL BY REFERENCE"));
+        let mut attachment = mail("small".into());
+        attachment.attachments = json!([{"path":"p".repeat(MAIL_INLINE_BYTES), "bytes": 1}]);
+        let b = batch(&[attachment], "", &rels, None, OTHER_INPUT_BYTES, false).unwrap();
+        assert!(b.text.contains("MAIL BY REFERENCE") && b.mail[0].attachments.is_null());
+    }
+
+    #[test]
+    fn batches_split_in_order_without_changing_originals_on_both_paths() {
+        let input: Vec<Mail> = (0..45).map(|i| {
+            let mut m = mail("medium".repeat(8_000)); m.uid=format!("mail-{i}"); m
+        }).collect();
+        for ceiling in [CODEX_INPUT_BYTES, OTHER_INPUT_BYTES] {
+            for steering in [false, true] {
+                let mut seen = Vec::new();
+                let mut turns = 0;
+                while seen.len() < input.len() {
+                    let b = batch(&input[seen.len()..], "context", &HashMap::new(), None, ceiling, steering).unwrap();
+                    assert!(!b.mail.is_empty() && b.text.len() <= ceiling);
+                    seen.extend(b.mail.into_iter().map(|m| m.uid));
+                    turns += 1;
+                }
+                assert_eq!(seen, input.iter().map(|m| m.uid.clone()).collect::<Vec<_>>());
+                assert!(turns > 1);
+            }
+        }
+        assert!(input.iter().all(|m| m.body.len() == 48_000));
+    }
+
+    #[test]
+    fn exact_final_budget_and_single_reference_fallback_are_checked() {
+        let m = mail("tiny".into());
+        let rels = HashMap::new();
+        let exact = turn_text(&[m.clone()], "context", &rels, None).len();
+        let b = batch(&[m], "context", &rels, None, exact, false).unwrap();
+        assert_eq!(b.text.len(), exact);
+        let b = batch(&[mail("x".repeat(10_000))], "context", &rels, None, 4096, false).unwrap();
+        assert!(b.text.len() <= 4096 && b.text.contains("MAIL BY REFERENCE") && !b.text.contains("[PREVIEW]"));
+        assert!(batch(&[mail("x".into())], "oversized context", &rels, None, 1, false).is_err());
+        let b = batch(&[mail("??".repeat(40_000))], "", &rels, None, OTHER_INPUT_BYTES, false).unwrap();
+        assert!(b.text.is_char_boundary(b.text.len()) && b.text.len() <= OTHER_INPUT_BYTES);
+        assert!(b.text.chars().count() <= b.text.len());
+    }
+
+    #[test]
+    fn generated_context_is_preserved_only_in_own_scratch_and_handoff_is_not_copied() {
+        let dir = std::env::temp_dir().join(format!("mail-budget-{}", uuid::Uuid::new_v4()));
+        let text = "[ORG STATE]\n".repeat(10_000);
+        let reference = context_reference(&dir, &text, 4096).unwrap();
+        let files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(files.len(), 1);
+        assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), text);
+        assert!(reference.len() < 4096 && reference.contains(&files[0].display().to_string()));
+        let handoff = format!("{}\nYour whole earlier conversation is saved at OWN_HISTORY; read it.", "PRIVATE_HANDOFF ".repeat(40_000));
+        let bounded = handoff_reference(&handoff, 4096);
+        assert!(bounded.contains("OWN_HISTORY") && !bounded.contains("PRIVATE_HANDOFF"));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn length_refusals_are_terminal_even_when_cli_dies_or_reports_network() {
+        for e in ["turn/start: Input exceeds the maximum length of 1048576 characters",
+            "Input exceeds maximum length: network error", "stream-json input carried over 256M characters"] {
+            assert!(input_length_refusal(e));
+            assert!(crate::runtime::recovery::classify(e, &json!({"api_error_status":503}), true, true).is_none());
+        }
+        assert!(!input_length_refusal("model overloaded"));
+        assert!(!input_length_refusal("prompt is too long"), "token context exhaustion retains its own recovery policy");
+    }
+
 }
 
 #[cfg(test)]

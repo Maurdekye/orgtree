@@ -336,6 +336,8 @@ struct Turn {
     /// Exact opening batch, settled when this turn first shows CLI activity.
     /// Never include an Antigravity handoff the hook has not consumed.
     opening_mail: Vec<i64>,
+    /// Opening text sizes only, for a later provider length refusal.
+    input_shape: Option<(usize, usize, usize)>,
     alert_turn: Option<crate::runtime::watchdogs::events::AlertTurn>,
     usage: Value,
     model: Option<String>,
@@ -403,6 +405,7 @@ impl Turn {
             killed: false,
             activity: false,
             opening_mail: Vec::new(),
+            input_shape: None,
             alert_turn: None,
             usage: Value::Null,
             model: None,
@@ -1450,7 +1453,7 @@ impl Actor {
         let row = client
             .query_one(
                 "SELECT a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, o.killswitch IS NOT NULL,
-                        EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice), a.frozen,
+                        EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id AND m.state = 'pending' AND (NOT m.notice OR m.extra->>'input_budget_deferred'='true')), a.frozen,
                         a.tier
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
                 &[&self.id],
@@ -1603,9 +1606,14 @@ impl Actor {
         if !matches!(owned, Ok(Some(ref r)) if !r.get::<_, bool>(0)) {
             return;
         }
-        let tell = recovery::bump(&self.engine, self.id, "hard_fail_run").await.map(|run| run == 1).unwrap_or(true);
+        let run = recovery::bump(&self.engine, self.id, "hard_fail_run").await.unwrap_or(1);
+        // launch failures have no timer retry. Each actual re-drive by a new
+        // wake must report a length refusal; generic failures stay once/run.
+        let length = prompt::input_length_refusal(err);
+        let tell = run == 1 || length;
+        let detail = if length { format!("{err}; failed attempt {run}. Waiting mail retained; no automatic retry.") } else { err.to_string() };
         let door = "the turn could not start: its CLI did not start or did not take the turn";
-        if let Err(e) = crate::domain::runtime_notices::launch_failed(&self.engine, self.org_id, self.id, door, err, tell).await {
+        if let Err(e) = crate::domain::runtime_notices::launch_failed(&self.engine, self.org_id, self.id, door, &detail, tell).await {
             tracing::warn!(agent = self.id, error = %format!("{e:#}"), "the failed launch could not be reported");
         }
     }
@@ -3122,6 +3130,39 @@ impl Actor {
         Ok(())
     }
 
+    fn mail_input_budget(&self) -> usize {
+        match self.proc.as_ref() {
+            Some(Proc::Codex(_)) => prompt::CODEX_INPUT_BYTES,
+            // Claude stream-json, Agy, Muse and OpenCode ACP (including
+            // OpenRouter/local routes): conservative, not token-window claims.
+            _ => prompt::OTHER_INPUT_BYTES,
+        }
+    }
+
+    /// Composition happens outside the claiming transaction. Any failure
+    /// returns the entire unsent batch; a successful prefix leaves the tail
+    /// pending in its original id order. Never acknowledge a deferred row.
+    #[nolog]
+    async fn mail_batch(&self, turn_id: i64, mut raw: Vec<Value>, context: &str, handoff: Option<&str>,
+        steering: bool) -> Result<(Vec<Value>, prompt::Batch)> {
+        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
+        let rels = self.rels_of(&mails).await;
+        let budget = self.mail_input_budget();
+        let result = prompt::batch(&mails, context, &rels, handoff, budget, steering);
+        let take = result.as_ref().map(|b| b.mail.len()).unwrap_or(0);
+        let deferred: Vec<i64> = raw[take..].iter().filter_map(|m| m["id"].as_i64()).collect();
+        if !deferred.is_empty() {
+            let client = self.engine.db.get().await?;
+            client.execute("UPDATE ot.mail SET state='pending', turn_id=NULL, extra=CASE WHEN $4 THEN extra || '{\"input_budget_deferred\":true}'::jsonb ELSE extra END WHERE recipient_agent_id=$1 AND turn_id=$2 AND id=ANY($3) AND state='delivering'",
+                &[&self.id, &turn_id, &deferred, &result.is_ok()]).await?;
+            tracing::info!(agent=self.id, turn=turn_id, selected=take, deferred=deferred.len(), budget_bytes=budget,
+                candidate_bytes=result.as_ref().ok().map(|b| b.candidate_bytes), selected_bytes=result.as_ref().ok().map(|b| b.text.len()),
+                "mail input budget deferred the remaining ordered batch");
+        }
+        raw.truncate(take);
+        Ok((raw, result?))
+    }
+
     /// Mail that arrived during a Codex or Muse turn goes straight in
     /// (`turn/steer`, naming the exact running turn); if the turn does not
     /// take it, it waits for the next turn.
@@ -3142,13 +3183,13 @@ impl Actor {
         }
         let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
         rows.sort_by_key(|(id, _)| *id);
-        let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let (raw, batch) = self.mail_batch(turn_id, raw, "", None, true).await?;
+        let ids: Vec<i64> = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
-        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
-        let text = prompt::steer_text(&mails, &self.rels_of(&mails).await);
+        let text = batch.text;
         let steered = match &self.proc {
             Some(Proc::Codex(p)) => p.steer(&codex_turn, &text).await,
             Some(Proc::Muse(p)) => p.steer(&codex_turn, &text).await,
@@ -3199,14 +3240,14 @@ impl Actor {
         }
         let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
         rows.sort_by_key(|(id, _)| *id);
-        let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let (raw, batch) = self.mail_batch(turn_id, raw, "", None, true).await?;
+        let ids: Vec<i64> = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
-        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let id = format!("t{turn_id}-m{}", ids[0]);
-        let body = json!({ "id": id, "text": prompt::steer_text(&mails, &self.rels_of(&mails).await) }).to_string();
+        let body = json!({ "id": id, "text": batch.text }).to_string();
         let tmp = dir.join("pending.tmp");
         let written = std::fs::create_dir_all(&dir)
             .and_then(|_| std::fs::write(&tmp, body.as_bytes()))
@@ -3558,7 +3599,7 @@ impl Actor {
             .query(
                 "WITH oldest AS (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
                                   ORDER BY id LIMIT 64 FOR UPDATE SKIP LOCKED),
-                      first_real AS (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending' AND NOT notice
+                      first_real AS (SELECT id FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending' AND (NOT notice OR extra->>'input_budget_deferred'='true')
                                       ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
                  UPDATE ot.mail SET state = 'delivering', turn_id = $2
                   WHERE id IN (SELECT id FROM oldest UNION SELECT id FROM first_real)
@@ -3568,7 +3609,7 @@ impl Actor {
             .await?;
         let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
         rows.sort_by_key(|(id, _)| *id);
-        if !rows.iter().any(|(_, m)| !m["notice"].as_bool().unwrap_or(false)) {
+        if !rows.iter().any(|(_, m)| !m["notice"].as_bool().unwrap_or(false) || m["extra"]["input_budget_deferred"] == true) {
             tx.rollback().await?;
             return Ok(false);
         }
@@ -3580,8 +3621,6 @@ impl Actor {
         tx.commit().await?;
         drop(client);
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
-        let alert_turn = crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw);
-        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let reset_note = match self.cold_reset(&mut ctx).await {
             Ok(note) => note,
             Err(e) => {
@@ -3601,10 +3640,24 @@ impl Actor {
             }
         };
         let (context, envelope_record) = self.turn_context(&ctx).await;
+        let budget = self.mail_input_budget();
+        let composed = async {
+            // Only generated org state + usage can be persisted here; not the
+            // identity, credentials, attachments or arbitrary handoff history.
+            let context = prompt::context_reference(&ctx.scratch, &context, budget / 4)?;
+            let handoff = reset_note.or(handoff).map(|h| prompt::handoff_reference(&h, budget / 4));
+            self.mail_batch(turn_id, raw, &context, handoff.as_deref(), false).await
+        }.await;
+        let (raw, batch) = match composed {
+            Ok(b) => b,
+            Err(e) => { self.return_mail(turn_id, true).await; return Err(e); }
+        };
+        let alert_turn = crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw);
+        let mails = batch.mail;
+        let text = batch.text;
         let followup: Vec<String> = mails.iter().filter(|m| self.followup_mail.contains(&m.uid))
             .map(|m| m.uid.clone()).collect();
         let rels = self.rels_of(&mails).await;
-        let text = prompt::turn_text(&mails, &context, &rels, reset_note.or(handoff).as_deref());
         // the lanes whose usage-limit freeze replays the request (3.x freeze_provider_limit)
         let replay = match self.proc.as_ref() {
             Some(Proc::Codex(_)) | Some(Proc::Agy(_)) | Some(Proc::Muse(_)) => freeze::replay_tail(&prompt::replay_text(&mails, &rels)),
@@ -3650,7 +3703,12 @@ impl Actor {
         if !sent {
             self.return_mail(turn_id, true).await;
             self.close_proc().await;
-            let why = refused.map(|r| format!(": {r}")).unwrap_or_default();
+            let why = refused.map(|r| {
+                if prompt::input_length_refusal(&r) {
+                    format!(": {r}; input {} UTF-8 bytes / {} characters; Orgtree budget {budget} bytes; mail {} items",
+                        text.len(), text.chars().count(), mails.len())
+                } else { format!(": {r}") }
+            }).unwrap_or_default();
             return Err(anyhow!("the {} process did not accept the turn{why}", catalog::provider_label(&ctx.provider)));
         }
         if let Some(r) = envelope_record {
@@ -3661,6 +3719,7 @@ impl Actor {
         }
         let mut turn = Turn::new(turn_id, false);
         turn.alert_turn = alert_turn;
+        turn.input_shape = Some((text.len(), text.chars().count(), budget));
         turn.opening_mail = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
         turn.admitted_at = admitted_at;
         turn.serving_account = self.serving_account_of(&ctx);
@@ -3771,11 +3830,11 @@ impl Actor {
         let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
         rows.sort_by_key(|(id, _)| *id);
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let (raw, batch) = self.mail_batch(turn_id, raw, "", None, true).await?;
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
-        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
-        let text = prompt::steer_text(&mails, &self.rels_of(&mails).await);
+        let text = batch.text;
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered after a tool call."));
         let seq = self.convo.append(&client, row.clone()).await?;
@@ -6014,6 +6073,12 @@ impl Actor {
         if error.is_none() && codex {
             error = turn.codex_error.clone().filter(|_| !turn.interrupted);
         }
+        if error.as_deref().is_some_and(prompt::input_length_refusal) {
+            error = Some(match turn.input_shape {
+                Some((bytes, chars, budget)) => format!("Input exceeds maximum length: opening input {bytes} UTF-8 bytes / {chars} characters; Orgtree budget {budget} bytes. No automatic retry."),
+                None => "Input exceeds maximum length: input sizes unavailable for this non-mail turn. No automatic retry.".into(),
+            });
+        }
         let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
         let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if turn.acp {
             let u = &turn.usage;
@@ -6163,11 +6228,11 @@ impl Actor {
             let account = turn.serving_account.as_deref();
             // Muse classifies its own failures: a sign-in it needs, or one it
             // judges retryable; anything else reads as the other lanes do
-            let class = match turn.muse_error.as_ref().filter(|_| muse) {
+            let class = if prompt::input_length_refusal(e) { None } else { match turn.muse_error.as_ref().filter(|_| muse) {
                 Some((kind, _)) if kind == "authRequired" => Some(recovery::Class::Auth),
                 Some((kind, true)) => Some(recovery::Class::Net(format!("Muse reported a retryable {kind} failure"))),
                 _ => recovery::classify(e, &res, openrouter || langserver, died),
-            };
+            } };
             match class {
                 Some(recovery::Class::Net(kind)) => {
                     classified = true;
@@ -6206,7 +6271,7 @@ impl Actor {
         // times in a row at most (a completed turn starts the count again).
         let mut fresh: Option<i64> = None;
         if let (Some(e), true) = (error.as_deref(), langserver && !classified && freeze_rec.is_none() && !turn.interrupted && !turn.killed) {
-            if recovery::context_full(e) {
+            if !prompt::input_length_refusal(e) && recovery::context_full(e) {
                 let run = recovery::bump(&self.engine, self.id, "ctx_reset_run").await?;
                 if run <= recovery::CTX_RESET_MAX {
                     fresh = Some(run);
@@ -6236,7 +6301,7 @@ impl Actor {
         // provider would spin forever on the same requeued opening message.
         self.followup_mail = client.query(
             "SELECT uid FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND recipient_agent_id = $1 AND state = 'pending'
-              AND NOT notice ORDER BY id LIMIT 64", &[&self.id],
+              AND (NOT notice OR extra->>'input_budget_deferred'='true') ORDER BY id LIMIT 64", &[&self.id],
         ).await?.into_iter().map(|r| r.get(0)).collect();
         if requeue {
             client
@@ -6346,7 +6411,8 @@ impl Actor {
             // or time limit killed included, is told once; only a completed
             // turn makes the next failure news again
             let tell = match (&error, &freeze_rec) {
-                (Some(_), None) => recovery::bump(&self.engine, self.id, "hard_fail_run").await.map(|run| run == 1).unwrap_or(true),
+                (Some(e), None) => recovery::bump(&self.engine, self.id, "hard_fail_run").await
+                    .map(|run| run == 1 || prompt::input_length_refusal(e)).unwrap_or(true),
                 _ => true,
             };
             if let Err(e) = crate::domain::runtime_notices::end_turn(&self.engine, self.org_id, self.id, error.as_deref(), freeze_rec.as_ref(), tell).await {
@@ -6424,7 +6490,7 @@ impl Actor {
             }
             return Ok(());
         }
-        if error.is_none() || !self.followup_mail.is_empty() {
+        if error.is_none() || (!self.followup_mail.is_empty() && !error.as_deref().is_some_and(prompt::input_length_refusal)) {
             // All lanes share normal halt/freeze/killswitch and slot admission.
             // Confirmed boundary mail is no longer pending, so is not replayed.
             self.on_wake().await?;
@@ -6893,7 +6959,7 @@ impl Actor {
 }
 
 /// A claimed mail row (`to_jsonb(ot.mail)`) as the agent reads it.
-#[logged]
+#[nolog]
 fn mail_of(m: &Value) -> Mail {
     Mail {
         uid: m["uid"].as_str().unwrap_or("").to_string(),
@@ -6911,7 +6977,7 @@ fn mail_of(m: &Value) -> Mail {
 }
 
 /// The desk row for mail an agent was given: one mail segment.
-#[logged]
+#[nolog]
 fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
     let rows: Vec<Value> = raw
         .iter()

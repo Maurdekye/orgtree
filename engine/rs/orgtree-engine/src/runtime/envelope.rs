@@ -612,7 +612,7 @@ fn text_of(m: &Mail) -> String {
 
 /// Sort delivered mail into 3.x's two blocks: org-change notices
 /// (`(at, text)`, led by the fresh-session `handoff` note) and real mail.
-#[logged]
+#[nolog]
 pub fn split_notices<'a>(mail: &'a [Mail], handoff: Option<&str>) -> (Vec<(String, String)>, Vec<&'a Mail>) {
     let mut notices: Vec<(String, String)> = Vec::new();
     if let Some(h) = handoff {
@@ -631,7 +631,7 @@ pub fn split_notices<'a>(mail: &'a [Mail], handoff: Option<&str>) -> (Vec<(Strin
 }
 
 /// 3.x `[ORG NOTICES — N change(s) since your last turn] … [END NOTICES]`.
-#[logged]
+#[nolog]
 pub fn notices_block(notices: &[(String, String)]) -> String {
     let lines: Vec<String> = notices.iter().map(|(at, text)| format!("- {at}: {text}")).collect();
     format!("[ORG NOTICES — {} change(s) since your last turn]\n{}\n[END NOTICES]", notices.len(), lines.join("\n"))
@@ -640,7 +640,7 @@ pub fn notices_block(notices: &[(String, String)]) -> String {
 /// 3.x `_mail_block`: `[MAIL — N message(s)] … [END MAIL]`. `turn_start`
 /// says whether images can be loaded into context (a turn's opening
 /// message) or not (mid-turn delivery is text only).
-#[logged]
+#[nolog]
 pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bool) -> String {
     let mut blocks: Vec<String> = Vec::new();
     for m in mail {
