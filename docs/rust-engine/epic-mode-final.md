@@ -130,7 +130,7 @@ every listener, element, AudioContext and tap.
 | `epic/director.ts` | The show: taps, hands, popped-out windows, other orgs' notices, usage readings, the combo, and THE PLAYBOOK (one picture and one sound per event) |
 | `epic/diff.ts` | Pure detectors: tree snapshots and their differences; spark, pulse and stream frames |
 | `epic/locate.ts` | Where an agent, the eye, the org inbox or a watchdog is drawn |
-| `epic/stage.ts` | One canvas per window: particles (glow, streak, shard, confetti, snow, coin, paw, smoke, star) and actors (rings, lightning, comets, impact words with captions, neon titles, ice spikes, crystals, ice slabs, stop signs, warning signs, portals, radar, beams, vortices, fireworks, meteors, cracks, gears, frames, flashes, flicker, CRT), the combo meter, the window shake and element glow and pop |
+| `epic/stage.ts` | One canvas per window: particles (glow, streak, shard, confetti, snow, coin, paw, smoke, star) and actors (rings, lightning, comets, impact words with captions, neon titles, ice spikes, crystals, ice slabs, stop signs, warning signs, portals, radar, beams, vortices, fireworks, meteors, cracks, gears, frames, flashes, flicker, CRT), the combo meter, the window shake and element glow and pop. Impact words, names, titles and glyphs draw over every glow and particle |
 | `epic/audio.ts` | The synthesizer: 58 sounds from oscillators, FM pairs and filtered noise through a generated reverb and a limiter |
 
 **Where events come from.** The org socket (mail sparks; `turn_done`,
@@ -282,7 +282,8 @@ existing checkout; nothing is copied or linked, and output goes under
 powershell -NoProfile -ExecutionPolicy Bypass -File apps/desktop/renderer/tests/joblimit.ps1 `
   -LimitMB 4096 -TimeoutSec 1500 -WorkDir <repo> -Exe <node.exe> -ArgFile <args.txt>
 args.txt: tools/rig/epic-mode-check.mjs, <dependency root>, <empty C:\orgtree-build\<agent>\... dir>,
-          --base-tree, <clean checkout of b77512f>   (add --inside when the caller holds the lock)
+          --base-tree, <clean checkout of b77512f>   (add --inside when the caller holds the lock;
+          --neighbors, <suite,suite,...> also runs those existing suites green on the tip)
 ```
 
 It runs the root typecheck. It runs the strict renderer and test
@@ -297,8 +298,11 @@ ways:
 - **Opus control:** tip tests on the approved Opus take `fdd645f`, with
   every file the final version changed loaded as it was there.
 
-The tests that fail in the control are exactly the merge's additions.
-`summary.json` lists every test's outcome per mode.
+The tests that fail in the control are exactly the merge's additions. With
+`--neighbors` it also runs existing renderer suites green on the tip, for the
+behaviour the final version's edits sit next to: `api.ts`'s request and
+interrupt paths, the app feed and the settings panel. `summary.json` lists
+every test's outcome per mode.
 `tools/rig/epic-mode-visual.mjs` photographs the real settings panel and a
 synthetic org chart in an offscreen Electron window. It measures the switch
 pixel by pixel in all four contrast themes and records every word each effect
@@ -307,11 +311,12 @@ painted.
 - `epicmode-switch` (9), `epicmode-off` (3) and `epicmode-engine` (14) are the
   Opus take's suites. The engine suite now also requires the new kinds and
   sounds, and that every new effect draws its words.
-- `epicmode-final` (15) covers the merge. Each test runs through the module
+- `epicmode-final` (16) covers the merge. Each test runs through the module
   the piece lives in, and through the real `api.ts` and app feed where the
   piece taps them:
   - the combo: ladder, milestones and meter, the loop sleeping once it
     drops, and one title at a time;
+  - words drawing over every glow and particle, so names stay readable;
   - the pitch ladder and the pentatonic runs;
   - the hands: a confirming click, an Undo button and keyboard navigation,
     while typing stays typing;
@@ -326,23 +331,31 @@ painted.
 
 ### Measured
 
-At `711431c` (before the one-title fix), under the machine build lock and a
-4,096 MB kernel job:
+At the hand-in code, `72e6c44`, with a clean tree. The two commits after it
+change only the check runner (`06a0c92` adds `--neighbors`) and this
+document. Measured under the machine build lock and a 4,096 MB kernel job
+(C:\orgtree-build\epic-final\check-4, visual-3 and, at `06a0c92`, check-5):
 
 | Check | Result |
 | --- | --- |
 | Root typecheck | Exit 0 |
-| Strict renderer configuration | 29 diagnostics at the tip, 29 at `b77512f`: none added, none removed, none in EPIC files |
-| Strict test configuration | 830 at the tip, 830 at `b77512f`: none added, none removed; all four EPIC suites in the file list |
-| Green (tip) | 39 of 39 pass |
-| Red (`b77512f`) | 0 of 39 pass: all 39 executed and failed |
-| Opus control (`fdd645f`) | 25 of 39 pass. The 14 that fail are the final version's additions: three engine-suite coverage checks, and eleven final-suite tests (every one but the popped-out window and the native preferences file, which the Opus take already got right and the final suite now exercises) |
-| Screenshots | Passed; 34 PNGs. The switch is panel background only when off, one subtle colour when hovered, checked with an accent label when on and background again when unticked, in Charcoal, Light, Solarized Light and Obsidian Black. Every effect's painted words are recorded. |
+| Strict renderer configuration | 29 diagnostics at the tip and 29 at `b77512f` (clean checkout): none added, none removed, none in EPIC files |
+| Strict test configuration | 830 at the tip and 830 at `b77512f`: none added, none removed; all four EPIC suites are in the file list |
+| Green (tip) | 42 of 42 pass, none skipped: switch 9, off 3, engine 14, final 16 |
+| Red (`b77512f`) | 0 of 42 pass: all 42 executed and failed |
+| Opus control (`fdd645f`) | 25 of 42 pass. The 17 that fail are the final version's additions: the engine suite's three coverage checks (new kinds, new sounds, new words), and 14 of the 16 final-suite tests. The two that pass, a popped-out window's own stage and the native preferences file, are the Opus take's own behaviour, exercised by the final suite for the first time |
+| Neighbor suites (`06a0c92`) | 67 of 67 pass, none skipped, in ten existing suites: haltcontrol, stopnonjson, crossprovider, appnotices, appvalues, apporgs, appsettings, appsettingsclose, rainbowsetting and enginedebug. The same run repeated green: 42 of 42 |
+| Screenshots | Passed; 34 PNGs, every one inspected. In Charcoal, Light, Solarized Light and Obsidian Black, the switch row is exactly the panel background when off, one subtle colour when hovered (rgb 45,45,48 / 232,235,239 / 233,226,203 / 25,25,25), checked with its label equal to the theme accent when on (the fixture's Orgtree slate accent, rgb(182,189,200)), and the background again when unticked. Each effect's painted words are recorded and match its picture |
 
-That run's screenshots caught a real bug: two ranks reached in one burst
-printed their titles over each other ("HOVERDRIVE!K!"). A new title now ends
-the one before it, with its own test. The measurements at the hand-in tip
-follow below.
+Earlier runs found two real bugs in the merge's screenshots, both now fixed
+and tested:
+
+- At `711431c`, two ranks reached in one burst printed their titles over
+  each other ("HOVERDRIVE!K!"). A new title now ends the one before it.
+- At `961f0ac` (41 tests, the same zero-diff strict results), the agents'
+  names were washed out under glows: DAVE under the hire portal's light,
+  BOSS under paw prints, EDIT! under a rank title. Impact words, names,
+  titles and glyphs now draw after every glow and particle.
 
 ## Limits
 
