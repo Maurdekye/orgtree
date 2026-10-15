@@ -1009,6 +1009,12 @@ export interface ChatMessage {
   tools?: ToolChip[]
   cmd_out?: string
   summary?: string
+  /** a provider compaction row: running from the harness's reported start
+   *  (`compact_started_at`), then done/failed with `compact_ended_at`, or
+   *  interrupted with none. Rows of older engines carry none of these. */
+  compact_state?: 'running' | 'done' | 'failed' | 'interrupted'
+  compact_started_at?: string
+  compact_ended_at?: string
   /** pre-slice ordinal — the UI's stable row key (supervisor.py:2963) */
   seq?: number
   /** thinking blocks, joined + capped (supervisor.py:2938) */

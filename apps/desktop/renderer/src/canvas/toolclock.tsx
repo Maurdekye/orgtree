@@ -120,3 +120,18 @@ export function RunningTimer({ startedAt }: { startedAt: string }) {
   if (!elapsed) return null
   return <span className="dim tool-running" title="execution time so far" aria-label={'running for ' + elapsed}> · <ArrowRightIcon fontSize="inherit" /> {elapsed}</span>
 }
+
+/** A provider compaction's row text. Running: "Compacting context · compacting
+ *  for 12s" counting from the engine's recorded start. Finished: the text and
+ *  how long it took, only when both stamps were recorded (never invented). */
+export function CompactingLine({ text, state, startedAt, endedAt }:
+  { text: string; state?: string; startedAt?: string; endedAt?: string }) {
+  const running = state === 'running'
+  const elapsed = useLiveDuration(startedAt, running)
+  if (running) {
+    return <span className="compacting-line" aria-label={elapsed ? `compacting for ${elapsed}` : 'compacting'}>
+      {elapsed ? `compacting for ${elapsed}` : text}</span>
+  }
+  const took = state === 'done' || state === 'failed' ? executionTime(startedAt, endedAt) : ''
+  return <>{text}{took && <span className="dim" aria-label={`took ${took}`}>{' · took ' + took}</span>}</>
+}

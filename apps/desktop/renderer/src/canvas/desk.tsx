@@ -9,7 +9,7 @@ import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
-import { newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
+import { CompactingLine, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
@@ -5057,7 +5057,9 @@ function SysLine({ m }: { m: ChatMessage }) {
     <div className={'msg sys' + (m.summary ? ' click' : '')}
       onClick={m.summary ? toggleOpen : undefined}
       title={m.summary ? (open ? 'collapse' : 'read the compaction summary') : undefined}>
-      {m.text}{m.summary && !open ? ' · summary ▶' : ''}
+      {m.compact_state
+        ? <CompactingLine text={m.text} state={m.compact_state} startedAt={m.compact_started_at} endedAt={m.compact_ended_at} />
+        : m.text}{m.summary && !open ? ' · summary ▶' : ''}
       {open && m.summary && <CopyablePre><pre className="filepre">{m.summary}</pre></CopyablePre>}
     </div>
   )
