@@ -129,7 +129,11 @@ export default async function (rig) {
 
   // ------------------------------------------------------------ C: the task ended
   {
-    const pgFrom = size(pgLog), hostFrom = size(hostLog), logFrom = rig.engineLog().length
+    // The host engine's own session log (trace.rs: one file per engine start, its
+    // header names the pid). Not a slice of rig.engineLog(): B's refused engine
+    // wrote a later file, so this engine's new lines land in the middle of it.
+    const engineFile = rig.engineLogFiles().find(f => fs.readFileSync(f, 'utf8').includes(`engine starting pid=${attach.enginePid} `))
+    const pgFrom = size(pgLog), hostFrom = size(hostLog), logFrom = engineFile ? size(engineFile) : 0
     const t0 = Date.now()
     // Task Scheduler's End: the launcher process alone is terminated (no tree kill).
     process.kill(first.child.pid)
@@ -139,8 +143,9 @@ export default async function (rig) {
     const seconds = gone ? Number(((gone - t0) / 1000).toFixed(1)) : null
     p.check('C: the engine and its host stop once the launcher is gone', !!gone, { seconds })
     p.check('C: the host noticed the task ended and asked its engine to stop', /the sign-in engine task ended; stopping the engine/.test(after(hostLog, hostFrom)))
-    const text = rig.engineLog().slice(logFrom)
-    p.check('C: the engine ran its own shutdown on the host\'s request', /shutdown requested by the desktop/.test(text) && /engine stopping/.test(text))
+    const text = engineFile ? after(engineFile, logFrom) : ''
+    p.check('C: the engine ran its own shutdown on the host\'s request', /shutdown requested by the desktop/.test(text) && /engine stopping/.test(text),
+      { log: engineFile ? path.basename(engineFile) : null })
     p.check('C: PostgreSQL shut down cleanly', /database system is shut down/.test(after(pgLog, pgFrom)))
     p.check('C: the host removed its attach descriptor', !fs.existsSync(descriptor))
     p.file('boot-host.log', after(hostLog, 0))
