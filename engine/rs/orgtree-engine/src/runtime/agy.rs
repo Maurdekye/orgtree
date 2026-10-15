@@ -733,6 +733,40 @@ mod workspace_notes_tests {
         assert_eq!(rule.matches(&spec.identity).count(), 1);
     }
 
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn agy_legacy_migration_rejects_linked_scratch_ancestor() {
+        let (root, spec) = fixture();
+        let outside = root.join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        let legacy = format!("You are \"ann\", an agent in the organization \"Proof\" (orgtree). {}", LEGACY_CLOSINGS[0]);
+        let source = outside.join("AGENTS.md");
+        std::fs::write(&source, &legacy).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &spec.cwd).unwrap();
+        #[cfg(windows)]
+        {
+            let link = crate::config::strip_verbatim(&spec.cwd).to_string_lossy().replace('/', "\\");
+            let target = crate::config::strip_verbatim(&outside).to_string_lossy().replace('/', "\\");
+            let result = std::process::Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/J"]).arg(&link).arg(&target).output().unwrap();
+            assert!(result.status.success(), "fixture junction creation failed: status={:?}, stdout={}, stderr={}",
+                result.status.code(), String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        }
+        let refused = migrate_generated_identity(&spec.cwd).is_err();
+        let preserved = std::fs::read(&source).ok().as_deref() == Some(legacy.as_bytes());
+        let backup = std::fs::read_dir(&outside).unwrap().flatten()
+            .any(|e| e.file_name().to_string_lossy().ends_with(".bak"));
+        #[cfg(windows)]
+        std::fs::remove_dir(&spec.cwd).unwrap();
+        #[cfg(unix)]
+        std::fs::remove_file(&spec.cwd).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(refused, "migration must reject redirected scratch before reading or renaming");
+        assert!(preserved, "external envelope bytes must remain in AGENTS.md");
+        assert!(!backup, "no backup may be created outside scratch");
+    }
+
     #[test]
     fn agy_legacy_envelope_is_backed_up_once_and_other_notes_are_untouched() {
         let (root, spec) = fixture();
