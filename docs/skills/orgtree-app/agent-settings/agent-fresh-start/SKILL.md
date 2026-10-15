@@ -20,7 +20,7 @@ Save sends an empty object for inheritance, which removes the override. Explicit
 
 The policy resets before a turn only when the cache forecast calls for compaction and measured conversation occupancy is at least the threshold, with an existing session and valid context size. Turning it on does not immediately reset the session. Unknown cache readiness and estimated context do not establish a reset condition. It is separate from the organization's ordinary context-compaction threshold.
 
-When triggered, the current agent continues in a fresh session with a summary and attempts to save the old conversation in its scratch folder. A failed history save is logged, so do not promise an export in every failure case. Detailed cache forecasting, receipts and handoff behavior belong to `orgtree-context-and-compaction` (orgtree-working > runtime).
+When triggered, the current agent continues in a fresh session with a summary and attempts to save the old conversation in its scratch folder. A failed history save is logged, so do not promise an export in every failure case. Detailed cache forecasting, receipts and handoff behavior belong to `orgtree-context-and-compaction` (orgtree-working › runtime).
 
 Suggest this override when one agent should have a different known-cold-session policy from the organization. Discuss continuity and rereading cost using the actual forecast; do not use elapsed process lifetime alone as proof that its provider cache is cold.
 
@@ -30,6 +30,6 @@ Suggest this override when one agent should have a different known-cold-session 
 
 ## See also
 
-- `orgtree-context-and-compaction` (orgtree-working > runtime).
+- `orgtree-context-and-compaction` (orgtree-working › runtime).
 - [orgtree-org-policies-compaction](../../org-settings/org-policies-compaction/SKILL.md).
 - [orgtree-agent-model-tab](../agent-model-tab/SKILL.md).

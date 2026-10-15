@@ -23,12 +23,12 @@ An edited list is sent in full: the desktop `add_dirs` save **replaces this agen
 
 The effective folder set is bounded by the ancestors and org holdings. A user save can grant a new path at any depth: actual additions or RW upgrades can expand org holdings, and the ancestor chain is raised to carry the grant. The form previews ancestor increases; the engine's returned cascade is authoritative. Revoking or downgrading a parent's grant restricts what descendants can effectively use, even where a broader configured grant remains stored. Folder removal here is not deletion of files on disk.
 
-Folder access also depends on the edit tool and permission mode, plus the harness's enforcement. A RW entry alone does not make a read-only seat writable. Scratch, org-shared and team workspace access are handled separately by the runtime; see `orgtree-scope-and-permissions` (orgtree-working > team) for the effective grant rules. The picker itself is covered by [orgtree-folder-picker](../../app-shell/folder-picker/SKILL.md).
+Folder access also depends on the edit tool and permission mode, plus the harness's enforcement. A RW entry alone does not make a read-only seat writable. Scratch, org-shared and team workspace access are handled separately by the runtime; see `orgtree-scope-and-permissions` (orgtree-working › team) for the effective grant rules. The picker itself is covered by [orgtree-folder-picker](../../app-shell/folder-picker/SKILL.md).
 
 Suggest a narrowly scoped path and mode when a task needs files outside the current grant. Explain both ancestor expansion and descendant loss before recommending a broad change. The save reconfigures affected processes and changes their startup scope; see [orgtree-agent-config](../agent-config/SKILL.md) for timing/cache consequences.
 
 ## See also
 
-- `orgtree-scope-and-permissions` (orgtree-working > team).
+- `orgtree-scope-and-permissions` (orgtree-working › team).
 - [orgtree-folder-picker](../../app-shell/folder-picker/SKILL.md).
 - [orgtree-agent-visibility-access](../agent-visibility-access/SKILL.md).

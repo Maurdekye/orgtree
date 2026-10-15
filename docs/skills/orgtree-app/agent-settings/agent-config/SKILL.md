@@ -39,12 +39,12 @@ The action row depends on the agent's state:
 | rehire (context intact) | Archived agent; submits rehire directly. |
 | delete permanently | Opens a destructive confirmation before submitting deletion. |
 
-The retirement buttons display seat plus grant. Read `orgtree-team-shape` and its lifecycle tools (orgtree-working > team) for what retirement, restoration and deletion retain, release or refuse. These are actions rather than defaults, and should be suggested for an intended lifecycle change, not to save a tab edit.
+The retirement buttons display seat plus grant. Read `orgtree-team-shape` and its lifecycle tools (orgtree-working › team) for what retirement, restoration and deletion retain, release or refuse. These are actions rather than defaults, and should be suggested for an intended lifecycle change, not to save a tab edit.
 
 Permanent deletion's confirmation includes the descendant and prior-generation counts. With a foreground tree, it first reads the full deletion scope; **Loading full deletion scope…** offers Cancel, and a failed read offers Cancel and Retry. A changed/missing agent requires closing and reopening the dialog. The final confirmation warns that deletion cannot be undone and that session transcripts remain on disk; do not describe it as erasing every local conversation file.
 
 ## See also
 
-- `orgtree-team-shape` (orgtree-working > team).
+- `orgtree-team-shape` (orgtree-working › team).
 - [orgtree-agent-model-tab](../agent-model-tab/SKILL.md).
 - [orgtree-agent-credit-grant](../agent-credit-grant/SKILL.md).

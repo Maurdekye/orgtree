@@ -7,7 +7,7 @@ Up: [orgtree-agent-settings](../SKILL.md)
 
 # Credit grant slider
 
-**Credit grant** in Scope controls `node:grant`, the selected agent's capacity for reports. Its current grant is the initial value; there is no separate fixed default in this control. It is shown for live agents, excluding the user and legacy bearer cards. Agents explain or recommend capacity changes; they do not operate settings themselves. See `orgtree-credits` (orgtree-working > team) for seat, grant, committed and free capacity.
+**Credit grant** in Scope controls `node:grant`, the selected agent's capacity for reports. Its current grant is the initial value; there is no separate fixed default in this control. It is shown for live agents, excluding the user and legacy bearer cards. Agents explain or recommend capacity changes; they do not operate settings themselves. See `orgtree-credits` (orgtree-working › team) for seat, grant, committed and free capacity.
 
 This control saves immediately through a reallocation when the gesture commits. It does not wait for the form's Save, and the form's Cancel does not reverse an accepted grant.
 
@@ -27,5 +27,5 @@ Suggest increasing the grant when the agent needs capacity to staff reports. Sug
 
 ## See also
 
-- `orgtree-credits` (orgtree-working > team).
+- `orgtree-credits` (orgtree-working › team).
 - [orgtree-agent-config](../agent-config/SKILL.md).

@@ -25,5 +25,5 @@ The pages below distinguish the shared form from separate action buttons and the
 
 ## See also
 
-- `orgtree-team-shape` (orgtree-working > team): agent structure and lifecycle.
+- `orgtree-team-shape` (orgtree-working › team): agent structure and lifecycle.
 - [orgtree-org-settings](../org-settings/SKILL.md): organization settings and future-hire defaults.

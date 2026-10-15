@@ -16,7 +16,7 @@ These user-edited text fields are stored with the selected agent. Agents explain
 
 Both start from the saved text, with an absent value displayed as empty. There is no stock text inserted by this tab. An empty saved field clears that text. **save** applies the text along with the other tab edits; switching tabs does not save it.
 
-The runtime puts the personal field in the agent's startup identity as its charter. It includes the agent's own team charter and its ancestors' nonempty team charters, ordered from the root downward. A team's standing instructions therefore reach descendants at every depth. This is separate from the organization's `org.md`; see `orgtree-charters` (orgtree-working > team) for the overall instruction hierarchy.
+The runtime puts the personal field in the agent's startup identity as its charter. It includes the agent's own team charter and its ancestors' nonempty team charters, ordered from the root downward. A team's standing instructions therefore reach descendants at every depth. This is separate from the organization's `org.md`; see `orgtree-charters` (orgtree-working › team) for the overall instruction hierarchy.
 
 The form warns that personal instructions restart the agent and team instructions restart the team. In the current shared scope-save path, the affected live subtree is marked for reconfiguration, including for a personal-instructions save. An idle process is replaced; an active turn finishes before replacement. New startup text changes the prompt prefix, so expect a cache compatibility cost rather than promising retained provider cache reuse.
 
@@ -24,5 +24,5 @@ Suggest personal instructions when the agent's own objective or constraints need
 
 ## See also
 
-- `orgtree-charters` (orgtree-working > team).
+- `orgtree-charters` (orgtree-working › team).
 - [orgtree-agent-config](../agent-config/SKILL.md).

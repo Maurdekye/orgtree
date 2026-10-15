@@ -25,7 +25,7 @@ A selected version not in the chosen tier's version list is submitted as latest.
 
 A busy agent's model change is queued for the turn boundary; a later request can replace it. **Pending model change** shows the queued tier. **Cancel change** submits the current tier to cancel that queue, independently of the form's Save. Saving unrelated settings with the current tier does not cancel a queued switch. To apply a switch immediately, the UI advises interrupting the current turn first, then saving.
 
-Cross-provider switches start a fresh session with a handoff summary; the earlier conversation remains available through saved history in the agent's folder. Scratch files and mail remain with the agent. A language-server switch between different harnesses also requires a fresh session. Same-provider changes do not use that cross-provider session reset. Model/provider changes create a new cache namespace; do not promise a provider cache hit or uninterrupted context reuse. See `orgtree-tool-switch-model` (orgtree-working > team) for admission, costs and the underlying operation.
+Cross-provider switches start a fresh session with a handoff summary; the earlier conversation remains available through saved history in the agent's folder. Scratch files and mail remain with the agent. A language-server switch between different harnesses also requires a fresh session. Same-provider changes do not use that cross-provider session reset. Model/provider changes create a new cache namespace; do not promise a provider cache hit or uninterrupted context reuse. See `orgtree-tool-switch-model` (orgtree-working › team) for admission, costs and the underlying operation.
 
 ## Thinking effort
 
@@ -39,7 +39,7 @@ The full form is a structural save and can replace processes, so it does not pro
 
 ## See also
 
-- `orgtree-tool-switch-model` (orgtree-working > team).
+- `orgtree-tool-switch-model` (orgtree-working › team).
 - [orgtree-agent-account-tab](../agent-account-tab/SKILL.md).
 - [orgtree-agent-fresh-start](../agent-fresh-start/SKILL.md).
 - [orgtree-agent-config](../agent-config/SKILL.md).

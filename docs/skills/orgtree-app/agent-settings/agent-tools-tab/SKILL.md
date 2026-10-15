@@ -36,7 +36,7 @@ These control tools built into the harness, such as Claude Code or Codex. Helper
 
 Disabled groups remove their tool definitions and corresponding engine-owned instructions. Status reporting remains available even with every group off. Staffing a work item needs both Docket work and Team management. A fresh usage refresh additionally needs Runtime and accounts; the saved read belongs to Organization reading. These are capability gates alongside the tools' normal target/audience/ownership checks, not permission to contact the user or modify any agent.
 
-Each group is disabled in the UI when the superior has denied it. Missing group flags preserve on for compatibility; unknown group names or nonboolean values are refused by the engine. See `orgtree-scope-and-permissions` (orgtree-working > team) for effective ceilings and `orgtree-tool-request-scope` (orgtree-working > user) for asking for missing capability.
+Each group is disabled in the UI when the superior has denied it. Missing group flags preserve on for compatibility; unknown group names or nonboolean values are refused by the engine. See `orgtree-scope-and-permissions` (orgtree-working › team) for effective ceilings and `orgtree-tool-request-scope` (orgtree-working › user) for asking for missing capability.
 
 ## MCP Servers
 
@@ -50,7 +50,7 @@ Suggest a tool grant for an actual missing capability needed by the task, and ch
 
 ## See also
 
-- `orgtree-scope-and-permissions` (orgtree-working > team).
-- `orgtree-tool-request-scope` (orgtree-working > user).
+- `orgtree-scope-and-permissions` (orgtree-working › team).
+- `orgtree-tool-request-scope` (orgtree-working › user).
 - [orgtree-agent-visibility-access](../agent-visibility-access/SKILL.md).
 - [orgtree-agent-folders-tab](../agent-folders-tab/SKILL.md).
