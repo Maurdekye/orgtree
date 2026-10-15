@@ -102,6 +102,8 @@ function FakeOrg() {
   return (
     <div className="viewport" data-pin-org="acme" style={{ position: 'fixed', inset: 0, borderRadius: 0 }}>
       <div className="canvas-bg" />
+      {/* the inbox bell, where mail to the user (and urgent mail) points */}
+      <button className="ask-bell" style={{ position: 'absolute', right: 24, top: 18, width: 34, height: 34 }}>✉</button>
       <div className="space" style={{ transform: 'translate(0px, 0px) scale(1)' }}>
         <svg className="edges" width="1000" height="700" style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }}>
           {wire('boss', 'alice')}{wire('boss', 'bob')}{wire('boss', 'carol')}{wire('alice', 'dave')}{wire('carol', 'erin')}

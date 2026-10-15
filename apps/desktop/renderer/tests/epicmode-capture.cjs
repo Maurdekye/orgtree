@@ -366,6 +366,63 @@ app.whenReady().then(async () => {
     receipts.push({ wheel: 'page', unanswered: await js(`window.__unknown.slice()`), consoleErrors })
     write(false)
     if (wheelFailed.length) throw new Error('wheel effects not what the wheel did: ' + wheelFailed.join('; '))
+
+    // ── urgent mail: the alarm ───────────────────────────────────────────
+    // (docket epic-mode-make-urgent-mail-s-effect-much-more-ey). The stage
+    // scene, then urgent mail: photographed before it, at a pulse's peak and
+    // trough, at a peak three and a half seconds on, and after it has ended
+    // by itself. A corner pixel and the middle are measured in each: the tint
+    // must be plainly visible, deeper at the edges than in the middle, pulse
+    // down between peaks, still be on at 3.6 s, and be gone at the end.
+    const urgentFailed = []
+    const pixel = (image, x, y) => {
+      const { width } = image.getSize()
+      const bmp = image.toBitmap()
+      const i = (y * width + x) * 4
+      return [bmp[i + 2], bmp[i + 1], bmp[i]]
+    }
+    const CORNER = [10, 690], MIDDLE = [500, 380]
+    const measure = image => ({ corner: pixel(image, ...CORNER), middle: pixel(image, ...MIDDLE) })
+    for (const theme of ['charcoal', 'light']) {
+      await win.loadURL(`${url}/fixture.html?scene=stage&n=${++loads}`)
+      await waitFor(`!!window.__epic && window.__epic.ready && document.querySelectorAll('[data-first-use-agent]').length === 6`, 'the fixture org')
+      await js(`window.__contrast(${JSON.stringify(theme)}); window.__epic.start(); true`)
+      await sleep(300)
+      const base = measure(await shot(`urgent-${theme}-before`))
+      const started = Date.now()
+      // at the inbox bell, as the org's own tree stages it
+      await js(`(() => { const b = document.querySelector('.ask-bell').getBoundingClientRect()
+        window.__epic.cue('urgent', { caption: 'boss', spot: { x: b.left + b.width / 2, y: b.top + b.height / 2, rect: null, el: null, doc: document } })
+        return true })()`)
+      // each shot lands about 100 ms after it is asked for (two frames and 40 ms)
+      const at = async ms => { const left = ms - 100 - (Date.now() - started); if (left > 0) await sleep(left) }
+      await at(400)
+      const peak = measure(await shot(`urgent-${theme}-peak`))
+      await at(800)
+      const trough = measure(await shot(`urgent-${theme}-trough`))
+      await at(3600)
+      const later = measure(await shot(`urgent-${theme}-later`))
+      await at(9000)
+      const gone = measure(await shot(`urgent-${theme}-gone`))
+      // redness, red over the other two: a red tint raises it on a dark and a
+      // light background alike, and grey (the canvas dots) leaves it alone
+      const redness = p => p[0] - (p[1] + p[2]) / 2
+      const red = (m, where) => Math.round(redness(m[where]) - redness(base[where]))
+      const receipt = { urgent: theme, base, peak, trough, later, gone,
+        cornerRed: { peak: red(peak, 'corner'), trough: red(trough, 'corner'), later: red(later, 'corner'), gone: red(gone, 'corner') },
+        middleRed: { peak: red(peak, 'middle') } }
+      receipt.visible = receipt.cornerRed.peak >= 25
+      receipt.deeperAtEdges = receipt.cornerRed.peak > receipt.middleRed.peak
+      receipt.pulses = receipt.cornerRed.trough < receipt.cornerRed.peak * 0.75
+      receipt.lasts = receipt.cornerRed.later >= 20
+      receipt.ends = Math.abs(receipt.cornerRed.gone) <= 3
+      receipt.pass = receipt.visible && receipt.deeperAtEdges && receipt.pulses && receipt.lasts && receipt.ends
+      if (!receipt.pass) urgentFailed.push(`${theme}: ${JSON.stringify(receipt.cornerRed)} middle ${receipt.middleRed.peak}`)
+      receipts.push(receipt)
+      await js(`window.__epic.stop(); true`)
+      write(false)
+    }
+    if (urgentFailed.length) throw new Error('urgent mail alarm not as specified: ' + urgentFailed.join('; '))
     write(true)
   } finally { win.destroy() }
 }).then(() => app.exit(0), error => {
