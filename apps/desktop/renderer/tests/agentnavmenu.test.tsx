@@ -233,7 +233,7 @@ uiTest('§2 the desk header name offers the agent whole menu, not just Copy agen
       `the copy entry is still first — have ${JSON.stringify(have)}`)
     assert.ok(have.length > 1,
       `and it is no longer the only one — have ${JSON.stringify(have)}`)
-    for (const entry of ['· Open desk', '· Open inbox', '· Open docket', 'Settings']) {
+    for (const entry of ['· Open desk', '· Open inbox', '· Open docket', 'Settings', 'Acquire audience']) {
       assert.ok(have.includes(entry),
         `the desk name offers "${entry}" — have ${JSON.stringify(have)}`)
     }

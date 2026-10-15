@@ -3064,6 +3064,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         ? () => onOpenAgentGallery(n.id) : undefined,
       onLineage: () => toggleNodeSurface('lineage', n.id, setLineageId),
       onSettings: () => toggleConfig(n.id),
+      onToggleUserAudience: () => audienceAction(slug,
+        n.audiences_held?.includes(USER) ? 'revoke' : 'grant', n.id, USER)
+        .catch((e: Error) => toast([`error: ${e.message}`])),
       // the same gate the card gets: there is no pinning on mobile
       onPin: !isMobile ? () => pinDesk(n.id) : undefined,
       onShowPin: () => showPin(slug, n.id, vpSizeNow()),

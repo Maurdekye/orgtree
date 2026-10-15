@@ -23,6 +23,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Continue on <account> | Engine-supplied eligible alternatives for a live frozen agent; no invented account choices from the menu. |
 | Dismiss | Hide an explicitly revealed retired card again, where the surface supports that action. |
 | Settings | Open the agent settings surface. |
+| Acquire audience / Drop audience | Grant or revoke the agent's **user** audience. The label reflects whether `@user` is currently held; the action is offered on live agents where the surface supplies the handler. Acquire also approves a pending user-audience request. Revocation leaves already queued mail queued. |
 | Cheap compact… | Single-agent action disabled while busy or without a session; eligible managers also offer subtree/all subordinates scopes. Busy seats are skipped by bulk processing. |
 | Halt… / Unhalt… | Single-agent stop/release plus subtree/all subordinates variants when a team exists; read counts and partial outcome messages. |
 | Retire… / Dissolve… | Retire a leaf or explicitly dissolve a manager's subtree; submenu can leave the manager live while retiring all subordinates. Confirmation states the selected scope. |

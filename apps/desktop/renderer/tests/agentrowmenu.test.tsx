@@ -141,6 +141,18 @@ async function pick(label: string) {
   })
   await flush(2)
 }
+async function pickAudienceAction(label: string): Promise<{ url: string; body: unknown }[]> {
+  const old = globalThis.fetch
+  const calls: { url: string; body: unknown }[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(input), body: JSON.parse(String(init?.body)) })
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+  try { await pick(label) } finally { globalThis.fetch = old }
+  return calls
+}
 async function esc(target: Element = document.body) {
   await inAct(() => {
     target.dispatchEvent(new W.KeyboardEvent('keydown',
@@ -215,11 +227,47 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       'Copy agent name', 'Focus', 'Hire a subordinate ▸',
       'Open ▸', '· Open desk', '· Open desk in a new window', '· Pin desk as a window',
       '· Open inbox', '· Open docket', '· Open team docket',
-      'Settings', 'Cheap compact…', 'Halt…', 'Retire…',
+      'Settings', 'Acquire audience', 'Cheap compact…', 'Halt…', 'Retire…',
     ], 'the agent menu, in order')
   })
 
-uiTest('§1b the menu opens from the row\'s main line too — the whole row is the object',
+uiTest('§1a user audience action reflects current access on both menu surfaces',
+  async (t) => {
+    const c = await mountCanvas(t, [
+      mkNode('fresh'),
+      mkNode('granted', { audiences_held: ['@user'] }),
+    ])
+    await openTray(c.el)
+    const acquire = await assertParity(c, 'fresh', 'an agent without a user audience')
+    assert.ok(acquire.includes('Acquire audience'), JSON.stringify(acquire))
+    assert.ok(!acquire.includes('Drop audience'), JSON.stringify(acquire))
+
+    const drop = await assertParity(c, 'granted', 'an agent with a user audience')
+    assert.ok(drop.includes('Drop audience'), JSON.stringify(drop))
+    assert.ok(!drop.includes('Acquire audience'), JSON.stringify(drop))
+  })
+
+uiTest('§1b audience menu actions use the audited user-audience endpoint',
+  async (t) => {
+    const c = await mountCanvas(t, [
+      mkNode('fresh'),
+      mkNode('granted', { audiences_held: ['@user'] }),
+    ])
+    await openTray(c.el)
+    await rightClick(rowFor(c.el, 'fresh')!)
+    const acquire = await pickAudienceAction('Acquire audience')
+    assert.deepEqual(acquire.map((call) => [new URL(call.url, 'http://localhost').pathname, call.body]), [
+      ['/api/orgs/mine/audiences', { action: 'grant', node: 'fresh', target: '@user' }],
+    ])
+
+    await rightClick(rowFor(c.el, 'granted')!)
+    const drop = await pickAudienceAction('Drop audience')
+    assert.deepEqual(drop.map((call) => [new URL(call.url, 'http://localhost').pathname, call.body]), [
+      ['/api/orgs/mine/audiences', { action: 'revoke', node: 'granted', target: '@user' }],
+    ])
+  })
+
+uiTest('§1c the menu opens from the row\'s main line too — the whole row is the object',
   async (t) => {
     const c = await mountCanvas(t, [mkNode('worker')])
     await openTray(c.el)

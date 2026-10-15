@@ -39,7 +39,7 @@ import type { ToastFn } from '../types'
 import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
-import { fmtCredits, hireTierChoices, tierLabel } from './shared'
+import { fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
@@ -71,6 +71,8 @@ export interface AgentMenuHandlers {
   onPresentations?: () => void
   onLineage?: () => void
   onSettings: () => void
+  /** grant or revoke this agent's user audience through the audited API */
+  onToggleUserAudience?: () => void
   /** pin this agent's desk as a window / raise the one already pinned */
   onPin?: () => void
   onShowPin?: () => void
@@ -237,6 +239,14 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     })
   }
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
+  if (live && !node.isBearerOf && h.onToggleUserAudience) {
+    const hasUserAudience = node.audiences_held?.includes(USER) ?? false
+    entries.push({
+      label: hasUserAudience ? 'Drop audience' : 'Acquire audience',
+      title: hasUserAudience ? 'Revoke this agent\'s user audience' : 'Grant this agent the user audience',
+      onSelect: h.onToggleUserAudience,
+    })
+  }
   // Clickable single-agent roots; team scopes expand on hover / ArrowRight.
   const subtree = subtreeAgents(node)
   const descendants = subtree.filter((target) => target.id !== node.id)

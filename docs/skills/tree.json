@@ -3052,7 +3052,9 @@
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",
-    "apps/desktop/renderer/src/canvas/agentmenu.tsx"
+    "apps/desktop/renderer/src/canvas/agentmenu.tsx",
+    "apps/desktop/renderer/src/canvas/shared.ts:1381",
+    "apps/desktop/renderer/src/api.ts:889"
    ],
    "see_also": [
     "agent-card"

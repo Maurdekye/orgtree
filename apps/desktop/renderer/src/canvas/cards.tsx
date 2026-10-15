@@ -1467,6 +1467,9 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         ? () => onOpenAgentGallery(node.id) : undefined,
       onLineage,
       onSettings: onConfig,
+      onToggleUserAudience: () => audienceAction(slug,
+        node.audiences_held?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
+        .catch((e: Error) => toast([`error: ${e.message}`])),
       onPin,
       onShowPin,
       // The registry mounts an unopened desk without moving the canvas.
