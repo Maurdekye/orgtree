@@ -17,6 +17,9 @@
 //      builds on — every file the final version changed loaded as it was there
 //      (exports added since are stubbed undefined), so the tests that fail are
 //      exactly the final version's additions.
+//   6. NEIGHBORS (--neighbors a,b,c): other renderer suites run green on the
+//      tip, for the existing behaviour of files the final version touched
+//      (api.ts's request and interrupt paths, appfeed.ts, the settings panel).
 // Each test run also writes JUnit XML, and summary.json lists every test's
 // outcome per mode. No source or dependency junctions or copies: esbuild, tsc
 // and the type roots are read in place from an existing dependency checkout.
@@ -37,13 +40,18 @@ import { withBuildLock } from './lib.mjs'
 // plugins need its asynchronous API; the lock holder waits for it).
 const bundling = process.argv[2] === '--bundle'
 const [depsArg, outArg, ...flags] = bundling ? process.argv.slice(4) : process.argv.slice(2)
-if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-check.mjs <dependency-root> <empty C:/orgtree-build/<agent>/... dir> [--base-tree <b77512f checkout>] [--no-typecheck] [--no-strict] [--no-red] [--no-opus] [--inside]')
+if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-check.mjs <dependency-root> <empty C:/orgtree-build/<agent>/... dir> [--base-tree <b77512f checkout>] [--neighbors a,b,c] [--no-typecheck] [--no-strict] [--no-red] [--no-opus] [--inside]')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const deps = path.resolve(depsArg), out = path.resolve(outArg)
 assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i, 'output goes under the authorized C:/orgtree-build scope')
 if (!bundling) assert.equal(fs.existsSync(out) && fs.readdirSync(out).length > 0, false, 'use an empty output directory')
 const baseTreeAt = flags.indexOf('--base-tree')
 const baseTree = baseTreeAt >= 0 ? path.resolve(flags[baseTreeAt + 1] ?? '') : null
+// the bundling child learns the neighbor list from the environment
+const neighborsAt = flags.indexOf('--neighbors')
+const NEIGHBORS = (neighborsAt >= 0 ? flags[neighborsAt + 1] ?? '' : process.env.EPIC_NEIGHBORS ?? '')
+  .split(',').map(n => n.trim()).filter(Boolean)
+for (const n of NEIGHBORS) assert.match(n, /^[a-z0-9-]+$/i, `a suite name, not a path: ${n}`)
 const modules = path.join(deps, 'node_modules')
 const require = createRequire(path.join(deps, 'package.json'))
 const esbuild = require('esbuild')
@@ -125,7 +133,7 @@ async function bundle(mode) {
   fs.mkdirSync(dir)
   const srcDir = sourceDir(mode)
   const replaced = mode === 'red' ? baseText : mode === 'opus' ? opusText : null
-  for (const name of SUITES) {
+  for (const name of mode === 'neighbors' ? NEIGHBORS : SUITES) {
     await esbuild.build({
       entryPoints: [path.join(root, 'apps/desktop/renderer/tests', `${name}.test.tsx`)],
       outfile: path.join(dir, `${name}.test.mjs`), bundle: true, platform: 'node', format: 'esm',
@@ -192,7 +200,9 @@ function outcomes(xml) {
 }
 
 function tests(mode) {
-  const built = run(`bundle-${mode}`, process.execPath, [fileURLToPath(import.meta.url), '--bundle', mode, deps, out])
+  const suites = mode === 'neighbors' ? NEIGHBORS : SUITES
+  const built = run(`bundle-${mode}`, process.execPath, [fileURLToPath(import.meta.url), '--bundle', mode, deps, out],
+    { EPIC_NEIGHBORS: NEIGHBORS.join(',') })
   if (built.exit !== 0) return { exit: built.exit, seconds: built.seconds, summary: built.summary }
   const dir = path.join(out, mode)
   const junit = path.join(out, `tests-${mode}.xml`)
@@ -200,7 +210,7 @@ function tests(mode) {
     '--test-concurrency=1', '--test-timeout=30000',
     '--test-reporter=spec', '--test-reporter-destination=stdout',
     '--test-reporter=junit', `--test-reporter-destination=${junit}`,
-    ...SUITES.map(n => path.join(dir, `${n}.test.mjs`))], { EPIC_TMP: tmp })
+    ...suites.map(n => path.join(dir, `${n}.test.mjs`))], { EPIC_TMP: tmp })
   const cases = fs.existsSync(junit) ? outcomes(fs.readFileSync(junit, 'utf8')) : []
   const count = state => cases.filter(c => c.state === state).length
   return { exit: r.exit, seconds: r.seconds, executed: cases.length, passed: count('pass'), failed: count('fail'),
@@ -283,6 +293,7 @@ const outcome = locked('EPIC Mode final: typecheck, strict, renderer suites gree
   results.green = tests('green')
   if (!flags.includes('--no-red')) results.red = tests('red')
   if (!flags.includes('--no-opus')) results.opus = tests('opus')
+  if (NEIGHBORS.length) results.neighbors = tests('neighbors')
   return results
 })
 const summary = { head, dirty: !!dirty, base: BASE, opus: OPUS, baseTree, suites: SUITES, output: out, lock: outcome.lock, results: outcome.result }
@@ -290,5 +301,5 @@ log('summary.json', JSON.stringify(summary, null, 2))
 const brief = mode => outcome.result[mode] && { exit: outcome.result[mode].exit, executed: outcome.result[mode].executed,
   passed: outcome.result[mode].passed, failed: outcome.result[mode].failed, skipped: outcome.result[mode].skipped }
 console.log(JSON.stringify({ head, dirty: !!dirty, lock: outcome.lock, typecheck: outcome.result.typecheck?.exit,
-  green: brief('green'), red: brief('red'), opus: brief('opus') }, null, 2))
-process.exitCode = outcome.result.typecheck?.exit || outcome.result.green.exit ? 1 : 0
+  green: brief('green'), red: brief('red'), opus: brief('opus'), neighbors: brief('neighbors') }, null, 2))
+process.exitCode = outcome.result.typecheck?.exit || outcome.result.green.exit || outcome.result.neighbors?.exit ? 1 : 0
