@@ -362,7 +362,14 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
             }
             srv.respond(id, c)
         }
-        "usage/read" => srv.respond(id, json!({ "usage": usage_doc(10.0, 20.0) })),
+        "usage/read" => {
+            // A dated observation (or {"usage":null}) for restart-cache proofs.
+            // Existing fixtures retain their ordinary fresh default.
+            let own = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+            let fixture = own.as_deref().into_iter().chain(srv.dir.as_deref())
+                .find_map(|d| load_json(&d.join("muse-usage.json")));
+            srv.respond(id, fixture.unwrap_or_else(|| json!({ "usage": usage_doc(10.0, 20.0) })))
+        }
         "session/start" => {
             let root = p["workspaceRoot"].as_str().unwrap_or("");
             // measured on Muse 1.4.6: a root that is not canonical is refused
