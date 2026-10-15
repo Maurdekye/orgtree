@@ -23,6 +23,8 @@ export interface DesktopPreferences extends NotificationPreferences {
   visualThemeExplicit?: boolean
   /** Hidden custom-color mode; the saved visualTheme remains the static color. */
   rainbowTheme?: { revealed: boolean; enabled: boolean; epoch: number }
+  /** The secret EPIC Mode switch (Settings › Developer). Absent means off. */
+  epicMode?: boolean
   exitOnClose: boolean
   startAtLogin: boolean
   automaticUpdates: boolean
