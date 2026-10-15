@@ -11,7 +11,10 @@
   measured limits: `docs/rust-engine/muse-usage-cache.md`]
 
 - Presentations and docket panels share panel-level Alt+Up/Down navigation
-  over their filtered, unfolded row order. Preserve editor/ask ownership and
+  over their filtered, unfolded row order. Their list root takes focus once
+  on opening so auto-selected entries accept arrows without a click; keep an
+  already focused descendant and never reclaim focus on later list polls.
+  Preserve editor/ask ownership and
   boolean draft markers on reply/ask components, including attachments and
   inactive question tabs; virtualized docket selections mount before nearest
   scrolling. Mail's own handler stays unchanged. Contract/evidence:

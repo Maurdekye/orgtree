@@ -4383,10 +4383,12 @@
    ],
    "purpose": "Keyboard shortcuts: the read-only list of bindings.",
    "must_cover": [
-    "every binding"
+    "every binding",
+    "opening panel focus and auto-selected Alt-arrow navigation"
    ],
    "sources": [
-    "apps/desktop/renderer/src/canvas/shortcutsettings.tsx"
+    "apps/desktop/renderer/src/canvas/shortcutsettings.tsx",
+    "apps/desktop/renderer/src/canvas/panelsteps.ts"
    ],
    "see_also": [
     "toasts-and-undo"

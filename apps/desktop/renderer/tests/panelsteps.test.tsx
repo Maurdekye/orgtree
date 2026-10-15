@@ -5,9 +5,11 @@ import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { cloneElement } from 'react'
 import { createPortal } from 'react-dom'
 import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { AgentDocketView, buildNodeFacts, DocketModal } from '../src/canvas/docket'
+import { usePanelSteps } from '../src/canvas/panelsteps'
 import type { DocRow } from '../src/api'
 import type { AskInfo, TreePayload, WorkItem } from '../src/types'
 
@@ -121,7 +123,8 @@ async function fixture(t: TestContext, surface: Surface, options: {
   }
   if (!options.blank && !options.opening) await pick(name(rows()[0]!))
   scrolled.length = 0
-  return { el, root, rows, name, selected, pick, scrolled }
+  const refresh = () => view.render(portalHost ? createPortal(cloneElement(body), portalHost) : cloneElement(body))
+  return { el, root, rows, name, selected, pick, scrolled, refresh }
 }
 
 for (const surface of surfaces) {
@@ -143,6 +146,7 @@ for (const surface of surfaces) {
     t.after(() => { other.remove() })
     const selected = f.selected()
     await advance(5000)
+    await f.refresh() // agent docket receives its refreshed list from its parent
     assert.equal(doc.activeElement === other, true, 'one opening focus claim, never a polling focus loop')
     const event = await press(other, 'ArrowDown')
     assert.equal(event.defaultPrevented, false)
@@ -157,6 +161,20 @@ for (const surface of ['agent-docs', 'agent-work'] as const) test(`${surface}: o
   assert.equal(f.selected(), surface === 'agent-docs' ? 'beta' : 'alpha')
   assert.equal(event.defaultPrevented, true)
   assert.equal(f.root.contains(doc.activeElement), true)
+})
+test('opening leaves an already auto-focused child editor in charge of its keys', async t => {
+  const selections: string[] = []
+  function EditingPanel() {
+    const steps = usePanelSteps(['alpha', 'beta'], 'alpha', id => { selections.push(id) }, '.mailrow')
+    return <div tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown}><input autoFocus /></div>
+  }
+  const view = await mountView(<EditingPanel />, el => el)
+  t.after(() => view.unmount())
+  const input = view.el.querySelector<HTMLInputElement>('input')!
+  assert.equal(input.ownerDocument.activeElement === input, true)
+  const event = await press(input, 'ArrowDown')
+  assert.equal(event.defaultPrevented, false)
+  assert.deepEqual(selections, [])
 })
 async function press(target: HTMLElement, key: string, extra: KeyboardEventInit = {}) {
   const owner = target.ownerDocument.defaultView as Window & typeof globalThis

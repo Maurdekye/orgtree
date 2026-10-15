@@ -14,6 +14,25 @@ Docket order includes eligible rows outside the bounded DOM viewport, and its
 existing window hook mounts the new selection before nearest scrolling.
 The keyboard path does not toggle an already selected row closed.
 
+## Opening focus (post4.3.0 patch)
+
+Selection and DOM focus are separate: a pane may auto-select a row while
+the launching button still owns keyboard events. `usePanelSteps` claims its
+root once the list first mounts, using that root's own document and
+`focus({preventScroll:true})`. An already focused descendant keeps focus.
+Later selection changes and list polls do not claim it again. Existing
+auto-selection rules and every key handler remain unchanged. The same hook
+serves organization and agent galleries, dockets, team dockets and desk tabs.
+
+The follow-up's base is release4.3.0 `f1eed04`; it belongs to the patch after
+that release. Tests-only `7694157` prepares actual-active-element opening
+events without a fixture row click. The final prepared suite has51 cases:
+the original36, ten opening/foreign-document arrows, four no-focus-reclaim
+poll controls and one already-focused-child control. Expected baseline
+10 failures/41 passes and patched51 passes are unmeasured. No author renderer
+runtime or typecheck was run; coordinator will arrange exact-SHA rig review.
+The portable `panel-focus-check.mjs` injects only the release helper for red.
+
 Already-consumed chords, inputs, textareas, selects, contenteditable elements,
 question cards and controls owning arrows keep the event. Lookups use the
 root's owner document, including a detached window. A blurred unsent reply,
