@@ -211,6 +211,27 @@ export function judgePosixTrust(uid: number, file: PosixStat, dirs: Array<[strin
   return { ok: true, detail: `owner ${uid}, exclusive write boundary` }
 }
 
+/** Windows PowerShell 5.1 by its absolute path (as runasadmin.ts runs it),
+ *  never whichever `powershell.exe` the inherited PATH finds first. */
+export const WINDOWS_POWERSHELL = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+
+/** The environment for a Windows PowerShell child: this process's, except that
+ *  PSModulePath names Windows PowerShell's own module folders only. A desktop
+ *  started from PowerShell 7 inherits a PSModulePath that lists PowerShell 7's
+ *  modules first, and Windows PowerShell 5.1 then cannot load the modules both
+ *  ship (Get-Acl: "found in the module 'Microsoft.PowerShell.Security', but the
+ *  module could not be loaded"); pwsh repairs that only for children it starts
+ *  itself. Windows matches variable names case-insensitively, so the inherited
+ *  value is dropped under every casing. */
+export function windowsPowerShellEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(env)) if (key.toLowerCase() !== 'psmodulepath') out[key] = value
+  const windows = env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows'
+  const programs = env.ProgramFiles ?? env.PROGRAMFILES ?? 'C:\\Program Files'
+  out.PSModulePath = `${windows}\\system32\\WindowsPowerShell\\v1.0\\Modules;${programs}\\WindowsPowerShell\\Modules`
+  return out
+}
+
 /** THE authentication step of attachment (redteam-opus F1, root ruling):
  *  everything in the descriptor and the identity response is authored by
  *  whoever can WRITE the file, so trust is a write-boundary property, and
@@ -267,7 +288,7 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
   return new Promise(resolve => {
     // Lazy import keeps policy.ts loadable in bundled unit tests without electron.
     import('node:child_process').then(({ execFile }) => {
-      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 10000, windowsHide: true },
+      execFile(WINDOWS_POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 10000, windowsHide: true, env: windowsPowerShellEnv() },
         (error, stdout) => {
           if (error) return resolve({ ok: false, detail: `trust query failed: ${error.message.slice(0, 200)}` })
           const parts = stdout.trim().split('|')

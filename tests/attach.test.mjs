@@ -320,6 +320,15 @@ test('the real trust check works when the desktop inherited a PowerShell 7 modul
   assert.match(verdict.result.detail, /^owner S-/)
 })
 
+test('a Windows PowerShell child gets only Windows PowerShell module folders', () => {
+  // Windows names are case-insensitive: every casing of the inherited value goes
+  const env = policy.windowsPowerShellEnv({ Path: 'C:\\bin', psmodulepath: 'c:\\program files\\powershell\\7\\Modules',
+    PSModulePath: 'C:\\Users\\me\\Documents\\PowerShell\\Modules', SystemRoot: 'D:\\Win', ProgramFiles: 'D:\\Programs' })
+  assert.deepEqual(env, { Path: 'C:\\bin', SystemRoot: 'D:\\Win', ProgramFiles: 'D:\\Programs',
+    PSModulePath: 'D:\\Win\\system32\\WindowsPowerShell\\v1.0\\Modules;D:\\Programs\\WindowsPowerShell\\Modules' })
+  assert.match(policy.WINDOWS_POWERSHELL, /\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe$/)
+})
+
 test('the real trust check rejects foreign write access, measured with actual ACLs', async () => {
   const { execFileSync } = await import('node:child_process')
   const me = process.env.USERDOMAIN + '\\' + process.env.USERNAME
