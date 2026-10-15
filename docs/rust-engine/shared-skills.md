@@ -59,7 +59,7 @@ native paths and plugin definitions never appear in the public registry or logs.
 `build.rs` embeds every file under `docs/skills` into the engine; no runtime source
 checkout or separately provisioned docs directory is needed. Guide writers own
 that source tree. The future guide-library catalog has two category skills,
-`orgtree-operations` and `orgtree-configuration`. Section and leaf pages have their
+`orgtree-working` and `orgtree-app`. Section and leaf pages have their
 own nested folders and `SKILL.md` files, loaded only on demand.
 
 Release cut, 2026-10-15 11:04Z: the large guide library is excluded from 4.3.0.

@@ -773,7 +773,7 @@ mod tests {
     fn skills_import_builtin_categories_keep_names_and_hide_nested_pages_from_catalogs() {
         let tmp = Temp::new();
         let mut builtin = fixture(
-            "orgtree-operations",
+            "orgtree-working",
             "[section](runtime/SKILL.md) [web](https://example.invalid)",
             "asset",
             "orgtree",
@@ -786,22 +786,22 @@ mod tests {
             PathBuf::from("runtime/tools/orgtree_status/SKILL.md"),
             b"# Status\nTool details unchanged\n".to_vec(),
         );
-        let user = fixture("orgtree-operations", "user", "asset", "claude");
+        let user = fixture("orgtree-working", "user", "asset", "claude");
         let registry = merge(vec![user, builtin]);
         assert_eq!(
             registry.names(),
-            ["orgtree-operations", "orgtree-operations-claude"]
+            ["orgtree-working", "orgtree-working-claude"]
         );
         let root = registry.materialize(&tmp.0.join("data")).unwrap();
         for tree in ["skills", ".claude/skills"] {
-            let entry = root.join(tree).join("orgtree-operations");
+            let entry = root.join(tree).join("orgtree-working");
             assert!(!entry.join("runtime/SKILL.md").exists());
             let text = std::fs::read_to_string(entry.join("SKILL.md")).unwrap();
-            assert!(text.contains("resources/orgtree-operations/runtime/SKILL.md"));
+            assert!(text.contains("resources/orgtree-working/runtime/SKILL.md"));
             assert!(text.contains("https://example.invalid"));
         }
         let resource =
-            root.join("resources/orgtree-operations/runtime/tools/orgtree_status/SKILL.md");
+            root.join("resources/orgtree-working/runtime/tools/orgtree_status/SKILL.md");
         assert_eq!(
             std::fs::read(&resource).unwrap(),
             b"# Status\nTool details unchanged\n"
@@ -809,14 +809,14 @@ mod tests {
         registry.workspace(&tmp.0.join("scratch")).unwrap();
         assert!(
             !tmp.0
-                .join("scratch/.agents/skills/orgtree-operations/runtime")
+                .join("scratch/.agents/skills/orgtree-working/runtime")
                 .exists()
         );
         assert!(
             tmp.0
                 .join("scratch/.agents/orgtree-skill-resources")
                 .join(&registry.digest)
-                .join("orgtree-operations/runtime/SKILL.md")
+                .join("orgtree-working/runtime/SKILL.md")
                 .is_file()
         );
     }
