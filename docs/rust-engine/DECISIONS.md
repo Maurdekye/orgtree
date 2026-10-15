@@ -905,3 +905,27 @@ All entries are dated 2026-10-06 unless stated otherwise.
       task's engine through its refused-then-attach path; when its own engine won instead, the
       task's host leaves.
     Details, verification and what only a real sign-in can show: [`engine-start-mode.md`](engine-start-mode.md).
+
+80. **An installer that cannot reach the engine asks it to stop through its own record** (docket
+    `installer-s-end-task-fallback-no-longer-stops-th`; design approved by the coordinator
+    2026-10-15 11:54Z). Since the core-lifecycle recovery (2026-10-12) an engine outlives its host,
+    so ending its task (which ends only the host) no longer stops it. That was the installer's way
+    when it could not read the operator's attach descriptor (another administrator), and its boot
+    step timed out after 150 s.
+    - **The request:** such an installer first writes `StopRequested` (REG_QWORD, Unix ms) into its
+      protected record `HKLM\SOFTWARE\Orgtree\BootEngine`, which only administrators can write.
+      Then it ends the task as before.
+    - **The engine:** an engine a task's host started (core mode "boot", either start mode) reads the
+      value every 2 s (`src/install_stop.rs`). A request newer than its own start stops it the
+      graceful way, as the desktop's request does. An older value never stops anything, and a
+      future-dated one is logged and stops it. The value is never deleted: the next request
+      overwrites it. The stop is logged with the request time, the engine's start time and the
+      reason.
+    - **Unchanged:** a host exit with no request leaves the engine running (the 2026-10-12 recovery
+      rule), and so does **a manual End on the boot task**. The sign-in engine's launcher stops its
+      engine on End (decision 79).
+    - **Rig only:** a rig run (`crate::rig::active`) reads the request from
+      `HKCU\<ORGTREE_RIG_STOP_KEY>`; every other engine ignores that variable.
+    - Rejected: running the boot task through the windowless launcher. That would change the
+      task's action, which every older installer's ownership check refuses, so downgrades would
+      fail. Proof: `tools/rig/proofs/boot-host-stop.mjs` (B, C).

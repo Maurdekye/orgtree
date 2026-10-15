@@ -976,6 +976,17 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [decided: user 2026-10-15, coordinator 2026-10-15 10:57Z/11:13Z; verified:
   `tools/boot-engine-task.ps1`, `apps/desktop/main/runonstartup.ts`,
   `src/engine_host.rs`; details `docs/rust-engine/engine-start-mode.md`, decision 79]
+- **Ending an engine's task does not stop a boot engine.** Since the
+  core-lifecycle recovery (2026-10-12) an engine outlives its host, and a task
+  End ends only the host. A manual End on the boot task therefore still leaves
+  the engine running. An installer that cannot ask through the descriptor first
+  writes `StopRequested` (REG_QWORD, Unix ms) into its HKLM record. A boot-mode
+  engine polls that value every 2 s and stops gracefully on a request newer
+  than its own start; a stale value never stops it and is never deleted. Only a
+  rig run may read the request from HKCU (`ORGTREE_RIG_STOP_KEY`, under
+  `crate::rig::active`). Never stop the engine by killing its host.
+  [decided: coordinator 2026-10-15 11:54Z; verified: `src/install_stop.rs`,
+  `tools/boot-engine-task.ps1`; proof `tools/rig/proofs/boot-host-stop.mjs` B/C; decision 80]
 
 
 - Antigravity Claude 5.5 uses separate `agy-sonnet` / `agy-opus` tiers (seats

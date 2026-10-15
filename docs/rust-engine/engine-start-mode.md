@@ -190,10 +190,10 @@ and any build, installation or real task.
   PostgreSQL recovers at its next start.
 - **Ending the boot task:** since the 2026-10-12 recovery change, ending the
   boot task no longer stops the boot engine; the core lifecycle keeps it alive
-  when its host exits. So the installer's end-the-task fallback times out after
-  150 s for the boot engine. Docket
-  `installer-s-end-task-fallback-no-longer-stops-th`. The sign-in engine does
-  not have this gap: its host asks the engine to stop when the task ends.
+  when its host exits. The installer's fallback now asks through its record
+  first (decision 80), but a manual End on the boot task still leaves the
+  engine running. The sign-in engine stops on End: its host asks the engine to
+  stop when the launcher is ended.
 - **Downgrade (inferred, not measured):** an older installer does not know the
   sign-in task. It stays registered, enabled in sign-in mode, and fails
   harmlessly at sign-in because its launcher binary is gone. The older
