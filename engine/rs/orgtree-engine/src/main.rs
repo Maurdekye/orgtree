@@ -330,8 +330,9 @@ async fn run_with_cluster(
     if engine.core.enabled && std::env::var("ORGTREE_CORE_MODE").as_deref() == Ok("managed") {
         // The descriptor has the same owner-only, atomic publication boundary
         // as the boot host. A replacement desktop can adopt this SAME engine.
+        // The reason is the failed step, never the token (write_descriptor's errors name no secret).
         host::write_descriptor(&cfg.data_root, port, std::process::id(), &cfg.desktop_token, true)
-            .map_err(|_| anyhow::anyhow!("cannot publish managed engine attachment"))?;
+            .map_err(|e| anyhow::anyhow!("cannot publish managed engine attachment: {e}"))?;
     }
     launch::ready(port, &cfg.data_root_id);
     runtime::watchdogs::events::machine(&engine,"engine.started",serde_json::json!({"commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}));

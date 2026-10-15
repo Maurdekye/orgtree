@@ -668,12 +668,14 @@ mod win {
         WAIT_OBJECT_0,
     };
     use windows_sys::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, ConvertStringSidToSidW, SDDL_REVISION_1,
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, ConvertStringSidToSidW, GetNamedSecurityInfoW,
+        SDDL_REVISION_1, SE_FILE_OBJECT,
     };
     use windows_sys::Win32::Security::{
-        CheckTokenMembership, CreateRestrictedToken, GetSecurityDescriptorDacl, GetSidSubAuthority, GetSidSubAuthorityCount,
-        GetTokenInformation, SetTokenInformation, TokenDefaultDacl, TokenIntegrityLevel, TokenUser, DISABLE_MAX_PRIVILEGE, PSID,
-        SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS, TOKEN_DEFAULT_DACL, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+        CheckTokenMembership, CreateRestrictedToken, GetAce, GetSecurityDescriptorDacl, GetSidSubAuthority, GetSidSubAuthorityCount,
+        GetTokenInformation, SetTokenInformation, TokenDefaultDacl, TokenIntegrityLevel, TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
+        DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
+        SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS, TOKEN_DEFAULT_DACL, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
     };
     use windows_sys::Win32::Storage::FileSystem::{CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
     use windows_sys::Win32::System::Pipes::CreatePipe;
@@ -1020,28 +1022,58 @@ mod win {
     }
 
     /// Read back that the owner is the operator and the DACL is exactly
-    /// operator + SYSTEM + Administrators with nothing inherited.
+    /// operator + SYSTEM + Administrators with nothing inherited. Read
+    /// natively: the powershell.exe Get-Acl read-back this replaces ran in
+    /// the environment the engine inherited, and a desktop started from
+    /// PowerShell 7 passes on a PSModulePath under which Windows PowerShell
+    /// cannot load Get-Acl, so no desktop-managed engine could start (v4.3.0
+    /// release smoke, CI run 38786926928).
+    #[logged]
     pub fn verify_restricted(path: &Path, sid: &str) -> bool {
-        let script = format!(
-            "$acl=Get-Acl -LiteralPath '{}';$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);\
-             Write-Output ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value+'|'+(@($rules | ForEach-Object {{ $_.IdentityReference.Value }}) -join ',')+'|'+@($rules | Where-Object {{ $_.IsInherited }}).Count)",
-            path.display().to_string().replace('\'', "''")
-        );
-        let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(CREATE_NO_WINDOW);
+        unsafe {
+            let p = wide_path(path);
+            let mut owner: PSID = std::ptr::null_mut();
+            let mut dacl: *mut ACL = std::ptr::null_mut();
+            let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+            if GetNamedSecurityInfoW(p.as_ptr(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                &mut owner, std::ptr::null_mut(), &mut dacl, std::ptr::null_mut(), &mut sd) != 0 {
+                return false;
+            }
+            let verified = owner_and_dacl_match(owner, dacl, sid);
+            LocalFree(sd);
+            verified
         }
-        let Ok(out) = cmd.output() else { return false };
-        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let parts: Vec<&str> = text.split('|').collect();
-        if parts.len() != 3 {
+    }
+
+    /// The owner is `sid`, and the DACL holds only allow and deny entries,
+    /// none of them inherited, naming exactly `sid`, SYSTEM and Administrators.
+    #[nolog]
+    unsafe fn owner_and_dacl_match(owner: PSID, dacl: *const ACL, sid: &str) -> bool {
+        // ACE_HEADER's AceType and AceFlags values (winnt.h)
+        const ALLOWED: u8 = 0;
+        const DENIED: u8 = 1;
+        const INHERITED: u8 = 0x10;
+        if owner.is_null() || dacl.is_null() || sid_string(owner).as_deref() != Some(sid) {
             return false;
         }
-        let sids: std::collections::BTreeSet<&str> = parts[1].split(',').collect();
-        let want: std::collections::BTreeSet<&str> = [sid, "S-1-5-18", "S-1-5-32-544"].into_iter().collect();
-        parts[0] == sid && parts[2] == "0" && sids == want
+        let mut found = std::collections::BTreeSet::new();
+        for index in 0..(*dacl).AceCount as u32 {
+            let mut ace: *mut c_void = std::ptr::null_mut();
+            if GetAce(dacl, index, &mut ace) == 0 {
+                return false;
+            }
+            let header = *(ace as *const ACE_HEADER);
+            if header.AceFlags & INHERITED != 0 || (header.AceType != ALLOWED && header.AceType != DENIED) {
+                return false;
+            }
+            // allowed and denied entries share one layout: the SID starts at SidStart
+            let Some(who) = sid_string(std::ptr::addr_of!((*(ace as *const ACCESS_ALLOWED_ACE)).SidStart) as PSID) else {
+                return false;
+            };
+            found.insert(who);
+        }
+        let want: std::collections::BTreeSet<String> = [sid, "S-1-5-18", "S-1-5-32-544"].into_iter().map(String::from).collect();
+        found == want
     }
 }
 
