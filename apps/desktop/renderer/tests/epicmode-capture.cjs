@@ -130,6 +130,20 @@ app.whenReady().then(async () => {
         __epic.cue('tool', { node: 'bob', text: 'Bash' }); __epic.cue('turnStart', { node: 'erin' });
         __epic.cue('freeze', { node: 'alice' }); __epic.cue('interrupt', { node: 'boss' }); __epic.cue('credits', { node: 'carol', n: 4 })`, 300],
       ['epic-off-crt', `__epic.start(); __epic.stop(true)`, 380],
+      // the final version's additions (docs/rust-engine/epic-mode-final.md)
+      ['final-freeze-crystal', `__epic.start(); __epic.cue('freeze', { node: 'alice' })`, 420],
+      ['final-hire-portal', `__epic.start(); __epic.cue('hire', { node: 'dave' })`, 260],
+      ['final-watchdog-radar', `__epic.start(); __epic.cue('bark', { node: 'erin', other: 'carol' })`, 240],
+      ['final-refused', `__epic.start(); __epic.cue('refused', { spot: { x: 500, y: 420, rect: null, el: null, doc: document }, text: 'HTTP 409' })`, 300],
+      ['final-usage-100', `__epic.start(); __epic.cue('usageMax', { text: 'CLAUDE' })`, 380],
+      ['final-combo-overdrive', `__epic.start();
+        for (let i = 0; i < 24; i++) __epic.cue('click', { spot: { x: 120 + (i % 8) * 100, y: 120 + Math.floor(i / 8) * 180, rect: null, el: null, doc: document } });
+        __epic.cue('zap', { node: 'carol', other: 'boss' }); __epic.cue('freeze', { node: 'alice' })`, 360],
+      ['final-cacophony-meter', `__epic.start();
+        for (let i = 0; i < 6; i++) __epic.cue('click', { spot: { x: 160 + i * 120, y: 660, rect: null, el: null, doc: document } });
+        __epic.cue('zap', { node: 'carol', other: 'boss' }); __epic.cue('hire', { node: 'dave' });
+        __epic.cue('tool', { node: 'bob', text: 'Edit' }); __epic.cue('interrupt', { node: 'erin' });
+        __epic.cue('freeze', { node: 'alice' }); __epic.cue('bark', { node: 'boss', other: 'carol' })`, 320],
     ]
     for (const [name, code, delay] of effects) {
       await win.loadURL(`${url}/fixture.html?scene=stage&n=${++loads}`)

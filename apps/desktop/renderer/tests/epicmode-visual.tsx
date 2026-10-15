@@ -15,7 +15,6 @@ import { applyContrast } from '../src/contrast'
 import { AccountsPanel } from '../src/canvas/accounts'
 import { startEpic } from '../src/epic/director'
 import type { EpicShow, Kind } from '../src/epic/director'
-import type { EpicEvent } from '../src/epic/diff'
 
 type Prefs = Record<string, unknown>
 let saved: Prefs = { visualTheme: 'orgtree', visualThemeExplicit: true, contrastTheme: 'charcoal', agentColorSource: 'provider' }
@@ -105,7 +104,7 @@ declare global {
     __epic?: {
       show: EpicShow | null
       start(greet?: 'enable' | 'launch' | 'none'): void
-      cue(kind: Kind, ev?: Partial<EpicEvent>): void
+      cue(kind: Kind, ev?: Parameters<EpicShow['cue']>[1]): void
       stop(farewell?: boolean): void
       ready: boolean
     }

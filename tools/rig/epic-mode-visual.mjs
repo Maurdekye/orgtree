@@ -1,4 +1,4 @@
-// EPIC Mode (epic/opus) screenshots: bundles the synthetic fixture
+// EPIC Mode (the final version, epic/final) screenshots: bundles the synthetic fixture
 // (apps/desktop/renderer/tests/epicmode-visual.tsx), loads it from file:// in
 // an offscreen Electron window (apps/desktop/renderer/tests/epicmode-capture.cjs)
 // and writes PNGs plus visual-result.json. One heavy phase under the machine
@@ -28,7 +28,7 @@ const electron = require('electron')
 
 // `--inside`: the caller already holds the build lock for this phase
 const locked = (what, fn) => flags.includes('--inside') ? { result: fn(), lock: 'held by the caller' } : withBuildLock(what, fn)
-const outcome = locked('EPIC Mode screenshots (epic/opus)', () => {
+const outcome = locked('EPIC Mode final screenshots (epic/final)', () => {
   fs.mkdirSync(out, { recursive: true })
   esbuild.buildSync({
     entryPoints: [path.join(root, 'apps/desktop/renderer/tests/epicmode-visual.tsx')],

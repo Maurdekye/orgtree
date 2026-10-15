@@ -153,7 +153,9 @@ test('every event the detectors can produce has a picture and a sound in the pla
   for (const user of ['click', 'tab', 'toggle', 'select', 'type', 'enter', 'erase', 'zoomIn', 'zoomOut', 'pan',
     'grab', 'drop', 'menu', 'copy', 'paste', 'fileDrop', 'dialogOpen', 'dialogClose', 'popup', 'toast',
     'toastError', 'send', 'destroy', 'epicOn', 'epicLaunch', 'epicOff', 'scroll', 'focus', 'undo', 'redo',
-    'shortcut', 'doubleClick', 'linkDown', 'linkUp', 'usageWarn', 'usageLimit', 'usageReset', 'brownout'] as const) {
+    'shortcut', 'doubleClick', 'linkDown', 'linkUp', 'usageWarn', 'usageMax', 'usageReset', 'brownout',
+    // the final version's additions
+    'confirm', 'refused', 'notice', 'combo'] as const) {
     assert.equal(PLAYBOOK_KINDS.includes(user), true, `no effect for the user action ${user}`)
   }
 })
@@ -161,7 +163,10 @@ test('every event the detectors can produce has a picture and a sound in the pla
 test('every sound synthesizes, and the voice budget holds under a flood', () => {
   const audio = fakeAudio()
   let synth = new EpicSynth(audio.Ctor)
-  assert.equal(SOUND_NAMES.length >= 50, true, `only ${SOUND_NAMES.length} sounds`)
+  assert.equal(SOUND_NAMES.length >= 58, true, `only ${SOUND_NAMES.length} sounds`)
+  for (const added of ['combo', 'note', 'confirm', 'refused', 'maxed', 'ping'] as const) {
+    assert.equal(SOUND_NAMES.includes(added), true, `the final version's ${added} sound`)
+  }
   for (const name of SOUND_NAMES) {
     // a fresh synth before the budget could refuse the next one
     if (synth.active >= LIGHT_CAP - 1) { synth.close(); synth = new EpicSynth(audio.Ctor) }
@@ -211,7 +216,9 @@ test('every effect in the playbook really draws, and the word effects draw their
       if (rec.calls.length === before) blank.push(kind)
     }
     assert.deepEqual(blank, [], 'effects that drew nothing')
-    for (const word of ['EPIC MODE', 'FROZEN!', 'STOP', 'ZAP!', 'HIRED!', 'TELEPORTED!', 'TICKET CLOSED!', 'WOOF!', 'BASH!', 'HALTED', 'UNDO!']) {
+    for (const word of ['EPIC MODE', 'FROZEN!', 'STOP', 'ZAP!', 'HIRED!', 'TELEPORTED!', 'TICKET CLOSED!', 'WOOF!', 'BASH!', 'HALTED', 'UNDO!',
+      // the final version's additions
+      'REFUSED!', 'REPORT!', 'HYPER-STREAK!', 'ALICE']) {
       assert.equal(rec.texts.includes(word), true, `never drew ${word}`)
     }
   } finally { rec.restore() }
