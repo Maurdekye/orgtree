@@ -43,7 +43,7 @@ const quitCode = section("  app.on('before-quit', event => {", '  app.whenReady(
 const installerCode = section('  const requestInstallerUpgradeShutdown = async () => {', '  const quitAfterLastView = ')
 const closeCode = section("        window.on('close', event => {", '        // ⚠ THE WINDOW IS RECOVERED')
 const startupCode = section('      const openStartupWindows = async ', '      engineReady = true')
-const revealCode = section("      if (!process.argv.includes('--background')) revealWindow(first)", '      // Not awaited:')
+const revealCode = section("      if (!process.argv.includes('--background'))", '      // Not awaited:')
 const signalCode = section("  for (const signal of ['SIGHUP'", '  /** ⚠ A GRACEFUL QUIT OWES')
 const run = (context, code) => new vm.Script(stripTypeScriptTypes(code, { mode: 'transform' })).runInContext(context)
 const screens = [{ x: 0, y: 0, width: 1920, height: 1080 }]
