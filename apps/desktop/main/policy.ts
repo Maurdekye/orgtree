@@ -1,4 +1,5 @@
 import { isVisualTheme } from '../../../packages/contracts/visual-theme'
+import { sanitizeCanvasBackground } from '../../../packages/contracts/canvas-background'
 import { DEFAULT_CONTRAST, isContrastTheme } from '../../../packages/contracts/contrast-theme'
 import { isAgentColorSource } from '../../../packages/contracts/agent-colors'
 import { DEFAULT_NOTIFICATIONS, NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
@@ -57,6 +58,12 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     } else if (key === 'activeAgentsOnly') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.activeAgentsOnly = val
+    } else if (key === 'canvasBackground') {
+      // optional and absent by default, like epicMode: the sanitizer rebuilds
+      // the stored shape from known fields and rejects anything else
+      const clean = sanitizeCanvasBackground(val)
+      if (!clean) throw new Error('Invalid canvas background')
+      result.canvasBackground = clean
     } else {
       if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded', 'notificationsEnabled', ...NOTIFICATION_OPTIONS.map(o => o.key)].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key as 'exitOnClose' | 'startAtLogin' | 'automaticUpdates' | 'routineNotifications' | 'onboarded' | 'notificationsEnabled'] = val

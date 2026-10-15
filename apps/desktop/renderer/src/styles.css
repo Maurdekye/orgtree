@@ -485,6 +485,61 @@ main {
   background-image: radial-gradient(circle, var(--canvas-dot) var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px));
   background-size: 28px 28px;
 }
+/* Canvas background themes (user 2026-10-15; Display settings picker,
+   contracts/canvas-background.ts). Each pattern paints at FULL strength in
+   the theme variables and the theme's intensity is the layer's opacity,
+   set inline by canvasbackground.tsx — which also computes every size and
+   position so the patterns pan and zoom with the canvas like a floor.
+   Only the shapes live here. The unadorned `.canvas-bg` above stays the
+   original dot grid, untouched. */
+.canvas-bg[data-canvas-bg="line-grid"] {
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+}
+.canvas-bg[data-canvas-bg="hex-dots"] {
+  background-image:
+    radial-gradient(circle, var(--canvas-dot) var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px)),
+    radial-gradient(circle, var(--canvas-dot) var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px));
+}
+.canvas-bg[data-canvas-bg="square-tiles"] {
+  background-image:
+    conic-gradient(from 90deg at 50% 50%, var(--canvas-dot) 25%, transparent 0 50%, var(--canvas-dot) 0 75%, transparent 0);
+}
+.canvas-bg[data-canvas-bg="triangle-tiles"] {
+  background-image:
+    conic-gradient(from 150deg at 50% 33.333%, var(--canvas-dot) 60deg, transparent 0),
+    conic-gradient(from -30deg at 50% 66.667%, var(--canvas-dot) 60deg, transparent 0);
+}
+/* Hexagons from three stripe families on a 4u × 7u tile (u and the half-tile
+   layer offsets come from canvasbackground.tsx). Filled, the wide stripes
+   leave hexagon tiles standing in the gaps; narrowed to their inner edges,
+   the same geometry inks only the honeycomb's outlines. */
+.canvas-bg[data-canvas-bg="hex-tiles"] {
+  background-image:
+    linear-gradient(30deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
+    linear-gradient(150deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
+    linear-gradient(30deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
+    linear-gradient(150deg, var(--canvas-dot) 12%, transparent 12.5%, transparent 87%, var(--canvas-dot) 87.5%),
+    linear-gradient(60deg, var(--line-soft) 25%, transparent 25.5%, transparent 75%, var(--line-soft) 75.5%),
+    linear-gradient(60deg, var(--line-soft) 25%, transparent 25.5%, transparent 75%, var(--line-soft) 75.5%);
+}
+.canvas-bg[data-canvas-bg="hex-lines"] {
+  background-image:
+    linear-gradient(30deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
+    linear-gradient(150deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
+    linear-gradient(30deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
+    linear-gradient(150deg, transparent 11%, var(--line) 12%, var(--line) 13%, transparent 14%, transparent 86%, var(--line) 87%, var(--line) 88%, transparent 89%),
+    linear-gradient(60deg, transparent 24%, var(--line) 25%, var(--line) 26%, transparent 27%, transparent 74%, var(--line) 75%, var(--line) 76%, transparent 77%),
+    linear-gradient(60deg, transparent 24%, var(--line) 25%, var(--line) 26%, transparent 27%, transparent 74%, var(--line) 75%, var(--line) 76%, transparent 77%);
+}
+/* the flowing-ASCII theme's own layer: same slot and contract as
+   `.canvas-bg` (and the `.glwires` canvas beside it), painted by
+   canvasbackground.tsx from glyph sprites */
+.canvas-bg-ascii {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; display: block;
+}
 .space {
   position: absolute; transform-origin: 0 0;
 }
@@ -6250,6 +6305,10 @@ html.mobile .chip-x { min-width: 28px; min-height: 28px; }
 @media (max-width: 640px) {
   /* the dot grid is the worst paint on a mobile GPU and conveys nothing */
   html.mobile .canvas-bg { background-image: none; }
+  /* canvas background themes stay off on mobile, exactly as the dot grid
+     always has (the rule above outranks the [data-canvas-bg] variants);
+     the ASCII layer is removed outright so its painter idles at zero size */
+  html.mobile .canvas-bg-ascii { display: none; }
   /* map marker cards (NodeSquare mapMode) */
   html.mobile .sq.maplod {
     display: flex; flex-direction: column; align-items: center;

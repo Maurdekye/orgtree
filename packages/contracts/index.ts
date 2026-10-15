@@ -14,6 +14,7 @@ import type { VisualTheme } from './visual-theme'
 import type { ContrastTheme } from './contrast-theme'
 import type { AgentColorSource } from './agent-colors'
 import type { NotificationPreferences } from './notifications'
+import type { CanvasBackgroundPreference } from './canvas-background'
 
 export interface DesktopPreferences extends NotificationPreferences {
   visualTheme: VisualTheme
@@ -25,6 +26,9 @@ export interface DesktopPreferences extends NotificationPreferences {
   rainbowTheme?: { revealed: boolean; enabled: boolean; epoch: number }
   /** The secret EPIC Mode switch (Settings › Developer). Absent means off. */
   epicMode?: boolean
+  /** Canvas background theme and per-theme intensities (App settings ›
+   *  Display); absent means the original dot grid at full strength. */
+  canvasBackground?: CanvasBackgroundPreference
   exitOnClose: boolean
   startAtLogin: boolean
   automaticUpdates: boolean

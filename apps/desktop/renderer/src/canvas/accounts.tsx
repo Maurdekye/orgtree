@@ -1,6 +1,7 @@
 import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './accountsregistry'
 import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
+import { CanvasBackgroundSetting } from './canvasbgsetting'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
@@ -899,6 +900,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
+      <CanvasBackgroundSetting />
       <SetGroup title="Desk"><ChartLayoutSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Typing">

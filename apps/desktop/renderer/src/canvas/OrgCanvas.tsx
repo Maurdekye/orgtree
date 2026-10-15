@@ -1,4 +1,5 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
+import { CanvasBackground } from './canvasbackground'
 import { MoveGhost, moveGhostPosition } from './moveghost'
 import { QueuedModelBadge } from './nextturn'
 import { userGesture } from '../historyapi'
@@ -201,7 +202,7 @@ export interface OrgCanvasProps {
 // the backdrop grid's pan rate relative to the foreground's — kept close to 1
 // so the effect stays a tiny "farther away" cue, not a distinct layer racing
 // past the cards.
-const PARALLAX_BG = 0.88
+// (PARALLAX_BG itself moved to canvasbackground.tsx with that layer.)
 // Until the viewport has a size, keep a small initial preview instead of
 // mounting the whole org only to cull it on the next render.
 const UNMEASURED_CARD_LIMIT = 32
@@ -3703,15 +3704,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       <div ref={worldRef}
         className={'canvas-world' + (worldHidden ? ' canvas-world-hidden' : '')}
         aria-hidden={worldHidden || undefined}>
-      {/* parallax backdrop (user feature 2026-09-03): the dot grid pans at a
-          fraction of the foreground's rate — PARALLAX_BG below — so a drag
-          reads as depth instead of a flat sheet sliding under the cards. Zoom
-          still scales it 1:1 with the world; only the pan rate differs. */}
-      <div className="canvas-bg" style={{
-        backgroundPosition: `${view.x * PARALLAX_BG}px ${view.y * PARALLAX_BG}px`,
-        backgroundSize: `${28 * view.z}px ${28 * view.z}px`,
-        '--dot-r': `${Math.max(1, 1.1 * view.z).toFixed(2)}px`,
-      }} />
+      {/* the canvas backdrop (canvasbackground.tsx): the original parallax
+          dot grid by default, or a Display-settings background theme. It
+          keeps this exact slot — first in the world, under `.space`,
+          pointer-events none — so nothing about hit-testing, selection or
+          the pin layer changes with the theme. */}
+      <CanvasBackground view={view} viewRef={viewRef} hidden={worldHidden} />
       {/* WebGL2 wires and sparks (canvas/glwires.ts): screen-space, under
           `.space` exactly where the SVG layer painted, and never a hit target */}
       {glWires.mount && <canvas ref={glWires.canvasRef} className="glwires" aria-hidden="true" />}
