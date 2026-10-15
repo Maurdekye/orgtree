@@ -49,6 +49,25 @@ test('every served tool has exactly one current leaf', () => {
   assert.deepEqual(homes, served, 'tool homes differ from served source inventory')
 })
 
+test('every runtime harness and custom-provider route has a detailed comparison home', () => {
+  const source = read('engine/rs/orgtree-engine/src/harnesses.rs')
+  const registry = source.match(/pub const ALL:\s*&\[Harness\]\s*=\s*&\[([\s\S]*?)\n\];/)?.[1]
+  assert.ok(registry, 'cannot locate the runtime harness registry')
+  const harnesses = [...registry.matchAll(/\bid:\s*"([^"]+)"/g)].map(match => `harness:${match[1]}`).sort()
+  const homes = nodes.flatMap(node => (node.covers ?? []).filter(key => key.startsWith('harness:'))).sort()
+  assert.deepEqual(homes, harnesses, 'harness homes differ from the runtime registry')
+  const required = ['concept:harness-comparison', 'route:openrouter', 'route:langserver']
+  for (const key of required) assert.equal(nodes.filter(node => node.covers?.includes(key)).length, 1, `missing or duplicate ${key}`)
+  const topics = ['How it runs', 'Information and timing', 'Caching', 'Compaction', 'Instructions and skills', 'Tools, permissions and sandbox', 'Models and effort', 'Gotchas and workarounds']
+  for (const node of nodes.filter(node => node.covers?.some(key => /^(harness|route):/.test(key)))) {
+    if (!fs.existsSync(fileFor(node))) continue // the complete-library check reports unwritten pages
+    const body = skill(node).body.replace(/\r/g,'')
+    for (const heading of topics) assert.ok(body.split('\n').includes(`## ${heading}`), `${node.path}: missing topic ${heading}`)
+  }
+  const comparison = nodes.find(node => node.covers?.includes('concept:harness-comparison'))
+  if (comparison && fs.existsSync(fileFor(comparison))) assert.match(skill(comparison).body, /\|[^|\n]*gotchas[^|\n]*\|/i, 'comparison needs a gotchas column')
+})
+
 test('exported screen components have current homes or justified exemptions', () => {
   const homes = nodes.flatMap(node => node.components ?? [])
   const exempt = manifest.exempt.components
