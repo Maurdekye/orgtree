@@ -8,6 +8,14 @@ $script:BootRecordKey = 'SOFTWARE\Orgtree\BootEngine'
 # git/gh credentials to the boot engine while the desktop app is not running.
 $script:HelperTaskName = 'Orgtree Credential Helper'
 $script:HelperExe = 'orgtree-credential-broker.exe'
+# The engine at sign-in (docket option-to-run-the-background-engine-in-the-user-s,
+# user 2026-10-15): with "At sign-in, in my session" chosen, a logon task for the
+# operator only starts the engine with their interactive token, in their own
+# session, instead of the boot task in Session 0. It runs the windowless host
+# (engine src/engine_host.rs): orgtree-engine.exe is a console program and would
+# open a console window at every sign-in.
+$script:SigninTaskName = 'Orgtree Sign-in Engine'
+$script:SigninHostExe = 'orgtree-engine-host.exe'
 
 function Assert-BootProtectedAcl([string]$Sddl, [long]$WriteMask) {
     $sd = [Security.AccessControl.CommonSecurityDescriptor]::new($false,$false,$Sddl)
@@ -40,8 +48,10 @@ function Get-BootRecord {
         if ($null -eq $key) { return $null }
         # RunOnStartup: the operator's "Run on startup" (1 on, 0 off), written by
         # the desktop's switch through a permission prompt and by Prepare; absent
-        # on installations from before it existed.
-        try { Assert-BootRegistryKey $key; return @{ InstallDir=$key.GetValue('InstallDir'); OperatorSid=$key.GetValue('OperatorSid'); Id=$key.GetValue('Id'); RunOnStartup=$key.GetValue('RunOnStartup') } }
+        # on installations from before it existed. StartupMode: 'signin' when the
+        # engine starts at the operator's sign-in in their own session, written
+        # by the same switch; absent (or anything else) is the boot task, the default.
+        try { Assert-BootRegistryKey $key; return @{ InstallDir=$key.GetValue('InstallDir'); OperatorSid=$key.GetValue('OperatorSid'); Id=$key.GetValue('Id'); RunOnStartup=$key.GetValue('RunOnStartup'); StartupMode=$key.GetValue('StartupMode') } }
         finally { $key.Dispose() }
     } finally { $hive.Dispose() }
 }
@@ -56,6 +66,7 @@ function Save-BootRecord($Record) {
             Assert-BootRegistryKey $key
             foreach ($name in @('InstallDir','OperatorSid','Id')) { $key.SetValue($name, [string]$Record[$name], 'String') }
             if ($null -ne $Record['RunOnStartup']) { $key.SetValue('RunOnStartup', [int]$Record['RunOnStartup'], 'DWord') }
+            if ($null -ne $Record['StartupMode']) { $key.SetValue('StartupMode', [string]$Record['StartupMode'], 'String') }
         }
         finally { $key.Dispose() }
     } finally { $hive.Dispose() }
@@ -264,7 +275,7 @@ function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
         # Bound ambiguity to possible installed host/desktop images or a command
         # naming this installation. Unreadable unrelated Windows images are not
         # ours. Known descendants remain tracked by PID/creation date separately.
-        $candidate=($null -eq $name -or -not $name.Value -or $name.Value -in @('python.exe','pythonw.exe','Orgtree.exe','orgtree-engine.exe',$script:HelperExe))
+        $candidate=($null -eq $name -or -not $name.Value -or $name.Value -in @('python.exe','pythonw.exe','Orgtree.exe','orgtree-engine.exe',$script:HelperExe,$script:SigninHostExe))
         if ($null -ne $command -and $command.Value -and
             $command.Value.IndexOf($InstallDir+'\',[StringComparison]::OrdinalIgnoreCase) -ge 0) { $candidate=$true }
         if ($candidate) {
@@ -298,11 +309,34 @@ function Assert-BootRecord($Record, [string]$InstallDir) {
 }
 function Get-BootMarker($Record) { return "com.maurdekye.orgtree.boot.v1:$($Record.Id)" }
 # "Run on startup" (docket start-at-login-off-means-nothing-of-orgtree-star):
-# off, both tasks are registered disabled and nothing of Orgtree starts at boot
+# off, every task is registered disabled and nothing of Orgtree starts at boot
 # or sign-in. Absent (an installation from before the choice was recorded)
 # counts as on, the desktop's default.
 function Test-RunOnStartup($Record) { return ($null -eq $Record['RunOnStartup'] -or [int]$Record['RunOnStartup'] -ne 0) }
-function Get-StartupEnabledText($Record) { if (Test-RunOnStartup $Record) { return 'true' } return 'false' }
+# Where the engine starts while it is on (docket option-to-run-the-background-
+# engine-in-the-user-s): at boot, the boot task and the credential helper that
+# serves it (the default), or at sign-in, the sign-in engine task alone. The
+# helper has nothing to do for an engine in the user's own session: that engine
+# reads the user's credentials itself and starts Codex with its own sandbox.
+function Test-SigninMode($Record) { return ([string]$Record['StartupMode'] -ceq 'signin') }
+function Test-BootStart($Record) { return ((Test-RunOnStartup $Record) -and -not (Test-SigninMode $Record)) }
+function Test-SigninStart($Record) { return ((Test-RunOnStartup $Record) -and (Test-SigninMode $Record)) }
+function Get-EnabledText([bool]$Value) { if ($Value) { return 'true' } return 'false' }
+# "Run Orgtree as administrator": exactly DWORD 1 under HKLM\SOFTWARE\Orgtree\Runtime,
+# the rule the engine host applies (host.rs run_as_administrator). The sign-in
+# engine then runs with the highest privileges, which its host keeps; otherwise
+# with least privilege, the token the user's own programs get. An I/O boundary;
+# the tests replace it.
+function Get-RunAsAdministrator {
+    $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')
+    try {
+        $key = $hive.OpenSubKey('SOFTWARE\Orgtree\Runtime')
+        if ($null -eq $key) { return $false }
+        try { return ($key.GetValueKind('RunAsAdministrator') -eq [Microsoft.Win32.RegistryValueKind]::DWord -and [int]$key.GetValue('RunAsAdministrator') -eq 1) }
+        catch { return $false }
+        finally { $key.Dispose() }
+    } finally { $hive.Dispose() }
+}
 function Read-BootXml([string]$Text) {
     $settings = [Xml.XmlReaderSettings]::new()
     $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
@@ -352,7 +386,7 @@ function New-BootTaskXml($Record) {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>S4U</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><Arguments /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-BootMarker $Record
-    $doc.Task.Settings.Enabled = Get-StartupEnabledText $Record
+    $doc.Task.Settings.Enabled = Get-EnabledText (Test-BootStart $Record)
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
     $doc.Task.Actions.Exec.Command = [string]$paths.Python
     $doc.Task.Actions.Exec.Arguments = '"'+$paths.Host+'"'
@@ -380,7 +414,7 @@ function New-HelperTaskXml($Record) {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><LogonTrigger><Enabled>true</Enabled><UserId /></LogonTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-HelperMarker $Record
-    $doc.Task.Settings.Enabled = Get-StartupEnabledText $Record
+    $doc.Task.Settings.Enabled = Get-EnabledText (Test-BootStart $Record)
     $doc.Task.Triggers.LogonTrigger.UserId = $Record.OperatorSid
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
     $doc.Task.Actions.Exec.Command = [string](Get-HelperPath $Record.InstallDir)
@@ -427,6 +461,64 @@ function Stop-OwnedHelperTask($Folder, $Record, [string]$InstallDir, [int]$Timeo
         Start-Sleep -Milliseconds 200
     } while ($true)
 }
+# ---- the engine at sign-in (I/O boundaries first, for the tests)
+function Find-SigninTask($Folder) {
+    try { return $Folder.GetTask($script:SigninTaskName) }
+    catch {
+        if ($_.Exception.GetBaseException().HResult -eq -2147024894) { return $null } # file not found only
+        throw
+    }
+}
+function Register-SigninTask($Folder, [string]$Xml, [int]$Flags, [string]$Sid, [string]$Sddl) {
+    # 3 = TASK_LOGON_INTERACTIVE_TOKEN: runs only in the operator's signed-in session.
+    return $Folder.RegisterTask($script:SigninTaskName, $Xml, $Flags, $Sid, $null, 3, $Sddl)
+}
+function Remove-SigninTask($Folder) { $Folder.DeleteTask($script:SigninTaskName, 0) }
+function Get-SigninHostPath([string]$InstallDir) { return (Join-Path (Join-Path $InstallDir 'resources\engine') $script:SigninHostExe) }
+function Get-SigninMarker($Record) { return "com.maurdekye.orgtree.signin-engine.v1:$($Record.Id)" }
+# Like the boot task in everything but where and as whom it runs: the operator's
+# logon, their interactive token, their session. $Highest is "Run Orgtree as
+# administrator" (Get-RunAsAdministrator).
+function New-SigninTaskXml($Record, [bool]$Highest) {
+    $doc = Read-BootXml @'
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><LogonTrigger><Enabled>true</Enabled><UserId /></LogonTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><WorkingDirectory /></Exec></Actions></Task>
+'@
+    $doc.Task.RegistrationInfo.Description = Get-SigninMarker $Record
+    $doc.Task.Settings.Enabled = Get-EnabledText (Test-SigninStart $Record)
+    $doc.Task.Triggers.LogonTrigger.UserId = $Record.OperatorSid
+    $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
+    if ($Highest) { $doc.Task.Principals.Principal.RunLevel = 'HighestAvailable' }
+    $doc.Task.Actions.Exec.Command = [string](Get-SigninHostPath $Record.InstallDir)
+    $doc.Task.Actions.Exec.WorkingDirectory = [string](Join-Path $Record.InstallDir 'resources\engine')
+    return $doc.OuterXml
+}
+function Assert-OwnedSigninTask($Task, $Record, [string]$InstallDir) {
+    Assert-BootRecord $Record $InstallDir
+    Assert-BootProtectedAcl ($Task.GetSecurityDescriptor(7)) 0x500D0116
+    $xml = Read-BootXml $Task.Xml
+    $ns = [Xml.XmlNamespaceManager]::new($xml.NameTable)
+    $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+    $expected = @{
+        '/t:Task/t:RegistrationInfo/t:Description'=(Get-SigninMarker $Record)
+        '/t:Task/t:Principals/t:Principal/t:UserId'=$Record.OperatorSid
+        '/t:Task/t:Principals/t:Principal/t:LogonType'='InteractiveToken'
+        '/t:Task/t:Actions/t:Exec/t:Command'=(Get-SigninHostPath $InstallDir)
+    }
+    foreach ($pair in $expected.GetEnumerator()) {
+        $nodes = $xml.SelectNodes($pair.Key, $ns)
+        if ($nodes.Count -ne 1 -or $nodes[0].InnerText -cne $pair.Value) { throw "Refusing foreign or changed sign-in engine task ($($pair.Key))." }
+    }
+    # Least privilege (which Task Scheduler omits from the XML) or, with "Run
+    # Orgtree as administrator", the highest available; the COM principal must agree.
+    $levels = $xml.SelectNodes('/t:Task/t:Principals/t:Principal/t:RunLevel', $ns)
+    $level = 'LeastPrivilege'
+    if ($levels.Count -eq 1) { $level = $levels[0].InnerText }
+    $com = $Task.Definition.Principal.RunLevel
+    if ($levels.Count -gt 1 -or $null -eq $com -or -not (($level -ceq 'LeastPrivilege' -and $com -eq 0) -or ($level -ceq 'HighestAvailable' -and $com -eq 1))) {
+        throw 'Refusing foreign or changed sign-in engine task (principal run level).'
+    }
+    if ($xml.SelectNodes('/t:Task/t:Actions/*', $ns).Count -ne 1 -or $xml.SelectNodes('/t:Task/t:Principals/*', $ns).Count -ne 1) { throw 'Unexpected sign-in engine actions or principals.' }
+}
 function Get-BootTree($Processes, [string]$InstallDir, $Known) {
     $Processes = @($Processes | Where-Object { $null -ne $_ })
     # CIM can lose an exiting process's path before the process disappears.
@@ -457,6 +549,8 @@ function Get-BootTree($Processes, [string]$InstallDir, $Known) {
 # and PostgreSQL (up to 120 s on a busy disk) before it exits.
 function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$TimeoutSeconds=150) {
     $task = Find-BootTask $Folder
+    # The engine at sign-in runs from this installation too, under its own task.
+    $signin = Find-SigninTask $Folder
     $processes = @(Get-BootProcesses)
     # Before the tree is captured: a closed desktop's observer is not the engine.
     if (Stop-ClosedDesktopWatchers $InstallDir $processes) { $processes = @(Get-BootProcesses) }
@@ -465,33 +559,54 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
     Write-BootLog "stop: $($running.Count) process(es) in the boot tree$(if ($running.Count) { ': ' + ((@($running | Select-Object -First 10 | ForEach-Object { Get-BootProcessLabel $_ })) -join '; ') })"
     $disabledByUs = $false
     $wasEnabled = $false
+    $signinDisabledByUs = $false
+    $signinWasEnabled = $false
     try {
-        if ($null -ne $task) {
-            Assert-OwnedBootTask $task $Record $InstallDir
-            # Stop only after ownership; disable first so restart-on-failure cannot
-            # relaunch the engine while the installer replaces its files.
-            $wasEnabled = [bool]$task.Enabled
-            $disabledByUs = $true
-            $task.Enabled = $false
+        # Both tasks are verified before either is changed.
+        if ($null -ne $task) { Assert-OwnedBootTask $task $Record $InstallDir }
+        if ($null -ne $signin) { Assert-OwnedSigninTask $signin $Record $InstallDir }
+        if ($null -ne $task -or $null -ne $signin) {
+            # Stop only after ownership; disable first so restart-on-failure (or a
+            # sign-in) cannot relaunch the engine while the installer replaces its files.
+            if ($null -ne $task) { $wasEnabled = [bool]$task.Enabled; $disabledByUs = $true; $task.Enabled = $false }
+            if ($null -ne $signin) { $signinWasEnabled = [bool]$signin.Enabled; $signinDisabledByUs = $true; $signin.Enabled = $false }
             # Graceful first (docket installer-can-t-replace-a-running-orgtree-an-ins):
             # the engine is asked to stop, so it ends its agents' CLIs itself.
             # Ending the task ends only the host; the engine then sees its host
             # exit and stops on its own (engine main.rs, watch_parent). That is
-            # the way left when the engine cannot be asked.
+            # the way left when the engine cannot be asked. Whichever task's host
+            # it is, the engine publishes the same descriptor.
             $asked = $false
             if ($running.Count -ne 0) { $asked = [bool](Request-BootEngineShutdown $Record $InstallDir) }
-            if (-not $asked) { $task.Stop(0) }
-            Write-BootLog $(if ($asked) { 'stop: the engine took the shutdown request' } else { 'stop: ended the boot task' })
+            if ($asked) { Write-BootLog 'stop: the engine took the shutdown request' }
+            else {
+                $ended = @()
+                if ($null -ne $task) { $task.Stop(0); $ended += 'the boot task' }
+                if ($null -ne $signin) { $signin.Stop(0); $ended += 'the sign-in engine task' }
+                Write-BootLog "stop: ended $($ended -join ' and ')"
+            }
         } elseif ($known.Count -ne 0) { throw 'Engine running without an owned boot task. Close Orgtree before continuing.' }
         $clock = [Diagnostics.Stopwatch]::StartNew()
         do {
             $task = Find-BootTask $Folder
+            $signin = Find-SigninTask $Folder
             $instances = 0
+            $busy = @()
             if ($null -ne $task) {
                 Assert-OwnedBootTask $task $Record $InstallDir
                 if ($task.Enabled) { throw 'Boot task re-enabled during stop; installation aborted.' }
-                $instances = $task.GetInstances(0).Count
-                if ($task.State -in @(2,4)) { $instances++ } # QUEUED or RUNNING also prevents copy
+                $count = $task.GetInstances(0).Count
+                if ($task.State -in @(2,4)) { $count++ } # QUEUED or RUNNING also prevents copy
+                if ($count -gt 0) { $busy += "the $script:BootTaskName task ($count instance(s) running)" }
+                $instances += $count
+            }
+            if ($null -ne $signin) {
+                Assert-OwnedSigninTask $signin $Record $InstallDir
+                if ($signin.Enabled) { throw 'Sign-in engine task re-enabled during stop; installation aborted.' }
+                $count = $signin.GetInstances(0).Count
+                if ($signin.State -in @(2,4)) { $count++ }
+                if ($count -gt 0) { $busy += "the $script:SigninTaskName task ($count instance(s) running)" }
+                $instances += $count
             }
             $remaining = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
             if ($instances -eq 0 -and $remaining.Count -eq 0) { Write-BootLog "stop: the boot tree is quiet after $([int]$clock.Elapsed.TotalSeconds) s"; return }
@@ -499,8 +614,7 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
                 # Name what is still running (docket installer-can-t-replace-a-running-
                 # orgtree-an-ins, 2026-10-14: the dialog of two failed real upgrades
                 # named nothing). The dialog shows the first few; the log has all.
-                $held = @($remaining | ForEach-Object { Get-BootProcessLabel $_ })
-                if ($instances -gt 0) { $held = @("the $script:BootTaskName task ($instances instance(s) running)") + $held }
+                $held = @($busy) + @($remaining | ForEach-Object { Get-BootProcessLabel $_ })
                 foreach ($line in $held) { Write-BootLog "stop: still running after $TimeoutSeconds s: $line" }
                 $shown = @($held | Select-Object -First 5)
                 $more = ''
@@ -518,6 +632,14 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
                 Assert-OwnedBootTask $restoreTask $Record $InstallDir
                 $restoreTask.Enabled = $wasEnabled
             } catch { Write-Warning "Could not restore boot task state after failed stop: $_" }
+        }
+        if ($signinDisabledByUs) {
+            try {
+                $restoreTask = Find-SigninTask $Folder
+                if ($null -eq $restoreTask) { throw "Owned sign-in engine task disappeared during stop." }
+                Assert-OwnedSigninTask $restoreTask $Record $InstallDir
+                $restoreTask.Enabled = $signinWasEnabled
+            } catch { Write-Warning "Could not restore sign-in engine task state after failed stop: $_" }
         }
         throw $stopError
     }
@@ -544,9 +666,11 @@ function Invoke-BootLifecycle {
     $record = Get-BootRecord
     $folder = Get-BootFolder
     $task = Find-BootTask $folder
+    $signin = Find-SigninTask $folder
     if ($null -eq $record) {
         if ($null -ne $task) { throw 'Task name exists without installer ownership. It will not be changed.' }
         if ($null -ne (Find-HelperTask $folder)) { throw 'Credential helper task exists without installer ownership. It will not be changed.' }
+        if ($null -ne $signin) { throw 'Sign-in engine task exists without installer ownership. It will not be changed.' }
         if ($Action -in @('Remove','Stop')) {
             Assert-BootDesktopClosed $InstallDir
             Stop-OwnedHelperTask $folder $null $InstallDir
@@ -560,7 +684,9 @@ function Invoke-BootLifecycle {
         if ($null -ne $task) { Assert-OwnedBootTask $task $record $InstallDir }
         $helper = Find-HelperTask $folder
         if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir }
+        if ($null -ne $signin) { Assert-OwnedSigninTask $signin $record $InstallDir }
         # Existing operator remains authoritative during alternate-admin updates.
+        # So does the start mode: an update keeps the recorded StartupMode.
     }
     # Run on startup (docket start-at-login-off-means-nothing-of-orgtree-star):
     # an installation that has not recorded the operator's choice yet takes it
@@ -584,12 +710,18 @@ function Invoke-BootLifecycle {
             if ($null -ne (Find-BootTask $folder)) { throw 'Boot task removal not confirmed.' }
             if ($null -ne (Find-HelperTask $folder)) { Remove-HelperTask $folder }
             if ($null -ne (Find-HelperTask $folder)) { throw 'Credential helper task removal not confirmed.' }
+            if ($null -ne (Find-SigninTask $folder)) { Remove-SigninTask $folder }
+            if ($null -ne (Find-SigninTask $folder)) { throw 'Sign-in engine task removal not confirmed.' }
             Remove-BootRecord
         }
         'Register' {
             Stop-OwnedBootTask $folder $record $InstallDir
             $paths = Get-BootPaths $InstallDir
             foreach ($path in $paths.Files) { if (-not [IO.File]::Exists($path)) { throw "Missing installed engine file: $path" } }
+            # The windowless host ships with the native engine; the sign-in mode
+            # cannot start the engine without it.
+            $signinHost = Get-SigninHostPath $InstallDir
+            if ((Test-SigninMode $record) -and -not [IO.File]::Exists($signinHost)) { throw "Missing installed engine file: $signinHost" }
             $task = Find-BootTask $folder
             # DONT_ADD_PRINCIPAL_ACE preserves the explicit read/execute-only operator ACL.
             $flags = 18 # TASK_CREATE | TASK_DONT_ADD_PRINCIPAL_ACE: never overwrite a collision.
@@ -604,12 +736,14 @@ function Invoke-BootLifecycle {
             # Fresh install and update both start the host; do not ship without
             # Fable's startup/attach race handling and its packaged acceptance.
             # With "Run on startup" off the task is registered disabled and not
-            # started: nothing of Orgtree runs until the user opens it.
-            $runs = Test-RunOnStartup $record
+            # started: nothing of Orgtree runs until the user opens it. So it is
+            # when the engine starts at sign-in instead.
+            $runs = Test-BootStart $record
             if ($runs) { $null = $registered.Run($null) }
             # The sign-in credential broker ships with the native engine only.
-            # Started now as well when the operator is signed in; otherwise at
-            # their next sign-in. Its Run failing never fails the install.
+            # It serves the boot engine, so it follows the boot task. Started now
+            # as well when the operator is signed in; otherwise at their next
+            # sign-in. Its Run failing never fails the install.
             if ([IO.File]::Exists((Get-HelperPath $InstallDir))) {
                 $helperFlags = 18
                 $helper = Find-HelperTask $folder
@@ -617,6 +751,19 @@ function Invoke-BootLifecycle {
                 $helperTask = Register-HelperTask $folder (New-HelperTaskXml $record) $helperFlags $record.OperatorSid $sddl
                 Assert-OwnedHelperTask $helperTask $record $InstallDir
                 if ($runs) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
+            }
+            # The engine at sign-in: registered beside the boot task wherever its
+            # windowless host is installed, enabled only in the sign-in mode, its
+            # run level following "Run Orgtree as administrator". Started now when
+            # the operator is signed in; otherwise at their next sign-in, so a
+            # failed Run never fails the install.
+            if ([IO.File]::Exists($signinHost)) {
+                $signinFlags = 18
+                $signin = Find-SigninTask $folder
+                if ($null -ne $signin) { Assert-OwnedSigninTask $signin $record $InstallDir; $signinFlags = 20 }
+                $signinTask = Register-SigninTask $folder (New-SigninTaskXml $record (Get-RunAsAdministrator)) $signinFlags $record.OperatorSid $sddl
+                Assert-OwnedSigninTask $signinTask $record $InstallDir
+                if (Test-SigninStart $record) { try { $null = $signinTask.Run($null) } catch { Write-Warning "The engine starts at the operator's next sign-in: $_" } }
             }
         }
     }

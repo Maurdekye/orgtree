@@ -53,6 +53,28 @@ function Register-HelperTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[stri
 }
 function Remove-HelperTask($Folder) { $script:events.Add('helper-delete'); $script:helper=$null }
 function Stop-HelperProcess($Process) { $script:events.Add('helper-kill'); $script:processes=@($script:processes | Where-Object { $_.ProcessId -ne $Process.ProcessId }) }
+# The engine at sign-in (docket option-to-run-the-background-engine-in-the-user-s)
+# has its own boundaries too; absent unless a test adds it. Its fake reads its
+# run level from the XML, as Task Scheduler's principal would.
+$script:signin=$null
+$script:runAsAdmin=$false
+function New-SigninFake([string]$Xml) {
+    $value=New-FakeTask $Xml
+    $level=(Read-BootXml $Xml).SelectSingleNode('//*[local-name()="Principal"]/*[local-name()="RunLevel"]')
+    $value.Definition.Principal.RunLevel=[int]($null -ne $level -and $level.InnerText -eq 'HighestAvailable')
+    $value | Add-Member -Force ScriptMethod Stop { param($flags) $script:events.Add('signin-stop'); if (-not $this.KeepProcesses) { $script:processes=@() } }
+    $value | Add-Member -Force ScriptMethod Run { param($args) $script:events.Add('signin-run') }
+    return $value
+}
+function Find-SigninTask($Folder) { return $script:signin }
+function Register-SigninTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[string]$Sddl) {
+    $script:events.Add("signin-register:$Flags")
+    Assert ($Sid -eq $script:record.OperatorSid -and $Sddl -match '^O:BAG:BAD:P') 'Wrong sign-in engine principal or ACL'
+    $script:signin=New-SigninFake $Xml
+    return $script:signin
+}
+function Remove-SigninTask($Folder) { $script:events.Add('signin-delete'); $script:signin=$null }
+function Get-RunAsAdministrator { return $script:runAsAdmin }
 # Asking the engine to stop is an I/O boundary too. By default it cannot be
 # asked (no descriptor), so the task is ended, as before; an engine that takes
 # the request stops by itself.
@@ -417,4 +439,136 @@ Assert ($left -eq $true -and $script:watchKills.Count -eq 0 -and $script:standRe
 Assert (@($script:bootLog -like 'watcher: 1 core-recovery observer(s) of a closed desktop stood down by themselves').Count -eq 1) 'The stand-down was not logged'
 Set-Item Function:Get-BootProcesses $savedProcesses
 $script:processes=@()
+
+# ---- The engine at sign-in (docket option-to-run-the-background-engine-in-the-
+# user-s; user 2026-10-15). "At sign-in, in my session" starts the engine from a
+# logon task in the operator's own session; "At boot, before sign-in", the
+# default, is the boot task as before. At most one of the two is enabled; the
+# credential helper only serves the boot engine; Run on startup off disables all three.
+$script:folder | Add-Member -Force ScriptMethod DeleteTask { param($name,$flags) $script:events.Add('delete'); $script:task=$null }
+function Get-RegisteredEnabled($Task) { return ((Read-BootXml $Task.Xml).Task.Settings.Enabled -eq 'true') }
+$signinHost=Get-SigninHostPath $dir
+Assert ($signinHost -ceq (Join-Path $dir 'resources\engine\orgtree-engine-host.exe')) 'The sign-in engine must run the windowless host beside the engine'
+$signinXml=New-SigninTaskXml $original $false
+$sdoc=Read-BootXml $signinXml
+Assert ($sdoc.Task.Triggers.LogonTrigger.UserId -ceq $sid -and $null -eq $sdoc.Task.Triggers.SelectSingleNode('*[local-name()="BootTrigger"]')) 'The sign-in engine must start at the operator''s logon only'
+Assert ($sdoc.Task.Principals.Principal.UserId -ceq $sid -and $sdoc.Task.Principals.Principal.LogonType -ceq 'InteractiveToken') 'The sign-in engine must run as the operator with an interactive token'
+Assert ($sdoc.Task.Principals.Principal.RunLevel -ceq 'LeastPrivilege') 'Without Run as administrator the sign-in engine must run with least privilege'
+Assert ((Read-BootXml (New-SigninTaskXml $original $true)).Task.Principals.Principal.RunLevel -ceq 'HighestAvailable') 'Run as administrator must give the sign-in engine the highest privileges'
+Assert ($sdoc.Task.Actions.Exec.Command -ceq $signinHost -and $null -eq $sdoc.Task.Actions.Exec.SelectSingleNode('*[local-name()="Arguments"]')) 'The sign-in engine must run the windowless host without arguments'
+Assert ($sdoc.Task.Actions.Exec.WorkingDirectory -ceq (Join-Path $dir 'resources\engine')) 'Sign-in engine working directory'
+Assert ($sdoc.Task.RegistrationInfo.Description -ceq "com.maurdekye.orgtree.signin-engine.v1:$($original.Id)") 'Sign-in engine ownership marker'
+Assert ($sdoc.Task.Settings.Priority -eq '5') 'The sign-in engine must request Normal priority (decision 46)'
+Assert ($sdoc.Task.Settings.ExecutionTimeLimit -eq 'PT0S' -and $sdoc.Task.Settings.MultipleInstancesPolicy -eq 'IgnoreNew' -and $sdoc.Task.Settings.RestartOnFailure.Count -eq '3') 'Sign-in engine runtime, instance and restart policy'
+Assert ($sdoc.Task.Settings.DisallowStartIfOnBatteries -eq 'false' -and $sdoc.Task.Settings.StopIfGoingOnBatteries -eq 'false') 'Sign-in engine battery policy'
+Assert ($sdoc.Task.Settings.Enabled -eq 'false') 'With no recorded mode the sign-in engine must be registered disabled (boot is the default)'
+Assert ((Read-BootXml (New-BootTaskXml $original)).Task.Settings.Enabled -eq 'true') 'With no recorded mode the boot task must stay enabled'
+# Ownership: both run levels (and the LeastPrivilege Windows omits), nothing else.
+Assert-OwnedSigninTask (New-SigninFake $signinXml) $original $dir
+Assert-OwnedSigninTask (New-SigninFake (New-SigninTaskXml $original $true)) $original $dir
+$omitted=New-SigninFake ($signinXml.Replace('<RunLevel>LeastPrivilege</RunLevel>',''))
+Assert ($omitted.Xml -ne $signinXml) 'Windows default-omission fixture is inert'
+Assert-OwnedSigninTask $omitted $original $dir
+$omitted.Definition.Principal.RunLevel=1
+Refuses { Assert-OwnedSigninTask $omitted $original $dir } 'run level'
+foreach ($bad in @($signinXml.Replace('InteractiveToken','S4U'),$signinXml.Replace($sid,'S-1-5-21-111-222-333-9999'),$signinXml.Replace($original.Id,[guid]::NewGuid().ToString()),$signinXml.Replace('orgtree-engine-host.exe','other.exe'))) {
+    Refuses { Assert-OwnedSigninTask (New-SigninFake $bad) $original $dir } 'sign-in engine'
+}
+$writable=New-SigninFake $signinXml; $writable.Sddl='O:BAG:BAD:P(A;;GA;;;WD)'
+Refuses { Assert-OwnedSigninTask $writable $original $dir } 'write access'
+
+# Register: boot mode keeps today's tasks and adds the sign-in task disabled.
+[IO.File]::WriteAllText($signinHost,'fixture')
+[IO.File]::WriteAllText($brokerPath,'fixture')
+$script:task=$null; $script:helper=$null; $script:signin=$null; $script:processes=@(); $script:engineAnswers=$false
+$script:record=$original.Clone(); $script:record['RunOnStartup']=1
+$script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ($script:events -contains 'signin-register:18') "The sign-in engine task was not created: $($script:events -join ',')"
+Assert ((Get-RegisteredEnabled $script:task) -and (Get-RegisteredEnabled $script:helper) -and -not (Get-RegisteredEnabled $script:signin)) 'Boot mode must enable the boot task and the helper and disable the sign-in engine'
+Assert ($script:events -contains 'run' -and $script:events -contains 'helper-run' -and -not ($script:events -contains 'signin-run')) "Boot mode must start the boot task and the helper only: $($script:events -join ',')"
+# Sign-in mode: only the sign-in engine is enabled and started.
+$script:record['StartupMode']='signin'; $script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ($script:events -contains 'signin-register:20') "The verified sign-in engine task was not updated: $($script:events -join ',')"
+Assert (-not (Get-RegisteredEnabled $script:task) -and -not (Get-RegisteredEnabled $script:helper) -and (Get-RegisteredEnabled $script:signin)) 'Sign-in mode must enable the sign-in engine only'
+Assert ($script:events -contains 'signin-run' -and -not ($script:events -contains 'run') -and -not ($script:events -contains 'helper-run')) "Sign-in mode must start the sign-in engine only: $($script:events -join ',')"
+Assert ((Read-BootXml $script:signin.Xml).Task.Principals.Principal.RunLevel -ceq 'LeastPrivilege') 'The sign-in engine must have least privilege while Run as administrator is off'
+$script:runAsAdmin=$true; $script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ((Read-BootXml $script:signin.Xml).Task.Principals.Principal.RunLevel -ceq 'HighestAvailable') 'Run as administrator must register the sign-in engine with the highest privileges'
+$script:runAsAdmin=$false; $script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ((Read-BootXml $script:signin.Xml).Task.Principals.Principal.RunLevel -ceq 'LeastPrivilege') 'Turning Run as administrator off must take the sign-in engine back to least privilege'
+# Off: all three disabled, none started, whatever the mode.
+$script:record['RunOnStartup']=0; $script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert (-not (Get-RegisteredEnabled $script:task) -and -not (Get-RegisteredEnabled $script:helper) -and -not (Get-RegisteredEnabled $script:signin)) 'Run on startup off must disable all three tasks'
+Assert (-not ($script:events -match '^(run|helper-run|signin-run)$')) "A task was started with Run on startup off: $($script:events -join ',')"
+$script:record['RunOnStartup']=1
+# An update keeps the mode and disables the sign-in engine while files are replaced.
+$script:events.Clear()
+Invoke-BootLifecycle Register $dir
+$script:signin.Enabled=$true
+Invoke-BootLifecycle Prepare $dir 'S-1-5-21-111-222-333-9999'
+Assert ($script:record['StartupMode'] -ceq 'signin' -and $script:record['RunOnStartup'] -eq 1) 'An update lost the start mode'
+Assert (-not $script:signin.Enabled) 'Prepare must keep the sign-in engine disabled while files are replaced'
+$script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ((Get-RegisteredEnabled $script:signin) -and $script:events -contains 'signin-run') 'Completing an update must restore and start the sign-in engine'
+
+# Stopping a running sign-in engine: graceful first, as for the boot engine.
+$hostProcess=[pscustomobject]@{ProcessId=701; ParentProcessId=1; CreationDate='S1'; Name='orgtree-engine-host.exe'; ExecutablePath=$signinHost}
+$signinTree=@($hostProcess,
+    [pscustomobject]@{ProcessId=702; ParentProcessId=701; CreationDate='S2'; Name='orgtree-engine.exe'; ExecutablePath=(Join-Path $paths.Engine 'orgtree-engine.exe')},
+    [pscustomobject]@{ProcessId=703; ParentProcessId=702; CreationDate='S3'; Name='cli.exe'; ExecutablePath='C:\provider\cli.exe'})
+$script:task.KeepProcesses=$true
+$script:signin.Enabled=$true; $script:processes=$signinTree; $script:engineAnswers=$true; $script:events.Clear()
+Stop-OwnedBootTask $script:folder $script:record $dir 2
+Assert ($script:events -contains 'engine-request' -and -not ($script:events -contains 'signin-stop')) "The sign-in engine task was ended although the engine took the request: $($script:events -join ',')"
+Assert (-not $script:signin.Enabled) 'The sign-in engine task must stay disabled while files are replaced'
+$script:signin.Enabled=$true; $script:processes=$signinTree; $script:engineAnswers=$false; $script:events.Clear()
+Stop-OwnedBootTask $script:folder $script:record $dir 2
+Assert ($script:events.IndexOf('engine-request') -ge 0 -and $script:events.IndexOf('engine-request') -lt $script:events.IndexOf('signin-stop')) "An engine that cannot be asked must be stopped by ending the sign-in engine task, after asking: $($script:events -join ',')"
+Assert ($script:processes.Count -eq 0) 'The sign-in engine tree survived its stop'
+$script:signin.Enabled=$true; $script:signin.KeepProcesses=$true; $script:processes=$signinTree; $script:events.Clear()
+Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'did not stop'
+Assert ($script:signin.Enabled) 'A failed stop must restore the enabled sign-in engine task'
+$script:signin.Enabled=$false
+Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'did not stop'
+Assert (-not $script:signin.Enabled) 'A failed stop must keep a disabled sign-in engine task disabled'
+$script:signin.KeepProcesses=$false; $script:processes=@(); $script:signin.Instances=1
+Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'the Orgtree Sign-in Engine task \(1 instance\(s\) running\)'
+$script:signin.Instances=0; $script:task.KeepProcesses=$false
+$script:processes=@([pscustomobject]@{ProcessId=777; ParentProcessId=1; CreationDate='X'; Name='orgtree-engine-host.exe'; ExecutablePath=$null})
+Refuses { Assert-BootDesktopClosed $dir } 'Cannot verify executable path for process 777'
+$script:processes=@()
+
+# A changed or unowned sign-in engine task refuses every action before anything changes.
+$script:signin=New-SigninFake ($signinXml.Replace('InteractiveToken','S4U'))
+foreach ($action in @('Prepare','Register','Stop','Remove')) {
+    $script:events.Clear()
+    Refuses { Invoke-BootLifecycle $action $dir $sid } 'sign-in engine'
+    Assert (-not ($script:events -match '^(stop|delete|register|save|remove-record|helper-|signin-)')) "A changed sign-in engine task let $action change something: $($script:events -join ',')"
+}
+$ownedRecord=$script:record; $script:record=$null; $script:task=$null; $script:helper=$null
+$script:signin=New-SigninFake $signinXml
+Refuses { Invoke-BootLifecycle Prepare $dir $sid } 'without installer ownership'
+$script:record=$ownedRecord; $script:signin=$null
+# The windowless host ships with the native engine: sign-in mode without it is an incomplete installation.
+[IO.File]::Delete($signinHost)
+Refuses { Invoke-BootLifecycle Register $dir } 'Missing installed engine file'
+$script:record.Remove('StartupMode'); $script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ($null -eq $script:signin -and -not ($script:events -match '^signin-register')) 'A sign-in engine task was registered without its binary'
+[IO.File]::WriteAllText($signinHost,'fixture')
+# Uninstall deletes the sign-in engine task too, after the stop.
+$script:record['StartupMode']='signin'
+Invoke-BootLifecycle Register $dir
+$script:events.Clear()
+Invoke-BootLifecycle Remove $dir
+Assert ($null -eq $script:signin -and $script:events -contains 'signin-delete') "Uninstall did not remove the sign-in engine task: $($script:events -join ',')"
+Assert ($script:events.IndexOf('signin-stop') -ge 0 -and $script:events.IndexOf('signin-stop') -lt $script:events.IndexOf('signin-delete')) 'The sign-in engine task was deleted before its stop'
+Assert ($null -eq $script:record -and $null -eq $script:task -and $null -eq $script:helper) 'Uninstall did not remove the other tasks and the record'
+[IO.File]::Delete($signinHost); [IO.File]::Delete($brokerPath)
 Write-Output "PASS $script:checks installer assertions; synthetic fixture: $root"
