@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(snap["freshness"], "stale");
         assert_eq!(snap["windows"][0]["used_percent"], Value::Null);
         assert_eq!(snap["windows"][0]["limited"], Value::Null);
-        assert_eq!(snap["windows"][1]["used_percent"], 37);
+        assert_eq!(snap["windows"][1]["used_percent"].as_f64(), Some(37.0));
         assert_eq!(data["limits"][0]["percent"], 100, "projection leaves source intact");
         assert_eq!(super::super::current_reading("claude:~", &data, now), data);
         assert!(!usage.put_muse_observed(&key, &data, old-chrono::Duration::seconds(1), false));
