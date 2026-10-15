@@ -269,7 +269,14 @@ Limits:
   CreateProcessWithLogonW, still exits with code 1 during Chromium's first
   startup lines, before any Orgtree code runs. It did the same in 4.2.0.
 - The desktop's own descriptor check (`verifyDescriptorTrust` in
-  `apps/desktop/main/policy.ts`) still runs `Get-Acl` through `powershell.exe`
-  in the desktop's environment. That is the docket item
-  desktop-can-t-verify-the-engine-descriptor-when-l (4.3.1).
+  `apps/desktop/main/policy.ts`) had the same exposure in every release from
+  4.0.0 through 4.3.0: a desktop started from PowerShell 7 could not verify a
+  boot engine's or a surviving managed engine's descriptor. The 4.3.1 fix
+  (docket desktop-can-t-verify-the-engine-descriptor-when-l) starts Windows
+  PowerShell by its absolute path with Windows PowerShell's own module path
+  (`windowsPowerShellEnv`). Its trust rule and script are unchanged. Measured
+  locally with `tests/attach.test.mjs` and a PowerShell 7-style
+  `Microsoft.PowerShell.Security` first in `PSModulePath`: without the fix the
+  check failed ("trust query failed"; 25 of 26 tests passed), with it 27 of 27
+  passed.
 - The Android type-check was not run: every changed line is Windows-only.

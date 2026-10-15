@@ -1093,11 +1093,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   ran `Get-Acl` that way, so in the v4.3.0 release smoke no managed engine
   started ("cannot publish managed engine attachment"); it now reads the ACL
   with `GetNamedSecurityInfoW` (`host::win::verify_restricted`). Use Win32 calls
-  for such checks; a PowerShell child that cannot avoid this needs an explicit
-  Windows PowerShell `PSModulePath`. The desktop's own `verifyDescriptorTrust`
-  still runs `Get-Acl` (docket desktop-can-t-verify-the-engine-descriptor-when-l).
-  [verified 2026-10-15: CI runs 38786926928 and 38794172790, `src/host.rs` tests;
-  details `docs/rust-engine/core-recovery.md`]
+  for such checks. A Windows PowerShell child that cannot avoid such a module
+  gets `windowsPowerShellEnv()` and `WINDOWS_POWERSHELL` (`apps/desktop/main/policy.ts`),
+  as the desktop's own `verifyDescriptorTrust` does for its `Get-Acl`.
+  [verified 2026-10-15: CI runs 38786926928 and 38794172790, `src/host.rs` tests,
+  `tests/attach.test.mjs`; details `docs/rust-engine/core-recovery.md`]
 
 
 - Antigravity Claude 5.5 uses separate `agy-sonnet` / `agy-opus` tiers (seats
