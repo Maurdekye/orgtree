@@ -101,6 +101,31 @@ test('two ranks reached in one burst: the newer title replaces the older instead
   } finally { show.stop(); rec.restore() }
 })
 
+test('words draw over every glow and particle, so a name stays readable', () => {
+  const rec = recordCanvas()
+  const pending: ((t: number) => void)[] = []
+  const view = window as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown }
+  view.requestAnimationFrame = (cb: (t: number) => void) => { pending.push(cb); return pending.length }
+  view.cancelAnimationFrame = () => {}
+  const stage = new Stage(document)
+  try {
+    stage.word(300, 300, 'HIRED!', { caption: 'dave' })
+    stage.portal(300, 320)
+    stage.burst(300, 320, { count: 20 })
+    const before = rec.calls.length
+    for (const cb of pending.splice(0)) cb(1016)
+    const frame = rec.calls.slice(before)
+    assert.equal(frame.includes('drawImage') && frame.includes('fillText'), true, 'the frame drew glows and words')
+    assert.equal(frame.indexOf('fillText') > frame.lastIndexOf('drawImage'), true, 'every word after the last glow')
+    assert.equal(rec.texts.includes('DAVE'), true, 'the name is drawn')
+  } finally {
+    stage.destroy()
+    rec.restore()
+    delete view.requestAnimationFrame
+    delete view.cancelAnimationFrame
+  }
+})
+
 test('the meter keeps the frame loop alive only while its combo lasts, then lets it sleep', () => {
   const pending: ((t: number) => void)[] = []
   const view = window as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown }
