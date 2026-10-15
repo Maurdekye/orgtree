@@ -429,7 +429,20 @@ mod tests {
         }
         assert!(!shared.contains("LAZY_RULE"));
         assert!(!shared.contains("FILE_RULE"));
-        let native = startup::snapshot(&f.shared(Inputs::Agy { home: f.roots.home.clone(), cwd: f.root.join("workspace") }));
+        let cwd = f.root.join("workspace");
+        std::fs::create_dir_all(cwd.join(".agents/rules")).unwrap();
+        std::fs::write(cwd.join("AGENTS.md"), "OWN_NATIVE_NOTES").unwrap();
+        let inputs = f.shared(Inputs::Agy { home: f.roots.home.clone(), cwd: cwd.clone() });
+        let native = startup::snapshot(&inputs);
+        assert!(startup::standing_notes(&inputs, &cwd, &[]).0.is_empty());
+        assert!(!native.global_notes.contains("OWN_NATIVE_NOTES"));
+        std::fs::write(cwd.join(".agents/rules/orgtree-identity-0000.md"), "generated identity").unwrap();
+        assert_eq!(native.digest, startup::snapshot(&inputs).digest);
+        std::fs::write(cwd.join("AGENTS.md"), "OWN_NATIVE_NOTES_CHANGED").unwrap();
+        let changed_own = startup::snapshot(&inputs).digest;
+        assert_ne!(native.digest, changed_own);
+        f.write(".gemini/config/AGENTS.md", "CONFIG_AGENTS_CHANGED");
+        assert_ne!(changed_own, startup::snapshot(&inputs).digest);
         assert!(native.global_notes.contains("FOREIGN_CLAUDE"));
         assert!(!native.global_notes.contains("LEGACY_"));
         assert!(!native.global_notes.contains("CONFIG_"));
