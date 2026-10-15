@@ -30,6 +30,15 @@
   [decided: user 2026-10-14 23:38–23:43Z; verified from source: `epic/*`, `api.ts`,
   `appfeed.ts`, `changes.rs`, 2026-10-15; branch `epic/final`]
 
+- Claude usage 429s retain quiet last-good bars only while younger than 900 s
+  and the remaining wait is at most 60 s. Otherwise use the existing unavailable
+  branch with pause wording. Waits never re-date bars/auth. All Claude callers,
+  including force, share a 60 s attempt floor; provider retry expiry overrides
+  that floor on the next scheduler pass. Same-key desktop readers await one
+  in-flight result; tool refresh retains its explicit in_progress status.
+  [decided: coordinator 2026-10-15 10:09Z; verified: `usage.rs`; contract and
+  evidence limits: `docs/rust-engine/claude-usage-waits.md`]
+
 - The revealed Rainbow mode row appears only for Custom themes. Selecting a
   preset hides it without altering saved revealed/enabled/epoch preferences;
   returning to Custom restores its prior state. [decided: user/coordinator
@@ -852,7 +861,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Optional single-account refresh also needs inherited runtime permission;
   inactive accounts remain inspectable but cannot be refreshed. Manual attempt
   floors are per lane across orgs (60 s, Google 300 s); shared reservations
-  prevent overlapping readers without slowing automatic cadence. Never re-date
+  prevent overlapping readers; Claude's shared 60 s floor also covers automatic
+  reads (coordinator 2026-10-15, superseding unchanged-Claude-cadence here). Never re-date
   old observations or serialize raw cached provider documents. Raw readers,
   parsers, profile/history processing and cache peeks omit raw argument/return
   logging; safe availability/window-count/SQLSTATE diagnostics remain. So do the

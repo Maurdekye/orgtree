@@ -8,6 +8,7 @@
 //! cached in a lock-free map; the peeks read the cache alone.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
@@ -22,6 +23,7 @@ pub mod query;
 mod claude_wait_tests;
 
 const TTL: Duration = Duration::from_secs(30);
+const CLAUDE_ATTEMPT_EVERY: Duration = Duration::from_secs(60);
 /// a peek older than this is no claim about now
 const PEEK_MAX: Duration = Duration::from_secs(900);
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -315,7 +317,11 @@ pub struct Usage {
     /// Authentication observations have their own age, separate from last-good bars.
     auth: papaya::HashMap<String, AuthEvidence>,
     /// Single-flight reservation shared by HTTP, timers and manual readers.
-    probing: papaya::HashMap<String, ()>,
+    probing: papaya::HashMap<String, Arc<Flight>>,
+    /// All Claude callers share this floor, including forced desktop reads.
+    claude_attempts: papaya::HashMap<String, Instant>,
+    /// Last returned result for quiet floor hits; never re-dates last-good bars.
+    claude_last: papaya::HashMap<String, Value>,
     /// Manual attempt floor (failures count); automatic cadence is unchanged.
     manual: papaya::HashMap<String, Instant>,
     /// a provider that told us to wait: not before this
@@ -327,11 +333,19 @@ pub struct Usage {
 pub struct Probe<'a> {
     usage: &'a Usage,
     key: String,
+    flight: Arc<Flight>,
+}
+
+#[derive(Default)]
+struct Flight {
+    done: tokio::sync::Notify,
+    result: OnceLock<Value>,
 }
 
 impl Drop for Probe<'_> {
     fn drop(&mut self) {
         self.usage.probing.pin().remove(&self.key);
+        self.flight.done.notify_waiters();
     }
 }
 
@@ -344,8 +358,74 @@ pub enum RefreshGate<'a> {
 impl Usage {
     #[nolog]
     fn reserve(&self, key: &str) -> Option<Probe<'_>> {
-        self.probing.pin().try_insert(key.to_owned(), ()).ok()?;
-        Some(Probe { usage: self, key: key.to_owned() })
+        let flight = Arc::new(Flight::default());
+        self.probing.pin().try_insert(key.to_owned(), flight.clone()).ok()?;
+        Some(Probe { usage: self, key: key.to_owned(), flight })
+    }
+
+    /// Same-key Claude callers await one result. Register before checking map
+    /// identity, so completion/cancellation cannot lose a notification.
+    #[nolog]
+    async fn claude_flight<F, Fut>(&self, key: &str, read: F) -> Value
+    where F: FnOnce() -> Fut, Fut: std::future::Future<Output = Value> {
+        loop {
+            if let Some(guard) = self.reserve(key) {
+                let out = read().await;
+                let _ = guard.flight.result.set(out.clone());
+                return out;
+            }
+            let flight = self.probing.pin().get(key).cloned();
+            let Some(flight) = flight else { continue };
+            let done = flight.done.notified();
+            tokio::pin!(done);
+            done.as_mut().enable();
+            if let Some(out) = flight.result.get() {
+                return out.clone();
+            }
+            let still_running = self.probing.pin().get(key).is_some_and(|f| Arc::ptr_eq(f, &flight));
+            if !still_running { continue; }
+            done.await;
+            if let Some(out) = flight.result.get() {
+                return out.clone();
+            }
+            // A cancelled leader published no result. Retry reservation; the
+            // attempt floor still prevents a second premature provider call.
+        }
+    }
+
+    #[nolog]
+    fn claude_retry_due(&self, key: &str, now: Instant) -> bool {
+        self.cooldown.pin().get(key).is_some_and(|until| *until <= now)
+    }
+
+    /// Called only under the account's shared reservation. A provider's own
+    /// retry deadline takes precedence over the ordinary 60-second floor.
+    #[nolog]
+    fn claude_attempt(&self, key: &str, now: Instant) -> bool {
+        if let Some(until) = self.cooldown.pin().get(key).copied() {
+            if until > now { return false; }
+            self.cooldown.pin().remove(key);
+        } else {
+            if self.claude_attempts.pin().get(key).is_some_and(|at|
+                now.saturating_duration_since(*at) < CLAUDE_ATTEMPT_EVERY) {
+                return false;
+            }
+            if self.cache.pin().get(key).is_some_and(|c|
+                c.data["available"] == true && now.saturating_duration_since(c.at) < CLAUDE_ATTEMPT_EVERY) {
+                return false;
+            }
+        }
+        self.claude_attempts.pin().insert(key.to_owned(), now);
+        true
+    }
+
+    #[nolog]
+    fn claude_retained(&self, key: &str) -> Value {
+        if let Some(until) = self.cooling(key) {
+            return self.claude_cooldown(key, until);
+        }
+        self.claude_last.pin().get(key).cloned().or_else(|| self.cached(key))
+            .unwrap_or_else(|| json!({"available":false}))
     }
 
     /// Shared reservation is held until the reader finishes or is cancelled.
@@ -434,6 +514,12 @@ impl Usage {
     /// bars on failure. Shared by the provider path and its isolated fixtures.
     #[nolog]
     fn claude_result(&self, key: &str, out: Value) -> Value {
+        if let Some(secs) = out["retry_after_seconds"].as_u64() {
+            // A pause is not a reading or an authentication observation.
+            let until = Instant::now() + Duration::from_secs(secs.clamp(1, 6 * 3600));
+            self.cooldown.pin().insert(key.to_owned(), until);
+            return self.claude_cooldown(key, until);
+        }
         self.record_auth(key, &out);
         if out["available"].as_bool().unwrap_or(false) {
             self.put(key, &out);
@@ -453,8 +539,17 @@ impl Usage {
 
     #[nolog]
     fn claude_cooldown(&self, key: &str, until: Instant) -> Value {
-        let mut v = self.fresh(key, Duration::MAX).unwrap_or_else(|| json!({ "available": false }));
-        v["error"] = json!(format!("the usage service asked us to wait ({} s more)", until.saturating_duration_since(Instant::now()).as_secs()));
+        let remaining = until.saturating_duration_since(Instant::now());
+        let recent = self.cache.pin().get(key).is_some_and(|c|
+            c.at.elapsed() < PEEK_MAX && c.data["available"] == true);
+        let mut v = self.cached(key).unwrap_or_else(|| json!({ "available": false }));
+        if recent && remaining <= CLAUDE_ATTEMPT_EVERY {
+            // Successful cached bars contain no refresh error. Do not write
+            // them back: neither their age nor auth freshness has changed.
+            return v;
+        }
+        v["available"] = json!(false);
+        v["error"] = json!(format!("usage updates paused; next retry in {} s", remaining.as_secs().saturating_add(u64::from(remaining.subsec_nanos() > 0))));
         v
     }
 
@@ -549,12 +644,28 @@ fn claude_dir(config_dir: Option<&str>) -> PathBuf {
 #[nolog]
 pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
     let key = claude_key(config_dir);
-    let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
-    claude_read(engine, config_dir, force).await
+    engine.usage.claude_flight(&key, || claude_read(engine, config_dir, force)).await
 }
 
 #[nolog]
-async fn claude_read(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
+async fn claude_read(engine: &Engine, config_dir: Option<&str>, _force: bool) -> Value {
+    let key = claude_key(config_dir);
+    let out = if engine.usage.claude_attempt(&key, Instant::now()) {
+        claude_probe(engine, config_dir).await
+    } else {
+        engine.usage.claude_retained(&key)
+    };
+    engine.usage.claude_last.pin().insert(key.clone(), out.clone());
+    // A tool's permitted read owns the same reservation as desktop callers;
+    // its waiters must receive auth/errors too, not merely last-good bars.
+    if let Some(flight) = engine.usage.probing.pin().get(&key) {
+        let _ = flight.result.set(out.clone());
+    }
+    out
+}
+
+#[nolog]
+async fn claude_probe(engine: &Engine, config_dir: Option<&str>) -> Value {
     if let Some(v) = crate::rig::usage("claude", config_dir) {
         // the canned reading stands in for the probe, cache included; it may
         // play a slow provider
@@ -568,11 +679,6 @@ async fn claude_read(engine: &Engine, config_dir: Option<&str>, force: bool) -> 
         return engine.usage.claude_result(&claude_key(config_dir), v);
     }
     let key = claude_key(config_dir);
-    if !force {
-        if let Some(v) = engine.usage.fresh(&key, TTL) {
-            return v;
-        }
-    }
     let dir = claude_dir(config_dir);
     let (_, email) = crate::providers::claude_identity(config_dir.map(PathBuf::from).as_ref());
     let mut out = match engine.usage.cooling(&key) {
@@ -583,7 +689,7 @@ async fn claude_read(engine: &Engine, config_dir: Option<&str>, force: bool) -> 
         }
         None => {
             let observed = Utc::now();
-            let mut value = fetch_claude(engine, &key, &dir).await;
+            let mut value = fetch_claude(&dir).await;
             // the history labels the login by it (set on `out` below anyway)
             value["email"] = json!(email);
             crate::account_marks::profile_usage(engine, "claude", config_dir, observed, &value).await;
@@ -605,7 +711,7 @@ fn claude_sign_in(dir: &Path) -> Option<(String, i64, String)> {
     ))
 }
 
-async fn fetch_claude(engine: &Engine, key: &str, dir: &Path) -> Value {
+async fn fetch_claude(dir: &Path) -> Value {
     let Some((token, expires_ms, plan)) = claude_sign_in(dir) else {
         return json!({ "available": false, "error": "Claude Code is not signed in for this account",
                        "reauth_required": true, "reauth_evidence": "not_connected" });
@@ -648,8 +754,7 @@ async fn fetch_claude(engine: &Engine, key: &str, dir: &Path) -> Value {
         }
         429 => {
             let secs = retry.unwrap_or(60).clamp(1, 6 * 3600);
-            engine.usage.cooldown.pin().insert(key.to_string(), Instant::now() + Duration::from_secs(secs));
-            json!({ "available": false, "error": format!("the usage service asked us to wait {secs} s"), "detail": "HTTP 429" })
+            json!({ "available": false, "retry_after_seconds": secs, "detail": "HTTP 429" })
         }
         401 | 403 if !body.contains("error code: 1010") => json!({
             "available": false, "error": "Claude Code needs to sign in again for this account",
@@ -1661,9 +1766,10 @@ pub fn start(engine: &std::sync::Arc<Engine>) {
     tokio::spawn(async move {
         let mut last: std::collections::HashMap<&'static str, Instant> = std::collections::HashMap::new();
         let mut misses: std::collections::HashMap<&'static str, u8> = std::collections::HashMap::new();
+        let mut registered = serde_json::Map::new();
         tokio::time::sleep(Duration::from_secs(if crate::rig::active() { 1 } else { 5 })).await;
         loop {
-            publish_due(&eng, &mut last, &mut misses).await;
+            publish_due(&eng, &mut last, &mut misses, &mut registered).await;
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(10)) => {}
                 _ = eng.shutdown.cancelled() => break,
@@ -1672,19 +1778,24 @@ pub fn start(engine: &std::sync::Arc<Engine>) {
     });
 }
 
-#[logged]
+#[nolog] // registered values contain provider readouts; never serialize them to logs
 async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collections::HashMap<&'static str, Instant>,
-                     misses: &mut std::collections::HashMap<&'static str, u8>) {
+                     misses: &mut std::collections::HashMap<&'static str, u8>, map: &mut serde_json::Map<String, Value>) {
     // a rig engine reads only the canned readings: the three lanes, nothing else
     let rig = crate::rig::active();
     let due = |last: &std::collections::HashMap<&'static str, Instant>, k: &str, every: u64| {
         last.get(k).map(|t| t.elapsed() >= Duration::from_secs(every)).unwrap_or(true)
     };
     let st = engine.providers.state.load_full();
-    if (rig || st.claude.installed) && lane_due(engine, last, misses, "claude", &claude_key(None), 120) {
+    if (rig || st.claude.installed) && (engine.usage.claude_retry_due(&claude_key(None), Instant::now())
+        || lane_due(engine, last, misses, "claude", &claude_key(None), 120)) {
         let v = claude(engine, None, false).await;
         publish(engine, "claude", &v);
-        last.insert("claude", Instant::now());
+        // A retained/floor read is not a probe. Do not postpone the next
+        // due pass by another whole cadence after a quiet floor hit.
+        if let Some(at) = engine.usage.claude_attempts.pin().get(&claude_key(None)).copied() {
+            last.insert("claude", at);
+        }
     }
     if (rig || st.codex.installed) && lane_due(engine, last, misses, "openai", &codex_key(None), 300) {
         let v = codex(engine, "openai/primary", None, false).await;
@@ -1728,17 +1839,26 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         crate::account_marks::prune(engine).await;
         last.insert("usage_history_prune", Instant::now());
     }
-    if due(last, "registered", open_every) {
-        let view = engine.accounts.view();
-        let accounts: Vec<crate::accounts::AccountInfo> =
-            view.all().into_iter().filter(|a| a.provider != "openrouter" && !crate::accounts::is_ambient(a)).cloned().collect();
-        drop(view);
-        let mut map = serde_json::Map::new();
+    let registered_due = due(last, "registered", open_every);
+    let now = Instant::now();
+    let retry_pending = engine.usage.cooldown.pin().iter()
+        .any(|(key, until)| key.starts_with("claude:") && *until <= now);
+    if !registered_due && !retry_pending { return; }
+    let view = engine.accounts.view();
+    let accounts: Vec<crate::accounts::AccountInfo> =
+        view.all().into_iter().filter(|a| a.provider != "openrouter" && !crate::accounts::is_ambient(a)).cloned().collect();
+    drop(view);
+    let retry_due = |a: &crate::accounts::AccountInfo| a.provider == "claude" && !a.is_apikey()
+        && engine.usage.claude_retry_due(&claude_key(a.config_dir.as_deref()), Instant::now());
+    if registered_due || accounts.iter().any(retry_due) {
+        if registered_due { map.clear(); }
         for a in &accounts {
-            map.insert(a.id.clone(), registered(engine, a, false).await);
+            if registered_due || retry_due(a) {
+                map.insert(a.id.clone(), registered(engine, a, false).await);
+            }
         }
-        engine.app.set_value("registered_usage", Value::Object(map));
-        last.insert("registered", Instant::now());
+        engine.app.set_value("registered_usage", Value::Object(map.clone()));
+        if registered_due { last.insert("registered", Instant::now()); }
     }
 }
 

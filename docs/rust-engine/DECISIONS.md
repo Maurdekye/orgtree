@@ -1,5 +1,16 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Claude usage waits, coordinator 2026-10-15 10:09Z**, implementing the user's
+reported short 429 refresh errors: suppress the error when last-good cache age
+is under 900 s and remaining Retry-After is at most 60 s. Long waits or absent/
+stale good readings use existing unavailable presentation and pause wording,
+without "failed". Floor all Claude attempts at 60 s, including force; a provider
+retry deadline overrides the ordinary floor and the existing scheduler retries
+after expiry. Floor/cooldown manual requests finish quietly; same-key desktop
+callers await the in-flight result. Preserve original bar/auth ages, 401/403 and
+other real errors. This replaces decision 74's unchanged automatic cadence only
+for Claude. See [`claude-usage-waits.md`](claude-usage-waits.md).
+
 **Rainbow mode selection, user 2026-10-14 23:24:59UTC:** show its revealed
 toggle only while the Custom visual theme is selected; hide the row for all
 presets. The hidden picker gesture stays unchanged. Coordinator scope ruling:
