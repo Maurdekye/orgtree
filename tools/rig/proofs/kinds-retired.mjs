@@ -40,7 +40,7 @@ export default async function (rig) {
   p.check('orgtree_status still sends a passive notice, stored as message', st.ok && notice?.notice === true && notice?.kind === 'message', { ok: st.ok, notice })
 
   // engine-generated: a hire kickoff naming a retired kind lands as message
-  const hire = await rig.tool('boss', 'orgtree_hire', { name: 'kindhire', tier: 'haiku', grant: 1, charter: 'Isolated proof agent.', index: 0, kickoff: 'KINDS kickoff case', kickoff_kind: 'decision' })
+  const hire = await rig.tool('boss', 'orgtree_hire', { name: 'kindhire', tier: 'haiku', grant: 1, charter: 'Isolated proof agent.', index: 0, add_dirs: [], tools: { bash: true, web: true, edit: true, subagents: false, mcp: [] }, org_visibility: 'self', kickoff: 'KINDS kickoff case', kickoff_kind: 'decision' })
   p.check('a hire with retired kickoff_kind succeeds', hire.ok, hire)
   if (hire.ok) {
     const kick = rig.one(`SELECT kind FROM ot.mail WHERE recipient_name = 'kindhire' AND body = 'KINDS kickoff case'`)
