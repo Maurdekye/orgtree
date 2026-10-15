@@ -10,6 +10,22 @@
   [decided: user 2026-10-15 22:07–22:10Z; verified from source:
   `tools/logo.rs`, `domain/undo.rs`, `profile_pictures/*`]
 
+- Canvas background themes (App settings > Display): optional
+  `DesktopPreferences.canvasBackground` (absent = the original parallax dot
+  grid, byte-identical) selects the `.canvas-bg` layer — dots, flowing ASCII,
+  line grid, hex dots, hex lines, square/triangular/hexagonal tiles — each with
+  a per-theme intensity stored sparsely, drawn in current theme colours, mobile
+  off. New themes pan/zoom 1:1 like a floor; only dots keep the 0.88 parallax.
+  Hexagons are SVG masks over a theme-colour fill (gradient stripes measure as
+  diamonds/cubes/steps, never flat hexagons). ASCII is a bounded sprite canvas
+  (O(viewport), 30fps, hidden-paused, reduced-motion still) and is a
+  PARAMETERIZED APPROXIMATION pending the exact-match phase (user 2026-10-15
+  19:55Z: read the real Claude Code renderer read-only, re-implement it
+  independently, copy NO Anthropic code into repo/docs/tests). Contract,
+  evidence and limits: [canvas background themes](docs/rust-engine/canvas-background-themes.md).
+  [decided: user 2026-10-15; verified from source:
+  `canvas/canvasbackground.tsx`, `contracts/canvas-background.ts`, `main/policy.ts`]
+
 - Muse last-good usage is durable per account in `ot.kv` (`muse_usage:<id>`),
   restored before discovery with original observation age and no new auth
   evidence. Removal deletes its key in the account transaction; writers take

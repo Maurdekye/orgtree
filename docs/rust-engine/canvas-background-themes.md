@@ -44,13 +44,18 @@ hit-testing, text selection and the pin layer are unaffected by the theme.
   stored sparsely — only themes the user actually adjusted — so default
   changes still reach untouched themes. The slider saves debounced (one
   write per drag, like the custom theme colour) with an optimistic preview.
-- **Grid/tile themes** are pure CSS gradient patterns in `styles.css`
+- **Grid/tile themes** are CSS patterns in `styles.css`
   under `.canvas-bg[data-canvas-bg="…"]`. Patterns paint at full
   strength in the theme variables (`--canvas-dot`, `--line`, `--line-soft`)
   and the theme's intensity is the layer's CSS `opacity` — one colour
   source, one strength knob, identical compositing to mixing alpha into
   each colour. Sizes and positions are computed by `bgGeometry()` so
   patterns pan/zoom 1:1; `dots` keeps its legacy parallax values verbatim.
+  Gradients draw four themes; the two hexagon themes are SVG masks over a
+  theme-colour fill, because gradient stripe families draw the whole
+  triangular lattice and cannot select flat hexagons or their outlines
+  (measured as diamonds, cube illusions and step columns across capture
+  rounds) — their mask size/position ride the same `bgGeometry()` math.
 - **Flowing ASCII** is a `<canvas class="canvas-bg-ascii">` painted from
   pre-rendered glyph sprite sheets (5 brightness buckets × the 62-glyph
   pool). The model (`canvas/asciifield.ts`, pure math): glyphs are a seeded
@@ -88,18 +93,28 @@ itself, which this change does not touch beyond the one layer swap.
 
 Researched 2026-10-15 by model-research-sol (screenshots and measurements
 in `D:/orgtree-work/model-research/claude-code-ascii/`, public sources
-recorded there). Measured from the reference: mixed-case Latin letters and
-digits on a tight monospace grid (~193 columns across the app surface,
-cell aspect about 1:2), very faint muted-blue ink on near-black, broad
-rounded/lobed bright regions with large dark negative space, glyph rows
-axis-aligned. **Not verified** (no public recording found): drift speed or
-direction, whether glyph identities change, any activity coupling. The
-slow drift here is therefore a labelled interpretation; every constant
-that shapes the look (glyph pool, cell size, field wavelengths, threshold,
-tint mix, frame rate) is in `asciifield.ts` / the top of the ASCII layer
-so a better reference can be matched by constants alone. Hue follows the
-Orgtree visual theme per ruling — the reference's steel blue is Claude's
-own palette, not copied.
+recorded there) and inspected firsthand by the implementer. Measured from
+the reference: mixed-case Latin letters and digits on a tight monospace
+grid (~193 columns across the app surface, cell aspect about 1:2), very
+faint muted-blue ink on near-black, broad rounded/lobed bright regions
+with large dark negative space, glyph rows axis-aligned. **Not verified**
+(no public recording found): drift speed or direction, whether glyph
+identities change, any activity coupling. The slow drift here is
+therefore a labelled interpretation; every constant that shapes the look
+(glyph pool, cell size, field wavelengths, threshold, tint mix, bucket
+alphas, frame rate) is in `asciifield.ts` / the top of the ASCII layer so
+it can be matched by constants alone. Hue follows the Orgtree visual
+theme per ruling — the reference's steel blue is Claude's own palette,
+not copied.
+
+**Status (user ruling 2026-10-15 19:55Z): a perfect match is required.**
+The user chose to source the exact behaviour by reading the real Claude
+Code renderer (read-only, locally installed CLI; re-implemented
+independently with no Anthropic code copied — full rules in the docket
+item). Until that phase lands, the ASCII theme in this branch is a
+**parameterized approximation, frozen as measured above — a perfect match
+is NOT claimed for it.** The six grid/tile themes, picker, preference and
+performance work are complete without it.
 
 ## Files
 
@@ -139,17 +154,52 @@ this doc. Edited: `packages/contracts/index.ts`,
 
 ## Evidence
 
-Filled at hand-in with the exact SHA's measured runs (test counts,
-typecheck, capture receipts, frame-time medians, red-control result) and
-the PNG paths. Anything not measured is named in Limits instead.
+Measured 2026-10-15 under the machine lock at branch tip `d4ac686`
+(implementation `81f606f`, tests/fixture/docs `df4ca22`, pattern fixes
+`d4ac686`; this doc's evidence commit follows on top):
+
+- Typecheck: root `tsc --noEmit` exit 0. Strict renderer
+  (`apps/desktop/renderer/tsconfig.json`) and strict tests
+  (`tests/tsconfig.json`) each report 29 diagnostics, **none in files this
+  change touches** — the same count as the base's known baseline.
+- Tests: `node tests/run.mjs canvasbg` → **19/19 pass**. Neighbours
+  (`epicmode appsettings theme rainbow`): 87 pass / 1 fail — the failure is
+  `epicmode-engine`'s playbook test timing out at 10 s plus its cascade,
+  **identical at base `f1eed04`** (measured: 14 tests, 12 pass, same
+  timeout), so it is pre-existing in this environment, not a regression.
+  Root neighbour `tests/unix-boot-engine.test.mjs` (imports
+  `main/policy`): 15 pass, 0 fail, 8 skipped.
+- Captures: all 15 scenes PASS (`receipts.json`), every PNG personally
+  inspected: dots, line grid (z=1 and z=1.8), hex dots, square checker,
+  triangles, honeycomb outlines, hexagon tiles, ASCII at two times and
+  zoomed out. Three pattern geometries were found wrong by the first
+  capture round and fixed (triangles → single conic; hexagons → SVG
+  masks); the final shots are the ones inspected. Frame times over 180
+  rAF frames (Session-0 Electron, same scene): dots median 9.9 ms, ASCII
+  10.9 ms, ASCII while panning 10.4 ms, line-grid panning 10.7 ms;
+  p95 ≤ 19.5 ms throughout — no regression beyond ~1 ms of noise.
+  Outputs: `C:/orgtree-build/epic-wonder-full/canvasbg-visual/`
+  (`shots/*.png`, `receipts.json`), logs in `../canvasbg-logs/`.
+- Executed red control: branch
+  `epic-wonder-full/canvas-background-themes-red` at `37175dd`
+  (integration files byte-identical to `f1eed04` by empty diff; modules
+  and tests retained) → **19 executed, 13 pass / 6 fail**, the failures
+  exactly the integration assertions: 3 Display-panel tests, 2 native
+  validation tests, 1 stylesheet test.
+- Source audits (`python tools/source-audits.py`): **FAIL at tip and at
+  base identically** — `tests/test_hub_isolation.py` (25 tests, 6 errors)
+  on `f1eed04` unmodified. Pre-existing; this change adds no audit
+  failures and touches no Python.
 
 ## Limits
 
 - Frame-time evidence is from the fixture (real layer and patterns over
   stand-in cards), not a live large organization; the O(viewport) argument
   is the structural guarantee.
-- The ASCII motion (drift) is an interpretation — no public recording of
-  the original's motion exists as of 2026-10-15.
+- The ASCII theme is a parameterized approximation pending the
+  exact-match phase (user ruling 2026-10-15 19:55Z): its drift, exact
+  glyph pool weighting, field function and timing are interpretations of
+  stills, not yet verified against the real renderer frame-for-frame.
 - Both-on behaviour with EPIC Mode is argued structurally (independent
   layers/loops) and covered by the alpha; the fixture does not mount EPIC.
 - Mobile keeps all canvas backgrounds off, as the dot grid always has.
