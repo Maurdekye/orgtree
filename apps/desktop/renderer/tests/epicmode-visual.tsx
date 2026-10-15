@@ -340,6 +340,10 @@ declare global {
       stop(farewell?: boolean): void
       ready: boolean
     }
+    __blurStage?: {
+      blur(o: Parameters<Stage['blur']>[0]): void
+      stop(): void
+    }
     __typing?: {
       carets: CaretRecord[]
       /** pan the camera by (dx, dy) screen px, the way a drag moves `.space` */
@@ -393,6 +397,12 @@ if (scene === 'switch') {
     stop(farewell = false) { api.show?.stop({ farewell }); api.show = null },
   }
   window.__epic = api
+  // a blur on a stage of its own: no director, and no effect drawn over it
+  let blurStage: Stage | null = null
+  window.__blurStage = {
+    blur(o) { (blurStage ??= new Stage(document)).blur(o) },
+    stop() { blurStage?.destroy(); blurStage = null },
+  }
   if (typing) {
     window.__typing = {
       carets,

@@ -68,7 +68,7 @@ test('the combo ladder: ranks, milestones, the pitch ladder and each agent\'s pe
   assert.equal(roots.size > 1, true, 'agents start on their own degrees, so writers sound like a chord')
 })
 
-test('every staged event feeds one combo: the meter shows from the third, a milestone announces the rank, and it all drops after the decay', async () => {
+test('every staged event feeds one combo: the corner badge shows from the third, a milestone names the new rank in it, and it all drops after the decay', async () => {
   const rec = recordCanvas()
   const show = startEpic({ audio: null, greet: 'none' })
   try {
@@ -80,8 +80,13 @@ test('every staged event feeds one combo: the meter shows from the third, a mile
     assert.equal(show.combo, 12)
     assert.equal(show.combo >= METER_FROM && show.metering, true, 'the meter is up')
     await wait(90)
-    for (const word of ['HYPER-STREAK!', 'COMBO ×10', 'COMBO', 'HYPER-STREAK', '×12']) {
+    for (const word of ['HYPER-STREAK', '×12']) {
       assert.equal(rec.texts.includes(word), true, `drew ${word}`)
+    }
+    // user 2026-10-15: "less emphasis on the combo progress, keep it
+    // diminutive and to the corner": no title across the window
+    for (const word of ['HYPER-STREAK!', 'COMBO ×10']) {
+      assert.equal(rec.texts.includes(word), false, `drew no ${word} title`)
     }
     await wait(COMBO_DECAY_MS + 700)
     assert.equal(show.combo, 0, 'the combo dropped')
@@ -89,15 +94,69 @@ test('every staged event feeds one combo: the meter shows from the third, a mile
   } finally { show.stop(); rec.restore() }
 })
 
-test('two ranks reached in one burst: the newer title replaces the older instead of printing over it', async () => {
-  const rec = recordCanvas()
+interface Mark { op: 'text' | 'rect'; text?: string; x: number; y: number; w?: number; h?: number; size?: number }
+
+/** A canvas recorder that knows where things land: it follows each context's
+ *  transform (setTransform, translate, scale, save, restore) and notes every
+ *  text's place and font size and every filled rectangle, in window px. */
+function recordPlaces(): { marks: Mark[]; restore: () => void } {
+  const marks: Mark[] = []
+  const proto = window.HTMLCanvasElement.prototype as unknown as { getContext: unknown }
+  const had = proto.getContext
+  proto.getContext = () => {
+    let m = [1, 0, 0, 1, 0, 0]
+    const stack: number[][] = []
+    let font = ''
+    const place = (x: number, y: number): [number, number] => [m[0]! * x + m[2]! * y + m[4]!, m[1]! * x + m[3]! * y + m[5]!]
+    const text = (s: string, x: number, y: number) => {
+      const [px, py] = place(x, y)
+      marks.push({ op: 'text', text: s, x: px, y: py, size: Number(/([\d.]+)px/.exec(font)?.[1] ?? 0) * Math.abs(m[3]!) })
+    }
+    const ops: Record<string, unknown> = {
+      save: () => { stack.push([...m]) },
+      restore: () => { m = stack.pop() ?? [1, 0, 0, 1, 0, 0] },
+      setTransform: (a: number, b: number, c: number, d: number, e: number, f: number) => { m = [a, b, c, d, e, f] },
+      translate: (x: number, y: number) => { const [e, f] = place(x, y); m = [m[0]!, m[1]!, m[2]!, m[3]!, e, f] },
+      scale: (sx: number, sy: number) => { m = [m[0]! * sx, m[1]! * sx, m[2]! * sy, m[3]! * sy, m[4]!, m[5]!] },
+      fillText: text,
+      strokeText: text,
+      fillRect: (x: number, y: number, w: number, h: number) => {
+        const [x0, y0] = place(x, y), [x1, y1] = place(x + w, y + h)
+        marks.push({ op: 'rect', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) })
+      },
+      createLinearGradient: () => ({ addColorStop() {} }),
+      createRadialGradient: () => ({ addColorStop() {} }),
+      measureText: (s: string) => ({ width: String(s).length * 7 }),
+    }
+    return new Proxy({}, {
+      get(_target, key) {
+        if (key === 'font') return font
+        if (key === 'then') return undefined
+        return ops[String(key)] ?? (() => undefined)
+      },
+      set(_target, key, value) { if (key === 'font') font = String(value); return true },
+    })
+  }
+  return { marks, restore: () => { proto.getContext = had } }
+}
+
+test('a new rank flares the corner badge: the combo draws nothing big and nothing outside its corner', async () => {
+  const rec = recordPlaces()
   const show = startEpic({ audio: null, greet: 'none' })
   try {
     for (let i = 0; i < 26; i++) show.cue('click', { spot: at(100 + i, 300) })
-    await wait(90)
-    assert.equal(rec.texts.includes('OVERDRIVE!'), true, 'the 25th event announced OVERDRIVE')
-    assert.equal(rec.texts.includes('HYPER-STREAK!'), false, 'and the HYPER-STREAK title it overtook never drew')
-    assert.equal(rec.texts.includes('×26'), true)
+    await wait(300)
+    const { innerWidth: w, innerHeight: h } = window
+    const combo = rec.marks.filter(m => m.op === 'text' &&
+      (/^×\d+$/.test(m.text!) || /^COMBO/.test(m.text!) || RANKS.some(r => m.text!.startsWith(r.name))))
+    assert.equal(combo.some(m => m.text === 'OVERDRIVE'), true, 'the badge names the rank the 25th event reached')
+    assert.equal(combo.some(m => m.text === '×26'), true, 'and counts the combo')
+    for (const m of combo) {
+      assert.equal(m.x >= w - 150 && m.y >= h - 60, true, `"${m.text}" is in the bottom-right corner (at ${Math.round(m.x)}, ${Math.round(m.y)})`)
+      assert.equal(m.size! <= 16, true, `"${m.text}" is small (${m.size} px)`)
+    }
+    const whole = rec.marks.filter(m => m.op === 'rect' && m.w! >= w && m.h! >= h)
+    assert.equal(whole.length, 0, `nothing covers the whole window (${whole.length} fills)`)
   } finally { show.stop(); rec.restore() }
 })
 
@@ -132,8 +191,8 @@ test('the meter keeps the frame loop alive only while its combo lasts, then lets
   view.requestAnimationFrame = (cb: (t: number) => void) => { pending.push(cb); return pending.length }
   view.cancelAnimationFrame = () => {}
   const stage = new Stage(document)
-  let reading: { n: number; rank: string; color: string; left: number; heat: number } | null =
-    { n: 30, rank: 'OVERDRIVE', color: '#ff3b3b', left: 1, heat: 0.75 }
+  let reading: { n: number; rank: string; color: string; left: number } | null =
+    { n: 30, rank: 'OVERDRIVE', color: '#ff3b3b', left: 1 }
   try {
     stage.meter(() => reading)
     stage.meter(() => reading)

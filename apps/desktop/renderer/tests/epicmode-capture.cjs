@@ -423,6 +423,67 @@ app.whenReady().then(async () => {
       write(false)
     }
     if (urgentFailed.length) throw new Error('urgent mail alarm not as specified: ' + urgentFailed.join('; '))
+
+    // ── blur: the whole window, or only its edges ────────────────────────
+    // (docket epic-mode-next-round-more-shake-and-blur-a-small, part 1). The
+    // stage scene in Charcoal, with a stage of its own blurring the app behind
+    // it (no director: nothing drawn over the blur), photographed before, at
+    // the peak of a whole-window blur and of an edge blur, and after each.
+    // Sharpness is the mean difference in brightness between horizontally
+    // neighbouring pixels in a box: a blur lowers it. The whole-window blur
+    // must soften the middle and the edge alike; the edge blur the edge only,
+    // the middle staying sharp; and each must leave nothing behind.
+    {
+      await win.loadURL(`${url}/fixture.html?scene=stage&n=${++loads}`)
+      await waitFor(`!!window.__blurStage && document.querySelectorAll('[data-first-use-agent]').length === 6`, 'the fixture org')
+      await js(`window.__contrast('charcoal'); true`)
+      await sleep(300)
+      const sharpness = (image, r) => {
+        const { width } = image.getSize()
+        const bmp = image.toBitmap()
+        const lum = (x, y) => { const i = (y * width + x) * 4; return 0.114 * bmp[i] + 0.587 * bmp[i + 1] + 0.299 * bmp[i + 2] }
+        let sum = 0, n = 0
+        for (let y = r.top; y < r.bottom; y++) for (let x = r.left; x < r.right - 1; x++) { sum += Math.abs(lum(x + 1, y) - lum(x, y)); n++ }
+        return n ? sum / n : 0
+      }
+      const MID = { left: 400, top: 290, right: 600, bottom: 430 }
+      // the inbox bell in the top-right corner: deep in the edge blur's mask
+      // and detailed enough to tell a blur by (the bare canvas along the left
+      // edge holds only the faint dot grid, too flat to measure)
+      const EDGE = await js(`(() => { const b = document.querySelector('.ask-bell').getBoundingClientRect()
+        return { left: Math.round(b.left) - 6, top: Math.round(b.top) - 4, right: Math.round(b.right) + 6, bottom: Math.round(b.bottom) + 6 } })()`)
+      const measure = image => ({ middle: +sharpness(image, MID).toFixed(3), edge: +sharpness(image, EDGE).toFixed(3) })
+      const base = measure(await shot('blur-before'))
+      // a blur peaks 30% of the way through (0.21 s of 0.7 s), and a shot
+      // lands about 100 ms after it is asked for
+      const peakOf = async (o, name) => {
+        await js(`window.__blurStage.blur(${JSON.stringify(o)}); true`)
+        await sleep(110)
+        const peak = measure(await shot(name))
+        await sleep(900)
+        const layers = await js(`document.querySelectorAll('[data-epic="blur"]').length`)
+        const after = measure(await shot(name + '-after'))
+        return { peak, after, layers }
+      }
+      const whole = await peakOf({ px: 6, ms: 700 }, 'blur-window')
+      const edges = await peakOf({ px: 10, ms: 700, edges: true }, 'blur-edges')
+      await js(`window.__blurStage.stop(); true`)
+      const ratio = (a, b) => b ? +(a / b).toFixed(2) : null
+      const q = {
+        wholeMiddle: ratio(whole.peak.middle, base.middle), wholeEdge: ratio(whole.peak.edge, base.edge),
+        edgesMiddle: ratio(edges.peak.middle, base.middle), edgesEdge: ratio(edges.peak.edge, base.edge),
+        wholeAfter: ratio(whole.after.middle, base.middle), edgesAfter: ratio(edges.after.edge, base.edge),
+      }
+      const receipt = { blur: 'charcoal', boxes: { middle: MID, edge: EDGE }, base, whole, edges, ratios: q }
+      receipt.textured = base.middle >= 0.5 && base.edge >= 0.5
+      receipt.wholeSoftens = q.wholeMiddle <= 0.8 && q.wholeEdge <= 0.8
+      receipt.edgesOnly = q.edgesEdge <= 0.8 && q.edgesMiddle >= 0.9
+      receipt.clears = Math.abs(q.wholeAfter - 1) <= 0.1 && Math.abs(q.edgesAfter - 1) <= 0.1 && whole.layers === 0 && edges.layers === 0
+      receipt.pass = receipt.textured && receipt.wholeSoftens && receipt.edgesOnly && receipt.clears
+      receipts.push(receipt)
+      write(false)
+      if (!receipt.pass) throw new Error('blur not as specified: ' + JSON.stringify(q) + ' base ' + JSON.stringify(base))
+    }
     write(true)
   } finally { win.destroy() }
 }).then(() => app.exit(0), error => {

@@ -217,8 +217,9 @@ test('every effect in the playbook really draws, and the word effects draw their
     }
     assert.deepEqual(blank, [], 'effects that drew nothing')
     for (const word of ['EPIC MODE', 'FROZEN!', 'STOP', 'ZAP!', 'HIRED!', 'TELEPORTED!', 'TICKET CLOSED!', 'WOOF!', 'BASH!', 'HALTED', 'UNDO!',
-      // the final version's additions
-      'REFUSED!', 'REPORT!', 'HYPER-STREAK!', 'ALICE']) {
+      // the final version's additions (a new rank is named in the corner
+      // badge now, not in a word of its own: epicmode-final checks it)
+      'REFUSED!', 'REPORT!', 'ALICE']) {
       assert.equal(rec.texts.includes(word), true, `never drew ${word}`)
     }
   } finally { rec.restore() }
