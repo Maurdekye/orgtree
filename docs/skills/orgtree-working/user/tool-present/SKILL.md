@@ -47,3 +47,7 @@ The successful result returns a presentation ID and card. Canvas/desk compact su
 A successful transcript call has its ordinary timed, expandable tool row followed by the untimed presentation card; failures remain tool rows. User viewed/new/updated indicators are separate from tool success. A presented document is not proof of reading, agreement, deployment or functional verification of the mockup.
 
 Common refusals include missing title, giving both/neither body and path, exceeding the Markdown/HTML/capture bounds, non-UTF-8 Markdown, unsupported extension, out-of-scope path, missing assets, invalid replaces ID and missing user audience. Correct the named problem before retrying; when updating, reuse replaces rather than creating duplicate cards.
+
+## See also
+
+- [orgtree-reaching-the-user](../reaching-the-user/SKILL.md)

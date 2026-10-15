@@ -50,3 +50,10 @@ You can revoke audiences with yourself, an extern holder can revoke its own exte
 ## Refusals to act on
 
 Missing target/from/grantee fields are reported with the action that needs them. Other common refusals are no live named agent, self-request/self-grant, already-held audience, no request waiting on you, grantee outside the allowed relationship for that grant, non-top-level user grant, invalid grantor relationship, no current grant to revoke, or disabled outside inbox. Apply the pending-request exceptions above before treating an outside-subtree grantee as forbidden. Correct the relationship/party field or ask the actual holder; changing an audience is not a way to expand your own tools or settings authority.
+
+## See also
+
+- [orgtree-mail-basics](../mail-basics/SKILL.md)
+- [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
+- [orgtree-external-mail](../external-mail/SKILL.md)
+- [orgtree-org-inbox](../org-inbox/SKILL.md)

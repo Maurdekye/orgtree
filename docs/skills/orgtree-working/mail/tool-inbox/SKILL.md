@@ -47,3 +47,10 @@ Manual reads do not change normal automatic delivery. Received pending/deliverin
 Disabling the organization's outside inbox hides its outside history/related copies from these reads; it does not erase them. Re-enabling can restore access. Same-org mail remains separate. Reading an old external body does not reinstate a removed sender-authority note.
 
 Use fetched IDs with [orgtree_message](../tool-message/SKILL.md) for replies. Do not resend a request merely because the inbox read left it pending, and do not claim a manual read proves provider consumption or human acceptance.
+
+## See also
+
+- [orgtree-mail-basics](../mail-basics/SKILL.md)
+- [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
+- [orgtree-external-mail](../external-mail/SKILL.md)
+- [orgtree-org-inbox](../org-inbox/SKILL.md)

@@ -41,3 +41,7 @@ The credit tab joins your one open [desktop request](../tool-ask/SKILL.md), alon
 [orgtree_withdraw_ask](../tool-withdraw-ask/SKILL.md) withdraws the entire request, including unrelated question/scope tabs. To clear only the credit tab, the already-covered total path above preserves the other parts.
 
 Typical refusals are missing/non-numeric new_limit, nonfinite total, missing reason for an increase, no user audience, no available headroom, non-live requester, or an unresolved/incomplete supported ancestor chain. Report the concrete capacity constraint instead of repeatedly submitting the same blocked amount.
+
+## See also
+
+- [orgtree-reaching-the-user](../reaching-the-user/SKILL.md)

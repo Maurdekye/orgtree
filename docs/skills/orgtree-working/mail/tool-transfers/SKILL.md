@@ -46,3 +46,10 @@ Cancellation holds the message instead of sending a partial payload. A prior req
 Remove changes the intended payload. Use it only when omission is authorized; otherwise retry or report the error. An incoming message keeps every file, so its failed file cannot be discarded through remove. Retrying the original **message send** instead of its job can duplicate correspondence.
 
 Typical refusals are malformed cursor, unknown action, extra fields, missing ID, inaccessible transfer, disabled org inbox, ineligible state, and remove on an incoming or still-active outgoing file. Inspect current state after an uncertain mutation before repeating it.
+
+## See also
+
+- [orgtree-mail-basics](../mail-basics/SKILL.md)
+- [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
+- [orgtree-external-mail](../external-mail/SKILL.md)
+- [orgtree-org-inbox](../org-inbox/SKILL.md)

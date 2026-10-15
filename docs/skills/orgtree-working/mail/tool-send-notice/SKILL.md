@@ -41,3 +41,10 @@ The no-wake guarantee does not extend to outside publication: the current `@org:
 Lists deliver independently: inspect each outcome, since a permitted recipient can receive a notice while another is refused. Empty recipients, too many distinct recipients, blank body, missing reach/audience, disabled outside inbox and unavailable destinations use the ordinary message refusals. Nothing in this tool grants access or schedules a future rehire/unhalt.
 
 For status reports, [orgtree_status](../../runtime/tool-status/SKILL.md) is the dedicated tool; its done/blocked summary to a superior is also passive.
+
+## See also
+
+- [orgtree-mail-basics](../mail-basics/SKILL.md)
+- [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
+- [orgtree-external-mail](../external-mail/SKILL.md)
+- [orgtree-org-inbox](../org-inbox/SKILL.md)

@@ -28,3 +28,7 @@ If nothing is open, the tool succeeds with `You have no open request.` Otherwise
 Without a user audience, [ask](../tool-ask/SKILL.md) and [scope requests](../tool-request-scope/SKILL.md) can route as ordinary mail to a superior instead of opening a card. This tool cannot retract that mail; notify the superior when the request is no longer relevant.
 
 There are no tool-specific selectable actions or target-related refusals. A denied user tool group or unavailable caller/org context still prevents the call. Do not invent a success claim that the recipient forgot a message or that a prior decision was reversed.
+
+## See also
+
+- [orgtree-reaching-the-user](../reaching-the-user/SKILL.md)

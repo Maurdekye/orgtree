@@ -36,3 +36,10 @@ Use the returned explicit address. Your own local row is discoverable but `@org:
 Bare-name resolution first checks an internal agent, then an exact local-org slug, then a cached hub full slug/leading name segment. Ambiguity refuses rather than guessing; explicit prefixes choose the intended route. The message leaf owns the full routing and reach contract.
 
 There are no tool-specific argument refusals because the exposed schema has no arguments. A denied inspection group prevents the call; discovered destinations may still be refused later by the send path. Do not treat an empty remote array as proof that an address does not exist anywhere: this is cached discovery, not a global directory search.
+
+## See also
+
+- [orgtree-mail-basics](../mail-basics/SKILL.md)
+- [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
+- [orgtree-external-mail](../external-mail/SKILL.md)
+- [orgtree-org-inbox](../org-inbox/SKILL.md)

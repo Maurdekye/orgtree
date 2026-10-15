@@ -42,3 +42,7 @@ An existing delivery_id for your agent/org returns `Already delivered` and the r
 Without a known delivery ID or preserved provider tool-use identity, replay after total response loss cannot be assumed deduplicated. Read available delivery/tool context before retrying. Reusing a **different** identity for the same uncertain operation can create duplicate cards.
 
 Common refusals are missing path, nonexistent/out-of-scope source, non-file, empty/oversized file, an escaping outbox, overlong delivery_id, and an identity already used outside your own delivery scope. An I/O failure is not proof that no record exists; inspect the response's allocated identity and retry that same delivery when appropriate.
+
+## See also
+
+- [orgtree-reaching-the-user](../reaching-the-user/SKILL.md)

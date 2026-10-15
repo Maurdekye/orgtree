@@ -45,3 +45,7 @@ End your turn after submitting when the decision is the next dependency. The ans
 Common refusals are missing reason, empty items, more than eight call/pending items, unknown kind, missing folder path/server/tool, mode other than ro/rw, unsupported tool/group, unsupported permission mode, non-live requester or incomplete/overdeep ancestry. Give exact supported strings and only the fields for the intended kind. There is no node/target parameter: this requests your own scope, not a descendant's settings.
 
 Use [orgtree_withdraw_ask](../tool-withdraw-ask/SKILL.md) when the whole user request becomes moot, remembering it also withdraws questions and credits. A partial grant or denial is not permission to modify settings yourself or reach outside the resulting folder/tool authority.
+
+## See also
+
+- [orgtree-reaching-the-user](../reaching-the-user/SKILL.md)

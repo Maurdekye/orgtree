@@ -53,3 +53,7 @@ The user sees a tabbed card, including mixed requests, and submits a combined de
 Typical refusals are `a question needs its text`, non-array/empty questions, more than four questions in a call, the combined eight-question cap, inaccessible docket links, or unrecoverable tool-call markup in the question text. The engine can recover some leaked options markup, but do not depend on it: send structured fields and readable prose.
 
 You do not gain additional authorizations by asking. Wait for the actual answer when it controls dependent work; elapsed time, a card appearing, or a mail acknowledgement is not consent. Fresh-session replacement can make an open request moot; use the handoff context and re-ask only if the need remains.
+
+## See also
+
+- [orgtree-reaching-the-user](../reaching-the-user/SKILL.md)
