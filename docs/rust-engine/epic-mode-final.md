@@ -276,7 +276,7 @@ by itself).
 | Tab, checkbox, select | Streaks / gear and sparks / ring | Blip / clack / slot reels |
 | Double-click | Two rings | Double click |
 | Type / Enter / Backspace | Sparks at the caret / sparks and ring / grey puff | Typewriter / carriage-return bell / low strike |
-| Zoom / scroll / pan / drag a card | Warp streaks / streaks / trail / ring, dust cloud and small shake | Warp / tick / — / grab, thud |
+| Zoom (the camera zoomed) / scroll (something scrolled) / pan / drag a card | Warp streaks / streaks / trail / ring, dust cloud and small shake | Warp / tick / — / grab, thud |
 | Menus, popups, dialogs, toasts | Rings and frames; dialogs flash and frame | Whooshes; notice |
 | Error toast | Cracked glass, red frame, shake | Breaking glass and buzzer |
 | Copy / paste / undo / redo (the chord, or an Undo/Redo button) / other shortcuts | **COPIED! / PASTED! / UNDO! / REDO! / CTRL+K** | Blip / stamp / warp / clack |
@@ -284,7 +284,11 @@ by itself).
 | Keyboard focus moves | A frame around the focused control | Blip |
 | Drop files | Gold vortex, **INCOMING FILES!** | Conveyor whirr |
 
-Hovering is deliberately silent: it would never stop.
+Hovering is deliberately silent: it would never stop. A wheel plays what it
+moved: a zoom only when the canvas camera zoomed, a scroll whenever anything
+scrolled (a pinned window, the agents list, a desk, a panel), and nothing when
+it moved nothing, such as a list at its end or the camera at its zoom limit
+(see [the wheel fix](#a-wheel-plays-what-it-did-fix-2026-10-15)).
 
 ## Engine changes
 
@@ -444,6 +448,84 @@ gap between typing effects, so the second rightly played nothing. The capture
 now waits for each key to land, plus 60 ms, and records the gap between
 effects.
 
+### A wheel plays what it did (fix, 2026-10-15)
+
+With EPIC Mode on, the user found that scrolling a pinned window on the canvas
+played the canvas's zoom effects instead of the scroll effects, and then the
+same for the agents list (docket
+`epic-mode-scrolling-a-pinned-window-on-the-canva`).
+
+**Cause.** The hands' wheel listener (`epic/director.ts`) decided by where the
+wheel landed: inside `.viewport` it cued zoom in or out by the wheel's sign,
+and anywhere else scroll. The canvas's own wheel listener (`OrgCanvas.tsx`)
+never zooms over a pinned window (`.pinwin`), the agents list (`.tray`), a
+focused desk (`.desk-over`) or a modal (`.overlay`): it leaves those wheels to
+the browser, which scrolls them. Every other wheel over the canvas is
+`preventDefault()`ed and zooms the camera, clamped between the minimum zoom
+and `Z_MAX` (12). Pinned windows, the agents list and focused desks are drawn
+inside `.viewport`, so scrolling them played the zoom effect, and so did a
+wheel that moved nothing: a list at its end, or the camera at its limit.
+Canvas modals are portaled out of `.viewport` (`ModalOverPins`), so they
+played scroll, but also at their ends.
+
+**Fix.** A wheel now plays what it moved. At the wheel the hands note the
+camera's zoom (the `scale()` OrgCanvas writes on the `.space` of the wheel's
+canvas) and the scroll offsets of the target and every element above it, then
+look again on each of the next six frames:
+
+- **zoom in or out** when the canvas took the wheel (`defaultPrevented`) and
+  the camera's scale changed, larger meaning in. A camera gliding on its own
+  (a focus) while the wheel scrolls a window is not the wheel's zoom;
+- **scroll** when one of those offsets moved, pointing the way it moved (the
+  wheel's sign for a sideways-only scroll, as before);
+- **nothing** when the wheel moved nothing.
+
+One wheel plays at most one effect. Looks still pending when the hands detach
+are cancelled. Popped-out windows have no camera, so only their scrolling
+plays. All the code is in `director.ts`, which loads only while EPIC Mode is
+on.
+
+**Tests.** The new suite `epicmode-wheel` mounts the REAL `OrgCanvas` with the
+real director on top. jsdom does no layout, so each scroller is given the
+geometry a browser would give it, with its offset clamped to its range. After
+each wheel the test does what the browser does: a wheel nobody prevented
+scrolls that element by its delta, as far as its range allows, and fires
+`scroll` if it moved. The cases:
+
+- a pinned window: scrolling up and down, its newest line, and a wheel landing
+  while the camera glides to another agent;
+- the agents list: down, up and its top;
+- a focused desk on the canvas;
+- an agent's docket, opened from the agents list, as an ordinary panel: down,
+  up and its top;
+- a real canvas zoom in and out (the control), and the zoom limit;
+- a panel outside the canvas.
+
+The visual capture's wheel scene runs the real canvas in Electron with cto's
+desk pinned, the agents list open and then cto's docket. It sends native wheel
+input over each, over a free point of the canvas, and out to the zoom limit.
+The page records every wheel apart from the director: whether the canvas took
+it, the camera's zoom and every scroll offset that moved. Each effect played
+must match what moved. A filler after the pinned chat and the modal panel
+stands in for a long conversation and a long docket, and the fixture answers
+a desk's chat route with an empty conversation.
+
+Measured at `c02181c` with a clean tree, under the machine build lock and a
+4,096 MB kernel job (C:\orgtree-build\epic-final\wheel: check, visual,
+visual-before):
+
+| Check | Result |
+| --- | --- |
+| Root typecheck | Exit 0 |
+| Strict renderer configuration | 29 diagnostics at the tip and 29 at `7f5f27f` (clean checkout): none added, none removed, none in EPIC files |
+| Strict test configuration | 836 and 836: none added, none removed; all six EPIC suites are in the file list |
+| Green (tip) | 55 of 55 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9 |
+| Before (`7f5f27f`) | 47 of 55 pass. The eight that fail are the wheel suite's: scrolling the pinned window, the agents list and the desk played zoom (zoomIn or zoomOut by the wheel's sign), so did the pinned window at its newest line and a wheel during the camera's glide, the zoom limit played zoomIn, and the docket and the outside panel at their ends played scroll. The canvas zoom control passes |
+| Red (`b77512f`) | 0 of 55 pass: all 55 executed and failed |
+| Opus control (`fdd645f`) | 27 of 55 pass. The 28 that fail are the 17 additions listed above, the three caret tests and the eight wheel tests; the zoom control passes |
+| Wheel capture (tip) | Passed, with native wheel input: every one of 11 wheels played what it moved. The canvas zoomed in and out (0.24 ↔ 0.277): one zoom effect each. The pinned chat scrolled up and back (1256 ↔ 1136 px), the agents list and the docket down (0 → 120 px): one scroll effect each, pointing the way it went. The pinned chat at its newest line, the agents list and the docket at their tops, and the camera at its limit (12): nothing. Zooming back out from the limit played zoomOut. Each effect started 37 to 68 ms after its wheel (the capture draws at 30 frames a second). No console errors. 47 PNGs: 41 as before and 6 of the wheel |
+| Wheel capture (`7f5f27f`) | Failed as expected, 7 of 11: the pinned chat scrolling up and down played zoomIn and zoomOut, and at its newest line zoomOut; the agents list scrolling down played zoomOut, and at its top zoomIn; the docket at its top played scroll; the camera at its limit played zoomIn. The canvas zooms and the docket's scroll were already right |
+
 ## Limits
 
 - Synthetic state and transports only: no live organization, provider
@@ -468,3 +550,7 @@ effects.
   they land at the field's right edge on the line of the last hard break, on
   the canvas and in a pinned desk alike. The caret fix left this alone: the
   4.3.0 release cut asked for nothing new.
+- A wheel's effect waits for its outcome, so it starts one or two frames after
+  the wheel (37 to 68 ms in the 30 frames-a-second capture) instead of at once.
+  A scroll the page makes on its own within those six frames, such as a chat
+  following its newest line as a message lands, counts as the wheel's.

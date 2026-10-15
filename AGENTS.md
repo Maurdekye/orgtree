@@ -87,6 +87,16 @@
   `canvas/docket.tsx`; measured: `tools/rig/epic-mode-visual.mjs` typing scene,
   2026-10-15]
 
+- A wheel over the canvas is not a zoom by where it lands: OrgCanvas's wheel listener
+  leaves `.pinwin`, `.tray`, `.desk-over` and `.overlay` to the browser's own scrolling
+  and zooms everywhere else, clamped to [min zoom, `Z_MAX`]. EPIC Mode's hands therefore
+  judge a wheel by what it moved over the next frames: a zoom only for a wheel the canvas
+  took (`defaultPrevented`) that changed the `scale()` on `.space`, a scroll for any
+  scroll offset from the target up, nothing otherwise
+  ([EPIC Mode final](docs/rust-engine/epic-mode-final.md)). [verified: `epic/director.ts`,
+  `canvas/OrgCanvas.tsx`; measured: `tools/rig/epic-mode-visual.mjs` wheel scene,
+  2026-10-15]
+
 - Personal global instruction files are shared read-only across harnesses, with
   canonical dedup against the CLI's actual account/profile native files. Use
   `startup::snapshot` for launch text and digest together; edits belong to the
