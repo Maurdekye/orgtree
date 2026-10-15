@@ -252,7 +252,9 @@ export function UsageBars({ u }: { u: AccountUsage }) {
             key={l.group + l.kind + (l.model ?? '') + (l.label ?? '')}>
             <div className="u-head">
               <span className="u-label">{usageLabel(l)}</span>
-              <span className="u-reset">{usageResets(l.resets_at)}</span>
+              <span className="u-reset">{prov === 'muse' && !known && l.resets_at
+                && Date.parse(l.resets_at) <= Date.now()
+                ? 'reset; awaiting reading' : usageResets(l.resets_at)}</span>
               {known && <span className={'u-pct' + (sev ? ' ' + sev : '')}>
                 {Math.round(l.percent ?? 0)}%</span>}
             </div>

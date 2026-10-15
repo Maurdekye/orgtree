@@ -1909,7 +1909,7 @@ export interface UsageLimit {
   percent: number | null
   severity: string | null
   resets_at: string | null
-  is_active: boolean
+  is_active: boolean | null
   model: string | null
   /** Provider-supplied display label. Claude's established kinds omit it;
    *  Codex uses it for named quota buckets and their actual window lengths. */
