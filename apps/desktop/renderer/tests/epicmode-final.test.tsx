@@ -89,6 +89,18 @@ test('every staged event feeds one combo: the meter shows from the third, a mile
   } finally { show.stop(); rec.restore() }
 })
 
+test('two ranks reached in one burst: the newer title replaces the older instead of printing over it', async () => {
+  const rec = recordCanvas()
+  const show = startEpic({ audio: null, greet: 'none' })
+  try {
+    for (let i = 0; i < 26; i++) show.cue('click', { spot: at(100 + i, 300) })
+    await wait(90)
+    assert.equal(rec.texts.includes('OVERDRIVE!'), true, 'the 25th event announced OVERDRIVE')
+    assert.equal(rec.texts.includes('HYPER-STREAK!'), false, 'and the HYPER-STREAK title it overtook never drew')
+    assert.equal(rec.texts.includes('×26'), true)
+  } finally { show.stop(); rec.restore() }
+})
+
 test('the meter keeps the frame loop alive only while its combo lasts, then lets it sleep', () => {
   const pending: ((t: number) => void)[] = []
   const view = window as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown }

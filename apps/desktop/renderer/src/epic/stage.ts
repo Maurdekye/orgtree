@@ -101,6 +101,8 @@ export class Stage {
   private actors: Actor[] = []
   /** the combo meter: drawn last, alive until its combo drops (see `meter`) */
   private hud: Actor | null = null
+  /** the neon title on screen, if any (see `title`) */
+  private titled: Actor | null = null
   private rafId = 0
   private last = 0
   private dpr = 1
@@ -576,12 +578,15 @@ export class Stage {
   }
 
   /** a big neon title across the middle of the window, split into magenta and
-   *  cyan ghosts (the Astra take's OVERDRIVE): the combo's new rank */
+   *  cyan ghosts (the Astra take's OVERDRIVE): the combo's new rank. One title
+   *  at a time: a new one ends the one before, or two ranks reached in one
+   *  burst would print over each other */
   title(text: string, o: { caption?: string; color?: string; life?: number } = {}): void {
     const color = o.color ?? '#ff4fd8'
     const life = o.life ?? 2.1
     const caption = captionText(o.caption)
-    this.add({
+    if (this.titled) this.titled.life = Math.min(this.titled.life, this.titled.age)
+    this.add(this.titled = {
       age: 0, life,
       draw(g, k, stage) {
         const { w, h } = stage.size
