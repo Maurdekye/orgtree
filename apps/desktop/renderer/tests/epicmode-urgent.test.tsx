@@ -20,7 +20,7 @@
 // tint's level over time. Real pictures are checked in Electron by
 // tools/rig/epic-mode-visual.mjs (the urgent scene).
 
-import { JSDOM } from './harness'
+import { flush, JSDOM } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { startEpic } from '../src/epic/director'
@@ -238,4 +238,69 @@ test('the same urgent mail, delivered again, does not sound it again', async () 
     await wait(300)
     assert.equal(r.show.staged, once, 'the same tree again stages nothing more')
   } finally { r.end() }
+})
+
+// Another org's urgent mail comes as an app-feed notice (in the window the
+// user is looking at) and sounds the same alarm. Reading THAT mail, which
+// takes its notice off the feed, ends it; another notice going does not
+// (rig-sol-b's review of slice 1 and the coordinator's ruling, 2026-10-15).
+test('another org\'s urgent mail: reading it ends its own alarm, and another notice going does not', async () => {
+  const g = globalThis as unknown as { fetch: typeof fetch; WebSocket: unknown }
+  const before = { fetch: g.fetch, WebSocket: g.WebSocket }
+  const sockets: FeedSocket[] = []
+  class FeedSocket {
+    onmessage: ((e: { data: string }) => void) | null = null
+    onclose: (() => void) | null = null
+    onerror: (() => void) | null = null
+    constructor() { sockets.push(this) }
+    close() { this.onclose?.() }
+    frame(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }) }
+  }
+  const epoch = 'epic-urgent-feed'
+  const registry = { type: 'registry_snapshot', epoch, cursor: { app_uuid: 'a', incarnation: 'i', rev: 1 }, records: [
+    { entity: 'registry_org', id: '1', body: { org_id: 1, slug: 'acme', org_uuid: 'u1', state: 'active' } },
+    { entity: 'registry_org', id: '2', body: { org_id: 2, slug: 'other', org_uuid: 'u2', state: 'active' } },
+  ] }
+  const notices = (seq: number, rows: unknown[]) =>
+    ({ type: 'org_notices', epoch, seq, org_id: 2, org_uuid: 'u2', incarnation: 'i', rev: seq, notices: rows })
+  const urgent = (id: string, agent: string) => ({ org: 'other', id, kind: 'urgent-mail', agent, title: id, body: 'b' })
+  const copy = { type: 'app_snapshot', epoch, seq: 1, registry, summaries: {}, notices: { 2: notices(1, []) }, runtime: { values: {}, orgs: {} } }
+  g.WebSocket = FeedSocket
+  g.fetch = (async () => new Response(JSON.stringify(copy), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+  const hasFocus = Object.getOwnPropertyDescriptor(document, 'hasFocus')
+  Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true })
+  const r = run()
+  try {
+    await flush(10)
+    assert.equal(sockets.length, 1, 'the show reads the app feed')
+    sockets[0]!.frame(copy)
+    await flush(5)
+    sockets[0]!.frame(notices(2, [urgent('m1', 'eve')]))
+    await flush(5)
+    await wait(300)
+    // bob's urgent mail comes in: its alarm takes over from eve's
+    sockets[0]!.frame(notices(3, [urgent('m1', 'eve'), urgent('m2', 'bob')]))
+    await flush(5)
+    const second = performance.now()
+    await wait(300)
+    // eve's mail is read: her notice goes, and bob's alarm sounds on
+    sockets[0]!.frame(notices(4, [urgent('m2', 'bob')]))
+    await flush(5)
+    const other = performance.now()
+    await wait(1300)
+    assert.equal(strongest(r.main, other + 900, other + 1300) > 0.05, true, 'another notice going leaves the alarm sounding')
+    const [name] = alarmSound(r.heard, second)
+    // bob's mail is read: its own notice goes, and its alarm ends
+    const read = performance.now()
+    sockets[0]!.frame(notices(5, []))
+    await flush(5)
+    await wait(1300)
+    assert.equal(strongest(r.main, read + 900, read + 1300), 0, 'within a second of its mail being read the tint is gone')
+    assert.equal(r.heard.filter(h => h.name === name && h.t > read + 100).length, 0, `and "${name}" stopped`)
+  } finally {
+    r.end()
+    if (hasFocus) Object.defineProperty(document, 'hasFocus', hasFocus)
+    else delete (document as unknown as { hasFocus?: unknown }).hasFocus
+    Object.assign(g, before)
+  }
 })
