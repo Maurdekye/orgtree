@@ -1,31 +1,73 @@
 ---
 name: orgtree-harness-antigravity
-description: Explain Antigravity model pools, hook-based scope and mail delivery, and its Claude-model opt-in.
+description: Explain Antigravity stream events, invocation-hook mail, native rule budgets and scope limitations.
 ---
 Up: [orgtree-harnesses](../SKILL.md)
 
-# Antigravity seats
+# Antigravity
 
-Antigravity (`agy`) runs Google's provider lane, including Gemini-family models and optionally its Claude-family offerings. Those Claude models use the Antigravity login and Google's third-party-model windows; they are not Anthropic subscription seats.
+Antigravity (`agy`) drives the Google lane, including Gemini models and the optional Claude-family offerings. Claude models on this route use Google's login and third-party windows, not an Anthropic subscription.
 
-## Runtime behavior
+## How it runs
 
-The driver keeps a stream-JSON process and can resume its conversation. Orgtree tools use a private MCP bridge. Print mode cannot answer ordinary interactive prompts; scope is enforced through hooks. Read-only seats have shell closed rather than a terminal that could bypass read-only authority.
+One persistent `agy -p=` process accepts stream-JSON user messages, emits initialization/trajectory steps and ends each turn with a result. A saved conversation ID is supplied with `--conversation` after process restart. The reported initialization model is checked against the requested model; a mismatch ends the turn rather than silently accepting a different model.
 
-Invocation hooks can insert mail during a turn without interrupting it. Their local delivery receipt is evidence of the handoff, not proof the model obeyed the content. This lane's message tools retain the flat argument shape; do not blindly copy another harness's nested metadata form. See `orgtree-tool-message` (orgtree-working › mail).
+Mid-turn mail is handed to `PreInvocation`/`PostInvocation` hooks, which insert a user-message step at an invocation boundary without interrupting the turn. This is hook injection, not a native `turn/steer` RPC. An emitted hook receipt proves local handoff, not model obedience. If hook installation/delivery fails, mail waits for a later turn.
 
-Antigravity has no supported secondary subscription-profile setup in this integration. Native sign-in is completed through the terminal flow; opening that terminal is not a verified successful login.
+Ordinary close drops stdin and waits five seconds before terminating a lingering process. The explicit interrupt has no gentler verified mechanism: it terminates the process job/tree. Kill also terminates directly. Exit observation is logged; this driver does not use the Codex/Muse durable graceful/forced-stop helper. Resume is conversation continuity, not restoration of running child commands.
 
-## Claude-through-Antigravity setting
+## Information and timing
 
-App settings → Runtime exposes “enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity.” Storage is runtime key `antigravity_claude_enabled`; default false. The user can opt in when the Antigravity account/catalog supplies those models and their pool has capacity. Enabling it makes the offered tiers eligible; it does not install a CLI, sign in, buy capacity or change a model's provider identity.
+`agent_response` steps stream text deltas. At the step's DONE state, its input/cache-read/output usage is accumulated; thinking-token counts join output. This adapter has no separate reasoning-text branch: a thinking-token count is not a visible chain of thought. A response supplied only in the final result still becomes a transcript row.
 
-The toggle is read from effective runtime configuration; it is not an OS/UAC or app-restart action. Any later model/provider/session change has its own context/cache consequences. Agents explain/suggest this setting; they do not change it themselves.
+Tool steps provide a tool name, parameters, state and result/error. Orgtree records the first observed step as the start and DONE/ERROR as the end, updating arguments when later step information arrives. No distinct tool-writing phase is reported here; writing time is unknown, and these are engine-observed intervals rather than guaranteed native execution durations.
 
-For exact applicable Gemini versus third-party windows and uncertainty, see `orgtree-usage-windows` (orgtree-working › accounts). Read actual discovery/status rather than treating a stale catalog or hidden model as entitlement.
+Usage windows come from the separate zero-inference `/usage` metadata path. Gemini and Claude-family offerings spend different groups; cadence/freshness and unsupported readings are defined in `orgtree-usage-windows` (orgtree-working › accounts). Result errors, sign-in blocks and typed window/reset evidence are not interchangeable.
+
+## Caching
+
+The engine currently assigns a 300-second value to Antigravity turn accounting/receipts. This is an adapter value, not a verified published provider retention contract; the actual provider TTL remains unknown in this review. Gemini local token-price estimates also do not establish a cache-retention promise. Claude-family costs on this route stay unknown rather than borrowing Gemini prices.
+
+The launch fingerprint covers the Orgtree identity, tool/MCP config, folders/permission posture, model and account inputs. Model/provider/account/session changes and prefix rewrites can cost continuity; dynamic envelope facts and effort-only controls do not themselves rewrite earlier content. However, at the checked base native AGY startup files are represented by `Inputs::None`, so the generic native-file manifest does not establish that all direct AGY rule edits were detected. Common rules are in `orgtree-cache-continuity` (orgtree-working › accounts).
+
+## Compaction
+
+The checked adapter does not pass the org Claude/Codex auto-compaction threshold to AGY, expose a native compaction RPC, or normalize an AGY compaction event. The exact native automatic threshold and what its summary retains are unknown here. The current `/compact` command path does not operate on this lane.
+
+Orgtree cheap compact remains a separate fresh-session/handoff operation: durable files and records survive while old conversation is exported rather than carried wholesale. A known-cold automatic policy needs qualifying evidence; elapsed time alone or an assumed AGY TTL is insufficient. See `orgtree-context-and-compaction` (orgtree-working › runtime).
+
+## Instructions and skills
+
+At source `72ea305`, launch writes the full managed identity into scratch `AGENTS.md`, and the next plan can read that generated file back as standing notes. That overwrite/feedback behavior is a known separate issue, not a user-editable identity surface. Do not store irreplaceable personal notes by editing the generated envelope or describe the base as automatically splitting rules.
+
+Antigravity 1.3.5's shipped Workspace Rules documentation, inspected on 2026-10-15, specifies **24,000 bytes per rule file after include expansion**, truncated at line boundaries. Standalone `GEMINI.md`/`AGENTS.md` files are always active for their directory scope and do not accept frontmatter. Always-on and global rules additionally share a **20,000-token rules budget**; over-budget rules become file pointers for on-demand reading. Native builtin-plugin rules are exempt. This is a dedicated rules budget, not the whole model context or the separate skills/workflows/subagents/MCP customization budget. Native tokenization and complete model visibility were not measured here.
+
+The pending own-notes fix at `514861a` writes numbered `.agents/rules/orgtree-identity-NNNN.md` files with always-on headers and at most 23,000 UTF-8-safe body bytes. It is unapproved source-only work awaiting independent verification, absent from this base. It addresses raw per-file size; expanded includes and the aggregate budget still apply. General skill/global discovery and current delivery status belong in [skills and instructions](../../providers/skills-and-instructions/SKILL.md).
+
+## Tools, permissions and sandbox
+
+Orgtree tools and granted external MCP servers use a private engine bridge and generated plugin configuration. Print mode cannot answer ordinary interactive permission prompts, so the CLI is launched with skip-permissions while Orgtree's PreToolUse hooks deny disabled terminal/edit/web/subagent capabilities. Read-only seats also have the terminal closed: no verified read-only shell containment is assumed.
+
+These hooks are not an OS filesystem sandbox, and a folder grant does not establish shell containment. On Windows the rights-hook command must be reachable without unsafe cmd quoting, via a suitable path or its 8.3 alias; if the hook cannot be installed, the narrowed seat fails to launch. No separate Session 0 OS sandbox guarantee is established for AGY here.
+
+## Models and effort
+
+Use the discovered Google catalog. Gemini tiers spend Gemini windows; `agy-sonnet`/`agy-opus` require the app's `antigravity_claude_enabled` opt-in and the appropriate catalog offer. Its default is false. The runtime setting belongs to the app Runtime controls; enabling it neither signs in nor creates quota.
+
+AGY maps `none`/`minimal` to `low`, unsupported larger names to `high`; `medium` is supported for Flash and the Claude-family route. Those Claude-family model IDs encode effort variants. A model/effort change can therefore change the model ID even though a pure effort-only control elsewhere does not rewrite the old prefix. Secondary subscription-profile selection is unsupported in this integration.
+
+## Gotchas and workarounds
+
+Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a different source/date is named.
+
+- **Silent rule truncation:** keep user-maintained rules in numbered always-on parts below the expanded 24,000-byte cap. Keep the combined inline rules within the 20,000-token budget; splitting never raises that budget. Read pointed-to overflow files when needed. Do not edit engine-generated identity parts or claim the pending split fix is active. Source: agy 1.3.5 embedded Workspace Rules, observed 2026-10-15, offset 59,700,176; pending `514861a` `runtime/agy.rs:380`.
+- **Generated AGENTS overwrite/feedback:** keep durable notes in the supported separate notes/files and track the own-notes fix; the baseline managed envelope is not a safe personal editing target. Source: `runtime/agy.rs:384`, `runtime/actor.rs:1936`; pending `514861a` own-notes fix.
+- **Hook mail is boundary delivery:** when urgent redirection cannot wait, manual interrupt and follow-up at a tool-call boundary is a workflow option, but on AGY it stops the process tree and may stop child commands. No automatic interrupt-on-mail workaround is implemented at this base. Source: `runtime/actor.rs:1414`, `runtime/actor.rs:3132`, `runtime/agy.rs:194`.
+- **Flat mail arguments:** this lane retains its verified flat tool shape; copying another harness's nested metadata form can fail. See `orgtree-tool-message` (orgtree-working › mail). Source: `runtime/agy.rs:95`, `tools/defs.rs:191`.
 
 ## See also
 
 - See `orgtree-tool-message` (orgtree-working › mail).
-- [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+- [orgtree-harness-comparison](../harness-comparison/SKILL.md)
 - [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
+- [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
