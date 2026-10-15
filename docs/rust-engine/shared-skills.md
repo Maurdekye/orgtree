@@ -58,14 +58,17 @@ native paths and plugin definitions never appear in the public registry or logs.
 
 `build.rs` embeds every file under `docs/skills` into the engine; no runtime source
 checkout or separately provisioned docs directory is needed. Guide writers own
-that source tree. The future guide-library catalog has two category skills,
+that source tree. The guide-library catalog has two category skills,
 `orgtree-working` and `orgtree-app`. Section and leaf pages have their
 own nested folders and `SKILL.md` files, loaded only on demand.
 
-Release cut, 2026-10-15 11:04Z: the large guide library is excluded from 4.3.0.
-Only rig-opus's standalone `orgtree-engine-start-mode` built-in is required for
-this release. The importer does not depend on the library or hard-code two names;
-each source tree's top-level bundle is one registered entry.
+Release cut revised by the coordinator, 2026-10-15 14:38Z: the 183-page guide
+library is included in 4.3.0, superseding its earlier exclusion. Its composition
+and delivery require separate verification; the importer approval measured only
+the standalone `orgtree-engine-start-mode` guide. The library replaces that
+standalone registration with its nested app-settings page. The importer does not
+depend on the library or hard-code two names; each source tree's top-level bundle
+is one registered entry.
 
 Only category entry files are exported inside native discovery roots. The complete
 resource tree, including ordinary Markdown and nested `SKILL.md` pages, is exported
