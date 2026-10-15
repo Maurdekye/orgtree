@@ -31,12 +31,13 @@ Under rig-sol's shared build lock and contained batch, use
 `<combined root> <authorized C output> <rust-engine node_modules> <mode> [suites]`.
 
 - Red: set `UI_REFRESH_BASE=a47bb1692b40cf5612ca7b76505c3ffd5862530c`;
-  `tests museusagerefresh`. The runner overlays exact baseline `App.tsx`,
-  `accountusage.tsx`, `api.ts`, and `canvas/accounts.tsx` while retaining the new
+  set `UI_REFRESH_SCOPE=muse`; `tests museusagerefresh`. The runner overlays exact
+  baseline `App.tsx` and `accountusage.tsx`, keeping the composed `api.ts` and
+  `canvas/accounts.tsx` while retaining the new
   fixtures. Expected five tests: three Muse failures (host/registered with dated
   bars, host/registered unavailable, reusable panel) and two non-Muse controls.
   Report measured names and counts, rather than treating this recipe as proof.
-- Green: unset `UI_REFRESH_BASE`; `tests museusagerefresh usagerefresh usagehead
+- Green: unset `UI_REFRESH_BASE` and `UI_REFRESH_SCOPE`; `tests museusagerefresh usagerefresh usagehead
   usageaccounts appsettings`, then `typecheck` (root). Include tests tsconfig in
   the normal batch check. The new suite checks visibility, disabled state,
   tooltip, no request through native/synthetic clicks, retained bars/date,
@@ -47,3 +48,11 @@ No packaging, installation, live provider operation or push. Native tooltip
 rendering and pixel appearance are not measured by the synthetic DOM tests;
 the CSS and hover wrapper are source-reviewed. Coordinator integrates the
 checked hand-in. Execution remains pending at source hand-in.
+
+Round445 runner correction: the first red did not execute any tests. It overlaid
+an unrelated baseline `api.ts`, which lacks the new MCP item's `refreshMcpServers`
+export. `UI_REFRESH_SCOPE=muse` restricts the overlay to this item's changed
+existing production modules, preserving composed API and bars dependencies. The
+default `all` scope retains the earlier usage-refresh recipe. Rig reported
+31/31 green and root typecheck 0 before this runner-only correction; committed
+scoped red execution still awaits its result.

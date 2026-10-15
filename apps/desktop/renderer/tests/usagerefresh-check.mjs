@@ -8,10 +8,12 @@ import {spawnSync} from 'node:child_process'
 const [sourceRoot,outputDir,dependencies,mode,...suites]=process.argv.slice(2)
 if(!sourceRoot||!outputDir||!dependencies||!mode)throw new Error('root output dependencies mode [suites] required')
 const root=path.resolve(sourceRoot),output=path.resolve(outputDir),deps=path.resolve(dependencies)
+const scope=process.env.UI_REFRESH_SCOPE??'all'
+if(!['all','muse'].includes(scope))throw new Error('UI_REFRESH_SCOPE must be all or muse')
 const require=createRequire(path.join(deps,'../package.json'))
 fs.mkdirSync(output,{recursive:true})
 const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8',windowsHide:true}).stdout.trim()
-console.log(JSON.stringify({sourceRoot:root,head,dependencies:deps,base:process.env.UI_REFRESH_BASE??null}))
+console.log(JSON.stringify({sourceRoot:root,head,dependencies:deps,base:process.env.UI_REFRESH_BASE??null,scope}))
 if(mode==='typecheck'){
   const config=path.join(output,'tsconfig.json')
   fs.writeFileSync(config,JSON.stringify({extends:path.join(root,'tsconfig.json'),compilerOptions:{
@@ -34,6 +36,8 @@ if(mode==='typecheck'){
           const file=args.path.endsWith('api.ts')?'apps/desktop/renderer/src/api.ts':args.path.endsWith('App.tsx')?
             'apps/desktop/renderer/src/App.tsx':args.path.endsWith('accountusage.tsx')?
               'apps/desktop/renderer/src/accountusage.tsx':'apps/desktop/renderer/src/canvas/accounts.tsx'
+          if(scope==='muse'&&!['apps/desktop/renderer/src/App.tsx',
+            'apps/desktop/renderer/src/accountusage.tsx'].includes(file))return
           const p=spawnSync('git',['show',baseline+':'+file],{cwd:root,encoding:'utf8',windowsHide:true})
           if(p.status!==0)throw new Error(p.stderr)
           console.log('EXACT_BASE_SOURCE '+baseline+' '+file)
