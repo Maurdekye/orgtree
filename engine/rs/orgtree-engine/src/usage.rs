@@ -481,7 +481,8 @@ impl Usage {
     fn put_muse_observed(&self, key: &str, data: &Value, observed: DateTime<Utc>, auth: bool) -> bool {
         let age = (Utc::now() - observed).to_std().unwrap_or_default();
         let at = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
-        let stored = self.cache.pin().compute(key.to_owned(), |existing| match existing {
+        let pinned = self.cache.pin();
+        let stored = pinned.compute(key.to_owned(), |existing| match existing {
             Some((_, c)) if c.data["available"] == true
                 && c.data["observed_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t >= observed) =>
                 papaya::Operation::Abort(()),
