@@ -31,8 +31,8 @@ top-level allocations; changing the hire grant when new hires repeatedly need
 the same adjustment; changing the threshold when context pressure warrants a
 different compaction point; and changing effort when the user wants a common
 quality/latency preference for agents that inherit it. For the credit model,
-see `orgtree-credits` (orgtree-working > team). For session behavior, see
-`orgtree-context-and-compaction` (orgtree-working > runtime).
+see `orgtree-credits` (orgtree-working › team). For session behavior, see
+`orgtree-context-and-compaction` (orgtree-working › runtime).
 
 ## Logo
 
@@ -69,6 +69,6 @@ those actions or undo them when the panel closes.
 
 ## See also
 
-- `orgtree-credits` (orgtree-working > team).
+- `orgtree-credits` (orgtree-working › team).
 - [orgtree-app-default-org-settings](../../app-settings/app-default-org-settings/SKILL.md).
 - [orgtree-org-charter-md](../org-charter-md/SKILL.md).

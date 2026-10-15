@@ -27,7 +27,7 @@ The switch does not reset a session when clicked: it changes eligibility for
 later turn admission. It is distinct from the CLI's ordinary compaction
 threshold in Basic. Cache expiry is not an editable timer here. Exact forecast,
 cache-lane and handoff rules live in `orgtree-context-and-compaction`
-(orgtree-working > runtime).
+(orgtree-working › runtime).
 
 Suggest enabling it when the user prefers summarized continuity to sending a
 large old conversation into a known-cold cache. Suggest a higher threshold to
@@ -37,5 +37,5 @@ process replacement alone is not proof of a cold provider cache.
 
 ## See also
 
-- `orgtree-context-and-compaction` (orgtree-working > runtime).
+- `orgtree-context-and-compaction` (orgtree-working › runtime).
 - [orgtree-org-basic](../org-basic/SKILL.md).

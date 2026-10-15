@@ -33,9 +33,9 @@ Suggest on when the user wants authorized operations to use available capacity
 within a caller's budget without manually resizing each intermediate grant.
 Suggest off when the user wants each immediate funding parent prepared
 explicitly. For capacity accounting and credit requests, see `orgtree-credits`
-(orgtree-working > team).
+(orgtree-working › team).
 
 ## See also
 
-- `orgtree-credits` (orgtree-working > team).
+- `orgtree-credits` (orgtree-working › team).
 - [orgtree-org-basic](../org-basic/SKILL.md).

@@ -12,7 +12,7 @@ The tool controls in **Org settings > Hire defaults > Scope** edit
 saved tool grants. Agents explain/suggest; the user edits. They use the shared
 footer Save in [orgtree-org-basic](../org-basic/SKILL.md). Inherited effective
 permissions still apply; see `orgtree-scope-and-permissions`
-(orgtree-working > team).
+(orgtree-working › team).
 
 ## Native Tools
 
@@ -70,5 +70,5 @@ eligible by default. For registry/sharing details, see the provider section.
 
 ## See also
 
-- `orgtree-scope-and-permissions` (orgtree-working > team).
+- `orgtree-scope-and-permissions` (orgtree-working › team).
 - [orgtree-org-basic](../org-basic/SKILL.md).

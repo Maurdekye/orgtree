@@ -23,7 +23,7 @@ and timer fallback are **true**. Read the loaded effective value.
 Fallback still respects org account eligibility, active/provider switches,
 the seat's model entitlement and capacity rules. It is not permission to
 switch provider or to use a metered API key contrary to its separate fallback
-setting. See `orgtree-usage-freezes` (orgtree-working > accounts) for the
+setting. See `orgtree-usage-freezes` (orgtree-working › accounts) for the
 selection and continuation contract.
 
 Automatic resume requires a usable deadline. Unknown reset times are not
@@ -49,5 +49,5 @@ that a clear is not proof of recovered quota.
 
 ## See also
 
-- `orgtree-usage-freezes` (orgtree-working > accounts).
+- `orgtree-usage-freezes` (orgtree-working › accounts).
 - [orgtree-org-accounts](../org-accounts/SKILL.md).

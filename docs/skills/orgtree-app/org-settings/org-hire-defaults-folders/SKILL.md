@@ -30,7 +30,7 @@ Suggest adding a holding when the user wants future agents to work in that
 folder, or RO access when they only need reference material. Explain the
 existing-grant consequences before suggesting removal or downgrade. The full
 scope and folder authority rules live in `orgtree-scope-and-permissions`
-(orgtree-working > team).
+(orgtree-working › team).
 
 ## Dissolve all agents
 
@@ -45,9 +45,9 @@ retrying rather than assuming the entire org action rolled back.
 
 Suggest this only when the user wants the whole organization retired while
 retaining its agents' context. For retirement/rehire semantics see
-`orgtree-team-shape` (orgtree-working > team).
+`orgtree-team-shape` (orgtree-working › team).
 
 ## See also
 
-- `orgtree-scope-and-permissions` (orgtree-working > team).
+- `orgtree-scope-and-permissions` (orgtree-working › team).
 - [orgtree-org-basic](../org-basic/SKILL.md).

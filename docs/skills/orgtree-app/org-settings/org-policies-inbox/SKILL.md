@@ -32,11 +32,11 @@ Suggest disabling outside access when the user wants this org isolated from
 external peers. Suggest multi-holder when the user intends shared outside-mail
 handling and understands its routing. Audience eligibility, delivery/fallback
 and communication authority belong in `orgtree-org-inbox`
-(orgtree-working > mail); these toggles do not authorize arbitrary external
+(orgtree-working › mail); these toggles do not authorize arbitrary external
 senders to act for the user.
 
 ## See also
 
-- `orgtree-org-inbox` (orgtree-working > mail).
+- `orgtree-org-inbox` (orgtree-working › mail).
 - [orgtree-org-connections](../../mailhub/org-connections/SKILL.md).
 - [orgtree-org-history](../org-history/SKILL.md).

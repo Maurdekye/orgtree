@@ -22,8 +22,8 @@ The engine fills these defaults after application and org overrides. The UI
 uses **full** if visibility is absent from a payload; that loading/missing-data
 fallback does not change the engine's **subtree** default. Invalid visibility
 or permission names are refused. Visibility semantics and inherited ceilings
-are defined in `orgtree-visibility` and `orgtree-scope-and-permissions`
-(orgtree-working > team).
+are defined in `orgtree-visibility` (orgtree-working › inspection) and
+`orgtree-scope-and-permissions` (orgtree-working › team).
 
 The Provider selector offers Claude, Codex, Antigravity and Muse. Choosing one
 sets its primary account as the candidate default. Account rows identify the
@@ -43,11 +43,11 @@ processes, even though existing agents' saved modes are retained.
 Suggest narrower starting visibility or access when the user wants new agents
 to start with less scope. Suggest an account default when future hires should
 prefer a particular allowed login. For account identity and selection, see
-`orgtree-account-lanes` (orgtree-working > accounts).
+`orgtree-account-lanes` (orgtree-working › accounts).
 
 ## See also
 
-- `orgtree-visibility` (orgtree-working > team).
-- `orgtree-account-lanes` (orgtree-working > accounts).
+- `orgtree-visibility` (orgtree-working › inspection).
+- `orgtree-account-lanes` (orgtree-working › accounts).
 - [orgtree-org-accounts](../org-accounts/SKILL.md).
 - [orgtree-org-hire-defaults-folders](../org-hire-defaults-folders/SKILL.md).

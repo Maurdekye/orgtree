@@ -30,7 +30,7 @@ account remains. The change is enforced even when usage-limit fallback is off;
 it is an org access restriction. Reallowing capacity prompts agents frozen for
 this reason to look again. Pending choices remain subject to account/model
 validation. For identity, eligibility and selection rules, see
-`orgtree-account-lanes` (orgtree-working > accounts).
+`orgtree-account-lanes` (orgtree-working › accounts).
 
 The tab disables controls while a save is pending and refreshes afterward.
 Failures show an error rather than assuming the new check state persisted.
@@ -46,6 +46,6 @@ account set. Explain turn-boundary movement and the stop case first.
 
 ## See also
 
-- `orgtree-account-lanes` (orgtree-working > accounts).
+- `orgtree-account-lanes` (orgtree-working › accounts).
 - [orgtree-org-autonomy](../org-autonomy/SKILL.md).
 - [orgtree-org-hire-defaults-scope](../org-hire-defaults-scope/SKILL.md).
