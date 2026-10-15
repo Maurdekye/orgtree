@@ -1,0 +1,51 @@
+---
+name: orgtree-app
+description: The Orgtree desktop app: every screen, panel and setting, plus providers, accounts and the mail hub, so you can explain or advise on what the user sees and configures.
+---
+
+# The Orgtree app
+
+Open a section below, then the screen or setting leaf it lists. Settings leaves explain the control, storage, defaults, application timing and when to suggest a change. Agents explain and suggest settings; they do not change them themselves.
+
+## Sections
+
+| Section | What it answers |
+| --- | --- |
+| [orgtree-app-shell](app-shell/SKILL.md) | The app's frame: windows, homepage, header and menus, status bar, quick chat, tray, onboarding and shared dialogs. |
+| [orgtree-canvas](canvas/SKILL.md) | The org canvas: the agent tree, cards, the user node, piles, the agents list, menus and pinned windows. |
+| [orgtree-desk](desk/SKILL.md) | An agent's desk and the work panels: chat, history, files, inboxes, ask cards, dockets, presentations and watchdogs. |
+| [orgtree-app-settings](app-settings/SKILL.md) | App settings (Orgtree menu > App settings…): Runtime, Display, Default org settings, Developer, Shortcuts and About. |
+| [orgtree-org-settings](org-settings/SKILL.md) | Org settings (header > Org settings): Basic, Hire defaults, Policies, Connections, Autonomy, Accounts, History. |
+| [orgtree-agent-settings](agent-settings/SKILL.md) | Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope and Tools tabs. |
+| [orgtree-providers](providers/SKILL.md) | Providers, harnesses and accounts (App settings > Providers and Harnesses), plus the usage windows. |
+| [orgtree-mailhub](mailhub/SKILL.md) | The mail hub, org connections, Hubchat and the phone link. |
+
+## Find the right section
+
+| Your question | Open |
+| --- | --- |
+| Create an organization or choose a template | [orgtree-app-shell](app-shell/SKILL.md) |
+| Find the home screen, menus or status bar | [orgtree-app-shell](app-shell/SKILL.md) |
+| Understand a confirmation, toast or undo | [orgtree-app-shell](app-shell/SKILL.md) |
+| Understand mobile layout or a detached window | [orgtree-app-shell](app-shell/SKILL.md) |
+| Find attention items or recover a failed view | [orgtree-app-shell](app-shell/SKILL.md) |
+| Read an agent card, draft hire or pile | [orgtree-canvas](canvas/SKILL.md) |
+| Pin, move or reopen a panel | [orgtree-canvas](canvas/SKILL.md) |
+| Understand the user node or outside inbox tile | [orgtree-canvas](canvas/SKILL.md) |
+| Read the desk Chat, History or Files tab | [orgtree-desk](desk/SKILL.md) |
+| Open Inbox, Docket or Presented windows | [orgtree-desk](desk/SKILL.md) |
+| Answer a question card or inspect a watchdog | [orgtree-desk](desk/SKILL.md) |
+| Choose desktop startup or notification behavior | [orgtree-app-settings](app-settings/SKILL.md) |
+| Adjust turn limits or concurrency | [orgtree-app-settings](app-settings/SKILL.md) |
+| Change display or keyboard behavior | [orgtree-app-settings](app-settings/SKILL.md) |
+| Set defaults for new organizations | [orgtree-app-settings](app-settings/SKILL.md) |
+| Understand organization policies or its charter | [orgtree-org-settings](org-settings/SKILL.md) |
+| Change defaults for new hires in one organization | [orgtree-org-settings](org-settings/SKILL.md) |
+| Explain the selected agent’s Model or Scope tab | [orgtree-agent-settings](agent-settings/SKILL.md) |
+| Explain provider sign-in, account status or usage | [orgtree-providers](providers/SKILL.md) |
+| Understand a harness, OpenRouter key or local server | [orgtree-providers](providers/SKILL.md) |
+| Connect a phone or configure hub hosting | [orgtree-mailhub](mailhub/SKILL.md) |
+
+For agent tools and work rules, open `orgtree-working`. Its section list leads to the tool or workflow reference.
+
+A page may point to the other category using its skill name and breadcrumb. Open that category and follow the named section; relative links stay inside their own category bundle.
