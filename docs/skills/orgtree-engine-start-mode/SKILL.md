@@ -5,9 +5,12 @@ description: How Orgtree's two engine start modes on Windows ("At boot, before s
 
 # Engine start mode
 
-Every agent runs as a child of Orgtree's engine, so it lives wherever the engine
-lives. On a Windows installation for all users, with "Run on startup" on, the user
-chooses where the engine starts, in Orgtree's Settings › Desktop:
+Agents run as children of Orgtree's engine, so they normally live where the
+engine lives. There is one exception at boot: while the user is signed in,
+Orgtree's sign-in helper starts sandboxed Codex agents in the user's session,
+and the engine stays in Session 0. On a Windows installation for all users, with
+"Run on startup" on, the user chooses where the engine starts, in Orgtree's
+Settings › Desktop:
 
 - **At boot, before sign-in** (the default). The engine starts when the machine
   boots, in Windows Session 0, before anyone signs in.
@@ -15,19 +18,27 @@ chooses where the engine starts, in Orgtree's Settings › Desktop:
   Windows, inside their own session, with their own sign-in.
 
 Per-user installations, macOS and Linux have no such choice: their engine already
-runs in the user's own session. With "Run on startup" off the choice does nothing:
-nothing starts by itself, and opening Orgtree starts its engine in the user's
-session.
+runs in the user's own session. With "Run on startup" off the choice does nothing,
+because nothing starts by itself. An engine that is already running keeps running
+until it stops. Once none is running, opening Orgtree starts its engine in the
+user's session.
 
-## Which one am I in?
+## Where am I running?
 
-Session 0 means the boot mode. In PowerShell:
+What you can reach depends on your own process's session. In PowerShell:
 
 ```powershell
 [System.Diagnostics.Process]::GetCurrentProcess().SessionId
 ```
 
-`0` is the boot mode. Any other number is the user's own session.
+`0` means your process runs in Session 0, with no desktop and no real input. Any
+other number is a signed-in user's session.
+
+That number describes your process, not the engine's mode: a Codex agent the
+sign-in helper started runs in the user's session even in the boot mode. To learn
+the mode, check for `orgtree-engine-host`, the launcher the sign-in mode runs:
+`Get-Process orgtree-engine-host -ErrorAction SilentlyContinue` returns it when the
+engine started at sign-in. You can also ask the user.
 
 ## What each mode means for you
 
