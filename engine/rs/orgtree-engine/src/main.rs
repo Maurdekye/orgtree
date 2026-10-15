@@ -38,6 +38,7 @@ mod import30;
 mod import_dogmemo;
 mod import_failures;
 mod importer;
+mod install_stop;
 mod langserver;
 mod lsproxy;
 mod launch;
@@ -319,6 +320,8 @@ async fn run_with_cluster(
     // stamped-identity startup watcher until this point, then hand off once.
     startup.finish();
     core_monitor::start(&engine, core_inbox);
+    // an installer that cannot ask through the descriptor asks through its record
+    install_stop::start(&engine);
     progress("engine-ready");
     #[cfg(windows)]
     if engine.core.enabled && std::env::var("ORGTREE_CORE_MODE").as_deref() == Ok("managed") {

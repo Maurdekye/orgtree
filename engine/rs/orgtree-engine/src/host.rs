@@ -381,7 +381,9 @@ fn once() -> u8 {
     env.push(("ORGTREE_DATA".into(), root.to_string_lossy().to_string()));
     env.push(("ORGTREE_V2_TOKEN".into(), token.clone()));
     env.push(("ORGTREE_V2_UI_DIR".into(), ui.to_string_lossy().to_string()));
-    // the engine watches this host: if the task is ended, the engine stops
+    // the engine's core lifecycle records this host (core mode "boot"); since the
+    // 2026-10-12 recovery the engine outlives it, so ending the task does not stop
+    // the engine: the installer asks through its record (src/install_stop.rs)
     env.push(("ORGTREE_V2_PARENT_PID".into(), std::process::id().to_string()));
     env.retain(|(key, _)| key != "ORGTREE_CORE_MODE");
     env.push(("ORGTREE_CORE_MODE".into(), "boot".into()));
