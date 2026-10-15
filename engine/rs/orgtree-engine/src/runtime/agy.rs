@@ -522,6 +522,50 @@ pub fn request_cost(model: &str, input: i64, cached: i64, output: i64) -> f64 {
     (input as f64 * pi + cached as f64 * pc + output as f64 * po) / 1e6
 }
 
+#[cfg(test)]
+mod workspace_notes_tests {
+    use super::*;
+
+    fn fixture() -> (PathBuf, AgySpec) {
+        let root = std::env::temp_dir().join(format!("orgtree-agy-notes-{}", crate::util::random_hex(8)));
+        std::fs::create_dir_all(&root).unwrap();
+        let spec = AgySpec {
+            exe: PathBuf::from("unused-fake-agy"), cwd: root.join("agent"), model: "fake".into(),
+            effort: None, conversation: None, identity: "Synthetic generated identity".into(),
+            servers: Map::new(), bash: true, edit: true, web: true, subagents: true,
+            env: vec![], turn_timeout_s: 60,
+        };
+        (root, spec)
+    }
+
+    #[test]
+    fn agy_workspace_preserves_standing_notes_across_starts() {
+        let (root, spec) = fixture();
+        std::fs::create_dir_all(&spec.cwd).unwrap();
+        let notes = "# Standing memories\r\nKeep this user-authored note.\r\n";
+        std::fs::write(spec.cwd.join("AGENTS.md"), notes).unwrap();
+        write_workspace(&spec, "fake-pipe", &root).unwrap();
+        write_workspace(&spec, "fake-pipe", &root).unwrap();
+        let actual = std::fs::read_to_string(spec.cwd.join("AGENTS.md")).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(actual, notes, "launch must never replace standing memories with identity");
+    }
+
+    #[test]
+    fn agy_workspace_identity_is_a_rule_not_own_notes() {
+        let (root, spec) = fixture();
+        write_workspace(&spec, "fake-pipe", &root).unwrap();
+        let own_exists = spec.cwd.join("AGENTS.md").exists();
+        let rule = std::fs::read_to_string(spec.cwd.join(".agents/rules/orgtree-identity.md")).unwrap_or_default();
+        let (own, _) = crate::runtime::startup::standing_notes(
+            &crate::runtime::startup::Inputs::None, &spec.cwd, &[]);
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(!own_exists && own.is_empty(), "generated identity must not feed back as own notes");
+        assert!(rule.starts_with("---\ntrigger: always_on\n"));
+        assert_eq!(rule.matches(&spec.identity).count(), 1);
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
