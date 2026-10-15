@@ -86,6 +86,10 @@
         "to": "engine/orgtree-credential-broker.exe"
       },
       {
+        "from": "engine/rs/target/release/orgtree-engine-host.exe",
+        "to": "engine/orgtree-engine-host.exe"
+      },
+      {
         "from": "engine/mailhub/target/release/orgtree-mailhub.exe",
         "to": "engine/orgtree-mailhub.exe"
       },
