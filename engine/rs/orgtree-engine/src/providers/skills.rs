@@ -42,11 +42,15 @@ impl Registry {
     #[nolog]
     pub fn materialize(&self, data: &Path) -> anyhow::Result<PathBuf> {
         let root = self.snapshot_path(data);
+        reject_link(&root)?;
         if root.join("complete.json").is_file() {
+            validate_export_tree(&root)?;
             return Ok(root);
         }
         let parent = data.join("shared-skills");
+        reject_link(&parent)?;
         std::fs::create_dir_all(&parent)?;
+        reject_link(&parent)?;
         let stage = parent.join(format!(".stage-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&stage)?;
         std::fs::write(
@@ -77,7 +81,7 @@ impl Registry {
             )?;
             match std::fs::rename(&stage, &root) {
                 Ok(()) => Ok(()),
-                Err(_) if root.join("complete.json").is_file() => Ok(()),
+                Err(_) if root.join("complete.json").is_file() => validate_export_tree(&root),
                 Err(e) => Err(e.into()),
             }
         })();
@@ -113,7 +117,20 @@ impl Registry {
             let mut b = bundle.clone();
             b.name = name;
             let dest = root.join(&b.name);
+            reject_link(&dest)?;
+            if is_builtin(&b) {
+                let resources = scratch.join(".agents/orgtree-skill-resources")
+                    .join(&self.digest).join(&b.name);
+                reject_link(&resources)?;
+                if resources.exists() {
+                    anyhow::ensure!(owned(&resources), "unowned shared skill resources");
+                    validate_export_tree(&resources)?;
+                } else {
+                    write_bundle(&resources, &b)?;
+                }
+            }
             if dest.exists() {
+                validate_export_tree(&dest)?;
                 anyhow::ensure!(
                     owned(&dest),
                     "a user-created skill occupies an Orgtree skill name"
@@ -123,14 +140,6 @@ impl Registry {
                     continue;
                 }
                 remove_owned(&root, &dest)?;
-            }
-            if is_builtin(&b) {
-                let resources = scratch.join(".agents/orgtree-skill-resources");
-                reject_link(&resources)?;
-                let resources = resources.join(&self.digest).join(&b.name);
-                if !owned(&resources) {
-                    write_bundle(&resources, &b)?;
-                }
             }
             write_export(
                 &dest,
@@ -144,6 +153,9 @@ impl Registry {
 
 #[nolog]
 fn remove_owned(root: &Path, path: &Path) -> anyhow::Result<()> {
+    reject_link(root)?;
+    reject_link(path)?;
+    validate_export_tree(path)?;
     let root = std::fs::canonicalize(root)?;
     let actual = std::fs::canonicalize(path)?;
     anyhow::ensure!(
@@ -162,7 +174,7 @@ fn prepare_owned_removal(dir: &Path) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
         let meta = std::fs::symlink_metadata(&path)?;
-        anyhow::ensure!(!meta.file_type().is_symlink(), "linked shared skill copy");
+        reject_link(&path)?;
         if meta.is_dir() {
             prepare_owned_removal(&path)?;
         }
@@ -210,9 +222,16 @@ fn workspace_names(bundles: &[Bundle]) -> Vec<String> {
 #[nolog]
 fn write_bundle(dest: &Path, bundle: &Bundle) -> anyhow::Result<()> {
     reject_link(dest)?;
+    if dest.exists() {
+        anyhow::ensure!(owned(dest), "unowned shared skill destination");
+        validate_export_tree(dest)?;
+    }
     for (relative, bytes) in bundle.files.iter() {
+        anyhow::ensure!(relative.components().all(|c| matches!(c, std::path::Component::Normal(_))), "invalid skill resource path");
         let path = dest.join(relative);
+        reject_link(&path)?;
         std::fs::create_dir_all(path.parent().unwrap_or(dest))?;
+        reject_link(&path)?;
         let content = if relative == Path::new("SKILL.md") {
             rename_header(bytes, &bundle.name)
         } else {
@@ -235,6 +254,7 @@ fn write_bundle(dest: &Path, bundle: &Bundle) -> anyhow::Result<()> {
         }
         std::fs::set_permissions(&path, permissions)?;
     }
+    reject_link(&dest.join(".orgtree-skill.json"))?;
     std::fs::write(
         dest.join(".orgtree-skill.json"),
         serde_json::to_vec(&json!({"owner":"orgtree-skills-v1","digest":bundle.digest}))?,
@@ -244,10 +264,42 @@ fn write_bundle(dest: &Path, bundle: &Bundle) -> anyhow::Result<()> {
 
 #[nolog]
 fn reject_link(path: &Path) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()),
-        "skill destination is a link"
-    );
+    // Check missing leaves' existing ancestors too; Windows junctions are
+    // reparse points even when file_type().is_symlink() does not identify them.
+    for ancestor in path.ancestors() {
+        if ancestor.as_os_str().is_empty() { continue; }
+        let meta = match std::fs::symlink_metadata(ancestor) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        };
+        #[cfg(windows)]
+        let linked = {
+            use std::os::windows::fs::MetadataExt;
+            meta.file_attributes() & 0x400 != 0
+        };
+        #[cfg(not(windows))]
+        let linked = meta.file_type().is_symlink();
+        anyhow::ensure!(!linked, "skill destination contains a link");
+    }
+    Ok(())
+}
+
+/// Cached ownership/completion markers are not authority to follow resource links.
+#[nolog]
+fn validate_export_tree(root: &Path) -> anyhow::Result<()> {
+    reject_link(root)?;
+    if !root.is_dir() { return Ok(()); }
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            reject_link(&path)?;
+            if std::fs::symlink_metadata(&path)?.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
     Ok(())
 }
 

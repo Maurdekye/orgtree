@@ -149,3 +149,14 @@ the original PID remains alive, the start count is unchanged, the forecast has n
 startup change and exported bytes remain identical. Run the identical proof at
 `2bf5e71` for the focused digest-mismatch red (expected one pass/two failures),
 then the fix for green. These are expected outcomes until independently measured.
+
+## Composed export guard (2026-10-15)
+
+Output writes, cached exports and cleanup reject symlinks and Windows reparse
+points in every existing ancestor and inside owned resource trees. An ownership
+or completion marker does not authorize following a redirected resource directory.
+Unowned existing bundle destinations are refused. The two synthetic link controls
+cover a missing leaf below a linked digest parent, a linked cached workspace
+resource, and a linked immutable snapshot resource. This is boundary validation,
+not a claim of protection against a hostile concurrent filesystem replacement
+between validation and use. Source discovery and collision semantics are unchanged.

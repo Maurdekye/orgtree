@@ -2723,3 +2723,8 @@ Cold archived docket projections covered by the existing policy spec use its typ
   The idle check retains applicable skill folders, not a frozen skill snapshot.
   [verified: `runtime/actor.rs`; regression: `tools/rig/proofs/skills-idle.mjs`;
   2026-10-15]
+
+- Shared skill export validation covers every existing output ancestor and cached
+  resource tree, including Windows junctions/reparse points; marker files never
+  authorize following links. See shared-skills.md export guard.
+  [verified from source: providers/skills.rs; rig review finding 2026-10-15]
