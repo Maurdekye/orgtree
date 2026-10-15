@@ -5731,6 +5731,10 @@ svg.MuiSvgIcon-root {
   overflow-wrap: anywhere;
   max-height: 320px; overflow-y: auto;
 }
+/* The live body's reply-event wrapper is display:contents, making this a
+   direct flex item in .msgs. Its scrollable overflow removes the automatic
+   minimum height; keep the capped natural height when the transcript fills. */
+.thoughtbody.live { flex-shrink: 0; }
 /* thoughts are markdown now; a plain thought's single newlines still break */
 .thoughtbody p, .msg.thinking p { white-space: pre-wrap; }
 /* org-change notices reuse the collapse shape but are FACTS, not musings —
