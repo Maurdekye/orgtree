@@ -156,6 +156,112 @@ app.whenReady().then(async () => {
       await js(`window.__epic.stop(); true`)
       write(false)
     }
+
+    // ── typing: the sparks land at the caret in every desk ───────────────
+    // (docket epic-mode-typing-effects-desync-in-canvas-desks). Keystrokes
+    // into composers on the canvas — inside the camera's scale and
+    // .desk-inner's, bob's at a larger text size — and into a pinned one, at
+    // two zoom levels, in a dark and a light theme; alice's camera also pans
+    // between keystrokes. Every effect the director put at a caret is compared
+    // with where the caret really is (the fixture's own scale and a
+    // browser-laid-out probe, not the director's estimate) and with where its
+    // sparks were drawn. Fewer than ten keystrokes a page, so no rank title
+    // covers the picture.
+    const LINE1 = 'the sparks follow the caret', LINE2 = 'down a line'
+    const TOLERANCE = 1.5
+    const typingPage = async (z, theme) => {
+      await win.loadURL(`${url}/fixture.html?scene=typing&z=${z}&tx=20&ty=40&n=${++loads}`)
+      await waitFor(`!!window.__epic && window.__epic.ready && !!window.__typing && document.querySelectorAll('textarea[data-first-use-chat]').length === 3`, 'the typing desks')
+      await js(`window.__contrast(${JSON.stringify(theme)}); window.__epic.start(); true`)
+    }
+    const focusAt = (desk, caret) => js(`(() => { const t = document.querySelector('textarea[data-first-use-chat="${desk}"]')
+      t.focus(); const at = ${caret === 'end' ? 't.value.length' : Number(caret)}; t.setSelectionRange(at, at); return document.activeElement === t })()`)
+    // Each key waits until the page has taken it, then leaves more than the
+    // director's gap between two effects of one kind (22 ms for typing): sent
+    // on a timer alone, two key events reached the page within the gap in the
+    // first run, and the second, rightly, drew nothing.
+    const fieldValue = () => js(`document.activeElement ? document.activeElement.value : null`)
+    const native = async k => {
+      const before = await fieldValue()
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: k })
+      if (k.length === 1) win.webContents.sendInputEvent({ type: 'char', keyCode: k })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: k })
+      for (let i = 0; i < 40 && (await fieldValue()) === before; i++) await sleep(10)
+      await sleep(60)
+    }
+    // the same keydown, then the edit the browser would have made
+    const synthetic = async k => {
+      await js(`(() => { const t = document.activeElement, key = ${JSON.stringify(k)}
+        t.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+        if (key === 'Backspace') { const p = t.selectionStart; if (p > 0) t.setRangeText('', p - 1, p, 'end') }
+        else t.setRangeText(key, t.selectionStart, t.selectionEnd, 'end')
+        t.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })); return true })()`)
+      await sleep(70)
+    }
+    // Real keystrokes when the offscreen window takes them; the probe page
+    // settles which, once, and the receipts say so.
+    await typingPage(3.75, 'charcoal')
+    await focusAt('alice', 0)
+    win.webContents.focus()
+    await native('a')
+    const input = (await js(`document.querySelector('textarea[data-first-use-chat="alice"]').value`)) === 'a' ? 'native' : 'synthetic'
+    const press = k => input === 'native' ? native(k) : synthetic(k)
+    const typeText = async text => { for (const ch of text) await press(ch) }
+    const typingCases = [
+      { name: 'zoomed-out', theme: 'charcoal', z: 3.75, desks: ['alice', 'bob', 'carol'] },
+      { name: 'zoomed-in', theme: 'light', z: 11.25, desks: ['alice', 'carol'] },
+    ]
+    const failed = []
+    for (const c of typingCases) {
+      for (const desk of c.desks) {
+        await typingPage(c.z, c.theme)
+        // the composer already holds two lines; the caret waits at the end of the first
+        await js(`(() => { document.querySelector('textarea[data-first-use-chat="${desk}"]').value = ${JSON.stringify(LINE1 + '\n' + LINE2)}; return true })()`)
+        const focused = await focusAt(desk, LINE1.length)
+        win.webContents.focus()
+        await typeText('okay')
+        const name = `typing-${c.name}-${desk}`
+        await shot(name)
+        await focusAt(desk, 'end')
+        await typeText('up')
+        await press('Backspace')
+        const pan = desk === 'alice'
+        if (pan) {
+          await js(`window.__typing.pan(90, 40); true`)
+          await settle()
+          await typeText('go')
+          await shot(`${name}-panned`)
+        }
+        const state = await js(`(() => ({ value: document.querySelector('textarea[data-first-use-chat="${desk}"]').value,
+          scale: Number(document.querySelector('textarea[data-first-use-chat="${desk}"]').dataset.scale),
+          carets: window.__typing.carets.splice(0), stage: window.__typing.stageBox(), size: { w: innerWidth, h: innerHeight } }))()`)
+        const expected = LINE1 + 'okay\n' + LINE2 + 'u' + (pan ? 'go' : '')
+        const want = pan ? 9 : 7
+        const off = state.carets.map((r, i) => ({ kind: r.kind, caret: r.caret, dx: +(r.x - r.tx).toFixed(2), dy: +(r.y - r.ty).toFixed(2),
+          drawn: r.drawn.length, drawnOff: r.drawn.length ? +Math.max(...r.drawn.map(d => Math.hypot(d.x - r.x, d.y - r.y))).toFixed(3) : null,
+          sincePrevious: i ? Math.round(r.t - state.carets[i - 1].t) : null }))
+        const worst = axis => off.length ? Math.max(...off.map(o => Math.abs(o[axis]))) : null
+        const receipt = {
+          typing: c.name, theme: c.theme, z: c.z, desk, scale: state.scale, input, focused, panned: pan,
+          shots: pan ? [name, `${name}-panned`] : [name],
+          value: state.value, valueAsTyped: state.value === expected,
+          effects: off.length, effectsExpected: want, onlyThisDesk: state.carets.every(r => r.desk === desk),
+          kinds: off.map(o => o.kind).join(','),
+          maxDx: worst('dx'), maxDy: worst('dy'), tolerance: TOLERANCE,
+          drawnAtSpot: off.length > 0 && off.every(o => o.drawn > 0 && o.drawnOff <= 0.01),
+          stageIsWindow: !!state.stage && state.stage.left === 0 && state.stage.top === 0
+            && state.stage.width === state.size.w && state.stage.height === state.size.h,
+          perEffect: off,
+        }
+        receipt.atCaret = receipt.valueAsTyped && receipt.effects === want && receipt.onlyThisDesk
+          && receipt.maxDx <= TOLERANCE && receipt.maxDy <= TOLERANCE && receipt.drawnAtSpot && receipt.stageIsWindow
+        if (!receipt.atCaret) failed.push(`${c.name}/${desk}: maxDx ${receipt.maxDx} maxDy ${receipt.maxDy} effects ${receipt.effects}/${want} value ${receipt.valueAsTyped}`)
+        receipts.push(receipt)
+        await js(`window.__epic.stop(); true`)
+        write(false)
+      }
+    }
+    if (failed.length) throw new Error('typing sparks off the caret: ' + failed.join('; '))
     write(true)
   } finally { win.destroy() }
 }).then(() => app.exit(0), error => {

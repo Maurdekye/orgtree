@@ -20,6 +20,10 @@
 //   6. NEIGHBORS (--neighbors a,b,c): other renderer suites run green on the
 //      tip, for the existing behaviour of files the final version touched
 //      (api.ts's request and interrupt paths, appfeed.ts, the settings panel).
+//   7. BEFORE (--before <sha>): the tip's suites on the tip tree with every
+//      source file changed since <sha> loaded as it was there — the red of a
+//      fix made on top of the final version (296deb0 for the canvas caret fix,
+//      docket epic-mode-typing-effects-desync-in-canvas-desks).
 // Each test run also writes JUnit XML, and summary.json lists every test's
 // outcome per mode. No source or dependency junctions or copies: esbuild, tsc
 // and the type roots are read in place from an existing dependency checkout.
@@ -40,7 +44,7 @@ import { withBuildLock } from './lib.mjs'
 // plugins need its asynchronous API; the lock holder waits for it).
 const bundling = process.argv[2] === '--bundle'
 const [depsArg, outArg, ...flags] = bundling ? process.argv.slice(4) : process.argv.slice(2)
-if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-check.mjs <dependency-root> <empty C:/orgtree-build/<agent>/... dir> [--base-tree <b77512f checkout>] [--neighbors a,b,c] [--no-typecheck] [--no-strict] [--no-red] [--no-opus] [--inside]')
+if (!depsArg || !outArg) throw Error('Usage: node tools/rig/epic-mode-check.mjs <dependency-root> <empty C:/orgtree-build/<agent>/... dir> [--base-tree <b77512f checkout>] [--neighbors a,b,c] [--before <sha>] [--no-typecheck] [--no-strict] [--no-red] [--no-opus] [--inside]')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const deps = path.resolve(depsArg), out = path.resolve(outArg)
 assert.match(out.replaceAll('\\', '/'), /^C:\/orgtree-build\/[^/]+\/.+/i, 'output goes under the authorized C:/orgtree-build scope')
@@ -52,6 +56,10 @@ const neighborsAt = flags.indexOf('--neighbors')
 const NEIGHBORS = (neighborsAt >= 0 ? flags[neighborsAt + 1] ?? '' : process.env.EPIC_NEIGHBORS ?? '')
   .split(',').map(n => n.trim()).filter(Boolean)
 for (const n of NEIGHBORS) assert.match(n, /^[a-z0-9-]+$/i, `a suite name, not a path: ${n}`)
+// and the commit the before run loads changed sources from
+const beforeAt = flags.indexOf('--before')
+const BEFORE = (beforeAt >= 0 ? flags[beforeAt + 1] ?? '' : bundling ? process.env.EPIC_BEFORE ?? '' : '') || null
+if (BEFORE) assert.match(BEFORE, /^[0-9a-f]{7,40}$/i, `a commit id, not a ref expression: ${BEFORE}`)
 const modules = path.join(deps, 'node_modules')
 const require = createRequire(path.join(deps, 'package.json'))
 const esbuild = require('esbuild')
@@ -75,7 +83,7 @@ const OPUS_MISSING = {
   'apps/desktop/renderer/src/epic/director.ts': ['COMBO_DECAY_MS', 'METER_FROM', 'MILESTONES', 'RANKS', 'climbFor', 'noteRatio', 'rankOf'],
   'apps/desktop/renderer/src/epic/stage.ts': ['MAX_DPR', 'MAX_PIXELS'],
 }
-const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-final']
+const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-final', 'epicmode-caret']
 // What the suites import from modules that do not exist at the base.
 const STUBS = {
   sync: 'export const startEpicSync = undefined',
@@ -102,6 +110,12 @@ const opusText = new Map(SINCE_OPUS.map(f => {
   return [key(f), missing ? `${text}\nexport const ${missing.map(n => `${n} = undefined`).join(', ')}\n` : text]
 }))
 assert.equal(baseText.size, CHANGED.length)
+// changed since --before: loaded from it in the before run (every one must exist there)
+const SINCE_BEFORE = BEFORE
+  ? git('diff', '--name-only', BEFORE, 'HEAD', '--', 'apps/desktop/renderer/src', 'apps/desktop/main', 'packages')
+    .split(/\r?\n/).map(f => f.trim()).filter(f => /\.(tsx?|mts)$/.test(f))
+  : []
+const beforeText = new Map(SINCE_BEFORE.map(f => [key(f), git('show', `${BEFORE}:${f}`)]))
 
 fs.mkdirSync(out, { recursive: true })
 const log = (name, text) => fs.writeFileSync(path.join(out, name), text)
@@ -132,7 +146,7 @@ async function bundle(mode) {
   const dir = path.join(out, mode)
   fs.mkdirSync(dir)
   const srcDir = sourceDir(mode)
-  const replaced = mode === 'red' ? baseText : mode === 'opus' ? opusText : null
+  const replaced = mode === 'red' ? baseText : mode === 'opus' ? opusText : mode === 'before' ? beforeText : null
   for (const name of mode === 'neighbors' ? NEIGHBORS : SUITES) {
     await esbuild.build({
       entryPoints: [path.join(root, 'apps/desktop/renderer/tests', `${name}.test.tsx`)],
@@ -202,7 +216,7 @@ function outcomes(xml) {
 function tests(mode) {
   const suites = mode === 'neighbors' ? NEIGHBORS : SUITES
   const built = run(`bundle-${mode}`, process.execPath, [fileURLToPath(import.meta.url), '--bundle', mode, deps, out],
-    { EPIC_NEIGHBORS: NEIGHBORS.join(',') })
+    { EPIC_NEIGHBORS: NEIGHBORS.join(','), EPIC_BEFORE: BEFORE ?? '' })
   if (built.exit !== 0) return { exit: built.exit, seconds: built.seconds, summary: built.summary }
   const dir = path.join(out, mode)
   const junit = path.join(out, `tests-${mode}.xml`)
@@ -294,12 +308,14 @@ const outcome = locked('EPIC Mode final: typecheck, strict, renderer suites gree
   if (!flags.includes('--no-red')) results.red = tests('red')
   if (!flags.includes('--no-opus')) results.opus = tests('opus')
   if (NEIGHBORS.length) results.neighbors = tests('neighbors')
+  if (BEFORE) results.before = tests('before')
   return results
 })
-const summary = { head, dirty: !!dirty, base: BASE, opus: OPUS, baseTree, suites: SUITES, output: out, lock: outcome.lock, results: outcome.result }
+const summary = { head, dirty: !!dirty, base: BASE, opus: OPUS, before: BEFORE, sinceBefore: SINCE_BEFORE, baseTree, suites: SUITES,
+  output: out, lock: outcome.lock, results: outcome.result }
 log('summary.json', JSON.stringify(summary, null, 2))
 const brief = mode => outcome.result[mode] && { exit: outcome.result[mode].exit, executed: outcome.result[mode].executed,
   passed: outcome.result[mode].passed, failed: outcome.result[mode].failed, skipped: outcome.result[mode].skipped }
 console.log(JSON.stringify({ head, dirty: !!dirty, lock: outcome.lock, typecheck: outcome.result.typecheck?.exit,
-  green: brief('green'), red: brief('red'), opus: brief('opus'), neighbors: brief('neighbors') }, null, 2))
+  green: brief('green'), red: brief('red'), opus: brief('opus'), neighbors: brief('neighbors'), before: brief('before') }, null, 2))
 process.exitCode = outcome.result.typecheck?.exit || outcome.result.green.exit || outcome.result.neighbors?.exit ? 1 : 0
