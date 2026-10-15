@@ -16,7 +16,7 @@ Halt an agent when it must stay stopped until explicitly released. The runtime c
 | `node` | One agent name. Required when `nodes` is omitted. |
 | `nodes` | Array of agent names for a batch. When supplied, this takes precedence over `node`. |
 
-There is no default target or automatic subtree expansion: list every agent that should be halted. An empty list is refused. Duplicate names are deduplicated. A one-name list returns the single-agent response, like `node`.
+There is no default target or automatic subtree expansion: list every agent that should be halted. An empty list is refused. Exact duplicate submitted names are deduplicated first. One submitted name remaining after that step returns the single-agent response, like `node`; otherwise the response is a batch. Aliases are resolved afterward: `nodes: ["worker", "@worker"]` acts on one agent but returns a batch with one result entry.
 
 ## Authority and execution
 
