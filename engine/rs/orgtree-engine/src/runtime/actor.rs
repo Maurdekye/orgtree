@@ -203,6 +203,7 @@ impl std::fmt::Debug for Ctx {
 
 /// The launch of a CLI process for an agent, before anything is written.
 struct Plan {
+    skills: crate::providers::skills::Registry,
     identity: String,
     settings: Value,
     mcp: Value,
@@ -1865,6 +1866,10 @@ impl Actor {
         }
         let startup = startup::snapshot(&self.startup_inputs(ctx));
         let base = self.identity(ctx, &external, &startup);
+        let mut skill_folders = vec![ctx.scratch.clone()];
+        skill_folders.extend(ctx.effective["add_dirs"].as_array().into_iter().flatten()
+            .filter_map(|d| d["path"].as_str()).map(PathBuf::from));
+        let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders);
         // the org's shared notes as read now, last in the prompt. A CLI keeps
         // the copy it started with: the text stays out of the system prompt
         // part, so another agent's edit never respawns a warm CLI
@@ -1889,6 +1894,11 @@ impl Actor {
         }
         let mut add_dirs: Vec<String> = Vec::new();
         let mut deny: Vec<String> = Vec::new();
+        let shared_skills = skills.snapshot_path(&self.engine.cfg.path(""));
+        add_dirs.push(shared_skills.to_string_lossy().into_owned());
+        for tool in ["Edit", "Write", "NotebookEdit", "MultiEdit"] {
+            deny.push(format!("{tool}(//{}/**)", shared_skills.to_string_lossy().replace('\\', "/").trim_start_matches('/')));
+        }
         for d in ctx.effective["add_dirs"].as_array().cloned().unwrap_or_default() {
             let Some(p) = d["path"].as_str() else { continue };
             add_dirs.push(p.to_string());
@@ -1911,11 +1921,11 @@ impl Actor {
                 ("permission_mode", ctx.effective["permission_mode"].as_str().unwrap_or("").to_string()),
                 ("folders", hash(&dirs_print)),
                 ("account", self.account_print(ctx)),
-                ("startup", startup.digest),
+                ("startup", hash(&format!("{}|skills:{}", startup.digest, skills.digest))),
             ],
             org_notes: Some(hash(&notes)),
         };
-        Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print, notes }
+        Plan { skills, identity, settings, mcp, disallowed, allowed, add_dirs, external, print, notes }
     }
 
     /// The fingerprint's account part: the seat's binding, and once the
@@ -2276,6 +2286,7 @@ impl Actor {
     /// disposable prompt-cache read (`SpawnSpec::keepalive`). Also returns the
     /// config folder the CLI keeps its sessions under (None: the default).
     async fn claude_spec(&self, ctx: &Ctx, route: Option<&OrRoute>, plan: &Plan, keepalive: bool) -> Result<(SpawnSpec, Option<String>)> {
+        plan.skills.materialize(&self.engine.cfg.path(""))?;
         let view = self.engine.accounts.view();
         // an OpenRouter seat bills the stored key: no account, no subscription
         let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
@@ -2627,6 +2638,7 @@ impl Actor {
         config.extend(crate::credential_bridge::codex_overrides(&bridge_env));
         config.extend(super::tool_policy::codex_overrides(tools));
         let spec = CodexSpec {
+            skills_root: plan.skills.materialize(&self.engine.cfg.data_root)?.join("skills"),
             exe,
             cwd: ctx.scratch.clone(),
             codex_home,
@@ -2767,6 +2779,7 @@ impl Actor {
             turn_timeout_s: self.engine.settings.turn_timeout_s(),
         };
         self.agy_steer_dir = Some(agyrt::steer_dir(&ctx.scratch));
+        plan.skills.workspace(&ctx.scratch)?;
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = AgyProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         self.engine.credential_bridge.bind(self.id,proc.pid);
@@ -2799,7 +2812,9 @@ impl Actor {
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
         let may_write = on("edit") && pm != "plan";
-        let mut read = vec![ctx.scratch.clone()];
+        let skills_snapshot = plan.skills.materialize(&self.engine.cfg.data_root)?;
+        let skills_root = skills_snapshot.join("skills");
+        let mut read = vec![ctx.scratch.clone(), skills_snapshot];
         let mut write = if may_write { vec![ctx.scratch.clone()] } else { vec![] };
         for dir in ctx.effective["add_dirs"].as_array().into_iter().flatten() {
             let Some(path) = dir["path"].as_str().map(PathBuf::from) else { continue };
@@ -2814,6 +2829,8 @@ impl Actor {
         let context = route.local.as_ref().map(|r| r.context as u64)
             .or_else(|| crate::openrouter::favorite(&self.engine,&ctx.tier).and_then(|f| f["context"].as_u64())).unwrap_or(65536).max(1024);
         let spec = opencodert::Spec { exe,cwd:ctx.scratch.clone(),
+            skills_roots: vec![skills_root],
+            skill_names: plan.skills.names(),
             profile:self.engine.cfg.path("profiles").join("opencode").join(self.org_id.to_string()).join(self.id.to_string()).join(ctx.generation.to_string()),
             base_url:route.local.as_ref().map(|r| r.base_url.clone()).unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
             key:route.key.clone(),model:ctx.model.clone(),context,output:(context/4).min(8192),
@@ -3046,6 +3063,7 @@ impl Actor {
             env,
         };
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
+        plan.skills.workspace(&ctx.scratch)?;
         let mut proc = MuseProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         proc.metered = account.as_ref().is_some_and(|a| a.is_apikey());
         proc.login_root = account.as_ref().filter(|a| !a.is_apikey()).and_then(|a| a.config_dir.clone());

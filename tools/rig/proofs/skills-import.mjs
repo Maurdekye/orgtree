@@ -37,7 +37,7 @@ export default async function (rig) {
     try { return await rig.api(method, `/api/skills${method === 'POST' ? '/refresh' : ''}`) }
     catch { return {} }
   }
-  const first = await get()
+  const first = await get('POST')
   const names = first.skills?.map(x => x.name) ?? []
   p.check('imports five harnesses and installed plugin skills',
     ['shared', 'shared-codex', 'agy', 'muse', 'opencode', 'plugin-skill'].every(n => names.includes(n)), names)

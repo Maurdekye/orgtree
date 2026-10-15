@@ -96,6 +96,9 @@ pub fn run()->i32 {
                 let observed=json!({"pid":std::process::id(),"session":session,
                     "home":std::env::var("HOME").unwrap_or_default(),
                     "model":config["model"],
+                    "skills":config["skills"],
+                    "skillPermissions":config["permissions"].as_array().into_iter().flatten()
+                        .filter(|r| r["action"] == "skill").cloned().collect::<Vec<_>>(),
                     "queuedMarker":params.to_string().contains("ACP_QUEUED_MARKER")});
                 if let Ok(mut file)=std::fs::OpenOptions::new().create(true).append(true).open("acp-observed.jsonl") {
                     let _=writeln!(file,"{observed}");

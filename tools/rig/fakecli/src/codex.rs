@@ -189,6 +189,7 @@ struct Job {
 fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>) {
     match method {
         "initialize" => srv.respond(id, json!({ "userAgent": VERSION, "codexHome": srv.home })),
+        "skills/extraRoots/set" => srv.respond(id, json!({})),
         "thread/start" => {
             let tid = srv.uid();
             let path = new_rollout(&srv.home, &tid);

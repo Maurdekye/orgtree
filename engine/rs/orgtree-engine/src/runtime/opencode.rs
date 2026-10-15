@@ -168,6 +168,8 @@ async fn wait_for_tools(mut ready: watch::Receiver<bool>, timeout: Duration, set
 
 /// Sensitive by construction: do not add Debug/Serialize or logged arguments.
 pub struct Spec {
+    pub skills_roots: Vec<PathBuf>,
+    pub skill_names: Vec<String>,
     pub exe: PathBuf,
     pub cwd: PathBuf,
     pub profile: PathBuf,
@@ -252,6 +254,9 @@ impl Drop for Launch {
 #[nolog]
 fn configuration(spec: &Spec) -> Value {
     let mut rules = vec![json!({"action":"*","resource":"*","effect":"ask"})];
+    for name in &spec.skill_names {
+        rules.push(json!({"action":"skill","resource":name,"effect":"allow"}));
+    }
     if !spec.policy.bypass {
         rules.push(json!({"action":"execute","resource":"*","effect":"deny"}));
     }
@@ -260,7 +265,7 @@ fn configuration(spec: &Spec) -> Value {
         "body":{"max_tokens":spec.output.max(1)}});
     json!({
         "update":"disable","share":"disabled","warming":false,"snapshots":false,"lsp":false,"formatter":false,
-        "skills":[],"instructions":[],"plugins":[],
+        "skills":spec.skills_roots,"instructions":[],"plugins":[],
         "default_agent":"orgtree","model":format!("orgtree/{}",spec.model),"permissions":rules,
         "agents":{"orgtree":{"mode":"primary","system":spec.identity},"build":{"disabled":true},"plan":{"disabled":true}},
         "providers":{"orgtree":{"name":"Orgtree provider","package":"aisdk:@ai-sdk/openai-compatible",
@@ -321,6 +326,7 @@ pub async fn discover(profile: PathBuf) -> Option<(PathBuf, String)> {
     let policy = acp_scope::Policy { cwd:profile.clone(),read:vec![],write:vec![],
         may_write:false,may_shell:false,may_web:false,bypass:false,mcp_tools:vec![],mcp_prefixes:vec![] };
     let mut launch = Launch::prepare(Spec { exe:exe.clone(),cwd:profile.clone(),profile,
+        skills_roots:vec![],skill_names:vec![],
         base_url:"http://127.0.0.1:9/v1".into(),key:"unused-discovery".into(),model:"discovery".into(),
         context:1024,output:1,identity:String::new(),policy,servers:Map::new(),who:"OpenCode ACP discovery".into() }).ok()?;
     let (mut child, _events) = acp::Process::spawn(launch.take_spec().ok()?).await.ok()?;

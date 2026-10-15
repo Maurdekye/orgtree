@@ -757,6 +757,16 @@ pub async fn global_instructions_refresh() -> ApiResult<Json<Value>> {
     }
 }
 
+#[logged]
+pub async fn skills(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    Ok(Json(e.providers.skills_registry().public()))
+}
+
+#[logged]
+pub async fn skills_refresh(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    Ok(Json(e.providers.refresh_skills_registry().public()))
+}
+
 // ------------------------------------------------------------ charters
 
 const BUNDLED: &[(&str, &str)] = &[

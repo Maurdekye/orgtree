@@ -23,6 +23,7 @@ use crate::winproc;
 /// What one Codex process is launched with.
 #[derive(Clone)]
 pub struct CodexSpec {
+    pub skills_root: PathBuf,
     pub exe: PathBuf,
     pub cwd: PathBuf,
     pub codex_home: Option<String>,
@@ -323,6 +324,10 @@ impl CodexProc {
         .await
         .context("the Codex app-server did not initialize")?;
         self.notify("initialized", json!({}));
+        // Installed app-server 0.160.0 exposes this native roots API. Set it
+        // before thread start/resume; never mutate a running turn's skill set.
+        self.request("skills/extraRoots/set", json!({"extraRoots":[spec.skills_root]}), Duration::from_secs(30))
+            .await.context("Codex could not load the shared skills directory")?;
         // the agent's thread: resumed when it has one, else a new one
         let mut thread: Option<String> = None;
         if let Some(tid) = &spec.resume {

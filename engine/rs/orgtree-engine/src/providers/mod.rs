@@ -8,6 +8,8 @@ pub mod agy_auth;
 mod codex_models;
 pub mod muse_models;
 mod mcp;
+pub(crate) mod plugins;
+pub(crate) mod skills;
 pub use mcp::McpRegistry;
 pub(crate) use mcp::jsonc;
 
@@ -69,6 +71,7 @@ pub struct Providers {
     pub agy_auth: agy_auth::AuthGate,
     /// Installed harness user MCP definitions, re-read when sources change
     mcp: ArcSwap<McpRegistry>,
+    skills: ArcSwap<skills::Registry>,
     /// each registered Muse login's last own metadata read (account id →
     /// read): what it offers, as the login itself said (the user's own login
     /// is `State::muse_probe`)
@@ -132,6 +135,12 @@ impl Providers {
     pub fn refresh_mcp_registry(&self) -> Arc<McpRegistry> {
         mcp::discover(self, true)
     }
+
+    #[nolog]
+    pub fn skills_registry(&self) -> Arc<skills::Registry> { skills::discover(self, false) }
+
+    #[nolog]
+    pub fn refresh_skills_registry(&self) -> Arc<skills::Registry> { skills::discover(self, true) }
 
 }
 
@@ -300,6 +309,7 @@ fn jwt_email(token: &str) -> Option<String> {
 
 #[logged]
 pub async fn discover(engine: &Engine) {
+    engine.providers.skills_registry();
     let mut st = State::default();
     if let Some((p, src)) = locate_claude() {
         let (connected, email) = claude_identity(None);

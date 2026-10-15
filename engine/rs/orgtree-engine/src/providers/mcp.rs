@@ -138,7 +138,29 @@ pub(super) fn discover(providers: &super::Providers, refresh: bool) -> Arc<McpRe
             });
         }
     }
-    read_cached(&providers.mcp, &files, refresh)
+    // Registry and package declarations are small read-only inputs. Re-read
+    // installed packages so manifest/path-list changes cannot leave stale MCP.
+    let plugins = if installed[0] { super::plugins::installed(&super::home(), &[]) } else { Vec::new() };
+    let mut registry = read_cached(&providers.mcp, &files, refresh || !plugins.is_empty());
+    if !plugins.is_empty() {
+        let mut entries = Vec::new();
+        for (name, cfg) in &registry.servers {
+            for source in registry.sources.get(name).into_iter().flatten() {
+                entries.push((*source, name.clone(), cfg.clone()));
+            }
+        }
+        for plugin in plugins {
+            for (name, cfg) in super::plugins::mcp(&plugin) {
+                if let Ok(Some(cfg)) = normalize("claude-code", &name, &cfg, &|key| std::env::var(key).ok()) {
+                    entries.push(("claude-plugin", name, cfg));
+                }
+            }
+        }
+        let merged = merge(entries);
+        // Cache contains only standalone configs; plugin removal cannot linger.
+        registry = Arc::new(merged);
+    }
+    registry
 }
 
 #[nolog]
@@ -747,6 +769,7 @@ mod tests {
         let (args, attached) = crate::runtime::codex::mcp_overrides(&servers);
         assert_eq!(attached, ["remote.dotted"]);
         let spec = crate::runtime::codex::CodexSpec {
+            skills_root: "fixture-skills".into(),
             exe: "codex".into(),
             cwd: ".".into(),
             codex_home: None,
