@@ -26,6 +26,6 @@ For exact applicable Gemini versus third-party windows and uncertainty, see `org
 
 ## See also
 
-- See `orgtree-tool-message` (orgtree-working > mail).
+- See `orgtree-tool-message` (orgtree-working › mail).
 - [orgtree-mcp-servers](../mcp-servers/SKILL.md)
 - [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)

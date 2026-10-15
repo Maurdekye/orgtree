@@ -28,5 +28,5 @@ For agent-side question and credit-request parameters see `orgtree-tool-ask` and
 
 ## See also
 
-- See `orgtree-tool-ask` (orgtree-working > user).
-- See `orgtree-tool-request-credits` (orgtree-working > user).
+- See `orgtree-tool-ask` (orgtree-working › user).
+- See `orgtree-tool-request-credits` (orgtree-working › user).

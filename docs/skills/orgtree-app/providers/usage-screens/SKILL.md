@@ -30,5 +30,5 @@ For sign-in/activation advise [Providers](../providers-tab/SKILL.md) or [account
 
 ## See also
 
-- See `orgtree-usage-windows` (orgtree-working > accounts).
-- See `orgtree-tool-usage` (orgtree-working > accounts).
+- See `orgtree-usage-windows` (orgtree-working › accounts).
+- See `orgtree-tool-usage` (orgtree-working › accounts).

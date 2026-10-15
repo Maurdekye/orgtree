@@ -36,5 +36,5 @@ Use [usage](../tool-usage/SKILL.md) for authorized cached evidence or a bounded 
 
 ## See also
 
-- See `orgtree-agent-account-tab` (orgtree-app > agent-settings).
+- See `orgtree-agent-account-tab` (orgtree-app › agent-settings).
 - [orgtree-usage-windows](../usage-windows/SKILL.md)

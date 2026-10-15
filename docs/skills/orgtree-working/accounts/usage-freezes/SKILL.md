@@ -34,4 +34,4 @@ Automatic account fallback is governed by [account lanes](../account-lanes/SKILL
 - [orgtree-tool-unstick](../../runtime/tool-unstick/SKILL.md)
 - [orgtree-tool-continue-on](../tool-continue-on/SKILL.md)
 - [orgtree-tool-account-mark](../tool-account-mark/SKILL.md)
-- See `orgtree-org-autonomy` (orgtree-app > org-settings).
+- See `orgtree-org-autonomy` (orgtree-app › org-settings).

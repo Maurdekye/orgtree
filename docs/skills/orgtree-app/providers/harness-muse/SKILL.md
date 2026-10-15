@@ -30,6 +30,6 @@ For detailed window interpretation see `orgtree-usage-windows` (orgtree-working 
 
 ## See also
 
-- See `orgtree-usage-windows` (orgtree-working > accounts).
+- See `orgtree-usage-windows` (orgtree-working › accounts).
 - [orgtree-mcp-servers](../mcp-servers/SKILL.md)
 - [orgtree-skills-and-instructions](../skills-and-instructions/SKILL.md)

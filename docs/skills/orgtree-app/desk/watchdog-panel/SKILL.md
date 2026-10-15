@@ -18,4 +18,4 @@ Use `orgtree-tool-watchdog` (orgtree-working › watchdogs) for kinds, action pa
 
 ## See also
 
-- See `orgtree-tool-watchdog` (orgtree-working > watchdogs).
+- See `orgtree-tool-watchdog` (orgtree-working › watchdogs).

@@ -40,4 +40,4 @@ Automatic native-lane cadence increases with pressure: normally five minutes bel
 
 - [orgtree-tool-usage](../tool-usage/SKILL.md)
 - [orgtree-turn-envelope](../../runtime/turn-envelope/SKILL.md)
-- See `orgtree-usage-screens` (orgtree-app > providers).
+- See `orgtree-usage-screens` (orgtree-app › providers).

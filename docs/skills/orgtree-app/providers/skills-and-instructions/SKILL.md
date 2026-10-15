@@ -65,10 +65,10 @@ The implementation owner's pending contract reads personal global notes without 
 
 In the sharing branch, launch planning, idle rechecks and cache forecasts use the same combined instruction-file and skill-content digest. Resource edits matter as well as entry-file edits. A changed digest can replace a parked process at the next boundary while retaining its conversation session; it changes startup input and may cost provider cache continuity.
 
-A local process restart does not itself prove a provider miss. Unchanged snapshots show compatible input, not a guaranteed provider hit. Provider/account/model/session changes and changes to already-sent prompt content have their own namespace or prefix effects. See `orgtree-cache-continuity` (orgtree-working > accounts) for the receipt and freshness rules.
+A local process restart does not itself prove a provider miss. Unchanged snapshots show compatible input, not a guaranteed provider hit. Provider/account/model/session changes and changes to already-sent prompt content have their own namespace or prefix effects. See `orgtree-cache-continuity` (orgtree-working › accounts) for the receipt and freshness rules.
 
 ## See also
 
 - [orgtree-mcp-servers](../mcp-servers/SKILL.md)
 - [orgtree-harness-claude-code](../harness-claude-code/SKILL.md)
-- See `orgtree-cache-continuity` (orgtree-working > accounts).
+- See `orgtree-cache-continuity` (orgtree-working › accounts).

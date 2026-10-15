@@ -28,5 +28,5 @@ Opening/closing a pane or changing filters does not assign, complete, archive or
 
 ## See also
 
-- See `orgtree-docket-statuses` (orgtree-working > docket).
-- See `orgtree-tool-work` (orgtree-working > docket).
+- See `orgtree-docket-statuses` (orgtree-working › docket).
+- See `orgtree-tool-work` (orgtree-working › docket).

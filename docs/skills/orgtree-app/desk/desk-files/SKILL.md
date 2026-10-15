@@ -16,4 +16,4 @@ Viewing/downloading does not grant the agent another folder, edit the file or ex
 
 ## See also
 
-- See `orgtree-scratch-folder` (orgtree-working > workspace).
+- See `orgtree-scratch-folder` (orgtree-working › workspace).

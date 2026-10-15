@@ -34,5 +34,5 @@ Retry, Cancel transfer and (for eligible failed/cancelled outgoing files) Remove
 
 ## See also
 
-- See `orgtree-mail-basics` (orgtree-working > mail).
+- See `orgtree-mail-basics` (orgtree-working › mail).
 - [orgtree-ask-cards](../ask-cards/SKILL.md)

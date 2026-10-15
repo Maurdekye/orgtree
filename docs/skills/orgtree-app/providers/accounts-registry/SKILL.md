@@ -40,5 +40,5 @@ Clear adds no capacity and resumes no agent. For the exact fingerprint, companio
 
 ## See also
 
-- See `orgtree-account-lanes` (orgtree-working > accounts).
-- See `orgtree-tool-account-mark` (orgtree-working > accounts).
+- See `orgtree-account-lanes` (orgtree-working › accounts).
+- See `orgtree-tool-account-mark` (orgtree-working › accounts).

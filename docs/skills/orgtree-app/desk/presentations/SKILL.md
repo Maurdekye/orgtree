@@ -26,5 +26,5 @@ For the agent-side publishing contract see `orgtree-tool-present` (orgtree-worki
 
 ## See also
 
-- See `orgtree-tool-present` (orgtree-working > user).
-- See `orgtree-tool-send-file` (orgtree-working > user).
+- See `orgtree-tool-present` (orgtree-working › user).
+- See `orgtree-tool-send-file` (orgtree-working › user).
