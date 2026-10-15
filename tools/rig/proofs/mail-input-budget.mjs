@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import assert from 'node:assert/strict'
 import { Proof } from '../proof.mjs'
 import { setup as keysSetup } from './openrouter-keys.mjs'
 export async function setup() { return { ...(await keysSetup()), name: 'mail-input-budget' } }
@@ -31,6 +32,20 @@ export default async function (rig) {
   const logs = (n, kind) => rig.fakeLog(n).filter(x => x.kind === kind)
   const delivered = uid => ['delivered', 'read'].includes(rig.one(`SELECT state FROM ot.mail WHERE uid='${uid}'`)?.state)
   const record = (n, marker) => rig.one(`SELECT uid,id FROM ot.mail WHERE recipient_agent_id=${id(n)} AND body LIKE '${marker}%' ORDER BY id DESC LIMIT 1`)
+  // Ordinary event rendering reads ev.body, while inbox fetch reads body.
+  // Calibrate both before waking; fixture faults must not look like product reds.
+  const calibrate = (n, prefix, count, bytes, ceiling) => {
+    const rows = rig.sql(`SELECT octet_length(body)::int AS body_bytes,
+      octet_length(ev->>'body')::int AS event_bytes, body=(ev->>'body') AS equal_body,
+      ev->>'variant' AS variant FROM ot.mail WHERE recipient_agent_id=${id(n)}
+      AND body LIKE '${prefix}%' ORDER BY id`)
+    assert.equal(rows.length, count, `${n}: fixture message count`)
+    assert.ok(rows.every(r => r.body_bytes === bytes && r.event_bytes === bytes && r.equal_body
+      && ['ordinary.message','ordinary.notice'].includes(r.variant)), `${n}: fixture stored/rendered body calibration`)
+    assert.ok(count * bytes > ceiling, `${n}: fixture rendered payload must exceed lane ceiling`)
+    console.log('CALIBRATION', JSON.stringify({ agent:n, messages:count, body_bytes_each:bytes,
+      event_bytes_each:bytes, rendered_body_bytes:count * bytes, ceiling }))
+  }
   const observed = n => {
     if (n === 'budgetoc') {
       const scratch = rig.one(`SELECT scratch_dir FROM ot.agents WHERE id=${id(n)}`).scratch_dir
@@ -46,9 +61,10 @@ export default async function (rig) {
   for (const [n, tier, ceiling] of [['budgetcodex','luna',1_000_000], ['budgetclaude','haiku',262144],
     ['budgetagy','flash',262144], ['budgetmuse','wonder',262144], ['budgetoc','or-rig-fake-model',262144]]) {
     await hire(n, tier)
-    await rig.userMail(n, 'GIANT-SEED', { notice: true })
-    const row = record(n, 'GIANT-SEED')
-    rig.exec(`UPDATE ot.mail SET body='GIANT-ORIGINAL ' || repeat('x',1100000) || ' ORIGINAL-END', notice=false WHERE id=${row.id};
+    await rig.userMail(n, 'GIANT-ORIGINAL ' + 'x'.repeat(1100000) + ' ORIGINAL-END', { notice: true })
+    const row = record(n, 'GIANT-ORIGINAL')
+    calibrate(n, 'GIANT-ORIGINAL', 1, 1100028, ceiling)
+    rig.exec(`UPDATE ot.mail SET notice=false WHERE id=${row.id};
       UPDATE ot.agents SET last_error='turn/start: Input exceeds the maximum length of 1048576 characters', extra=extra || '{"hard_fail_run":2}'::jsonb WHERE id=${id(n)}`)
     await rig.userMail(n, 'Ordinary next wake: read your waiting mail.')
     await wait(() => delivered(row.uid) || logs(n,'turn_refused').length, `${n} completes or refuses`)
@@ -77,9 +93,9 @@ export default async function (rig) {
   // admitted delivery: budget deferral must drain it, not leave it starved.
   for (const [n, tier, count, ceiling] of [['budgetsplit','luna',24,1_000_000], ['budgetsmall','haiku',9,262144]]) {
     await hire(n, tier); await hold(n)
-    for (let i=0; i<count; i++) await rig.userMail(n, `MEDIUM-${String(i).padStart(2,'0')}`, { notice:i>0 })
+    for (let i=0; i<count; i++) await rig.userMail(n, `MEDIUM-${String(i).padStart(2,'0')} ` + 'm'.repeat(62000), { notice:i>0 })
     const originals = rig.sql(`SELECT uid,id FROM ot.mail WHERE recipient_agent_id=${id(n)} AND body LIKE 'MEDIUM-%' ORDER BY id`)
-    rig.exec(`UPDATE ot.mail SET body=body || ' ' || repeat('m',62000) WHERE recipient_agent_id=${id(n)} AND body LIKE 'MEDIUM-%'`)
+    calibrate(n, 'MEDIUM-', count, 62010, ceiling)
     await wake(n)
     await wait(() => originals.every(m => delivered(m.uid)) || logs(n,'turn_refused').length, `${n} drain or refusal`, 60000)
     const turns = logs(n,'turn')
