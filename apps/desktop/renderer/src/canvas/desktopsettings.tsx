@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { desktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
-import type { RunAsAdministratorState, UpdateCapability } from '../../../../../packages/contracts'
+import type { RunAsAdministratorState, EngineStartMode, EngineStartState, UpdateCapability } from '../../../../../packages/contracts'
 import { SetGroup, SetRow, SetToggle } from './settingskit'
 import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../packages/contracts/notifications'
 
@@ -50,6 +50,7 @@ export function DesktopSettings() {
     <SetToggle label="run on startup" checked={prefs?.startAtLogin ?? true}
       disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
       hint={RUN_ON_STARTUP_HINT} />
+    <EngineStartSetting runOnStartup={prefs?.startAtLogin} />
     <SetToggle label="exit when the last window closes" checked={prefs?.exitOnClose ?? false}
       disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
       hint="Closing the main window keeps your other windows open." />
@@ -75,6 +76,61 @@ export function DesktopSettings() {
       onChange={value => put({ [key]: value })}
       hint={key === 'notifyWhileFocused' ? 'When off, notifications pause while any Orgtree window has focus.' : undefined} />)}
   </SetGroup></>
+}
+
+/** Where the background engine starts while "run on startup" is on (docket
+ *  option-to-run-the-background-engine-in-the-user-s, user 2026-10-15): at
+ *  boot, before sign-in (the default), or at sign-in, in the user's own
+ *  session. Shown only on an installation for all users on Windows, and
+ *  disabled while "run on startup" is off (coordinator rulings 2026-10-15).
+ *  Changing it asks Windows for permission; the engine running now keeps
+ *  running until "Restart now" (offered for an engine a task started) or the
+ *  next sign-in or boot. */
+export const ENGINE_START_HINT = 'At boot, agents keep working before you sign in and while you are signed out, '
+  + 'but in Windows Session 0: no desktop, real cursor or your own sign-ins. At sign-in, they run in your session '
+  + 'with your desktop and sign-ins, only while you are signed in. Windows asks for permission to change this.'
+export const ENGINE_STARTS: { value: EngineStartMode; label: string }[] = [
+  { value: 'boot', label: 'At boot, before sign-in' },
+  { value: 'signin', label: 'At sign-in, in my session' },
+]
+
+export function EngineStartSetting({ runOnStartup }: { runOnStartup: boolean | undefined }) {
+  const bridge = desktop()
+  const [state, setState] = useState<EngineStartState | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  // Changed in this session and not yet applied to the running engine.
+  const [pending, setPending] = useState(false)
+  // Read again whenever "run on startup" changes: the choice depends on it.
+  useEffect(() => {
+    if (!bridge?.getEngineStart) return
+    let alive = true
+    bridge.getEngineStart().then(s => { if (alive) setState(s) })
+      .catch((e: Error) => { if (alive) setError(e.message) })
+    return () => { alive = false }
+  }, [bridge, runOnStartup])
+  if (!bridge?.getEngineStart || !bridge.setEngineStart || !state?.installed) return null
+  const set = bridge.setEngineStart
+  const change = (mode: EngineStartMode, restartNow: boolean) => {
+    setBusy(true)
+    set(mode, restartNow).then(s => { setState(s); setError(''); setPending(!restartNow && s.restartable) })
+      .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
+  }
+  return <>
+    {error && <p role="alert">{error}</p>}
+    <SetRow label="engine starts" hint={state.available ? ENGINE_START_HINT : state.reason}>
+      <select aria-label="Where the background engine starts" value={state.mode}
+        disabled={busy || !state.available}
+        onChange={e => change(e.target.value === 'signin' ? 'signin' : 'boot', false)}>
+        {ENGINE_STARTS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+      </select>
+    </SetRow>
+    {pending && <SetRow label="apply the change" hint="Running agent turns are interrupted.">
+      <button type="button" disabled={busy} onClick={() => change(state.mode, true)}>
+        {busy ? 'Restarting…' : 'Restart the background engine now'}
+      </button>
+    </SetRow>}
+  </>
 }
 
 /** "Run Orgtree as administrator" — whether the background engine and the
