@@ -105,9 +105,12 @@ model obedience or provider-token budget measurements.
 
 ## Output path boundary (2026-10-15 source review)
 
-Identity rule writes and stale-owned-part removal reject symlinks and Windows
-reparse points at every existing ancestor, including scratch, `.agents`, `rules`
-and the part file. Validation occurs before directory creation or old-part reads,
+Identity rule writes and stale-owned-part removal canonicalize the trusted parent
+of scratch first, allowing system aliases such as macOS `/var` to `/private/var`.
+They reject symlinks and Windows reparse points at scratch itself and below,
+including `.agents`, `rules` and the part file. Output uses the anchored canonical
+parent plus the unchanged scratch leaf; the scratch leaf is never canonicalized
+away before validation. Validation occurs before directory creation or old-part reads,
 and is repeated before writes/removals. Two synthetic junction/symlink controls
 cover `.agents` and `rules`, checking no external part is written or removed.
 This boundary validation does not claim protection against a hostile concurrent
@@ -120,4 +123,12 @@ source to backup. A third negative case points scratch at an external envelope
 and requires unchanged external bytes with no backup. The envelope predicate and
 normal migration behavior are unchanged; native read discovery is not restricted.
 
-Migration validates scratch ancestors before inspecting AGENTS.md. A native leaf symlink is then skipped without error or rename; regular candidates and backup destinations retain full output validation. The focused Unix symlink regression is source-only until run on Unix; Windows junction ancestor controls remain separate.
+Migration resolves the same trusted parent and validates scratch before inspecting AGENTS.md. A native leaf symlink is then skipped without error or rename; regular candidates and backup destinations retain full output validation. Windows junction controls remain separate.
+
+The v4.3.0 macOS CI run 38786926928 exposed the previous all-ancestor guard:
+five workspace cases failed because a trusted temporary-directory ancestor was a
+link. The follow-up adds a cross-platform parent-alias regression (Unix symlink,
+Windows junction): repeated workspace writes and legacy migration must succeed,
+while a rules link inside the managed tree must still refuse writes and cleanup.
+Existing root-link and `.agents`/`rules` negative controls remain. The author
+cannot execute macOS locally; the revised suite requires platform CI/rig results.

@@ -24,8 +24,9 @@
   backups at process replacement; other notes stay untouched. Interior edits in an
   envelope are recoverable from backup, not automatically active. See
   [AGY standing notes](docs/agy-standing-notes.md) for the approved migration and
-  native budget limits. Identity rule output rejects linked/reparse ancestors before
-  writes or stale-part removal. Migration validates scratch ancestors first but
+  native budget limits. Identity output and migration canonicalize the trusted
+  scratch parent (allowing macOS system aliases), then reject links/reparse points
+  at scratch itself and below before writes or stale-part removal. Migration
   skips native AGENTS.md leaf symlinks untouched. [verified: `runtime/agy.rs`, `runtime/startup.rs`;
   decided: coordinator 2026-10-15]
 

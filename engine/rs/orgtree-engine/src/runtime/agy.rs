@@ -382,13 +382,29 @@ const IDENTITY_RULE_HEADER: &str = "---\ntrigger: always_on\ndescription: Orgtre
 // Native rules are truncated at 24,000 bytes, including expanded includes.
 const IDENTITY_PART_BYTES: usize = 23_000;
 
-/// Reject redirected identity output before creating directories or inspecting
-/// owned parts or migrating a legacy identity. Native read manifests are separate.
+/// Resolve trusted location aliases (e.g. macOS /var), but never resolve the
+/// managed workspace leaf itself: a junction there must still be refused.
 #[nolog]
-fn validate_identity_output(path: &Path) -> Result<()> {
-    for ancestor in path.ancestors() {
-        if ancestor.as_os_str().is_empty() { continue; }
-        let meta = match std::fs::symlink_metadata(ancestor) {
+fn identity_output_root(cwd: &Path) -> Result<PathBuf> {
+    let absolute = if cwd.is_absolute() { cwd.to_path_buf() } else { std::env::current_dir()?.join(cwd) };
+    let parent = absolute.parent().ok_or_else(|| anyhow!("identity workspace has no parent"))?;
+    let name = absolute.file_name().ok_or_else(|| anyhow!("identity workspace has no name"))?;
+    let root = std::fs::canonicalize(parent)?.join(name);
+    validate_identity_output(&root, &root)?;
+    Ok(root)
+}
+
+/// Reject redirects at/below the anchored workspace, before any output I/O.
+/// Native read manifests are separate; trusted ancestors are already resolved.
+#[nolog]
+fn validate_identity_output(root: &Path, path: &Path) -> Result<()> {
+    let relative = path.strip_prefix(root)?;
+    anyhow::ensure!(relative.components().all(|c| matches!(c, std::path::Component::Normal(_))),
+        "identity rule output escapes workspace");
+    let mut checked = root.to_path_buf();
+    for component in std::iter::once(None).chain(relative.components().map(Some)) {
+        if let Some(component) = component { checked.push(component.as_os_str()); }
+        let meta = match std::fs::symlink_metadata(&checked) {
             Ok(meta) => meta,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => return Err(e.into()),
@@ -407,16 +423,17 @@ fn validate_identity_output(path: &Path) -> Result<()> {
 
 #[nolog] // contains private identity text
 fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
-    let rules = cwd.join(".agents/rules");
-    validate_identity_output(&rules)?;
+    let root = identity_output_root(cwd)?;
+    let rules = root.join(".agents/rules");
+    validate_identity_output(&root, &rules)?;
     std::fs::create_dir_all(&rules)?;
-    validate_identity_output(&rules)?;
+    validate_identity_output(&root, &rules)?;
     let mut old = Vec::new();
     for entry in std::fs::read_dir(&rules)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if !name.starts_with(IDENTITY_RULE_PREFIX) || !name.ends_with(".md") { continue; }
-        validate_identity_output(&entry.path())?;
+        validate_identity_output(&root, &entry.path())?;
         let meta = std::fs::symlink_metadata(entry.path())?;
         if !meta.is_file() || meta.file_type().is_symlink()
             || !std::fs::read_to_string(entry.path())?.starts_with(IDENTITY_RULE_HEADER) {
@@ -430,7 +447,7 @@ fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
         let mut end = rest.len().min(IDENTITY_PART_BYTES);
         while !rest.is_char_boundary(end) { end -= 1; }
         let path = rules.join(format!("{IDENTITY_RULE_PREFIX}{part:04}.md"));
-        validate_identity_output(&path)?;
+        validate_identity_output(&root, &path)?;
         let content = format!("{IDENTITY_RULE_HEADER}{}", &rest[..end]);
         if std::fs::read(&path).ok().as_deref() != Some(content.as_bytes()) {
             std::fs::write(&path, content)?;
@@ -441,7 +458,7 @@ fn write_identity_rules(cwd: &Path, identity: &str) -> Result<()> {
         part += 1;
     }
     for path in old {
-        validate_identity_output(&path)?;
+        validate_identity_output(&root, &path)?;
         std::fs::remove_file(path)?;
     }
     Ok(())
@@ -471,8 +488,8 @@ fn legacy_identity_envelope(text: &str) -> bool {
 /// nonmatching notes stay native; all migrated bytes survive in a unique backup.
 #[logged]
 pub fn migrate_generated_identity(cwd: &Path) -> Result<bool> {
-    validate_identity_output(cwd)?;
-    let path = cwd.join("AGENTS.md");
+    let root = identity_output_root(cwd)?;
+    let path = root.join("AGENTS.md");
     let meta = match std::fs::symlink_metadata(&path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -481,18 +498,18 @@ pub fn migrate_generated_identity(cwd: &Path) -> Result<bool> {
     if !meta.is_file() || meta.file_type().is_symlink() { return Ok(false); }
     // Native leaf symlinks remain native; only regular migration candidates
     // undergo output validation. The scratch ancestors were checked above.
-    validate_identity_output(&path)?;
+    validate_identity_output(&root, &path)?;
     let bytes = std::fs::read(&path)?;
     if !std::str::from_utf8(&bytes).is_ok_and(legacy_identity_envelope) { return Ok(false); }
-    let backup = cwd.join(format!("AGENTS.generated-identity-{}.bak", uuid::Uuid::new_v4()));
-    move_generated_identity(&path, &backup, bytes.len())?;
+    let backup = root.join(format!("AGENTS.generated-identity-{}.bak", uuid::Uuid::new_v4()));
+    move_generated_identity(&root, &path, &backup, bytes.len())?;
     Ok(true)
 }
 
 #[logged] // paths only, never the identity or notes
-fn move_generated_identity(source: &Path, backup: &Path, bytes: usize) -> Result<()> {
-    validate_identity_output(source)?;
-    validate_identity_output(backup)?;
+fn move_generated_identity(root: &Path, source: &Path, backup: &Path, bytes: usize) -> Result<()> {
+    validate_identity_output(root, source)?;
+    validate_identity_output(root, backup)?;
     std::fs::rename(source, backup)?;
     tracing::info!(source = %source.display(), backup = %backup.display(), bytes,
         reason = "exact generated preamble and closing envelope", "preserved legacy generated agy identity outside native notes");
@@ -658,6 +675,69 @@ mod workspace_notes_tests {
             env: vec![], turn_timeout_s: 60,
         };
         (root, spec)
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn agy_trusted_parent_link_is_accepted_but_managed_links_are_refused() {
+        let (root, mut spec) = fixture();
+        let trusted = root.join("trusted");
+        let alias = root.join("trusted-alias");
+        let outside = root.join("outside");
+        std::fs::create_dir(&trusted).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        spec.cwd = alias.join("agent");
+        // Two links at different trust boundaries, using junctions on Windows
+        // so this regression does not require symlink privileges.
+        let link_directory = |target: &Path, link: &Path| {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(target, link).unwrap();
+            #[cfg(windows)]
+            {
+                let link = crate::config::strip_verbatim(link).to_string_lossy().replace('/', "\\");
+                let target = crate::config::strip_verbatim(target).to_string_lossy().replace('/', "\\");
+                let result = std::process::Command::new("cmd")
+                    .args(["/d", "/c", "mklink", "/J"]).arg(link).arg(target).output().unwrap();
+                assert!(result.status.success(), "fixture junction creation failed: status={:?}, stdout={}, stderr={}",
+                    result.status.code(), String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+            }
+        };
+        link_directory(&trusted, &alias);
+        std::fs::create_dir_all(&spec.cwd).unwrap();
+        let legacy = format!("You are \"ann\", an agent in the organization \"Proof\" (orgtree). {}", LEGACY_CLOSINGS[0]);
+        std::fs::write(spec.cwd.join("AGENTS.md"), &legacy).unwrap();
+        let migrated = migrate_generated_identity(&spec.cwd);
+        let written = write_workspace(&spec, "fake-pipe", &root);
+        let again = write_workspace(&spec, "fake-pipe", &root);
+        let actual = std::fs::read_to_string(trusted.join("agent/.agents/rules/orgtree-identity-0000.md")).ok();
+        let backups: Vec<_> = std::fs::read_dir(&spec.cwd).unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
+            .map(|e| std::fs::read(e.path()).unwrap()).collect();
+        let native_exists = spec.cwd.join("AGENTS.md").exists();
+        let guarded = alias.join("guarded");
+        std::fs::create_dir_all(guarded.join(".agents")).unwrap();
+        let inside = guarded.join(".agents/rules");
+        let old = outside.join("orgtree-identity-9999.md");
+        let old_bytes = format!("{IDENTITY_RULE_HEADER}external rule must survive");
+        std::fs::write(&old, &old_bytes).unwrap();
+        link_directory(&outside, &inside);
+        let refused = write_identity_rules(&guarded, &spec.identity).is_err();
+        let preserved = std::fs::read(&old).unwrap() == old_bytes.as_bytes();
+        let external_count = std::fs::read_dir(&outside).unwrap().count();
+        // Unlink both aliases before recursive cleanup, including red runs.
+        for link in [&inside, &alias] {
+            #[cfg(windows)]
+            std::fs::remove_dir(link).unwrap();
+            #[cfg(unix)]
+            std::fs::remove_file(link).unwrap();
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(matches!(migrated, Ok(true)), "trusted parent alias must allow migration: {migrated:?}");
+        assert!(written.is_ok() && again.is_ok(), "trusted parent alias must allow repeated launches: {written:?}, {again:?}");
+        assert_eq!(actual.as_deref(), Some(format!("{IDENTITY_RULE_HEADER}{}", spec.identity).as_str()));
+        assert_eq!(backups, vec![legacy.into_bytes()]);
+        assert!(!native_exists, "migrated identity must leave native notes");
+        assert!(refused && preserved && external_count == 1, "managed link must not authorize external writes or cleanup");
     }
 
     #[cfg(any(unix, windows))]
