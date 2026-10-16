@@ -30,6 +30,20 @@ pub async fn ask_actor(
     }
 }
 
+/// Who may interrupt whom, and restart: so far never yourself, and only with
+/// the runtime tool group.
+#[logged]
+pub(crate) fn interrupt_rule(is_self: bool, runtime_group: bool, restart: bool) -> std::result::Result<(), &'static str> {
+    let _ = restart;
+    if is_self {
+        return Err("you cannot interrupt yourself");
+    }
+    if !runtime_group {
+        return Err("orgtree_interrupt is disabled by your Orgtree tool group scope");
+    }
+    Ok(())
+}
+
 #[logged]
 pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
@@ -217,5 +231,23 @@ pub async fn account_mark(engine: &Arc<Engine>, caller: &Caller, args: &Value) -
             Done::json(&out)
         }
         other => crate::refuse!(BadRequest, "unknown action {other} (inspect or clear)"),
+    }
+}
+
+#[cfg(test)]
+mod interrupt_rule_tests {
+    use super::*;
+
+    /// The user, 2026-10-16 12:05Z: an agent may always end its own turn, and
+    /// restart it; interrupting another agent still needs the runtime tool
+    /// group, and `restart` is for your own turn only.
+    #[test]
+    fn an_agent_may_always_interrupt_itself_and_restart_only_itself() {
+        assert_eq!(interrupt_rule(true, false, false), Ok(()));
+        assert_eq!(interrupt_rule(true, false, true), Ok(()));
+        assert_eq!(interrupt_rule(true, true, true), Ok(()));
+        assert!(interrupt_rule(false, false, false).is_err(), "another agent needs the runtime group");
+        assert_eq!(interrupt_rule(false, true, false), Ok(()));
+        assert!(interrupt_rule(false, true, true).is_err(), "restart is for your own turn");
     }
 }

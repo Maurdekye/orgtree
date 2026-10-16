@@ -112,7 +112,7 @@ mod tests {
         for tool in crate::tools::defs::implemented() {
             assert!(required(tool).is_some(), "unclassified tool: {tool}");
             assert!(allows(&json!({}), tool), "default lost {tool}");
-            assert_eq!(allows(&off, tool), matches!(*tool, "orgtree_status" | "orgtree_next_turn" | "orgtree_session"), "all off: {tool}");
+            assert_eq!(allows(&off, tool), matches!(*tool, "orgtree_status" | "orgtree_next_turn" | "orgtree_session" | "orgtree_interrupt"), "all off: {tool}");
         }
         assert!(!allows(&json!({}), "orgtree_unknown"));
         assert!(!allows(&json!({"orgtree":{"docket":false}}), "orgtree_staff"));
@@ -130,6 +130,17 @@ mod tests {
         assert!(allows(&off, "orgtree_session"));
         let card = crate::tools::defs::list().into_iter().find(|t| t["name"] == "orgtree_session").expect("no orgtree_session card");
         assert_eq!(card["inputSchema"]["required"], json!([]), "it takes no arguments");
+    }
+
+    /// The user, 2026-10-16 12:05Z: every agent may end its own turn, and have
+    /// a new one start at once (orgtree_interrupt on itself, `restart`).
+    #[test]
+    fn every_agent_may_interrupt_itself() {
+        let off = json!({"orgtree": GROUPS.iter().map(|g| ((*g).to_owned(), json!(false))).collect::<Map<_,_>>()});
+        assert_eq!(required("orgtree_interrupt"), Some(&[][..]));
+        assert!(allows(&off, "orgtree_interrupt"));
+        let card = crate::tools::defs::list().into_iter().find(|t| t["name"] == "orgtree_interrupt").expect("no orgtree_interrupt card");
+        assert_eq!(card["inputSchema"]["properties"]["restart"]["type"], "boolean", "{card}");
     }
 
     #[test]
