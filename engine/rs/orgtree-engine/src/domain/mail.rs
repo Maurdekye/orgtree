@@ -183,12 +183,13 @@ impl Outgoing {
 }
 
 /// How a stored kind is shown (envelope headers, inbox lists): the kinds
-/// retired by the user ruling of 2026-10-15 (`request`, `decision`,
-/// `status`) read as `message`. Stored rows are never rewritten; this is
+/// retired by the user ruling of 2026-10-15 (`decision`, `status`) read as
+/// `message`. `request` remains distinct in display and behaves as a message.
+/// Stored rows are never rewritten; this is
 /// display only, and no behaviour keys on it.
 pub fn shown_kind(kind: &str) -> &str {
     match kind {
-        "request" | "decision" | "status" => "message",
+        "decision" | "status" => "message",
         k => k,
     }
 }

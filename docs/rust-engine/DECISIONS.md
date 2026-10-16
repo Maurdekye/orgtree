@@ -1,5 +1,14 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Agent mail requests and fan-out, user 2026-10-16 20:20Z:** `orgtree_message`
+accepts `kind: request`, displayed as a request and otherwise handled as a
+message. Attachments addressed to local agents become validated absolute path
+references in the body; user and `@net:` attachments retain their uploaded-copy
+path. Multi-recipient sends may carry `reply_to` and `replies`; each recipient
+gets only references belonging to its conversation, with unmatched references
+omitted and explained. See the `orgtree_message` and `orgtree_send_notice`
+skill leaves.
+
 **Independent active-agent filters, user 2026-10-16 13:35Z:** the canvas Agents
 list, Quick chat superior picker, and dynamic Attention desk each have their own
 persisted "active only" setting. The two new settings default off so an upgrade

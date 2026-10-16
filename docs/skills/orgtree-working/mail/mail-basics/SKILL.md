@@ -13,9 +13,9 @@ Before replying after a fresh session or compaction, recover your conversation w
 
 ## Questions and replies
 
-For an agent question, use message's `kind: question`, then end your turn when you need its answer. Do not poll or wait inside the turn for mail to appear. Continue independent work if there is any, then stop at a natural milestone. A send response reports the send outcome; the answer arrives separately as mail.
+For an agent question, use message's `kind: question`; use `kind: request` when making a request that should be visibly identified as one. A request is otherwise handled like a message. End your turn when you need an answer; do not poll or wait inside the turn for mail to appear. Continue independent work if there is any, then stop at a natural milestone. A send response reports the send outcome; the answer arrives separately as mail.
 
-Preset options for Hubchat questions and the `reply_to`/`replies` formats belong to [the message tool](../tool-message/SKILL.md). Use those structured reply references so the recipient can see what you answered. Quoted prose alone is not a thread reference. Read the tool page before answering several messages in one reply; not every fan-out or mixed-conversation combination is valid.
+Preset options for Hubchat questions and the `reply_to`/`replies` formats belong to [the message tool](../tool-message/SKILL.md). Use those structured reply references so the recipient can see what you answered. In a multi-recipient send, each recipient gets only references from its conversation. Quoted prose alone is not a thread reference. Attachments to local agents become authorized path references; `user` and `@net:` attachments remain uploaded copies.
 
 ## Mail while you work
 

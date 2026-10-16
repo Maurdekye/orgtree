@@ -13,14 +13,14 @@ use crate::changes::{self, Change};
 use crate::runtime::Caller;
 use crate::util::{gist, iso};
 
-const KINDS: &[&str] = &["message", "question"];
+const KINDS: &[&str] = &["message", "question", "request"];
 
-/// The kinds retired by the user ruling of 2026-10-15. An agent (or an old
-/// client) that still sends one is not refused: it is stored as `message`.
+/// The kinds still retired by the user ruling of 2026-10-15. An agent (or an
+/// old client) that still sends one is not refused: it is stored as `message`.
 /// Any other unknown kind is refused, as before.
-const REMOVED_KINDS: &[&str] = &["request", "decision", "status"];
+const REMOVED_KINDS: &[&str] = &["decision", "status"];
 
-/// The kind a send is stored under: a live kind as named, a retired kind
+/// The kind a send is stored under: a supported kind as named, a retired kind
 /// as `message`, anything else refused (`None`).
 fn stored_kind(raw: &str) -> Option<&str> {
     if KINDS.contains(&raw) {
@@ -127,7 +127,6 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
         notice: force_notice || args["notice"].as_bool().unwrap_or(false),
     };
     if args.get("replies").is_some_and(|v| !v.is_null()) {
-        if !single { crate::refuse!(BadRequest,"a multi-reply needs one recipient; nothing was sent"); }
         let ids = crate::domain::replies::ids(arg_str(args,"reply_to"),args.get("replies"))?;
         // Resolve every source before admitting any recipient's delivery.
         for id in ids {
@@ -178,7 +177,7 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
         notes.push(format!("urgent applies only to the user; ignored for {}.", others.join(", ")));
     }
     if let Some(q) = &letter.reply {
-        let without: Vec<&str> = list.iter().filter(|t| !quote_belongs(q, t)).map(String::as_str).collect();
+        let without: Vec<&str> = list.iter().filter(|t| !plural_quote_belongs(q, t)).map(String::as_str).collect();
         if !without.is_empty() {
             notes.push(format!(
                 "reply_to: the message you answer is not part of your conversation with {}, so they get it without the quote.",
@@ -337,6 +336,16 @@ fn relative_images(body: &str) -> Vec<String> {
     out
 }
 
+#[logged]
+fn append_path_references(body: &str, paths: &[String]) -> String {
+    if paths.is_empty() { return body.to_string(); }
+    let mut out = body.to_string();
+    if !out.trim().is_empty() { out.push_str("\n\n"); }
+    out.push_str("Attached file paths:\n");
+    out.push_str(&paths.iter().map(|p| format!("- `{p}`")).collect::<Vec<_>>().join("\n"));
+    out
+}
+
 /// Send the letter to one recipient. `single` keeps the one-recipient
 /// behaviour exactly (its reply_to resolved after the attachment checks);
 /// in a list the shared reply quote rides only where it belongs.
@@ -359,23 +368,34 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
     if !letter.attachments.is_empty() {
         out.to = mail::attachment_recipient(engine, me.org_id, to).await?;
         let network = out.to.trim().trim_start_matches('@').starts_with("net:");
-        if !to_user && !network {
-            crate::refuse!(BadRequest, "attachments ride mail to the user or @net: peers; for local recipients use paths");
-        }
         let org = engine.orgs.by_id(me.org_id).ok_or_else(|| anyhow::anyhow!("organization not open"))?;
         let presenter = crate::domain::docs::presenter(engine, &org, me.id).await?;
         if to_user && !presenter.may_present { crate::refuse!(Forbidden, "mail to the user needs a user audience"); }
-        let limit = if network { Some(crate::net::attachment_limit(engine, me.org_id, &out.to).await?) } else { None };
-        for a in &letter.attachments {
-            let Some(path) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
-            let owner = presenter.clone();
-            let path = path.to_owned();
-            out.attachments.push(tokio::task::spawn_blocking(move || crate::domain::docs::snapshot(&owner, &path, limit.as_ref())).await??);
+        if network || to_user {
+            let limit = if network { Some(crate::net::attachment_limit(engine, me.org_id, &out.to).await?) } else { None };
+            for a in &letter.attachments {
+                let Some(path) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
+                let owner = presenter.clone();
+                let path = path.to_owned();
+                out.attachments.push(tokio::task::spawn_blocking(move || crate::domain::docs::snapshot(&owner, &path, limit.as_ref())).await??);
+            }
+        } else {
+            if out.to.starts_with("@org:") || out.to.starts_with("org:") {
+                crate::refuse!(BadRequest, "attachments to another org inbox are not supported; path references are for local agents");
+            }
+            let mut refs = Vec::new();
+            for a in &letter.attachments {
+                let Some(raw) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
+                let path = crate::domain::docs::readable(&presenter, raw)?;
+                if !path.is_file() { crate::refuse!(BadRequest, "attachment is not a file"); }
+                refs.push(format!("- `{}`", path.display()));
+            }
+            out.body = append_path_references(&out.body, &refs);
         }
     }
     out.reply_to = match reply_to {
         Some(r) => Some(mail::agent_reply_quote(engine, me.org_id, me.id, &me.name, r).await?),
-        None => letter.reply.clone().filter(|q| single || quote_belongs(q, to)),
+        None => letter.reply.clone().filter(|q| single || plural_quote_belongs(q, to)),
     };
     out.replies = letter.replies.iter().filter(|q| plural_quote_belongs(q,to)).cloned().collect();
     if !out.replies.is_empty() { out.reply_to = out.replies.first().cloned(); }
@@ -639,20 +659,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retired_kinds_are_stored_as_message_and_unknown_kinds_refused() {
+    fn request_kind_is_preserved_and_unknown_kinds_refused() {
         assert_eq!(stored_kind("message"), Some("message"));
         assert_eq!(stored_kind("question"), Some("question"));
-        for retired in ["request", "decision", "status"] {
+        assert_eq!(stored_kind("request"), Some("request"));
+        assert_eq!(crate::domain::mail::shown_kind("request"), "request");
+        for retired in ["decision", "status"] {
             assert_eq!(stored_kind(retired), Some("message"), "{retired}");
         }
         assert_eq!(stored_kind("memo"), None);
         assert_eq!(stored_kind("notice"), None);
-        // a retired kind in a send that would go still goes (as a message)
+        // request remains an available kind; old retired values retain mapping.
         let peers = |m: Value| typing_peers(&m);
         assert_eq!(peers(json!({ "to": "@net:a.1", "kind": "request" })), Some(vec!["a.1".to_string()]));
         assert_eq!(peers(json!({ "to": "@net:a.1", "kind": "status" })), Some(vec!["a.1".to_string()]));
         // but options still belong to questions only, retired kinds included
         assert_eq!(peers(json!({ "to": "@net:a.1", "kind": "decision", "options": ["Tue", "Thu"] })), None);
+    }
+
+    #[test]
+    fn multi_recipient_reply_references_are_filtered_per_conversation() {
+        let a = json!({"kind":"mail","from":"a","box":"node","node":"a"});
+        let b = json!({"kind":"mail","from":"b","box":"node","node":"b"});
+        assert!(plural_quote_belongs(&a, "a"));
+        assert!(!plural_quote_belongs(&a, "b"));
+        assert!(plural_quote_belongs(&b, "b"));
+        assert!(!plural_quote_belongs(&b, "a"));
+        let remote = json!({"kind":"mail","box":"org","peer":"@net:peer.example"});
+        assert!(plural_quote_belongs(&remote, "@net:peer.example"));
+        assert!(!plural_quote_belongs(&remote, "@net:other.example"));
+    }
+
+    #[test]
+    fn local_attachment_paths_are_added_to_body_without_upload_payload() {
+        assert_eq!(append_path_references("Please review.", &["C:/shared/a.txt".into()]),
+            "Please review.\n\nAttached file paths:\n- `C:/shared/a.txt`");
+        assert_eq!(append_path_references("", &["C:/shared/a.txt".into()]),
+            "Attached file paths:\n- `C:/shared/a.txt`");
     }
 
     #[test]

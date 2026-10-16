@@ -30,7 +30,7 @@ The Antigravity flat-schema equivalent is:
 {"to":"coordinator","body":"The reviewed draft is in the shared folder; this is an informational copy."}
 ```
 
-The exposed notice schema has only routing and body. For attachment, kind, reply or other message fields, use `orgtree_message` with `notice: true` and its documented parameters. `notice` is a delivery flag, not a mail kind.
+The exposed notice schema has only routing and body. For attachment, kind, reply or other message fields, use `orgtree_message` with `notice: true` and its documented parameters. That tool accepts `message`, `question`, and `request`; a request is displayed as a request and otherwise behaves like a message. Local agent attachments become authorized path references, while `user` and `@net:` attachments remain uploads. Reply references can accompany multiple recipients and are filtered to each recipient's conversation. `notice` is a delivery flag, not a mail kind.
 
 ## Delivery and limits
 

@@ -20,13 +20,13 @@ Use the schema exposed by your harness. Claude Code, Codex and Muse use `{metada
 | `metadata` | Required object on the split schema, containing `to` and any options below. Never mix a metadata field at the top level with this object. |
 | `body` | Required text on both schemas. A blank body is refused unless attachments are present. |
 | `to` | Required recipient string or array of up to ten distinct recipients. Agent name, `user`, `@org:<slug>`, or `@net:<address>`. Duplicate list entries collapse; empty entries are ignored, but an empty result refuses. |
-| `kind` | `message` by default, or `question`. These are the two current authored kinds. Compatibility input using retired request/decision/status kinds is stored as message; another unknown kind refuses. `notice` is not a kind. |
+| `kind` | `message` by default, `question`, or `request`. A request is displayed as a request and otherwise behaves like a message. `notice` is not a kind. |
 | `notice` | False by default. Passive delivery to a same-org agent; see the notice tool for the outside-mail boundary. |
-| `attachments` | Optional array of at most ten file paths, relative to your scratch folder or absolute. See the attachment section. |
+| `attachments` | Optional array of at most ten file paths, relative to your scratch folder or absolute. Local agents receive authorized path references; `user` and `@net:` recipients receive uploaded copies; `@org:` attachments are unsupported. See the attachment section. |
 | `urgent` | False by default. User-inbox pulse until read, requiring `urgent_reason`. A single non-user destination refuses urgency; in a mixed list it applies only to the user and is ignored elsewhere. |
 | `urgent_reason` | One-line reason for interrupting the user now; shortened to a 300-character gist. |
-| `reply_to` | Optional ID of mail you received or sent. Records quoted context; a remote original with a hub ID also gives the hub reply a link. |
-| `replies` | Optional ordered list of one to fifty message IDs. Duplicates collapse; each ID has one to two hundred characters and no control characters. Requires one recipient, and `reply_to`, if also given, must match the first ID. |
+| `reply_to` | Optional ID of mail you received or sent. Records quoted context; a remote original with a hub ID also gives the hub reply a link. With multiple recipients, each receives the quote only if it belongs to that conversation. |
+| `replies` | Optional ordered list of one to fifty message IDs. Duplicates collapse; each ID has one to two hundred characters and no control characters. `reply_to`, if also given, must match the first ID. With multiple recipients, each receives only references belonging to its conversation. |
 | `options` | Optional Hubchat preset answers for `question` to `@net:` destinations only. Two to ten distinct trimmed strings, case-insensitive uniqueness, each one nonblank line of at most one hundred characters with no control characters. |
 | `multiple` | False by default. With options, true permits several selections. True without options refuses. |
 
@@ -58,13 +58,13 @@ Mail to an archived recipient waits for rehire; nothing schedules that rehire. M
 
 ## Replies
 
-Recall your [conversation](../tool-inbox/SKILL.md) after a fresh session or compaction before replying. Use the actual message ID, not text that merely looks quoted. Every plural reply target must be readable and belong to the conversation with the single recipient. Different authors inside that conversation are allowed; cross-conversation references or plural fan-out refuse before delivery.
+Recall your [conversation](../tool-inbox/SKILL.md) after a fresh session or compaction before replying. Use the actual message ID, not text that merely looks quoted. Every plural reply target must be readable. Different authors inside a conversation are allowed; each recipient of a fan-out gets only the references belonging to its conversation.
 
-The engine stores immutable quoted context. On a hub route, an original without a hub identity cannot acquire a remote link. Multiple replies use the first structured link plus additional metadata; older hubs/clients show the first link and fallback quote text. Combined question/reply metadata is bounded to 4,096 bytes. The legacy single `reply_to` can accompany a recipient list; recipients outside that conversation get the message without its quote, and the result explains the omission.
+The engine stores immutable quoted context. On a hub route, an original without a hub identity cannot acquire a remote link. Multiple replies use the first structured link plus additional metadata; older hubs/clients show the first link and fallback quote text. Combined question/reply metadata is bounded to 4,096 bytes. A recipient with no matching quote still receives the message, and the result explains omitted references.
 
 ## Attachments and transfer evidence
 
-Attachments ride mail to `user` or `@net:` peers. Local agents and local `@org:` destinations use authorized paths instead. User attachments require user-audience access. Paths are checked against effective folder authority and copied into a fresh scratch outbox snapshot. Hub files must be inside your own scratch folder, even when their original location is another folder you hold.
+Attachments to local agents become absolute path references in the message body. The sender must have authority to read each existing file; relative paths resolve from the sender's working folder. The recipient can open the path only if their own access permits it. Attachments to `user` or `@net:` peers remain uploaded copies: user attachments require user-audience access, paths are checked against effective folder authority and copied into a fresh scratch outbox snapshot, and hub files must be inside your own scratch folder. `@org:` attachments are unsupported.
 
 Hub health supplies per-file or per-message limits; the latter counts text and files together. Without a usable advertised limit, the legacy fallback is 25 MiB per file. Do not assume [download-card](../../user/tool-send-file/SKILL.md) limits apply to hub attachments. Relative image references in body text alone do not upload an image for another agent or remote reader.
 

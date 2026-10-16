@@ -126,10 +126,15 @@ const MESSAGE_DESC: &str = "Send mail. You may write to your superior, your repo
      later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
      recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
      and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
-     result lists every recipient's outcome (refused ones are named with the reason; the rest still get it).";
+     result lists every recipient's outcome (refused ones are named with the reason; the rest still get it). \
+     `kind` accepts `message`, `question`, or `request` (a request is displayed as a request and otherwise \
+     behaves like a message). Attachments to local agents are shared as authorized path references; attachments \
+     to `user` and `@net:` recipients keep the upload behavior; `@org:` recipients cannot receive attachments. \
+     `reply_to` and `replies` may be used with \
+     several recipients; each recipient receives only reply references from its conversation.";
 const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
      body last.";
-const NOTICE_DESC: &str = "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody.";
+const NOTICE_DESC: &str = "Same passive delivery as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody. This tool accepts only routing and body. For kind, attachments, reply references or other message fields, use orgtree_message with notice: true.";
 const NOTICE_ORDER: &str = "Always write metadata (`to`) before body: metadata first, body last.";
 
 /// How a harness is given the two mail tools (coordinator 2026-10-13 21:36Z):
@@ -150,14 +155,14 @@ pub enum MailShape {
 fn message_meta() -> Value {
     json!({
         "to": TO.clone(),
-        "kind": { "type": "string", "enum": KINDS },
+        "kind": { "type": "string", "enum": ["message", "question", "request"], "description": "request is displayed as a request and otherwise treated as a message" },
         "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
         "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
-                         "description": "files to send, relative to your working folder or absolute" },
+                         "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
         "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
         "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
-        "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it" },
-        "replies": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "optional: all message ids this one answers, in order; reply_to, if also supplied, must match the first. Every id must be mail you received or sent. Each recipient sees only references belonging to that conversation." },
+        "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it. With several recipients, each gets the quote only if it belongs to that conversation." },
+        "replies": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "optional: all message ids this one answers, in order; reply_to, if also supplied, must match the first. Every id must be mail you received or sent. With several recipients, each gets only references belonging to its conversation." },
         "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
                      "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
         "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
@@ -788,36 +793,28 @@ fn all() -> Vec<Value> {
 mod mail_shape_tests {
     use super::*;
 
-    /// Antigravity keeps the mail tools of before the split (coordinator
-    /// 2026-10-13 21:36Z), byte for byte as rust-engine 536184d served them,
-    /// so its seats keep their tool prefix.
+    /// Antigravity keeps the flat mail-tool shape introduced before the split;
+    /// this snapshot guards the flat schema and current mail contract.
     #[test]
-    fn the_flat_cards_are_the_cards_of_before_the_split() {
+    fn the_flat_cards_keep_the_flat_shape_and_current_mail_contract() {
         let to = json!({ "anyOf": [
             { "type": "string" },
             { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10 },
         ], "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'; or a list of up to 10 of them" });
         let message = json!({
             "name": "orgtree_message",
-            "description": "Send mail. You may write to your superior, your reports and their reports (writing to a non-child \
-             descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
-             (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
-             '@net:<slug>'. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
-             later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
-             recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
-             and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
-             result lists every recipient's outcome (refused ones are named with the reason; the rest still get it).",
+            "description": MESSAGE_DESC,
             "inputSchema": { "type": "object", "properties": {
                 "to": to.clone(),
                 "body": { "type": "string" },
-                "kind": { "type": "string", "enum": ["message", "question"] },
+                "kind": { "type": "string", "enum": ["message", "question", "request"], "description": "request is displayed as a request and otherwise treated as a message" },
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
                 "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
-                                 "description": "files to send, relative to your working folder or absolute" },
+                                 "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
                 "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
                 "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
-                "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it" },
-                "replies": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "optional: all message ids this one answers, in order; reply_to, if also supplied, must match the first. Every id must be mail you received or sent. Each recipient sees only references belonging to that conversation." },
+                "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it. With several recipients, each gets the quote only if it belongs to that conversation." },
+                "replies": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "optional: all message ids this one answers, in order; reply_to, if also supplied, must match the first. Every id must be mail you received or sent. With several recipients, each gets only references belonging to its conversation." },
                 "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
                              "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
                 "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
@@ -826,7 +823,7 @@ mod mail_shape_tests {
         });
         let notice = json!({
             "name": "orgtree_send_notice",
-            "description": "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody.",
+            "description": NOTICE_DESC,
             "inputSchema": { "type": "object", "properties": { "to": to, "body": { "type": "string" } }, "required": ["to", "body"] },
             "_meta": { "anthropic/alwaysLoad": true },
         });
@@ -854,6 +851,9 @@ mod mail_shape_tests {
             let desc = split["description"].as_str().unwrap();
             assert!(desc.starts_with(flat["description"].as_str().unwrap()) && desc.ends_with("metadata first, body last."), "{desc}");
         }
+        assert_eq!(fm["inputSchema"]["properties"]["kind"]["enum"], json!(["message", "question", "request"]));
+        assert!(fm["description"].as_str().unwrap().contains("Attachments to local agents are shared as authorized path references"));
+        assert!(fm["inputSchema"]["properties"]["replies"]["description"].as_str().unwrap().contains("each gets only references belonging to its conversation"));
     }
 
     /// Only the two mail cards change with the shape; every agent but an

@@ -1753,6 +1753,12 @@ the actor's mail rights, report refusals and never grant reply audiences. The
 signed F2–F5 removals remain. [verified from source: `domain/docket.rs`, `domain/mail.rs`;
 details and Python references: `docs/rust-engine/docket-parity-batch5.md`]
 
+**Agent mail requests and fan-out (2026-10-16).** `orgtree_message` accepts
+`kind: request` as a separately displayed request; local-agent attachments are
+validated and shared as absolute paths; multi-recipient replies are filtered
+per recipient conversation. `user` and `@net:` attachment uploads are unchanged.
+See [DECISIONS.md](docs/rust-engine/DECISIONS.md).
+
 **Inbox mail styling (2026-10-07).** Rust mail carries passive delivery as
 `notice: true`, independently of `kind`; legacy mail uses `kind: notice`.
 Mailbox rows must recognize both for the dashed edge and system-notice folding.
