@@ -148,7 +148,7 @@ export const MUSE_TIER_SEAT: Record<string, number> = { wonder: 4, 'wonder-full'
  *  menus, the rehire list, the header inventory — the dearest seat comes
  *  first, and equal seats keep the order they were given. Mirrors the
  *  engine's `catalog::listed`, so a tier added to a family orders itself.
- *  Antigravity keeps Gemini tiers first, then Claude-backed tiers, and sorts
+ *  Antigravity keeps Claude-backed tiers first, then Gemini tiers, and sorts
  *  by seat within each group through `orderAntigravityTiers`.
  *
  *  ⚠ THE DECLARATION ORDER OF `TIERS`, `CODEX_TIERS`, … IS NOT A DISPLAY
@@ -160,10 +160,10 @@ export const bySeatDesc = (tiers: readonly string[], seatOf: (tier: string) => n
   tiers.map((tier, at) => ({ tier, at, seat: Number.isFinite(seatOf(tier)) ? seatOf(tier) : 0 }))
     .sort((a, b) => b.seat - a.seat || a.at - b.at)
     .map((e) => e.tier)
-/** Antigravity's visible hire row groups Gemini tiers before its Claude-backed
+/** Antigravity tier lists group Claude-backed tiers before Gemini tiers
  *  tiers. Keep that group order shared across surfaces; each surface supplies
  *  its own seat direction, and equal seats retain their incoming order. */
-const ANTIGRAVITY_GROUP_ORDER = ['gemini', 'claude'] as const
+const ANTIGRAVITY_GROUP_ORDER = ['claude', 'gemini'] as const
 const antigravityGroup = (tier: string): typeof ANTIGRAVITY_GROUP_ORDER[number] =>
   tier.startsWith('agy-') ? 'claude' : 'gemini'
 export const orderAntigravityTiers = (

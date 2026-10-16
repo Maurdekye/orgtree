@@ -939,8 +939,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 - Models are LISTED most expensive (highest seat) first within each provider, every provider (Claude fable,
   opus, sonnet, haiku; Muse wonder-full, wonder, spark). Antigravity is grouped by model
-  family in the renderer: Gemini (pro/argon/barium/carbon/flash), then Claude-backed
-  Antigravity (agy-opus/agy-sonnet); seats sort within each group and ties keep catalog
+  family in the renderer: Claude-backed Antigravity (agy-opus/agy-sonnet), then Gemini
+  (pro/argon/barium/carbon/flash); seats sort within each group and ties keep catalog
   order. The engine's `catalog::listed()` remains seat-sorted; the renderer uses
   `bySeatDesc` / `*_TIERS_LISTED` except for the shared Antigravity grouping helper in
   `shared.ts` (hire sheet, Settings, and canvas hire tokens). Hire-token strips keep their

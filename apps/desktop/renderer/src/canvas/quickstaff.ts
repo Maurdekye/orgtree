@@ -1,6 +1,6 @@
 import { refreshAgyModels, req } from '../api'
 import type { MenuItem } from './contextmenu'
-import { MUSE_TIERS, museEffortLevels, tierLabel } from './shared'
+import { ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, orderAntigravityTiers, tierLabel } from './shared'
 import type { StaffingAccount } from './staffingoptions'
 
 export interface QuickStaffModel {
@@ -85,7 +85,16 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
   // tier in the organization and greyed out the ones that could not be staffed
   // — the list in image-118.png. A disabled row is still an offer, so the
   // backend omits them and there is nothing here to grey out.
+  const antigravityModels = preview.models.filter(m => ANTIGRAVITY_TIERS.includes(m.tier))
+  const antigravityByTier = new Map(antigravityModels.map(m => [m.tier, m]))
+  const orderedAntigravity = orderAntigravityTiers(
+    antigravityModels.map(m => m.tier),
+    tier => antigravityByTier.get(tier)?.seat ?? 0,
+    'desc',
+  ).map(tier => antigravityByTier.get(tier)!)
+  let nextAntigravity = 0
   const models: MenuItem[] = preview.models.map(m => {
+    if (ANTIGRAVITY_TIERS.includes(m.tier)) m = orderedAntigravity[nextAntigravity++]
     // tier ▸ EFFORT ▸ account (user ruling 2026-09-15): the account is the last
     // thing chosen, never the layer directly under the model. Where a tier has
     // no effort to choose at all the accounts sit under it directly, because
