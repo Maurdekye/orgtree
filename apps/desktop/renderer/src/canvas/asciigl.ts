@@ -715,6 +715,3 @@ export function createAsciiRenderer(
     },
   }
 }
-
-
-

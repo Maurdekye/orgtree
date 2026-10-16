@@ -586,4 +586,3 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   return <div ref={hostRef} className="canvas-bg-ascii" data-canvas-bg="ascii"
     data-motion={reduced ? 'reduced' : 'full'} aria-hidden="true" />
 }
-
