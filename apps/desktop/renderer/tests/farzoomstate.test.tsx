@@ -298,7 +298,8 @@ test('§2 State fidelity: correct indicators rendered across all supported state
       )
       assert.equal(interior.length, 2, `${c.name}: exactly two interior elements`)
       assert.ok(view.el.querySelector('.sq-far-tier .tier'), `${c.name}: model token rendered`)
-      assert.equal(interior.includes(icon), true, `${c.name}: state icon remains an interior element`)
+      assert.equal(interior.includes(icon) || interior.some((el) => el.querySelector('.sq-far-icon') === icon),
+        true, `${c.name}: state icon remains an interior element`)
     } finally {
       await view.unmount()
     }
@@ -590,6 +591,40 @@ test('§2c Normal card preservation: non-limit frozen, legacy waiting/error clas
     assert.equal(miniCard.querySelector('.sq-idle'), null, 'text label is omitted at far zoom')
   } finally {
     await lastErrorMiniView.unmount()
+  }
+})
+
+test('far-zoom halted cards keep the visible status label beside the stop icon', async () => {
+  const normView = await renderCard(makeNode('norm-halted', { halt: { phase: 'halted' } }), 'norm')
+  try {
+    const status = normView.el.querySelector('.sq-workstate .sq-halt-status')
+    assert.ok(status, 'normal zoom halted state has its own card status treatment')
+    assert.equal(status.lastElementChild?.textContent?.trim(), 'Halted', 'normal zoom label matches the Agents list')
+    assert.ok(status.querySelector('.tray-halted'), 'normal zoom status includes the stop glyph')
+  } finally {
+    await normView.unmount()
+  }
+
+  const halted = makeNode('far-halted', { halt: { phase: 'halted' } })
+  const view = await renderCard(halted, 'mini')
+  try {
+    const card = view.el.querySelector('.sq')!
+    const status = card.querySelector('.sq-far-status.halted')
+    assert.ok(status, 'far-zoom halted state has a dedicated visible status label')
+    assert.equal(status.lastElementChild?.textContent?.trim(), 'Halted', 'label matches the Agents list')
+    assert.ok(status.querySelector('.sq-far-icon.halted'), 'stop glyph remains in the status treatment')
+  } finally {
+    await view.unmount()
+  }
+
+  const frozen = makeNode('far-frozen', { frozen: { until: 'tomorrow', until_ts: 1234567 } })
+  const frozenView = await renderCard(frozen, 'mini')
+  try {
+    const card = frozenView.el.querySelector('.sq')!
+    assert.ok(card.querySelector('.sq-far-icon.frozen'), 'frozen state keeps its snowflake')
+    assert.ok(!card.querySelector('.sq-far-status.halted'), 'frozen is never presented as Halted')
+  } finally {
+    await frozenView.unmount()
   }
 })
 
