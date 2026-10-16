@@ -36,7 +36,7 @@ mod core_process;
 #[allow(dead_code)] // journal mutations also used by the engine/native desktop probe
 mod core_state;
 #[cfg(windows)]
-#[allow(dead_code)] // the engine names the pipes; this helper's tests pair the two sides
+#[allow(dead_code)] // names() is the engine's; this helper takes PREFIX, its tests both
 mod hosted_pipes;
 
 #[cfg(not(windows))]

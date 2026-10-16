@@ -114,10 +114,11 @@ fn started(pid: u32) -> Option<u64> {
     running.then(|| stamp(h.0)).filter(|&t| t != 0)
 }
 
-/// `\\.\pipe\orgtree-codex-<hex>`: 1 to 80 ASCII letters, digits or dashes.
+/// The engine's prefix (`hosted_pipes::PREFIX`, `\\.\pipe\orgtree-cli-`), then
+/// 1 to 80 ASCII letters, digits or dashes.
 #[nolog]
 fn pipe_name_ok(name: &str) -> bool {
-    name.strip_prefix(r"\\.\pipe\orgtree-codex-")
+    name.strip_prefix(crate::hosted_pipes::PREFIX)
         .map(|s| !s.is_empty() && s.len() <= 80 && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'))
         .unwrap_or(false)
 }
