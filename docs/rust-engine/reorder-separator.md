@@ -30,15 +30,30 @@ Independent RED at `0436016` executed 16 tests: eight endpoint gutter failures
 and eight preservation passes, no skipped/cancelled tests, exit 1 in one
 second. The request assertions passed before every gutter failure. Fixtures
 cover both ends at radii 260 and 490, singletons, unequal occupied gaps and
-the angle seam. Endpoint GREEN, typecheck and four inspected synthetic PNGs
-are pending; the historical checks below concern the original separator.
+the angle seam.
+
+Independent GREEN at `7cc3729` passed all 16 tests, no skipped/cancelled tests,
+exit 0 in two seconds. Root typecheck exited 0 in two seconds. The source
+and test files in this final receipt commit are byte-identical to that tip.
+Between-agent, row, radial and canonical request controls passed.
+
+The native Electron visual phase exited 0 in ten seconds, with successful
+JSON and four nonempty 1000x700 PNGs. Both rig-sol-b and the author opened
+every image: the separator sits just outside the correct endpoint card for
+inner/outer rings, before first and after last. The measured tangent gutters
+range from 15.999999999999957 to 16.000000000000057 world pixels. The receipt
+is `ring-end/visual1/visual.json` and images `captures/ring-end-0.png` through
+`ring-end-3.png` in rig-sol-b's owned output. The synthetic page retained
+Electron's missing-CSP warning in the receipt. These schematic fixtures use
+the production slot and marker; they do not verify an assembled/installed app
+or physical dragging. No app build or live operation was performed.
 
 The contained rig phase uses `tools/rig/ring-end-preview-check.mjs` with
 `tests` or `visual` and the caller's owned C: output directory. Run it only
 under the shared FIFO lock and a kernel Job. The visual mode uses production
 slot/marker helpers on schematic cards and captures both ends of both radii.
 
-Typecheck and all 58 focused tests pass across the geometry/component suite,
+Historical separator verification: typecheck and all 58 focused tests passed across the geometry/component suite,
 existing move/Undo regression and retired display checks. Synthetic Electron44.2.0
 rendering passes: 12 inspected charcoal/light screenshots show first, middle
 and last markers in both layouts, with no console errors. These use production
