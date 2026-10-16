@@ -1,0 +1,105 @@
+// Renderer-only real Chromium proof. A synthetic panel uses production
+// MovableSurface and CollapsibleMailer; no engine, live data or app build.
+import fs from 'node:fs'
+import path from 'node:path'
+import http from 'node:http'
+import { createRequire } from 'node:module'
+import { spawnSync } from 'node:child_process'
+const repo = process.cwd(), out = process.env.POPOUT_SIDEBAR_OUT
+const deps = process.env.BATCH_NODE_MODULES
+if (!out || !/^C:[\\/]orgtree-build[\\/]/i.test(out) || !process.env.ORGTREE_AGENT || !deps)
+  throw Error('Run within assigned FIFO/kernel Job with C output and dependencies read in place')
+const require = createRequire(path.join(deps, '../package.json'))
+if (process.argv[2] !== '--electron') {
+  fs.mkdirSync(out, { recursive: true })
+  const esbuild = require('esbuild')
+  try {
+    await esbuild.build({ entryPoints: [path.join(repo, 'apps/desktop/renderer/tests/narrowlist-popout-fixture.tsx')],
+      outfile: path.join(out, 'fixture.js'), bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic',
+      nodePaths: [deps], loader: { '.md': 'text' } })
+  } finally { esbuild.stop() }
+  const html = '<!doctype html><html><head><link rel="stylesheet" href="/fixture.css"><style>' +
+    'html,body,#root{margin:0;width:100%;height:100%;overflow:hidden}body{background:#171717;color:#ddd}' +
+    '.proof-panel{width:100%;height:100%;display:flex;flex-direction:column}.proof-panel header{height:32px;flex:none}' +
+    '.proof-panel .mailer{flex:1;min-height:0}.proof-panel .mailer-read{padding:24px}' +
+    '.proof-panel .mailer-list{width:240px;overflow:auto}.proof-panel .mailer-list input{width:90%}' +
+    '</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>'
+  fs.writeFileSync(path.join(out, 'index.html'), html)
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  const run = spawnSync(require('electron'), [path.join(repo, 'tools/proof-popout-sidebar.mjs'), '--electron'],
+    { env, stdio: 'inherit', windowsHide: true, timeout: 90000 })
+  process.exitCode = run.status ?? 1
+} else {
+  const { app, BrowserWindow } = require('electron')
+  app.setPath('userData', path.join(out, 'electron-profile'))
+  app.commandLine.appendSwitch('disable-gpu')
+  const checks = [], samples = []
+  const check = (name, ok) => { checks.push({ name, ok: !!ok }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`) }
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+  const server = http.createServer((req, res) => {
+    const name = req.url === '/fixture.js' ? 'fixture.js' : req.url === '/fixture.css' ? 'fixture.css' : 'index.html'
+    res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html')
+    res.end(fs.readFileSync(path.join(out, name)))
+  })
+  let main
+  try {
+    await app.whenReady()
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    main = new BrowserWindow({ show: false, width: 1000, height: 700,
+      webPreferences: { contextIsolation: false, nodeIntegration: false, sandbox: false, backgroundThrottling: false } })
+    main.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: {
+      show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false } } }))
+    const evaluate = code => main.webContents.executeJavaScript(code)
+    const settle = async win => {
+      await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+      await delay(100)
+    }
+    await main.loadURL(`http://127.0.0.1:${server.address().port}/`)
+    await settle(main)
+    const sample = async (name, win, width) => {
+      await settle(win)
+      const s = await evaluate('window.__sidebarProof.snapshot()')
+      samples.push({ name, ...s, nativeBounds: win.getBounds() })
+      check(name + ' reaches requested content width', Math.abs(s.width - width) <= 1)
+      check(name + ' list breakpoint follows content width', s.narrow === (width <= 896) && s.toggle === (width <= 896))
+      check(name + ' retains list input and filter', s.sameInput && s.filter === 'Retained filter')
+      await settle(win)
+      fs.writeFileSync(path.join(out, name + '.png'), (await win.webContents.capturePage()).toPNG())
+    }
+    await evaluate('window.__sidebarProof.contentWidth(960)')
+    await sample('home-wide', main, 960)
+    const childReady = new Promise(resolve => main.webContents.once('did-create-window', resolve))
+    await evaluate('document.querySelector("button[aria-label=\"Open in new window\"]").click()')
+    const child = await childReady
+    await delay(150)
+    await sample('popout-wide', child, 960)
+    // Only the native popout changes size. The opener's viewport is untouched.
+    await evaluate('window.__sidebarProof.contentWidth(null)')
+    for (const [name, width] of [['native-narrow', 800], ['native-wide', 980]]) {
+      child.setContentBounds({ width, height: 620 })
+      await sample(name, child, width)
+    }
+    // Content-only delivery, even when no native/window resize fires.
+    for (const [name, width] of [['content-at-boundary', 896], ['content-above-boundary', 897], ['content-narrow', 650]]) {
+      await evaluate(`window.__sidebarProof.contentWidth(${width})`)
+      await sample(name, child, width)
+    }
+    await evaluate('window.__sidebarProof.contentWidth(960)')
+    await child.webContents.executeJavaScript('[...document.querySelectorAll("button")].find(b=>b.textContent==="Return panel").click()')
+    await sample('returned-wide', main, 960)
+    await evaluate('window.__sidebarProof.contentWidth(650)')
+    await sample('returned-narrow', main, 650)
+  } catch (error) {
+    console.error(error)
+    checks.push({ name: 'proof executes completely', ok: false, error: String(error) })
+  } finally {
+    const result = { checks, samples, failed: checks.filter(c => !c.ok).length,
+      limits: 'Synthetic production surface, real Electron adoption/setContentBounds/content resize. Real Windows snap divider, maximize/restore and DPI-change gestures unmeasured in Session 0.' }
+    fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(result, null, 2))
+    console.log(JSON.stringify({ checks: checks.length, failed: result.failed }))
+    for (const win of BrowserWindow.getAllWindows()) win.destroy()
+    server.close()
+    app.exit(result.failed ? 1 : 0)
+  }
+}
