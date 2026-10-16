@@ -3295,12 +3295,14 @@
    "purpose": "The user inbox, an agent's inbox (modal and desk tab), the org inbox, and the transfers panel.",
    "must_cover": [
     "list, read pane, reply box",
+    "responsive list width and popout resizing",
     "org record search",
     "transfers"
    ],
    "sources": [
     "apps/desktop/renderer/src/App.tsx:2631",
     "apps/desktop/renderer/src/canvas/mail.tsx:1146",
+    "apps/desktop/renderer/src/canvas/narrowlist.tsx",
     "apps/desktop/renderer/src/canvas/mail.tsx:1376",
     "apps/desktop/renderer/src/canvas/mail.tsx:1424",
     "apps/desktop/renderer/src/canvas/transfers.tsx:29"
@@ -3394,10 +3396,12 @@
    ],
    "purpose": "Presented documents: galleries, the document reader and file cards.",
    "must_cover": [
-    "opening, pinning, downloading"
+    "opening, pinning, downloading",
+    "responsive list width and popout resizing"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/gallery.tsx:325",
+    "apps/desktop/renderer/src/canvas/narrowlist.tsx",
     "apps/desktop/renderer/src/canvas/gallery.tsx:670",
     "apps/desktop/renderer/src/canvas/docs.tsx:222",
     "apps/desktop/renderer/src/canvas/download.tsx:37"

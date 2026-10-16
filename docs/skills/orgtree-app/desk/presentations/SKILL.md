@@ -16,6 +16,8 @@ Open a card to read its Markdown or HTML preview. The reader identifies title/au
 
 Pin/window controls change the reading surface. Closing a reader leaves the presentation in its collection; Dismiss removes its displayed card through the document operation. These are different from retiring its author.
 
+Organization and agent presentation modals collapse the list into a menu-controlled overlay when their reading area is 896 CSS pixels wide or less. The breakpoint follows that area's width in a popout too, including snap-layout resizing; widening restores the list column. Resizing and moving the panel retain selection, filters and list position. Inline desk lists remain columns.
+
 ## Copy, download and reply
 
 Document menus can copy title/reference, open/close, download Markdown or the HTML prototype bundle, and dismiss when the surface permits it. Contextual replies address the presentation's source and support attachments where available. A failed reply does not amend the document.

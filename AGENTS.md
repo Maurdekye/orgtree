@@ -328,6 +328,11 @@
   their own reading box. `NARROW_MAILER_WIDTH` aliases `NARROW_DOCS_WIDTH`,
   replacing inbox's former560px boundary; inline desk lists stay persistent.
   Both organization and agent gallery callers retain the896px value.
+  On adoption into a popout or return, the list observer must be recreated
+  from the current surface document's window. A main-window observer can
+  retain the adopted node without delivering its new document's widths.
+  Contract and measured browser proof: [popout list width](docs/rust-engine/popout-list-width.md).
+  [verified: `canvas/narrowlist.tsx`, real Electron adoption/resize, 2026-10-16]
   [decided: user 2026-10-14 23:07UTC, superseding mail exception from17:51UTC;
   verified from source:
   `canvas/gallery.tsx`, `canvas/narrowlist.tsx`]
