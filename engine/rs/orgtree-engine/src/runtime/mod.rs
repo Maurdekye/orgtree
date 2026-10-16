@@ -16,6 +16,7 @@ pub mod event_text;
 pub mod freeze;
 pub mod global_instructions;
 pub mod history;
+pub mod helper_transcript;
 pub mod identity;
 pub mod keepalive;
 pub mod muse;

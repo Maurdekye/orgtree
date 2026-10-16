@@ -234,6 +234,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/markdown-image", get(markdown_image::get))
         .route("/api/orgs/{slug}/nodes/{nid}/toolimg/{tool}", get(nodes::toolimg))
         .route("/api/orgs/{slug}/nodes/{nid}/toolinput/{seq}/{tool}", get(nodes::toolinput))
+        .route("/api/orgs/{slug}/nodes/{nid}/helpertranscript/{seq}/{tool}", get(nodes::helpertranscript))
         .route("/api/orgs/{slug}/nodes/{nid}/tooloutput/{seq}/{tool}", get(nodes::tooloutput))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch", get(nodes::scratch))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch-folder", get(nodes::scratch_folder))
@@ -319,6 +320,7 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         || path.ends_with("/file")
         || path.contains("/toolimg/")
         || path.contains("/toolinput/")
+        || path.contains("/helpertranscript/")
         || path.contains("/tooloutput/")
         // Original selections and normalized pictures must never enter wire
         // logs, including rejected requests and unrecognized child routes.

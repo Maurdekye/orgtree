@@ -1175,6 +1175,41 @@ pub async fn toolinput(
     Ok(Json(json!({ "input": kept["input"] })))
 }
 
+/// One indexed, authenticated call lookup. No native paths, session IDs, model
+/// prompts or unrelated conversation rows can be supplied by the browser.
+#[nolog]
+pub async fn helpertranscript(
+    State(e): State<Arc<Engine>>,
+    Path((slug, nid, seq, tool)): Path<(String, String, i64, String)>,
+) -> ApiResult<Json<Value>> {
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    let client = e.db.get().await?;
+    let row = client.query_opt(
+        "SELECT body, tool_inputs -> $3::text -> 'helper_transcript' FROM ot.convo WHERE agent_id = $1 AND seq = $2",
+        &[&a.id, &seq, &tool],
+    ).await?.ok_or_else(|| ApiError::not_found("That tool call is not retained."))?;
+    let body: Value = row.get(0);
+    let chip = body["tools"].as_array().into_iter().flatten().find(|c| c["id"].as_str() == Some(tool.as_str()))
+        .ok_or_else(|| ApiError::not_found("That tool call is not retained."))?;
+    let live = chip.get("result").is_none() && chip.get("error").is_none() && chip.get("ended_at").is_none()
+        && e.agents.get(a.id).is_some_and(|h| {
+            let runtime = h.view.load();
+            let call = chip["started_at"].as_str().and_then(crate::util::parse_ts);
+            let turn = runtime["turn_started_at"].as_str().and_then(crate::util::parse_ts);
+            runtime["busy"] == true && call.zip(turn).is_some_and(|(call, turn)| call >= turn)
+        });
+    let Some(mut snapshot) = row.get::<_, Option<Value>>(1) else {
+        let waiting = live && chip["helper_transcript"] == true;
+        return Ok(Json(json!({"messages":[],"live":waiting,
+            "note":if waiting { "Waiting for helper transcript records…" } else {
+                "A helper transcript was not retained for this call. The initial implementation records new Claude Code helpers during their parent's turn."
+            }})));
+    };
+    snapshot["live"] = json!(live);
+    Ok(Json(snapshot))
+}
+
 /// One indexed call lookup; failed output is never serialized into feed bodies.
 #[nolog]
 pub async fn tooloutput(

@@ -830,6 +830,9 @@ struct Actor {
     codex_total: Option<Value>,
     /// the CLI's subagents and background tasks (P33/P39)
     tasks: crate::runtime::tasks::Tasks,
+    /// Private first-level helper output; never part of the parent's feed.
+    helpers: std::collections::BTreeMap<(i64, String), super::helper_transcript::Transcript>,
+    helper_due: Option<Instant>,
     /// Muse: the calls Muse moved to the background, by item id, until their
     /// item settles or their host ends
     muse_bg: HashMap<String, MuseBg>,
@@ -966,6 +969,8 @@ impl Actor {
             provider: catalog::provider_of(&tier).to_string(),
             codex_total: None,
             tasks: Default::default(),
+            helpers: Default::default(),
+            helper_due: None,
             muse_bg: HashMap::new(),
             claude_bg: HashMap::new(),
             own_cancels: (0, None),
@@ -1087,6 +1092,7 @@ impl Actor {
     fn next_deadline(&self) -> tokio::time::Instant {
         let now = Instant::now();
         let mut d = now + Duration::from_secs(30);
+        if let Some(at) = self.helper_due { d = d.min(at); }
         if let Some(k) = self.keep_until {
             d = d.min(k);
         }
@@ -1125,6 +1131,9 @@ impl Actor {
 
     #[nolog]
     async fn on_timer(&mut self) -> Result<()> {
+        if self.helper_due.is_some_and(|at| Instant::now() >= at) {
+            self.flush_helpers().await;
+        }
         if self.keepalive.as_ref().is_some_and(|k| k.started.elapsed() >= Duration::from_secs(keepalive::TIMEOUT_S)) {
             self.end_keepalive(KeepaliveEnd::Failed("the keepalive timed out (its CLI was killed)")).await;
         }
@@ -4275,6 +4284,21 @@ impl Actor {
             }, span));
         }
         let sub = v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false);
+        if sub {
+            // Only a root call already known to this parent turn can own a
+            // transcript. Grandchild calls cannot create another view.
+            if let Some(tool) = v["parent_tool_use_id"].as_str() {
+                let key = self.turn.as_ref().and_then(|t| t.tools.get(tool).and_then(|mid| t.rows.get(mid)))
+                    .map(|(seq, _)| (*seq, tool.to_string()));
+                if let Some(transcript) = key.and_then(|key| self.helpers.get_mut(&key)) {
+                    transcript.observe(&v);
+                    if transcript.dirty && self.helper_due.is_none() {
+                        self.helper_due = Some(Instant::now() + Duration::from_millis(250));
+                    }
+                }
+            }
+            return Ok(());
+        }
         if !sub && v["type"] == "system" {
             match v["subtype"].as_str() {
                 Some("task_started") => self.follow_claude_background(&v),
@@ -6025,6 +6049,9 @@ impl Actor {
                         let input = block["input"].clone();
                         let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": now_iso(),
                             "refs": convo::tool_refs(&name, &input, None) });
+                        if name == "Agent" || name == "Task" {
+                            chip["helper_transcript"] = json!(true);
+                        }
                         if let Some(secs) = turn.tool_writing.take(&id) {
                             chip["writing_secs"] = json!(secs);
                         }
@@ -6053,6 +6080,16 @@ impl Actor {
             seq
         };
         drop(client);
+        for chip in row["tools"].as_array().into_iter().flatten().filter(|c| c["helper_transcript"] == true) {
+            if let Some(id) = chip["id"].as_str() {
+                let key = (seq, id.to_string());
+                if self.helpers.len() < super::helper_transcript::MAX_CALLS || self.helpers.contains_key(&key) {
+                    let transcript = self.helpers.entry(key).or_default();
+                    transcript.dirty = true;
+                    self.helper_due.get_or_insert(Instant::now() + Duration::from_millis(250));
+                }
+            }
+        }
         if let Some(turn) = self.turn.as_mut() {
             turn.rows.insert(mid, (seq, row));
         }
@@ -6501,8 +6538,36 @@ impl Actor {
         Some((from_text.unwrap_or_else(|| Utc::now() + chrono::Duration::hours(1)), None))
     }
 
+    /// Coalesce token deltas into at most four private writes per second per
+    /// helper. SQL changes no feed revision or parent's tool inputs.
+    #[nolog]
+    async fn flush_helpers(&mut self) {
+        self.helper_due = None;
+        if !self.helpers.values().any(|t| t.dirty) { return; }
+        let client = match self.engine.db.get().await {
+            Ok(client) => client,
+            Err(_) => { self.helper_due = Some(Instant::now() + Duration::from_secs(1)); return; }
+        };
+        for ((seq, tool), transcript) in &mut self.helpers {
+            if !transcript.dirty { continue; }
+            let snapshot = transcript.snapshot();
+            match client.execute(
+                "UPDATE ot.convo SET tool_inputs = jsonb_set(tool_inputs, ARRAY[$3::text, 'helper_transcript'], $4::jsonb, true) WHERE agent_id = $1 AND seq = $2 AND tool_inputs ? $3::text",
+                &[&self.id, seq, tool, &snapshot],
+            ).await {
+                Ok(_) => transcript.dirty = false,
+                Err(_) => {
+                    tracing::warn!(agent=self.id, seq, "helper transcript save failed; retrying");
+                    self.helper_due = Some(Instant::now() + Duration::from_secs(1));
+                }
+            }
+        }
+    }
+
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
+        self.flush_helpers().await;
+        self.helpers.retain(|_, helper| helper.dirty);
         // Process exits and interrupts do not necessarily carry an `agy`
         // result. Settle the outstanding hook handoff on every exit path.
         if let Err(e) = self.settle_agy_steer().await {
