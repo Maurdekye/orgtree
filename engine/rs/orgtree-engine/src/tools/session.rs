@@ -42,25 +42,97 @@ struct Facts {
     /// the next turn stays where this one runs because the CLI still holds
     /// background work
     held: bool,
+    /// the Windows session its CLI runs in (0: Session 0); None: no CLI
+    this_session: Option<u32>,
+    /// the session its next turn's CLI will run in
+    next_session: Option<u32>,
+    /// its stored preference (`session_host::pref_value`: null = signed-in)
+    preference: Value,
+    /// the session it picked for its next turn, if any
+    use_id: Option<u32>,
+    /// Session 0 and the user's sessions where a sign-in helper runs
+    sessions: Vec<Value>,
 }
 
+/// Read, and with `prefer` or `use` set, the caller's place among the
+/// user's sessions (the user, 2026-10-16 12:12Z and 12:13Z: an agent lists
+/// Session 0 and the sessions of the engine's own user where a sign-in
+/// helper runs, prefers them by kind, and picks one on demand).
 #[logged]
-pub async fn run(engine: &Arc<Engine>, caller: &Caller) -> Result<Done> {
-    let view = super::control::ask_actor(engine, caller.org_id, caller.agent_id, AgentMsg::Session).await;
+pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    use crate::runtime::session_host as sh;
+    let pref = match args.get("prefer").filter(|v| !v.is_null()) {
+        Some(v) => match sh::parse_pref(v) {
+            Ok(p) => Some(p),
+            Err(why) => crate::refuse!(Unprocessable, "{why}"),
+        },
+        None => None,
+    };
+    let use_id = match args.get("use").filter(|v| !v.is_null()) {
+        Some(v) => {
+            let Some(id) = v.as_u64().and_then(|n| u32::try_from(n).ok()) else {
+                crate::refuse!(Unprocessable, "use is a session id from sessions, or 0 for Session 0");
+            };
+            if id != 0 && !engine.credential_bridge.hosting().iter().any(|(s, _)| *s == id) {
+                crate::refuse!(Unprocessable, "session {id} has no sign-in helper: pick one from sessions, or 0 for Session 0");
+            }
+            Some(id)
+        }
+        None => None,
+    };
+    if let Some(p) = &pref {
+        save_pref(engine, caller, p).await?;
+    }
+    let view = super::control::ask_actor(engine, caller.org_id, caller.agent_id, |reply| AgentMsg::Session { pref: pref.clone(), use_id, reply }).await;
     if let Some(e) = view["error"].as_str() {
         crate::refuse!(Conflict, "{e}");
     }
     let root = engine.cfg.data_root.clone();
     let signed_in = tokio::task::spawn_blocking(move || signed_in(&root)).await.ok().flatten();
+    let session0 = crate::runtime::codex::session0();
+    let mut sessions = Vec::new();
+    if session0 {
+        let user = std::env::var("USERNAME").unwrap_or_default();
+        sessions.push(json!({ "id": 0, "kind": "session0", "state": "active", "user": user }));
+        sessions.extend(engine.credential_bridge.hosting().into_iter().map(|(id, _)| sh::describe(engine, id)));
+    } else {
+        sessions.push(sh::describe(engine, sh::engine_session()));
+    }
+    let num = |k: &str| view[k].as_u64().and_then(|n| u32::try_from(n).ok());
     Done::json(&answer(&Facts {
         windows: cfg!(windows),
-        engine_session0: crate::runtime::codex::session0(),
+        engine_session0: session0,
         helper: engine.credential_bridge.can_host(),
         signed_in,
         this_turn: view["this_turn"].as_str().map(str::to_owned),
         next_turn: view["next_turn"].as_str().map(str::to_owned),
         held: view["held_by_background_work"].as_bool().unwrap_or(false),
+        this_session: num("this_session"),
+        next_session: num("next_session"),
+        preference: view["preference"].clone(),
+        use_id: num("use"),
+        sessions,
     }))
+}
+
+/// Keep the caller's preference in its own scope (absent for the default),
+/// where Agent settings show it.
+#[logged]
+async fn save_pref(engine: &Arc<Engine>, caller: &Caller, p: &crate::runtime::session_host::Pref) -> Result<()> {
+    let v = crate::runtime::session_host::pref_value(p);
+    let client = engine.db.get().await?;
+    client
+        .execute(
+            "UPDATE ot.agents SET scope = CASE WHEN $2::jsonb = 'null'::jsonb THEN scope - 'session'
+                                               ELSE jsonb_set(scope, '{session}', $2) END,
+                    row_version = row_version + 1
+              WHERE id = $1",
+            &[&caller.agent_id, &v],
+        )
+        .await?;
+    drop(client);
+    crate::changes::notify_id(engine, caller.org_id, vec![crate::changes::Change::Agent(caller.agent_id)]);
+    Ok(())
 }
 
 /// Whether the engine's Windows user has a signed-in session (at the console,
@@ -81,13 +153,19 @@ fn signed_in(_root: &Path) -> Option<bool> {
 
 #[logged]
 fn answer(f: &Facts) -> Value {
-    let moves = matches!((&f.this_turn, &f.next_turn), (Some(now), Some(next)) if now != next);
+    let moves = matches!((f.this_session, f.next_session), (Some(now), Some(next)) if now != next)
+        || matches!((&f.this_turn, &f.next_turn), (Some(now), Some(next)) if now != next);
     json!({
         "signed_in": f.signed_in,
         "this_turn": f.this_turn,
+        "this_session": f.this_session,
         "next_turn": f.next_turn,
+        "next_session": f.next_session,
         "next_turn_moves": moves,
         "sign_in_helper": f.helper,
+        "preference": if f.preference.is_null() { json!(SIGNED_IN) } else { f.preference.clone() },
+        "use": f.use_id,
+        "sessions": f.sessions,
         "summary": summary(f, moves),
     })
 }
@@ -113,7 +191,9 @@ fn summary(f: &Facts, moves: bool) -> String {
     });
     out.push(' ');
     let next = |place: Option<&str>| if place == Some(SIGNED_IN) { "the user's signed-in session" } else { "Session 0" };
-    if moves {
+    if moves && f.this_turn.as_deref() == Some(SIGNED_IN) && f.next_turn.as_deref() == Some(SIGNED_IN) {
+        out.push_str(&format!("Your next turn moves to the user's session {}.", f.next_session.unwrap_or(0)));
+    } else if moves {
         out.push_str(&format!("Your next turn moves to {}.", next(f.next_turn.as_deref())));
     } else if f.held {
         out.push_str(&format!("Your next turn stays in {}: your CLI still runs background work, so it moves at a later turn.", next(f.next_turn.as_deref())));
@@ -126,6 +206,21 @@ fn summary(f: &Facts, moves: bool) -> String {
     if f.signed_in == Some(true) && !f.helper {
         out.push_str(" Orgtree's sign-in helper is not connected, so turns start in Session 0.");
     }
+    match &f.preference {
+        Value::Null => {}
+        Value::String(s) if s == SESSION0 => out.push_str(" You prefer Session 0."),
+        Value::String(s) => out.push_str(&format!(" You prefer a {s} session, then Session 0.")),
+        Value::Array(kinds) => {
+            let kinds: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
+            out.push_str(&format!(" You prefer {} sessions, in that order, then Session 0.", kinds.join(", then ")));
+        }
+        _ => {}
+    }
+    match f.use_id {
+        Some(0) => out.push_str(" You picked Session 0 for your next turn."),
+        Some(id) => out.push_str(&format!(" You picked the user's session {id} for your next turn.")),
+        None => {}
+    }
     out
 }
 
@@ -136,7 +231,28 @@ mod tests {
     #[nolog]
     fn facts(signed_in: Option<bool>, helper: bool, this_turn: &str, next_turn: &str) -> Facts {
         Facts { windows: true, engine_session0: true, helper, signed_in,
-            this_turn: Some(this_turn.into()), next_turn: Some(next_turn.into()), held: false }
+            this_turn: Some(this_turn.into()), next_turn: Some(next_turn.into()), held: false, ..Default::default() }
+    }
+
+    /// The user, 2026-10-16 12:12Z and 12:13Z: the list of sessions, the
+    /// stored preference, an on-demand pick, and a move between two of the
+    /// user's sessions.
+    #[test]
+    fn it_lists_sessions_reports_the_preference_and_a_move_between_two_sessions() {
+        let mut f = facts(Some(true), true, SIGNED_IN, SIGNED_IN);
+        f.this_session = Some(1);
+        f.next_session = Some(3);
+        f.preference = json!(["remote", "console"]);
+        f.use_id = Some(3);
+        f.sessions = vec![json!({ "id": 0 }), json!({ "id": 1 }), json!({ "id": 3 })];
+        let out = answer(&f);
+        assert_eq!(out["next_turn_moves"], true);
+        assert_eq!(out["preference"], json!(["remote", "console"]));
+        assert_eq!(out["sessions"].as_array().map(Vec::len), Some(3));
+        let s = out["summary"].as_str().unwrap();
+        assert!(s.contains("moves to the user's session 3") && s.contains("You prefer remote, then console sessions")
+            && s.contains("You picked the user's session 3"), "{s}");
+        assert_eq!(answer(&facts(Some(true), true, SIGNED_IN, SIGNED_IN))["preference"], "signed-in");
     }
 
     /// The three states the docket names, plus a sign-out under a turn.

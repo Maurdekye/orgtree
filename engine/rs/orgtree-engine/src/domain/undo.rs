@@ -35,7 +35,7 @@ const RETOOL_OPS: &[&str] = &["retool", "switch_model", "account", "scope"];
 /// The `/ops` operations a user request records.
 pub const RECORDED_OPS: &[&str] = &["move", "moves", "reorder", "promote", "demote", "hire", "retire", "retool", "switch_model", "account"];
 /// The agent's own configured settings a retool entry restores.
-const SCOPE_FIELDS: &[&str] = &["add_dirs", "tools", "org_visibility", "permission_mode", "effort", "model_version", "account_fallback", "auto_cheap_compact"];
+const SCOPE_FIELDS: &[&str] = &["add_dirs", "tools", "org_visibility", "permission_mode", "effort", "model_version", "account_fallback", "auto_cheap_compact", "session"];
 /// Step fields that may name an earlier step's agent (`"$0.node"`).
 const REF_FIELDS: &[&str] = &["node", "target", "parent", "new_parent", "above", "before", "after"];
 /// Org settings a user grant may raise (folders by the scope save; all four
@@ -1348,6 +1348,7 @@ fn scope_body(fields: &Map<String, Value>, side: &str) -> Value {
                 if gone { b.insert("clear_account_fallback".into(), json!(true)); } else { b.insert(k.clone(), v.clone()); }
             }
             "auto_cheap_compact" => { b.insert(k.clone(), if gone { json!({}) } else { v.clone() }); }
+            "session" => { b.insert(k.clone(), if gone { json!("signed-in") } else { v.clone() }); }
             _ => {}
         }
     }

@@ -41,9 +41,9 @@ pub struct CodexSpec {
     pub may_shell: bool,
     pub may_subagents: bool,
     pub env: Vec<(String, String)>,
-    /// Some: ask the sign-in helper to start this Codex in the user's
-    /// session; if it cannot, start it here with this (Session 0) sandbox.
-    pub host: Option<Sandbox>,
+    /// Some: ask the sign-in helper of this session of the user to start
+    /// this Codex; if it cannot, start it here with this (Session 0) sandbox.
+    pub host: Option<(Sandbox, u32)>,
 }
 
 impl std::fmt::Debug for CodexSpec {
@@ -129,16 +129,16 @@ pub fn sandbox(may_write: bool, permission_mode: &str, session0: bool) -> Sandbo
 /// windows-sign-in-credential-helper-so-git-gh-work, phase 2; every harness
 /// since 2026-10-16, `session_host`). A bypassPermissions seat moves too (the
 /// user, 2026-10-16 09:43Z: "Yes, all agents", superseding ruling Q1, which
-/// kept it in Session 0), with its own unsandboxed setting.
+/// kept it in Session 0), with its own unsandboxed setting. The session is
+/// the one `session_host::wanted` chooses for the agent's preference.
 #[logged]
-pub fn seat_sandbox(engine: &Engine, may_write: bool, permission_mode: &str) -> (Sandbox, bool) {
+pub fn seat_sandbox(engine: &Engine, may_write: bool, permission_mode: &str, pref: &super::session_host::Pref,
+    use_id: Option<u32>) -> (Sandbox, Option<u32>) {
     let s0 = session0();
     let own = sandbox(may_write, permission_mode, false);
-    let hosted = super::session_host::wanted(engine, own.mode == "danger-full-access");
-    if hosted {
-        (own, true)
-    } else {
-        (sandbox(may_write, permission_mode, s0), false)
+    match super::session_host::wanted(engine, own.mode == "danger-full-access", pref, use_id) {
+        Some(session) => (own, Some(session)),
+        None => (sandbox(may_write, permission_mode, s0), None),
     }
 }
 
@@ -206,11 +206,11 @@ impl CodexProc {
             spec.config.extend(scoped_config);
         }
         let mut started: Option<(Io, session_host::Hosted)> = None;
-        if let Some(fallback) = spec.host {
+        if let Some((fallback, session)) = spec.host {
             let mut args = spec.config.clone();
             args.push("app-server".into());
             let hosted = match (spec.exe.to_str(), spec.cwd.to_str()) {
-                (Some(exe), Some(cwd)) => session_host::start_hosted(&engine, exe, &args, cwd, &env).await,
+                (Some(exe), Some(cwd)) => session_host::start_hosted(&engine, session, exe, &args, cwd, &env).await,
                 _ => Err("host-invalid".to_string()),
             };
             match hosted {
@@ -496,6 +496,11 @@ impl CodexProc {
     /// Started by the sign-in helper in the user's session.
     pub fn hosted(&self) -> bool {
         self.hosted.is_some()
+    }
+
+    /// The user's session the sign-in helper started it in.
+    pub fn hosted_in(&self) -> Option<u32> {
+        self.hosted.as_ref().map(|h| h.session)
     }
 
     pub fn alive(&mut self) -> bool {

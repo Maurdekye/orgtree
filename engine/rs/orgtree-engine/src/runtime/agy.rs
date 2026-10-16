@@ -60,7 +60,7 @@ pub struct AgySpec {
     pub turn_timeout_s: u64,
     /// started by the sign-in helper in the operator's signed-in session
     /// (`session_host::wanted`), else here
-    pub host: bool,
+    pub host: Option<u32>,
 }
 
 impl std::fmt::Debug for AgySpec {
@@ -249,6 +249,11 @@ impl AgyProc {
     /// Started by the sign-in helper in the user's session.
     pub fn hosted(&self) -> bool {
         self.child.as_ref().is_some_and(|c| c.hosted())
+    }
+
+    /// The user's session the sign-in helper started it in.
+    pub fn hosted_in(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|c| c.session())
     }
 }
 
@@ -684,7 +689,7 @@ mod workspace_notes_tests {
             exe: PathBuf::from("unused-fake-agy"), cwd: root.join("agent"), model: "fake".into(),
             effort: None, conversation: None, identity: "Synthetic generated identity".into(),
             servers: Map::new(), bash: true, edit: true, web: true, subagents: true,
-            env: vec![], turn_timeout_s: 60, host: false,
+            env: vec![], turn_timeout_s: 60, host: None,
         };
         (root, spec)
     }

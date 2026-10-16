@@ -185,7 +185,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_send_notice" => mailtools::message(engine, caller, args, true).await,
         "orgtree_status" => mailtools::status(engine, caller, args).await,
         "orgtree_next_turn" => next_turn::run(engine, caller, args).await,
-        "orgtree_session" => session::run(engine, caller).await,
+        "orgtree_session" => session::run(engine, caller, args).await,
         "orgtree_transfers" => mailtools::transfers(engine, caller, args).await,
         "orgtree_inbox" => mailtools::inbox(engine, caller, args).await,
         "orgtree_chart" => orgview::chart(engine, caller, args).await,

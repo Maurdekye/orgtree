@@ -31,17 +31,133 @@ use crate::winproc;
 /// ruling Q1 (an unsandboxed seat stayed in Session 0); false restores Q1.
 pub const HOST_BYPASS_SEATS: bool = true;
 
-/// Whether a CLI that starts now runs in the operator's signed-in session:
-/// only from an engine in Session 0, while the sign-in helper hosts.
+/// Which of the operator's signed-in sessions a CLI that starts now runs in
+/// (None: here, which is Session 0 for an engine there): only from an engine
+/// in Session 0, while a sign-in helper hosts, chosen by `choose` from the
+/// agent's preference and on-demand pick (the user, 2026-10-16 12:12Z and
+/// 12:13Z).
 #[logged]
-pub fn wanted(engine: &Engine, bypass: bool) -> bool {
-    crate::runtime::codex::session0() && engine.credential_bridge.can_host() && (HOST_BYPASS_SEATS || !bypass)
+pub fn wanted(engine: &Engine, bypass: bool, pref: &Pref, use_id: Option<u32>) -> Option<u32> {
+    if !crate::runtime::codex::session0() || (bypass && !HOST_BYPASS_SEATS) {
+        return None;
+    }
+    choose(&host_sessions(engine), pref, use_id)
+}
+
+/// The Windows session this engine runs in: 0 for the boot task (and a rig
+/// engine that stands for it), and outside Windows.
+#[logged]
+pub fn engine_session() -> u32 {
+    if crate::runtime::codex::session0() {
+        return 0;
+    }
+    #[cfg(windows)]
+    {
+        let mut id = 0u32;
+        if unsafe { windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId(std::process::id(), &mut id) } != 0 {
+            return id;
+        }
+    }
+    0
+}
+
+/// The engine user's sessions where a sign-in helper hosts, by id.
+#[logged]
+pub fn host_sessions(engine: &Engine) -> Vec<HostSession> {
+    let stand_in = rig_sessions(engine);
+    engine
+        .credential_bridge
+        .hosting()
+        .into_iter()
+        .map(|(id, _)| {
+            let (kind, active, _) = stand_in.get(&id).cloned().unwrap_or_else(|| session_info(id));
+            HostSession { id, kind, active }
+        })
+        .collect()
+}
+
+/// One hosting session for orgtree_session: id, kind, state and user.
+#[logged]
+pub fn describe(engine: &Engine, id: u32) -> serde_json::Value {
+    let (kind, active, user) = rig_sessions(engine).get(&id).cloned().unwrap_or_else(|| session_info(id));
+    serde_json::json!({ "id": id, "kind": kind, "state": if active { "active" } else { "disconnected" }, "user": user })
+}
+
+/// A debug rig engine's synthetic sessions, `<data>\rig-sessions.json`:
+/// {"7": {"kind": "remote", "active": true, "user": "rig"}}.
+#[nolog]
+fn rig_sessions(engine: &Engine) -> std::collections::HashMap<u32, (String, bool, String)> {
+    let mut out = std::collections::HashMap::new();
+    #[cfg(debug_assertions)]
+    if crate::rig::active() {
+        let file = engine.cfg.data_root.join("rig-sessions.json");
+        if let Some(map) = std::fs::read(file).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+            for (id, v) in map.as_object().into_iter().flatten() {
+                if let Ok(id) = id.parse::<u32>() {
+                    let kind = if v["kind"] == "remote" { "remote" } else { "console" };
+                    out.insert(id, (kind.to_string(), v["active"].as_bool().unwrap_or(true), v["user"].as_str().unwrap_or("").to_string()));
+                }
+            }
+        }
+    }
+    let _ = engine;
+    out
+}
+
+/// (kind, connected, user) of a Windows session: `remote` for RDP, else
+/// `console`.
+#[cfg(windows)]
+#[nolog]
+fn session_info(id: u32) -> (String, bool, String) {
+    use windows_sys::Win32::System::RemoteDesktop::{
+        WTSClientProtocolType, WTSConnectState, WTSFreeMemory, WTSQuerySessionInformationW, WTSUserName, WTS_CURRENT_SERVER_HANDLE,
+        WTS_INFO_CLASS,
+    };
+    let query = |class: WTS_INFO_CLASS| -> Option<Vec<u8>> {
+        let mut buf = std::ptr::null_mut();
+        let mut len = 0u32;
+        unsafe {
+            if WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, id, class, &mut buf, &mut len) == 0 || buf.is_null() {
+                return None;
+            }
+            let bytes = std::slice::from_raw_parts(buf as *const u8, len as usize).to_vec();
+            WTSFreeMemory(buf.cast());
+            Some(bytes)
+        }
+    };
+    let protocol = query(WTSClientProtocolType).and_then(|b| b.get(0..2).map(|x| u16::from_le_bytes([x[0], x[1]])));
+    // WTS_CONNECTSTATE_CLASS: 0 is WTSActive
+    let state = query(WTSConnectState).and_then(|b| b.get(0..4).map(|x| i32::from_le_bytes([x[0], x[1], x[2], x[3]])));
+    let user = query(WTSUserName)
+        .map(|b| {
+            let wide: Vec<u16> = b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|c| *c != 0).collect();
+            String::from_utf16_lossy(&wide)
+        })
+        .unwrap_or_default();
+    let kind = if protocol == Some(2) { "remote" } else { "console" };
+    (kind.to_string(), state == Some(0), user)
+}
+
+#[cfg(not(windows))]
+#[nolog]
+fn session_info(_id: u32) -> (String, bool, String) {
+    ("console".into(), true, String::new())
+}
+
+/// How a preference is stored in the agent's scope: absent for the default.
+#[logged]
+pub fn pref_value(p: &Pref) -> serde_json::Value {
+    match p {
+        Pref::SignedIn => serde_json::Value::Null,
+        Pref::Session0 => serde_json::json!("session0"),
+        Pref::Kinds(k) if k.len() == 1 => serde_json::json!(k[0]),
+        Pref::Kinds(k) => serde_json::json!(k),
+    }
 }
 
 /// An agent's preference over the engine user's signed-in sessions, kept in
 /// its own scope as `session` (absent: `signed-in`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub enum Pref {
     /// any signed-in session, an active one first (the default)
     SignedIn,
@@ -54,7 +170,6 @@ pub enum Pref {
 
 /// One of the engine user's sessions where a sign-in helper hosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct HostSession {
     pub id: u32,
     /// `console` or `remote`
@@ -63,21 +178,52 @@ pub struct HostSession {
     pub active: bool,
 }
 
-/// A stored or requested preference: so far there is none.
+/// A stored or requested preference: `signed-in` (or nothing), `session0`, a
+/// kind (`console`, `remote`), or an ordered list of kinds, which may name
+/// `signed-in` for any; a comma-separated string is a list too.
 #[logged]
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_pref(v: &serde_json::Value) -> std::result::Result<Pref, String> {
-    let _ = v;
-    Ok(Pref::SignedIn)
+    use serde_json::Value;
+    const KINDS: &[&str] = &["console", "remote", "signed-in"];
+    let refuse = || "session must be signed-in, session0, console, remote, or an ordered list of console, remote and signed-in".to_string();
+    let list: Vec<String> = match v {
+        Value::Null => return Ok(Pref::SignedIn),
+        Value::String(s) if s == "signed-in" => return Ok(Pref::SignedIn),
+        Value::String(s) if s == "session0" => return Ok(Pref::Session0),
+        Value::String(s) => s.split(',').map(|k| k.trim().to_string()).collect(),
+        Value::Array(a) => a.iter().map(|k| k.as_str().map(str::to_string).ok_or_else(refuse)).collect::<std::result::Result<_, _>>()?,
+        _ => return Err(refuse()),
+    };
+    if list.is_empty() || list.iter().any(|k| !KINDS.contains(&k.as_str())) {
+        return Err(refuse());
+    }
+    Ok(Pref::Kinds(list))
 }
 
 /// Where a CLI that starts now runs among `sessions`: a session id, or None
-/// for Session 0. So far: the helper's session whenever one hosts.
+/// for Session 0. An on-demand pick wins while its session hosts (0 is
+/// Session 0); then the preference, an active session before a disconnected
+/// one, the lowest id first; then Session 0.
 #[logged]
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn choose(sessions: &[HostSession], pref: &Pref, use_id: Option<u32>) -> Option<u32> {
-    let _ = (pref, use_id);
-    sessions.first().map(|s| s.id)
+    if let Some(id) = use_id {
+        if id == 0 {
+            return None;
+        }
+        if sessions.iter().any(|s| s.id == id) {
+            return Some(id);
+        }
+    }
+    let best = |kind: Option<&str>| {
+        let mut fit: Vec<&HostSession> = sessions.iter().filter(|s| kind.is_none_or(|k| s.kind == k)).collect();
+        fit.sort_by_key(|s| (!s.active, s.id));
+        fit.first().map(|s| s.id)
+    };
+    match pref {
+        Pref::Session0 => None,
+        Pref::SignedIn => best(None),
+        Pref::Kinds(kinds) => kinds.iter().find_map(|k| best((k != "signed-in").then_some(k.as_str()))),
+    }
 }
 
 /// A CLI's stdio, whoever started it.
@@ -116,20 +262,20 @@ pub struct Started {
 #[nolog]
 pub async fn spawn(
     engine: &Arc<Engine>,
-    host: bool,
+    host: Option<u32>,
     cleared: bool,
     agent: i64,
     what: &str,
     mut build: impl FnMut(bool) -> Result<Command>,
 ) -> Result<(Started, bool)> {
-    if host {
+    if let Some(session) = host {
         let cmd = build(true)?;
         match request(&cmd, cleared) {
-            Ok(r) => match start_hosted(engine, &r.exe, &r.args, &r.cwd, &r.env).await {
+            Ok(r) => match start_hosted(engine, session, &r.exe, &r.args, &r.cwd, &r.env).await {
                 Ok((io, h)) => {
                     let job = h.job();
                     let pid = h.pid;
-                    tracing::info!(agent, pid, cli = what, "CLI started by the sign-in helper in the user's session");
+                    tracing::info!(agent, pid, session, cli = what, "CLI started by the sign-in helper in the user's session");
                     return Ok((Started { io, launched: Launched { kind: Kind::Hosted(h) }, job, pid }, true));
                 }
                 Err(code) => tracing::warn!(agent, cli = what, reason = %code,
@@ -191,6 +337,14 @@ fn request(cmd: &Command, cleared: bool) -> std::result::Result<Request, String>
 impl Launched {
     pub fn hosted(&self) -> bool {
         matches!(self.kind, Kind::Hosted(_))
+    }
+
+    /// The user's session the helper started it in.
+    pub fn session(&self) -> Option<u32> {
+        match &self.kind {
+            Kind::Hosted(h) => Some(h.session),
+            Kind::Local(_) => None,
+        }
     }
 
     pub fn alive(&mut self) -> bool {
@@ -268,6 +422,8 @@ mod win {
 
     pub struct Hosted {
         pub pid: u32,
+        /// the user's session it runs in, whose helper started it
+        pub session: u32,
         created: u64,
         /// SYNCHRONIZE + query (+ terminate and set-quota when granted); 0 if none
         process: usize,
@@ -316,13 +472,14 @@ mod win {
     #[nolog]
     pub async fn start_hosted(
         engine: &Arc<Engine>,
+        session: u32,
         exe: &str,
         args: &[String],
         cwd: &str,
         env: &[(String, String)],
     ) -> std::result::Result<(Io, Hosted), String> {
         let bridge = &engine.credential_bridge;
-        let helper = bridge.host_pid().ok_or("host-gone")?;
+        let helper = bridge.host_pid_in(session).ok_or("host-gone")?;
         let base = format!(r"\\.\pipe\orgtree-cli-{}", uuid::Uuid::new_v4().simple());
         let names = [format!("{base}-in"), format!("{base}-out"), format!("{base}-err")];
         let stdin = serve(&names[0], false)?;
@@ -331,7 +488,7 @@ mod win {
         let env: serde_json::Map<String, Value> = env.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
         let request = json!({ "kind": "spawn", "exe": exe, "args": args, "cwd": cwd, "env": env,
                               "pipes": { "stdin": names[0], "stdout": names[1], "stderr": names[2] } });
-        let reply = bridge.host(request).await?;
+        let reply = bridge.host_in(session, request).await?;
         let r: Value = serde_json::from_slice(&reply).map_err(|_| "host-failed".to_string())?;
         let (pid, created) = match (r["pid"].as_u64(), r["created"].as_u64()) {
             (Some(p), Some(c)) if p > 0 => (p as u32, c),
@@ -342,7 +499,7 @@ mod win {
         if process.is_null() {
             process = unsafe { OpenProcess(wait, 0, pid) };
         }
-        let hosted = Hosted { pid, created, process: process as usize, engine: engine.clone() };
+        let hosted = Hosted { pid, session, created, process: process as usize, engine: engine.clone() };
         let connected = async {
             if hosted.process == 0 {
                 return Err("host-process".to_string());
@@ -385,7 +542,7 @@ mod win {
             let asked = self
                 .engine
                 .credential_bridge
-                .host(json!({ "kind": "kill", "pid": self.pid, "created": self.created }))
+                .host_in(self.session, json!({ "kind": "kill", "pid": self.pid, "created": self.created }))
                 .await;
             if asked.is_err() && self.process != 0 {
                 unsafe { TerminateProcess(self.process as HANDLE, 1) };
@@ -394,11 +551,11 @@ mod win {
 
         /// `kill` without waiting for the helper's answer.
         pub fn start_kill(&self) {
-            let (engine, pid, created, process) = (self.engine.clone(), self.pid, self.created, self.process);
+            let (engine, pid, created, process, session) = (self.engine.clone(), self.pid, self.created, self.process, self.session);
             // a duplicate keeps the handle valid after this Hosted is dropped
             let own = if process == 0 { 0 } else { duplicate(process) };
             tokio::spawn(async move {
-                let asked = engine.credential_bridge.host(json!({ "kind": "kill", "pid": pid, "created": created })).await;
+                let asked = engine.credential_bridge.host_in(session, json!({ "kind": "kill", "pid": pid, "created": created })).await;
                 if own != 0 {
                     if asked.is_err() {
                         unsafe { TerminateProcess(own as HANDLE, 1) };
@@ -456,9 +613,10 @@ mod other {
     use super::*;
     pub struct Hosted {
         pub pid: u32,
+        pub session: u32,
     }
     #[nolog]
-    pub async fn start_hosted(_: &Arc<Engine>, _: &str, _: &[String], _: &str, _: &[(String, String)]) -> std::result::Result<(Io, Hosted), String> {
+    pub async fn start_hosted(_: &Arc<Engine>, _: u32, _: &str, _: &[String], _: &str, _: &[(String, String)]) -> std::result::Result<(Io, Hosted), String> {
         Err("host-unsupported".into())
     }
     #[nolog]

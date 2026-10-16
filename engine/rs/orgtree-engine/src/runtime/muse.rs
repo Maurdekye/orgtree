@@ -132,7 +132,7 @@ pub struct MuseSpec {
     pub sandbox: bool,
     /// started by the sign-in helper in the operator's signed-in session
     /// (`session_host::wanted`), where the sandbox stays on; else here
-    pub host: bool,
+    pub host: Option<u32>,
     pub may_web: bool,
     pub may_subagents: bool,
     /// granted external MCP servers (registry entries), besides orgtree's own
@@ -814,6 +814,11 @@ impl MuseProc {
     pub fn hosted(&self) -> bool {
         self.child.as_ref().is_some_and(|c| c.hosted())
     }
+
+    /// The user's session the sign-in helper started it in.
+    pub fn hosted_in(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|c| c.session())
+    }
 }
 
 impl Drop for MuseProc {
@@ -1101,7 +1106,7 @@ mod tests {
             servers: Map::new(),
             resume: None,
             env: vec![],
-            host: false,
+            host: None,
         }
     }
 

@@ -45,7 +45,7 @@ pub struct SpawnSpec {
     pub keepalive: bool,
     /// started by the sign-in helper in the operator's signed-in session
     /// (`session_host::wanted`), else here
-    pub host: bool,
+    pub host: Option<u32>,
 }
 
 impl std::fmt::Debug for SpawnSpec {
@@ -334,6 +334,11 @@ impl ClaudeProc {
     /// Started by the sign-in helper in the user's session.
     pub fn hosted(&self) -> bool {
         self.child.as_ref().is_some_and(|c| c.hosted())
+    }
+
+    /// The user's session the sign-in helper started it in.
+    pub fn hosted_in(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|c| c.session())
     }
 }
 

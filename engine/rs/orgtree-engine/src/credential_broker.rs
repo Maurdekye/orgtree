@@ -296,7 +296,14 @@ mod win {
 
     #[nolog]
     async fn register(a: &Attached, pipe: &str, secret: &str, role: &str) -> Result<u16, ()> {
-        let body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id(), "caps": ["spawn"], "role": role}).to_string();
+        let mut body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id(), "caps": ["spawn"], "role": role});
+        // a debug rig proof may stand this helper for another Windows session
+        // of the user; only a debug rig engine honours it
+        #[cfg(debug_assertions)]
+        if let Some(s) = std::env::var("ORGTREE_RIG_HELPER_SESSION").ok().and_then(|s| s.parse::<u32>().ok()) {
+            body["rig_session"] = serde_json::json!(s);
+        }
+        let body = body.to_string();
         http(a.port, "POST", "/api/desktop/credential-bridge", &a.token, Some(body)).await.map(|(s, _)| s)
     }
 

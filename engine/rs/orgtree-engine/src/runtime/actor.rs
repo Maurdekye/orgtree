@@ -129,6 +129,8 @@ struct Ctx {
     team_notes: Vec<(PathBuf, String, Option<String>)>,
     session_id: Option<String>,
     session_provider: Option<String>,
+    /// its preference over the user's sessions (scope `session`)
+    session_pref: crate::runtime::session_host::Pref,
     generation: i32,
     state: String,
     halted: bool,
@@ -528,6 +530,18 @@ impl Proc {
         }
     }
 
+    /// The user's session the sign-in helper started it in.
+    #[nolog]
+    fn hosted_in(&self) -> Option<u32> {
+        match self {
+            Proc::Claude(p) => p.hosted_in(),
+            Proc::Codex(p) => p.hosted_in(),
+            Proc::Agy(p) => p.hosted_in(),
+            Proc::Muse(p) => p.hosted_in(),
+            Proc::Acp(p) => p.hosted_in(),
+        }
+    }
+
     /// Started by the sign-in helper in the operator's signed-in session.
     #[nolog]
     fn hosted(&self) -> bool {
@@ -762,9 +776,14 @@ struct Actor {
     /// the seat counted as unsandboxed when its CLI's placement was last
     /// chosen (`session_host::wanted`), for `session_view`
     bypass_seat: bool,
+    /// its preference over the user's sessions, as last loaded or saved
+    session_pref: crate::runtime::session_host::Pref,
+    /// the session it picked for its next turn (orgtree_session `use`; 0:
+    /// Session 0), taken when that turn chooses where its CLI runs
+    use_session: Option<u32>,
     /// the Codex launch's (may_write, permission mode, sandbox, hosted by the
     /// sign-in helper), chosen once per launch so its prompt matches its mode
-    codex_seat: Option<(bool, String, codexrt::Sandbox, bool)>,
+    codex_seat: Option<(bool, String, codexrt::Sandbox, Option<u32>)>,
     activity: Option<(String, Option<String>)>,
     rate_limit: Option<Value>,
     /// the CLI's running session cost at the last result (its counter is cumulative)
@@ -903,6 +922,8 @@ impl Actor {
             settled: false,
             session_noted: false,
             bypass_seat: false,
+            session_pref: crate::runtime::session_host::Pref::SignedIn,
+            use_session: None,
             codex_seat: None,
             activity: None,
             rate_limit: None,
@@ -1248,7 +1269,13 @@ impl Actor {
                 let _ = reply.send(out);
             }
             AgentMsg::ProcExited { process, reason } => self.on_exit(process, &reason).await?,
-            AgentMsg::Session(reply) => {
+            AgentMsg::Session { pref, use_id, reply } => {
+                if let Some(p) = pref {
+                    self.session_pref = p;
+                }
+                if use_id.is_some() {
+                    self.use_session = use_id;
+                }
                 let _ = reply.send(self.session_view());
             }
             AgentMsg::InterruptSelf { restart, reply } => {
@@ -1820,6 +1847,7 @@ impl Actor {
             effective: eff,
             charter: r.get(5),
             session_id: r.get(6),
+            session_pref: crate::runtime::session_host::parse_pref(&configured["session"]).unwrap_or(crate::runtime::session_host::Pref::SignedIn),
             session_provider: r.get(7),
             generation: r.get(8),
             state: r.get(9),
@@ -2543,7 +2571,7 @@ impl Actor {
             env_remove,
             keepalive,
             // a cache read stays here; ensure_proc places the agent's own CLI
-            host: false,
+            host: None,
         };
         Ok((spec, config_dir))
     }
@@ -2596,7 +2624,7 @@ impl Actor {
         let reuse = match self.proc.as_mut() {
             Some(p) => {
                 !p.is_codex() && !p.is_agy() && !p.is_muse() && !p.is_acp() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
-                    && p.hosted() == want
+                    && p.hosted_in() == want
             }
             None => false,
         };
@@ -2658,12 +2686,13 @@ impl Actor {
     /// never during a turn; one that still holds background work stays where
     /// it is, since replacing it would end that work, and moves at a later turn.
     /// (Codex decides in `codex_seat`, with its sandbox.)
-    fn want_hosted(&mut self, ctx: &Ctx) -> bool {
+    fn want_hosted(&mut self, ctx: &Ctx) -> Option<u32> {
         let bypass = ctx.effective["permission_mode"].as_str() == Some("bypassPermissions");
         self.bypass_seat = bypass;
-        let want = crate::runtime::session_host::wanted(&self.engine, bypass);
+        self.session_pref = ctx.session_pref.clone();
+        let want = crate::runtime::session_host::wanted(&self.engine, bypass, &self.session_pref, self.use_session.take());
         match self.proc.as_ref() {
-            Some(p) if self.bg_pending() && p.hosted() != want => p.hosted(),
+            Some(p) if self.bg_pending() && p.hosted_in() != want => p.hosted_in(),
             _ => want,
         }
     }
@@ -2674,15 +2703,21 @@ impl Actor {
     /// started now. `this_turn` is null while no CLI runs.
     fn session_view(&self) -> Value {
         let s0 = codexrt::session0();
-        let place = |hosted: bool| if hosted || !s0 { SIGNED_IN } else { SESSION0 };
-        let want = crate::runtime::session_host::wanted(&self.engine, self.bypass_seat);
-        let current = self.proc.as_ref().map(|p| p.hosted());
+        let place = |hosted: Option<u32>| if hosted.is_some() || !s0 { SIGNED_IN } else { SESSION0 };
+        let own = crate::runtime::session_host::engine_session();
+        let want = crate::runtime::session_host::wanted(&self.engine, self.bypass_seat, &self.session_pref, self.use_session);
+        let current = self.proc.as_ref().map(|p| p.hosted_in());
         // a CLI holding background work stays where it is (not Codex's)
-        let held = self.proc.as_ref().is_some_and(|p| !p.is_codex() && self.bg_pending() && p.hosted() != want);
+        let held = self.proc.as_ref().is_some_and(|p| !p.is_codex() && self.bg_pending() && p.hosted_in() != want);
+        let next = if held { current.flatten() } else { want };
         json!({
             "this_turn": current.map(place),
-            "next_turn": place(if held { current == Some(true) } else { want }),
+            "this_session": current.map(|c| c.unwrap_or(own)),
+            "next_turn": place(next),
+            "next_session": next.unwrap_or(own),
             "held_by_background_work": held,
+            "preference": crate::runtime::session_host::pref_value(&self.session_pref),
+            "use": self.use_session,
         })
     }
 
@@ -2813,10 +2848,10 @@ impl Actor {
     /// Start (or keep) the agent's Codex app-server on its thread.
     /// The Codex seat's sandbox and whether the sign-in helper hosts it: the
     /// one chosen for this launch while its inputs hold, else a fresh choice.
-    fn codex_seat(&self, may_write: bool, pm: &str) -> (codexrt::Sandbox, bool) {
+    fn codex_seat(&self, may_write: bool, pm: &str) -> (codexrt::Sandbox, Option<u32>) {
         match &self.codex_seat {
             Some((w, p, sb, hosted)) if *w == may_write && p == pm => (*sb, *hosted),
-            _ => codexrt::seat_sandbox(&self.engine, may_write, pm),
+            _ => codexrt::seat_sandbox(&self.engine, may_write, pm, &self.session_pref, None),
         }
     }
 
@@ -2829,7 +2864,8 @@ impl Actor {
         {
             let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
             let may_write = ctx.effective["tools"].get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
-            let (sb, hosted) = codexrt::seat_sandbox(&self.engine, may_write, pm);
+            self.session_pref = ctx.session_pref.clone();
+            let (sb, hosted) = codexrt::seat_sandbox(&self.engine, may_write, pm, &self.session_pref, self.use_session.take());
             self.codex_seat = Some((may_write, pm.to_string(), sb, hosted));
             self.bypass_seat = codexrt::sandbox(may_write, pm, false).mode == "danger-full-access";
         }
@@ -2879,7 +2915,7 @@ impl Actor {
         let may_write = on("edit") && pm != "plan";
         let (sandbox, hosted) = self.codex_seat(may_write, pm);
         // a hosted seat falls back to Session 0 if the helper cannot start it
-        let host = hosted.then(|| codexrt::sandbox(may_write, pm, true));
+        let host = hosted.map(|session| (codexrt::sandbox(may_write, pm, true), session));
         let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
         let external: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
         let (mut config, _attached) = codexrt::mcp_overrides(&external);
@@ -3028,7 +3064,7 @@ impl Actor {
                     && self.proc_effort.as_deref() == Some(ctx.effort.as_str())
                     && !self.reconfigured
                     && p.alive()
-                    && p.hosted() == want
+                    && p.hosted_in() == want
             }
             None => false,
         };
@@ -3097,7 +3133,7 @@ impl Actor {
     async fn ensure_acp(&mut self, ctx: &Ctx, route: &OrRoute) -> Result<()> {
         let plan = self.plan(ctx);
         let want = self.want_hosted(ctx);
-        if self.proc.as_mut().is_some_and(|p| p.is_acp() && p.alive() && p.hosted() == want)
+        if self.proc.as_mut().is_some_and(|p| p.is_acp() && p.alive() && p.hosted_in() == want)
             && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured { return Ok(()); }
         self.close_proc().await;
         self.reconfigured = false;
@@ -3292,7 +3328,7 @@ impl Actor {
         let plan = self.plan(ctx);
         let want = self.want_hosted(ctx);
         let reuse = match self.proc.as_mut() {
-            Some(p) => p.is_muse() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive() && p.hosted() == want,
+            Some(p) => p.is_muse() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive() && p.hosted_in() == want,
             None => false,
         };
         if reuse {
@@ -7253,6 +7289,7 @@ impl Actor {
     async fn update_forecast(&mut self) {
         self.forecast = match self.load_ctx().await {
             Ok(ctx) => {
+                self.session_pref = ctx.session_pref.clone();
                 self.pending_effort = self.proc_effort.as_ref()
                     .filter(|current| self.turn.is_some() && *current != &ctx.effort)
                     .map(|_| ctx.effort.clone());

@@ -71,8 +71,9 @@ pub enum AgentMsg {
     WarmFailed(sched::Slot, String),
     Interrupt(oneshot::Sender<Value>),
     /// orgtree_session: where the agent's CLI runs now and where its next
-    /// turn's will (`this_turn`, `next_turn`, `held_by_background_work`)
-    Session(oneshot::Sender<Value>),
+    /// turn's will; `pref` is the preference it just saved, `use_id` the
+    /// session it picked for its next turn (0: Session 0)
+    Session { pref: Option<crate::runtime::session_host::Pref>, use_id: Option<u32>, reply: oneshot::Sender<Value> },
     /// orgtree_interrupt on itself: end the running turn; `restart` wakes one
     /// new turn at once when it has ended
     InterruptSelf { restart: bool, reply: oneshot::Sender<Value> },

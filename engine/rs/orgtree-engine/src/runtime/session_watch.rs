@@ -34,6 +34,7 @@ const FILE: &str = "session-placement.json";
 const STEADY: u32 = 2;
 
 pub const SIGNED_IN_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected: your next turn runs in their signed-in Windows session, with access to their desktop and apps. orgtree_session shows where you run.";
+pub const SIGNED_IN_KEPT_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but your session preference keeps your next turn in Windows Session 0. orgtree_session shows where you run and sets the preference.";
 pub const SIGNED_OUT_NOTICE: &str = "[ORGTREE SIGN-OUT NOTICE] The user signed out, or Orgtree's sign-in helper stopped: your next turn runs in Windows Session 0, without their desktop and apps. orgtree_session shows where you run.";
 
 /// Whether a steady reading of where new turns run (`signed-in` while the
@@ -114,18 +115,26 @@ async fn watch(engine: Arc<Engine>) {
 /// One passive line to every live agent of every active organization.
 #[logged]
 async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
+    use crate::runtime::session_host as sh;
     let client = engine.db.get().await?;
     let rows = client
         .query(
-            "SELECT a.id, a.org_id FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
+            "SELECT a.id, a.org_id, a.scope->'session' FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
               WHERE a.state = 'live' AND o.state = 'active' ORDER BY a.id",
             &[],
         )
         .await?;
     drop(client);
-    let text = if up { SIGNED_IN_NOTICE } else { SIGNED_OUT_NOTICE };
+    let sessions = sh::host_sessions(engine);
     for r in rows {
-        let (agent, org): (i64, i64) = (r.get(0), r.get(1));
+        let (agent, org, pref): (i64, i64, Option<serde_json::Value>) = (r.get(0), r.get(1), r.get(2));
+        // where its next turn will run: its preference may keep it in Session 0
+        let pref = sh::parse_pref(pref.as_ref().unwrap_or(&serde_json::Value::Null)).unwrap_or(sh::Pref::SignedIn);
+        let text = match (up, sh::choose(&sessions, &pref, None)) {
+            (true, Some(_)) => SIGNED_IN_NOTICE,
+            (true, None) => SIGNED_IN_KEPT_NOTICE,
+            (false, _) => SIGNED_OUT_NOTICE,
+        };
         if let Err(e) = crate::domain::mail::system_event(engine, org, agent, text, true, None).await {
             tracing::warn!(agent, error = %format!("{e:#}"), "the sign-in or sign-out notice could not be sent to an agent");
         }
@@ -278,6 +287,7 @@ mod tests {
     #[test]
     fn each_notice_is_one_line_and_names_where_the_next_turn_runs() {
         assert!(!SIGNED_IN_NOTICE.contains('\n') && SIGNED_IN_NOTICE.contains("your next turn runs in their signed-in Windows session"));
+        assert!(!SIGNED_IN_KEPT_NOTICE.contains('\n') && SIGNED_IN_KEPT_NOTICE.contains("keeps your next turn in Windows Session 0"));
         assert!(!SIGNED_OUT_NOTICE.contains('\n') && SIGNED_OUT_NOTICE.contains("your next turn runs in Windows Session 0"));
     }
 }

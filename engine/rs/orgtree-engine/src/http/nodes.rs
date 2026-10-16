@@ -632,6 +632,21 @@ pub(crate) async fn apply_user_scope_in_tx(
             }
         }
     }
+    // the agent's preference over the user's Windows sessions (the user,
+    // 2026-10-16 12:08Z-12:13Z): kept only when it is not the default
+    if let Some(v) = b.get("session") {
+        match crate::runtime::session_host::parse_pref(v) {
+            Ok(p) => match crate::runtime::session_host::pref_value(&p) {
+                Value::Null => {
+                    obj.remove("session");
+                }
+                stored => {
+                    obj.insert("session".into(), stored);
+                }
+            },
+            Err(why) => crate::refuse!(Unprocessable, "{why}"),
+        }
+    }
     // A batch passes exactly the approved folders, including reapproval of a
     // retained clamped grant. A desktop whole-list save contributes only its
     // actual additions/upgrades, never unrelated latent configured scope.
@@ -691,7 +706,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         .collect();
     Ok(ScopeEffects {
         agent_id: a.id, subtree, effort_change, notice_ids,
-        fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
+        fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier","session"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
         structural: b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false),
         org_folders_changed,
         out: json!({ "ok": true, "cascaded": cascaded }),

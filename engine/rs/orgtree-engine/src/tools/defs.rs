@@ -313,10 +313,15 @@ fn all() -> Vec<Value> {
             "orgtree_session",
             "Where your turns run on this computer. With Run on boot, Orgtree's engine runs in Windows Session 0, \
              which has no desktop: there you cannot see or use the user's desktop and apps. While the user is signed in, each \
-             agent's CLI moves into their session at its next turn. Returns signed_in (the user is signed in), \
-             this_turn and next_turn (\"session0\" or \"signed-in\"), next_turn_moves, sign_in_helper (connected) \
-             and a summary. Read-only.",
-            json!({}),
+             agent's CLI moves into their session at its next turn. Returns signed_in, this_turn and next_turn \
+             (\"session0\" or \"signed-in\") with their session ids, next_turn_moves, sign_in_helper, your preference, and \
+             sessions: Session 0 and each of the user's sessions where a sign-in helper runs (id, kind console or remote, \
+             state, user). prefer sets your preference; use picks a session id for your next turn only (0: Session 0); \
+             orgtree_interrupt on yourself with restart applies either at once. Without arguments it only reads.",
+            json!({
+                "prefer": { "type": "string", "description": "signed-in (default: any of the user's sessions), session0, console, remote, or an ordered list such as \"remote,console\"; Session 0 is always the fallback" },
+                "use": { "type": "integer", "description": "a session id from sessions for your next turn only; 0 for Session 0" },
+            }),
             &[],
         ),
         tool(

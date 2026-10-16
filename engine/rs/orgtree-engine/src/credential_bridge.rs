@@ -71,23 +71,35 @@ fn same_holder(b: &Broker, pipe: &str, secret: &str, pid: u32) -> bool {
     b.pipe == pipe && b.pid == pid && equal(&b.secret, secret)
 }
 /// The sign-in helpers holding the host role, by the Windows session each
-/// runs in. So far one at a time, whatever its session.
+/// runs in: the engine user's sessions are hosted side by side, one helper
+/// each (the user, 2026-10-16 12:12Z and 12:13Z). A live lease keeps its
+/// session; another helper there retries on its next poll, so no flapping.
 #[derive(Default)]
-#[cfg_attr(not(test), allow(dead_code))]
 struct HostLeases(std::sync::Mutex<Vec<(u32, Arc<Broker>)>>);
 #[nolog]
-#[cfg_attr(not(test), allow(dead_code))]
 impl HostLeases {
+    /// Whether another live helper holds `session`.
+    fn held(&self, session: u32, pipe: &str, secret: &str, pid: u32) -> bool {
+        let v = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        v.iter().any(|(s, c)| *s == session && !same_holder(c, pipe, secret, pid) && live(c))
+    }
     /// Admit `b`, which runs in `session`, unless another live helper holds
-    /// its place; its own renewal replaces its lease.
-    fn admit(&self, session: u32, b: Arc<Broker>) -> Result<(), Fail> {
+    /// that session; its own renewal replaces its lease. True when newly
+    /// admitted rather than renewed.
+    fn admit(&self, session: u32, b: Arc<Broker>) -> Result<bool, Fail> {
         let mut v = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        if v.iter().any(|(_, c)| !same_holder(c, &b.pipe, &b.secret, b.pid) && live(c)) {
+        if v.iter().any(|(s, c)| *s == session && !same_holder(c, &b.pipe, &b.secret, b.pid) && live(c)) {
             return Err(Fail::Held);
         }
-        v.retain(|(_, c)| live(c) && !same_holder(c, &b.pipe, &b.secret, b.pid));
+        let renewed = v.iter().any(|(s, c)| *s == session && same_holder(c, &b.pipe, &b.secret, b.pid) && live(c));
+        v.retain(|(s, c)| live(c) && *s != session && !same_holder(c, &b.pipe, &b.secret, b.pid));
         v.push((session, b));
-        Ok(())
+        Ok(!renewed)
+    }
+    /// The live lease of `session`.
+    fn get(&self, session: u32) -> Option<Arc<Broker>> {
+        let v = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        v.iter().find(|(s, c)| *s == session && live(c)).map(|(_, c)| c.clone())
     }
     /// Its holder, proven by pipe, secret and pid, gives a lease back.
     fn release(&self, pipe: &str, secret: &str, pid: u32) -> bool {
@@ -113,8 +125,9 @@ struct Grant {
 }
 pub struct Bridge {
     broker: ArcSwapOption<Broker>,
-    /// Independent lease: the desktop can serve credentials while a helper hosts Codex.
-    codex_host: ArcSwapOption<Broker>,
+    /// Independent leases, one per Windows session of the engine's user: the
+    /// desktop can serve credentials while helpers host agents' CLIs.
+    hosts: HostLeases,
     grants: papaya::HashMap<i64, Arc<Grant>>,
     slots: tokio::sync::Semaphore,
     reported_ready: AtomicBool,
@@ -125,7 +138,7 @@ impl Bridge {
     pub fn new() -> Self {
         Self {
             broker: ArcSwapOption::empty(),
-            codex_host: ArcSwapOption::empty(),
+            hosts: HostLeases::default(),
             grants: papaya::HashMap::new(),
             slots: tokio::sync::Semaphore::new(16),
             reported_ready: AtomicBool::new(false),
@@ -179,23 +192,24 @@ impl Bridge {
             .map(|b| b.expires > Instant::now())
             .unwrap_or(false)
     }
-    /// Whether a live sign-in helper can start Codex in the user's session.
+    /// Whether a live sign-in helper can start CLIs in a session of the user.
     pub fn can_host(&self) -> bool {
-        self.codex_host.load().as_ref().is_some_and(|b| live(b))
+        !self.hosts.hosting().is_empty()
     }
-    /// The helper's pid, which connects the pipes of a Codex it starts.
-    pub fn host_pid(&self) -> Option<u32> {
-        self.codex_host.load().as_ref().filter(|b| live(b)).map(|b| b.pid)
+    /// The live helpers: (Windows session, helper pid), by session.
+    pub fn hosting(&self) -> Vec<(u32, u32)> {
+        self.hosts.hosting()
     }
-    /// A spawn or kill request to the sign-in helper. A spawn carries the
-    /// child's environment (its API key), so nothing here is logged; the
-    /// answer is the helper's reply or a fixed, secret-free code.
-    pub async fn host(&self, mut request: Value) -> Result<Vec<u8>, String> {
-        let broker = self
-            .codex_host
-            .load_full()
-            .filter(|b| live(b))
-            .ok_or_else(|| "host-gone".to_string())?;
+    /// The pid of the helper hosting `session`, which connects the pipes of
+    /// a CLI it starts.
+    pub fn host_pid_in(&self, session: u32) -> Option<u32> {
+        self.hosts.get(session).map(|b| b.pid)
+    }
+    /// A spawn or kill request to the sign-in helper of `session`. A spawn
+    /// carries the child's environment (its API key), so nothing here is
+    /// logged; the answer is the helper's reply or a fixed, secret-free code.
+    pub async fn host_in(&self, session: u32, mut request: Value) -> Result<Vec<u8>, String> {
+        let broker = self.hosts.get(session).ok_or_else(|| "host-gone".to_string())?;
         request["diagnostics"] = json!(1);
         match exchange(&broker, request).await {
             Ok(reply) => Ok(reply),
@@ -415,6 +429,70 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
             .into_response(),
     }
 }
+/// A sign-in helper takes, renews or gives back the host role for the Windows
+/// session it runs in (the user, 2026-10-16 12:12Z and 12:13Z: the engine
+/// user's sessions side by side, one helper each). The first helper is the
+/// core's helper member; a second session's helper hosts beside it.
+#[nolog]
+async fn register_host(engine: &Engine, value: &Value, pipe: &str, secret: &str, pid: u32) -> Result<Vec<u8>, Fail> {
+    let hosts = &engine.credential_bridge.hosts;
+    if value["release"].as_bool() == Some(true) {
+        if hosts.release(pipe, secret, pid) {
+            tracing::info!(pid, "Sign-in helper released its host role");
+        }
+        return Ok(b"released".to_vec());
+    }
+    let session = helper_session(value, pid).ok_or(Fail::Denied)?;
+    if hosts.held(session, pipe, secret, pid) {
+        return Err(Fail::Held);
+    }
+    let mut broker = Broker {
+        pipe: pipe.into(),
+        secret: secret.into(),
+        pid,
+        created: 0,
+        expires: Instant::now() + Duration::from_secs(20),
+    };
+    if exchange(&broker, json!({"kind":"ping"})).await.map_err(|_| Fail::Unavailable)? != b"ready" {
+        return Err(Fail::Denied);
+    }
+    // The ping proved `pid` serves the pipe as the interactive operator.
+    broker.created = process_stamp(pid).unwrap_or(0);
+    let first = hosts.hosting().iter().all(|(_, p)| *p == pid);
+    if first && !engine.core.member(false, pid).await {
+        return Err(Fail::Denied);
+    }
+    if hosts.admit(session, Arc::new(broker))? {
+        tracing::info!(pid, session, "Sign-in helper took the Codex host slot");
+    }
+    Ok(b"ready".to_vec())
+}
+/// The Windows session a helper runs in. A debug rig engine lets a proof's
+/// helper name a synthetic one (`rig_session`), so two helpers in one real
+/// session stand for two sessions.
+#[nolog]
+fn helper_session(value: &Value, pid: u32) -> Option<u32> {
+    #[cfg(debug_assertions)]
+    if crate::rig::active() {
+        if let Some(s) = value["rig_session"].as_u64().and_then(|s| u32::try_from(s).ok()).filter(|s| *s != 0) {
+            return Some(s);
+        }
+    }
+    let _ = value;
+    process_session(pid)
+}
+#[cfg(windows)]
+#[nolog]
+fn process_session(pid: u32) -> Option<u32> {
+    let mut session = 0;
+    (unsafe { windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId(pid, &mut session) } != 0 && session != 0)
+        .then_some(session)
+}
+#[cfg(not(windows))]
+#[nolog]
+fn process_session(_pid: u32) -> Option<u32> {
+    None
+}
 #[nolog]
 async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
     let peer = req
@@ -504,7 +582,10 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             Some("host") if value["caps"].as_array().is_some_and(|c| c.iter().any(|v| v == "spawn")) => true,
             _ => return Err(Fail::Denied),
         };
-        let slot = if host_only { &engine.credential_bridge.codex_host } else { &engine.credential_bridge.broker };
+        if host_only {
+            return register_host(engine, &value, pipe, secret, pid).await;
+        }
+        let slot = &engine.credential_bridge.broker;
         let current = slot.load_full();
         // Each role has its own lease. Only its holder, proven by its
         // pipe and secret, may release that role; the other stays unchanged.
@@ -515,8 +596,8 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             {
                 let previous = slot.compare_and_swap(&current, None);
                 if previous.as_ref().map(|p| Arc::ptr_eq(p, c)).unwrap_or(false) {
-                    tracing::info!(pid, host_only, "Signed-in broker released its role");
-                    if !host_only { publish_availability(engine); }
+                    tracing::info!(pid, "Signed-in broker released its role");
+                    publish_availability(engine);
                 }
             }
             return Ok(b"released".to_vec());
@@ -544,7 +625,6 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
         }
         // The ping proved `pid` serves the pipe as the interactive operator.
         broker.created = process_stamp(pid).unwrap_or(0);
-        if host_only && !engine.core.member(false, pid).await { return Err(Fail::Denied); }
         let fresh = Arc::new(broker);
         let previous = slot.compare_and_swap(&current, Some(fresh.clone()));
         let swapped = match (&*previous, &current) {
@@ -556,10 +636,9 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
             return Err(Fail::Held);
         }
         if current.as_ref().map(|c| c.pipe != fresh.pipe).unwrap_or(true) {
-            if host_only { tracing::info!(pid, "Sign-in helper took the Codex host slot"); }
-            else { tracing::info!(pid, "Credential broker took the bridge"); }
+            tracing::info!(pid, "Credential broker took the bridge");
         }
-        if !host_only { publish_availability(engine); }
+        publish_availability(engine);
         return Ok(b"ready".to_vec());
     }
     let agent = value["agent"].as_i64().ok_or(())?;
@@ -1265,20 +1344,21 @@ mod host_slot_tests {
         bridge.broker.store(Some(lease(false, false)));
         assert!(bridge.ready());
         assert!(!bridge.can_host());
-        bridge.codex_host.store(Some(lease(false, false)));
+        assert!(bridge.hosts.admit(1, lease(false, false)).is_ok());
         assert!(bridge.can_host());
-        assert_eq!(bridge.host_pid(), Some(std::process::id()));
+        assert_eq!(bridge.host_pid_in(1), Some(std::process::id()));
+        assert_eq!(bridge.host_pid_in(2), None);
         bridge.broker.store(None);
         assert!(!bridge.ready());
         assert!(bridge.can_host());
         bridge.broker.store(Some(lease(false, false)));
         for host in [lease(true, false), lease(false, true)] {
-            bridge.codex_host.store(Some(host));
+            assert!(bridge.hosts.admit(1, host).is_ok());
             assert!(!bridge.can_host());
-            assert_eq!(bridge.host_pid(), None);
+            assert_eq!(bridge.host_pid_in(1), None);
             assert!(bridge.ready());
         }
-        bridge.codex_host.store(None);
+        bridge.hosts.release("test-pipe", "test-only", std::process::id());
         assert!(bridge.ready());
         assert!(!bridge.can_host());
     }

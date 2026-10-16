@@ -40,7 +40,7 @@ pub struct Spec {
     pub approval: Approval,
     /// the engine and agent when the sign-in helper starts it in the
     /// operator's signed-in session (`session_host::wanted`); None: here
-    pub host: Option<(Arc<crate::engine::Engine>, i64)>,
+    pub host: Option<(Arc<crate::engine::Engine>, i64, u32)>,
 }
 
 /// Neither raw frames nor stderr are logged: provider errors and tool arguments
@@ -118,7 +118,7 @@ impl Process {
             Ok(command)
         };
         let started = match &spec.host {
-            Some((engine, agent)) => super::session_host::spawn(engine, true, true, *agent, "ACP harness", build).await.map(|(s, _)| s),
+            Some((engine, agent, session)) => super::session_host::spawn(engine, Some(*session), true, *agent, "ACP harness", build).await.map(|(s, _)| s),
             None => build(false).and_then(super::session_host::spawn_local),
         };
         let super::session_host::Started { io, launched, job, pid } = started.context("could not start ACP harness")?;
@@ -150,6 +150,11 @@ impl Process {
     /// Started by the sign-in helper in the user's session.
     pub fn hosted(&self) -> bool {
         self.child.as_ref().is_some_and(|c| c.hosted())
+    }
+
+    /// The user's session the sign-in helper started it in.
+    pub fn hosted_in(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|c| c.session())
     }
 
     pub async fn exit_status(&mut self, reason: &str) -> String {
