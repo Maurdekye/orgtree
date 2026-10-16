@@ -155,12 +155,12 @@ pub fn attention_dismissed(org: &str, slug: &str, title: &str, reason: &str, pen
     Value::Object(o)
 }
 
-/// `reply.docket`: the user's reply on an item, to its owner or a participant.
+/// `reply.docket`: the user's reply on an item, to its owner, participant, or current attention raiser.
 pub fn reply_docket(org: &str, slug: &str, title: &str, body: &str, role: &str, owner: Option<&str>) -> Value {
     let mut o = envelope("reply.docket", actor(USER), work_item_ref(org, slug, title));
     o.insert("body".into(), json!(body));
     o.insert("role".into(), json!(role));
-    o.insert("owner".into(), json!(if role == "participant" { owner } else { None }));
+    o.insert("owner".into(), json!(if role != "owner" { owner } else { None }));
     Value::Object(o)
 }
 
