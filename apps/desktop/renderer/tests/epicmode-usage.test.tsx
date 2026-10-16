@@ -9,6 +9,7 @@ const window = (group: string, percent: number | null, kind = 'session'): UsageL
   ({ kind, group, percent, label: null, model: null, severity: null, resets_at: null, is_active: null })
 const reading = (limits: UsageLimit[], extra = {}) =>
   ({ available: true, provider: 'google', limits, age: 0, ...extra })
+let epochs = 0
 
 /** Exercise the director through the real cache-only app feed. No provider calls. */
 async function feed(initial: Record<string, unknown>) {
@@ -23,7 +24,7 @@ async function feed(initial: Record<string, unknown>) {
     close() { this.onclose?.() }
     frame(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }) }
   }
-  const epoch = 'epic-usage-regression'
+  const epoch = `epic-usage-regression-${++epochs}`
   let seq = 1
   const values = (input: Record<string, unknown>) => Object.fromEntries(
     Object.entries(input).map(([key, value]) => [key, { epoch, seq, value }]))
