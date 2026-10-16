@@ -40,6 +40,11 @@ const start = {
   y: Number(q.get('y') ?? -180),
   z: Number(q.get('z') ?? 1),
 }
+const cursorParam = q.get('cursor')
+const cursorPt = cursorParam ? (() => {
+  const [cx, cy] = cursorParam.split(',').map(Number)
+  return Number.isFinite(cx) && Number.isFinite(cy) ? { x: cx!, y: cy! } : null
+})() : null
 const versionParam = q.get('version')
 localStorage.setItem(CANVAS_BG_KEY, JSON.stringify({
   theme,
@@ -98,6 +103,13 @@ function Stage() {
           </div>
         ))}
       </div>
+      {cursorPt ? (
+        <div style={{
+          position: 'fixed', left: cursorPt.x - 7, top: cursorPt.y - 7, width: 14, height: 14,
+          borderRadius: '50%', border: '1.5px solid rgba(120, 190, 255, 0.85)',
+          boxShadow: '0 0 0 2px rgba(0, 0, 0, 0.55)', pointerEvents: 'none',
+        }} />
+      ) : null}
       <div style={{
         position: 'fixed', left: 8, bottom: 6, color: 'var(--dim)',
         font: '11px var(--mono)', opacity: 0.85,
@@ -121,6 +133,7 @@ interface FixtureWindow {
   __setView?: (v: { x: number; y: number; z: number }) => void
   __runDragZoomOutStress?: () => Promise<unknown>
   __compareWind?: (t: number) => unknown
+  __measureDisturbanceCenter?: () => unknown
   __cardClicks?: number
 }
 const w = window as unknown as FixtureWindow
@@ -192,7 +205,7 @@ w.__compareWind = (t: number) => {
   const read = renderer.readWind()
   if (!read) return { error: 'wind readback unavailable' }
   const v = liveView.current
-  const z = Math.max(0.35, v.z)
+  const z = Math.max(1e-4, v.z)
   const wCss = (host as HTMLElement).clientWidth, hCss = (host as HTMLElement).clientHeight
   const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
   const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), Math.max(1, z) * dpr)
@@ -247,6 +260,64 @@ w.__compareWind = (t: number) => {
     samples: read.width * read.height, width: read.width, height: read.height,
     channels: Object.fromEntries(channels.map(c => [c.name, stats(c.diffs)])),
     mismatches,
+  }
+}
+w.__measureDisturbanceCenter = () => {
+  const api = w.__ascii
+  const renderer = api?.renderer()
+  const host = document.querySelector('.canvas-bg-ascii')
+  if (!api || !renderer || !host) return { error: 'ascii layer not ready' }
+  const st = api.state()
+  api.drawAt(st.fieldTime, 1)
+  const read = renderer.readWind()
+  if (!read) return { error: 'wind readback unavailable' }
+  const v = liveView.current
+  const z = Math.max(1e-4, v.z)
+  const wCss = (host as HTMLElement).clientWidth, hCss = (host as HTMLElement).clientHeight
+  const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+  const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), Math.max(1, z) * dpr)
+  if (!grid) return { error: 'no grid at this size' }
+  const worldScale = z * dpr
+  const cellWorldW = grid.cellWidth / worldScale
+  const cellWorldH = grid.cellHeight / worldScale
+  const worldLeft = -v.x / z, worldTop = -v.y / z
+  const originX = Math.floor(worldLeft / cellWorldW) * cellWorldW
+  const originY = Math.floor(worldTop / cellWorldH) * cellWorldH
+  const cssLeft = (originX - worldLeft) * z
+  const cssTop = (originY - worldTop) * z
+  const cssW = grid.columns * cellWorldW * z
+  const cssH = grid.rows * cellWorldH * z
+  const span = spanFor(api.visit, grid.columns * cellWorldW, grid.rows * cellWorldH)
+  const calmCx = (wCss / 2 - v.x) / z
+  const calmCy = (ASCII_CONFIG.card.centerY * hCss - v.y) / z
+  const clamp255 = (x: number): number => Math.round(Math.min(1, Math.max(0, x)) * 255)
+  let weightSum = 0, weightedX = 0, weightedY = 0, disturbedTexels = 0
+  for (let sy = 0; sy < read.height; sy++) {
+    for (let sx = 0; sx < read.width; sx++) {
+      const f = fieldAt({
+        x: originX + (sx + 0.5) * cellWorldW,
+        y: originY + (sy + 0.5) * (cellWorldH / 2),
+        time: st.fieldTime, reveal: 1, visit: api.visit, span, calmCx, calmCy,
+        taps: [], touchFrame: null, now: 0,
+      })
+      const baseR = clamp255(f.strength)
+      const glR = read.data[(sy * read.width + sx) * 4] ?? 0
+      const diff = glR - baseR
+      if (diff > 64) {
+        const px = cssLeft + ((sx + 0.5) / read.width) * cssW
+        const py = cssTop + ((sy + 0.5) / read.height) * cssH
+        weightedX += px * diff
+        weightedY += py * diff
+        weightSum += diff
+        disturbedTexels++
+      }
+    }
+  }
+  return {
+    disturbedTexels,
+    screenX: weightSum > 0 ? Math.round((weightedX / weightSum) * 100) / 100 : null,
+    screenY: weightSum > 0 ? Math.round((weightedY / weightSum) * 100) / 100 : null,
+    state: api.state(),
   }
 }
 requestAnimationFrame(() => requestAnimationFrame(() => { w.__ready = true }))

@@ -322,15 +322,17 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     const scheduleColours = (): void => {
       win.requestAnimationFrame(() => { if (!cancelled) applyColours() })
     }
+    const asciiZoom = (z: number): number => Math.max(1e-4, z)
     const computeLayout = (): AsciiLayout | null => {
       const wCss = host.clientWidth, hCss = host.clientHeight
       if (!(wCss > 0 && hCss > 0)) return null
       const v = viewRef.current
-      // Bound zoom-out density and device-pixel scale so rapid drag + zoom-out
-      // never explodes fragment count, shrinks glyph cells into faint sub-pixel
-      // dust, or reallocates the WebGL backbuffer/atlas on every zoom step below z = 1.
-      // World-space sampling (worldScale = z * dpr) still zooms the wind field down to z = 0.35.
-      const z = Math.max(0.35, v.z)
+      // Bound zoom-out glyph density and device-pixel scale via gridScale >= dpr
+      // so rapid drag + zoom-out never explodes fragment count, shrinks glyph
+      // cells into faint sub-pixel dust, or reallocates the WebGL backbuffer/atlas
+      // on zoom steps below z = 1, while world-space sampling and pointer mapping
+      // use the true camera zoom z at every zoom level (including minimum zoom 0.24).
+      const z = asciiZoom(v.z)
       const dpr = Math.min(2, Math.max(1, win.devicePixelRatio || 1))
       const gridScale = Math.max(1, z) * dpr
       const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), gridScale)
@@ -371,7 +373,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         renderer.canvas.style.height = `${lay.cssH}px`
       }
       const v = viewRef.current
-      const z = Math.max(0.35, v.z)
+      const z = asciiZoom(v.z)
       const frame: AsciiTouchFrame = touch.frame(touchNow())
       renderer.draw(time, reveal, frame, {
         originX: lay.originX, originY: lay.originY,
@@ -537,7 +539,8 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     const toWorld = (e: PointerEvent): { x: number; y: number } => {
       const rect = host.getBoundingClientRect()
       const v = viewRef.current
-      return { x: (e.clientX - rect.left - v.x) / v.z, y: (e.clientY - rect.top - v.y) / v.z }
+      const z = asciiZoom(v.z)
+      return { x: (e.clientX - rect.left - v.x) / z, y: (e.clientY - rect.top - v.y) / z }
     }
     const onInteractive = (e: PointerEvent): boolean => {
       const t = e.target

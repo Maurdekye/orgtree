@@ -212,6 +212,48 @@ const SCENES = [
     },
   },
   {
+    name: 'ascii-tap-minzoom', query: 'theme=ascii&seed=42&pool=mixed&x=-720&y=-180&z=0.24&cursor=520,340',
+    run: async win => {
+      await waitAscii(win)
+      win.webContents.sendInputEvent({ type: 'mouseDown', x: 520, y: 340, button: 'left', clickCount: 1 })
+      await sleep(40)
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 340, button: 'left', clickCount: 1 })
+      await sleep(500)
+      const measured = await js(win, 'window.__measureDisturbanceCenter()')
+      const dx = typeof measured?.screenX === 'number' ? Math.abs(measured.screenX - 520) : 999
+      const dy = typeof measured?.screenY === 'number' ? Math.abs(measured.screenY - 340) : 999
+      return {
+        measured,
+        checks: {
+          minZoomTapBusy: !!measured?.state?.tapBusy,
+          minZoomDisturbed: (measured?.disturbedTexels ?? 0) >= 15,
+          minZoomCursorAligned: dx <= 35 && dy <= 35,
+        },
+      }
+    },
+  },
+  {
+    name: 'ascii-tap-zoomstep', query: 'theme=ascii&seed=42&pool=mixed&x=-720&y=-180&z=0.35&cursor=520,340',
+    run: async win => {
+      await waitAscii(win)
+      win.webContents.sendInputEvent({ type: 'mouseDown', x: 520, y: 340, button: 'left', clickCount: 1 })
+      await sleep(40)
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 340, button: 'left', clickCount: 1 })
+      await sleep(500)
+      const measured = await js(win, 'window.__measureDisturbanceCenter()')
+      const dx = typeof measured?.screenX === 'number' ? Math.abs(measured.screenX - 520) : 999
+      const dy = typeof measured?.screenY === 'number' ? Math.abs(measured.screenY - 340) : 999
+      return {
+        measured,
+        checks: {
+          zoomStepTapBusy: !!measured?.state?.tapBusy,
+          zoomStepDisturbed: (measured?.disturbedTexels ?? 0) >= 15,
+          zoomStepCursorAligned: dx <= 35 && dy <= 35,
+        },
+      }
+    },
+  },
+  {
     name: 'ascii-heart', query: 'theme=ascii&seed=42&pool=mixed&x=0&y=0&z=1',
     run: async win => {
       await waitAscii(win)

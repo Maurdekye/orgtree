@@ -498,7 +498,18 @@ interface MockGlControl {
   lastLostPrevented: boolean
   invalidResourceUses: number
   atlasFonts: string[]
+  uniforms: Record<string, number[]>
 }
+
+const MOCK_UNIFORM_NAMES = [
+  'uSeed', 'uTime', 'uReveal', 'uOrigin', 'uSample', 'uCanvasSize',
+  'uCalmCentre', 'uCalmRadii', 'uWindVec', 'uGustVec', 'uShapeVec',
+  'uTail', 'uSweep', 'uMorph', 'uNow', 'uTapCount', 'uTaps[0]',
+  'uWakeCount', 'uWakes[0]', 'uWays[0]', 'uAtlas', 'uBoxes',
+  'uWindTex', 'uSequence', 'uGrid', 'uCell', 'uBuffer',
+  'uCellOrigin', 'uCellWorld', 'uFill', 'uFlick', 'uFriction',
+  'uGlowAmount', 'uInk', 'uInkAlpha', 'uGlowColour', 'uCount',
+]
 
 function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
   const ctrl: MockGlControl = {
@@ -508,6 +519,7 @@ function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
     lastLostPrevented: false,
     invalidResourceUses: 0,
     atlasFonts: [],
+    uniforms: {},
   }
   const w = window as unknown as Record<string, unknown>
   const prevRo = w.ResizeObserver
@@ -616,15 +628,18 @@ function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
           }
           return null
         },
-        getParameter: (p: number) => p === ACTIVE_UNIFORMS ? 0 : 'ANGLE (NVIDIA GeForce RTX, Direct3D11)',
+        getParameter: (p: number) => p === ACTIVE_UNIFORMS ? MOCK_UNIFORM_NAMES.length : 'ANGLE (NVIDIA GeForce RTX, Direct3D11)',
         isContextLost: () => ctrl.contextLost,
         disable() {}, enable() {}, blendFunc() {}, pixelStorei() {},
         createShader: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }), shaderSource() {}, compileShader() {},
         getShaderParameter: (s: { gen?: number } | null) => !ctrl.contextLost && s?.gen === ctrl.ctxGen,
         createProgram: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }), attachShader() {}, linkProgram() {},
         getProgramParameter: (p: { gen?: number } | null, pname: number) =>
-          pname === LINK_STATUS ? (!ctrl.contextLost && p?.gen === ctrl.ctxGen) : 0,
-        getActiveUniform: () => null, getUniformLocation: () => ({}),
+          pname === LINK_STATUS ? (!ctrl.contextLost && p?.gen === ctrl.ctxGen)
+            : pname === ACTIVE_UNIFORMS ? MOCK_UNIFORM_NAMES.length : 0,
+        getActiveUniform: (_p: unknown, i: number) =>
+          i >= 0 && i < MOCK_UNIFORM_NAMES.length ? { name: MOCK_UNIFORM_NAMES[i]!, size: 1, type: 0 } : null,
+        getUniformLocation: (_p: unknown, name: string) => ({ name: name.replace(/\[0\]$/, '') }),
         createTexture: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }), activeTexture() {},
         bindTexture(_target: number, tex: { gen?: number } | null) {
           if (tex && tex.gen !== ctrl.ctxGen) ctrl.invalidResourceUses += 1
@@ -638,8 +653,14 @@ function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
         useProgram(p: { gen?: number } | null) {
           if (!p || p.gen !== ctrl.ctxGen) ctrl.invalidResourceUses += 1
         },
-        uniform1ui() {}, uniform1i() {}, uniform1f() {},
-        uniform2f() {}, uniform2i() {}, uniform3f() {}, uniform4f() {}, uniform4fv() {},
+        uniform1ui(loc: { name?: string } | null, v: number) { if (loc?.name) ctrl.uniforms[loc.name] = [v] },
+        uniform1i(loc: { name?: string } | null, v: number) { if (loc?.name) ctrl.uniforms[loc.name] = [v] },
+        uniform1f(loc: { name?: string } | null, v: number) { if (loc?.name) ctrl.uniforms[loc.name] = [v] },
+        uniform2f(loc: { name?: string } | null, x: number, y: number) { if (loc?.name) ctrl.uniforms[loc.name] = [x, y] },
+        uniform2i(loc: { name?: string } | null, x: number, y: number) { if (loc?.name) ctrl.uniforms[loc.name] = [x, y] },
+        uniform3f(loc: { name?: string } | null, x: number, y: number, z: number) { if (loc?.name) ctrl.uniforms[loc.name] = [x, y, z] },
+        uniform4f(loc: { name?: string } | null, x: number, y: number, z: number, w0: number) { if (loc?.name) ctrl.uniforms[loc.name] = [x, y, z, w0] },
+        uniform4fv(loc: { name?: string } | null, v: ArrayLike<number>) { if (loc?.name) ctrl.uniforms[loc.name] = Array.from(v) },
         texImage2D() {}, viewport() {}, clearColor() {}, clear() {}, drawArrays() {},
         fenceSync: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }),
         getSyncParameter: () => ctrl.contextLost ? null : (ctrl.fenceSignaled ? SIGNALED : UNSIGNALED),
@@ -722,7 +743,7 @@ test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside
   viewRef.current = { x: -400, y: -300, z: 0.05 }
   api!.drawAt(9, 1)
   const state005 = api!.state()
-  assert.equal(state005.columns, state035.columns, 'zooming below 0.35 clamps to the minimum ASCII zoom grid')
+  assert.equal(state005.columns, state035.columns, 'zooming below z=1 keeps the bounded z=1 glyph grid')
   assert.equal(state005.rows, state035.rows)
   assert.equal(state005.datasetState, 'moving')
 
@@ -787,3 +808,115 @@ test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside
   assert.equal(ctrl.invalidResourceUses, 0, 'restored renderer must never bind or use invalidated pre-loss GL programs, textures, or framebuffers')
   assert.equal(mounted.el.querySelector('canvas') === null, false, 'canvas remains mounted after context restoration')
 })
+
+test('Claude Waves cursor disturbance (wakes and tap ripples) and floor backdrops align with the cursor at minimum zoom (z=0.24) and one step in (z=0.35)', async (t) => {
+  // 1. Check all non-ASCII backdrops at minimum zoom (z=0.24) vs one step in (z=0.35):
+  // Around @user (world x=6000), v.x is negative (-720 at z=0.24). A world point wx=5000
+  // projects to screen sx = wx * z + x; the CSS pattern's phase (sx - posX) / sizeW must stay invariant.
+  for (const z of [0.24, 0.35, 1.0]) {
+    const v = { x: -720, y: -180, z }
+    assert.deepEqual(bgGeometry('line-grid', v), {
+      backgroundPosition: '-720px -180px',
+      backgroundSize: `${Math.round(28 * z * 100) / 100}px ${Math.round(28 * z * 100) / 100}px`,
+    })
+    assert.deepEqual(bgGeometry('checkerboard', v), {
+      backgroundPosition: '-720px -180px',
+      backgroundSize: `${Math.round(56 * z * 100) / 100}px ${Math.round(56 * z * 100) / 100}px`,
+    })
+    assert.equal(bgGeometry('square-tiles', v).maskPosition, '-720px -180px')
+    assert.equal(bgGeometry('square-tiles', v).maskSize, `${Math.round(28 * z * 100) / 100}px ${Math.round(28 * z * 100) / 100}px`)
+    assert.equal(bgGeometry('triangle-tiles', v).maskPosition, '-720px -180px')
+    assert.equal(bgGeometry('hex-tiles', v).maskPosition, '-720px -180px')
+    assert.equal(bgGeometry('hex-lines', v).maskPosition, '-720px -180px')
+  }
+
+  // 2. Check Claude Waves cursor-to-shader screen alignment at minimum zoom (z=0.24), one step in (z=0.35), and circular min zoom (z=0.12):
+  const ctrl = installAsciiGlEnv(t, 1)
+  stubReducedMotion(t, false)
+  const viewRef = { current: { x: -720, y: -180, z: 0.24 } }
+  let api: AsciiTestApi | null = null
+  const mounted = await mountView(
+    <div>
+      <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={false} intensity={1}
+        pin={{ seed: 42, pool: 'mixed' }} onReady={a => { api = a }} />
+    </div>,
+    el => el,
+  )
+  t.after(async () => { await mounted.unmount() })
+  for (let i = 0; i < 20 && !api; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(4) })
+  }
+  assert.equal(api === null, false, 'AsciiLayer should initialize')
+
+  const hostParent = mounted.el.querySelector('.canvas-bg-ascii')!.parentElement!
+  const glCanvas = api!.renderer()!.canvas
+  const PointerEv = window.PointerEvent ?? window.MouseEvent
+
+  // Helper that maps a world point (wx, wy) through the actual WebGL uniforms
+  // (uOrigin, uSample, uCellWorld) and canvas CSS box to the screen pixel where it renders.
+  const worldToRenderedScreen = (wx: number, wy: number): { x: number; y: number } => {
+    const [originX = 0, originY = 0] = ctrl.uniforms.uOrigin ?? []
+    const [sampleX = 1, sampleY = 1] = ctrl.uniforms.uSample ?? []
+    const [, , cellWorldW = 1, cellWorldH = 1] = ctrl.uniforms.uCellWorld ?? []
+    const st = api!.state()
+    const left = parseFloat(glCanvas.style.left)
+    const top = parseFloat(glCanvas.style.top)
+    const width = parseFloat(glCanvas.style.width)
+    const height = parseFloat(glCanvas.style.height)
+    // Both wind pass (uOrigin + fragCoord * uSample) and glyph pass (uCellWorld) must agree:
+    const windScreenX = left + ((wx - originX) / sampleX) * (width / (st.columns ?? 1))
+    const windScreenY = top + ((wy - originY) / (sampleY * 2)) * (height / (st.rows ?? 1))
+    const glyphScreenX = left + ((wx - originX) / cellWorldW) * (width / (st.columns ?? 1))
+    const glyphScreenY = top + ((wy - originY) / cellWorldH) * (height / (st.rows ?? 1))
+    close(windScreenX, glyphScreenX, 1e-6)
+    close(windScreenY, glyphScreenY, 1e-6)
+    return { x: windScreenX, y: windScreenY }
+  }
+
+  // At minimum zoom z=0.24 with negative pan v.x=-720 (viewing @user around world x=6000),
+  // sweep pointer to (520, 240) and click at (520, 240).
+  for (let i = 0; i <= 5; i++) {
+    hostParent.dispatchEvent(new PointerEv('pointermove', { bubbles: true, clientX: 320 + i * 40, clientY: 240 }))
+    await new Promise(r => setTimeout(r, 50))
+  }
+  hostParent.dispatchEvent(new PointerEv('pointerdown', { bubbles: true, button: 0, clientX: 520, clientY: 240 }))
+  api!.drawAt(10, 1)
+
+  const tapsAt024 = ctrl.uniforms.uTaps ?? []
+  const tapDrawn024 = worldToRenderedScreen(tapsAt024[0]!, tapsAt024[1]!)
+  close(tapDrawn024.x, 520, 1e-3)
+  close(tapDrawn024.y, 240, 1e-3)
+
+  const wakeCount024 = ctrl.uniforms.uWakeCount?.[0] ?? 0
+  assert.ok(wakeCount024 > 0, 'pointer sweep at z=0.24 emits wake segments')
+  const wakesAt024 = ctrl.uniforms.uWakes ?? []
+  const lastWakeIdx = (wakeCount024 - 1) * 4
+  const wakeDrawn024 = worldToRenderedScreen(wakesAt024[lastWakeIdx]!, wakesAt024[lastWakeIdx + 1]!)
+  // Last wake segment is midpoint between (480, 240) and (520, 240), i.e. (500, 240):
+  close(wakeDrawn024.x, 500, 1e-3)
+  close(wakeDrawn024.y, 240, 1e-3)
+
+  const calmCentre024 = ctrl.uniforms.uCalmCentre ?? []
+  const calmDrawn024 = worldToRenderedScreen(calmCentre024[0]!, calmCentre024[1]!)
+  close(calmDrawn024.x, 400, 1e-3)
+  close(calmDrawn024.y, 270, 1e-3)
+
+  // Zoom in one step (z=0.35) and click at (610, 310):
+  viewRef.current = { x: -720, y: -180, z: 0.35 }
+  hostParent.dispatchEvent(new PointerEv('pointerdown', { bubbles: true, button: 0, clientX: 610, clientY: 310 }))
+  api!.drawAt(11, 1)
+  const tapsAt035 = ctrl.uniforms.uTaps ?? []
+  const tapDrawn035 = worldToRenderedScreen(tapsAt035[4]!, tapsAt035[5]!)
+  close(tapDrawn035.x, 610, 1e-3)
+  close(tapDrawn035.y, 310, 1e-3)
+
+  // Circular-chart deep zoom-out (z=0.12) and click at (450, 190):
+  viewRef.current = { x: -720, y: -180, z: 0.12 }
+  hostParent.dispatchEvent(new PointerEv('pointerdown', { bubbles: true, button: 0, clientX: 450, clientY: 190 }))
+  api!.drawAt(12, 1)
+  const tapsAt012 = ctrl.uniforms.uTaps ?? []
+  const tapDrawn012 = worldToRenderedScreen(tapsAt012[8]!, tapsAt012[9]!)
+  close(tapDrawn012.x, 450, 1e-3)
+  close(tapDrawn012.y, 190, 1e-3)
+})
+
