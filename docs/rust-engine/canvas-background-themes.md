@@ -2,10 +2,12 @@
 
 The organization canvas's backdrop is selectable: **App settings > Display >
 Canvas background**. The original dot grid stays the default and is
-pixel-identical when nothing is stored. The themes are `dots` (the
-original), `ascii` (flowing ASCII in the style of Claude Code's 2026 "New
-session" backdrop), `line-grid`, `hex-dots`, `hex-lines`, `square-tiles`,
-`triangle-tiles` and `hex-tiles`.
+pixel-identical when nothing is stored. The themes (in picker order) are
+`dots` (the original), `line-grid`, `hex-dots`, `hex-lines`, `checkerboard`
+(the 2×2 square checkerboard), `square-tiles`, `triangle-tiles`, `hex-tiles`,
+and `ascii` (labeled **Claude Waves** in the UI and placed last — flowing
+ASCII in the style of Claude Code's 2026 "New session" backdrop; stored
+`'ascii'` and `'claude-waves'` both resolve to `'ascii'`).
 
 ## Rulings this implements
 
@@ -26,6 +28,22 @@ session" backdrop), `line-grid`, `hex-dots`, `hex-lines`, `square-tiles`,
   themes move 1:1; intensity is remembered **per theme**; mobile keeps
   canvas backgrounds off exactly as the dot grid always has been; the
   ASCII layer may clamp its sampling at far zoom-out.
+- User rulings 2026-10-16 09:00–09:07Z (docket
+  `optional-canvas-background-in-the-flowing-ascii-a`):
+  1. **Graceful degradation and automatic recovery under load:** **Claude
+     Waves** must never freeze the canvas or leave a stale world-coordinate
+     frame stuck to the viewport during pan/zoom or heavy outside GPU/CPU
+     load, and must automatically recover when load subsides or after WebGL
+     context loss/restoration.
+  2. **Rename to "Claude Waves" (last option):** rename **Flowing ASCII** to
+     **Claude Waves** and place it last in the picker; preserve backward
+     compatibility for stored `'ascii'` settings and accept `'claude-waves'`.
+  3. **Checkerboard (`checkerboard`) + gapped outlined tile presets:** keep
+     the existing 2×2 alternating square pattern unchanged under its own
+     theme **Checkerboard** (`checkerboard`), and rework `square-tiles`,
+     `triangle-tiles` and `hex-tiles` so each tile is a separately outlined
+     closed polygon inset from its mathematical tiling cell (`{4,4}`,
+     `{3,6}`, `{6,3}`) with small even gaps and no shared edges.
 
 ## How it works
 
@@ -51,13 +69,15 @@ hit-testing, text selection and the pin layer are unaffected by the theme.
   source, one strength knob, identical compositing to mixing alpha into
   each colour. Sizes and positions are computed by `bgGeometry()` so
   patterns pan/zoom 1:1; `dots` keeps its legacy parallax values verbatim.
-  Gradients draw four themes; the two hexagon themes are SVG masks over a
-  theme-colour fill, because gradient stripe families draw the whole
-  triangular lattice and cannot select flat hexagons or their outlines
-  (measured as diamonds, cube illusions and step columns across capture
-  rounds) — their mask size/position ride the same `bgGeometry()` math.
-- **Flowing ASCII** is an independent WebGL2 re-implementation of the
-  Claude Code desktop "New session" backdrop algorithm, matched exactly
+  CSS gradients draw `dots`, `line-grid`, `hex-dots` and `checkerboard`
+  (2×2 alternating conic-gradient squares at `2 * TILE * z`). `hex-lines`
+  and the three gapped tile presets (`square-tiles`, `triangle-tiles`,
+  `hex-tiles`) are SVG masks (`fill="none" stroke="white" stroke-width="1.5"`)
+  over `background-color: var(--line)`: each tile preset draws every tile
+  as its own closed polygon inset from its mathematical tiling cell so
+  neighbouring tiles are separated by a small even gap and share no edges.
+- **Claude Waves (`ascii`)** is an independent WebGL2 re-implementation of
+  the Claude Code desktop "New session" backdrop algorithm, matched exactly
   (see the exact-match section below). A wind pass renders a field texture
   (light strength, wind direction, calm gate) at one sample per cell
   column and two per row; a glyph pass draws one quad per grid cell,
@@ -72,20 +92,36 @@ hit-testing, text selection and the pin layer are unaffected by the theme.
   shape — listeners are passive and ignore cards/interactive elements, so
   canvas selection is unaffected. Sampling is in **world coordinates**
   (it pans/zooms like a floor; at view 0,0 zoom 1 frames coincide with
-  the reference's pane-anchored original). Where WebGL2 or a hardware GL
-  pipeline is unavailable, under `prefers-contrast: more` or forced
-  colours, or below a minimum grid, the layer simply does not appear.
-- **Motion discipline.** The ASCII scheduler mirrors the reference's: a
-  `setTimeout`→rAF loop over accumulated animation time with clamped
-  frame deltas, a 180-second power budget after which the wind itself
-  slows and the reveal fades to calm (loop parked, zero ongoing cost),
-  wake on visibility/focus/pointer/keys, late-frame and GPU-fence fault
-  strikes backing off to 83 ms frames then a doubling retry, and full
-  pause while the document is hidden or the canvas world is put away.
-  Under `prefers-reduced-motion` it renders still frames only, repainted
-  by the user's own pan/zoom or a theme change. It reads the camera from
-  `viewRef`, so panning never re-renders React. Static themes have no
-  loop at all and animate nothing.
+  the reference's pane-anchored original). At far zoom-out, sampling clamps
+  world zoom at `z >= 0.35` and `gridFor` scale at `Math.max(0.75, z) * dpr`
+  (minimum cell width 5 px at `dpr=1`), while `buildAtlas` caches `AtlasData`
+  per `(cellWidth, cellHeight)` and rasterizes glyphs at `effScale =
+  Math.max(5 / cellCss, scale)` so zoom-out never triggers a main-thread
+  2D canvas rebuild storm or blanks out small cells. Where WebGL2 or a
+  hardware GL pipeline is unavailable, under `prefers-contrast: more` or
+  forced colours, or below a minimum grid, the layer simply does not appear.
+- **Motion discipline and load resilience.** The ASCII scheduler mirrors
+  the reference's: a `setTimeout`→rAF loop over accumulated animation time
+  with clamped frame deltas, a 180-second power budget after which the wind
+  itself slows and the reveal fades to calm (loop parked, zero ongoing
+  cost), wake on visibility/focus/pointer/keys, and full pause while the
+  document is hidden or the canvas world is put away. Under heavy CPU/GPU
+  load, late frames (`> 100 ms` rAF latency), stalls (`> 500 ms` frame
+  delta), or unsignaled GPU fences (retired on the 2nd consecutive check so
+  a single slow fence cannot cascade indefinitely, with `slow` reset each
+  draw) first step down to `83.3 ms` (~12 fps) backoff (`busy-late` /
+  `busy-gpu` / `busy-stall`). On a second strike (`enterBusyOff`), the
+  scheduler stops the loop, immediately fades `renderer.canvas.style.opacity`
+  to `'0'` (`transition: opacity 250ms`) so a paused world-coordinate frame
+  is never left frozen on screen while panning/zooming, and schedules an
+  automatic recovery retry (`1500 ms` doubling up to `8000 ms`). It also
+  handles `webglcontextlost` (`e.preventDefault()`, hides canvas, sets
+  `dataset.state = 'context-lost'`) and `webglcontextrestored` (rebuilds GL
+  programs, textures and framebuffers in place via `renderer.restore()` and
+  resumes). Under `prefers-reduced-motion` it renders still frames only,
+  repainted by the user's own pan/zoom or a theme change. It reads the
+  camera from `viewRef`, so panning never re-renders React. Static themes
+  have no loop at all and animate nothing.
 - **EPIC Mode coexistence.** EPIC's stage is a fixed full-window overlay
   far above the canvas (`epic/stage.ts`, z-index 2147483000); this layer
   sits under `.space`. No shared state, no z-interaction — two
@@ -274,6 +310,18 @@ evidence lands with it):
   GPU-contended machine. Source audits unchanged (same pre-existing
   `test_hub_isolation.py` errors=6 as base). The user-supplied renderer
   chunk was deleted after the proof, per the rules.
+
+### Resilience, Checkerboard, and gapped tile presets phase (2026-10-16, on top of `5efd8ae`)
+
+Measured under the machine lock on branch `backdrop-argon/backdrop-fixes`:
+
+- **Red control:** executed against `5efd8ae` (`C:/orgtree-build/backdrop-argon/red-control/summary.json`) → **29 tests run, 20 pass / 9 fail**, with every new assertion failing red before the implementation commits: contract order/rename/alias + `checkerboard` (`2 fail`), CSS gapped SVG masks + checkerboard conic gradient (`1 fail`), `CanvasBackground` layer rendering for `checkerboard` and gapped tiles (`1 fail`), zoom-out grid/atlas bounding (`1 fail`), GPU fence retirement + load backoff hiding (`opacity: 0`) + fast auto-recovery (`1 fail`), WebGL context loss/restore (`1 fail`), and Display panel picker order/labels (`2 fail`).
+- **Typecheck and unit/component tests:** root `tsc --noEmit` exit 0; strict renderer and strict tests report **0 diagnostics in touched files** (`C:/orgtree-build/backdrop-argon/green-verify-final/summary.json`). `canvasbg` + `canvasbg-setting` suites → **29/29 pass (0 fail)**; renderer neighbours (`appsettings theme rainbow`) → **29/29 pass (0 fail)**; root neighbour `tests/unix-boot-engine.test.mjs` → **15/15 pass (0 fail)** (**73/73 total pass**).
+- **Electron visual captures (`C:/orgtree-build/backdrop-argon/canvasbg-visual/`):** **all 25 scenes PASS (`receipts.json`)**, with every new/reworked preset and resilience scene inspected:
+  - `checkerboard.png` (`distinct=33`, `checkerboardGradient: true`): 2×2 conic-gradient square checkerboard preserved unchanged.
+  - `square-tiles.png` (`distinct=36`, `tileMaskApplied: true`, `maskSize: 28px 28px`), `triangle-tiles.png` (`distinct=37`, `tileMaskApplied: true`, `maskSize: 36px 62.35px`), `hex-tiles.png` (`distinct=37`, `tileMaskApplied: true`, `maskSize: 29.44px 51px`): each tile rendered as its own closed outlined polygon inset from its `{4,4}`, `{3,6}`, or `{6,3}` cell with small even gaps and no shared edges.
+  - `ascii-drag-zoomout.png` (`distinct=19`, `dragZoomSteps: true`, `dragZoomCellBounded: true`, `dragZoomFast: true`, `dragZoomAlive: true`): 25 rapid pan + zoom-out steps (`z = 1.2 → 0.15`) keep `minCellWidth = 5` px (`dpr = 1`), `maxColumns = 197`, `maxRows = 64`, `medianStepMs = 0.2 ms`, `maxStepMs = 6.3 ms`, and clean 1st-strike `busy-gpu` frame-drop backoff when a GPU fence is still in flight across rapid draws.
+  - `ascii-degrade-recover.png` (`distinct=30`, `degradedPaused: true`, `degradedHiddenNoFreeze: true`, `recoveredFromLoad: true`, `contextLossHandled: true`, `contextRestored: true`): 2nd-strike GPU load immediately pauses the loop and fades `renderer.canvas.style.opacity` to `'0'` (no frozen world-coordinate frame stuck to the viewport), automatically recovers to `dataset.state = 'moving'` after the `1500 ms` retry timer, and cleanly handles `webglcontextlost` (`e.preventDefault()`, `dataset.state = 'context-lost'`, `opacity = '0'`) followed by `webglcontextrestored` (`renderer.restore()` → `dataset.state = 'moving'`, `opacity = '1'`).
 
 ## Limits
 

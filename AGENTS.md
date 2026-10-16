@@ -28,22 +28,31 @@
 
 - Canvas background themes (App settings > Display): optional
   `DesktopPreferences.canvasBackground` (absent = the original parallax dot
-  grid, byte-identical) selects the `.canvas-bg` layer — dots, flowing ASCII,
-  line grid, hex dots, hex lines, square/triangular/hexagonal tiles — each with
-  a per-theme intensity stored sparsely, drawn in current theme colours, mobile
-  off. New themes pan/zoom 1:1 like a floor; only dots keep the 0.88 parallax.
-  Hexagons are SVG masks over a theme-colour fill (gradient stripes measure as
-  diamonds/cubes/steps, never flat hexagons). ASCII is an exact-match WebGL2
-  re-implementation of the Claude Code backdrop algorithm (user 2026-10-15
-  19:55Z: real renderer studied read-only, re-implemented independently, NO
-  Anthropic code in repo/docs/tests): wind-field + glyph passes in
-  `canvas/asciigl.ts`, spec + CPU mirror in `canvas/asciifield.ts`, seeded
-  per-mount visit, world-coordinate sampling (screen-identical at origin),
-  pointer stir/ripples/heart, 180s settle-to-calm, hidden pause, still mode
-  under reduced motion, silent absence without hardware WebGL2. Contract,
-  evidence and limits: [canvas background themes](docs/rust-engine/canvas-background-themes.md).
-  [decided: user 2026-10-15; verified from source:
-  `canvas/canvasbackground.tsx`, `contracts/canvas-background.ts`, `main/policy.ts`]
+  grid, byte-identical) selects the `.canvas-bg` layer — `dots`, `line-grid`,
+  `hex-dots`, `hex-lines`, `checkerboard` (2×2 square checkerboard),
+  `square-tiles`, `triangle-tiles`, `hex-tiles`, and `ascii` (labeled **Claude
+  Waves**, placed last in the picker; stored `'ascii'` and `'claude-waves'`
+  resolve to `'ascii'`) — each with a per-theme intensity stored sparsely,
+  drawn in current theme colours, mobile off. New themes pan/zoom 1:1 like a
+  floor; only dots keep the 0.88 parallax. Hex lines and the three gapped tile
+  presets (`square-tiles`, `triangle-tiles`, `hex-tiles`) are SVG masks over a
+  theme-colour fill (`var(--line)`), with each tile drawn as its own closed
+  outlined polygon inset from its `{4,4}`, `{3,6}`, or `{6,3}` cell so
+  neighbouring tiles have a small even gap and share no edges. Claude Waves
+  (`ascii`) is an exact-match WebGL2 re-implementation of the Claude Code
+  backdrop algorithm (user 2026-10-15 19:55Z, 2026-10-16: real renderer studied
+  read-only, re-implemented independently, NO Anthropic code in repo/docs/tests):
+  wind-field + glyph passes in `canvas/asciigl.ts`, spec + CPU mirror in
+  `canvas/asciifield.ts`, seeded per-mount visit, world-coordinate sampling
+  with zoom-out density floor (`z >= 0.35`, `gridScale >= 0.75 * dpr`) and
+  cached glyph atlases, pointer stir/ripples/heart, 180s settle-to-calm, hidden
+  pause, still mode under reduced motion, graceful load backoff (`opacity: 0`
+  when `busy-off` so no frozen world frame sticks to the viewport, 1.5s→8s
+  auto-recovery retry, `webglcontextlost`/`webglcontextrestored` recovery), and
+  silent absence without hardware WebGL2. Contract, evidence and limits:
+  [canvas background themes](docs/rust-engine/canvas-background-themes.md).
+  [decided: user 2026-10-15, 2026-10-16; verified from source:
+  `canvas/canvasbackground.tsx`, `canvas/asciigl.ts`, `contracts/canvas-background.ts`, `main/policy.ts`]
 
 - Muse last-good usage is durable per account in `ot.kv` (`muse_usage:<id>`),
   restored before discovery with original observation age and no new auth
