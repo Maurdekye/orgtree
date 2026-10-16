@@ -70,6 +70,18 @@ impl Transcript {
             if tools.is_empty() { break; }
             tools.remove(0); self.truncated = true;
         }
+        // JSON escaping can multiply the encoded size of a single row, and
+        // native identifiers are not subject to the text-field limits. If
+        // trimming its tools was insufficient, omit the row as well. Include
+        // the snapshot envelope and reserve room for the API's live flag.
+        while !self.messages.is_empty() && serde_json::to_vec(&self.snapshot()).map_or(0, |v| v.len()) > MAX_BYTES - 32 {
+            self.messages.remove(0);
+            self.truncated = true;
+        }
+        if self.messages.is_empty() {
+            self.current.clear();
+            self.blocks.clear();
+        }
         self.dirty = true;
     }
 
@@ -126,7 +138,11 @@ impl Transcript {
     }
 
     pub fn snapshot(&self) -> Value {
-        json!({"messages":self.messages,"truncated":self.truncated})
+        let mut snapshot = json!({"messages":self.messages,"truncated":self.truncated});
+        if self.messages.is_empty() && self.truncated {
+            snapshot["note"] = json!("The observed helper messages exceeded the retained transcript size limit and could not be kept.");
+        }
+        snapshot
     }
 }
 
