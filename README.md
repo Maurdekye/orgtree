@@ -167,7 +167,7 @@ Select any image to see it full size.
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <a href="docs/images/orgtree-3-providers.png"><img src="docs/images/orgtree-3-providers.png" alt="App settings on the Providers page, showing installed providers, signed-in accounts, model tiers and seat prices" width="100%"></a>
+      <a href="docs/images/orgtree-4-3-providers.png"><img src="docs/images/orgtree-4-3-providers.png" alt="App settings on the Providers page, showing installed providers, signed-in accounts, model tiers and seat prices" width="100%"></a>
       <p><strong>Providers.</strong> Manage providers, signed-in accounts, model tiers and seat prices.</p>
     </td>
     <td width="50%" valign="top">
