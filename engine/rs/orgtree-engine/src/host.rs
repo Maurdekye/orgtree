@@ -39,7 +39,6 @@ static STOP: AtomicBool = AtomicBool::new(false);
 
 pub fn run() -> ExitCode {
     install_stop_handler();
-    watch_launcher();
     let mut hangs: Vec<Instant> = Vec::new();
     loop {
         let code = once();
@@ -56,25 +55,6 @@ pub fn run() -> ExitCode {
         say(None, "starting a fresh engine after a hung one");
     }
 }
-
-/// The sign-in engine task (docket option-to-run-the-background-engine-in-the-
-/// user-s) starts this host through its windowless launcher
-/// (src/engine_host.rs), which names itself in ORGTREE_HOST_LAUNCHER_PID and
-/// waits for the host. Ending that task ends only the launcher; this host then
-/// stops its engine the graceful way, as on a console stop.
-#[cfg(windows)]
-#[logged]
-fn watch_launcher() {
-    let Some(pid) = std::env::var("ORGTREE_HOST_LAUNCHER_PID").ok().and_then(|v| v.parse::<u32>().ok()) else { return };
-    win::when_gone(pid, || {
-        say(None, "the sign-in engine task ended; stopping the engine");
-        STOP.store(true, Ordering::SeqCst);
-    });
-}
-
-#[cfg(not(windows))]
-#[logged]
-fn watch_launcher() {}
 
 /// A line for whoever reads the task's output, and the boot host's own log.
 fn say(root: Option<&Path>, msg: &str) {
@@ -377,7 +357,7 @@ fn once() -> u8 {
             }
         }
     }
-    env.retain(|(k, _)| !["ORGTREE_DATA", "ORGTREE_V2_TOKEN", "ORGTREE_V2_UI_DIR", "ORGTREE_V2_PARENT_PID", "ORGTREE_HOST_LAUNCHER_PID"].contains(&k.as_str()));
+    env.retain(|(k, _)| !["ORGTREE_DATA", "ORGTREE_V2_TOKEN", "ORGTREE_V2_UI_DIR", "ORGTREE_V2_PARENT_PID"].contains(&k.as_str()));
     env.push(("ORGTREE_DATA".into(), root.to_string_lossy().to_string()));
     env.push(("ORGTREE_V2_TOKEN".into(), token.clone()));
     env.push(("ORGTREE_V2_UI_DIR".into(), ui.to_string_lossy().to_string()));
@@ -681,8 +661,8 @@ mod win {
     use windows_sys::Win32::System::Pipes::CreatePipe;
     use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_SUBKEY_WOW6464KEY};
     use windows_sys::Win32::System::Threading::{
-        CreateProcessAsUserW, CreateProcessW, GetCurrentProcess, GetExitCodeProcess, OpenProcess, OpenProcessToken, TerminateProcess,
-        WaitForSingleObject, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, INFINITE, PROCESS_INFORMATION, PROCESS_SYNCHRONIZE,
+        CreateProcessAsUserW, CreateProcessW, GetCurrentProcess, GetExitCodeProcess, OpenProcessToken, TerminateProcess,
+        WaitForSingleObject, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION,
         STARTF_USESTDHANDLES, STARTUPINFOW,
     };
 
@@ -783,32 +763,6 @@ mod win {
             let high = own_token(TOKEN_QUERY).map(|t| integrity_rid(t.0) >= HIGH_RID).unwrap_or(false);
             (ok != 0 && member != 0) || high
         }
-    }
-
-    /// Run `then` on a new thread once the process `pid` has exited, or at
-    /// once when there is no such process. The handle is opened before this
-    /// returns, so the id cannot pass to another process in between. A process
-    /// that cannot be opened for another reason is not watched.
-    #[logged]
-    pub fn when_gone(pid: u32, then: impl FnOnce() + Send + 'static) {
-        const ERROR_INVALID_PARAMETER: i32 = 87;
-        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
-        if handle.is_null() {
-            if std::io::Error::last_os_error().raw_os_error() == Some(ERROR_INVALID_PARAMETER) {
-                then();
-            }
-            return;
-        }
-        // a HANDLE is not Send; the thread takes ownership of the raw value
-        let raw = handle as usize;
-        std::thread::spawn(move || {
-            let handle = Owned(raw as HANDLE);
-            unsafe {
-                WaitForSingleObject(handle.0, INFINITE);
-            }
-            drop(handle);
-            then();
-        });
     }
 
     /// "Run Orgtree as administrator": HKLM (admin-writable only), exactly DWORD 1.

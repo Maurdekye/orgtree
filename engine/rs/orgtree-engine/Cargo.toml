@@ -15,11 +15,6 @@ path = "src/main.rs"
 name = "orgtree-credential-broker"
 path = "src/credential_broker.rs"
 
-# The windowless launcher of the sign-in engine task (Windows): src/engine_host.rs
-[[bin]]
-name = "orgtree-engine-host"
-path = "src/engine_host.rs"
-
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }

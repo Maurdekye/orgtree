@@ -22,15 +22,6 @@ assertPackageInputsPresent()
   if (!fs.existsSync(broker)) throw new Error('Package is incomplete: ' + broker + '. cargo build --release builds it with the engine.')
   console.log('Credential broker present:', broker)
 }
-// So does the windowless launcher of the sign-in engine task (src/engine_host.rs,
-// docket option-to-run-the-background-engine-in-the-user-s): without it the
-// installer cannot register "Orgtree Sign-in Engine", and the start mode "At
-// sign-in, in my session" has no engine to start.
-{
-  const launcher = 'engine/rs/target/release/orgtree-engine-host.exe'
-  if (!fs.existsSync(launcher)) throw new Error('Package is incomplete: ' + launcher + '. cargo build --release builds it with the engine.')
-  console.log('Sign-in engine launcher present:', launcher)
-}
 // Mail hub v2 ships as resources/engine/orgtree-mailhub.exe beside the
 // engine (src/mailhub.rs `hub_binary`): the pinned submodule's release build.
 {
