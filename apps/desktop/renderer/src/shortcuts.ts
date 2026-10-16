@@ -35,6 +35,16 @@ export interface ShortcutGroup {
 
 const R = (file: string) => `renderer/src/${file}`
 
+/** Keyboard literals that the inventory scanner sees but that are not app
+ * commands. EPIC Mode only turns these events into optional audiovisual cues;
+ * it does not consume them or change the focused control. Keep these explicit
+ * so future real shortcuts in the same file still need a user-facing entry. */
+export const NON_SHORTCUT_BINDINGS = [{
+  source: R('epic/director.ts'),
+  keys: ['Tab', 'Enter', 'Backspace', 'Delete', 'z', 'y', 'c', 'v', 'x'],
+  reason: 'EPIC Mode visual and sound cues only; no app command or key behavior is bound.',
+}] as const
+
 /** The composer rows follow Display → Typing → Enter key, so the list shows
  *  what Enter does on this machine rather than both readings at once. */
 export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[] {

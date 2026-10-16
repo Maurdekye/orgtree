@@ -11,7 +11,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { BUILTIN, isMacPlatform, keyCaps, shortcutGroups } from '../src/shortcuts'
+import { BUILTIN, isMacPlatform, keyCaps, NON_SHORTCUT_BINDINGS, shortcutGroups } from '../src/shortcuts'
 import type { Shortcut } from '../src/shortcuts'
 import { ShortcutsSettings } from '../src/canvas/shortcutsettings'
 
@@ -101,8 +101,11 @@ const allEntries = (): Shortcut[] => [
 /** bound keys with no entry naming their file */
 function unlisted(scan: Map<string, Set<string>>, entries: Shortcut[]): string[] {
   const missing: string[] = []
+  const excluded = new Set(NON_SHORTCUT_BINDINGS.flatMap(e =>
+    e.keys.map(key => `${e.source}:${baseKey(key)}`)))
   for (const [file, keys] of scan) for (const key of keys) {
-    if (!entries.some(e => e.sources.includes(file) && e.keys.some(c => baseKey(c) === key)))
+    if (!excluded.has(`${file}:${key}`)
+      && !entries.some(e => e.sources.includes(file) && e.keys.some(c => baseKey(c) === key)))
       missing.push(`${file}: ${JSON.stringify(key)}`)
   }
   return missing
@@ -169,6 +172,17 @@ test('the scan reaches the real bindings (not a vacuous pass)', () => {
 
 test('every key the app binds is in the list, under the file that binds it', () => {
   assert.deepEqual(unlisted(scanAll(), allEntries()), [])
+})
+
+test('documented non-shortcut exclusions match their source file exactly', () => {
+  const scan = scanAll()
+  for (const exclusion of NON_SHORTCUT_BINDINGS) {
+    assert.ok(exclusion.reason.trim(), `${exclusion.source} exclusion needs a reason`)
+    assert.deepEqual([...exclusion.keys].sort(), [...(scan.get(exclusion.source) ?? [])].sort(),
+      `${exclusion.source} key literals changed; review whether they are app shortcuts`)
+    assert.ok(!allEntries().some(entry => entry.sources.includes(exclusion.source)),
+      `${exclusion.source} cannot be both listed and excluded`)
+  }
 })
 
 test('every listed key is still bound in a file the entry names', () => {
