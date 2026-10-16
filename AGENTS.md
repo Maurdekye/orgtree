@@ -1206,11 +1206,17 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
     `Launched`, so stop, kill and the forced-kill records work in either
     session; the helper starts only `hostable()` file names, so a new harness
     adds its executable there;
-  - a hosted CLI that ends while the helper is gone ends its turn as "the
-    user's Windows session ended", never as a failure, and one new turn
-    resumes it at once in Session 0, unless the turn had been ended on purpose
-    (interrupt, halt, time limit, retirement: `continues_in_session0`); the
-    kill record gets a `codex-session-ended` line;
+  - a hosted CLI's stdio pipe names come from `src/hosted_pipes.rs`, which
+    the engine and the helper binary both include; never write the prefix on
+    one side only (the engine once served `orgtree-cli-` pipes while the
+    helper took only `orgtree-codex-` ones, so every hosted launch fell back
+    to Session 0; a broker test now pairs the two sides);
+  - a hosted CLI that ends while the helper that started it is gone
+    (`helper_gone`) ends its turn as "the user's Windows session ended", never
+    as a failure, and one new turn resumes it at once where the turn-start
+    rule places it, unless the turn had been ended on purpose (interrupt,
+    halt, time limit, retirement: `may_be_session_end`); the kill record gets
+    a `codex-session-ended` line;
   - `orgtree_session` (no tool group, like `orgtree_status`) answers from the
     caller's actor (`AgentMsg::Session`, `session_view`) by the rule a turn's
     start applies: change `want_hosted` or `codex_seat` and `session_view`
@@ -1238,6 +1244,7 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [decided: user 2026-10-16 09:37Z-09:43Z, 11:01Z and 11:03Z, coordinator
   rulings A-E 09:43Z; verified: `tools/boot-engine-task.ps1`,
   `apps/desktop/main/runonstartup.ts`, `src/runtime/session_host.rs`,
+  `src/hosted_pipes.rs`, `src/credential_broker_host.rs`,
   `src/runtime/actor.rs`, `src/tools/session.rs`; details
   `docs/rust-engine/run-on-boot.md`, decisions 84 (which replaced decision 79),
   85 and 86]

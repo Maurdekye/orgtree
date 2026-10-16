@@ -390,6 +390,12 @@ after seeding. Migrated templates are cached under `<rig home>\pg\template30-*` 
 - Git Bash rewrites `/api/...` arguments into `C:/Program Files/Git/api/...`; `rig api` undoes it,
   other tools need `MSYS_NO_PATHCONV=1`.
 - A turn's prompt is long (ORG STATE, mail envelopes); match on a token you put in the mail.
+- The engine log carries prompt text too: logged functions log their return values, so an
+  agent's instructions ("as it was when your CLI started") appear under its name. Match an
+  engine line by its target and message, e.g. a harness launch by
+  `runtime.claude: CLI started agent=N pid=P` with a positive pid, and check that every pid you
+  compare is positive. A bare `/CLI started/` picked those prompt lines (pid 0) and let two
+  `session-upgrade.mjs` checks pass on nothing (2026-10-16).
 - Timers are real: a connection retry waits 30 s, the unread-mail notice 45 s.
 - A halt (single or batch) kills the agent's CLI process tree; it does not send an interrupt, so
   the fake CLI logs no `interrupted` entry for it (the turn row is `killed`).

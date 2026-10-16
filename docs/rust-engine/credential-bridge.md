@@ -264,7 +264,7 @@ Codex seats in the user's session instead, where the sandbox works.
   (ruling Q1; since decision 84 bypass seats and every other harness are hosted
   too).
 - **A launcher, not a relay:** the engine creates the child's three stdio
-  pipes (`\.\pipe\orgtree-codex-<hex>-in|out|err`, first instance, one
+  pipes (`\\.\pipe\orgtree-codex-<hex>-in|out|err`, first instance, one
   instance, remote clients rejected) and sends `{kind:"spawn", exe, args, cwd,
   env, pipes}` over the bridge pipe. The helper starts only an absolute path
   named `codex.exe` (since decision 84 any of the five harness CLIs), opens the pipes as a client after checking that the
@@ -345,7 +345,11 @@ Antigravity and OpenCode):
 - **What the helper starts:** an absolute path whose file name is `claude.exe`,
   `codex.exe`, `agy.exe`, `opencode.exe` or `muse-bin-<version>.exe`
   (`credential_broker_host::hostable`), nothing else. The stdio pipes are
-  `\.\pipe\orgtree-cli-<hex>-in|out|err`; the pipe checks, the suspended start
+  `\\.\pipe\orgtree-cli-<hex>-in|out|err`, named in `src/hosted_pipes.rs`,
+  which the engine and the helper binary both include: the engine's names
+  and the helper's check (`pipe_name_ok`) share one prefix, and a broker
+  test pairs them (the two once differed, and the helper refused every
+  hosted launch with `spawn-invalid`). The pipe checks, the suspended start
   in a kill-on-close job, the kill by pid plus creation time and the sweep of a
   dead engine's children are phase 2's. The request carries the child's whole
   environment, so neither side logs more than pids and fixed codes.

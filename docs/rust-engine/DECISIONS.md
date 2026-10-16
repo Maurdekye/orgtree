@@ -1035,8 +1035,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
       rather than a field on another tool because no other read-only tool is available to every
       agent.
     - **Sign-out resume:** a turn whose hosted CLI ends with the user's session is resumed at once
-      by one new turn in Session 0, woken as a turn cut off by an engine restart is. A turn that
-      was interrupted, halted, timed out or retired is not resumed (`continues_in_session0`). The
+      by one new turn in Session 0 (since decision 86, wherever the turn-start rule places it:
+      another of the user's sessions while its helper runs), woken as a turn cut off by an engine
+      restart is. A turn that was interrupted, halted, timed out or retired is not resumed
+      (`may_be_session_end`). The
       end is logged and written to the kill record as `codex-session-ended`, with the pid and exit
       status: Windows ended the CLI, not the engine.
     - The new tool card changes every agent's tool list: one prompt-cache miss per agent, at its
