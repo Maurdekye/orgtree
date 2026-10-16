@@ -1,10 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { createHash } from 'node:crypto'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('shared-scratch-folder')
+  const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+  p.note('source binary provenance', { engine: rig.run.engineSource, engineSha256: hash(rig.run.engineSource),
+    nativeBundleSha256: process.env.PROOF_SCRATCH_NATIVE_BUNDLE ? hash(process.env.PROOF_SCRATCH_NATIVE_BUNDLE) : null })
   const root = path.join(rig.data, 'scratch', rig.org)
   const route = (node, scope) => `/api/orgs/${rig.org}/nodes/${encodeURIComponent(node)}/scratch-folder?scope=${scope}`
   const get = (node, scope) => rig.api('GET', route(node, scope))
