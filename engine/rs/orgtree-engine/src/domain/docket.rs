@@ -2361,7 +2361,7 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
     let Some(state) = state else { refuse!(NotFound, "{target} no longer exists; nothing was sent") };
     drop(client);
     let how = if role == "attention_raiser" {
-        format!("(the user replied on docket item {} because you raised its attention flag â€” the item is owned by {}; act on the request and coordinate any item update with the owner; this reply does not grant docket access)", it.slug, it.owner_name().unwrap_or("nobody"))
+        format!("(the user replied on docket item {} because you raised its attention flag — the item is owned by {}; act on the request and coordinate any item update with the owner; this reply does not grant docket access)", it.slug, it.owner_name().unwrap_or("nobody"))
     } else if role == "participant" {
         format!("(the user replied on docket item {} ADDRESSED TO YOU AS A PARTICIPANT — the item is owned by {}, not by you; act on it and coordinate any update with the owner)", it.slug, it.owner_name().unwrap_or("nobody"))
     } else {
