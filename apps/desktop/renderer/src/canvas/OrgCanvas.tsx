@@ -2376,7 +2376,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
 
   // background pan (+ mobile pinch/tap — desktop keeps the exact old path)
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  type PanPointerEvent = Pick<PointerEvent, 'button' | 'pointerId' | 'clientX' | 'clientY' | 'target' | 'type'>
+  const onPointerDown = (e: PanPointerEvent, captureTarget: HTMLDivElement) => {
     if (e.button !== 0 && e.button !== 1) return
     camIntent.current = null
     cancelAnimationFrame(animRef.current!)
@@ -2390,7 +2391,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         pinchRef.current = { d0: Math.hypot(a.x - b.x, a.y - b.y), z0: viewRef.current.z }
         panRef.current = { sx: 0, sy: 0, lx: 0, ly: 0, ox: 0, oy: 0, moved: true }
         tapRef.current = null
-        e.currentTarget.setPointerCapture(e.pointerId)
+        captureTarget.setPointerCapture(e.pointerId)
         return
       }
       // remember the touch for tap arbitration on release — cards take no
@@ -2401,9 +2402,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     eyePressRef.current = e.button === 0 && !isMobile && !!(e.target as Element).closest('.sq.user')
     panRef.current = { sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
       ox: viewRef.current.x, oy: viewRef.current.y, moved: false }
-    e.currentTarget.setPointerCapture(e.pointerId)
+    captureTarget.setPointerCapture(e.pointerId)
   }
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const onPointerMove = (e: PanPointerEvent) => {
+    if (middlePanPointer.current !== null && middlePanPointer.current !== e.pointerId) return
     if (isMobile && pointersRef.current.has(e.pointerId)) {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     }
@@ -2436,7 +2438,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true
     if (d.moved) setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }))
   }
-  const onPointerUp = (e?: React.PointerEvent<HTMLDivElement>) => {
+  const onPointerUp = (e?: PanPointerEvent) => {
+    if (e && middlePanPointer.current !== null && middlePanPointer.current !== e.pointerId) return
     if (isMobile && e) {
       pointersRef.current.delete(e.pointerId)
       if (pinchRef.current) {
@@ -2512,29 +2515,66 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     panRef.current = null
   }
 
-  // Capture before card/pile/desk handlers can claim the middle gesture.
-  // Reuse the background pan so speed, camera rebasing and persistence agree.
-  const onMiddleDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 1) return
-    e.preventDefault(); e.stopPropagation()
-    middlePanPointer.current = e.pointerId
-    onPointerDown(e)
-  }
-  const onMiddleMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (middlePanPointer.current !== e.pointerId) return
-    e.stopPropagation()
-    onPointerMove(e)
-  }
-  const onMiddleUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (middlePanPointer.current !== e.pointerId) return
-    e.preventDefault(); e.stopPropagation()
-    onPointerUp(e)
-    middlePanPointer.current = null
-  }
-  const blockMiddleDefault = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 1) return
-    e.preventDefault(); e.stopPropagation() // native autoscroll and link auxclick
-  }
+  // DeskHosts owns desks beside the viewport in React, then MovableSurface
+  // portals their DOM into its slots. React capture on .viewport therefore
+  // misses real desks. Native DOM capture covers every in-viewport surface,
+  // including portals, and cannot reach a popped-out desk's separate document.
+  const panHandlers = useRef({ down: onPointerDown, move: onPointerMove, up: onPointerUp })
+  panHandlers.current = { down: onPointerDown, move: onPointerMove, up: onPointerUp }
+  useLayoutEffect(() => {
+    const el = viewportRef.current
+    if (!el || worldHidden) return
+    const down = (e: PointerEvent) => {
+      if (e.button !== 1) return
+      e.preventDefault(); e.stopPropagation()
+      middlePanPointer.current = e.pointerId
+      panHandlers.current.down(e, el)
+    }
+    const move = (e: PointerEvent) => {
+      if (middlePanPointer.current !== e.pointerId) return
+      e.stopPropagation()
+      panHandlers.current.move(e)
+    }
+    const up = (e: PointerEvent) => {
+      if (middlePanPointer.current !== e.pointerId) return
+      e.preventDefault(); e.stopPropagation()
+      panHandlers.current.up(e)
+      middlePanPointer.current = null
+    }
+    const lost = (e: PointerEvent) => {
+      if (middlePanPointer.current !== e.pointerId) return
+      middlePanPointer.current = null
+      eyePressRef.current = false
+      panRef.current = null
+    }
+    const blockDefault = (e: MouseEvent) => {
+      if (e.button !== 1) return
+      e.preventDefault(); e.stopPropagation()
+    }
+    el.addEventListener('pointerdown', down, true)
+    el.addEventListener('pointermove', move, true)
+    el.addEventListener('pointerup', up, true)
+    el.addEventListener('pointercancel', up, true)
+    el.addEventListener('lostpointercapture', lost, true)
+    el.addEventListener('mousedown', blockDefault, true)
+    el.addEventListener('auxclick', blockDefault, true)
+    return () => {
+      el.removeEventListener('pointerdown', down, true)
+      el.removeEventListener('pointermove', move, true)
+      el.removeEventListener('pointerup', up, true)
+      el.removeEventListener('pointercancel', up, true)
+      el.removeEventListener('lostpointercapture', lost, true)
+      el.removeEventListener('mousedown', blockDefault, true)
+      el.removeEventListener('auxclick', blockDefault, true)
+      const pointer = middlePanPointer.current
+      if (pointer !== null) {
+        middlePanPointer.current = null
+        eyePressRef.current = false
+        panRef.current = null
+        if (el.hasPointerCapture(pointer)) el.releasePointerCapture(pointer)
+      }
+    }
+  }, [worldHidden])
 
   // ----------------------------------------------------------- node dragging
   const descendantsOf = (id: string) => {
@@ -3662,19 +3702,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
          on the presented view's own backdrop would pan a canvas nobody can
          see, and the camera would have silently moved by the time they came
          back. */
-      onPointerDown={worldHidden ? undefined : onPointerDown}
+      onPointerDown={worldHidden ? undefined : e => onPointerDown(e, e.currentTarget)}
       onPointerMove={worldHidden ? undefined : onPointerMove}
-      onPointerDownCapture={worldHidden ? undefined : onMiddleDown}
-      onPointerMoveCapture={worldHidden ? undefined : onMiddleMove}
-      onPointerUpCapture={onMiddleUp} onPointerCancelCapture={onMiddleUp}
-      onLostPointerCapture={(e) => {
-        if (middlePanPointer.current !== e.pointerId) return
-        middlePanPointer.current = null
-        eyePressRef.current = false
-        panRef.current = null
-      }}
-      onMouseDownCapture={worldHidden ? undefined : blockMiddleDefault}
-      onAuxClickCapture={worldHidden ? undefined : blockMiddleDefault}
       /* onPointerCancel routes to onPointerUp, which nulls panRef — correct,
          but it means ANY pointercancel kills the gesture outright. The one
          that used to fire here came from the browser starting a native drag
