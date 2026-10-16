@@ -79,3 +79,33 @@ test('identity lookup authenticates, opens only an existing directory, and repor
     assert.equal(requests.length, count)
   } finally { await new Promise(resolve => server.close(resolve)) }
 })
+
+test('team and shared scope use the existing authenticated resolver and native opener', async () => {
+  const directory = path.join(temp, 'engine resolved shared directory')
+  await fs.mkdir(directory)
+  const requests = [], opened = []
+  const server = createServer((req, res) => {
+    requests.push([req.url, req.headers['x-orgtree-desktop-token']])
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ path: directory }))
+  })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const engine = { origin: `http://127.0.0.1:${server.address().port}`, token: 'scoped-fixture-token' }
+  const open = async dir => { opened.push(dir); return '' }
+  try {
+    assert.deepEqual(await openAgentScratchFolder(engine, 'mine', 'leaf', open, 'team'), { ok: true })
+    assert.deepEqual(requests[0], ['/api/orgs/mine/nodes/leaf/scratch-folder?scope=team', 'scoped-fixture-token'])
+    assert.deepEqual(await openAgentScratchFolder(engine, 'mine', '', open, 'shared'), { ok: true })
+    assert.deepEqual(requests[1], ['/api/orgs/mine/nodes/_shared/scratch-folder?scope=shared', 'scoped-fixture-token'])
+    assert.deepEqual(opened, [await fs.realpath(directory), await fs.realpath(directory)])
+    const count = requests.length
+    for (const scope of ['../shared', null, {}, 1]) {
+      assert.equal((await openAgentScratchFolder(engine, 'mine', 'leaf', open, scope)).ok, false)
+    }
+    assert.equal((await openAgentScratchFolder(engine, 'mine', 'leaf', open, 'shared')).ok, false,
+      'org-scoped request cannot carry a conflicting agent identity')
+    assert.equal((await openAgentScratchFolder(engine, 'mine', '', open, 'team')).ok, false)
+    assert.equal((await openAgentScratchFolder({ ...engine, origin: 'http://remote.example' }, 'mine', '', open, 'shared')).ok, false)
+    assert.equal(requests.length, count, 'invalid scope/identity/remote calls never reach the engine')
+  } finally { await new Promise(resolve => server.close(resolve)) }
+})
