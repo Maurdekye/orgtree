@@ -1027,6 +1027,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   demand inside org scratch, refusing link/reparse/file components. Reuse the
   same IPC/engine route; scoped capability and response markers prevent older
   shells/engines silently opening personal scratch instead.
+  Synthetic checks cover managed/personal paths and all three UI entries;
+  the final OS opener is injected, so real file-manager launch remains untested.
   [decided: user 2026-10-16 10:16Z; verified: `http/nodes.rs`, `domain/teams.rs`,
   `main/scratch-folder.ts`; details: `docs/rust-engine/scratch-folder.md`]
 

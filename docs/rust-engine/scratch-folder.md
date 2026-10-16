@@ -39,11 +39,54 @@ transaction or client. The original personal path behavior below is unchanged.
 Tests first: exact `a5f92af` on base `b3791bb` executed six renderer cases with
 six genuine assertion failures, zero passes/skips/cancellations, exit1/3s.
 Both switchboard surfaces and Settings really mounted; no fixture/setup errors.
-Later assertions after each first failure were not executed. Prepared green6,
-native3, Windows path unit2/adjacent team3, engine proof16 and three screenshots
-remain unrun at source handoff. Portable runners read existing dependencies in
-place and write generated bundles only into the assigned C artifact scope.
-No installed-app or native OS file-manager acceptance is claimed.
+Later assertions after each first failure were not executed.
+
+Independent verification completed 2026-10-16 at exact `fb44599`:
+
+| Check | Measured result |
+| --- | --- |
+| Final renderer | 6/6 pass, no skips/cancellations |
+| Committed native runner | 3/3 pass |
+| Windows managed path / team workspace units | 2/2 and 3/3 pass |
+| Engine build / all-target check | Both exit0, zero warnings |
+| Managed / existing personal synthetic proofs | 16/16 and 12/12, both JSONtrue |
+| Three entry screenshots | All captured, JSONtrue; reviewer and author viewed every PNG |
+
+The engine/native/unit/proof results were measured at `54800e2`; final
+`fb44599` changes only test fixtures and capture runners. Production engine,
+main/preload, renderer source and contracts were verified byte-identical.
+The source engine SHA-256 is
+`202f22665acb49892243ebc05ba8548136c0c178459b7ec4c1e814a564e5ed4d`.
+The managed proof includes actual Windows junction/file refusal, unchanged
+outside targets, numeric leaf-team creation, rename/archive, repeat resolution,
+shared creation and authenticated organization-scoped identity checks. The
+personal proof retains stored/imported paths and missing-folder no-create
+behavior. Proof cleanup reported no remaining runs or stray processes.
+
+Root typechecking had zero errors at reference `ca9da88` and product tip
+`bb1b357`; their relevant UI source was compared against the original base and
+final tip. Neighbor suites retain the same retire-all confirmation failure:
+reference 30 pass/1 fail, tip 36 pass/1 fail. Strict renderer 29 and tests 830
+diagnostics match actual `b3791bb` baseline with zero added/removed diagnostic
+multiplicities. The final new test is included at baseline through read-only
+filesystem callbacks and at tip, with exclude[] and zero diagnostics in that
+file. Skills coverage is 8 pass/1 fail at both base/tip: the existing canvas
+background/intensity label-home mismatch. The new Organization folder row has
+its correct home. These suites are not wholly green.
+
+Earlier failed receipts remain recorded: the native force-exit runner aborted
+after three passing assertions; the original test helper failed compilation
+and executed zero Rust tests; seven new strict fixture diagnostics were fixed;
+the first visual run exited0 but reported JSONfalse after only one PNG. The
+corrected capture keeps Electron alive between fresh windows, and its parent
+requires successful JSON, all three entries and nonempty PNGs. Portable runners
+read dependencies in place and write bundles into the assigned C scope.
+
+Screenshots use synthetic production components; proofs use a disposable
+database/fake CLI and inject the final native opener. No real OS file manager,
+installed app, provider or device was exercised. The Unix-only link unit was
+not executed on Windows. Local source integration does not establish installed
+behavior or verification of the combined integration tip.
 
 ## Personal scratch (existing behavior)
 
