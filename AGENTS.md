@@ -1239,8 +1239,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   rulings A-E 09:43Z; verified: `tools/boot-engine-task.ps1`,
   `apps/desktop/main/runonstartup.ts`, `src/runtime/session_host.rs`,
   `src/runtime/actor.rs`, `src/tools/session.rs`; details
-  `docs/rust-engine/run-on-boot.md`, decisions 83 (which replaced decision 79),
-  84 and 85]
+  `docs/rust-engine/run-on-boot.md`, decisions 84 (which replaced decision 79),
+  85 and 86]
 - **Ending an engine's task does not stop a boot engine.** Since the
   core-lifecycle recovery (2026-10-12) an engine outlives its host, and a task
   End ends only the host. A manual End on the boot task therefore still leaves

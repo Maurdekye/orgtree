@@ -129,7 +129,7 @@ These rulings explain choices a reader might otherwise question.
   `reviews-and-landing`, `suggestion-box`) are in `orgtree-working › workspace`.
   Org agents doing software work need them. They are written as practices, with their
   ground truth in `AGENTS.md` and `docs/`, not as engine features.
-- **`orgtree-engine-start-mode` is gone** (4.3.1, decision 83). The "engine starts" choice it
+- **`orgtree-engine-start-mode` is gone** (4.3.1, decision 84). The "engine starts" choice it
   explained was removed (docket `option-to-run-the-background-engine-in-the-user-s`, the user
   2026-10-16): the engine always starts at boot and agents move into the signed-in session.
   `app-runtime-desktop` now explains "Run on boot", and `halts-and-restarts`

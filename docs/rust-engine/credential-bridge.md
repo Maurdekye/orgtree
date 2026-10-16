@@ -234,7 +234,7 @@ that gap.
 - **Not covered:** before the user signs in to Windows after a reboot there is
   no access (no interactive token exists). A second Windows session of the
   same user starts its own broker; the hold rule keeps the first.
-- **Agents in the signed-in session (decision 83, which replaced decision 79's
+- **Agents in the signed-in session (decision 84, which replaced decision 79's
   sign-in engine):** the engine always starts at boot, and while the helper
   runs it starts every agent's CLI through it in the operator's session (below,
   "Every agent's CLI in the user's session"). The helper task follows "Run on
@@ -261,13 +261,13 @@ Codex seats in the user's session instead, where the sandbox works.
   the helper does; the desktop broker never hosts) and its process is alive
   (`Bridge::can_host`, `codexrt::seat_sandbox`). A `bypassPermissions` seat
   stayed in Session 0, so no unsandboxed agent ran beside the user's sign-ins
-  (ruling Q1; since decision 83 bypass seats and every other harness are hosted
+  (ruling Q1; since decision 84 bypass seats and every other harness are hosted
   too).
 - **A launcher, not a relay:** the engine creates the child's three stdio
   pipes (`\.\pipe\orgtree-codex-<hex>-in|out|err`, first instance, one
   instance, remote clients rejected) and sends `{kind:"spawn", exe, args, cwd,
   env, pipes}` over the bridge pipe. The helper starts only an absolute path
-  named `codex.exe` (since decision 83 any of the five harness CLIs), opens the pipes as a client after checking that the
+  named `codex.exe` (since decision 84 any of the five harness CLIs), opens the pipes as a client after checking that the
   attached engine serves them, starts the child suspended with those three
   handles as its only inherited ones, puts it in a kill-on-close job, resumes
   it, and answers `{pid, created}`. The engine checks that the helper is the
@@ -330,7 +330,7 @@ helper-death fallback and continued credential ownership. Set
 requires the separately authorized run state under an owner-only profile path.
 No live credential lookup is needed for this coexistence proof.
 
-### Every agent's CLI in the user's session (decision 83, 2026-10-16)
+### Every agent's CLI in the user's session (decision 84, 2026-10-16)
 
 The user, 2026-10-16 09:37Z: "agents always start at boot, and then
 automatically get upgraded when signed in". Phase 2's hosted launch now serves
@@ -356,13 +356,13 @@ Antigravity and OpenCode):
   CLI; starting it in Session 0` with the code on a fallback, and the helper's
   `hosting N agent CLI process(es)`. A hosted CLI that ends with the user's
   session under a turn gets a `codex-session-ended` line in the engine's kill
-  record (decision 84).
+  record (decision 85).
 
 Proof: `tools/rig/proofs/session-upgrade.mjs` (fake CLIs, `--session0 1`, the
 helper through the temporary interactive task, as `codex-host.mjs`), and
 `session-query.mjs` for `orgtree_session` and the sign-out resume.
 
-Since decision 85 the host role is one lease per Windows session of the
+Since decision 86 the host role is one lease per Windows session of the
 engine's user (`HostLeases`): helpers in different sessions host side by
 side, a second helper in the same session is held off until the first's
 lease ends, and the first helper is the core's helper member. Spawn and

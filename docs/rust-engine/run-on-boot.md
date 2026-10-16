@@ -1,4 +1,4 @@
-# Run on boot, and agents in the signed-in session (decision 83)
+# Run on boot, and agents in the signed-in session (decision 84)
 
 Orgtree 4.x starts its background engine at boot in Windows Session 0: the
 "Orgtree Background Engine" task, boot trigger, S4U as the operator. Session 0
@@ -112,7 +112,7 @@ waking message: "The user's Windows session ended while you were working,
 so your turn stopped. Continue where you left off." That message starts one
 new turn at once, placed by the turn-start rule (Session 0, or another of
 the user's sessions whose helper still runs), the way a turn cut off by
-an engine restart resumes (the user, 2026-10-16 11:03Z, decision 84): nothing
+an engine restart resumes (the user, 2026-10-16 11:03Z, decision 85): nothing
 else has to wake the agent. A turn that had been interrupted, halted, timed
 out or retired is not resumed (`may_be_session_end`). Windows ended the
 CLI, not the engine: the engine log says `the user's Windows session ended
@@ -274,7 +274,7 @@ Measured on branch `rig-opus/session-upgrade` (base `64d862f`); logs in
   `notificationsettings` and `runasadmin` 33/33. Typechecks: root 0 errors,
   renderer 29 and renderer tests 830, the same as at the base.
 
-The `orgtree_session` follow-up (decision 84), measured on branch
+The `orgtree_session` follow-up (decision 85), measured on branch
 `rig-opus/session-query` (base `4ade769`), same logs folder, `sq-*`:
 
 - **Red** at the test commit: `domain::tool_groups` and

@@ -663,7 +663,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **Phase 2 (coordinator 2026-10-10 09:35Z):** while the helper runs, the Session 0
       engine has it start sandboxed Codex seats in the user's session, where Codex's
       sandbox works (openai/codex#46412). bypassPermissions seats stay in Session 0 (ruling
-      Q1; superseded by decision 83, which hosts every agent's CLI, bypass seats too); only
+      Q1; superseded by decision 84, which hosts every agent's CLI, bypass seats too); only
       the helper hosts, never the desktop broker; hosted seats' MCP servers run in the
       user's session; signing out ends hosted seats, whose next turn starts in Session 0
       without the sandbox; a launch the helper cannot make falls back to Session 0.
@@ -887,7 +887,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     reassign-or-freeze path (`account_removal::remove_key`), its id retired.
     Contract: [`openrouter-keys.md`](openrouter-keys.md).
 
-79. **Superseded by decision 83 (user 2026-10-16 09:37Z): the "engine starts" choice and the
+79. **Superseded by decision 84 (user 2026-10-16 09:37Z): the "engine starts" choice and the
     sign-in engine task are gone.** As decided on 2026-10-15:
     **Where the background engine starts is the operator's choice** (user 2026-10-15 10:37Z, docket
     `option-to-run-the-background-engine-in-the-user-s`; default 10:38Z; design approved by the
@@ -934,7 +934,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
       reason.
     - **Unchanged:** a host exit with no request leaves the engine running (the 2026-10-12 recovery
       rule), and so does **a manual End on the boot task**. (The sign-in engine's launcher, which
-      stopped its engine on End, went with decision 79; decision 83.)
+      stopped its engine on End, went with decision 79; decision 84.)
     - **Rig only:** a rig run (`crate::rig::active`) reads the request from
       `HKCU\<ORGTREE_RIG_STOP_KEY>`; every other engine ignores that variable.
     - Rejected: running the boot task through the windowless launcher. That would change the
@@ -982,7 +982,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     control tool ship together, for one tool-list prefix change. Contract:
     [`next-turn-query.md`](next-turn-query.md).
 
-83. **The engine always starts at boot; agents run in the signed-in session while the operator
+84. **The engine always starts at boot; agents run in the signed-in session while the operator
     is signed in** (user 2026-10-16 09:37Z: "agents always start at boot, and then automatically
     get upgraded when signed in"; 09:38Z one checkbox; docket
     `option-to-run-the-background-engine-in-the-user-s`; design approved by the coordinator
@@ -1008,7 +1008,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **At a turn boundary only:** each turn's start picks the placement; a warm CLI elsewhere is
       replaced then, unless it holds background work. Sign-out ends hosted CLIs: the turn stops
       cleanly as "the user's Windows session ended" (no failure report; its mail requeued when the
-      CLI had done nothing yet) and the agent is woken to go on in Session 0 (with decision 85: at
+      CLI had done nothing yet) and the agent is woken to go on in Session 0 (with decision 86: at
       once, wherever its next turn is placed).
     - **Agents are told:** a real move either way delivers an `[ORGTREE SESSION NOTICE]` in the
       turn where it took effect; an agent's first turn ever and a restart that comes back in the
@@ -1023,9 +1023,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
     Details, verification and limits: [`run-on-boot.md`](run-on-boot.md); proofs
     `tools/rig/proofs/session-upgrade.mjs` and `codex-host.mjs`.
 
-84. **Agents can ask where their turns run, and a turn the sign-out cut off resumes at once**
+85. **Agents can ask where their turns run, and a turn the sign-out cut off resumes at once**
     (user 2026-10-16 11:01Z and 11:03Z; docket `let-agents-query-machine-sign-in-state-and-which`,
-    on decision 83).
+    on decision 84).
     - **`orgtree_session`**, with no arguments and no tool group (like `orgtree_status`: every
       agent has it on every harness), answers whether the operator is signed in, whether the
       caller's current turn runs in Session 0 or the signed-in session, where its next turn will
@@ -1043,7 +1043,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
       first turn after the upgrade.
     Details: [`run-on-boot.md`](run-on-boot.md); proof `tools/rig/proofs/session-query.mjs`.
 
-85. **Agents run in a signed-in session as often as they can** (user 2026-10-16 12:00Z: "agents
+86. **Agents run in a signed-in session as often as they can** (user 2026-10-16 12:00Z: "agents
     should find and take advantage of any way they can to locate and run in an active logged in
     session, as often as possible"; rulings 12:05Z, 12:07Z, 12:12Z, 12:13Z; docket
     `let-agents-query-machine-sign-in-state-and-which`).
