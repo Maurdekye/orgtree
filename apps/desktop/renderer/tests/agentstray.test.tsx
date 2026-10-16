@@ -604,6 +604,42 @@ uiTest('pinned Agents header exposes and applies the active-only preference', as
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
 })
 
+uiTest('pinned Agents checkbox keeps its click while the panel raises during activation', async ({ mount }) => {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  const { CurrentOrg } = await import('../src/popout')
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  const fixture = treeWithStatus(['idle-agent', 'active-agent'])
+  const roots = (fixture as unknown as { roots: Record<string, unknown>[] }).roots
+  roots[0]!.busy = false
+  roots[1]!.busy = true
+  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 }, 'mine')
+  rememberModalOpen('agent-list', 'mine')
+  const changes: boolean[] = []
+  const { el } = await mount(<CurrentOrg.Provider value="mine"><OrgCanvas tree={fixture}
+    op={() => Promise.resolve({} as never)} slug="mine" toast={noop} mailEvt={null}
+    activeAgentsOnly={false} onActiveAgentsOnly={value => changes.push(value)} /></CurrentOrg.Provider>)
+  await flush(5)
+  const panel = document.body.querySelector('.tray-panel')
+  assert.ok(panel?.classList.contains('modalpin-win'), 'the Agents panel is pinned')
+  const filter = panel!.querySelector<HTMLInputElement>('.modalpin-bar .modalpin-active-filter input')
+  assert.ok(filter, 'the pinned header contains the active checkbox')
+
+  // Match a physical click: pointerdown raises the pinned surface, then the
+  // checkbox's click bubbles through the panel's capture handler. Do not wrap
+  // the activation in React act(), which would hide an update during capture.
+  filter!.dispatchEvent(new window.PointerEvent('pointerdown', {
+    bubbles: true, cancelable: true, button: 0, pointerId: 1,
+  }))
+  filter!.dispatchEvent(new window.PointerEvent('pointerup', {
+    bubbles: true, cancelable: true, button: 0, pointerId: 1,
+  }))
+  filter!.click()
+  await flush(3)
+  assert.equal(changes.length, 1, 'one click reaches the active-filter callback')
+  assert.equal(changes[0], true, 'the click enables filtering instead of being lost during raise')
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+})
+
 uiTest('popped-out Agents header exposes and applies the active-only preference', async ({ mount }) => {
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const { CurrentOrg } = await import('../src/popout')
