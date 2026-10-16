@@ -34,12 +34,14 @@ export default async function (rig) {
     if (!result.ok) throw new Error(result.text)
     return result.json
   }
-  const item = await work({ action: 'create', title: 'Current recovery assignment', kind: 'code', owner: 'tara',
+  const dependency = await work({ action: 'create', title: 'Recovery prerequisite', kind: 'code', owner: 'tara',
+    objective: 'A synthetic prerequisite that must finish before the current assignment.' })
+  const item = await work({ action: 'create', title: 'Current recovery assignment', kind: 'code', owner: 'tara', dependencies: [dependency.slug],
     objective: 'CURRENT-LIVE-SCOPE: continue source 0123456789abcdef in D:/synthetic/source-worktree.' })
   await work({ action: 'update', slug: item.slug, status: 'blocked', blocked_reason: 'BLOCKING-DEPENDENCY: wait for compiler slot',
     done_so_far: ['Current scope recorded'], working_on_next: ['CURRENT-NEXT-STEP'] })
   // A newer backlog must not evict older active work at the 30-row cutoff.
-  rig.sql(`INSERT INTO ot.work_items (org_id,slug,title,status,owner_agent_id,owner,created_by)
+  rig.exec(`INSERT INTO ot.work_items (org_id,slug,title,status,owner_agent_id,owner,created_by)
     SELECT a.org_id,'new-backlog-'||g,'New backlog '||g,'backlogged',a.id,'{}','{}'
     FROM ot.agents a CROSS JOIN generate_series(1,31) g WHERE a.name='tara'`)
   const sent = await rig.tool('boss', 'orgtree_message', { metadata: { to: 'tara' }, body: 'SUPERIOR-LATEST-CURRENT: continue the current docket only.' })
@@ -57,6 +59,7 @@ export default async function (rig) {
   p.check('live work survives newer backlog and leads recovery before source, superior and older context',
     live >= 0 && source > live && superior > source && older > superior, { live, source, superior, older })
   p.check('blocker and exact recorded worktree are present', note.includes('BLOCKING-DEPENDENCY') && note.includes(cwd))
+  p.check('declared blocking dependency is retained with current scope', note.includes('Declared dependencies (first 10; check current status): ' + dependency.slug))
   p.check('digest retains exact multiline shell input rather than description alone', note.includes(command) && note.includes('Focused check description'))
   p.check('digest marks UTF8 command clipping and omits the clipped tail', note.includes('[command truncated at 8192 UTF-8 bytes]') && !note.includes('BEYOND-COMMAND-CAP'))
   p.check('non-shell full inputs stay out of recovery', !note.includes('NON-SHELL-PRIVATE-INPUT'))
