@@ -31,4 +31,12 @@ const result = spawnSync(electron, [path.join(root, 'apps/desktop/renderer/tests
 if (result.stdout) process.stdout.write(result.stdout)
 if (result.stderr) process.stderr.write(result.stderr)
 if (result.error) throw result.error
-process.exitCode = result.status ?? 1
+assert.equal(result.status, 0, 'capture child must exit successfully')
+const receipt = JSON.parse(fs.readFileSync(path.join(evidence, 'result.json'), 'utf8'))
+assert.equal(receipt.passed, true, 'capture result must report success')
+assert.deepEqual(receipt.receipts.map(r => r.entry), ['agent', 'switchboard', 'settings'],
+  'all three capture entries must finish')
+for (const entry of ['agent', 'switchboard', 'settings']) {
+  assert.ok(fs.statSync(path.join(evidence, `${entry}.png`)).size > 0,
+    `${entry} capture must be non-empty`)
+}

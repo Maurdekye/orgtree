@@ -8,6 +8,8 @@ for (const key of ['userData', 'sessionData', 'logs', 'crashDumps']) {
   const dir = path.join(out, key); fs.mkdirSync(dir, { recursive: true }); app.setPath(key, dir)
 }
 app.disableHardwareAcceleration()
+// The default Electron app otherwise quits between our fresh capture windows.
+app.on('window-all-closed', () => {})
 app.whenReady().then(async () => {
   const receipts = []
   let win
