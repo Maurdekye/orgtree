@@ -1,3 +1,4 @@
+import { NODE_H, NODE_W } from './shared'
 import type { Pt } from './shared'
 
 export interface RingReorderSlot {
@@ -32,9 +33,19 @@ export function ringReorderSlot(ids: string[], target: ReadonlyMap<string, Pt>,
   const before = at < 0 ? undefined : placed[at]
   const after = at < 0 ? last : placed[at - 1]
   const anchor = before ?? last
-  const gap = before && after ? (before.angle + after.angle) / 2
-    : before ? (cut + first.angle) / 2 : (last.angle + cut + tau) / 2
   const radius = Math.hypot(anchor.p.x - eye.x, anchor.p.y - eye.y)
+  let gap: number
+  if (before && after) {
+    gap = (before.angle + after.angle) / 2
+  } else {
+    // Keep request selection above independent of marker geometry. Project
+    // the axis-aligned card onto its endpoint tangent, then add the same
+    // 16 world-px gutter as row ends (also when only one target remains).
+    const extent = (NODE_W * Math.abs(Math.sin(anchor.angle))
+      + NODE_H * Math.abs(Math.cos(anchor.angle))) / 2
+    const offset = Math.asin(Math.min(1, (extent + 16) / radius))
+    gap = anchor.angle + (before ? -offset : offset)
+  }
   return {
     request: before ? { before: before.id } : { after: last.id },
     point: { x: eye.x - radius * Math.cos(gap), y: eye.y + radius * Math.sin(gap) },
