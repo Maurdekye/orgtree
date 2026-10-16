@@ -241,21 +241,30 @@ async function settledAt(t: TestContext, payload: TreePayload, id: string) {
   return p
 }
 
+// forgetPins invalidates only the cache: clear persisted state FIRST or the
+// next read rehydrates the previous case's pin and named focus targets it.
+function resetDeskFixture() {
+  for (const key of ['orgtree-pins-mine', 'orgtree-view-mine', 'orgtree-pile-mine']) localStorage.removeItem(key)
+  forgetPins('mine')
+}
+
 for (const mode of ['row', 'circular'] as const) {
   for (const surface of ['desk-header', 'desk-transcript', 'desk-composer', 'pinned-transcript', 'pinned-header'] as const) {
     test(`${mode}: middle drag on real ${surface} crosses its portal and pans the canvas`, async t => {
       useFakeClock(); t.after(realClock)
       setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
-      localStorage.removeItem('orgtree-view-mine')
-      forgetPins('mine'); t.after(() => forgetPins('mine'))
+      resetDeskFixture()
       const m = await mountCanvas(t, tree([mkNode('x')]), () => Promise.resolve({}))
+      t.after(resetDeskFixture) // mountCanvas registered unmount before this reset
+      assert.deepEqual(readPins('mine'), [], 'case starts with no saved or cached pins')
       const viewport = m.el.querySelector<HTMLElement>('.viewport')!
       const space = m.el.querySelector<HTMLElement>('.space')!
       if (surface.startsWith('pinned-')) {
-        await inAct(() => addPin('mine', 'x', { x: 100, y: 100, w: 600, h: 500 }))
+        await inAct(() => { assert.equal(addPin('mine', 'x', { x: 100, y: 100, w: 600, h: 500 }).ok, true) })
         await flush()
       } else {
         await m.focus('x')
+        assert.equal(card(m.el, 'x')!.classList.contains('pinned'), false, 'named focus targets the canvas desk')
       }
       const host = surface.startsWith('pinned-')
         ? m.el.querySelector<HTMLElement>('.pinwin')! : card(m.el, 'x')!
@@ -316,10 +325,12 @@ for (const mode of ['row', 'circular'] as const) {
   test(`${mode}: real desk left/right selection, composer and wheel retain their events/defaults`, async t => {
     useFakeClock(); t.after(realClock)
     setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
-    localStorage.removeItem('orgtree-view-mine')
-    forgetPins('mine'); t.after(() => forgetPins('mine'))
+    resetDeskFixture()
     const m = await mountCanvas(t, tree([mkNode('x')]), () => Promise.resolve({}))
+    t.after(resetDeskFixture)
+    assert.deepEqual(readPins('mine'), [], 'preservation case starts without pins')
     await m.focus('x')
+    assert.equal(card(m.el, 'x')!.classList.contains('pinned'), false, 'selection runs inside the canvas desk')
     const desk = card(m.el, 'x')!, msgs = desk.querySelector<HTMLElement>('.msgs')!
     const composer = desk.querySelector<HTMLTextAreaElement>('textarea')!
     assert.ok(msgs && composer, `real desk content is mounted: card=${desk.className}; camera=${m.el.querySelector<HTMLElement>('.space')!.style.transform}`)
