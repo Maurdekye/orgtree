@@ -384,6 +384,9 @@ export interface TreeNode {
    *  payload and the cached detail is dropped. Absent on a live seat. */
   detail_rev?: string | null
   id: string
+  /** 'project' for a project node (docs/rust-engine/PROJECT-NODES.md): it
+   *  runs no turns, holds no credits and has no desk; absent on an agent */
+  kind?: 'project'
   title: string
   tier: string
   model_id: string
@@ -2290,6 +2293,9 @@ export interface OpRequest {
    *  mid-turn. Sent by the bulk actions only (canvas/bulkcompact.tsx); the
    *  single action keeps its existing behaviour. */
   if_idle?: boolean
+  /** create_project — what the project is (its charter, shown on its card);
+   *  `parent` or `above` places it (docs/rust-engine/PROJECT-NODES.md) */
+  description?: string | null
 }
 
 // api.py Scope (POST .../nodes/{nid}/scope)

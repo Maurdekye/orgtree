@@ -22,7 +22,7 @@ import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
 import {
   AutorenewIcon, CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
-  LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
+  LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon, FolderIcon,
 } from '../icons'
 import {
   ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, orderAntigravityTiers, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
@@ -108,6 +108,8 @@ interface UserNodeProps {
   /** pinned agents keep their tab but not a second chat — see EyeDeskProps */
   pinnedIds?: ReadonlySet<string>
   onShowPin?: (id: string) => void
+  /** create a project node at the top level (docs/rust-engine/PROJECT-NODES.md) */
+  onNewProject?: () => void
 }
 
 export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
@@ -116,7 +118,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
-  pinnedIds, onShowPin }: UserNodeProps) {
+  pinnedIds, onShowPin, onNewProject }: UserNodeProps) {
   // the eye's hire chips collapse behind the same far-zoom ⋯ toggle as every
   // other node's (NodeSquare's expandedHireEdge) — the eye has one static
   // edge (soleHire), so a plain boolean stands in for that per-edge map.
@@ -159,6 +161,10 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         })),
       },
     ]
+    if (onNewProject) {
+      entries.push({ label: 'New project…', title: 'a project node at the top level: its agents work on it',
+        onSelect: () => onNewProject() })
+    }
     if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox() })
     if (onDocket) entries.push({ label: 'Open global docket', onSelect: () => onDocket() })
     if (onPresentations) entries.push({ label: 'Open presentations', onSelect: () => onPresentations() })
@@ -285,6 +291,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         claudeHire={claudeHire} onNoHarness={onNoHarness}
         antigravityHire={antigravityHire} openrouterHire={openrouterHire} langserverHire={langserverHire}
         zoom={focused ? undefined : zoom} expanded={expandedHire || guideHire}
+        onProject={onNewProject}
         onToggleExpanded={() => setExpandedHire((v) => !v)} />
       {focused && (
         <EyeDesk map={map} op={op} slug={slug} toast={toast}
@@ -637,6 +644,10 @@ interface SpawnChipsProps {
   onToggleExpanded?: () => void
   /** the tier already chosen, drawn as selected (Quick chat's model picker) */
   selected?: string
+  /** the PROJECT token (user 2026-10-16 21:02Z): a light grey square with a
+   *  folder in place of a tier letter, outermost on its strip, free. It opens
+   *  the new-project form for this edge (docs/rust-engine/PROJECT-NODES.md). */
+  onProject?: () => void
 }
 
 /** a hire badge's seat cost: `(-N)`, the user's own notation, and `(free)`
@@ -649,7 +660,7 @@ const costBadge = (seat: number): string => {
 
 export function SpawnChips({ onSpawn, seats, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, zoom,
-  expanded = false, onToggleExpanded, selected }: SpawnChipsProps) {
+  expanded = false, onToggleExpanded, selected, onProject }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
   // the Muse family's state, adopted from the canvas's providers poll
@@ -814,6 +825,22 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
         </button>
       ),
     })
+  // the project token rides its own row, outermost: a project is not a model
+  // and costs nothing, so it never counts among the providers above
+  if (onProject) {
+    fams.push({
+      key: 'project', tiers: ['project'],
+      body: (
+        <button key="project" className="project-token" aria-label="create a project"
+          title={'create a project'
+            + (soleHire ? '' : side === 'top' ? ' above, holding this node' : side ? ' beside' : ' under this node')
+            + ' (free)'}
+          onClick={(e) => { e.stopPropagation(); onProject() }}>
+          <FolderIcon fontSize="inherit" />
+        </button>
+      ),
+    })
+  }
   // Keep the hooks below unconditional: provider availability can change
   // after its payload loads, including into or out of this empty residual.
   const hasFamilies = fams.length > 0
@@ -1252,6 +1279,11 @@ interface NodeSquareProps {
   onOpenAgentGallery?: (agentId: string) => void
   onRecenter?: () => void
   onJump?: (id: string) => void
+  /** create a project node under this agent (docs/rust-engine/PROJECT-NODES.md) */
+  onNewProject?: () => void
+  /** the project hire token on an edge: under it (b), beside it (l/r) or
+   *  above it, holding it (t) — user 2026-10-16 21:02Z */
+  onNewProjectAt?: (edge: 'b' | 'l' | 'r' | 't') => void
   cascadeAlloc: boolean
   maxTop: number
   pile?: Pile
@@ -1416,7 +1448,7 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
 
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, map, op, slug,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
-  onRecenter, onJump, cascadeAlloc, maxTop, pile, compactAt,
+  onRecenter, onJump, onNewProject, onNewProjectAt, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, deskEligible = true, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
   onOpenTemporary,
@@ -1489,6 +1521,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onHalt: () => { void toggleAgentHalt(slug, node.id, node.halt?.phase, toast) },
       onHire: onSpawn,
       onRetireAsk: setAsking,
+      onNewProject,
       onDismiss,
       onContinueOn: (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
     }, { pinned, piled: !!pile, detached: desk.detached,
@@ -1967,6 +2000,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           claudeHire={claudeHire} onNoHarness={onNoHarness}
           openrouterHire={openrouterHire} langserverHire={langserverHire}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'b'}
+          onProject={onNewProjectAt ? () => onNewProjectAt('b') : undefined}
           onToggleExpanded={() => toggleCompactHire('b')} />}
       {/* Presented markdown and HTML chips disappear at mini
           (user 2026-10-13). Unmount only this side attachment surface:
@@ -1996,6 +2030,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             openrouterHire={openrouterHire} langserverHire={langserverHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
             zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'l'}
+            onProject={onNewProjectAt ? () => onNewProjectAt('l') : undefined}
             onToggleExpanded={() => toggleCompactHire('l')} />
           <SpawnChips side="right" onSpawn={(t) => onSpawnSide(t, 'right')}
             seats={seats}
@@ -2003,6 +2038,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             openrouterHire={openrouterHire} langserverHire={langserverHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
             zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'r'}
+            onProject={onNewProjectAt ? () => onNewProjectAt('r') : undefined}
             onToggleExpanded={() => toggleCompactHire('r')} />
         </>
       )}
@@ -2017,6 +2053,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           openrouterHire={openrouterHire} langserverHire={langserverHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 't'}
+          onProject={onNewProjectAt ? () => onNewProjectAt('t') : undefined}
           onToggleExpanded={() => toggleCompactHire('t')} />
       )}
       {/* portal to <body>: the card lives inside the world transform, where

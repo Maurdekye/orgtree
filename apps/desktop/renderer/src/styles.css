@@ -1350,6 +1350,23 @@ button.badge.audience-fold.alert {
 /* Three deliberate zoomed-out rows: model/name, working + CLI/context
    metadata, then left-aligned actions. */
 .sq-head { display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-height: 0; }
+/* PROJECT NODE cards (docs/rust-engine/PROJECT-NODES.md): a node that stands
+   for a project and is not an agent. No credit bar, model chip or turn state;
+   a dashed outline in the line colour, a folder mark, its description and its
+   waiting mail. The card keeps the agent card's size and grid so the tree
+   layout, drags and drops treat it like any node. */
+.sq.project { border-style: dashed; border-top-width: 1px; background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%); }
+.sq.project.norm { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.sq.project .project-mark { flex: none; display: inline-flex; color: var(--accent); font-size: 15px; }
+.sq.project .project-meta { gap: 6px; }
+.sq.project .project-kind { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.sq.project .project-desc { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-height: 0; }
+.sq.project .project-actions { opacity: 1; }
+.sq.project .project-mini { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  color: var(--accent); font-size: 28px; }
+.new-project .field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.new-project .field input, .new-project .field textarea { width: 100%; box-sizing: border-box; }
 .sq-title { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 19px; }
 .sq-title .name { flex: 1; min-width: 0; }
 .sq-meta { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 16px; }
@@ -3666,6 +3683,11 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
   box-shadow: 0 2px 6px rgba(0, 0, 0, .4);
 }
 .hsof button:hover:not(:disabled) { background: var(--panel-2); }
+/* the PROJECT token (user 2026-10-16 21:02Z): a light grey SQUARE with a
+   folder instead of a tier letter (docs/rust-engine/PROJECT-NODES.md) */
+.hsof button.project-token { border-radius: 4px; background: #d6d6d6; border-color: #b4b4b4; color: #3c3c3c;
+  font-size: 14px; display: inline-flex; align-items: center; justify-content: center; }
+.hsof button.project-token:hover:not(:disabled) { background: #e6e6e6; border-color: #8a8a8a; }
 .hsof button:disabled { opacity: .35; }
 /* each chip wears its model's color (same idiom as the .tier badge) */
 .hsof button.t-haiku { color: var(--tier-haiku); border-color: color-mix(in srgb, var(--tier-haiku) 45%, var(--line)); }

@@ -53,6 +53,9 @@ export const TIER_LETTER: Record<string, string> = {
   flash: 'F', pro: 'P', argon: 'A', barium: 'B', carbon: 'C',
   'agy-sonnet': 'S', 'agy-opus': 'O',
   wonder: 'W', 'wonder-full': 'F', spark: 'S',
+  // a project node's sentinel tier (docs/rust-engine/PROJECT-NODES.md): not a
+  // model, so a square mark wherever a row draws a node's tier chip
+  project: '▣',
 }
 export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
@@ -1081,6 +1084,8 @@ export function availableAutopsyModels(
 // One structural type covers every card; fields absent on some card kinds
 // are optional and consumers guard (or assert) exactly where the JS did.
 export interface CanvasNode {
+  /** 'project' for a project node (TreeNode's) */
+  kind?: 'project'
   hidden_retired_children?: number
   lineage_loaded?: boolean
   lineage_revision?: string

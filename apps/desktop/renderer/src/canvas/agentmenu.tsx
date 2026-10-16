@@ -106,6 +106,8 @@ export interface AgentMenuHandlers {
    *  A surface that cannot offer it passes nothing and the entries vanish,
    *  exactly like every other handler-gated entry here. */
   onContinueOn?: (account: string) => void
+  /** create a project node under this node (docs/rust-engine/PROJECT-NODES.md) */
+  onNewProject?: () => void
 }
 
 export interface AgentMenuState extends HireProviders {
@@ -126,6 +128,7 @@ export interface AgentMenuState extends HireProviders {
  */
 export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   s: AgentMenuState = {}): MenuEntry[] {
+  if (node.kind === 'project') return projectMenuEntries(node, h, s)
   const live = node.state === 'live'
   // a bearer pseudo-card is a lineage ghost, not a seat: it cannot be retired,
   // dissolved or hired under
@@ -305,7 +308,66 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
         title: `Retire all live descendants; ${node.id} stays live` },
     ] : undefined,
   })
+  if (h.onNewProject && canRetire) {
+    entries.push({ label: 'New project here…', title: `a project node under ${node.id}: its agents work on it and ${node.id} pays for them`,
+      onSelect: h.onNewProject })
+  }
   if (lifecycle.length) entries.push('sep', ...lifecycle)
+  return entries
+}
+
+/**
+ * A PROJECT NODE's menu (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16):
+ * its mailbox, folder and presentations, hires and nested projects under it,
+ * and its retirement. No desk, settings, audience, halt or compaction: a
+ * project runs no turns. Shared by the project card and the Agents List row.
+ */
+export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
+  s: AgentMenuState = {}): MenuEntry[] {
+  const live = node.state === 'live'
+  const open: MenuEntry[] = [{ label: 'Open project mailbox', onSelect: () => h.onInbox() }]
+  if (h.onScratchFolder && (live || node.state === 'archived')) {
+    open.push({ label: 'Open project folder', onSelect: h.onScratchFolder })
+  }
+  const presentations = h.onPresentations
+  if (presentations && (node.documents?.length ?? 0) > 0) {
+    open.push({ label: 'Open presentations', onSelect: () => presentations() })
+  }
+  const entries: MenuEntry[] = [{ label: 'Open', submenuOnly: true, onSelect: () => {}, children: open }]
+  const hire = h.onHire
+  if (live && hire && !s.piled) {
+    refreshAgyModels()
+    const choices = hireTierChoices(s)
+    entries.push({
+      label: 'Hire under this project',
+      title: 'agents under a project work on it; the agent above the project pays for them',
+      submenuOnly: true,
+      disabled: choices.length === 0,
+      onSelect: () => {},
+      children: choices.map(({ tier, offer, reason }) => ({
+        label: tierLabel(tier),
+        disabled: offer !== 'offer',
+        title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire under project ${node.id}` : reason,
+        onSelect: () => hire(tier),
+      })),
+    })
+  }
+  if (live && h.onNewProject) {
+    entries.push({ label: 'New project here…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })
+  }
+  if (!live && h.onDismiss) {
+    const dismiss = h.onDismiss
+    entries.push({ label: 'Dismiss', title: 'hide this retired project again', onSelect: () => dismiss() })
+  }
+  const ask = h.onRetireAsk
+  if (live && ask) {
+    const team = (node.children ?? []).some((c) => c.state === 'live')
+    entries.push('sep', {
+      label: 'Retire project…', danger: true,
+      title: team ? `retire ${node.id} with the agents and projects under it` : `retire ${node.id}`,
+      onSelect: () => ask(team ? 'dissolve' : 'retire'),
+    })
+  }
   return entries
 }
 

@@ -85,6 +85,8 @@ import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
+import { isProject, ProjectSquare } from './projectcard'
+import { NewProjectModal } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
 import type { AgentTooltipInfo } from './agentnav'
@@ -523,6 +525,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [trayArch, setTrayArch] = useState(false)   // archived rows shown (user
                                                     // spec: hidden by default)
   const [inboxId, setInboxId] = useState<string | null>(null)
+  // the "New project" form's place (parent USER: the top level; `above`: the
+  // node it takes the place of, holding it), docs/rust-engine/PROJECT-NODES.md
+  const [newProject, setNewProject] = useState<{ parent: string; above?: string;
+    beside?: { anchor: string; side: 'left' | 'right' } } | null>(null)
   const [agentDocketId, setAgentDocketId] = useState<string | null>(null)
   // the TEAM docket's root agent — its own surface, deliberately not a mode of
   // the agent docket above: the two are independently pinnable, restorable and
@@ -2735,6 +2741,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const drop = dropTargetAt(toWorld(e), id)
     setDropId(null)
     if (!d.moved) {                       // a plain click → walk to the desk
+      // a project node runs no turns and has no desk: its mailbox opens
+      if (isProject(node)) { toggleNodeSurface('node-inbox', id, setInboxId); return }
       if (!focused && id !== USER && node.state !== 'draft') centerOn(id)
       return
     }
@@ -3898,6 +3906,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                  (user spec 2026-08-19): the gen badge and gear in each panel
                  open the same canvas-level lineage/config surfaces */
               onNodeLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onNodeConfig={toggleConfig}
+              onNewProject={() => setNewProject({ parent: USER })}
               onSpawn={(t) => spawn(USER, t)} />
           }
           if (n.id === DRAFT) {
@@ -3909,6 +3918,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onGrant={setDraftGrant} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
+          if (isProject(n)) {
+            return <ProjectSquare key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
+              zoom={view.z}
+              dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
+              isDrop={dropId === n.id}
+              hire={{ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire }}
+              seats={seats}
+              onHire={(t) => spawn(n.id, t)}
+              onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)}
+              onOpenDoc={openDocView}
+              onOpenGallery={onOpenAgentGallery}
+              onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
+              onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag} />
+          }
           const pileHere = pileByFront.get(n.id)
           const square = (
             <NodeSquare key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
@@ -3938,6 +3961,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onOpenAgentGallery={onOpenAgentGallery}
               onMailLink={openMail} onWorkLink={openWork}
               onRecenter={() => centerOn(n.id)}   /* recenter AND re-zoom to fill */
+              onNewProject={() => setNewProject({ parent: n.id })}
+              onNewProjectAt={(edge) => setNewProject(edge === 'b' ? { parent: n.id }
+                : edge === 't' ? { parent: n.parent ?? USER, above: n.id }
+                : { parent: n.parent ?? USER, beside: { anchor: n.id, side: ringSide(n, edge === 'l' ? 'left' : 'right') } })}
               onJump={centerOn}                   /* F-01 nav chips */
               cascadeAlloc={tree.cascade_alloc !== false}
               maxTop={tree.max_top_grant ?? 1000}
@@ -4298,6 +4325,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         <MaybePortal><DocReader slug={slug} docId={docView} toast={toast}
           refs={docRefs}
           close={() => setDocView(null)} /></MaybePortal>
+      )}
+      {newProject && (
+        <MaybePortal><NewProjectModal parent={newProject.parent} above={newProject.above}
+          beside={newProject.beside} op={op} toast={toast}
+          close={() => setNewProject(null)} /></MaybePortal>
       )}
       {inboxId && map.get(inboxId) && (
         <MaybePortal><NodeInboxModal node={map.get(inboxId)!} slug={slug}

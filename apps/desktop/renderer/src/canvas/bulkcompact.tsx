@@ -48,7 +48,8 @@ export interface BulkCompactPlan {
  *  agent. Those are not "agents of the org" for this purpose at all, so they
  *  are left out silently rather than listed as skipped. */
 function isLiveSeat(n: CanvasNode): boolean {
-  return n.state === 'live' && !n.isBearerOf && !n.bearer_state
+  // a project node runs no turns: nothing to halt or compact
+  return n.state === 'live' && !n.isBearerOf && !n.bearer_state && n.kind !== 'project'
 }
 
 /** `root` and every live agent below it, in tree order (the root first). The
