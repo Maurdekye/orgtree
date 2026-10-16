@@ -59,9 +59,9 @@ if (process.argv[2] !== '--electron') {
     console.log('Electron ready')
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
     main = new BrowserWindow({ show: false, width: 1000, height: 700,
-      webPreferences: { contextIsolation: false, nodeIntegration: false, sandbox: false, backgroundThrottling: false, offscreen: true } })
+      webPreferences: { contextIsolation: false, nodeIntegration: false, sandbox: false, backgroundThrottling: false } })
     main.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: {
-      show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false, offscreen: true } } }))
+      show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false } } }))
     const evaluate = code => main.webContents.executeJavaScript(code, true)
     const childEvaluate = async (win, expression) => {
       if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
@@ -106,7 +106,8 @@ if (process.argv[2] !== '--electron') {
       await sample(name, child, width)
     }
     await evaluate('window.__sidebarProof.contentWidth(960)')
-    await childEvaluate(child, '[...document.querySelectorAll("button")].find(b=>b.textContent==="Return panel").click()')
+    try { await childEvaluate(child, '[...document.querySelectorAll("button")].find(b=>b.textContent==="Return panel").click()') }
+    catch (error) { if (!child.isDestroyed()) throw error }
     await sample('returned-wide', main, 960)
     await evaluate('window.__sidebarProof.contentWidth(650)')
     await sample('returned-narrow', main, 650)

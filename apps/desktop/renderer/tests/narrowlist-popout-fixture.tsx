@@ -25,7 +25,9 @@ const proof = {
     if (!original && input) original = input
     return { width: box?.getBoundingClientRect().width ?? 0, narrow: box?.classList.contains('narrow-list') ?? false,
       toggle: !!box?.querySelector('.mailer-listtoggle'), sameInput: !!input && input === original,
-      filter: input?.value, ownerIsPopout: doc !== document }
+      filter: input?.value, ownerIsPopout: doc !== document, viewport: doc.defaultView?.innerWidth,
+      chain: box ? [box, box.parentElement!, box.parentElement!.parentElement!].map(el => ({ className: el.className,
+        width: el.getBoundingClientRect().width, display: doc.defaultView!.getComputedStyle(el).display })) : [] }
   },
   contentWidth(width: number | null) {
     const doc = openSurfaces()[0]?.window.document ?? document
