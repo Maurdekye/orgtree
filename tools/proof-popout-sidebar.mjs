@@ -107,7 +107,12 @@ if (process.argv[2] !== '--electron') {
     }
     await evaluate('window.__sidebarProof.contentWidth(960)')
     try { await childEvaluate(child, '[...document.querySelectorAll("button")].find(b=>b.textContent==="Return panel").click()') }
-    catch (error) { if (!child.isDestroyed()) throw error }
+    catch (error) {
+      // Redock synchronously closes its own native target while CDP is still
+      // replying. Only accept that error after verifying the window did close.
+      await delay(100)
+      if (!child.isDestroyed()) throw error
+    }
     await sample('returned-wide', main, 960)
     await evaluate('window.__sidebarProof.contentWidth(650)')
     await sample('returned-narrow', main, 650)
