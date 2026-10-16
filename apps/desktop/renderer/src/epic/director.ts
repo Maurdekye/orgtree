@@ -870,12 +870,14 @@ function attachHands(show: Show, t: Theater): () => void {
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return
     const field = target.closest(TYPEABLE)!
-    const spot = caretSpot(field, doc) ?? spotOfElement(field)
-    if (!spot) return
-    if (e.key === 'Enter' && !e.shiftKey && field.tagName === 'TEXTAREA') show.cue('enter', { spot })
-    else if (e.key === 'Enter' && field.tagName !== 'TEXTAREA') show.cue('enter', { spot })
-    else if (e.key === 'Backspace' || e.key === 'Delete') show.cue('erase', { spot })
-    else if (e.key.length === 1) show.cue('type', { spot })
+    // Shift+Enter in a textarea is a newline, not a send: no effect
+    const kind: Kind | null = e.key === 'Enter' ? (e.shiftKey && field.tagName === 'TEXTAREA' ? null : 'enter')
+      : e.key === 'Backspace' || e.key === 'Delete' ? 'erase'
+      : e.key.length === 1 ? 'type' : null
+    if (!kind) return
+    // a typed character's sparks go where it lands
+    const spot = caretSpot(field, doc, kind === 'type' ? e.key : '') ?? spotOfElement(field)
+    if (spot) show.cue(kind, { spot })
   }
   // A wheel plays what it DID, never where it landed (user reports
   // 2026-10-15: scrolling a pinned window on the canvas, then the agents
@@ -1011,9 +1013,17 @@ function attachHands(show: Show, t: Theater): () => void {
   }
 }
 
-/** Roughly where the caret is in a text field: the text before it measured in
- *  the field's own font. Wrapped lines are not modelled — close is enough for
- *  sparks.
+/** Where the caret is in a text field, on screen.
+ *
+ *  A textarea's text is laid out by the browser itself, in a hidden copy of
+ *  the field (`laidOut`), so a line that wraps at the field's edge takes the
+ *  caret, and the sparks, onto the next line (user report 2026-10-16,
+ *  4.3.1-alpha.1: past a full line they stayed at the end of the first).
+ *  `typed`, a character about to be typed, is placed where it lands: the word
+ *  it lengthens may no longer fit, and go down a line with it. A one-line
+ *  field never wraps, and where nothing is laid out (jsdom) only newlines
+ *  start a line: there the text before the caret is measured in the field's
+ *  own font (`byLines`).
  *
  *  The field's box can be SCALED on screen (user report 2026-10-15: typing
  *  sparks ran off the caret in a desk on the canvas, never in a pinned one). A
@@ -1022,7 +1032,7 @@ function attachHands(show: Show, t: Theater): () => void {
  *  padding, border and scroll offsets are in the field's own px. The box's
  *  screen size over its untransformed one (offsetWidth/offsetHeight) carries
  *  them onto the screen; a pinned or popped-out desk is unscaled, 1. */
-function caretSpot(field: Element, doc: Document): Spot | null {
+function caretSpot(field: Element, doc: Document, typed = ''): Spot | null {
   const view = doc.defaultView
   if (!view) return null
   if ((field as HTMLElement).isContentEditable) {
@@ -1036,23 +1046,78 @@ function caretSpot(field: Element, doc: Document): Spot | null {
   if (!isField(field)) return spotOfElement(field)
   const box = field.getBoundingClientRect()
   if (!(box.width > 0)) return null
-  let before = ''
-  try { before = field.value.slice(0, field.selectionStart ?? field.value.length) } catch { before = field.value }
+  const value = field.value
+  let start = value.length, end = value.length
+  try { start = field.selectionStart ?? start; end = field.selectionEnd ?? start } catch { /* a field with no caret to read */ }
   const style = view.getComputedStyle(field)
-  const lines = before.split('\n')
-  const last = lines[lines.length - 1] ?? ''
-  const lineHeight = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 13) * 1.4
-  const width = measure(doc, style.font || `${style.fontSize} ${style.fontFamily}`, last)
+  const area = field.tagName === 'TEXTAREA'
+  // from the corner of the field's content, in its own px
+  const at = (area ? laidOut(field, style, doc, typed ? value.slice(0, start) + typed + value.slice(end) : value, start) : null)
+    ?? byLines(style, doc, value.slice(0, start))
   const padL = parseFloat(style.paddingLeft) || 0
   const padT = parseFloat(style.paddingTop) || 0
   // screen px per field px
   const sx = field.offsetWidth > 0 ? box.width / field.offsetWidth : 1
   const sy = field.offsetHeight > 0 ? box.height / field.offsetHeight : sx
-  const x = Math.min(box.right - 4, box.left + (field.clientLeft + padL + width - field.scrollLeft) * sx)
-  const y = field.tagName === 'TEXTAREA'
-    ? Math.min(box.bottom - 4, box.top + (field.clientTop + padT + (lines.length - 0.5) * lineHeight - field.scrollTop) * sy)
+  const x = Math.min(box.right - 4, box.left + (field.clientLeft + padL + at.x - field.scrollLeft) * sx)
+  const y = area
+    ? Math.min(box.bottom - 4, box.top + (field.clientTop + padT + at.y - field.scrollTop) * sy)
     : box.top + box.height / 2
   return { x, y: Math.max(box.top + 4, y), rect: null, el: field, doc }
+}
+
+/** what a textarea's hidden copy takes from it: everything that moves its text */
+const LAID_OUT = ['direction', 'font-family', 'font-size', 'font-stretch', 'font-style', 'font-variant', 'font-weight',
+  'font-kerning', 'font-feature-settings', 'font-variation-settings', 'letter-spacing', 'word-spacing', 'line-height',
+  'text-align', 'text-indent', 'text-transform', 'text-rendering', 'tab-size', 'white-space', 'word-break',
+  'overflow-wrap', 'line-break', 'hyphens']
+
+/** Where `text[at]` (the caret, or a character about to be typed) is laid out
+ *  in a textarea: x at its left, y the middle of its line, from the corner of
+ *  the field's content, in the field's own px. The text goes into a hidden
+ *  copy of the field, as wide as its content (its scrollbar left out) and in
+ *  its font and wrapping, with everything from `at` on in a marker: the copy
+ *  wraps exactly as the field does, and the marker starts at the spot. At the
+ *  end of the text or of a line the marker is a zero-width space, which never
+ *  moves a line break. The copy is gone again before this returns. Null where
+ *  nothing is laid out (jsdom). */
+function laidOut(field: HTMLElement, style: CSSStyleDeclaration, doc: Document, text: string, at: number): { x: number; y: number } | null {
+  if (!doc.body) return null
+  const px = (v: string) => parseFloat(v) || 0
+  const borders = px(style.borderLeftWidth) + px(style.borderRightWidth)
+  const pads = px(style.paddingLeft) + px(style.paddingRight)
+  // the width CSS gives it is exact; clientWidth is rounded
+  const bar = Math.max(0, Math.round(field.offsetWidth - field.clientWidth - borders))
+  const used = parseFloat(style.width)
+  const width = used > 0 ? (style.boxSizing === 'border-box' ? used - borders - pads - bar : used) : field.clientWidth - pads
+  if (!(width > 0)) return null
+  const copy = doc.createElement('div')
+  copy.style.cssText = `position:fixed;left:0;top:0;display:block;box-sizing:content-box;width:${width}px;height:0;`
+    + 'margin:0;padding:0;border:0;overflow:hidden;visibility:hidden;pointer-events:none;transform:none'
+  for (const p of LAID_OUT) copy.style.setProperty(p, style.getPropertyValue(p))
+  const rest = text.slice(at)
+  const zero = !rest || rest[0] === '\n'
+  const mark = doc.createElement('span')
+  mark.textContent = zero ? '\u200b' : rest
+  copy.append(text.slice(0, at), mark)
+  if (zero && rest) copy.append(rest)
+  doc.body.append(copy)
+  try {
+    const r = mark.getClientRects()[0]
+    const c = copy.getBoundingClientRect()
+    return r && r.height > 0 ? { x: r.left - c.left, y: (r.top + r.bottom) / 2 - c.top } : null
+  } finally { copy.remove() }
+}
+
+/** where the caret is by newlines alone: the text before it measured in the
+ *  field's own font, a line down for each newline */
+function byLines(style: CSSStyleDeclaration, doc: Document, before: string): { x: number; y: number } {
+  const lines = before.split('\n')
+  const lineHeight = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 13) * 1.4
+  return {
+    x: measure(doc, style.font || `${style.fontSize} ${style.fontFamily}`, lines[lines.length - 1] ?? ''),
+    y: (lines.length - 0.5) * lineHeight,
+  }
 }
 
 let measurer: CanvasRenderingContext2D | null | undefined
