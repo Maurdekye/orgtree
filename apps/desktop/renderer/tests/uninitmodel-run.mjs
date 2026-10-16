@@ -16,7 +16,7 @@ const entries = process.argv.slice(3)
 await esbuild.build({ entryPoints: entries.length ? entries.map(e => path.join(here, e)) : [path.join(here, 'uninitmodel.test.tsx')],
   outdir: out, outExtension: { '.js': '.mjs' }, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic',
   nodePaths: [deps], external: ['node:*'], define: { 'process.env.NODE_ENV': '"development"', __SRC_DIR__: JSON.stringify(path.join(here, '../src')) },
-  plugins: [{ name: 'external-jsdom', setup(b) { b.onResolve({ filter: /^jsdom$/ }, () => ({ path: require.resolve('jsdom'), external: true })) }], logLevel: 'warning' })
+  plugins: [{ name: 'external-jsdom', setup(b) { b.onResolve({ filter: /^jsdom$/ }, () => ({ path: require.resolve('jsdom'), external: true })) } }], logLevel: 'warning' })
 await esbuild.stop()
 const bundles = (entries.length ? entries : ['uninitmodel.test.tsx']).map(e => path.join(out, e.replace(/\.tsx?$/, '.mjs')))
 const args = ['--test', '--test-concurrency=1', '--test-timeout=30000', ...bundles]
