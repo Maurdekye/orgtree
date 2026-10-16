@@ -57,9 +57,9 @@ Open **App settings > Providers** to discover installed providers and use their 
 | Claude Code | Install and sign into [Claude Code](https://code.claude.com/docs/en/setup). |
 | Codex | Install and sign into the [Codex CLI](https://developers.openai.com/codex/cli). |
 | Antigravity | Install and sign into [Antigravity](https://antigravity.google/download). |
+| Muse Code | Install and sign into [Muse Code](https://dev.meta.ai/docs/muse-code#install). |
 | OpenRouter | Configure your OpenRouter API key and choose the models you want offered. |
 | Language servers | Connect a model server on your machine or network, using an installed Claude Code or Codex CLI. See [setup below](#language-servers). |
-| Muse Code (builds with Muse support) | Install the native Muse CLI and sign in. See [Muse setup](#muse-code). |
 
 For providers with secondary-account support, use the add-account button in that provider's header. Create a managed profile, or import an existing profile where that provider supports it, then use the account row to manage it or sign in again. Muse supports managed profiles and API keys, but not profile-folder import. Account usage belongs in the dedicated **Usage** window, opened from the **Orgtree** menu.
 
@@ -92,34 +92,6 @@ For **Custom…**, set **Base path** if needed: it is appended to Address. For a
 To change a saved server's address, key, capacity or other settings, use its **edit** button, then **Save**; **Cancel** discards the draft. Model chips offer or withdraw models immediately, and **more** opens the larger browser. Withdrawing a model stops new hires on it while existing agents keep running. Turning a server off makes its agents wait; removing it leaves those agents needing a switch to another tier. Org account switches restrict only that org, and cannot turn on a server disabled app-wide. Language-server agents keep their server rather than automatically moving to another one.
 
 If setup fails, use the server card's **refresh** button to check its answer and reported windows. Check the address, actual listening port and API style; **401/403** indicates an API-key problem. An unavailable harness needs its CLI installed on the Orgtree machine. If a model is absent from hiring, check that it is offered, that both app switches are on, and that the org allows the server. A successful model-list query establishes discovery; try one small agent task to check the model's tool-call behavior. For slow Ollama model loading, its preset notes describe `OLLAMA_LOAD_TIMEOUT=30m` and checking the GPU backend in Ollama's own log.
-
-### Muse Code
-
-Use this section with an Orgtree build that includes **Muse Code** support. The integration is present in the development source; this guide does not establish its availability in a published installer. Muse supplies both the agent harness and inference. Setup requires its native CLI and an account with access to the models you want to use.
-
-1. **Install Muse Code on the Orgtree machine.** Follow Meta's [Muse Code installation guide](https://dev.meta.ai/docs/muse-code#install), then check `muse --version` in a new terminal. The integration was checked with Muse Code **1.4.6 on Windows**; other versions and platforms do not have the same verification.
-2. **Sign in to your own Muse account.** Run `muse login` in a terminal and approve the code in your browser. See Meta's [authentication guide](https://dev.meta.ai/docs/muse-code/auth) for browser sign-in and API billing. This is the **default** Muse account in Orgtree.
-3. **Refresh discovery.** Open **App settings > Providers** and refresh provider status. Orgtree detects Muse's installed native binary in its standard Windows install folder or beside the `muse` launcher on `PATH`, then reads the account's sign-in state and model catalog. Discovery does not run a model task. Check the Muse provider's reported connection and model tiers.
-4. **Allow the account to serve agents.** Turn on the Muse provider and the account's **Active** switch. In **Org settings > Accounts**, allow the Muse account for that organization. An org switch cannot enable an account switched off app-wide.
-5. **Choose a model and effort when hiring.** The models, versions and effort levels available to a seat come from the account it will run on. Select an eligible account if your default does not offer the model. A bundled model entry is not proof of access; **Wonder Full** appears only when an enabled account's own catalog offers it. Changing accounts can change which models and effort levels are available.
-
-| Muse tier | Orgtree seat credits |
-| --- | --- |
-| Wonder | 4 |
-| Wonder Full | 10 |
-| Spark | 2 |
-
-These are Orgtree capacity credits, separate from subscription allowances and API charges. Spark version choices depend on the selected account's catalog; the integration supports 1.3 and a 1.2 pin when offered. Choose the effort names shown for that account, model and version. Orgtree does not offer Muse's `ultra` workflow mode.
-
-**Additional accounts.** Use the add-account control in the Muse provider header. **Create managed account** makes an isolated profile; use its **Sign in** button, complete the browser approval in the opened terminal, then press **Refresh**. Opening the terminal is not a sign-in confirmation. Each managed account keeps its own credentials and sessions. To use metered access, choose **Use an API key** and **Add API-key account**; its own catalog must offer the chosen model. Keys use their own profile rather than your default sign-in. Orgtree does not inject an inherited `META_API_KEY` into subscription agents. Real second-account and API-key flows remain unverified, as detailed below.
-
-**Contributor mode and limits.** Orgtree runs every Muse agent with contributor mode **off**, including resumed sessions, without changing your saved Muse preference. Background observer agents and proactive workflows are disabled. Usage shows Muse's dated observations and token counts when available; a missing reading is unknown, not zero. Orgtree records Muse dollar cost as unknown and offers no prompt-cache lifetime countdown. A cache-read receipt alone does not establish a lifetime. Read-only extra folders are accessed through approval rather than writable workspace roots. The org's compaction threshold is not passed to Muse; `/compact` is available, alongside Orgtree's cheap compact control.
-
-**Account changes.** Optional [account fallback](#account-fallback) considers other permitted Muse accounts only when they offer the seat's exact model and pinned version; subscription accounts also need verified capacity. API-key fallback requires its separate opt-in switch. Removing an account moves its live agents to a permitted subscription account that offers their model, or leaves them frozen with an explanation when none qualifies. Moving to another login may start a new session with Orgtree's handoff note rather than resume the old login's conversation.
-
-If Muse is **Not installed**, check installation and refresh provider status. If it is installed but reports no model tiers, complete sign-in; when the provider says its catalog has not been fetched, start Muse Code once, then refresh. Check provider/account activation and the org's account list if a model is missing from hiring. For an unknown catalog or protocol error, use the provider's reported reason and consult the [Muse integration notes](docs/rust-engine/muse-code.md).
-
-Those notes distinguish the earlier real-account checks—four offered models, contributor mode off and a same-account restart/resume—from later fixture-based adapter checks. Real multi-account/API-key access, fallback, images, changed-folder resumes and quota/auth/retry paths remain unverified. Muse's default shell-network sandbox behavior is also unverified. The integration does not claim full real-account or cross-platform parity.
 
 ## Your first organization
 

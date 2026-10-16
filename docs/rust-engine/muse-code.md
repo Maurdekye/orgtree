@@ -343,7 +343,9 @@ network failure. Tokens come from `session/tokenUsage` (the cached part kept
 apart). Muse publishes no price and no cache lifetime: cost is recorded as
 unknown and no cache countdown is claimed.
 
-**Accounts and sign-in.** `muse/primary` is the user's own Muse login. A
+**Accounts and sign-in.** Meta's [installation guide](https://dev.meta.ai/docs/muse-code#install)
+and [authentication/API billing guide](https://dev.meta.ai/docs/muse-code/auth) cover
+the native CLI setup and sign-in. `muse/primary` is the user's own Muse login. A
 managed account is a profile folder with its own `config` and `data` roots
 (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`). An API-key account runs with
 `META_API_KEY` in roots of its own (`profiles/muse-key-<id>`), never the
@@ -356,6 +358,13 @@ opens, like Antigravity's, and the user clicks Refresh; identity comes from
 what that login's own catalog offers (`providers::muse_model_for`): a profile
 is read in its own roots and a key with itself, so entitlement is never
 borrowed from another login and never assumed for a key.
+
+**Setup troubleshooting.** If Muse is **Not installed**, install it and refresh
+provider status. If it reports no model tiers, complete sign-in; when its
+catalog has not been fetched, start Muse Code once and refresh. Check provider
+and account activation plus org account access if a model is missing from
+hiring. For an unknown catalog or protocol error, use the provider's reported
+reason.
 
 **Account fallback** is the existing product feature: per agent ("Switch
 accounts when limited", off by default), with the provider-wide switches in

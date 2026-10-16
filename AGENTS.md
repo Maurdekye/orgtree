@@ -638,7 +638,7 @@
   Presence comes from explicitly saved servers and offered models; harness
   choices detect installed Claude Code/Codex CLIs. Keep app/server enablement,
   org access and model offerings distinct, and match the server's real context
-  window. [Muse setup](README.md#muse-code) now documents the integrated lane:
+  window. [Muse integration notes](docs/rust-engine/muse-code.md) document the integrated lane:
   detection, terminal sign-in/Refresh, managed accounts, each login's model/effort
   catalog and contributor-off behavior. Keep published availability and historical
   real-model evidence distinct from later fixture-based acceptance and remaining
