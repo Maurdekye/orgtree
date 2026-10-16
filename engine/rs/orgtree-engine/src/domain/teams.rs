@@ -23,6 +23,13 @@ pub struct Team {
     pub own: bool,
 }
 
+/// The workspace of the team this agent leads, even when it has no reports.
+/// Keep launch grants and the native folder action on the same id-based path.
+#[logged]
+pub fn workspace(teams_root: &std::path::Path, root_id: i64) -> PathBuf {
+    teams_root.join(root_id.to_string())
+}
+
 /// The workspaces of `chain` (the agent first, then each ancestor up to the
 /// top, as `(id, name)`), nearest first: its own subtree's, reports or not
 /// (user 2026-10-14 13:55Z), then every ancestor's, whose subtree contains it.
@@ -31,7 +38,7 @@ pub fn workspaces(teams_root: &std::path::Path, chain: &[(i64, String)]) -> Vec<
     chain
         .iter()
         .enumerate()
-        .map(|(i, (id, name))| Team { dir: teams_root.join(id.to_string()), root_id: *id, root: name.clone(), own: i == 0 })
+        .map(|(i, (id, name))| Team { dir: workspace(teams_root, *id), root_id: *id, root: name.clone(), own: i == 0 })
         .collect()
 }
 

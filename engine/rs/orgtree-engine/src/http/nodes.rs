@@ -920,21 +920,135 @@ pub struct ScratchQuery {
     path: String,
 }
 
-/// Native directory opening resolves the same stored folder as the actor,
-/// including imported paths and paths retained after an agent rename.
-/// This read neither lists contents nor creates a missing directory.
+#[derive(Clone, Copy, Deserialize, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ScratchFolderScope {
+    #[default]
+    Agent,
+    Team,
+    Shared,
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub struct ScratchFolderQuery {
+    #[serde(default)]
+    scope: ScratchFolderScope,
+}
+
+/// Personal scratch retains its stored/imported path and no-create behavior.
+/// Team/shared targets use engine-owned paths and create managed directories
+/// on demand. `_shared` is a reserved org-only identity, never an agent name.
 #[logged]
 pub async fn scratch_folder(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
+    Query(q): Query<ScratchFolderQuery>,
 ) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
+    if matches!(q.scope, ScratchFolderScope::Shared) {
+        if nid != crate::config::ORG_NOTES_DIR {
+            return Err(ApiError::unprocessable("shared scratch does not take an agent identity"));
+        }
+        let dir = managed_scratch_directory(&e.cfg.data_root, &e.cfg.scratch_root(&org.slug), &e.cfg.org_notes_dir(&org.slug))?;
+        return Ok(Json(json!({ "path": dir.to_string_lossy(), "scope": "shared" })));
+    }
     let a = agent(&e, &org, &nid).await?;
+    if matches!(q.scope, ScratchFolderScope::Team) {
+        let target = crate::domain::teams::workspace(&e.cfg.teams_dir(&org.slug), a.id);
+        let dir = managed_scratch_directory(&e.cfg.data_root, &e.cfg.scratch_root(&org.slug), &target)?;
+        return Ok(Json(json!({ "path": dir.to_string_lossy(), "scope": "team" })));
+    }
     let client = e.db.get().await?;
     let dir: Option<String> = client.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
     drop(client);
     let root = dir.map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&org.slug).join(&a.name));
     Ok(Json(json!({ "path": root.to_string_lossy() })))
+}
+
+/// Anchor trusted data-root aliases first, then refuse links/reparse points
+/// and non-directories at every managed component before creating the next.
+/// No recursive mkdir through an unchecked `_teams`/org/scratch ancestor.
+#[logged]
+fn managed_scratch_directory(data_root: &FsPath, org_root: &FsPath, target: &FsPath) -> ApiResult<PathBuf> {
+    use std::path::Component;
+    let local = target.strip_prefix(org_root).map_err(|_| ApiError::unprocessable("folder escapes org scratch"))?;
+    let relative = target.strip_prefix(data_root).map_err(|_| ApiError::unprocessable("folder escapes data root"))?;
+    if local.as_os_str().is_empty() || !relative.components().all(|c| matches!(c, Component::Normal(_))) {
+        return Err(ApiError::unprocessable("invalid managed scratch folder"));
+    }
+    let mut checked = std::fs::canonicalize(data_root).map_err(|_| ApiError::unprocessable("scratch data root is unavailable"))?;
+    for component in relative.components() {
+        checked.push(component.as_os_str());
+        match std::fs::symlink_metadata(&checked) {
+            Ok(_) => {},
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match std::fs::create_dir(&checked) {
+                    Ok(_) => {},
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {},
+                    Err(_) => return Err(ApiError::unprocessable("could not create scratch folder")),
+                }
+            },
+            Err(_) => return Err(ApiError::unprocessable("could not inspect scratch folder")),
+        }
+        let meta = std::fs::symlink_metadata(&checked).map_err(|_| ApiError::unprocessable("scratch folder is unavailable"))?;
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::MetadataExt::file_attributes(&meta) & 0x400 != 0;
+        #[cfg(not(windows))]
+        let linked = meta.file_type().is_symlink();
+        if linked || !meta.is_dir() {
+            return Err(ApiError::unprocessable("managed scratch path contains a link or non-directory"));
+        }
+    }
+    Ok(crate::config::strip_verbatim(&checked))
+}
+
+#[cfg(test)]
+mod scratch_folder_tests {
+    use super::managed_scratch_directory;
+
+    fn root() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("managed-scratch-{}", crate::util::uid()));
+        std::fs::create_dir(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn managed_scratch_creates_missing_org_team_and_shared_idempotently() {
+        let root = root();
+        let org = root.join("scratch/org");
+        for target in [org.join("_teams/17"), org.join("_shared")] {
+            let got = managed_scratch_directory(&root, &org, &target).unwrap();
+            assert!(got.is_dir());
+            assert_eq!(got, managed_scratch_directory(&root, &org, &target).unwrap());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn managed_scratch_refuses_escape_and_file_ancestors_before_creation() {
+        let root = root();
+        let org = root.join("scratch/org");
+        assert!(managed_scratch_directory(&root, &org, &root.join("outside/new")).is_err());
+        assert!(managed_scratch_directory(&root, &org, &org.join("../outside/new")).is_err());
+        assert!(!root.join("scratch").exists());
+        std::fs::write(root.join("scratch"), "file").unwrap();
+        assert!(managed_scratch_directory(&root, &org, &org.join("_shared")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_scratch_refuses_linked_org_before_writing_its_target() {
+        let root = root();
+        let org = root.join("scratch/org");
+        let outside = root.join("outside");
+        std::fs::create_dir(root.join("scratch")).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, &org).unwrap();
+        assert!(managed_scratch_directory(&root, &org, &org.join("_teams/17")).is_err());
+        assert!(std::fs::read_dir(outside).unwrap().next().is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[logged]
