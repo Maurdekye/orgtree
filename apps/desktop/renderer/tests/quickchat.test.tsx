@@ -6,6 +6,7 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { useState } from 'react'
 import { legacyAppBackend } from './appfeed-fixture'
 import { QuickChat, type AgentListSource } from '../src/QuickChatBox'
 import {
@@ -309,6 +310,37 @@ test('the superior picker is the Agents List: its rows, its order, filter, arrow
     await click(document.querySelector('.quickchat-pop .tray-row[data-copy-agent-name="boss"]'))
     assert.equal(shown(bare.el).superior, 'boss')
   } finally { await bare.unmount(); localStorage.clear() }
+})
+
+test('Quick chat has an independent active-only filter for its superior list', async () => {
+  localStorage.clear(); providers(['claude'])
+  const agents = new Map<string, CanvasNode>([
+    ['idle', { id: 'idle', parent: null, state: 'live', tier: 'opus', children: [], busy: false } as CanvasNode],
+    ['busy', { id: 'busy', parent: null, state: 'live', tier: 'opus', children: [], busy: true } as CanvasNode],
+  ])
+  const agentList: { current: AgentListSource } = { current: (query, activeOnly) => ({
+    map: agents, rows: trayRows(agents, { query, activeOnly }),
+  }) }
+  let quickChatOnly = false
+  const ControlledQuickChat = () => {
+    const [only, setOnly] = useState(false)
+    return <QuickChat slug="org" tree={tree} op={(async () => ({})) as never}
+      toast={noop} onHired={noop} agentList={agentList}
+      quickChatActiveAgentsOnly={only}
+      onQuickChatActiveAgentsOnly={value => { quickChatOnly = value; setOnly(value) }} />
+  }
+  const view = await mountView(<ControlledQuickChat />, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    await click(view.el.querySelector('.quickchat-superior'))
+    const filter = document.querySelector<HTMLInputElement>(
+      '.quickchat-pop input[aria-label="Only active agents"]')
+    assert.ok(filter, 'Quick chat exposes its own active-only checkbox')
+    assert.deepEqual(pickerItems(), ['top level', 'idle', 'busy'], 'off shows both agents')
+    await click(filter)
+    assert.equal(quickChatOnly, true, 'the Quick chat toggle writes its own preference')
+    assert.deepEqual(pickerItems(), ['top level', 'busy'], 'the Quick chat list alone is filtered')
+  } finally { await view.unmount(); localStorage.clear() }
 })
 
 async function openSuperiorPicker(selected: string | null = null) {

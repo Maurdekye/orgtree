@@ -23,6 +23,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { useState } from 'react'
 import { JSDOM } from 'jsdom'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -572,6 +573,93 @@ uiTest('§12 a detached whole-agent list stays open through main clicks and redo
     child.window.close()
   }
 })
+uiTest('pinned Agents header exposes and applies the active-only preference', async ({ mount }) => {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  const { CurrentOrg } = await import('../src/popout')
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  const fixture = treeWithStatus(['idle-agent', 'active-agent'])
+  const roots = (fixture as unknown as { roots: Record<string, unknown>[] }).roots
+  roots[0]!.busy = false
+  roots[1]!.busy = true
+  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 }, 'mine')
+  rememberModalOpen('agent-list', 'mine')
+  function CanvasWithPreference() {
+    const [activeOnly, setActiveOnly] = useState(false)
+    return <CurrentOrg.Provider value="mine"><OrgCanvas tree={fixture}
+      op={() => Promise.resolve({} as never)} slug="mine" toast={noop} mailEvt={null}
+      activeAgentsOnly={activeOnly} onActiveAgentsOnly={setActiveOnly} /></CurrentOrg.Provider>
+  }
+  await mount(<CanvasWithPreference />)
+  await flush(5)
+  const panel = document.body.querySelector('.tray-panel')
+  assert.ok(panel?.classList.contains('modalpin-win'), 'the agents panel is pinned')
+  const filter = panel!.querySelector<HTMLInputElement>('.modalpin-bar .modalpin-active-filter input')
+  assert.ok(filter, 'the pinned title bar exposes the active-only checkbox')
+  assert.equal(filter!.checked, false, 'the preference starts unchecked')
+  await inAct(() => { filter!.click() })
+  await flush(3)
+  assert.equal(filter!.checked, true, 'the pinned checkbox updates the preference')
+  assert.deepEqual(Array.from(panel!.querySelectorAll('.tray-row .tray-name'), n => n.textContent),
+    ['active-agent'], 'checking it filters the pinned list to the running agent')
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+})
+
+uiTest('popped-out Agents header exposes and applies the active-only preference', async ({ mount }) => {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  const { CurrentOrg } = await import('../src/popout')
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  localStorage.removeItem(WINDOW_LAYOUT_KEY)
+  const fixture = treeWithStatus(['idle-agent', 'active-agent'])
+  const roots = (fixture as unknown as { roots: Record<string, unknown>[] }).roots
+  roots[0]!.busy = false
+  roots[1]!.busy = true
+  Object.defineProperty(window, 'orgtreeDesktop', {
+    value: { onEvent: () => () => {}, getPreferences: () => Promise.resolve({}) },
+    configurable: true,
+  })
+  const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
+  const childWindow = child.window as unknown as Window
+  childWindow.focus = () => {}
+  childWindow.requestAnimationFrame = () => 1
+  childWindow.cancelAnimationFrame = () => {}
+  const originalOpen = window.open
+  const originalObserver = globalThis.MutationObserver
+  window.open = (() => childWindow) as typeof window.open
+  globalThis.MutationObserver = child.window.MutationObserver
+  function CanvasWithPreference() {
+    const [activeOnly, setActiveOnly] = useState(false)
+    return <CurrentOrg.Provider value="mine"><OrgCanvas tree={fixture}
+      op={() => Promise.resolve({} as never)} slug="mine" toast={noop} mailEvt={null}
+      activeAgentsOnly={activeOnly} onActiveAgentsOnly={setActiveOnly} /></CurrentOrg.Provider>
+  }
+  try {
+    const { el } = await mount(<CanvasWithPreference />)
+    await flush(5)
+    await inAct(() => { (el.querySelector<HTMLButtonElement>('.tray-toggle')!).click() })
+    await flush(3)
+    const popout = el.querySelector<HTMLButtonElement>('.tray-panel [aria-label="Open in new window"]')
+    assert.ok(popout, 'the agents list exposes its native popout action')
+    await inAct(() => { popout!.click() })
+    await flush(10)
+    const panel = child.window.document.querySelector('.tray-panel') as HTMLElement | null
+    assert.ok(panel, 'the agents panel moved into its child window')
+    const filter = panel!.querySelector<HTMLInputElement>('.modalpin-bar .modalpin-active-filter input')
+    assert.ok(filter, 'the popped-out title bar exposes the active-only checkbox')
+    assert.equal(filter!.checked, false, 'the detached view starts with the shared preference unchecked')
+    await inAct(() => { filter!.click() })
+    await flush(3)
+    assert.equal(filter!.checked, true, 'the detached checkbox updates the shared preference')
+    assert.deepEqual(Array.from(panel!.querySelectorAll('.tray-row .tray-name'), n => n.textContent),
+      ['active-agent'], 'checking it filters the detached list to the running agent')
+  } finally {
+    window.open = originalOpen
+    globalThis.MutationObserver = originalObserver
+    Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true })
+    child.window.close()
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  }
+})
+
 // §9 WAS "a registered list row opens its native desk surface", mounting the
 // row's own ↗ popout button (DeskListControls) beside a DeskSlot. The user had
 // the per-agent pin and popout buttons removed from the Agents List on

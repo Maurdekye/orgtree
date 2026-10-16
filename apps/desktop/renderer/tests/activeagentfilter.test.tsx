@@ -60,3 +60,12 @@ test('active-only preference is persisted as a strict boolean and defaults off',
   assert.deepEqual(preferencesPatch({ activeAgentsOnly: false }), { activeAgentsOnly: false })
   assert.throws(() => preferencesPatch({ activeAgentsOnly: 'yes' }), /Invalid preference/)
 })
+
+test('Quick chat and Attention desk active-only preferences are independent and default off', () => {
+  assert.equal(DEFAULT_PREFERENCES.quickChatActiveAgentsOnly, false)
+  assert.equal(DEFAULT_PREFERENCES.attentionDeskActiveAgentsOnly, false)
+  assert.deepEqual(preferencesPatch({ quickChatActiveAgentsOnly: true }), { quickChatActiveAgentsOnly: true })
+  assert.deepEqual(preferencesPatch({ attentionDeskActiveAgentsOnly: true }), { attentionDeskActiveAgentsOnly: true })
+  assert.throws(() => preferencesPatch({ quickChatActiveAgentsOnly: 1 }), /Invalid preference/)
+  assert.throws(() => preferencesPatch({ attentionDeskActiveAgentsOnly: 'yes' }), /Invalid preference/)
+})

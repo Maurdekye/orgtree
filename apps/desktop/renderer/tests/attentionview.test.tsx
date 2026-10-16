@@ -85,9 +85,10 @@ const reset = () => {
  *
  *  The application provides it above OrgCanvas (App.tsx), so this matches the
  *  host the view is mounted into rather than adding anything to it. */
-const view = (onActiveAgentsOnly?: (value: boolean) => void) => <CurrentOrg.Provider value={SLUG}>
+const view = (onAttentionDeskActiveAgentsOnly?: (value: boolean) => void) => <CurrentOrg.Provider value={SLUG}>
   <AttentionView slug={SLUG} tree={tree()} op={op} toast={toast} map={emptyMap()}
-    activeAgentsOnly={false} onActiveAgentsOnly={onActiveAgentsOnly} />
+    attentionDeskActiveAgentsOnly={false}
+    onAttentionDeskActiveAgentsOnly={onAttentionDeskActiveAgentsOnly} />
 </CurrentOrg.Provider>
 
 /** what is on screen ANYWHERE in the document — the pin layer is appended to
@@ -155,11 +156,11 @@ test('§1 the Attention view shows both panels and the divider between them', as
   await v.unmount()
 })
 
-test('the Agent desk title bar exposes the persisted active-agents checkbox', async t => {
+test('the Agent desk active filter invokes its own preference callback', async t => {
   reset()
   setOrgView(SLUG, 'attention')
-  let selected: boolean | undefined
-  const v = await mountView(view(value => { selected = value }), () => shape())
+  let deskSelected: boolean | undefined
+  const v = await mountView(view(value => { deskSelected = value }), () => shape())
   t.after(() => v.unmount())
   await inAct(() => flush())
 
@@ -168,7 +169,7 @@ test('the Agent desk title bar exposes the persisted active-agents checkbox', as
   assert.ok(input, 'the active filter is available in the Agent desk title bar')
   assert.equal(input!.checked, false)
   await inAct(() => input!.click())
-  assert.equal(selected, true, 'checking it updates the shared active-agents preference')
+  assert.equal(deskSelected, true, 'checking it updates the Attention desk preference')
 })
 
 test('§2 on the canvas, neither panel is on screen and the stage is hidden', async () => {
