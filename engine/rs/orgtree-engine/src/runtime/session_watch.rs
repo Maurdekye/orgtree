@@ -112,7 +112,9 @@ async fn watch(engine: Arc<Engine>) {
     }
 }
 
-/// One passive line to every live agent of every active organization.
+/// One passive line to every live agent of every active organization. At
+/// sign-in it says where the agent's next turn runs: as its own runtime would
+/// start that turn now (`view_of`), else by its stored preference.
 #[logged]
 async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
     use crate::runtime::session_host as sh;
@@ -126,20 +128,57 @@ async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
         .await?;
     drop(client);
     let sessions = sh::host_sessions(engine);
-    for r in rows {
-        let (agent, org, pref): (i64, i64, Option<serde_json::Value>) = (r.get(0), r.get(1), r.get(2));
-        // where its next turn will run: its preference may keep it in Session 0
-        let pref = sh::parse_pref(pref.as_ref().unwrap_or(&serde_json::Value::Null)).unwrap_or(sh::Pref::SignedIn);
-        let text = match (up, sh::choose(&sessions, &pref, None)) {
-            (true, Some(_)) => SIGNED_IN_NOTICE,
-            (true, None) => SIGNED_IN_KEPT_NOTICE,
-            (false, _) => SIGNED_OUT_NOTICE,
-        };
+    let agents: Vec<(i64, i64, sh::Pref)> = rows
+        .iter()
+        .map(|r| {
+            let pref: Option<serde_json::Value> = r.get(2);
+            (r.get(0), r.get(1), sh::parse_pref(pref.as_ref().unwrap_or(&serde_json::Value::Null)).unwrap_or(sh::Pref::SignedIn))
+        })
+        .collect();
+    let views = futures::future::join_all(agents.iter().map(|(agent, _, pref)| async move {
+        if up {
+            view_of(engine, *agent, pref).await
+        } else {
+            None
+        }
+    }))
+    .await;
+    for ((agent, org, pref), view) in agents.into_iter().zip(views) {
+        let text = if up { sign_in_line(sh::choose(&sessions, &pref, None).is_some(), view.as_ref()) } else { SIGNED_OUT_NOTICE };
         if let Err(e) = crate::domain::mail::system_event(engine, org, agent, text, true, None).await {
             tracing::warn!(agent, error = %format!("{e:#}"), "the sign-in or sign-out notice could not be sent to an agent");
         }
     }
     Ok(())
+}
+
+/// How long the sign-in line waits for an agent's runtime to say where its
+/// next turn runs.
+const ASK: Duration = Duration::from_secs(5);
+
+/// Where an agent's own runtime would start its next turn now (its
+/// orgtree_session view), given its stored preference `pref` as that turn
+/// will read it: None when its runtime does not run, or does not answer
+/// within `ASK`.
+#[logged]
+async fn view_of(engine: &Arc<Engine>, agent: i64, pref: &crate::runtime::session_host::Pref) -> Option<serde_json::Value> {
+    let h = engine.agents.get(agent)?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if !h.send(crate::runtime::AgentMsg::Session { pref: Some(pref.clone()), use_id: None, reply: tx }) {
+        return None;
+    }
+    tokio::time::timeout(ASK, rx).await.ok()?.ok()
+}
+
+/// The sign-in line for one agent: today from its stored preference alone
+/// (`by_pref`: one of the user's sessions takes its next turn).
+#[logged]
+fn sign_in_line(by_pref: bool, _view: Option<&serde_json::Value>) -> &'static str {
+    if by_pref {
+        SIGNED_IN_NOTICE
+    } else {
+        SIGNED_IN_KEPT_NOTICE
+    }
 }
 
 /// How long the user may be signed in with no sign-in helper before the engine
@@ -289,5 +328,36 @@ mod tests {
         assert!(!SIGNED_IN_NOTICE.contains('\n') && SIGNED_IN_NOTICE.contains("your next turn runs in their signed-in Windows session"));
         assert!(!SIGNED_IN_KEPT_NOTICE.contains('\n') && SIGNED_IN_KEPT_NOTICE.contains("keeps your next turn in Windows Session 0"));
         assert!(!SIGNED_OUT_NOTICE.contains('\n') && SIGNED_OUT_NOTICE.contains("your next turn runs in Windows Session 0"));
+    }
+
+    // sign_in_line(by preference, the runtime's view): rig-sol-b's finding on
+    // 0bc97a4 (2026-10-16 13:27Z): the line says where the agent's own
+    // runtime will start its next turn, as orgtree_session reports it.
+
+    #[test]
+    fn a_cli_held_by_background_work_keeps_the_next_turn_in_session0_and_the_line_says_so() {
+        let held = json!({ "next_turn": "session0", "held_by_background_work": true, "use": null });
+        assert!(sign_in_line(true, Some(&held)).contains("background work"));
+    }
+
+    #[test]
+    fn a_pick_of_session0_for_the_next_turn_keeps_it_there_and_the_line_says_so() {
+        let picked = json!({ "next_turn": "session0", "held_by_background_work": false, "use": 0 });
+        assert!(sign_in_line(true, Some(&picked)).contains("you picked Windows Session 0 for your next turn"));
+    }
+
+    #[test]
+    fn a_session_picked_for_the_next_turn_wins_over_a_session0_preference() {
+        let picked = json!({ "next_turn": "signed-in", "held_by_background_work": false, "use": 7 });
+        assert_eq!(sign_in_line(false, Some(&picked)), SIGNED_IN_NOTICE);
+    }
+
+    /// With no runtime answering, the stored preference decides, as before.
+    #[test]
+    fn without_a_runtime_the_preference_decides() {
+        assert_eq!(sign_in_line(true, None), SIGNED_IN_NOTICE);
+        assert_eq!(sign_in_line(false, None), SIGNED_IN_KEPT_NOTICE);
+        let kept = json!({ "next_turn": "session0", "held_by_background_work": false, "use": null });
+        assert_eq!(sign_in_line(false, Some(&kept)), SIGNED_IN_KEPT_NOTICE);
     }
 }
