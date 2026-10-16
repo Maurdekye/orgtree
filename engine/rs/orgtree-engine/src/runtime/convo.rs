@@ -335,6 +335,12 @@ async fn restore_mail_notices(client: &Client, agent_id: i64, messages: &mut [Va
 /// A plain-text digest of an agent's recent conversation (what it was asked,
 /// what it said, the tools it used): seeds a fresh session.
 #[nolog]
+fn is_recovery_shell(t: &Value) -> bool {
+    matches!(t["name"].as_str().unwrap_or("").rsplit("__").next().unwrap_or("").to_ascii_lowercase().as_str(),
+        "bash" | "powershell" | "exec_command" | "run_command" | "run_shell_command" | "shell")
+}
+
+#[nolog]
 fn recovery_tool(t: &Value, _inputs: &Value, _native: &Value) -> String {
     format!("{} {}", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or(""))
 }
@@ -377,6 +383,17 @@ mod recovery_command_tests {
         assert_eq!(read, "Read public summary");
         let legacy = recovery_tool(&json!({"id":"old","name":"Bash","arg":"old clipped summary"}), &json!({}), &json!({}));
         assert!(legacy.contains("command input not retained"));
+    }
+
+    #[test]
+    fn oversized_handoff_keeps_live_scope_before_old_history() {
+        let note = format!("Your live docket items: CURRENT-SCOPE\nSource/worktree evidence: D:/synthetic/source\nLast messages from your current superior: NEW-DIRECTION\n\nOlder context follows.\n{}\nYour whole earlier conversation is saved at D:/synthetic/history.md; read it when needed.\n", "STALE-HISTORY ".repeat(1000));
+        let out = crate::runtime::prompt::handoff_reference(&note, 1024);
+        assert!(out.contains("CURRENT-SCOPE"));
+        assert!(out.contains("NEW-DIRECTION"));
+        assert!(out.contains("D:/synthetic/history.md"));
+        assert!(!out.contains("STALE-HISTORY"));
+        assert!(out.len() <= 1024);
     }
 }
 
@@ -539,18 +556,20 @@ const DOCKET_HINT_MAX: usize = 30;
 async fn docket_items(client: &Client, agent_id: i64) -> Result<String> {
     // owned (the owner index) and reviewing (status review, in the agent's org)
     const ITEMS: &str = "
-        SELECT slug, title, status, working_on_next->>0 AS next, false AS reviewing, NULL::text AS owner, updated_at, id
+        SELECT slug, title, status, working_on_next->>0 AS next, false AS reviewing, NULL::text AS owner, updated_at, id,
+               left(objective, 1024) AS objective, left(blocked_reason, 1000) AS blocked_reason, dependencies[1:10] AS dependencies
           FROM ot.work_items
          WHERE owner_agent_id = $1 AND archived_at IS NULL AND NOT coalesce((extra->>'deleted')::boolean, false)
            AND status IN ('backlogged', 'open', 'in_progress', 'blocked', 'review', 'approved', 'deploy_ready')
         UNION ALL
-        SELECT w.slug, w.title, w.status, w.working_on_next->>0, true, coalesce(a.name, w.owner->>'node', 'unknown'), w.updated_at, w.id
+        SELECT w.slug, w.title, w.status, w.working_on_next->>0, true, coalesce(a.name, w.owner->>'node', 'unknown'), w.updated_at, w.id,
+               left(w.objective, 1024), left(w.blocked_reason, 1000), w.dependencies[1:10]
           FROM ot.work_items w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
          WHERE w.org_id = (SELECT org_id FROM ot.agents WHERE id = $1) AND w.reviewer_agent_id = $1
            AND w.owner_agent_id IS DISTINCT FROM $1 AND w.status = 'review'
            AND w.archived_at IS NULL AND NOT coalesce((w.extra->>'deleted')::boolean, false)";
     let rows = client
-        .query(&format!("SELECT * FROM ({ITEMS}) t ORDER BY updated_at DESC, id DESC LIMIT {}", DOCKET_HINT_MAX + 1), &[&agent_id])
+        .query(&format!("SELECT * FROM ({ITEMS}) t ORDER BY (status = 'backlogged'), updated_at DESC, id DESC LIMIT {}", DOCKET_HINT_MAX + 1), &[&agent_id])
         .await?;
     if rows.is_empty() {
         return Ok("You hold no live docket items.\n\n".into());
@@ -569,18 +588,19 @@ async fn docket_items(client: &Client, agent_id: i64) -> Result<String> {
     for r in rows.iter().take(DOCKET_HINT_MAX) {
         let (slug, title, status): (String, String, String) = (r.get(0), r.get(1), r.get(2));
         let next = r.get::<_, Option<String>>(3).filter(|n| !n.trim().is_empty()).map(|n| format!(" — next: {}", short(&n))).unwrap_or_default();
+        let details = recovery_scope(&r.get::<_, String>(8), r.get::<_, Option<String>>(9).as_deref(), &r.get::<_, Vec<String>>(10));
         if r.get::<_, bool>(4) {
             let owner: String = r.get(5);
-            review.push(format!("- {slug} · {} (owner {owner}){next}", short(&title)));
+            review.push(format!("- {slug} · {} (owner {owner}){next}{details}", short(&title)));
         } else if status == "backlogged" {
-            backlog.push(format!("- {slug} · {}{next}", short(&title)));
+            backlog.push(format!("- {slug} · {}{next}{details}", short(&title)));
         } else {
-            live.push(format!("- {slug} · {status} · {}{next}", short(&title)));
+            live.push(format!("- {slug} · {status} · {}{next}{details}", short(&title)));
         }
     }
     let mut s = String::from(
         "Your live docket items, as this session starts (newest updated first; the docket is the record, and \
-         orgtree_work action=get slug=<slug> reads one in full):\n",
+         scope/blocker/dependency excerpts below are bounded; orgtree_work action=get slug=<slug> reads one in full):\n",
     );
     for (head, lines) in [("", &live), ("Backlogged, not started yet:\n", &backlog), ("Waiting for your review:\n", &review)] {
         if !lines.is_empty() {
@@ -598,6 +618,60 @@ async fn docket_items(client: &Client, agent_id: i64) -> Result<String> {
     Ok(s)
 }
 
+#[nolog]
+fn recovery_scope(scope: &str, blocked: Option<&str>, dependencies: &[String]) -> String {
+    let mut out = format!("\n  Current scope (excerpt): {}", scope.replace('\n', "\n  "));
+    if let Some(blocked) = blocked.filter(|s| !s.is_empty()) {
+        out.push_str(&format!("\n  Blocked: {blocked}"));
+    }
+    if !dependencies.is_empty() {
+        out.push_str(&format!("\n  Declared dependencies (first 10; check current status): {}", dependencies.join(", ")));
+    }
+    out
+}
+
+/// The last recorded shell directory is evidence, not a guessed checkout or SHA.
+#[nolog]
+async fn source_hint(client: &Client, agent_id: i64) -> Result<String> {
+    let rows = client.query(
+        "SELECT body, tool_inputs, tool_native_inputs FROM ot.convo WHERE agent_id = $1 ORDER BY seq DESC LIMIT 60",
+        &[&agent_id],
+    ).await?;
+    for row in rows {
+        let body: Value = row.get(0);
+        let inputs: Value = row.get(1);
+        let native: Value = row.get(2);
+        for tool in body["tools"].as_array().into_iter().flatten().rev() {
+            if !is_recovery_shell(tool) { continue; }
+            let id = tool["id"].as_str().unwrap_or("");
+            let input = native.get(id).unwrap_or(&inputs[id]["input"]);
+            if let Some(dir) = input.get("workdir").or_else(|| input.get("cwd")).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                return Ok(format!("Source/worktree evidence: last recorded shell directory: {}. This is recorded input, not a verified current checkout; verify its source SHA before continuing.\n\n", crate::util::gist(dir, 1024)));
+            }
+        }
+    }
+    Ok("Source/worktree evidence: no shell directory or source SHA was retained in the recent rows. Recover the exact checkout/SHA from the live docket, breadcrumbs or saved commands before changing source.\n\n".into())
+}
+
+#[nolog]
+async fn superior_hint(client: &Client, agent_id: i64) -> Result<String> {
+    let rows = client.query(
+        "SELECT m.uid, m.sender, m.created_at::text, left(m.body, 2000) FROM ot.mail m
+         JOIN ot.agents a ON a.id = $1
+         WHERE m.recipient_agent_id = a.id AND m.org_id = a.org_id AND m.state <> 'retracted'
+           AND ((a.parent_id IS NOT NULL AND m.sender_agent_id = a.parent_id)
+             OR (a.parent_id IS NULL AND m.sender = '@user'))
+         ORDER BY m.id DESC LIMIT 3", &[&agent_id],
+    ).await?;
+    let mut out = String::from("Last messages from your current superior (newest first; excerpts, fetch by id for full context):\n");
+    for row in rows {
+        let (uid, sender, at, body): (String, String, String, String) = (row.get(0), row.get(1), row.get(2), row.get(3));
+        out.push_str(&format!("- {uid} · {sender} · {at}: {body}\n"));
+    }
+    out.push('\n');
+    Ok(out)
+}
+
 /// What a fresh session starts with when the agent's earlier session could
 /// not be carried over: its last status, whom it corresponded with, its
 /// recent conversation, and where the whole earlier conversation is saved.
@@ -607,12 +681,15 @@ pub async fn handoff_note(client: &Client, agent_id: i64, why: &str, saved: Opti
         "[Orgtree] You now run on a fresh session ({why}), so your earlier conversation is not in your context. \
          Here is what you were working on.\n\n"
     );
+    note.push_str(&docket_hint(client, agent_id).await);
+    note.push_str(&source_hint(client, agent_id).await?);
+    note.push_str(&superior_hint(client, agent_id).await?);
+    note.push_str("Older context follows. Current live docket scope and the superior's latest directions above take precedence over stale tasks in this history.\n\n");
     note.push_str(
         "Read breadcrumbs.md in your working folder first, if you kept one: it is your own log of what was decided, \
          what is in flight and where things are.\n\n",
     );
     note.push_str(&recall_hint(client, agent_id).await);
-    note.push_str(&docket_hint(client, agent_id).await);
     let status: Option<Value> = client
         .query_opt("SELECT last_status FROM ot.agents WHERE id = $1", &[&agent_id])
         .await?

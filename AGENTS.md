@@ -8,6 +8,14 @@
   [decided: user/coordinator 2026-10-16; verified from source: `canvas/agentnav.tsx`,
   `canvas/OrgCanvas.tsx`]
 
+- Fresh-session recovery leads with current docket scope/blockers/dependencies,
+  recorded shell directory and recent superior mail before older context. Shell
+  inputs in saved history/digest retain 8,192 UTF-8 bytes with explicit clipping;
+  legacy missing inputs stay unknown. Write any command you'll re-run into
+  breadcrumbs.md or a script file the first time you run it. See
+  [recovery commands](docs/rust-engine/recovery-commands.md).
+  [decided: coordinator 2026-10-16; verified: `runtime/convo.rs`]
+
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;

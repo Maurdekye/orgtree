@@ -9,6 +9,15 @@ gets only references belonging to its conversation, with unmatched references
 omitted and explained. See the `orgtree_message` and `orgtree_send_notice`
 skill leaves.
 
+**Recovery commands and current scope, 2026-10-16:** the user's staffed
+`compaction-keeps-the-actual-commands-and-the-rec` ticket leads fresh-session
+recovery with live docket scope/blockers/dependencies, recorded source/worktree
+evidence and latest superior mail before older history. Coordinator confirmed
+8,192 UTF-8 bytes per shell command in saved history/digest, explicit truncation,
+and unchanged human-visible transcript UI (ma67dfed0accb). This refines decision
+64's summary contents and ordering; the one-time snapshot remains outside startup
+fingerprints. See [recovery commands](recovery-commands.md).
+
 **Independent active-agent filters, user 2026-10-16 13:35Z:** the canvas Agents
 list, Quick chat superior picker, and dynamic Attention desk each have their own
 persisted "active only" setting. The two new settings default off so an upgrade
