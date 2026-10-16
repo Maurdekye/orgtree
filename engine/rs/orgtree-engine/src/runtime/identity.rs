@@ -62,7 +62,12 @@ pub struct Identity<'a> {
 /// Lanes the rig has verified to load the built-in skill library. Only these get
 /// the trimmed instructions; every other seat keeps the full text (user approval
 /// 2026-10-15 12:41Z: the trim lands with the library, lane by verified lane).
-pub const SKILL_LANES: &[Lane] = &[];
+// Synthetic native-binding/read receipts: instructions-trim-skills, 37/37,
+// 2026-10-16. The proof's fake agents open both categories, a section and a leaf;
+// this does not assert real-model skill selection or every native CLI version.
+pub const SKILL_LANES: &[Lane] = &[
+    Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode,
+];
 
 pub fn builtin_skills_lane(lane: Lane) -> bool {
     SKILL_LANES.contains(&lane)
@@ -1430,7 +1435,8 @@ mod trim_tests {
     #[test]
     fn only_verified_lanes_receive_the_trim() {
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
-            assert_eq!(builtin_skills_lane(lane), SKILL_LANES.contains(&lane));
+            assert!(builtin_skills_lane(lane), "synthetic skill-read proof passed for {lane:?}");
+            assert!(render(&all_on(), lane, false, builtin_skills_lane(lane)).contains("HOW-TO LIVES IN SKILLS"));
         }
     }
 }

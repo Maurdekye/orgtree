@@ -354,3 +354,35 @@ written and source-checked before phase 2 removes the inline text:
 3. Land it in the same release as the skill library and the shared-skills pipeline.
 4. Measure the real `.orgtree-identity.md` sizes per lane after rollout, and record them
    on the docket item.
+
+## 11. Implementation and synthetic lane verification (2026-10-16)
+
+The user approved D1-D3 on 2026-10-15 and instructed the author to finish the
+implementation on 2026-10-16. The implementation is rebased onto 4.3.1 `01261ae`.
+Engine rules and standing notes are returned separately; Antigravity starts the
+notes in their own bounded numbered rule part. Existing native limits remain.
+The short text includes next-turn, session and self-interrupt tool pointers.
+
+The focused proof `tools/rig/proofs/instructions-trim-skills.mjs` passed 37/37
+against the real engine and five fake CLIs, on a disposable D: rig with scratch
+PostgreSQL. Each fake process opened `orgtree-working` and `orgtree-app`, followed
+a section link and read a leaf using its native binding. Only the two categories
+were advertised, and all 183 non-entry resource files matched the source bytes.
+Codex received its roots before thread start; OpenCode had exact skill-ID allow
+rules. The proof therefore enables Claude, Codex, Antigravity, Muse and OpenCode
+in `SKILL_LANES`. It proves synthetic loading/access, not real-model skill
+selection, obedience, OS-sandbox behavior or every native CLI version.
+
+Receipts live under `D:/orgtree-work/rig/skilltree-opus/evidence/`:
+
+- `instructions-trim-skills-20261016T202853`: 37/37 pass, raw child exit 0.
+- `instructions-trim-skills-20261016T202032`: old-fake reader control, 32 pass and
+  five missing-reader failures, raw child exit 1.
+- `instructions-trim-skills-20261016T202116`: first reader fixture failed five
+  checks because it rejected exported parent-relative links and depended on an
+  environment variable absent from isolated OpenCode; both fixture errors fixed.
+
+The trim changes engine-generated instructions, not standing-note content or
+the tool definitions. Before/after measurements exclude user-written notes,
+charters and the harness's own prompt. A changed generated prefix may cost cache
+continuity on its next launch; no cache-hit or provider-miss receipt is claimed.

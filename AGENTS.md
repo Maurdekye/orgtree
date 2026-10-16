@@ -118,8 +118,11 @@
   truncates the rules (user D2, 2026-10-15 12:41Z). Seats on a lane in
   `identity::SKILL_LANES` get the trimmed rules (`TRIM_*`, short always-in-force rules
   plus pointers to built-in skill pages); every other seat keeps the full text byte for
-  byte. `SKILL_LANES` is empty until the rig verifies a lane loads the built-in skill
-  library: add a lane only with that evidence and with the library shipped, since
+  byte. The five current lanes are enabled after the synthetic native-binding/read
+  proof `tools/rig/proofs/instructions-trim-skills.mjs` passed 37/37 (2026-10-16):
+  each fake agent opens both categories, a section and a leaf, and all resources
+  match source. This is not real-model skill-choice or native-version evidence.
+  Add future lanes only with delivery evidence and with the library shipped, since
   `trim_tests::every_skill_pointer_names_a_page_in_the_library` reads
   `docs/skills/tree.json`. Design and rulings ledger: `docs/skills/INSTRUCTIONS-TRIM.md`
   (branch `skilltree-opus-trim`). [decided: user 2026-10-15 12:41Z (D1-D3); verified:

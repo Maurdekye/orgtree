@@ -9,7 +9,9 @@ use std::collections::HashMap;
 
 use crate::runtime::envelope;
 
-pub use super::identity::{builtin_skills_lane, identity, identity_parts, org_notes, team_notes, Identity, Lane};
+pub use super::identity::{builtin_skills_lane, identity_parts, org_notes, team_notes, Identity, Lane};
+#[cfg(test)]
+use super::identity::identity;
 
 /// One waiting message, as the agent reads it.
 #[derive(Clone, serde::Serialize)]
