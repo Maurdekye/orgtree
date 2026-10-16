@@ -12,8 +12,8 @@
 //   nearest live superior, and a top-level owner keeps it; a `working` agent
 //   with actionable items gets the reminder that names them, not the generic
 //   checkup; an unread notice holds no wake back; one wake per agent; nothing
-//   for a halted agent, a working agent whose items are all blocked, or one
-//   with no items. The item's next_action names the same agent and role.
+//   for a halted agent or a non-working agent with no actionable items.
+//   Working status alone earns a checkup, including blocked-only/no docket work. The item's next_action names the same agent and role.
 //   Cooldown: nobody is woken again on the next sweeps. Blocked option: with
 //   the whole org blocked, owners hear about their blocked items; with one
 //   item actionable anywhere, only its owner hears. Checkup: with reminders
@@ -65,7 +65,7 @@ export default async function (rig) {
   await settle('seed turns to settle')
 
   // ---------------------------------------------------------------- the org
-  for (const [name, parent] of [['dave', 'boss'], ['erin', 'boss'], ['frank', 'boss'], ['gina', 'boss'], ['hank', 'alice']]) {
+  for (const [name, parent] of [['dave', 'boss'], ['erin', 'boss'], ['frank', 'boss'], ['gina', 'boss'], ['hank', 'alice'], ['idle-seat', 'boss'], ['done-seat', 'boss'], ['blocked-seat', 'boss']]) {
     await rig.op({ op: 'hire', name, parent, tier: 'haiku', title: 'Reminder agent' })
   }
   const slug = { S: rig.one(`SELECT slug FROM ot.work_items WHERE org_id = ${orgId} AND title = 'Rig smoke item'`).slug }
@@ -91,6 +91,9 @@ export default async function (rig) {
   await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: 'alice', reason: 'proof: may ask the user' })
   const asked = await rig.tool('alice', 'orgtree_ask', { question: 'Should this item wait for you?', work_item: slug.A5, options: ['Yes', 'No'] })
   for (const name of ['bob', 'frank', 'gina']) await rig.tool(name, 'orgtree_status', { status: 'working', summary: 'working on it' })
+  for (const status of ['idle', 'done', 'blocked']) {
+    await rig.tool(`${status}-seat`, 'orgtree_status', { status, summary: 'non-working control' })
+  }
   // dave's review request runs a turn: let it end before he is retired
   await settle('dave\'s turn to end')
   await rig.op({ op: 'retire', node: 'dave' })
@@ -151,9 +154,13 @@ export default async function (rig) {
   p.check('a working agent with actionable items gets the reminder that names them, not the generic checkup (bob, 3.x order)',
     one('bob').length === 1 && one('bob')[0].variant === 'reminder.idle_docket' && same(listed(one('bob')[0]), ['B1:in_progress:owner']),
     summary(one('bob')))
-  p.check('nobody else is woken: not the halted erin, frank (working, only blocked items), gina (working, no items) or the retired dave',
-    ['erin', 'frank', 'gina', 'dave'].every(n => one(n).length === 0) && Object.keys(summary(wave)).every(n => ['alice', 'boss', 'carol', 'bob', 'hank'].includes(n)),
-    summary(wave))
+  p.check('working without any docket items earns one generic checkup (gina)',
+    one('gina').length === 1 && one('gina')[0].variant === 'reminder.working_checkup', summary(one('gina')))
+  p.check('working with only blocked docket work still earns a generic checkup (frank)',
+    one('frank').length === 1 && one('frank')[0].variant === 'reminder.working_checkup', summary(one('frank')))
+  p.check('no wake for halted/retired agents or non-working statuses without actionable work',
+    ['erin', 'dave', 'idle-seat', 'done-seat', 'blocked-seat'].every(n => one(n).length === 0)
+      && Object.keys(summary(wave)).every(n => ['alice', 'boss', 'carol', 'bob', 'frank', 'gina'].includes(n)), summary(wave))
   const seen = prompt('alice', t0)
   p.check('alice\'s turn reads the reminder with the deployer line',
     /\[AUTOMATIC IDLE DOCKET REMINDER\]/.test(seen) && seen.includes(`- ${slug.D1} (deploy_ready — awaiting YOUR authorized deployment/publication action): ${TITLES.D1}`),
@@ -175,7 +182,7 @@ export default async function (rig) {
   since = lastMail()
   await sleep(SWEEPS_MS)
   await settle('a quiet spell')
-  p.check('cooldown: the next sweeps wake nobody again', woken(since).length === 0, summary(woken(since)))
+  p.check('cooldown: docket wakes count as activity; the next sweeps send no delayed working checkup or duplicate', woken(since).length === 0, summary(woken(since)))
 
   // ---------------------------------------------------------------- blocked option
   await switches(false, false)
@@ -212,8 +219,9 @@ export default async function (rig) {
   await sleep(SWEEPS_MS)
   await settle('the checkups to settle')
   const checked = woken(since)
-  p.check('reminders off, checkups on: the working agent with actionable work gets the 20-minute check, nobody else (alice is idle)',
-    same(Object.keys(summary(checked)), ['bob']) && rows(checked, 'bob').length === 1 && rows(checked, 'bob')[0].variant === 'reminder.working_checkup',
+  p.check('docket reminders off: working agents with actionable, blocked-only and zero items get independent checkups; non-working statuses do not',
+    same(Object.keys(summary(checked)), ['bob', 'frank', 'gina'])
+      && ['bob', 'frank', 'gina'].every(n => rows(checked, n).length === 1 && rows(checked, n)[0].variant === 'reminder.working_checkup'),
     summary(checked))
 
   // ---------------------------------------------------------------- off
