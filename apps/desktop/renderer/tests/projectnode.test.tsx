@@ -28,6 +28,8 @@ import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeSquare } from '../src/canvas/cards'
 import { agentMenuEntries, projectMenuEntries } from '../src/canvas/agentmenu'
 import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
+import { agentItems } from '../src/canvas/docket'
+import type { WorkItem } from '../src/types'
 import { USER } from '../src/canvas/shared'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 
@@ -235,4 +237,31 @@ test('§3c retiring a project with live agents under it asks for the team retire
   assert.ok(retire && retire !== 'sep')
   retire.onSelect()
   assert.equal(asked, 'dissolve')
+})
+
+/* ─── §4 the project's docket (slice 2) ─────────────────────────────────── */
+// USER 2026-10-16 20:23Z: docket items may attach to a project; every agent
+// under it co-owns them, and the project's desk lists its attached items.
+
+test('§4a a project's menu opens its docket when the surface offers one', () => {
+  let opened = 0
+  const open = projectMenuEntries(project(), handlers({ onDocket: () => { opened++ } }), {})[0]
+  assert.ok(open !== 'sep')
+  const entry = open.children?.find((c) => c !== 'sep' && c.label === 'Open project docket')
+  assert.ok(entry && entry !== 'sep', 'the Open branch carries the project docket')
+  entry.onSelect()
+  assert.equal(opened, 1)
+})
+
+test('§4b the project docket lists the items attached to it, and only those', () => {
+  const item = (slug: string, extra: Partial<WorkItem>) =>
+    ({ slug, owner: { node: 'dev1', generation: 1 }, reviewer: null, participants: [], ...extra }) as unknown as WorkItem
+  const data = { items: [
+    item('attached', { project: { node: 'website' } }),
+    item('elsewhere', { project: { node: 'blog' } }),
+    item('plain', {}),
+  ] }
+  assert.deepEqual(agentItems(data, 'website')!.map((i) => i.slug), ['attached'])
+  assert.deepEqual(agentItems(data, 'dev1')!.map((i) => i.slug), ['attached', 'elsewhere', 'plain'],
+    'the owner still sees every item it owns')
 })

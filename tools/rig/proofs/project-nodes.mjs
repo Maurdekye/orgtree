@@ -190,6 +190,36 @@ export default async function (rig) {
     wrap.ok ? wrap.v : wrap.error)
   p.check('boss pays exactly as before the wrap', Math.abs(free('boss') - bossFree1) < 1e-6, { before: bossFree1, after: free('boss') })
 
+  // ------------------------------------------------------------ docket items attached to a project (slice 2)
+  // USER 2026-10-16 20:23Z: every agent under the project co-owns an attached item
+  const made2 = await rig.tool('dev1', 'orgtree_work', { action: 'create', title: 'Site launch checklist', kind: 'non-code',
+    objective: 'The site has no launch checklist. Write one.', project: 'site' })
+  const slug = made2.json?.slug
+  const itemRow = slug ? rig.sql(`SELECT extra FROM ot.work_items WHERE slug = '${slug}'`)[0] : null
+  p.check('dev1 creates an item attached to project site', made2.ok && Number(itemRow?.extra?.project_id) === web.id, said(made2))
+  const seen = await rig.tool('dev2', 'orgtree_work', { action: 'get', slug })
+  p.check('the item names its project and its co-owners', seen.ok && seen.json?.project?.node === 'site'
+    && /co-owns/.test(seen.json?.project?.co_owners ?? ''), said(seen))
+  const coUpdate = await rig.tool('dev2', 'orgtree_work', { action: 'update', slug, owner: 'dev1',
+    done_so_far: ['outline drafted'], working_on_next: ['fill it in'] })
+  p.check('dev2, another agent under the project, updates it with owner rights', coUpdate.ok, said(coUpdate))
+  const listed = await rig.tool('dev2', 'orgtree_work', { action: 'list' })
+  p.check('it is in dev2's own docket list', listed.ok && (listed.json?.items ?? []).some((i) => i.slug === slug), said(listed))
+  const bossSees = await rig.tool('boss', 'orgtree_work', { action: 'get', slug })
+  p.check('boss, above the project, reads it', bossSees.ok, said(bossSees))
+  const aliceAttach = await rig.tool('alice', 'orgtree_work', { action: 'create', title: 'Sneaky', kind: 'non-code',
+    objective: 'An item from beside the project.', project: 'site' })
+  p.check('alice, beside the project, cannot attach an item to it', !aliceAttach.ok && /above or below a project/.test(aliceAttach.text), said(aliceAttach))
+  const carolRead = await rig.tool('carol', 'orgtree_work', { action: 'get', slug })
+  p.check('carol, beside the project, cannot read the attached item', !carolRead.ok, said(carolRead))
+  const detach = await rig.tool('dev2', 'orgtree_work', { action: 'update', slug, owner: 'dev1', project: '',
+    done_so_far: ['outline drafted'], working_on_next: ['fill it in'] })
+  const after = rig.sql(`SELECT extra FROM ot.work_items WHERE slug = '${slug}'`)[0]
+  p.check('a co-owner detaches it', detach.ok && after?.extra?.project_id === undefined, said(detach))
+  const lost = await rig.tool('dev2', 'orgtree_work', { action: 'update', slug, owner: 'dev1',
+    done_so_far: ['x'], working_on_next: ['y'] })
+  p.check('once detached, dev2 is no longer a co-owner', !lost.ok, said(lost))
+
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
   p.keep(rig, { agents: ['dev1', 'dev2', 'boss'], grep: /project|fair_queue|dispatch/i })
