@@ -22,6 +22,8 @@
 //      0."; flo last ran in the signed-in session, so her first turn waits for
 //      the helper (until 15 s after the engine's start, logged once) and then
 //      moves down to Session 0, and is told so.
+// A `recover` run: a safe-start rig engine otherwise holds back the restart
+// path, and with it the restart notices step 4 reads.
 // Run with a rig home the descriptor's trust check accepts (no other user may
 // write it; see credential-broker.mjs):
 //   set ORGTREE_RIG_HOME=%LOCALAPPDATA%\orgtree-rig-broker
@@ -35,7 +37,7 @@ import { Proof } from '../proof.mjs'
 import { brokerExe, brokerPid, ps, sessionLauncher } from './credential-broker.mjs'
 
 export async function setup() {
-  return { name: 'session-upgrade', 'boot-isolated': true, session0: '1', fixture: 'none' }
+  return { name: 'session-upgrade', 'boot-isolated': true, session0: '1', fixture: 'none', recover: true }
 }
 
 const sessionOf = pid => { const o = ps(`(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).SessionId`); return o === '' ? null : Number(o) }

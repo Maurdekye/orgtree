@@ -27,6 +27,8 @@
 //      B back, a turn ann ends herself as B dies again is not resumed;
 //   5. sign-out (stand-in signed out, helpers killed): idle flo gets the
 //      [ORGTREE SIGN-OUT NOTICE] passively.
+// A `recover` run: a safe-start rig engine otherwise delivers every watchdog
+// fire as a passive notice, so eve's dog could not wake her in step 1.
 // Run it like session-upgrade.mjs (a rig home the descriptor's trust check
 // accepts):
 //   set ORGTREE_RIG_HOME=%LOCALAPPDATA%\orgtree-rig-broker
@@ -40,7 +42,7 @@ import { Proof } from '../proof.mjs'
 import { brokerExe, ps, sessionLauncher } from './credential-broker.mjs'
 
 export async function setup() {
-  return { name: 'session-choice', 'boot-isolated': true, session0: '1', fixture: 'none' }
+  return { name: 'session-choice', 'boot-isolated': true, session0: '1', fixture: 'none', recover: true }
 }
 
 const sessionOf = pid => { const o = ps(`(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).SessionId`); return o === '' ? null : Number(o) }
