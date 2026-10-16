@@ -1028,10 +1028,11 @@ uiTest('InboxPanel opens the oldest unanswered request when no unread mail exist
     ],
     asks_open: 2,
   })
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((() => Promise.resolve({
-    ok: true, status: 200, headers: new Headers(),
-    json: () => Promise.resolve({ pending: [], delivered: [], sent: [] }),
-  })) as typeof fetch)
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(
+    async (_url: RequestInfo | URL): Promise<Response> => new Response(JSON.stringify({
+      pending: [], delivered: [], sent: [],
+    }), { status: 200 })
+  )
 
   const { el } = await mount(
     <InboxPanel slug="org1" tree={tree} toast={noop} jumpTo={null}
@@ -1049,14 +1050,13 @@ uiTest('InboxPanel still prefers unread mail over older unanswered requests', as
       at: '2026-10-16T10:00:00.000Z', question: 'Older question' }],
     asks_open: 1,
   })
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((() => Promise.resolve({
-    ok: true, status: 200, headers: new Headers(),
-    json: () => Promise.resolve({
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(
+    async (_url: RequestInfo | URL): Promise<Response> => new Response(JSON.stringify({
       pending: [{ id: 'unread-mail', from: 'mail-agent', to: '@user',
         at: '2026-10-16T12:00:00.000Z', body: 'Unread mail takes priority' }],
       delivered: [], sent: [],
-    }),
-  })) as typeof fetch)
+    }), { status: 200 })
+  )
 
   const { el } = await mount(
     <InboxPanel slug="org1" tree={tree} toast={noop} jumpTo={null}
