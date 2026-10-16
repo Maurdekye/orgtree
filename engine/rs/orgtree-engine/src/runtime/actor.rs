@@ -6105,6 +6105,9 @@ impl Actor {
     }
 
     async fn on_tool_results(&mut self, v: &Value) -> Result<()> {
+        // Publish the last helper deltas before its parent call can become
+        // terminal (and expanded readers stop their live refresh).
+        self.flush_helpers().await;
         let mut images: Vec<(String, Vec<(String, Vec<u8>)>)> = Vec::new();
         let updates: Vec<(i64, Value)> = {
             let Some(turn) = self.turn.as_mut() else { return Ok(()) };
