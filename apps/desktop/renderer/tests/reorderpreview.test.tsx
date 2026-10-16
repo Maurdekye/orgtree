@@ -33,7 +33,7 @@ const polar = (radius: number, angle: number): Pt => ({ x: eye.x - radius * Math
 for (const radius of [260, 490]) {
   // The occupied arc crosses atan2's seam and leaves most of the ring empty.
   // Unequal gaps must not affect the ruled 16px tangent gutter at either end.
-  const angles = [2.9, 3.25, 3.7]
+  const angles = [2.6, 3.35, 4.15]
   const positions = new Map(['a', 'b', 'c'].map((id, i) => [id, polar(radius, angles[i]!)]))
   for (const end of ['first', 'last'] as const) test(`ring radius ${radius} ${end} marker sits 16px beyond the endpoint tangent extent`, () => {
     const first = end === 'first'

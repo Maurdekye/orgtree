@@ -5,7 +5,7 @@ import { NODE_H, NODE_W } from '../src/canvas/shared'
 
 const index = Number(new URLSearchParams(location.search).get('case') ?? 0)
 const radius = index < 2 ? 260 : 490, first = index % 2 === 0
-const eye = { x: 0, y: 0 }, angles = [2.9, 3.25, 3.7]
+const eye = { x: 0, y: 0 }, angles = [2.6, 3.35, 4.15]
 const polar = (angle: number) => ({ x: -radius * Math.cos(angle), y: radius * Math.sin(angle) })
 const nodes = new Map(['a', 'b', 'c'].map((id, i) => [id, polar(angles[i]!)]))
 const anchorAngle = angles[first ? 0 : 2]!, anchor = nodes.get(first ? 'a' : 'c')!
