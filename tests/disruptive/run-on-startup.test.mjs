@@ -1,10 +1,10 @@
-// "Run on startup" on an all-users Windows installation (docket
-// start-at-login-off-means-nothing-of-orgtree-star) and where the engine then
-// starts (docket option-to-run-the-background-engine-in-the-user-s): the
-// desktop reads the boot engine, sign-in engine and credential helper tasks
-// without elevation, and switches them (and records the choice in the
-// installer's record) through a Windows permission prompt
-// (apps/desktop/main/runonstartup.ts).
+// "Run on boot" on an all-users Windows installation (docket
+// start-at-login-off-means-nothing-of-orgtree-star; docket
+// option-to-run-the-background-engine-in-the-user-s, the user 2026-10-16: one
+// switch, and the engine always starts at boot): the desktop reads the boot
+// engine and credential helper tasks without elevation, and switches both (and
+// records the choice in the installer's record) through a Windows permission
+// prompt (apps/desktop/main/runonstartup.ts).
 //
 // WHAT THIS FILE CAN AND CANNOT PROVE. Anywhere: the rules (what the reading
 // returns, which exit code means a declined prompt, that a change must read
@@ -12,7 +12,7 @@
 // and they RUN, unelevated, against THROWAWAY tasks registered for the current
 // user and a throwaway HKCU key, all removed afterwards. Never against Orgtree's
 // own tasks or its HKLM record. It cannot click a real permission prompt, and
-// it cannot show a real sign-in.
+// it cannot show a real boot or sign-in.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -38,14 +38,13 @@ const startup = await load('apps/desktop/main/runonstartup.ts', 'runonstartup')
 const admin = await load('apps/desktop/main/runasadmin.ts', 'runasadmin')
 const windows = process.platform === 'win32'
 const powershell = windows ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') : null
-const CHOICES = [[true, 'boot'], [true, 'signin'], [false, 'boot'], [false, 'signin']]
 
-test('the reading: enabled, disabled or absent per task, and the recorded mode; anything else is unreadable', () => {
-  assert.deepEqual(startup.parseStartupTasks('{"boot":true,"helper":false,"signin":false,"mode":"boot"}\r\n'), { boot: true, helper: false, signin: false, mode: 'boot' })
-  assert.deepEqual(startup.parseStartupTasks('noise\n{"boot":false,"helper":null,"signin":true,"mode":"signin"}'), { boot: false, helper: null, signin: true, mode: 'signin' })
+test('the reading: enabled, disabled or absent per task; anything else is unreadable', () => {
+  assert.deepEqual(startup.parseStartupTasks('{"boot":true,"helper":false}\r\n'), { boot: true, helper: false })
+  assert.deepEqual(startup.parseStartupTasks('noise\n{"boot":false,"helper":null}'), { boot: false, helper: null })
   assert.equal(startup.parseStartupTasks(''), null)
-  assert.equal(startup.parseStartupTasks('{"boot":"yes","helper":true,"signin":false,"mode":"boot"}'), null)
-  assert.equal(startup.parseStartupTasks('{"helper":true,"signin":false,"mode":"boot"}'), null)
+  assert.equal(startup.parseStartupTasks('{"boot":"yes","helper":true}'), null)
+  assert.equal(startup.parseStartupTasks('{"helper":true}'), null)
 })
 
 test('the switch asks for permission, says what still holds when it is declined, and must read back', async () => {
@@ -55,16 +54,16 @@ test('the switch asks for permission, says what still holds when it is declined,
     return answers.shift() ?? { code: 0, stdout: '', stderr: '' }
   }
   // declined at the prompt: nothing changed, and the message says what still holds
-  await assert.rejects(startup.writeRunOnStartup(false, 'boot', runner([{ code: admin.UAC_CANCELLED, stdout: '', stderr: '' }])),
-    /Windows did not give permission, so Orgtree still runs on startup\./)
-  await assert.rejects(startup.writeRunOnStartup(true, 'boot', runner([{ code: admin.UAC_CANCELLED, stdout: '', stderr: '' }])),
-    /still does not run on startup/)
+  await assert.rejects(startup.writeRunOnStartup(false, runner([{ code: admin.UAC_CANCELLED, stdout: '', stderr: '' }])),
+    /Windows did not give permission, so Orgtree still runs on boot\./)
+  await assert.rejects(startup.writeRunOnStartup(true, runner([{ code: admin.UAC_CANCELLED, stdout: '', stderr: '' }])),
+    /still does not run on boot/)
   // a failure inside the elevated script
-  await assert.rejects(startup.writeRunOnStartup(false, 'boot', runner([{ code: 1, stdout: '', stderr: 'Refusing' }])), /exit code 1/)
+  await assert.rejects(startup.writeRunOnStartup(false, runner([{ code: 1, stdout: '', stderr: 'Refusing' }])), /exit code 1/)
   // done, and it reads back
-  await startup.writeRunOnStartup(false, 'boot', runner([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '{"boot":false,"helper":false,"signin":false,"mode":"boot"}', stderr: '' }]))
+  await startup.writeRunOnStartup(false, runner([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '{"boot":false,"helper":false}', stderr: '' }]))
   // done, but the boot task still reads enabled: not reported as done
-  await assert.rejects(startup.writeRunOnStartup(false, 'boot', runner([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '{"boot":true,"helper":false,"signin":false,"mode":"boot"}', stderr: '' }])),
+  await assert.rejects(startup.writeRunOnStartup(false, runner([{ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: '{"boot":true,"helper":false}', stderr: '' }])),
     /reads back differently/)
   // the change goes through the elevated launcher (a Windows permission prompt);
   // the verb is spelled in two parts because disruptive-policy scans test text
@@ -73,26 +72,25 @@ test('the switch asks for permission, says what still holds when it is declined,
 })
 
 test('the elevated script changes only the installer\'s own tasks, never stops or deletes one, and records the choice', () => {
-  const off = startup.elevatedStartupScript(false, 'boot')
+  const off = startup.elevatedStartupScript(false)
   assert.match(off, /OpenBaseKey\('LocalMachine', 'Registry64'\)/)
   assert.match(off, /OpenSubKey\('SOFTWARE\\Orgtree\\BootEngine', \$true\)/)
   assert.match(off, /com\.maurdekye\.orgtree\.boot\.v1:/)
   assert.match(off, /com\.maurdekye\.orgtree\.credential-helper\.v1:/)
-  assert.match(off, /com\.maurdekye\.orgtree\.signin-engine\.v1:/)
+  assert.doesNotMatch(off, /signin-engine|StartupMode/)
   assert.match(off, /Refusing to change a task Orgtree did not install/)
-  assert.match(off, /'Orgtree Background Engine' = \$false; 'Orgtree Credential Helper' = \$false; 'Orgtree Sign-in Engine' = \$false/)
+  assert.match(off, /\$tasks\[\$name\]\.Enabled = \$false/)
   assert.match(off, /SetValue\('RunOnStartup', 0, \[Microsoft\.Win32\.RegistryValueKind\]::DWord\)/)
-  assert.match(startup.elevatedStartupScript(true, 'boot'), /'Orgtree Background Engine' = \$true; 'Orgtree Credential Helper' = \$true; 'Orgtree Sign-in Engine' = \$false[\s\S]*SetValue\('RunOnStartup', 1,[\s\S]*SetValue\('StartupMode', 'boot',/)
-  assert.match(startup.elevatedStartupScript(true, 'signin'), /'Orgtree Background Engine' = \$false; 'Orgtree Credential Helper' = \$true; 'Orgtree Sign-in Engine' = \$true[\s\S]*SetValue\('StartupMode', 'signin',/)
+  assert.match(startup.elevatedStartupScript(true), /\$tasks\[\$name\]\.Enabled = \$true[\s\S]*SetValue\('RunOnStartup', 1,/)
   // a running engine keeps running: the switch applies from the next start
   assert.doesNotMatch(off, /\.Stop\(|DeleteTask|Stop-Process|taskkill/i)
   // every task is verified before any is changed
-  assert.ok(off.indexOf('Refusing to change') < off.indexOf('.Enabled = $wanted[$name]'), 'a task was changed before all were verified')
+  assert.ok(off.indexOf('Refusing to change') < off.indexOf('.Enabled = $false'), 'a task was changed before all were verified')
 })
 
 test('the scripts parse in Windows PowerShell 5.1', { skip: !windows && 'Windows only' }, () => {
   const check = '$e = $null; [void][Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(), [ref]$null, [ref]$e); if ($e) { $e | % { $_.Message }; exit 1 }'
-  for (const script of [startup.readScript(), ...CHOICES.map(([enabled, mode]) => startup.elevatedStartupScript(enabled, mode))]) {
+  for (const script of [startup.readScript(), startup.elevatedStartupScript(true), startup.elevatedStartupScript(false)]) {
     const r = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', check], { input: script, encoding: 'utf8', windowsHide: true })
     assert.equal(r.status, 0, `parse errors: ${r.stdout}${r.stderr}`)
   }
@@ -103,7 +101,7 @@ test('the scripts parse in Windows PowerShell 5.1', { skip: !windows && 'Windows
 test('measured: the scripts read, switch and record throwaway startup tasks, and refuse a foreign one', { skip: !windows && 'Windows only', timeout: 180000 }, async () => {
   const tag = `Orgtree Run On Startup Test ${randomUUID()}`
   const id = randomUUID()
-  const target = { hive: 'CurrentUser', key: `Software\\${tag}`, boot: `${tag} boot`, helper: `${tag} helper`, signin: `${tag} signin` }
+  const target = { hive: 'CurrentUser', key: `Software\\${tag}`, boot: `${tag} boot`, helper: `${tag} helper` }
   const ps = script => spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true })
   const q = s => `'${s.replace(/'/g, "''")}'`
   const register = (name, description) => ps([
@@ -114,76 +112,55 @@ test('measured: the scripts read, switch and record throwaway startup tasks, and
   const cleanup = () => ps([
     `Unregister-ScheduledTask -TaskName ${q(target.boot)} -Confirm:$false -ErrorAction SilentlyContinue`,
     `Unregister-ScheduledTask -TaskName ${q(target.helper)} -Confirm:$false -ErrorAction SilentlyContinue`,
-    `Unregister-ScheduledTask -TaskName ${q(target.signin)} -Confirm:$false -ErrorAction SilentlyContinue`,
     `Remove-Item -LiteralPath ${q('HKCU:\\' + target.key)} -Recurse -Force -ErrorAction SilentlyContinue`,
   ].join('\n'))
   const recorded = name => {
     const r = ps(`(Get-ItemProperty -LiteralPath ${q('HKCU:\\' + target.key)} -Name ${name} -ErrorAction Stop).${name}`)
     return r.status === 0 ? r.stdout.trim() : null
   }
-  const runElevatedScript = (enabled, mode) => ps(startup.elevatedStartupScript(enabled, mode, target))
-  const tasks = (boot, helper, signin, mode) => ({ boot, helper, signin, mode })
+  const runElevatedScript = enabled => ps(startup.elevatedStartupScript(enabled, target))
+  const tasks = (boot, helper) => ({ boot, helper })
   try {
     let r = ps(`New-Item -Path ${q('HKCU:\\' + target.key)} -Force | Out-Null; Set-ItemProperty -LiteralPath ${q('HKCU:\\' + target.key)} -Name Id -Value ${q(id)}`)
     assert.equal(r.status, 0, `could not create the throwaway key: ${r.stderr}`)
-    // nothing registered yet: all absent, and no recorded mode reads as boot
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(null, null, null, 'boot'))
-    for (const [name, marker] of [[target.boot, 'boot'], [target.helper, 'credential-helper'], [target.signin, 'signin-engine']]) {
+    // nothing registered yet: both absent
+    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(null, null))
+    for (const [name, marker] of [[target.boot, 'boot'], [target.helper, 'credential-helper']]) {
       r = register(name, `com.maurdekye.orgtree.${marker}.v1:${id}`)
       assert.equal(r.status, 0, `could not register the throwaway ${marker} task: ${r.stderr}`)
     }
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true, true, 'boot'))
+    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true))
 
-    r = runElevatedScript(false, 'boot')
+    r = runElevatedScript(false)
     assert.equal(r.status, 0, `switching off failed: ${r.stdout}${r.stderr}`)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(false, false, false, 'boot'))
+    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(false, false))
     assert.equal(recorded('RunOnStartup'), '0')
 
-    r = runElevatedScript(true, 'boot')
+    r = runElevatedScript(true)
     assert.equal(r.status, 0, `switching on failed: ${r.stdout}${r.stderr}`)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true, false, 'boot'))
+    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true))
     assert.equal(recorded('RunOnStartup'), '1')
-
-    // the engine at sign-in: the boot task off, the sign-in engine and the helper on
-    r = runElevatedScript(true, 'signin')
-    assert.equal(r.status, 0, `switching to sign-in failed: ${r.stdout}${r.stderr}`)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(false, true, true, 'signin'))
-    assert.equal(recorded('StartupMode'), 'signin')
-
-    // off keeps the recorded mode, and on again restores it
-    r = runElevatedScript(false, 'signin')
-    assert.equal(r.status, 0, `switching off at sign-in failed: ${r.stdout}${r.stderr}`)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(false, false, false, 'signin'))
-    r = runElevatedScript(true, 'signin')
-    assert.equal(r.status, 0)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(false, true, true, 'signin'))
-
-    // and back to boot
-    r = runElevatedScript(true, 'boot')
-    assert.equal(r.status, 0, `switching back to boot failed: ${r.stdout}${r.stderr}`)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true, false, 'boot'))
-    assert.equal(recorded('StartupMode'), 'boot')
+    assert.equal(recorded('StartupMode'), null, 'the removed start mode is recorded again')
 
     // a task whose description is not the installer's: refused, and nothing changes
-    r = ps(`Unregister-ScheduledTask -TaskName ${q(target.signin)} -Confirm:$false`)
-    r = register(target.signin, 'someone else\'s task')
+    r = ps(`Unregister-ScheduledTask -TaskName ${q(target.helper)} -Confirm:$false`)
+    r = register(target.helper, 'someone else\'s task')
     assert.equal(r.status, 0)
-    r = runElevatedScript(false, 'boot')
+    r = runElevatedScript(false)
     assert.notEqual(r.status, 0, 'a foreign task was switched')
     assert.match(r.stderr + r.stdout, /Refusing to change a task Orgtree did not install/)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true, true, 'boot'))
+    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true))
     assert.equal(recorded('RunOnStartup'), '1')
 
-    // no sign-in engine task at all: the engine cannot be moved to sign-in, and nothing changes
-    r = ps(`Unregister-ScheduledTask -TaskName ${q(target.signin)} -Confirm:$false`)
-    r = runElevatedScript(true, 'signin')
-    assert.notEqual(r.status, 0, 'switched to a sign-in engine that does not exist')
-    assert.match(r.stderr + r.stdout, /no sign-in engine task/)
-    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(true, true, null, 'boot'))
+    // no helper task at all (a legacy engine): the boot task alone is switched
+    r = ps(`Unregister-ScheduledTask -TaskName ${q(target.helper)} -Confirm:$false`)
+    r = runElevatedScript(false)
+    assert.equal(r.status, 0, `switching off without a helper failed: ${r.stdout}${r.stderr}`)
+    assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(false, null))
   } finally {
     cleanup()
   }
-  assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(null, null, null, 'boot'), 'the throwaway tasks were not removed')
+  assert.deepEqual(await startup.readStartupTasks(undefined, target), tasks(null, null), 'the throwaway tasks were not removed')
 })
 
 test.after(() => { fs.rmSync(dir, { recursive: true, force: true }) })

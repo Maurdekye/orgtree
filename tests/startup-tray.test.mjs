@@ -1,7 +1,7 @@
 // Execute the actual main-process tray construction/refresh closure and the
-// actual "run on startup" change (one at a time, pending state) with a native
-// Menu double and stand-ins for the Windows task calls. No Electron process,
-// UAC, tasks or live settings touched.
+// actual "Run on boot" change (one at a time, pending state, its name) with a
+// native Menu double and stand-ins for the Windows task calls. No Electron
+// process, UAC, tasks or live settings touched.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -21,20 +21,21 @@ const code = transformSync(
   slice('  const loginPreference = () => {', '  /** What the switch shows is what really starts') +
   slice('  const rebuildTray = () => {', '\n  /**'), { loader: 'ts', target: 'node22' }).code
 
-// the real reading of what starts by itself (either engine task enabled)
+// the real reading of what starts by itself (the boot task enabled)
 const bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-startup-tray-'))
 await build({ entryPoints: ['apps/desktop/main/runonstartup.ts'], outfile: path.join(bundleDir, 'runonstartup.cjs'),
   bundle: true, platform: 'node', format: 'cjs', logLevel: 'error' })
 const { startupOn } = createRequire(import.meta.url)(path.join(bundleDir, 'runonstartup.cjs'))
 test.after(() => { fs.rmSync(bundleDir, { recursive: true, force: true }) })
 
-const PENDING = 'Run on startup (changing…)'
+const PENDING = 'Run on boot (changing…)'
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-function fixture(initial, mode = 'boot') {
+/** `bootTask` false: an installation without the boot task (per-user). */
+function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
   let prefs = { startAtLogin: initial, automaticUpdates: true, notificationsEnabled: true }
   let buildCount = 0, boot = initial
-  const writes = [], modes = [], warnings = [], pending = []
+  const writes = [], extra = [], warnings = [], pending = []
   class MenuDouble {
     constructor(items) { this.items = items; this.events = new Map() }
     getMenuItemById(id) { return this.items.find(i => i.id === id) }
@@ -55,22 +56,20 @@ function fixture(initial, mode = 'boot') {
     Menu: { buildFromTemplate(items) { buildCount++; return new MenuDouble(items) } },
     dialog: { showMessageBox(options) { warnings.push(options.message); return Promise.resolve({}) } },
     app: { isPackaged: true, quit() { throw new Error('not part of this test') }, setLoginItemSettings() {} },
-    process: { platform: 'win32' },
+    process: { platform },
     notifications: { configure() {} }, broadcastAll() {}, setTimeout,
-    // the tasks as Windows reports them (the engine starting at boot or at
-    // sign-in); a write waits until the test decides
-    readStartupTasks: async () => mode === 'signin' ? { boot: false, helper: boot, signin: boot, mode }
-      : { boot, helper: boot, signin: false, mode },
+    // the tasks as Windows reports them; a write waits until the test decides
+    readStartupTasks: async () => bootTask ? { boot, helper: boot } : { boot: null, helper: null },
     startupOn,
-    writeRunOnStartup(next, recorded) {
-      writes.push(next); modes.push([next, recorded])
+    writeRunOnStartup(next, ...rest) {
+      writes.push(next); extra.push(rest)
       return new Promise((yes, no) => pending.push({ yes: () => { boot = next; yes() }, no }))
     },
   }
   vm.runInNewContext(code + '\nthis.rebuild = rebuildTray; this.change = changeRunOnStartup', ctx)
   ctx.rebuild()
   return {
-    ctx, writes, modes, warnings,
+    ctx, writes, extra, warnings,
     get menu() { return ctx.tray.menu }, get builds() { return buildCount },
     get prefs() { return prefs },
     // the permission prompt answered and the change read back (or declined)
@@ -124,7 +123,7 @@ for (const initial of [false, true]) {
     assert.equal(during.startup.checked, initial, 'the checkmark stays the saved value')
     await f.commit()
     assert.notEqual(f.menu, during)
-    assert.equal(f.menu.startup.label, 'Run on startup')
+    assert.equal(f.menu.startup.label, 'Run on boot')
     assert.equal(f.menu.startup.enabled, true)
     assert.equal(f.menu.startup.checked, !initial)
     assert.equal(f.prefs.startAtLogin, !initial)
@@ -151,8 +150,8 @@ test('closed-menu rebuild still constructs the complete menu from committed pref
 test('one change at a time: a second request is refused and leaves the first one pending', async () => {
   const f = fixture(false)
   const first = f.ctx.change(true) // from the tray or Settings, the same function
-  await assert.rejects(f.ctx.change(false), /still changing "run on startup"/)
-  await assert.rejects(f.ctx.change(true), /still changing "run on startup"/)
+  await assert.rejects(f.ctx.change(false), /still changing how it starts/)
+  await assert.rejects(f.ctx.change(true), /still changing how it starts/)
   assert.equal(f.menu.startup.label, PENDING, 'the refusal did not end the pending state')
   assert.equal(f.menu.startup.enabled, false)
   await f.commit()
@@ -174,7 +173,7 @@ test('a refused second tray click restores the checkmark and says why', async ()
   click(stale)
   await tick()
   assert.equal(f.menu.startup.checked, false)
-  assert.match(f.warnings[0], /still changing "run on startup"/)
+  assert.match(f.warnings[0], /still changing how it starts/)
   await f.commit()
   assert.deepEqual(f.writes, [true])
 })
@@ -183,7 +182,7 @@ test('a failed read ends the pending state too', async () => {
   const f = fixture(false)
   f.ctx.readStartupTasks = async () => null
   await assert.rejects(f.ctx.change(true), /could not read its startup tasks/)
-  assert.equal(f.menu.startup.label, 'Run on startup')
+  assert.equal(f.menu.startup.label, 'Run on boot')
   assert.equal(f.menu.startup.enabled, true)
   assert.equal(f.menu.startup.checked, false)
   assert.deepEqual(f.writes, [])
@@ -225,7 +224,7 @@ test('a menu open when the change starts or ends is rebuilt once it closes', asy
   during.emit('menu-will-close')
   await new Promise(resolve => setTimeout(resolve))
   assert.notEqual(f.menu, during)
-  assert.equal(f.menu.startup.label, 'Run on startup')
+  assert.equal(f.menu.startup.label, 'Run on boot')
   assert.equal(f.menu.startup.checked, true)
   const settled = f.menu, builds = f.builds
   settled.emit('menu-will-show'); settled.emit('menu-will-close')
@@ -233,16 +232,34 @@ test('a menu open when the change starts or ends is rebuilt once it closes', asy
   assert.equal(f.builds, builds, 'an unchanged menu is not rebuilt on close')
 })
 
-test('turning "run on startup" off and on again keeps where the engine starts', async () => {
-  const f = fixture(true, 'signin')
+test('turning "Run on boot" off and on again switches the tasks with nothing but the switch', async () => {
+  const f = fixture(true)
   const off = f.ctx.change(false)
   await f.commit()
   assert.equal((await off).startAtLogin, false)
   const on = f.ctx.change(true)
   await f.commit()
   assert.equal((await on).startAtLogin, true)
-  assert.deepEqual(f.modes, [[false, 'signin'], [true, 'signin']], 'every on/off change carries the recorded start mode')
-  // already on at sign-in: nothing to change, no permission prompt
+  assert.deepEqual(f.extra, [[], []], 'no start mode travels with the switch any more')
+  // already on: nothing to change, no permission prompt
   await f.ctx.change(true)
   assert.deepEqual(f.writes, [false, true])
+})
+
+// coordinator ruling A (2026-10-16): where Orgtree cannot start at boot, the
+// same switch reads "Run on sign-in"
+test('the switch reads "Run on boot" while the boot task exists and "Run on sign-in" without one', async () => {
+  const installed = fixture(true)
+  assert.equal(installed.menu.startup.label, 'Run on boot')
+  const perUser = fixture(true, { bootTask: false })
+  assert.equal(perUser.menu.startup.label, 'Run on boot', 'before the tasks were read, an all-users installation is assumed')
+  assert.equal((await perUser.ctx.change(false)).startAtLogin, false)
+  assert.deepEqual(perUser.writes, [], 'no task to switch, no permission prompt')
+  assert.equal(perUser.menu.startup.label, 'Run on sign-in')
+  for (const platform of ['darwin', 'linux']) {
+    const unix = fixture(false, { platform })
+    assert.equal(unix.menu.startup.label, 'Run on sign-in', platform)
+    assert.equal((await unix.ctx.change(true)).startAtLogin, true)
+    assert.deepEqual(unix.writes, [], platform)
+  }
 })
