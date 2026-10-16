@@ -29,6 +29,29 @@ for (const [name, x, request, centre] of [
 
 const eye: Pt = { x: 350, y: 350 }
 const ring = new Map([['a', { x: 150, y: 350 }], ['b', { x: 350, y: 550 }], ['c', { x: 550, y: 350 }]])
+const polar = (radius: number, angle: number): Pt => ({ x: eye.x - radius * Math.cos(angle), y: eye.y + radius * Math.sin(angle) })
+for (const radius of [260, 490]) {
+  // The occupied arc crosses atan2's seam and leaves most of the ring empty.
+  // Unequal gaps ensure each end mirrors its OWN neighbouring separator.
+  const angles = [2.9, 3.25, 3.7]
+  const positions = new Map(['a', 'b', 'c'].map((id, i) => [id, polar(radius, angles[i]!)]))
+  for (const end of ['first', 'last'] as const) test(`ring radius ${radius} ${end} marker mirrors the nearest occupied gap instead of the empty arc`, () => {
+    const first = end === 'first'
+    const anchor = angles[first ? 0 : 2]!
+    const halfGap = first ? (angles[1]! - angles[0]!) / 2 : (angles[2]! - angles[1]!) / 2
+    const expected = polar(radius, anchor + (first ? -halfGap : halfGap))
+    const slot = ringReorderSlot(['a', 'b', 'c'], positions, eye, polar(radius, anchor + (first ? -.01 : .01)))!
+    assert.deepEqual(slot.request, first ? { before: 'a' } : { after: 'c' }, 'committed drop order is unchanged')
+    assert.ok(Math.hypot(slot.point.x - expected.x, slot.point.y - expected.y) < 1e-8,
+      `${end} marker must mirror the between-agents gap at radius ${radius}: actual=${JSON.stringify(slot.point)}, expected=${JSON.stringify(expected)}`)
+  })
+  test(`ring radius ${radius} between-agent preview is unchanged`, () => {
+    const slot = ringReorderSlot(['a', 'b', 'c'], positions, eye, polar(radius, 3.1))!
+    assert.deepEqual(slot.request, { before: 'b' })
+    const expected = polar(radius, (angles[0]! + angles[1]!) / 2)
+    assert.ok(Math.hypot(slot.point.x - expected.x, slot.point.y - expected.y) < 1e-8)
+  })
+}
 for (const [name, drop] of [['middle', { x: 250, y: 550 }], ['first', { x: 200, y: 250 }], ['last', { x: 500, y: 250 }]] as const) {
   test(`ring ${name} preview keeps angular request and is radial`, async () => {
     const slot = ringReorderSlot(['a', 'b', 'c'], ring, eye, drop)!
