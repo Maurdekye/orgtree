@@ -15,6 +15,23 @@ Branch `epic/final` holds the Opus take's five product and test commits
 them, so its diff against the approved Opus take (`fdd645f`) is exactly what
 the merge added.
 
+## Usage crossing identity (2026-10-16)
+
+The user reported repeated Google 100% and reset effects with unchanged
+readings. Usage effects now compare the last valid numeric reading for one
+account and one window, including its kind, group, label and model. Distinct
+groups with otherwise identical metadata no longer share a baseline. A
+missing/unavailable/non-finite reading or one at least 900 s old is ignored
+without forgetting its last valid percent. Each genuine threshold crossing
+plays once; repeated or reordered unchanged readings are silent.
+
+Host readouts carry their identity together with their limits. Read them as
+one document so the separately published peek cannot pair a new account with
+an old account's limits. Older feeds with only a peek still work. OpenRouter
+uses its per-account cached `openrouter_keys_usage`, because its combined glow
+peek flattens accounts' identical credit windows. No provider read or timer
+is added. The real app-feed regression is `epicmode-usage.test.tsx`.
+
 ## Combo removal (2026-10-16)
 
 The user removed the combo meter entirely at 20:45Z, then clarified at
