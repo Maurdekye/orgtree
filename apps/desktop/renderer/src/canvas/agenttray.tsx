@@ -96,6 +96,8 @@ export interface AgentTrayProps {
   filterLabel?: string
   /** host-owned root/option rows after the filter, before the agent hierarchy */
   leadingRows?: ReactNode
+  /** controls that belong beside this list's search filter */
+  filterActions?: ReactNode
   /** shown when no row matches; nothing by default (the canvas's behaviour) */
   empty?: ReactNode
   /** whether to show a pending model switch badge in each row; defaults to
@@ -120,14 +122,22 @@ export function ActiveAgentsFilter({ checked, onChange }: {
 
 export function AgentTray({
   map, rows, query, onQuery, archived, onArchived, onPick, onRowMenu, compactAt,
-  refs, selected, listProps, mainProps, rowProps, filterLabel, leadingRows, empty,
+  refs, selected, listProps, mainProps, rowProps, filterLabel, leadingRows, filterActions, empty,
   showQueuedModelBadge = true,
 }: AgentTrayProps) {
   const archN = archivedCount(map)
   return (
     <div className="tray" {...listProps}>
-      <input className="mail-filter tray-filter" placeholder="filter agents…"
-        aria-label={filterLabel} value={query} onChange={(e) => onQuery(e.target.value)} />
+      {filterActions ? (
+        <div className="tray-filter-row">
+          <input className="mail-filter tray-filter" placeholder="filter agents…"
+            aria-label={filterLabel} value={query} onChange={(e) => onQuery(e.target.value)} />
+          {filterActions}
+        </div>
+      ) : (
+        <input className="mail-filter tray-filter" placeholder="filter agents…"
+          aria-label={filterLabel} value={query} onChange={(e) => onQuery(e.target.value)} />
+      )}
       {/* archived rows are HIDDEN by default (user spec 2026-07-31) — the
           count row folds them in and out */}
       {archN > 0 && (

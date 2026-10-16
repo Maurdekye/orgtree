@@ -607,7 +607,7 @@ uiTest('pinned Agents header exposes and applies the active-only preference', as
 uiTest('pinned Agents checkbox keeps its click while the panel raises during activation', async ({ mount }) => {
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const { CurrentOrg } = await import('../src/popout')
-  const { readPinSurfaces } = await import('../src/canvas/pinspace')
+  const { readPinSurfaces, pinSurfaceKey, updatePinSurface } = await import('../src/canvas/pinspace')
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
   const fixture = treeWithStatus(['idle-agent', 'active-agent'])
   const roots = (fixture as unknown as { roots: Record<string, unknown>[] }).roots
@@ -624,6 +624,8 @@ uiTest('pinned Agents checkbox keeps its click while the panel raises during act
   assert.ok(panel?.classList.contains('modalpin-win'), 'the Agents panel is pinned')
   const filter = panel!.querySelector<HTMLInputElement>('.modalpin-bar .modalpin-active-filter input')
   assert.ok(filter, 'the pinned header contains the active checkbox')
+  // Put another pinned surface in front so this pointerdown has real work to do.
+  updatePinSurface(pinSurfaceKey('mine', 'other', true), 'mine', { x: 10, y: 10, w: 100, h: 100 }, true)
 
   // Match a physical click: pointerdown raises the pinned surface, then the
   // checkbox's click bubbles through the panel's capture handler. Do not wrap

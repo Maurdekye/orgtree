@@ -5620,6 +5620,12 @@ svg.MuiSvgIcon-root {
 .tray-sum .ref-chip { font-size: inherit; padding: 0 3px; }
 .tray-sum.stale { opacity: .55; font-style: italic; }
 .tray-filter { margin: 2px 4px 6px; }
+.tray-filter-row {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  margin: 2px 4px 6px;
+}
+.tray-filter-row .tray-filter { flex: 1; min-width: 0; width: auto; margin: 0; }
+.tray-filter-row .modalpin-active-filter { font-size: 11px; }
 .tray-arch {
   background: none; border: none; text-align: left; cursor: pointer;
   color: var(--dim); font-size: 11px; padding: 1px 8px 3px;

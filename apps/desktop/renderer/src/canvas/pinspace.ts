@@ -27,7 +27,12 @@ export function removePinSurface(key: string) {
   surfaces = surfaces.filter(p => p.key !== key); notify()
 }
 export function raisePinSurface(key: string) {
-  if (!surfaces.some(p => p.key === key)) return
+  const current = surfaces.find(p => p.key === key)
+  if (!current) return
+  // Pointer-down and click both bubble through a pinned panel. The pointer-down
+  // already raises it; publishing the same top surface again during click can
+  // interrupt controlled child controls (notably the Active checkbox).
+  if (current.order === Math.max(...surfaces.map(p => p.order))) return
   surfaces = surfaces.map(p => p.key === key ? {...p, order: ++order} : p); notify()
 }
 export function usePinSurface(org: string | null, kind: string, rect: PinRect | null, modal: boolean) {

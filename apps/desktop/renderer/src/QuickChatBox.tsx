@@ -355,10 +355,10 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick, activeO
           onPick(choices[at] ?? null)
         }
       }}>
-      {onActiveOnly && <ActiveAgentsFilter checked={activeOnly} onChange={onActiveOnly} />}
       <AgentTray map={liveMap} rows={indentedRows} query={query} onQuery={setQuery}
         archived={false} onArchived={() => {}} onPick={pick} compactAt={compactAt}
         selected={hi} filterLabel="filter superiors"
+        filterActions={onActiveOnly && <ActiveAgentsFilter checked={activeOnly} onChange={onActiveOnly} />}
         leadingRows={showRoot && (
           <div className={'tray-row quickchat-top' + (!rootMatches ? ' ghost' : '') + (hi === null && rootMatches ? ' sel' : '')}
             style={{ paddingLeft: 8 }}

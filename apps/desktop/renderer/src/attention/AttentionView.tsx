@@ -44,7 +44,6 @@ import { LanIcon, NotificationsActiveIcon } from '../icons'
 import { AttentionQueue } from './AttentionQueue'
 import type { AttentionQueueProps } from './AttentionQueue'
 import { AgentDeskPanel } from './AgentDeskPanel'
-import { ActiveAgentsFilter } from '../canvas/agenttray'
 import {
   clampSplit, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
   startAttentionModeSync, useAttentionLayout, useOrgView,
@@ -557,14 +556,11 @@ export function AttentionView(props: AttentionViewProps) {
           <PinFrame inline kind={DESK_KIND} title="Agent desk"
             panel="attn-panel attn-panel-desk"
             dialogLabel="Agent desk"
-            headerActions={props.onAttentionDeskActiveAgentsOnly
-              ? <ActiveAgentsFilter checked={props.attentionDeskActiveAgentsOnly ?? false}
-                  onChange={props.onAttentionDeskActiveAgentsOnly} />
-              : undefined}
             close={() => unpinModal(DESK_KIND, slug)}>
             <AgentDeskPanel slug={slug} tree={props.tree} op={props.op}
               toast={props.toast} map={props.map} posOf={props.posOf}
               activeAgentsOnly={props.attentionDeskActiveAgentsOnly}
+              onActiveAgentsOnly={props.onAttentionDeskActiveAgentsOnly}
               eligible={deskEligible} claim={deskClaim}
               deskExtras={props.deskExtras} />
           </PinFrame>

@@ -39,7 +39,7 @@ import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
 import type { DeskChatProps } from '../canvas/desk'
 import { agentNavProps } from '../canvas/agentnav'
-import { AgentTray, trayRows } from '../canvas/agenttray'
+import { ActiveAgentsFilter, AgentTray, trayRows } from '../canvas/agenttray'
 import type { TrayRow } from '../canvas/agenttray'
 import { useRefRoutes } from '../canvas/reflinks'
 import { focusByAttr } from './dom'
@@ -59,6 +59,7 @@ export interface AgentDeskPanelProps {
    *  returns undefined and the tree's own child order stands in. */
   posOf?: (id: string) => Pt | undefined
   activeAgentsOnly?: boolean
+  onActiveAgentsOnly?: (value: boolean) => void
   /** the routes the canonical Desk already takes from its host (jump, mail
    *  links, docket links, documents). Passed through untouched — this panel
    *  invents none of them and supplies no stubs. */
@@ -140,7 +141,7 @@ export function inCloseZone(
 
 export function AgentDeskPanel({
   slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
-  activeAgentsOnly = false,
+  activeAgentsOnly = false, onActiveAgentsOnly,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -299,6 +300,7 @@ export function AgentDeskPanel({
           onPick={(id) => { select(id); close() }}
           compactAt={tree.compact_at} refs={refs} selected={selectedId}
           filterLabel="Filter agents"
+          filterActions={onActiveAgentsOnly && <ActiveAgentsFilter checked={activeAgentsOnly} onChange={onActiveAgentsOnly} />}
           rowProps={(n) => agentNavProps(n.id)}
           mainProps={(n) => ({
             'data-attn-agent': n.id, role: 'option',
