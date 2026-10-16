@@ -10,6 +10,8 @@ Shared skills and personal global instructions are implemented in the integrated
 
 ## Built-in guides and user skills
 
+The built-in Orgtree skill library is also called the glossary or Orgtree Encyclopaedia (encyclopedia). These are aliases for the same guides, with the same `orgtree-working` and `orgtree-app` entry points; imported user skills are separate bundles.
+
 In the sharing pipeline, the engine build embeds every file under `docs/skills`; an installed engine does not need a source checkout to supply those resources. This large guide library registers only two category entries, `orgtree-working` and `orgtree-app`. Each section and leaf remains a nested directory with its own `SKILL.md`, read by following the parent page's links on demand.
 
 Only category entry files enter native discovery roots. Their complete resource trees, including nested `SKILL.md` pages, live beside those roots; category entry links are retargeted and nested links keep their relative meaning. A recursive native loader therefore does not advertise every leaf description. Follow the delivered entry links rather than inventing paths from a developer checkout.

@@ -56,6 +56,10 @@ native paths and plugin definitions never appear in the public registry or logs.
 
 ## Built-in guides
 
+The built-in Orgtree skill library is also called the **glossary** or
+**Orgtree Encyclopaedia** (also spelled **encyclopedia**). All these names refer
+to the same library; the two category skill names stay unchanged.
+
 `build.rs` embeds every file under `docs/skills` into the engine; no runtime source
 checkout or separately provisioned docs directory is needed. Guide writers own
 that source tree. The guide-library catalog has two category skills,

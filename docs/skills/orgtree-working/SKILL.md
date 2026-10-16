@@ -1,9 +1,11 @@
 ---
 name: orgtree-working
-description: How to work inside an Orgtree organization: every orgtree_* tool, and the rules and workflows for hiring, mail, the docket, turns, watchdogs, accounts and your folders.
+description: Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): tools and workflows for teams, mail, the docket, turns, watchdogs, accounts and folders.
 ---
 
 # Working inside Orgtree
+
+This is the organization-work entry point to the built-in Orgtree skill library, also called the glossary or Orgtree Encyclopaedia (encyclopedia). These names refer to the same library.
 
 Open a section below, then the specific tool or workflow leaf it lists. The tool leaves explain the exposed call, authority, defaults, limits and refusals; workflow leaves explain how the pieces fit.
 

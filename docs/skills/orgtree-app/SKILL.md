@@ -1,9 +1,11 @@
 ---
 name: orgtree-app
-description: The Orgtree desktop app: every screen, panel and setting, plus providers, accounts and the mail hub, so you can explain or advise on what the user sees and configures.
+description: Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): desktop screens and settings, providers, harnesses, accounts and the mail hub.
 ---
 
 # The Orgtree app
+
+This is the app entry point to the built-in Orgtree skill library, also called the glossary or Orgtree Encyclopaedia (encyclopedia). These names refer to the same library.
 
 Open a section below, then the screen or setting leaf it lists. Settings leaves explain the control, storage, defaults, application timing and when to suggest a change. Agents explain and suggest settings; they do not change them themselves.
 

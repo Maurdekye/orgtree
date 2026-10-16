@@ -2,6 +2,9 @@
 
 This is the design of the built-in Orgtree skill library: which skills exist, where each
 one lives, what it covers, what its ground truth is, and who writes it.
+The library is also called the **glossary** or **Orgtree Encyclopaedia**
+(also spelled **encyclopedia**). These are equivalent terms; the library and its
+registered skill names remain unchanged.
 `tree.json` beside this file is the machine-readable manifest of the same tree, and the
 coverage guard reads it. The tables at the end of this file are generated from
 `tree.json`. If the two ever disagree, `tree.json` is right and this file gets fixed.
@@ -193,13 +196,14 @@ leaf in it.
 
 ```
 name: orgtree-working
-description: How to work inside an Orgtree organization: every orgtree_* tool, and the rules and workflows for hiring, mail, the docket, turns, watchdogs, accounts and your folders.
+description: Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): tools and workflows for teams, mail, the docket, turns, watchdogs, accounts and folders.
 
 name: orgtree-app
-description: The Orgtree desktop app: every screen, panel and setting, plus providers, accounts and the mail hub, so you can explain or advise on what the user sees and configures.
+description: Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): desktop screens and settings, providers, harnesses, accounts and the mail hub.
 ```
 
-Measured size: 403 bytes for both `name` and `description` lines together.
+Measured size: 312 UTF-8 description-value bytes; 380 bytes for both `name` and
+`description` lines together (below the 600-byte coverage-guard cap).
 
 ## 6. Coverage guard
 

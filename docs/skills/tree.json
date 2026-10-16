@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "source_commit": "de6d356193c6c839b0813ec4d95303fbc8b87237",
- "registered_description_bytes": 403,
+ "registered_description_bytes": 380,
  "counts": {
   "categories": 2,
   "sections": 18,
@@ -27,8 +27,8 @@
    "level": 1,
    "kind": "category",
    "registered": true,
-   "description": "How to work inside an Orgtree organization: every orgtree_* tool, and the rules and workflows for hiring, mail, the docket, turns, watchdogs, accounts and your folders.",
-   "purpose": "Entry point for agent work: find the tool page or workflow page you need.",
+   "description": "Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): tools and workflows for teams, mail, the docket, turns, watchdogs, accounts and folders.",
+   "purpose": "Agent-work entry point to the skill library, also called the glossary or Orgtree Encyclopaedia (encyclopedia): find the tool or workflow page you need.",
    "children": [
     "team",
     "docket",
@@ -49,8 +49,8 @@
    "level": 1,
    "kind": "category",
    "registered": true,
-   "description": "The Orgtree desktop app: every screen, panel and setting, plus providers, accounts and the mail hub, so you can explain or advise on what the user sees and configures.",
-   "purpose": "Entry point for the app: find the screen or setting page you need.",
+   "description": "Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): desktop screens and settings, providers, harnesses, accounts and the mail hub.",
+   "purpose": "App entry point to the skill library, also called the glossary or Orgtree Encyclopaedia (encyclopedia): find the screen or setting page you need.",
    "children": [
     "app-shell",
     "canvas",
