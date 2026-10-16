@@ -298,12 +298,16 @@ test('ascii touch: every third tap is the heart, fast sweeps stir wakes, slow on
   assert.equal(f.taps[7], 1)
   close(f.taps[11] ?? 0, -1.15, 1e-6)
   assert.equal(t.rippling(4.9), true)
+  assert.equal(t.waking(4.9), false)
   assert.equal(t.frame(5.1).tapCount, 0)
   assert.equal(t.busy(5.1), false)
   const fast = createTouch()
   for (let i = 0; i <= 20; i++) fast.move(i * 20, 100, i * 0.025)
   assert.equal(fast.frame(0.51).wakeCount, 10)
+  assert.equal(fast.waking(2.8), true)
+  assert.equal(fast.rippling(2.8), false)
   assert.equal(fast.busy(2.8), true)
+  assert.equal(fast.waking(3.0), false)
   assert.equal(fast.busy(3.0), false)
   const slow = createTouch()
   for (let i = 0; i <= 20; i++) slow.move(i * 1.5, 100, i * 0.1)
@@ -693,8 +697,11 @@ test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside
   const viewRef = { current: { x: 0, y: 0, z: 1 } }
   let api: AsciiTestApi | null = null
   const mounted = await mountView(
-    <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={false} intensity={1}
-      pin={{ seed: 42, pool: 'mixed' }} onReady={a => { api = a }} />,
+    <div>
+      <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={false} intensity={1}
+        pin={{ seed: 42, pool: 'mixed' }} onReady={a => { api = a }} />
+      <div className="sq" data-card="coordinator-opus">coordinator-opus</div>
+    </div>,
     el => el,
   )
   t.after(async () => { await mounted.unmount() })
@@ -703,18 +710,43 @@ test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside
   }
   assert.equal(api === null, false, 'AsciiLayer should initialize with mock WebGL2')
 
-  // 1. High-DPI zoom-out bounding: at dpr=2, zooming out to z=0.35 and z=0.05 must keep cellWidth >= 10
+  // 1. High-DPI zoom-out bounding: at dpr=2, zooming out to z=0.35 and z=0.05 keeps the z=1 cellWidth (13) and moving state
+  const stateAt1 = api!.state()
   viewRef.current = { x: -400, y: -300, z: 0.35 }
   api!.drawAt(8, 1)
   const canvasAt035 = mounted.el.querySelector('canvas')!
   assert.equal(canvasAt035 === null, false)
-  const state035 = api!.state() as { cellWidth?: number; columns?: number; rows?: number }
-  assert.ok((state035.cellWidth ?? 0) >= 10, `expected bounded dpr=2 zoom-out cellWidth >= 10, got ${state035.cellWidth}`)
+  const state035 = api!.state()
+  assert.equal(state035.cellWidth, stateAt1.cellWidth, 'zoom-out below z=1 preserves z=1 screen-space glyph cell width')
+  assert.ok((state035.cellWidth ?? 0) >= 13, `expected dpr=2 zoom-out cellWidth >= 13, got ${state035.cellWidth}`)
   viewRef.current = { x: -400, y: -300, z: 0.05 }
   api!.drawAt(9, 1)
-  const state005 = api!.state() as { cellWidth?: number; columns?: number; rows?: number }
+  const state005 = api!.state()
   assert.equal(state005.columns, state035.columns, 'zooming below 0.35 clamps to the minimum ASCII zoom grid')
   assert.equal(state005.rows, state035.rows)
+  assert.equal(state005.datasetState, 'moving')
+
+  // 1b. Pointer wake vs card-click ripple separation:
+  // Stir a pointer wake on the floor, then click a .sq card: wakeBusy/touchBusy are true, but tapBusy/tapCount stay false/0
+  viewRef.current = { x: 0, y: 0, z: 1 }
+  const hostParent = mounted.el.querySelector('.canvas-bg-ascii')!.parentElement!
+  const cardEl = mounted.el.querySelector('.sq')!
+  const PointerEv = window.PointerEvent ?? window.MouseEvent
+  for (let i = 0; i <= 6; i++) {
+    hostParent.dispatchEvent(new PointerEv('pointermove', { bubbles: true, clientX: 40 + i * 35, clientY: 120 }))
+    await new Promise(r => setTimeout(r, 40))
+  }
+  assert.equal(api!.state().wakeBusy, true, 'pointer sweep over floor stirs a wake')
+  assert.equal(api!.state().tapBusy, false, 'pointer sweep alone creates no tap ripple')
+  cardEl.dispatchEvent(new PointerEv('pointerdown', { bubbles: true, button: 0, clientX: 350, clientY: 240 }))
+  const afterCardClick = api!.state()
+  assert.equal(afterCardClick.touchBusy, true, 'pre-existing pointer wake keeps touchBusy true')
+  assert.equal(afterCardClick.tapBusy, false, 'clicking a .sq card must not emit a tap ripple')
+  assert.equal(afterCardClick.tapCount, 0)
+  hostParent.dispatchEvent(new PointerEv('pointerdown', { bubbles: true, button: 0, clientX: 120, clientY: 120 }))
+  const afterFloorClick = api!.state()
+  assert.equal(afterFloorClick.tapBusy, true, 'clicking the empty floor emits a tap ripple')
+  assert.equal(afterFloorClick.tapCount, 1)
 
   // 2. Graceful degradation under heavy outside GPU/CPU load:
   const simLoad = (api as unknown as { simulateLoad?: (kind: 'gpu' | 'late' | 'stall', count?: number) => void }).simulateLoad

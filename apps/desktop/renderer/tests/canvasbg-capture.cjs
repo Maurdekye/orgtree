@@ -87,7 +87,12 @@ const SCENES = [
           dragZoomSteps: stress?.steps === 25,
           dragZoomCellBounded: (stress?.minCellWidth ?? 0) >= 5 && (stress?.maxColumns ?? 999) <= 220,
           dragZoomFast: (stress?.maxStepMs ?? 999) < 50,
-          dragZoomAlive: stress?.finalState?.datasetState !== 'context-lost' && stress?.finalState?.datasetState !== 'unseen',
+          dragZoomAlive: stress?.finalState?.datasetState === 'moving'
+            && stress?.finalState?.running === true
+            && stress?.finalState?.busyOff === false
+            && stress?.finalState?.contextLost === false
+            && (stress?.nonZeroWind ?? 0) > 100
+            && Number(stress?.finalOpacity) > 0,
         },
       }
     },
@@ -220,7 +225,7 @@ const SCENES = [
     name: 'ascii-clicks', query: 'theme=ascii&seed=42&pool=mixed&x=0&y=0&z=1',
     run: async win => {
       await waitAscii(win)
-      await sleep(4000) // let mount taps/wakes (none) and reveal settle; touch must be idle
+      await sleep(4000) // let mount taps/wakes (none) and reveal settle
       const click = async (x, y) => {
         win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
         await sleep(60)
@@ -232,6 +237,7 @@ const SCENES = [
         const r = el.getBoundingClientRect()
         return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
       })()`)
+      const beforeCard = await js(win, 'window.__asciiState()')
       await click(card.x, card.y)
       const afterCard = await js(win, '({ clicks: window.__cardClicks || 0, state: window.__asciiState() })')
       const floorWhat = await js(win, `(() => {
@@ -241,11 +247,13 @@ const SCENES = [
       await click(120, 120)
       const afterFloor = await js(win, 'window.__asciiState()')
       return {
-        afterCard, afterFloor, floorWhat,
+        beforeCard, afterCard, afterFloor, floorWhat,
         checks: {
           cardClickDelivered: afterCard.clicks === 1,
-          cardClickNoRipple: afterCard.state?.touchBusy === false,
-          floorClickRipples: afterFloor?.touchBusy === true,
+          cardClickNoRipple: afterCard.state?.tapBusy === false
+            && (afterCard.state?.tapCount ?? 0) === (beforeCard?.tapCount ?? 0),
+          floorClickRipples: afterFloor?.tapBusy === true
+            && (afterFloor?.tapCount ?? 0) > (afterCard.state?.tapCount ?? 0),
         },
       }
     },
@@ -357,7 +365,7 @@ async function probe(win, scene) {
       maskImage: cs ? (cs.maskImage || cs.webkitMaskImage || '').slice(0, 40) : '',
       maskSize: bg ? (bg.style.maskSize || bg.style.webkitMaskSize || '') : '',
       opacity: cs ? cs.opacity : '',
-      asciiCanvas: gl ? { w: gl.width, h: gl.height, state: gl.getAttribute('data-state') } : null,
+      asciiCanvas: gl ? { w: gl.width, h: gl.height, state: gl.getAttribute('data-state'), opacity: gl.style.opacity } : null,
       asciiMotion: host ? host.getAttribute('data-motion') : null,
       asciiReady: window.__asciiReady === true,
       docFocus: document.hasFocus(),

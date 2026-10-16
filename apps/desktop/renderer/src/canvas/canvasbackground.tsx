@@ -198,6 +198,9 @@ export interface AsciiTestApi {
     calm: boolean
     running: boolean
     touchBusy: boolean
+    tapBusy?: boolean
+    wakeBusy?: boolean
+    tapCount?: number
     datasetState: string
     cellWidth?: number
     columns?: number
@@ -324,12 +327,12 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       if (!(wCss > 0 && hCss > 0)) return null
       const v = viewRef.current
       // Bound zoom-out density and device-pixel scale so rapid drag + zoom-out
-      // never explodes fragment count or triggers a cascade of 2D canvas atlas
-      // rebuilds on high-DPI displays. At z >= 0.75 (including z = 1), gridScale
-      // equals z * dpr identically.
+      // never explodes fragment count, shrinks glyph cells into faint sub-pixel
+      // dust, or reallocates the WebGL backbuffer/atlas on every zoom step below z = 1.
+      // World-space sampling (worldScale = z * dpr) still zooms the wind field down to z = 0.35.
       const z = Math.max(0.35, v.z)
       const dpr = Math.min(2, Math.max(1, win.devicePixelRatio || 1))
-      const gridScale = Math.max(0.75, z) * dpr
+      const gridScale = Math.max(1, z) * dpr
       const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), gridScale)
       if (!grid) return null
       const worldScale = z * dpr
@@ -627,10 +630,24 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         renderer: () => renderer,
         drawAt: (t, reveal = 1) => {
           fieldTime = t
-          if (reveal >= 1 && animTime < cfg.wind.revealS) animTime = cfg.wind.revealS
+          if (reveal >= 1 && animTime < revealStart + cfg.wind.revealS) {
+            animTime = revealStart + cfg.wind.revealS
+          }
           if (drawOnce(t, reveal) && renderer) {
+            busyWhy = ''
+            strikes = 0
+            setState(still ? 'still' : calm ? 'calm' : 'moving')
             renderer.canvas.style.transition = 'none'
             renderer.canvas.style.opacity = `${canvasOpacity()}`
+            if (loopActive) {
+              win.clearTimeout(timer)
+              win.cancelAnimationFrame(raf)
+              lastTsMs = null
+              timer = win.setTimeout(() => {
+                rafRequestedAt = performance.now()
+                raf = win.requestAnimationFrame(frame)
+              }, intervalMs())
+            }
           }
         },
         tap: (wx, wy) => { touch.tap(wx, wy, touchNow()); rouse() },
@@ -640,17 +657,24 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
             fault(kind)
           }
         },
-        state: () => ({
-          animTime, fieldTime, reveal: revealNow(), calm,
-          running: loopActive, touchBusy: touch.busy(touchNow()),
-          datasetState: renderer?.canvas.dataset.state ?? '',
-          cellWidth: lastLayout?.grid.cellWidth,
-          columns: lastLayout?.grid.columns,
-          rows: lastLayout?.grid.rows,
-          busyWhy,
-          busyOff,
-          contextLost,
-        }),
+        state: () => {
+          const now = touchNow()
+          return {
+            animTime, fieldTime, reveal: revealNow(), calm,
+            running: loopActive,
+            touchBusy: touch.busy(now),
+            tapBusy: touch.rippling(now),
+            wakeBusy: touch.waking(now),
+            tapCount: touch.liveTaps(now).length,
+            datasetState: renderer?.canvas.dataset.state ?? '',
+            cellWidth: lastLayout?.grid.cellWidth,
+            columns: lastLayout?.grid.columns,
+            rows: lastLayout?.grid.rows,
+            busyWhy,
+            busyOff,
+            contextLost,
+          }
+        },
       })
     })()
 

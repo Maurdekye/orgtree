@@ -388,8 +388,9 @@ export function buildAtlas(
   const weight = effScale < 1.5 ? 400 : ASCII_CONFIG.surface.weight
   ctx.font = `${weight} 100px ${fontFamily}`
   const adv = ctx.measureText('0').width / 100 || 0.6
+  const pad = cellWidth < 7 ? 1 : 2
   const glyphPx = Math.max(1, Math.min(
-    Math.round(ASCII_CONFIG.surface.glyphCss * effScale), Math.floor((cellWidth - 2) / adv)))
+    Math.round(ASCII_CONFIG.surface.glyphCss * effScale), Math.floor((cellWidth - pad) / adv)))
   ctx.font = `${weight} ${glyphPx}px ${fontFamily}`
   const zeroAdv = ctx.measureText('0').width
   const probe = ctx.measureText('Mg|')
@@ -764,7 +765,10 @@ export function createAsciiRenderer(
       drawCount += 1
       if (drawCount % 4 === 0) {
         const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
-        if (fence) fences = [...fences.slice(-3), fence]
+        if (fence) {
+          gl.flush?.()
+          fences = [...fences.slice(-3), fence]
+        }
       }
     },
     fellBehind: () => slow,

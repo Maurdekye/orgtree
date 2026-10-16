@@ -191,6 +191,7 @@ export interface AsciiTouch {
   leave: () => void
   busy: (now: number) => boolean
   rippling: (now: number) => boolean
+  waking: (now: number) => boolean
   frame: (now: number) => AsciiTouchFrame
   /** Unfiltered live tap records (CPU-mirror/tests). */
   liveTaps: (now: number) => AsciiTap[]
@@ -240,6 +241,7 @@ export function createTouch(): AsciiTouch {
     leave() { last = null },
     busy: now => taps.some(t => now - t.at < TAP_LIFE_S) || wakeRecs.some(w => now - w.at < WAKE_LIFE_S),
     rippling: now => taps.some(t => now - t.at < TAP_LIFE_S),
+    waking: now => wakeRecs.some(w => now - w.at < WAKE_LIFE_S),
     liveTaps: now => taps.filter(t => now - t.at < TAP_LIFE_S),
     frame(now) {
       taps = taps.filter(t => now - t.at < TAP_LIFE_S)

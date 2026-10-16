@@ -158,6 +158,14 @@ w.__runDragZoomOutStress = async () => {
     if (typeof st.columns === 'number' && st.columns > maxColumns) maxColumns = st.columns
     if (typeof st.rows === 'number' && st.rows > maxRows) maxRows = st.rows
   }
+  const r = api.renderer()
+  const wind = r?.readWind() ?? null
+  let nonZeroWind = 0
+  if (wind?.data) {
+    for (let i = 0; i < wind.data.length; i += 4) {
+      if ((wind.data[i] || 0) > 0) nonZeroWind++
+    }
+  }
   const sorted = [...stepMs].sort((a, b) => a - b)
   return {
     steps: stepMs.length,
@@ -166,6 +174,8 @@ w.__runDragZoomOutStress = async () => {
     minCellWidth,
     maxColumns,
     maxRows,
+    nonZeroWind,
+    finalOpacity: r?.canvas.style.opacity ?? '',
     finalState: api.state(),
   }
 }
@@ -182,17 +192,19 @@ w.__compareWind = (t: number) => {
   const read = renderer.readWind()
   if (!read) return { error: 'wind readback unavailable' }
   const v = liveView.current
+  const z = Math.max(0.35, v.z)
   const wCss = (host as HTMLElement).clientWidth, hCss = (host as HTMLElement).clientHeight
-  const dpr = window.devicePixelRatio || 1
-  const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), v.z * dpr)
+  const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+  const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), Math.max(1, z) * dpr)
   if (!grid) return { error: 'no grid at this size' }
-  const cellWorldW = grid.cellWidth / grid.scale
-  const cellWorldH = grid.cellHeight / grid.scale
-  const originX = Math.floor((-v.x / v.z) / cellWorldW) * cellWorldW
-  const originY = Math.floor((-v.y / v.z) / cellWorldH) * cellWorldH
+  const worldScale = z * dpr
+  const cellWorldW = grid.cellWidth / worldScale
+  const cellWorldH = grid.cellHeight / worldScale
+  const originX = Math.floor((-v.x / z) / cellWorldW) * cellWorldW
+  const originY = Math.floor((-v.y / z) / cellWorldH) * cellWorldH
   const span = spanFor(api.visit, grid.columns * cellWorldW, grid.rows * cellWorldH)
-  const calmCx = (wCss / 2 - v.x) / v.z
-  const calmCy = (ASCII_CONFIG.card.centerY * hCss - v.y) / v.z
+  const calmCx = (wCss / 2 - v.x) / z
+  const calmCy = (ASCII_CONFIG.card.centerY * hCss - v.y) / z
   const clamp255 = (x: number): number => Math.round(Math.min(1, Math.max(0, x)) * 255)
   const channels = ['R', 'G', 'B', 'A'].map(name => ({ name, diffs: [] as number[] }))
   const mismatches: unknown[] = []
