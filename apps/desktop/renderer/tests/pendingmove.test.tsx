@@ -195,8 +195,8 @@ async function mountCanvas(t: TestContext, payload: TreePayload,
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   const ops: OpRequest[] = []
   const notices: { lines: string[]; undo?: () => unknown }[] = []
-  const view = (tree: TreePayload) => (
-    <OrgCanvas tree={tree} slug="mine"
+  const view = (tree: TreePayload, focusAgent?: string) => (
+    <OrgCanvas tree={tree} slug="mine" focusAgent={focusAgent}
       op={(b) => { ops.push(b); return run(b) as never }}
       toast={(lines, undo) => {
         if (lines) notices.push({ lines, undo: typeof undo === 'function' ? undo : undefined })
@@ -208,7 +208,13 @@ async function mountCanvas(t: TestContext, payload: TreePayload,
   await flush(); await advance(3000, 50); await flush()
   /** a tree read landing: the same canvas, re-rendered with `tree` */
   const show = async (tree: TreePayload) => { await v.render(view(tree)); await flush(2) }
-  return { el: v.el, ops, notices, v, show }
+  const focus = async (id: string) => {
+    // Use the public named-jump route after startup has settled; a synthetic
+    // press on a card can already be inside its focused desk in a ring.
+    await v.render(view(payload, id)); await flush()
+    await advance(3000, 50); await flush()
+  }
+  return { el: v.el, ops, notices, v, show, focus }
 }
 
 /** a real card drag: press on `id`, move onto `onto`, release */
@@ -242,36 +248,32 @@ for (const mode of ['row', 'circular'] as const) {
       setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
       localStorage.removeItem('orgtree-view-mine')
       forgetPins('mine'); t.after(() => forgetPins('mine'))
-      const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+      const m = await mountCanvas(t, tree([mkNode('x')]), () => Promise.resolve({}))
       const viewport = m.el.querySelector<HTMLElement>('.viewport')!
       const space = m.el.querySelector<HTMLElement>('.space')!
       if (surface.startsWith('pinned-')) {
         await inAct(() => addPin('mine', 'x', { x: 100, y: 100, w: 600, h: 500 }))
         await flush()
       } else {
-        for (const type of ['pointerdown', 'pointerup']) await inAct(() => {
-          card(m.el, 'x')!.dispatchEvent(new W.PointerEvent(type, {
-            bubbles: true, button: 0, pointerId: 1, clientX: 800, clientY: 400,
-          }))
-        })
-        await advance(3000, 50); await flush()
+        await m.focus('x')
       }
       const host = surface.startsWith('pinned-')
         ? m.el.querySelector<HTMLElement>('.pinwin')! : card(m.el, 'x')!
       const selector = surface === 'pinned-header' ? '.pinwin-title' : surface === 'desk-header' ? '.cc-head'
         : surface === 'desk-composer' ? 'textarea' : '.msgs'
       const target = host?.querySelector<HTMLElement>(selector)
-      assert.ok(target, `real ${surface} is mounted`)
+      assert.ok(target, `real ${surface} is mounted: card=${card(m.el, 'x')?.className}; camera=${space.style.transform}; desks=${m.el.querySelectorAll('.desk-over,.desk-bare').length}`)
       if (surface !== 'pinned-header') assert.ok(target.closest('.movable-events'), 'use the registry-owned portal, not a stand-in')
       const scroll = host.querySelector<HTMLElement>('.msgs')!
-      // jsdom has no layout. Model a scrollable transcript and report the
-      // reader's scroll so the desk's follow-tail does not reset our fixture.
+      // jsdom has no layout. Model scrollable geometry, then let the desk's
+      // follow-tail settle and record that position BEFORE the pan. A scroll
+      // event alone is not user scroll intent and can legitimately follow.
       Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 500 })
       Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 100 })
       scroll.scrollTop = 17
       await inAct(() => scroll.dispatchEvent(new W.Event('scroll', { bubbles: false })))
       await flush()
-      assert.equal(scroll.scrollTop, 17, 'reader scroll fixture settled before pan')
+      const scrollBefore = scroll.scrollTop
       const initial = nums(space.style.transform), position = at(m.el, 'x')
       const pins = JSON.stringify(readPins('mine'))
       const captures: number[] = []
@@ -296,7 +298,7 @@ for (const mode of ['row', 'circular'] as const) {
         const event = new W.MouseEvent(type, { bubbles: true, cancelable: true, button: 1 })
         await inAct(() => target.dispatchEvent(event)); assert.equal(event.defaultPrevented, true, type)
       }
-      assert.equal(scroll.scrollTop, 17, 'desk transcript did not scroll')
+      assert.equal(scroll.scrollTop, scrollBefore, 'desk transcript did not scroll')
       assertAt(at(m.el, 'x'), position, 'agent did not move')
       assert.equal(JSON.stringify(readPins('mine')), pins, 'pin did not move or resize')
       assert.deepEqual(m.ops, [], 'no node/desk operation')
@@ -316,16 +318,11 @@ for (const mode of ['row', 'circular'] as const) {
     setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
     localStorage.removeItem('orgtree-view-mine')
     forgetPins('mine'); t.after(() => forgetPins('mine'))
-    const m = await mountCanvas(t, before(), () => Promise.resolve({}))
-    for (const type of ['pointerdown', 'pointerup']) await inAct(() => {
-      card(m.el, 'x')!.dispatchEvent(new W.PointerEvent(type, {
-        bubbles: true, button: 0, pointerId: 1, clientX: 800, clientY: 400,
-      }))
-    })
-    await advance(3000, 50); await flush()
+    const m = await mountCanvas(t, tree([mkNode('x')]), () => Promise.resolve({}))
+    await m.focus('x')
     const desk = card(m.el, 'x')!, msgs = desk.querySelector<HTMLElement>('.msgs')!
     const composer = desk.querySelector<HTMLTextAreaElement>('textarea')!
-    assert.ok(msgs && composer, 'real desk content is mounted')
+    assert.ok(msgs && composer, `real desk content is mounted: card=${desk.className}; camera=${m.el.querySelector<HTMLElement>('.space')!.style.transform}`)
     const text = document.createTextNode('selectable transcript'); msgs.appendChild(text)
     const range = document.createRange(); range.selectNodeContents(text)
     const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
