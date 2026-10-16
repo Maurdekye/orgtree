@@ -304,7 +304,7 @@ test('§3 provider rows present status and model-tier detail', async () => {
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('§3a Antigravity settings group Gemini tiers before Claude tiers', async () => {
+test('§3a Antigravity settings group Claude tiers before Gemini tiers', async () => {
   localStorage.clear()
   const tiers = [
     { tier: 'flash', provider: 'google', seat: 1, model: 'antigravity-flash', letter: 'F', name: 'Flash' },
@@ -324,8 +324,8 @@ test('§3a Antigravity settings group Gemini tiers before Claude tiers', async (
       '[aria-label="Antigravity model tiers"] .acct-provider-tier .tier')]
       .map(el => el.className.split(/\s+/).find(name => name.startsWith('t-'))!.slice(2))
     assert.deepEqual(rendered, [
-      'argon', 'barium', 'carbon', 'flash', 'agy-opus', 'agy-sonnet',
-    ], 'Gemini-backed tiers stay together before Claude-backed tiers')
+      'agy-opus', 'agy-sonnet', 'argon', 'barium', 'carbon', 'flash',
+    ], 'Claude-backed tiers stay together before Gemini-backed tiers')
   } finally { await view.unmount(); delete g.fetch }
 })
 

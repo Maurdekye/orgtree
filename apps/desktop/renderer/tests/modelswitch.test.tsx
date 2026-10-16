@@ -277,6 +277,23 @@ configTest('the switch lists every provider family with its ledger seats',
     ])
   })
 
+configTest('the Agent model selector groups Antigravity Claude tiers before Gemini tiers',
+  async (mount) => {
+    const { el } = await mount({
+      antigravity: provider({ id: 'google', label: 'Antigravity', cli: 'Antigravity CLI',
+        tiers: [
+          { tier: 'argon', provider: 'google', seat: 2, model: 'gemini-4-argon', letter: 'A' },
+          { tier: 'agy-sonnet', provider: 'google', seat: 2, model: 'claude-sonnet-5.5', letter: 'S' },
+          { tier: 'agy-opus', provider: 'google', seat: 4, model: 'claude-opus-5.5', letter: 'O' },
+        ],
+        status: { installed: true, connected: true, kind: 'api-key' } }),
+    })
+    const antigravity = el.querySelector<HTMLOptGroupElement>(
+      'select.model-switch optgroup[label="Antigravity"]')!
+    assert.deepEqual([...antigravity.querySelectorAll('option')].map((o) => o.value),
+      ['agy-opus', 'agy-sonnet', 'argon', 'flash'])
+  })
+
 // D-196 (user ruling 2026-08-29): a provider-crossing switch now asks first,
 // so `save` alone no longer sends the op — the CONFIRM does. This test kept
 // its original claim (the crossing reaches the backend intact) and gained the

@@ -436,6 +436,19 @@ test('Antigravity Claude tiers are labelled as the hire flow labels them', async
   } finally { await view.unmount() }
 })
 
+test('quick staff groups Antigravity Claude model rows before Gemini rows', () => {
+  const p = preview()
+  p.models = [
+    { tier: 'agy-opus', seat: 4, efforts: [] },
+    { tier: 'argon', seat: 2, efforts: [] },
+    { tier: 'agy-sonnet', seat: 2, efforts: [] },
+    { tier: 'flash', seat: 1, efforts: [] },
+  ]
+  const entry = quickStaffEntry('org', 'agy-family-order', p, () => {})
+  assert.deepEqual(entry.children?.map((child) => child.label),
+    ['opus (antigravity)', 'sonnet (antigravity)', 'argon', 'flash'])
+})
+
 test('OpenRouter quick staffing exposes all standard efforts and forwards the choice', async t => {
   const sent = captureFetch(t)
   const p = preview()

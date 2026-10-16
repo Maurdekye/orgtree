@@ -92,8 +92,8 @@ test('§2 each provider lists its models dearest first, and the provider-neutral
   assert.deepEqual(TIERS_LISTED, ['fable', 'opus', 'sonnet', 'haiku'])
   // terra and sol tie at 2: the order the family already had (terra, then sol)
   assert.deepEqual(CODEX_TIERS_LISTED, ['astra', 'terra', 'sol', 'gpt-reserve', 'luna'])
-  // Gemini tiers are one group, followed by Claude-backed Antigravity tiers.
-  assert.deepEqual(ANTIGRAVITY_TIERS_LISTED, ['pro', 'argon', 'barium', 'carbon', 'flash', 'agy-opus', 'agy-sonnet'])
+  // Claude-backed tiers are one group, followed by Gemini tiers.
+  assert.deepEqual(ANTIGRAVITY_TIERS_LISTED, ['agy-opus', 'agy-sonnet', 'pro', 'argon', 'barium', 'carbon', 'flash'])
   assert.deepEqual(MUSE_TIERS_LISTED, ['wonder-full', 'wonder', 'spark'])
   assert.deepEqual(ALL_TIERS, [...TIERS_LISTED, ...CODEX_TIERS_LISTED, ...ANTIGRAVITY_TIERS_LISTED, ...MUSE_TIERS_LISTED])
 })
@@ -183,7 +183,7 @@ test('§5 canvas hire chips: each family cheapest first', async (t: TestContext)
   const seen = [...v.el.querySelectorAll<HTMLButtonElement>('.hsof:not(.side) button')].map(tierOf)
   assert.deepEqual(within(seen, TIERS), ['haiku', 'sonnet', 'opus', 'fable'])
   assert.deepEqual(within(seen, CODEX_TIERS), ['luna', 'sol', 'astra'])
-  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['flash', 'argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus'])
+  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['agy-sonnet', 'agy-opus', 'flash', 'argon', 'barium', 'carbon'])
   assert.deepEqual(within(seen, MUSE_TIERS), ['spark', 'wonder', 'wonder-full'])
 })
 
@@ -198,7 +198,7 @@ for (const side of [undefined, 'left', 'right', 'top'] as const) {
     t.after(() => v.unmount())
     const rows = [...v.el.querySelectorAll('.hs-fam')].map(row => [...row.querySelectorAll('button')].map(tierOf))
     const expected = [
-      ['fable', 'sonnet', 'opus', 'haiku'], ['flash', 'carbon', 'agy-sonnet', 'agy-opus'],
+      ['fable', 'sonnet', 'opus', 'haiku'], ['agy-sonnet', 'agy-opus', 'flash', 'carbon'],
       ['astra', 'sol', 'luna'], ['wonder-full', 'wonder', 'spark'],
     ]
     assert.deepEqual(rows, side === 'top' || side === 'left' ? [...expected].reverse() : expected)
@@ -224,7 +224,7 @@ test('hire price: disabled and far-expanded rows retain ascending order and cond
   assert.ok(v.el.querySelector('.hire-compact.is-expanded'))
   const rows = [...v.el.querySelectorAll('.hs-fam')]
   const google = rows.find(row => row.querySelector('.t-argon'))!
-  assert.deepEqual([...google.querySelectorAll('button')].map(tierOf), ['flash', 'argon', 'barium', 'agy-sonnet', 'agy-opus'])
+  assert.deepEqual([...google.querySelectorAll('button')].map(tierOf), ['agy-sonnet', 'agy-opus', 'flash', 'argon', 'barium'])
   assert.ok([...google.querySelectorAll<HTMLButtonElement>('button')].every(button => button.disabled))
   const claude = rows.find(row => row.querySelector('.t-haiku'))!
   assert.deepEqual([...claude.querySelectorAll('button')].map(tierOf), ['haiku', 'sonnet', 'opus', 'fable'])
@@ -261,7 +261,7 @@ test('§5 hire sheet: each family dearest first, and it still opens on the first
   const family = (tier: string) => rows.find((r) => r.includes(tier))!
   assert.deepEqual(family('haiku'), ['fable', 'opus', 'sonnet', 'haiku'])
   assert.deepEqual(family('luna'), ['astra', 'sol', 'luna'])
-  assert.deepEqual(family('flash'), ['argon', 'barium', 'carbon', 'flash', 'agy-opus', 'agy-sonnet'])
+  assert.deepEqual(family('flash'), ['agy-opus', 'agy-sonnet', 'argon', 'barium', 'carbon', 'flash'])
   assert.deepEqual(family('spark'), ['wonder-full', 'wonder', 'spark'])
   // the pre-selected model is the first OFFERED one in the old order (haiku), not the first on screen (fable)
   const on = [...document.querySelectorAll<HTMLButtonElement>('.hs-tier.on')].map(tierOf)
