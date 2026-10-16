@@ -174,7 +174,7 @@ function AgentHoverTooltip() {
         position(anchor, info)
       }, 500)
     }
-    const leave = (event: Event) => {
+    const leave = (event: PointerEvent | FocusEvent) => {
       const target = event.target as Element | null
       const anchor = target?.closest?.('[' + AGENT_TOOLTIP_ATTR + ']') as HTMLElement | null
       if (!anchor) return
