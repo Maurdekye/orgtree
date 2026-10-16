@@ -380,6 +380,27 @@ mod effort_tests {
     }
 
     #[test]
+    fn argon_effort_medium_reaches_the_launch_mapping() {
+        assert_eq!(antigravity_effort("argon", "medium"), "medium");
+        assert_eq!(antigravity_model("argon", "gemini-4-argon", "medium"), "gemini-4-argon");
+        for (saved, expected) in [("low", "low"), ("high", "high"), ("max", "high"), ("minimal", "low")] {
+            assert_eq!(antigravity_effort("argon", saved), expected);
+        }
+    }
+
+    #[test]
+    fn argon_effort_picker_offers_medium_without_widening_other_tiers() {
+        let state = crate::providers::State::default();
+        assert_eq!(crate::providers::effort_names(&state, "argon"), Some(v(&["low", "medium", "high"])));
+        for tier in ["pro", "barium", "carbon"] {
+            assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "high"])), "{tier}");
+        }
+        for tier in ["flash", "agy-sonnet", "agy-opus"] {
+            assert_eq!(crate::providers::effort_names(&state, tier), Some(v(&["low", "medium", "high"])), "{tier}");
+        }
+    }
+
+    #[test]
     fn muse_tiers_and_pools() {
         for (name, seat) in [("wonder", 4.0), ("wonder-full", 10.0), ("spark", 2.0)] {
             let t = tier(name).unwrap();
