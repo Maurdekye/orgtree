@@ -236,7 +236,7 @@ async function settledAt(t: TestContext, payload: TreePayload, id: string) {
 }
 
 for (const mode of ['row', 'circular'] as const) {
-  for (const surface of ['desk-header', 'desk-transcript', 'desk-composer', 'pinned-transcript'] as const) {
+  for (const surface of ['desk-header', 'desk-transcript', 'desk-composer', 'pinned-transcript', 'pinned-header'] as const) {
     test(`${mode}: middle drag on real ${surface} crosses its portal and pans the canvas`, async t => {
       useFakeClock(); t.after(realClock)
       setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
@@ -245,7 +245,7 @@ for (const mode of ['row', 'circular'] as const) {
       const m = await mountCanvas(t, before(), () => Promise.resolve({}))
       const viewport = m.el.querySelector<HTMLElement>('.viewport')!
       const space = m.el.querySelector<HTMLElement>('.space')!
-      if (surface === 'pinned-transcript') {
+      if (surface.startsWith('pinned-')) {
         await inAct(() => addPin('mine', 'x', { x: 100, y: 100, w: 600, h: 500 }))
         await flush()
       } else {
@@ -256,13 +256,13 @@ for (const mode of ['row', 'circular'] as const) {
         })
         await advance(3000, 50); await flush()
       }
-      const host = surface === 'pinned-transcript'
+      const host = surface.startsWith('pinned-')
         ? m.el.querySelector<HTMLElement>('.pinwin')! : card(m.el, 'x')!
-      const selector = surface === 'desk-header' ? '.cc-head'
+      const selector = surface === 'pinned-header' ? '.pinwin-title' : surface === 'desk-header' ? '.cc-head'
         : surface === 'desk-composer' ? 'textarea' : '.msgs'
       const target = host?.querySelector<HTMLElement>(selector)
       assert.ok(target, `real ${surface} is mounted`)
-      assert.ok(target.closest('.movable-events'), 'use the registry-owned portal, not a stand-in')
+      if (surface !== 'pinned-header') assert.ok(target.closest('.movable-events'), 'use the registry-owned portal, not a stand-in')
       const scroll = host.querySelector<HTMLElement>('.msgs')!
       // jsdom has no layout. Model a scrollable transcript and report the
       // reader's scroll so the desk's follow-tail does not reset our fixture.
@@ -282,6 +282,11 @@ for (const mode of ['row', 'circular'] as const) {
         await inAct(() => target.dispatchEvent(event)); return event
       }
       const down = await fire('pointerdown', 800, 400)
+      for (const type of ['pointermove', 'pointerup']) await inAct(() => {
+        viewport.dispatchEvent(new W.PointerEvent(type, { bubbles: true, pointerId: 999,
+          clientX: 950, clientY: 550, button: 0 }))
+      })
+      assert.deepEqual(nums(space.style.transform), initial, 'another pointer cannot move or finish middle pan')
       await fire('pointermove', 855, 430)
       await fire('pointerup', 855, 430)
       assert.deepEqual(nums(space.style.transform), [initial[0]! + 55, initial[1]! + 30, initial[2]!])
@@ -295,6 +300,12 @@ for (const mode of ['row', 'circular'] as const) {
       assertAt(at(m.el, 'x'), position, 'agent did not move')
       assert.equal(JSON.stringify(readPins('mine')), pins, 'pin did not move or resize')
       assert.deepEqual(m.ops, [], 'no node/desk operation')
+      for (const finish of ['pointercancel', 'lostpointercapture']) {
+        await fire('pointerdown', 800, 400)
+        await inAct(() => viewport.dispatchEvent(new W.PointerEvent(finish, { bubbles: true, pointerId: 77, button: 1 })))
+        await fire('pointermove', 900, 500)
+        assert.deepEqual(nums(space.style.transform), [initial[0]! + 55, initial[1]! + 30, initial[2]!], finish)
+      }
       await advance(400, 50)
       const saved = JSON.parse(localStorage.getItem('orgtree-view-mine')!)
       assert.deepEqual([saved.x, saved.y, saved.z], nums(space.style.transform))
@@ -337,17 +348,26 @@ for (const mode of ['row', 'circular'] as const) {
     assert.equal(m.el.querySelector<HTMLElement>('.space')!.style.transform, initial)
     assert.deepEqual(m.ops, [])
   })
-  for (const surface of ['node', 'switchboard', 'background', 'card-link'] as const) {
+  for (const surface of ['node', 'switchboard', 'background', 'card-link', 'org-inbox', 'presentation'] as const) {
     test(`${mode}: middle drag on ${surface} pans only and persists the same viewport`, async t => {
       useFakeClock(); t.after(realClock)
       setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
-      const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+      localStorage.removeItem('orgtree-view-mine')
+      const payload = before()
+      if (surface === 'org-inbox') payload.org_inbox = { enabled: true, visible: true, entries: [] } as unknown as TreePayload['org_inbox']
+      if (surface === 'presentation') payload.roots[0]!.children[0]!.children[0]!.documents = [
+        { id: 'fixture-document', title: 'Canvas document', format: 'markdown' } as never,
+      ]
+      const m = await mountCanvas(t, payload, () => Promise.resolve({}))
       const viewport = m.el.querySelector<HTMLElement>('.viewport')!
       const space = m.el.querySelector<HTMLElement>('.space')!
       const from = at(m.el, 'x')
       const viewBefore = nums(space.style.transform)
       let target: HTMLElement = surface === 'background' ? viewport
-        : surface === 'switchboard' ? m.el.querySelector<HTMLElement>('.sq.user')! : card(m.el, 'x')!
+        : surface === 'switchboard' ? m.el.querySelector<HTMLElement>('.sq.user')!
+        : surface === 'org-inbox' ? m.el.querySelector<HTMLElement>('.sq.orginbox')!
+        : surface === 'presentation' ? card(m.el, 'x')!.querySelector<HTMLElement>('.doc-chip')! : card(m.el, 'x')!
+      assert.ok(target, `${surface} rendered`)
       if (surface === 'card-link') {
         const link = m.el.ownerDocument.createElement('a')
         link.href = 'https://example.invalid/fixture'; target.appendChild(link); target = link
