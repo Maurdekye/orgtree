@@ -5,17 +5,21 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use serde_json::json;
 
-fn child_link(file: &Path) -> std::io::Result<PathBuf> {
+fn child_link(file: &Path, exported_entry: bool) -> std::io::Result<PathBuf> {
     let text = std::fs::read_to_string(file)?;
     text.split("](").skip(1).filter_map(|s| s.split(')').next())
-        .find(|s| s.ends_with("/SKILL.md") && !s.starts_with("../"))
+        .find(|s| s.ends_with("/SKILL.md") && (exported_entry || !s.starts_with("../")))
         .map(|s| file.parent().unwrap().join(s))
         .ok_or_else(|| std::io::Error::other("no child guide link"))
 }
 
 pub fn observe(cwd: &Path, roots: &[PathBuf]) {
-    let Some(dir) = std::env::var_os("ORGTREE_FAKECLI_DIR") else { return };
-    if !PathBuf::from(dir).join("probe-builtin-skills").is_file() { return; }
+    // OpenCode isolates its environment. Its scratch still lies within the
+    // synthetic run that owns the opt-in marker; never depend on live config.
+    let enabled = std::env::var_os("ORGTREE_FAKECLI_DIR")
+        .is_some_and(|d| PathBuf::from(d).join("probe-builtin-skills").is_file())
+        || cwd.ancestors().take(8).any(|p| p.join("fakecli/probe-builtin-skills").is_file());
+    if !enabled { return; }
     let mut loaded = Vec::new();
     for root in roots {
         let Ok(entries) = std::fs::read_dir(root) else { continue };
@@ -25,9 +29,9 @@ pub fn observe(cwd: &Path, roots: &[PathBuf]) {
                 let text = std::fs::read_to_string(&file)?;
                 let name = text.lines().find_map(|s| s.strip_prefix("name: ")).unwrap_or("");
                 if !["orgtree-working", "orgtree-app"].contains(&name) { return Ok(None); }
-                let section = child_link(&file)?;
+                let section = child_link(&file, true)?;
                 let section_text = std::fs::read_to_string(&section)?;
-                let leaf = child_link(&section)?;
+                let leaf = child_link(&section, false)?;
                 let leaf_text = std::fs::read_to_string(&leaf)?;
                 Ok(Some(json!({"name":name,"entry":file,"entry_bytes":text.len(),
                     "section":section,"section_bytes":section_text.len(),
