@@ -42,7 +42,7 @@ import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
   setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setJumpFoldOn, useJumpFold, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setLangServerTiers, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
-  legacyMark, optInLegacyHidden, TIER_LETTER, tierLabel,
+  legacyMark, optInLegacyHidden, orderProviderTiers, TIER_LETTER, tierLabel,
   setChartLayout, useAgyModelsRefresh, useChartLayout, useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
 import { fmtWhen } from '../timefmt'
@@ -820,7 +820,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
             not shown here. Surfaces outside settings keep that pointer. */}
         {p.reason && p.user_enabled !== false && <p className='dim acct-provider-note'>{p.reason}</p>}
         {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
-          {p.tiers.filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
+          {orderProviderTiers(p.id, p.tiers).filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
             <span className={'tier t-' + t.tier} title={tierLabel(t.tier)}>{t.letter}</span>
             <span className='acct-provider-tier-name'>{(t.name ?? tierLabel(t.tier)) + legacyMark(t.tier)}</span>
             <span className='acct-provider-tier-model'>{t.model}</span>

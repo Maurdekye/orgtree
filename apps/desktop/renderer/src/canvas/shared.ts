@@ -162,6 +162,38 @@ export const TIERS_LISTED = bySeatDesc(TIERS, (t) => TIER_SEAT[t] ?? 0)
 export const CODEX_TIERS_LISTED = bySeatDesc(CODEX_TIERS, (t) => CODEX_TIER_SEAT[t] ?? 0)
 export const ANTIGRAVITY_TIERS_LISTED = bySeatDesc(ANTIGRAVITY_TIERS, (t) => ANTIGRAVITY_TIER_SEAT[t] ?? 0)
 export const MUSE_TIERS_LISTED = bySeatDesc(MUSE_TIERS, (t) => MUSE_TIER_SEAT[t] ?? 0)
+/** The canonical listed family order shared by hire choices and provider
+ *  inventories. Backend provider ids and hire-family ids are both accepted. */
+const listedFamilyTiers: Record<string, readonly string[]> = {
+  claude: TIERS_LISTED,
+  codex: CODEX_TIERS_LISTED, openai: CODEX_TIERS_LISTED,
+  antigravity: ANTIGRAVITY_TIERS_LISTED, google: ANTIGRAVITY_TIERS_LISTED,
+  muse: MUSE_TIERS_LISTED,
+}
+const familyTiers = (provider: string, order: 'listed' | 'default' = 'listed'): readonly string[] | null => {
+  if (order === 'listed') return listedFamilyTiers[provider] ?? null
+  switch (provider) {
+    case 'claude': return TIERS
+    case 'codex': case 'openai': return CODEX_TIERS
+    case 'antigravity': case 'google': return ANTIGRAVITY_TIERS
+    case 'muse': return MUSE_TIERS
+    default: return null
+  }
+}
+/** Sort a provider's tier records by its canonical family listing order.
+ *  Runtime-defined providers and unknown tiers retain their relative order. */
+export const orderProviderTiers = <T extends { tier: string }>(
+  provider: string, tiers: readonly T[],
+): T[] => {
+  const order = familyTiers(provider)
+  if (!order) return [...tiers]
+  const rank = new Map(order.map((tier, index) => [tier, index]))
+  return tiers.map((value, at) => ({ value, at, rank: rank.get(value.tier) }))
+    .sort((a, b) => a.rank === undefined
+      ? (b.rank === undefined ? a.at - b.at : 1)
+      : (b.rank === undefined ? -1 : a.rank - b.rank))
+    .map(({ value }) => value)
+}
 /** Provider-neutral surfaces (for example the live-agent summary) use this;
  * provider-specific controls keep using their family list. In listing order. */
 export const ALL_TIERS = [...TIERS_LISTED, ...CODEX_TIERS_LISTED, ...ANTIGRAVITY_TIERS_LISTED, ...MUSE_TIERS_LISTED]
@@ -735,12 +767,12 @@ export interface HireProviders {
  *  default) is the order menus show, the dearest first; `default` is the
  *  order a default is taken from (Quick chat's first offered model). */
 export const hireTierChoices = (h: HireProviders, order: 'listed' | 'default' = 'listed') => [
-  { provider: 'claude', tiers: order === 'listed' ? TIERS_LISTED : TIERS, hire: h.claudeHire },
-  { provider: 'codex', tiers: order === 'listed' ? CODEX_TIERS_LISTED : CODEX_TIERS, hire: h.codexHire },
-  { provider: 'antigravity', tiers: order === 'listed' ? ANTIGRAVITY_TIERS_LISTED : ANTIGRAVITY_TIERS, hire: h.antigravityHire },
+  { provider: 'claude', tiers: familyTiers('claude', order)!, hire: h.claudeHire },
+  { provider: 'codex', tiers: familyTiers('codex', order)!, hire: h.codexHire },
+  { provider: 'antigravity', tiers: familyTiers('antigravity', order)!, hire: h.antigravityHire },
   // the Muse family's state is the module's own (`setMuseProvider`) when a
   // caller has none of its own to pass
-  { provider: 'muse', tiers: order === 'listed' ? MUSE_TIERS_LISTED : MUSE_TIERS, hire: h.museHire ?? museHireState },
+  { provider: 'muse', tiers: familyTiers('muse', order)!, hire: h.museHire ?? museHireState },
   { provider: 'openrouter', tiers: openrouterTierIds(), hire: h.openrouterHire },
   { provider: 'langserver', tiers: langserverTierIds(), hire: h.langserverHire },
 ].flatMap(({ provider, tiers, hire }) => tiers.map(tier => ({
