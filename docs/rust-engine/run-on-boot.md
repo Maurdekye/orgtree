@@ -101,18 +101,22 @@ through the existing reuse checks. A CLI that still holds background work
 (`bg_pending`) is not replaced: it moves at a later turn.
 
 **Sign-out** ends the helper, its jobs and every hosted CLI. A turn whose
-hosted CLI ends while the helper is gone (checked for up to 2 s) stops
-cleanly as `the user's Windows session ended`: no failure report and no error
-left on the agent, a `session` row in its conversation ("it continues in
-Session 0"), its claimed mail requeued when the CLI had done nothing yet (the
-usual rule), and a waking message: "The user's Windows session ended while
-you were working, so your turn stopped. Continue where you left off." That
-message starts one new turn at once, in Session 0, the way a turn cut off by
+hosted CLI ends while the helper that started it is gone (checked for up to
+2 s; that helper's own lease, by session, helper pid and process creation
+stamp, so another of the user's sessions that stays hosted does not hide
+it: rig-sol-b's finding, 2026-10-16) stops cleanly as `the user's Windows
+session ended`: no failure report and no error left on the agent, a
+`session` row in its conversation ("a new turn continues it"), its claimed
+mail requeued when the CLI had done nothing yet (the usual rule), and a
+waking message: "The user's Windows session ended while you were working,
+so your turn stopped. Continue where you left off." That message starts one
+new turn at once, placed by the turn-start rule (Session 0, or another of
+the user's sessions whose helper still runs), the way a turn cut off by
 an engine restart resumes (the user, 2026-10-16 11:03Z, decision 84): nothing
 else has to wake the agent. A turn that had been interrupted, halted, timed
-out or retired is not resumed (`continues_in_session0`). Windows ended the
+out or retired is not resumed (`may_be_session_end`). Windows ended the
 CLI, not the engine: the engine log says `the user's Windows session ended
-during the turn; it continues in Session 0` with the pid, and the kill record
+during the turn; a new turn continues it` with the pid, and the kill record
 (`diagnostics\logs\codex-kills.log`) gets one `codex-session-ended pid=...
 who="<agent>" reason="the user's Windows session ended" status="..."` line.
 
@@ -174,8 +178,13 @@ for two readings a second apart, from what agents were last told (kept in
 `<data>\session-placement.json`, baseline Session 0, so a restart while
 the user stays signed in tells nobody anything; readings start after the
 15 s settle), sends every live agent one passive line: `[ORGTREE SIGN-IN
-NOTICE]` (or, when its preference keeps it in Session 0, a line saying
-so) or `[ORGTREE SIGN-OUT NOTICE]`. `mail::send` wakes an agent whose
+NOTICE]` or `[ORGTREE SIGN-OUT NOTICE]`. The sign-in line says where the
+agent's next turn runs as its own runtime would start that turn (asked
+for its `orgtree_session` view, 5 s at most, every agent at once): in the
+signed-in session; or in Session 0, because its CLI still runs background
+work, because it picked Session 0 for that turn (`use`), or by its
+preference. An agent whose runtime does not run gets the line its stored
+preference gives (rig-sol-b's finding, 2026-10-16). `mail::send` wakes an agent whose
 actor runs, so a running turn takes the line at its next tool boundary
 (Claude's hook, Codex's and Muse's steer, Antigravity's hook); an idle
 agent reads it at its next turn. The move notices stay as they were.

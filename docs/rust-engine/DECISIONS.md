@@ -1008,7 +1008,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **At a turn boundary only:** each turn's start picks the placement; a warm CLI elsewhere is
       replaced then, unless it holds background work. Sign-out ends hosted CLIs: the turn stops
       cleanly as "the user's Windows session ended" (no failure report; its mail requeued when the
-      CLI had done nothing yet) and the agent is woken to go on in Session 0.
+      CLI had done nothing yet) and the agent is woken to go on in Session 0 (with decision 85: at
+      once, wherever its next turn is placed).
     - **Agents are told:** a real move either way delivers an `[ORGTREE SESSION NOTICE]` in the
       turn where it took effect; an agent's first turn ever and a restart that comes back in the
       same session deliver none. The RESTART NOTICE gets "Session access at start: Session 0." or
@@ -1049,7 +1050,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **Self-interrupt:** `orgtree_interrupt` on yourself needs no tool group; `restart: true` starts
       exactly one new turn at once, placed by the turn-start rule. Refused with background work running.
     - **Sign-in/out notices:** every live agent gets one passive line when where new turns run changes
-      (a running turn at its next tool boundary); not on a restart while signed in.
+      (a running turn at its next tool boundary); not on a restart while signed in. The sign-in line
+      follows the agent's own runtime: its on-demand `use` and a CLI held by background work count.
+    - **A session's end is its own helper's:** a hosted CLI's exit during a turn is the session ending
+      when the helper that started it is gone (its lease: session, pid, process creation stamp), not
+      the last helper; with two sessions hosted, a turn cut when one ends resumes at once, placed by the
+      turn-start rule (rig-sol-b's review finding, 2026-10-16).
     - **2c:** watchdog events `session.signed_in`/`session.signed_out`; at sign-in, working agents idle in
       Session 0 get their checkup at once, docket work or not, or a docket reminder instead if one is due
       then (the user's ruling of 10:01-10:03Z; the coordinator's correction, 13:03Z).
