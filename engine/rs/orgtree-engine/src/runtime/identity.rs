@@ -1297,7 +1297,8 @@ const TRIM_CHECKUPS: &str = "While you stay in working status, automatic checkup
 continue unfinished work (orgtree-checkups-and-reminders). Always yours: orgtree_next_turn forecasts your next \
 turn's prefix changes and compaction (orgtree-tool-next-turn); orgtree_session shows whether your turns run in Session 0, \
 without the user's desktop, or in their signed-in session (orgtree-tool-session); orgtree_interrupt on yourself ends \
-your own turn (orgtree-tool-interrupt). ";
+your own turn (orgtree-tool-interrupt). Session 0 has no desktop; check your session and use \
+orgtree-session-0-ui-testing for UI work. ";
 
 /// The trimmed instructions (docket shrink-agents-built-in-instructions-by-moving-ho,
 /// user approval 2026-10-15 12:41Z: D1 split approved, D3 docket summary about 1.3 KB).
@@ -1379,6 +1380,7 @@ mod trim_tests {
         assert!(s.contains("[ORGTREE MAIL — delivered mid-task]") && s.contains("REQUIRED: call orgtree_status"));
         assert!(s.contains("it does NOT message the user"));
         assert!(s.contains("orgtree_next_turn") && s.contains("orgtree_session") && s.contains("Session 0"));
+        assert!(s.contains("orgtree-session-0-ui-testing"));
         for gone in [DOCKET, QUESTIONS_AND_FILES, ACCOUNT_LANES, CACHE_CONTINUITY, READ_REPORTS, GATE_GATED] {
             assert!(!s.contains(gone));
         }
