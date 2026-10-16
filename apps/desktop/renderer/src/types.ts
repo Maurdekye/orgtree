@@ -927,6 +927,8 @@ export interface ToolChip {
   arg?: string                 // _tool_arg (supervisor.py:2611) -> str
   /** Row identity for an on-demand full-input read; never the input itself. */
   input_seq?: number
+  /** Explicit root helper call; transcript is fetched only while expanded. */
+  helper_transcript?: boolean
   /** Failed shell output retained separately, fetched only when expanded. */
   output_seq?: number
   /** when the engine saw the call start, and when its result arrived (ISO); the

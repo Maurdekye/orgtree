@@ -60,3 +60,22 @@ test('an ordinary tool expansion does not request a helper transcript', async t 
   await inAct(() => view.el.querySelector<HTMLElement>('.tline')!.click()); await flush()
   assert.equal(calls.some(url => url.includes('/helpertranscript/')), false)
 })
+
+test('completed helper reads stop polling and explain retained truncation', async t => {
+  useFakeClock()
+  const originalFetch = globalThis.fetch
+  let reads = 0
+  globalThis.fetch = (async input => {
+    const helper = String(input).includes('/helpertranscript/')
+    if (helper) reads++
+    return new Response(JSON.stringify(helper ? { messages: [{ id: 'm', text: 'Retained result' }], live: false, truncated: true } : { input: {} }),
+      { headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  const view = await mountView(<ToolChip t={{ id: 'finished', name: 'Task', input_seq: 12, result: 'done' }} slug="org" nid="worker" />, el => el.textContent ?? '')
+  t.after(async () => { await view.unmount(); globalThis.fetch = originalFetch; realClock() })
+  await inAct(() => view.el.querySelector<HTMLElement>('.tline')!.click()); await flush()
+  assert.match(view.last(), /Retained result/)
+  assert.match(view.last(), /size limit/)
+  await advance(3000)
+  assert.equal(reads, 1)
+})

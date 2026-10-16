@@ -7,6 +7,7 @@ import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
+import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
 import { CompactingLine, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
@@ -4905,6 +4906,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         ? t.preview_input !== null && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
           ? <div className="toolinput"><StructuredJson value={t.preview_input} /></div> : null
         : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />)}
+      {open && !writing && hasHelperTranscript(t) && <HelperTranscript slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
       {open && shellError && <ToolOutputDetails slug={slug} nid={nid} seq={t.output_seq} tool={t.id}
         fallback={t.result || t.error || ''} clipped={t.truncated}
         renderOutput={output => <CopyablePre><pre className="filepre respre"
