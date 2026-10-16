@@ -58,6 +58,17 @@ import { openSurfaces, subscribeWindows } from '../windowlife'
 import { appNoticesNow, appValueNow, watchAppFeed } from '../appfeed'
 import type { UsagePeek } from '../types'
 
+/** Host readouts carry identity beside their limits; aggregate peeks may not. */
+type UsageReading = UsagePeek & {
+  account?: string
+  email?: string | null
+  label?: string | null
+  observed_at?: string | null
+}
+const USAGE_FRESH_S = 900 // engine usage.rs PEEK_MAX
+const usageWindow = (limit: NonNullable<UsagePeek['limits']>[number]): string =>
+  JSON.stringify([limit.kind, limit.group ?? '', limit.label ?? '', limit.model ?? ''])
+
 export interface EpicOptions {
   /** the window to run in (default: this one) */
   view?: Window
@@ -424,19 +435,52 @@ class Show implements EpicShow {
   private onUsage(): void {
     if (this.ended) return
     for (const key of USAGE_KEYS) {
-      const peek = appValueNow<UsagePeek>(key)
-      for (const limit of peek?.limits ?? []) {
-        if (typeof limit.percent !== 'number') continue
-        const id = `${key}|${limit.kind}|${limit.label ?? ''}|${limit.model ?? ''}`
-        const was = this.usage.get(id)
-        this.usage.set(id, limit.percent)
-        if (was === undefined) continue
-        const spot = anchorSpot('button[title*="usage" i], .usage-history-btn', this.theaters().map(t => t.doc))
-        const name = (peek?.provider || key.replace(/_?usage_peek$/, '') || 'claude').toUpperCase()
-        if (was < 100 && limit.percent >= 100) this.cue('usageMax', { spot, text: name })
-        else if (was < 90 && limit.percent >= 90) this.cue('usageWarn', { spot, text: name, n: limit.percent })
-        else if (was >= 100 && limit.percent < 100) this.cue('usageReset', { spot, text: name })
-      }
+      const peek = appValueNow<UsageReading>(key)
+      // The host readout and its peek publish separately. Keep identity and
+      // limits from one document, rather than pairing a new login with an
+      // older peek. Older feeds exposing only a peek still work.
+      const full = appValueNow<UsageReading>(key.replace(/_peek$/, ''))
+      if (peek && !peek.available) continue
+      if (peek?.age !== undefined && (!Number.isFinite(peek.age) || peek.age >= USAGE_FRESH_S)) continue
+      // Peeks can project an expired window as unknown (Muse). A changed
+      // raw readout can also arrive before its matching peek. Accept a full
+      // window only when the peek confirms that same value, never copying
+      // an old peek's percent into the new account's document.
+      const reading = full && peek ? { ...full, limits: full.limits?.filter(limit =>
+        peek.limits?.some(p => usageWindow(p) === usageWindow(limit) && p.percent === limit.percent)) } : full ?? peek
+      this.readUsage(key, reading, peek?.provider)
+    }
+    // The glow's combined OpenRouter peek flattens identical credit windows
+    // from different accounts. Its named cache is the account-safe source.
+    const keys = appValueNow<Record<string, UsageReading>>('openrouter_keys_usage')
+    for (const [account, reading] of Object.entries(keys ?? {})) {
+      this.readUsage('openrouter_keys_usage', reading, 'openrouter', account)
+    }
+  }
+
+  private readUsage(key: string, reading: UsageReading | undefined, provider?: string, account?: string): void {
+    if (!reading?.available) return
+    if (reading.age !== undefined && (!Number.isFinite(reading.age) || reading.age >= USAGE_FRESH_S)) return
+    if (reading.observed_at) {
+      const observed = Date.parse(reading.observed_at)
+      if (!Number.isFinite(observed) || Date.now() - observed >= USAGE_FRESH_S * 1000) return
+    }
+    for (const limit of reading.limits ?? []) {
+      const percent = limit.percent
+      if (typeof percent !== 'number' || !Number.isFinite(percent)) continue
+      // A tuple avoids delimiter collisions, and group distinguishes windows
+      // whose kind/label/model are otherwise identical. No reset timestamp:
+      // rolling deadlines change while the actual window remains the same.
+      const id = JSON.stringify([key, provider ?? reading.provider ?? '', account ?? reading.account ?? '',
+        reading.email ?? reading.label ?? '', usageWindow(limit)])
+      const was = this.usage.get(id)
+      this.usage.set(id, percent)
+      if (was === undefined || was === percent) continue
+      const spot = anchorSpot('button[title*="usage" i], .usage-history-btn', this.theaters().map(t => t.doc))
+      const name = (provider || reading.provider || key.replace(/_?usage_peek$/, '') || 'claude').toUpperCase()
+      if (was < 100 && percent >= 100) this.cue('usageMax', { spot, text: name })
+      else if (was < 90 && percent >= 90) this.cue('usageWarn', { spot, text: name, n: percent })
+      else if (was >= 100 && percent < 100) this.cue('usageReset', { spot, text: name })
     }
   }
 
@@ -666,7 +710,7 @@ const TWO_ENDED = new Set<Kind>(['zap', 'userSend', 'toUser', 'bark', 'orgInbox'
 const AFTER_RENDER = new Set<Kind>(['hire', 'rehire', 'rename'])
 
 /** the app-feed keys holding usage readings */
-const USAGE_KEYS = ['usage_peek', 'codex_usage_peek', 'antigravity_usage_peek', 'muse_usage_peek', 'openrouter_usage_peek']
+const USAGE_KEYS = ['usage_peek', 'codex_usage_peek', 'antigravity_usage_peek', 'muse_usage_peek']
 
 /** the first visible element matching a selector, in any window */
 function anchorSpot(selector: string, docs: readonly Document[]): Spot | null {

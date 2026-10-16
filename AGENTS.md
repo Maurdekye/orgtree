@@ -253,6 +253,13 @@
   `epic/stage.ts`; measured: `epicmode-comfort`, `epicmode-urgent`,
   `tools/rig/epic-mode-visual.mjs` urgent and blur sections, 2026-10-15]
 
+- EPIC usage effects compare a finite, fresh reading with the last valid
+  reading of the same account/window (kind, group, label and model). Missing,
+  unavailable and stale readings never replace that baseline. Use each host
+  readout's identity with its own limits, and named OpenRouter key readings;
+  the aggregate glow peek loses account identity. [verified: `epic/director.ts`,
+  `usage.rs`; regression: `epicmode-usage`; 2026-10-16]
+
 - EPIC Mode has no combo meter, ranks, milestones or rank fanfare. Keep the
   small sounds' rising pitch: a private burst count resets after 2.5 s and
   climbs at most one octave at 36 events; it never keeps the stage awake.

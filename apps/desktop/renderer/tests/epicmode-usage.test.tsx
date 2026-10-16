@@ -52,7 +52,8 @@ async function feed(initial: Record<string, unknown>) {
       seq++
       sockets[0]!.frame({ type: 'app_runtime', epoch, seq, values: values(Object.fromEntries(
         ['usage_peek', 'codex_usage_peek', 'antigravity_usage_peek', 'muse_usage_peek',
-          'openrouter_usage_peek', 'openrouter_keys_usage'].map(key => [key, null]))) })
+          'openrouter_usage_peek', 'openrouter_keys_usage', 'usage', 'codex_usage',
+          'antigravity_usage', 'muse_usage'].map(key => [key, null]))) })
       await flush(3)
       show.stop()
       Object.assign(global, before)
@@ -106,7 +107,7 @@ test('account identity separates host sign-ins and OpenRouter keys sharing a win
   const account = (id: string, percent: number) => reading([{ ...row, percent }],
     { account: id, provider: 'openrouter', observed_at: new Date().toISOString() })
   const f = await feed({
-    antigravity_usage: { account: 'google-a', email: 'a@example.invalid' },
+    antigravity_usage: reading([window('5h', 0)], { account: 'google-a', email: 'a@example.invalid' }),
     antigravity_usage_peek: reading([window('5h', 0)]),
     openrouter_keys_usage: { a: account('a', 0), b: account('b', 100) },
     openrouter_usage_peek: reading([row, { ...row, percent: 100 }], { provider: 'openrouter' }),
@@ -115,13 +116,34 @@ test('account identity separates host sign-ins and OpenRouter keys sharing a win
     assert.equal(f.show.staged, 0)
     await f.push({ openrouter_keys_usage: { b: account('b', 100), a: account('a', 0) } })
     assert.deepEqual(f.effects, [])
-    await f.push({ antigravity_usage: { account: 'google-b', email: 'b@example.invalid' },
-      antigravity_usage_peek: reading([window('5h', 100)]) })
+    await f.push({ antigravity_usage: reading([window('5h', 100)], { account: 'google-b', email: 'b@example.invalid' }) })
+    await f.push({ antigravity_usage_peek: reading([window('5h', 100)]) })
     assert.deepEqual(f.effects, [], 'a different login establishes its own baseline')
-    await f.push({ antigravity_usage: { account: 'google-a', email: 'a@example.invalid' },
+    await f.push({ antigravity_usage: reading([window('5h', 0)], { account: 'google-a', email: 'a@example.invalid' }),
       antigravity_usage_peek: reading([window('5h', 0)]) })
+    await f.push({ antigravity_usage: reading([window('5h', 100)], { account: 'google-a', email: 'a@example.invalid' }) })
+    assert.deepEqual(f.effects, [], 'a raw update waits for its matching peek')
+    await f.push({ antigravity_usage_peek: reading([window('5h', 100)]) })
+    assert.deepEqual(f.effects, ['usageMax'], 'a real host-account crossing plays once')
     await f.push({ openrouter_keys_usage: { a: account('a', 100), b: account('b', 100) } })
     await f.push({ openrouter_keys_usage: { a: account('a', 100), b: account('b', 100) } })
-    assert.deepEqual(f.effects, ['usageMax'], 'only the account whose window crossed plays an effect')
+    assert.deepEqual(f.effects, ['usageMax', 'usageMax'], 'only accounts whose windows crossed play effects')
+  } finally { await f.stop() }
+})
+
+test('expired peek projections and stale named-account observations never replace valid baselines', async () => {
+  const row = window('window', 80)
+  const f = await feed({ muse_usage: reading([row], { account: 'muse-a' }), muse_usage_peek: reading([row]),
+    openrouter_keys_usage: { a: reading([row], { account: 'a', provider: 'openrouter' }) } })
+  try {
+    await f.push({ muse_usage: reading([{ ...row, percent: 100 }], { account: 'muse-a' }),
+      muse_usage_peek: reading([{ ...row, percent: null }]) })
+    await f.push({ openrouter_keys_usage: { a: reading([{ ...row, percent: 100 }],
+      { account: 'a', provider: 'openrouter', observed_at: new Date(Date.now() - 901_000).toISOString() }) } })
+    assert.deepEqual(f.effects, [])
+    await f.push({ muse_usage_peek: reading([{ ...row, percent: 100 }]) })
+    await f.push({ openrouter_keys_usage: { a: reading([{ ...row, percent: 100 }],
+      { account: 'a', provider: 'openrouter', observed_at: new Date().toISOString() }) } })
+    assert.deepEqual(f.effects, ['usageMax', 'usageMax'])
   } finally { await f.stop() }
 })
