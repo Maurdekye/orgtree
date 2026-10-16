@@ -13,6 +13,7 @@ pub mod orginbox;
 pub mod reports;
 pub mod error;
 pub mod mailbox;
+pub mod markdown_image;
 pub mod nodes;
 pub mod orgops;
 pub mod undo;
@@ -230,6 +231,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
             post(nodes::upload).layer(axum::extract::DefaultBodyLimit::max(2 << 30)),
         )
         .route("/api/orgs/{slug}/nodes/{nid}/file", get(nodes::file))
+        .route("/api/markdown-image", get(markdown_image::get))
         .route("/api/orgs/{slug}/nodes/{nid}/toolimg/{tool}", get(nodes::toolimg))
         .route("/api/orgs/{slug}/nodes/{nid}/toolinput/{seq}/{tool}", get(nodes::toolinput))
         .route("/api/orgs/{slug}/nodes/{nid}/tooloutput/{seq}/{tool}", get(nodes::tooloutput))
@@ -312,6 +314,7 @@ async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> R
 /// Bodies the log never holds: uploads, downloads, the UI bundle, sockets.
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
+        || path == "/api/markdown-image"
         || path.ends_with("/upload")
         || path.ends_with("/file")
         || path.contains("/toolimg/")
@@ -363,7 +366,7 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
         .unwrap_or_else(|| "-".into());
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    let target = req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or_else(|| path.clone());
+    let target = request_target_for_log(&path, req.uri());
     let info = format!("{peer} {method} {target}");
     let quiet = quiet_body(&path, req.headers());
     let headers: Option<serde_json::Map<String, serde_json::Value>> = crate::trace::verbose().then(|| {
@@ -444,6 +447,17 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     Response::from_parts(parts, axum::body::Body::from(bytes))
 }
 
+fn request_target_for_log(path: &str, uri: &axum::http::Uri) -> String {
+    if path == "/api/markdown-image" {
+        // Query values contain local paths or full remote image URLs.
+        path.to_string()
+    } else {
+        uri.path_and_query()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_else(|| path.to_string())
+    }
+}
+
 fn token_ok(engine: &Engine, req: &Request) -> bool {
     token_ok_headers(&engine.cfg.desktop_token, engine.cfg.standalone, req.headers())
 }
@@ -514,5 +528,25 @@ mod tests {
         assert!(!token_ok_headers(TOKEN, true, &with("authorization", "Bearer wrong")));
         assert!(!token_ok_headers(TOKEN, true, &with(TOKEN_HEADER, "wrong")));
         assert!(!token_ok_headers("", true, &with("authorization", "Bearer ")));
+    }
+
+    #[test]
+    fn markdown_image_log_target_omits_private_query_values() {
+        let uri = "/api/markdown-image?path=C%3A%2Fsecret%2Fchart.png"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            request_target_for_log("/api/markdown-image", &uri),
+            "/api/markdown-image"
+        );
+    }
+
+    #[test]
+    fn other_api_log_targets_keep_their_query() {
+        let uri = "/api/orgs/demo?view=delta".parse().unwrap();
+        assert_eq!(
+            request_target_for_log("/api/orgs/demo", &uri),
+            "/api/orgs/demo?view=delta"
+        );
     }
 }
