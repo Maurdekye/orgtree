@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn logo_defaults_on_and_inherits_denials_separately_from_user_and_team() {
-        assert!(LOGO_DEFAULT);
+        const _: () = assert!(LOGO_DEFAULT);
         assert_eq!(required("orgtree_org_logo"),Some(&["logo"][..]));
         assert!(allows(&json!({"orgtree":{"user":false,"team":false}}),"orgtree_org_logo"));
         assert!(!allows(&json!({"orgtree":{"logo":false}}),"orgtree_org_logo"));
