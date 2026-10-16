@@ -18,7 +18,7 @@ try {
   await esbuild.build({ entryPoints: [entry], outfile: path.join(output, visual ? 'fixture.js' : 'test.mjs'), bundle: true,
     format: 'esm', platform: visual ? 'browser' : 'node', target: 'node22', jsx: 'automatic',
     nodePaths: [path.join(path.resolve(deps), 'node_modules')], external: ['node:*'],
-    plugins: [{ name: 'external-jsdom', setup(build) { build.onResolve({ filter: /^jsdom$/ }, () => ({ path: pathToFileURL(require.resolve('jsdom')).href, external: true })) }],
+    plugins: [{ name: 'external-jsdom', setup(build) { build.onResolve({ filter: /^jsdom$/ }, () => ({ path: pathToFileURL(require.resolve('jsdom')).href, external: true })) } }],
     define: { 'process.env.NODE_ENV': '"development"', __SRC_DIR__: JSON.stringify(path.join(repo, 'apps/desktop/renderer/src')) } })
 } finally { esbuild.stop() }
 let command, args, env = { ...process.env }
@@ -28,7 +28,7 @@ if (visual) {
   command = require('electron'); args = [path.join(repo, 'apps/desktop/renderer/tests/helpertranscript-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE
   env.HELPER_CAPTURE_ROOT = path.resolve(output)
-} else { command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-concurrency=1', '--test-timeout=10000', path.join(output, 'test.mjs')] }
+} else { command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', path.join(output, 'test.mjs')] }
 const result = spawnSync(command, args, { cwd: repo, env, encoding: 'utf8', windowsHide: true })
 fs.writeFileSync(path.join(output, 'result.log'), `${result.stdout || ''}${result.stderr || ''}`)
 console.log(result.stdout || ''); console.error(result.stderr || '')
