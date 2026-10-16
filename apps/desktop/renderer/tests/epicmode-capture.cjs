@@ -28,11 +28,24 @@ app.whenReady().then(async () => {
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } })
   win.webContents.setFrameRate(30)
   win.webContents.startPainting()
+  // A popped-out desk window (window.open from the page), offscreen like the page
+  let popout = null
+  win.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: { show: false, width: 520, height: 300,
+    useContentSize: true, paintWhenInitiallyHidden: true,
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } } }))
+  win.webContents.on('did-create-window', child => { popout = child; child.webContents.setFrameRate(30); child.webContents.startPainting() })
   const js = code => win.webContents.executeJavaScript(code)
-  const settle = () => js('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 40))))')
+  const SETTLE = 'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 40))))'
+  const settle = () => js(SETTLE)
   const shot = async name => {
     await settle()
     const image = await win.webContents.capturePage()
+    fs.writeFileSync(path.join(shots, name + '.png'), image.toPNG())
+    return image
+  }
+  const shotIn = async (wc, name) => {
+    await wc.executeJavaScript(SETTLE)
+    const image = await wc.capturePage()
     fs.writeFileSync(path.join(shots, name + '.png'), image.toPNG())
     return image
   }
@@ -174,25 +187,27 @@ app.whenReady().then(async () => {
       await waitFor(`!!window.__epic && window.__epic.ready && !!window.__typing && document.querySelectorAll('textarea[data-first-use-chat]').length === 3`, 'the typing desks')
       await js(`window.__contrast(${JSON.stringify(theme)}); window.__epic.start(); true`)
     }
-    const focusAt = (desk, caret) => js(`(() => { const t = document.querySelector('textarea[data-first-use-chat="${desk}"]')
+    // the window the keys go to: the page, or a popped-out desk window
+    let target = win.webContents
+    const focusAt = (desk, caret) => target.executeJavaScript(`(() => { const t = document.querySelector('textarea[data-first-use-chat="${desk}"]')
       t.focus(); const at = ${caret === 'end' ? 't.value.length' : Number(caret)}; t.setSelectionRange(at, at); return document.activeElement === t })()`)
     // Each key waits until the page has taken it, then leaves more than the
     // director's gap between two effects of one kind (22 ms for typing): sent
     // on a timer alone, two key events reached the page within the gap in the
     // first run, and the second, rightly, drew nothing.
-    const fieldValue = () => js(`document.activeElement ? document.activeElement.value : null`)
+    const fieldValue = () => target.executeJavaScript(`document.activeElement ? document.activeElement.value : null`)
     const native = async k => {
       const before = await fieldValue()
-      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: k })
+      target.sendInputEvent({ type: 'keyDown', keyCode: k })
       // a character, or Enter's newline: the editor inserts on the char event
-      if (k.length === 1 || k === 'Enter') win.webContents.sendInputEvent({ type: 'char', keyCode: k })
-      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: k })
+      if (k.length === 1 || k === 'Enter') target.sendInputEvent({ type: 'char', keyCode: k })
+      target.sendInputEvent({ type: 'keyUp', keyCode: k })
       for (let i = 0; i < 40 && (await fieldValue()) === before; i++) await sleep(10)
       await sleep(60)
     }
     // the same keydown, then the edit the browser would have made
     const synthetic = async k => {
-      await js(`(() => { const t = document.activeElement, key = ${JSON.stringify(k)}
+      await target.executeJavaScript(`(() => { const t = document.activeElement, key = ${JSON.stringify(k)}
         t.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
         if (key === 'Backspace') { const p = t.selectionStart; if (p > 0) t.setRangeText('', p - 1, p, 'end') }
         else t.setRangeText(key === 'Enter' ? '\\n' : key, t.selectionStart, t.selectionEnd, 'end')
@@ -272,27 +287,47 @@ app.whenReady().then(async () => {
     // in its scrollbar, narrowing the lines; typing goes on there, and
     // Backspace. The fixture's true caret breaks the text into lines itself,
     // and every record's count of lines is checked against the textarea's own.
+    // The last case is a popped-out desk window (user ask 2026-10-16): opened
+    // by the page the way popout.tsx opens one, registered with the director,
+    // which gives it its own stage and key listeners, and typed into with
+    // native keys addressed to that window. Every wrap frame carries a green
+    // ring where the director drew the sparks and a magenta dot at the true
+    // caret, so a frame shows where the sparks start, not where they drift.
     const WRAP_START = 'the sparks follow', WRAP_FITS = ' the', WRAP_TYPED = ' the caret'
-    for (const c of typingCases) {
+    const wrapCases = [...typingCases, { name: 'popout', theme: 'charcoal', z: 3.75, desks: ['dave'], popped: true }]
+    for (const c of wrapCases) {
       for (const desk of c.desks) {
         await typingPage(c.z, c.theme)
+        target = win.webContents
+        if (c.popped) {
+          // inside a user gesture, as the real pop-out is
+          if (!(await win.webContents.executeJavaScript(`window.__typing.popout(${JSON.stringify(desk)})`, true))) throw new Error('the popped-out desk window did not open')
+          await waitFor(`window.__typing.popoutReady()`, 'the popped-out desk window')
+          if (!popout) throw new Error('the main process saw no popped-out window')
+          target = popout.webContents
+        }
+        const shotWrap = n => target === win.webContents ? shot(n) : shotIn(target, n)
         const width = await js(`window.__typing.narrow(${JSON.stringify(desk)}, ${JSON.stringify(WRAP_START)}, ${JSON.stringify(WRAP_FITS)})`)
         const focused = await focusAt(desk, 'end')
-        win.webContents.focus()
+        target.focus()
         // the combo decays after 2.5 s, so the 10th key's milestone flare stays out of this caret cue
         await sleep(3000)
         await typeText(WRAP_TYPED.slice(0, -1))
         await sleep(3000)
         await typeText(WRAP_TYPED.slice(-1))
         const name = `typing-wrap-${c.name}-${desk}`
-        await shot(name)
+        await js(`window.__typing.mark(); true`)
+        await shotWrap(name)
+        await js(`window.__typing.unmark(); true`)
         await press('Enter')
         await typeText('go')
-        await shot(`${name}-scrolled`)
+        await js(`window.__typing.mark(); true`)
+        await shotWrap(`${name}-scrolled`)
+        await js(`window.__typing.unmark(); true`)
         await press('Backspace')
-        const state = await js(`(() => ({ value: document.querySelector('textarea[data-first-use-chat="${desk}"]').value,
-          scale: Number(document.querySelector('textarea[data-first-use-chat="${desk}"]').dataset.scale),
-          carets: window.__typing.carets.splice(0), stage: window.__typing.stageBox(), size: { w: innerWidth, h: innerHeight } }))()`)
+        const state = await js(`(() => { const f = window.__typing.field(${JSON.stringify(desk)}), d = ${JSON.stringify(desk)}
+          return { value: f.value, scale: Number(f.dataset.scale), carets: window.__typing.carets.splice(0),
+            stage: window.__typing.stageBox(d), size: window.__typing.viewSize(d) } })()`)
         const expected = WRAP_START + WRAP_TYPED + '\ng'
         const want = WRAP_TYPED.length + 4
         const off = state.carets.map((r, i) => ({ kind: r.kind, typed: r.typed, caret: r.caret, line: r.line, lines: r.lines, areaLines: r.areaLines,
@@ -302,7 +337,7 @@ app.whenReady().then(async () => {
         const worst = axis => off.length ? Math.max(...off.map(o => Math.abs(o[axis]))) : null
         const enter = off.findIndex(o => o.kind === 'enter')
         const receipt = {
-          typing: `wrap-${c.name}`, theme: c.theme, z: c.z, desk, scale: state.scale, width, input, focused,
+          typing: `wrap-${c.name}`, theme: c.theme, z: c.z, desk, scale: state.scale, width, input, focused, poppedOut: !!c.popped,
           shots: [name, `${name}-scrolled`],
           value: state.value, valueAsTyped: state.value === expected,
           effects: off.length, effectsExpected: want, onlyThisDesk: state.carets.every(r => r.desk === desk),
@@ -324,6 +359,8 @@ app.whenReady().then(async () => {
         if (!receipt.atCaret) failed.push(`wrap-${c.name}/${desk}: maxDx ${receipt.maxDx} maxDy ${receipt.maxDy} effects ${receipt.effects}/${want} value ${receipt.valueAsTyped} lines ${receipt.linesAsLaidOut} wrapped ${receipt.wrapped} scrolled ${receipt.scrolled}`)
         receipts.push(receipt)
         await js(`window.__epic.stop(); true`)
+        if (c.popped) { await js(`window.__typing.popoutClose(); true`); popout = null }
+        target = win.webContents
         write(false)
       }
     }

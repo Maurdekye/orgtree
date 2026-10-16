@@ -30,6 +30,7 @@ import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { addPin } from '../src/canvas/pins'
 import { startEpic } from '../src/epic/director'
 import type { EpicShow, Kind } from '../src/epic/director'
+import { registerWindow } from '../src/windowlife'
 import { Stage } from '../src/epic/stage'
 import type { TreePayload } from '../src/types'
 
@@ -198,17 +199,18 @@ const FONT = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch'
  *  the fixture itself applied (data-scale), never by anything measured from
  *  the field's transformed box. */
 function trueCaret(field: HTMLTextAreaElement, typed: string): Omit<CaretRecord, 'kind' | 'desk' | 'value' | 'caret' | 'x' | 'y' | 'drawn' | 't'> {
+  const doc = field.ownerDocument
   const s = Number(field.dataset.scale)
-  const style = getComputedStyle(field)
+  const style = doc.defaultView!.getComputedStyle(field)
   const start = field.selectionStart ?? field.value.length
   const text = typed ? field.value.slice(0, start) + typed + field.value.slice(field.selectionEnd ?? start) : field.value
   const width = field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
   const lineHeight = parseFloat(style.lineHeight)
-  const probe = document.createElement('span')
+  const probe = doc.createElement('span')
   probe.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;white-space:pre'
   for (const p of FONT) probe.style[p] = style[p]
-  document.body.append(probe)
-  const measure = (t: string) => { probe.textContent = t; return probe.getBoundingClientRect().width }
+  doc.body.append(probe)
+  const measure =(t: string) => { probe.textContent = t; return probe.getBoundingClientRect().width }
   // each line as [first, end): a newline belongs to the line it ends
   const lines: [number, number][] = []
   let at = 0
@@ -225,10 +227,10 @@ function trueCaret(field: HTMLTextAreaElement, typed: string): Omit<CaretRecord,
   const line = lines.findIndex(([a, b]) => start >= a && start < b)
   const x = measure(text.slice(lines[line]![0], start))
   probe.remove()
-  const area = document.createElement('textarea')
+  const area = doc.createElement('textarea')
   area.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;box-sizing:content-box;width:${width}px;height:0;padding:0;border:0;overflow:hidden`
   for (const p of [...FONT, 'lineHeight', 'whiteSpace', 'overflowWrap', 'wordBreak'] as const) area.style[p] = style[p]
-  document.body.append(area)
+  doc.body.append(area)
   area.value = text
   const areaLines = Math.round(area.scrollHeight / lineHeight)
   area.remove()
@@ -257,8 +259,9 @@ Stage.prototype.burst = function (this: Stage, ...args: Parameters<Stage['burst'
 function recordCarets(show: EpicShow): void {
   const cue = show.cue.bind(show)
   show.cue = (kind, ev = {}) => {
-    const field = ev.spot?.el
-    if (!CARET_KINDS.has(kind) || !ev.spot || !(field instanceof HTMLTextAreaElement)) return cue(kind, ev)
+    // by tag, not instanceof: a popped-out window's elements are another window's class
+    const field = ev.spot?.el as HTMLTextAreaElement | null | undefined
+    if (!CARET_KINDS.has(kind) || !ev.spot || field?.tagName !== 'TEXTAREA') return cue(kind, ev)
     const record: CaretRecord = { kind, desk: field.getAttribute('data-first-use-chat'), value: field.value,
       caret: field.selectionStart ?? -1, x: ev.spot.x, y: ev.spot.y, ...trueCaret(field, kind === 'type' ? lastKey : ''),
       drawn: [], t: performance.now() }
@@ -266,6 +269,76 @@ function recordCarets(show: EpicShow): void {
     drawing = record
     try { cue(kind, ev) } finally { drawing = null }
   }
+}
+
+/** a popped-out desk window, opened and registered the way popout.tsx does it
+ *  (a named window.open, a standards-mode shell, the opener's root class,
+ *  tokens and stylesheets copied, registerWindow), holding one composer in the
+ *  app's classes. The real Desk component is not rendered into it. */
+let popped: { w: Window; unregister: () => void } | null = null
+const typingField = (desk: string): HTMLTextAreaElement | null => {
+  for (const d of [document, popped?.w.document]) {
+    const f = d?.querySelector<HTMLTextAreaElement>(`textarea[data-first-use-chat="${desk}"]`)
+    if (f) return f
+  }
+  return null
+}
+function openPopout(desk: string): boolean {
+  popped?.unregister()
+  const w = window.open('', 'epic-typing-popout', 'popup,width=520,height=300')
+  if (!w) return false
+  const d = w.document
+  d.open()
+  d.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')
+  d.close()
+  const base = d.createElement('base')
+  base.href = document.baseURI
+  d.head.appendChild(base)
+  d.documentElement.className = document.documentElement.className
+  d.documentElement.style.cssText = document.documentElement.style.cssText
+  for (const original of document.head.querySelectorAll('style, link[rel="stylesheet"]')) {
+    const copy = original.cloneNode(true) as Element
+    if (original.tagName === 'LINK') (copy as HTMLLinkElement).href = (original as HTMLLinkElement).sheet?.href || (original as HTMLLinkElement).href
+    else {
+      const rules = (original as HTMLStyleElement).sheet?.cssRules
+      if (rules?.length) copy.textContent = [...rules].map(rule => rule.cssText).join('\n')
+    }
+    d.head.appendChild(copy)
+  }
+  d.body.className = 'popout-document'
+  const mount = d.createElement('div')
+  mount.className = 'popout-mount'
+  mount.innerHTML = `<div class="desk-body eye-chat"><div class="cc-composer"><textarea rows="2" data-first-use-chat="${desk}" data-scale="1"></textarea></div></div>`
+  d.body.appendChild(mount)
+  // noted before the director, whose listeners come with registerWindow
+  w.addEventListener('keydown', e => { lastKey = e.key }, true)
+  const unregister = registerWindow({ id: 'epic-typing-popout', kind: 'desk', org: 'acme', editable: false, window: w, redock: () => {} })
+  popped = { w, unregister: () => { unregister(); try { w.close() } catch { /* already gone */ } } }
+  return true
+}
+
+const MARK = 'epic-typing-mark'
+function unmark(): void {
+  for (const d of [document, popped?.w.document]) for (const e of d?.querySelectorAll('.' + MARK) ?? []) e.remove()
+}
+/** Mark the last typing effect on the screen, in the window of its composer: a
+ *  green ring where the director drew its sparks, a magenta dot where the
+ *  caret really is, so a frame shows where the sparks start, whatever they do
+ *  after. The marks are never hit-tested. */
+function mark(): void {
+  unmark()
+  const r = carets[carets.length - 1]
+  const field = r && typingField(r.desk ?? '')
+  if (!r || !field) return
+  const doc = field.ownerDocument
+  const dot = (x: number, y: number, size: number, css: string) => {
+    const e = doc.createElement('div')
+    e.className = MARK
+    e.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;box-sizing:border-box;border-radius:50%;left:${x - size / 2}px;top:${y - size / 2}px;width:${size}px;height:${size}px;${css}`
+    doc.body.append(e)
+  }
+  dot(r.x, r.y, 16, 'border:2px solid #00e676')
+  dot(r.tx, r.ty, 4, 'background:#ff00aa')
 }
 
 /* ── the wheel scene: the real canvas ─────────────────────────────────── */
@@ -403,8 +476,21 @@ declare global {
       carets: CaretRecord[]
       /** pan the camera by (dx, dy) screen px, the way a drag moves `.space` */
       pan(dx: number, dy: number): void
-      /** the stage canvas's box: it must be the window's */
-      stageBox(): { left: number; top: number; width: number; height: number } | null
+      /** the stage canvas's box in the window holding `desk`'s composer (the page's
+       *  by default): it must be the window's */
+      stageBox(desk?: string): { left: number; top: number; width: number; height: number } | null
+      /** the inner size of that window */
+      viewSize(desk?: string): { w: number; h: number }
+      /** a desk's composer, in the page or in the popped-out window */
+      field(desk: string): HTMLTextAreaElement | null
+      /** open the popped-out desk window holding one composer for `desk` */
+      popout(desk: string): boolean
+      /** its stylesheets are loaded and its composer is there */
+      popoutReady(): boolean
+      popoutClose(): void
+      /** mark where the last typing effect was drawn and where the caret is */
+      mark(): void
+      unmark(): void
       /** make `desk`'s composer narrow, holding `start`: just wide enough
        *  (3px to spare) for `start` and `fits` after it, so the next word typed
        *  goes down a line. Its width in its own px. */
@@ -499,18 +585,31 @@ if (scene === 'switch') {
         camera.ty += dy
         document.querySelector<HTMLElement>('.space')!.style.transform = `translate(${camera.tx}px, ${camera.ty}px) scale(${camera.z})`
       },
-      stageBox() {
-        const r = document.querySelector('canvas.epic-stage')?.getBoundingClientRect()
+      stageBox(desk) {
+        const doc = (desk && typingField(desk)?.ownerDocument) || document
+        const r = doc.querySelector('canvas.epic-stage')?.getBoundingClientRect()
         return r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null
       },
+      viewSize(desk) {
+        const view = (desk && typingField(desk)?.ownerDocument.defaultView) || window
+        return { w: view.innerWidth, h: view.innerHeight }
+      },
+      field: typingField,
+      popout: openPopout,
+      popoutReady: () => !!popped && !!popped.w.document.querySelector('textarea')
+        && [...popped.w.document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')].every(l => !!l.sheet),
+      popoutClose() { popped?.unregister(); popped = null },
+      mark,
+      unmark,
       narrow(desk, start, fits) {
-        const field = document.querySelector<HTMLTextAreaElement>(`textarea[data-first-use-chat="${desk}"]`)!
-        const style = getComputedStyle(field)
-        const probe = document.createElement('span')
+        const field = typingField(desk)!
+        const doc = field.ownerDocument
+        const style = doc.defaultView!.getComputedStyle(field)
+        const probe = doc.createElement('span')
         probe.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;white-space:pre'
         for (const p of FONT) probe.style[p] = style[p]
         probe.textContent = start + fits
-        document.body.append(probe)
+        doc.body.append(probe)
         const width = Math.ceil(probe.getBoundingClientRect().width) + 3
         probe.remove()
         field.style.flex = 'none'
