@@ -324,6 +324,16 @@ const SESSION_ENDED_ROW: &str = "The user's Windows session ended during this tu
 /// How long a hosted CLI's exit waits for the sign-in helper to go too:
 /// Windows can end the CLI a moment before the helper at sign-out.
 const SESSION_GONE_WAIT: Duration = Duration::from_secs(2);
+
+/// Whether a CLI's exit may be the user's Windows session ending under a turn,
+/// which then continues in Session 0 (if the sign-in helper is gone too):
+/// only a CLI the helper started, during a turn.
+#[logged]
+fn continues_in_session0(hosted: bool, in_turn: bool, deliberate: bool) -> bool {
+    let _ = deliberate;
+    hosted && in_turn
+}
+
 /// Where an agent's last turn ran (`ot.agents.extra->>'session'`).
 const SIGNED_IN: &str = "signed-in";
 const SESSION0: &str = "session0";
@@ -6227,7 +6237,8 @@ impl Actor {
         // the turn stops cleanly, its mail is kept as for any CLI that died
         // (given back when the CLI had produced nothing), and it continues in
         // Session 0 (docket option-to-run-the-background-engine-in-the-user-s).
-        let session_ended = hosted && self.turn.is_some() && self.session_gone().await;
+        let deliberate = self.turn.as_ref().is_some_and(|t| t.interrupted || t.killed) || self.stopping;
+        let session_ended = continues_in_session0(hosted, self.turn.is_some(), deliberate) && self.session_gone().await;
         if let Some(t) = self.turn.as_mut() {
             t.exited = true;
             t.session_ended = session_ended;
@@ -8072,5 +8083,21 @@ mod claude_bg_tests {
         claude_settle_chip(&mut agent, "Agent \"review\" completed", false, "completed", "Agent \"review\" completed");
         assert_eq!(agent["result"], "Agent \"review\" completed");
         assert!(agent.get("failed_shell_output").is_none());
+    }
+}
+
+#[cfg(test)]
+mod session_end_tests {
+    use super::*;
+
+    /// The user, 2026-10-16 11:03Z: a turn the sign-out cut off resumes at
+    /// once in Session 0, as after an engine restart mid-turn; a turn that was
+    /// interrupted, halted, timed out or retired does not.
+    #[test]
+    fn only_a_turn_the_session_cut_off_continues() {
+        assert!(continues_in_session0(true, true, false));
+        assert!(!continues_in_session0(true, true, true), "a deliberate end never resumes");
+        assert!(!continues_in_session0(false, true, false), "a CLI the engine started ends with no session");
+        assert!(!continues_in_session0(true, false, false), "no turn, nothing to resume");
     }
 }

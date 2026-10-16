@@ -109,11 +109,24 @@ mod tests {
         for tool in crate::tools::defs::implemented() {
             assert!(required(tool).is_some(), "unclassified tool: {tool}");
             assert!(allows(&json!({}), tool), "default lost {tool}");
-            assert_eq!(allows(&off, tool), matches!(*tool, "orgtree_status" | "orgtree_next_turn"), "all off: {tool}");
+            assert_eq!(allows(&off, tool), matches!(*tool, "orgtree_status" | "orgtree_next_turn" | "orgtree_session"), "all off: {tool}");
         }
         assert!(!allows(&json!({}), "orgtree_unknown"));
         assert!(!allows(&json!({"orgtree":{"docket":false}}), "orgtree_staff"));
         assert!(!allows(&json!({"orgtree":{"team":false}}), "orgtree_staff"));
+    }
+
+    /// Docket let-agents-query-machine-sign-in-state-and-which: every agent
+    /// may ask where its turns run, whatever its tool groups, as it may report
+    /// its status.
+    #[test]
+    fn the_session_query_is_served_to_every_agent() {
+        let off = json!({"orgtree": GROUPS.iter().map(|g| ((*g).to_owned(), json!(false))).collect::<Map<_,_>>()});
+        assert!(crate::tools::defs::implemented().contains(&"orgtree_session"), "orgtree_session is not served");
+        assert_eq!(required("orgtree_session"), Some(&[][..]));
+        assert!(allows(&off, "orgtree_session"));
+        let card = crate::tools::defs::list().into_iter().find(|t| t["name"] == "orgtree_session").expect("no orgtree_session card");
+        assert_eq!(card["inputSchema"]["required"], json!([]), "it takes no arguments");
     }
 
     #[test]
