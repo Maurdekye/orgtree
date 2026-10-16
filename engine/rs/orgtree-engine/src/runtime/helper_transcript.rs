@@ -189,4 +189,15 @@ mod tests {
         assert!(serde_json::to_vec(&value).unwrap().len() < MAX_BYTES + 128);
         assert!(!value.to_string().contains("\\u0000"));
     }
+    #[test]
+    fn escaped_text_and_oversized_identifiers_cannot_exceed_snapshot_cap() {
+        let mut t = Transcript::default();
+        t.observe(&json!({"type":"assistant","message":{"id":"escaped","content":[
+            {"type":"text","text":"\u{1}".repeat(8192)},
+            {"type":"thinking","thinking":"\u{2}".repeat(8192)}]}}));
+        assert!(serde_json::to_vec(&t.snapshot()).unwrap().len() <= MAX_BYTES);
+        t.observe(&json!({"type":"assistant","message":{"id":"x".repeat(MAX_BYTES * 2),"content":[]}}));
+        assert!(serde_json::to_vec(&t.snapshot()).unwrap().len() <= MAX_BYTES);
+        assert_eq!(t.snapshot()["truncated"], true);
+    }
 }
