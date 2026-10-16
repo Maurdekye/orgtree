@@ -23,12 +23,8 @@
 
    THE FINAL VERSION (docs/rust-engine/epic-mode-final.md) is the Opus take's
    director with the best of the other three folded in, as one system:
-   • THE COMBO — every staged event feeds one combo (the Wonder Full take's
-     count and milestones, the Argon take's ranks): a small badge in the
-     corner that flares with each new rank at 10, 25, 50, 100, 200 and 400
-     (user 2026-10-15: "less emphasis on the combo progress, keep it
-     diminutive and to the corner"), and the frequent little sounds climbing
-     up to an octave as it grows, so a busy organization audibly heats up;
+   • RISING PITCH — the frequent little sounds climb up to an octave
+     through a burst, so a busy organization audibly heats up;
    • WEIGHT — a medium event shakes the window lightly and blurs its edges,
      a heavy one shakes it and blurs it whole (user 2026-10-15: "more screen
      shake effects and screen blurs"), within the stage's comfort bounds;
@@ -50,7 +46,7 @@
    • a usage reading of 100% is a reading, never a limit (Astra; user
      2026-10-14): only a frozen or limit-locked agent says LIMIT HIT. */
 import { EpicSynth, type AudioContextCtor, type PlayOptions, type SoundName } from './audio'
-import { Stage, type ComboReading, type Rect } from './stage'
+import { Stage, type Rect } from './stage'
 import { setEpicTaps } from './tap'
 import * as progress from './progress'
 import {
@@ -80,10 +76,6 @@ export interface EpicShow {
   stop(opts?: { farewell?: boolean; quiet?: boolean }): void
   /** for tests and the curious: how many effects have been staged */
   readonly staged: number
-  /** the current combo: events in this burst so far (0 once it dropped) */
-  readonly combo: number
-  /** whether the combo badge is on screen in the main window */
-  readonly metering: boolean
   /** a direct cue, for anything outside the taps */
   cue(kind: Kind, ev?: Partial<Omit<Act, 'kind'>> & { spot?: Spot | null }): void
 }
@@ -110,8 +102,6 @@ export type DomKind =
   | 'refused'
   // another org's routine notice (the app feed)
   | 'notice'
-  // the combo reaching a new rank
-  | 'combo'
 
 /** everything the playbook knows how to stage */
 export type Kind = EventKind | DomKind
@@ -126,39 +116,15 @@ export interface Act extends Omit<EpicEvent, 'kind'> {
   notice?: string
 }
 
-/* ── the combo ─────────────────────────────────────────────────────────── */
-
-/** events closer together than this keep one combo going */
-export const COMBO_DECAY_MS = 2500
-/** the ranks a combo earns: Argon's ladder with Astra's drives in the middle */
-export const RANKS: readonly { at: number; name: string; color: string }[] = [
-  { at: 1, name: 'SPECTACLE ONLINE', color: '#ffd34d' },
-  { at: 10, name: 'HYPER-STREAK', color: '#ff8a2a' },
-  { at: 25, name: 'OVERDRIVE', color: '#ff3b3b' },
-  { at: 50, name: 'HYPERDRIVE', color: '#ff5ccf' },
-  { at: 100, name: 'SUPERNOVA', color: '#c58bff' },
-  { at: 200, name: 'ABSOLUTE CHAOS', color: '#5fe3ff' },
-  { at: 400, name: 'CACOPHONY MAXIMA', color: '#ffffff' },
-]
-/** the combo sizes that announce a new rank (the Wonder Full take's milestones) */
-export const MILESTONES = RANKS.slice(1).map(r => r.at)
-/** the combo badge shows from this many events in a burst */
-export const METER_FROM = 3
-/** the rank (and its place on the ladder) a combo of `n` has earned */
-export function rankOf(n: number): { name: string; color: string; level: number } {
-  let level = 0
-  for (let i = 0; i < RANKS.length; i++) if (n >= RANKS[i]!.at) level = i
-  const r = RANKS[level]!
-  return { name: r.name, color: r.color, level }
-}
-/** continuous gestures and the director's own fanfares do not count */
-const UNCOUNTED: ReadonlySet<Kind> = new Set<Kind>(['pan', 'epicOff', 'combo'])
-/** the little, frequent sounds that climb with the combo (Wonder Full's
- *  pitch ladder: up to an octave at 36 events) */
+/* Burst pitch: private event count only, with no meter or milestone effects. */
+const BURST_DECAY_MS = 2500
+/** continuous gestures and shutdown do not raise the pitch */
+const UNCOUNTED: ReadonlySet<Kind> = new Set<Kind>(['pan', 'epicOff'])
+/** the frequent little sounds climb up to an octave at 36 events */
 const CLIMB: ReadonlySet<SoundName> = new Set<SoundName>([
   'click', 'type', 'tick', 'blip', 'toolDone', 'warp', 'grab', 'scribble', 'clack', 'notice', 'tool', 'confirm',
 ])
-export const climbFor = (combo: number): number => 2 ** (Math.min(Math.max(combo, 0), 36) / 36)
+export const climbFor = (burst: number): number => 2 ** (Math.min(Math.max(burst, 0), 36) / 36)
 
 /** an agent's streamed text as notes (the Argon take's arpeggio): up and down
  *  the major pentatonic, each agent from its own degree so several writers
@@ -256,8 +222,8 @@ class Show implements EpicShow {
   private count = 0
   /** the lift of the event being staged (progression), for the little sounds' climb */
   private lift = 1
-  private comboN = 0
-  private comboAt = -Infinity
+  private burstN = 0
+  private burstAt = -Infinity
 
   constructor(opts: EpicOptions) {
     this.view = opts.view ?? window
@@ -293,32 +259,14 @@ class Show implements EpicShow {
 
   get staged(): number { return this.count }
 
-  get combo(): number { return performance.now() - this.comboAt < COMBO_DECAY_MS ? this.comboN : 0 }
-  get metering(): boolean { return this.main.stage.metering }
+  get burst(): number { return performance.now() - this.burstAt < BURST_DECAY_MS ? this.burstN : 0 }
 
-  /* ── the combo ────────────────────────────────────────────────────── */
-
-  /** Every staged event feeds the combo: the badge shows from the third,
-   *  and each milestone flares it with the new rank, in the main window. */
-  private feedCombo(kind: Kind): void {
+  /** Keep the pitch climb's count on the event path: no timers or readouts. */
+  private feedBurst(kind: Kind): void {
     if (UNCOUNTED.has(kind)) return
     const now = performance.now()
-    this.comboN = now - this.comboAt < COMBO_DECAY_MS ? this.comboN + 1 : 1
-    this.comboAt = now
-    if (this.comboN >= METER_FROM) this.main.stage.meter(this.reading)
-    if (MILESTONES.includes(this.comboN)) {
-      const b = this.main.stage.badge
-      this.perform({ ev: { kind: 'combo', n: this.comboN }, org: null,
-        at: { x: b.x + b.w / 2, y: b.y + b.h / 2, rect: null, el: null, doc: this.doc }, from: null, t: this.main, show: this })
-    }
-  }
-
-  private reading = (): ComboReading | null => {
-    const age = performance.now() - this.comboAt
-    if (this.ended || this.comboN < METER_FROM || age >= COMBO_DECAY_MS) return null
-    const left = 1 - age / COMBO_DECAY_MS
-    const rank = rankOf(this.comboN)
-    return { n: this.comboN, rank: rank.name, color: rank.color, left }
+    this.burstN = now - this.burstAt < BURST_DECAY_MS ? this.burstN + 1 : 1
+    this.burstAt = now
   }
 
   /** the next note of an agent's pentatonic run, as a pitch multiplier */
@@ -605,7 +553,7 @@ class Show implements EpicShow {
     try { this.extras(c, gain) } catch { /* likewise */ }
     stage.intensity = 1
     this.lift = 1
-    this.feedCombo(c.ev.kind)
+    this.feedBurst(c.ev.kind)
   }
 
   /** Progression (epic/progress.ts): the event's weight feeds momentum, its
@@ -636,12 +584,12 @@ class Show implements EpicShow {
   }
 
   /** play a sound, panned to where its picture is; the little frequent
-   *  sounds climb with the combo, and a little more with momentum */
+   *  sounds climb through a burst, and a little more with momentum */
   sound(name: SoundName, c: Cue | null, opts: PlayOptions = {}): void {
     if (!this.synth) return
     const w = c ? (c.t.view.innerWidth || 1) : 1
     const pan = c ? Math.max(-1, Math.min(1, (c.at.x / w) * 2 - 1)) * 0.8 : 0
-    const climb = CLIMB.has(name) ? climbFor(this.combo) * 2 ** ((this.lift - 1) / 8) : 1
+    const climb = CLIMB.has(name) ? climbFor(this.burst) * 2 ** ((this.lift - 1) / 8) : 1
     const pitch = opts.pitch !== undefined || climb !== 1 ? (opts.pitch ?? rand(0.95, 1.05)) * climb : undefined
     this.synth.play(name, { pan, ...opts, pitch, gain: (opts.gain ?? 1) * (SOFT[name] ?? 1) })
   }
@@ -1390,7 +1338,7 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
   // streamed text plays as notes, each agent its own pentatonic run (the
   // Argon take's arpeggio), with a scratch of the pen under them
   writing: c => {
-    c.show.sound('note', c, { pitch: c.show.noteFor(c.ev.node ?? '') * climbFor(c.show.combo), gain: 0.9 })
+    c.show.sound('note', c, { pitch: c.show.noteFor(c.ev.node ?? '') * climbFor(c.show.burst), gain: 0.9 })
     c.show.sound('scribble', c, { gain: 0.35 })
     c.t.stage.burst(c.at.x + rand(-30, 30), c.at.y + rand(-10, 25), { count: 8, colors: ['#ffffff', GOLD], speed: [30, 120], size: [2, 4], life: [0.3, 0.6] })
   },
@@ -1854,19 +1802,6 @@ const PLAYBOOK: Partial<Record<Kind, Play>> = {
     s.ring(c.at.x, c.at.y, { color: CYAN, radius: 90, width: 4, life: 0.5 })
     s.burst(c.at.x, c.at.y, { count: 18, colors: [CYAN, '#ffffff'], speed: [60, 220], size: [3, 6], life: [0.4, 0.8] })
     s.word(c.at.x, c.at.y - 50, 'REPORT!', { color: CYAN, ink: '#00222b', size: 30, life: 1.2, caption: captionOf(c) })
-  },
-  // the combo reaching a new rank (user 2026-10-15: "less emphasis on the
-  // combo progress, keep it diminutive and to the corner"): the corner badge
-  // names it and flares, a small ring and a few stars leave it, and the
-  // fanfare plays softly, climbing rank by rank
-  combo: c => {
-    const s = c.t.stage
-    const n = Math.max(c.ev.n ?? MILESTONES[0]!, MILESTONES[0]!)
-    const rank = rankOf(n)
-    c.show.sound('combo', c, { pitch: 1 + rank.level * 0.06, gain: 0.4 })
-    s.flare()
-    s.ring(c.at.x, c.at.y, { color: rank.color, radius: 60, width: 3, life: 0.6 })
-    s.burst(c.at.x, c.at.y, { count: 10 + rank.level * 3, kind: 'star', colors: [GOLD, '#ffffff', rank.color], speed: [60, 200], size: [3, 6], life: [0.5, 0.9], gravity: 160 })
   },
 }
 

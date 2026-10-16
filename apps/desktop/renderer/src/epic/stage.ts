@@ -13,15 +13,14 @@
    EPIC Mode costs no frames at all. Every collection is capped (PARTICLE_CAP,
    ACTOR_CAP, LINGER_CAP), and past the cap new particles are simply not born,
    so a flood of events degrades into "very busy" rather than into a stalled
-   window. What strikes leave behind (residue, see LINGER_CAP) and the combo
-   badge (`meter`) are alive too, but slow: while only they are left the loop
-   draws SLOW_FPS frames a second, and it sleeps once the residue has faded
-   and the badge's combo has dropped.
+   window. What strikes leave behind (residue, see LINGER_CAP) stays alive
+   too, but slow: while only residue is left the loop draws SLOW_FPS frames
+   a second, and it sleeps once the residue has faded.
 
    The final EPIC Mode combines four takes; the stage is the Opus take's, with
    the crystal ice spike (Argon), the summoning portal (Astra, Argon), the
-   watchdog radar (Astra, Argon), the warning sign (Astra), the combo badge's
-   count and ranks (Wonder Full, Argon) and the button pop (Wonder Full) added,
+   watchdog radar (Astra, Argon), the warning sign (Astra) and the button pop
+   (Wonder Full) added,
    the comfort bounds every shake, blur and flash keeps to, and the residue
    (below) — see docs/rust-engine/epic-mode-final.md. */
 
@@ -56,8 +55,6 @@ export const BLUR_EDGE_MAX_PX = 10
 export const BLUR_MAX_MS = 700
 export const BLUR_EVERY_MS = 600
 export const FLASH_GAP_MS = 340
-/** the combo badge: small, in the bottom-right corner */
-const BADGE = { w: 112, h: 30, inset: 14 }
 
 /* Lingering effects (docket epic-mode-next-round-more-shake-and-blur-a-small,
    part 4: "more lingering effects that remain on screen for longer"; plan
@@ -68,8 +65,8 @@ const BADGE = { w: 112, h: 30, inset: 14 }
    frames, so a window the system stopped drawing comes back without it. At
    most LINGER_CAP at a time, each for at most LINGER_MAX_S since it was left
    or last built up; past the cap new residue is simply not left. While only
-   residue or the combo badge is alive, the loop draws SLOW_FPS frames a
-   second, not one per display frame, and it sleeps once they are gone. */
+   residue is alive, the loop draws SLOW_FPS frames a
+   second, not one per display frame, and it sleeps once it is gone. */
 export const LINGER_CAP = 48
 export const LINGER_MAX_S = 30
 export const SLOW_FPS = 15
@@ -80,17 +77,6 @@ const FLOOR_S = 14
 const GLOW_MERGE_PX = 48
 
 export type ParticleKind = 'glow' | 'streak' | 'shard' | 'confetti' | 'snow' | 'coin' | 'paw' | 'smoke' | 'star'
-
-/** what the combo badge shows; null once the combo has dropped */
-export interface ComboReading {
-  /** events in the current burst, each within the decay window of the last */
-  n: number
-  /** the rank that many events earn, and its colour */
-  rank: string
-  color: string
-  /** 1 just after an event, falling to 0 as the combo runs out */
-  left: number
-}
 
 interface Particle {
   kind: ParticleKind
@@ -169,8 +155,6 @@ export class Stage {
   private parts: Particle[] = []
   private pool: Particle[] = []
   private actors: Actor[] = []
-  /** the combo badge: drawn last, alive until its combo drops (see `meter`) */
-  private hud: Actor | null = null
   /** what strikes left behind: drawn first, aged on the clock (see LINGER_CAP) */
   private residue: Residue[] = []
   /** the pieces lying on the floor, oldest first (the 'floor' residue draws them) */
@@ -213,8 +197,6 @@ export class Stage {
    *  dip first showed in */
   private frameAt = 0
   private shownAt = -Infinity
-  /** the combo badge's age when a new rank last flared it */
-  private flaredAt = -Infinity
   /** the element that shakes: the document's root element. Its box IS the
    *  viewport (html is 100% high), so while its transform makes it the
    *  containing block for fixed-position descendants — dialogs, menus, this
@@ -282,7 +264,6 @@ export class Stage {
     this.parts = []
     this.pool = []
     this.actors = []
-    this.hud = null
     this.residue = []
     this.floor = []
     this.sprites.clear()
@@ -316,7 +297,7 @@ export class Stage {
     this.rafId = this.raf(this.tick)
   }
 
-  /** The slow lane: only residue or the combo badge is alive, so the next
+  /** The slow lane: only residue is alive, so the next
    *  frame comes in 1/SLOW_FPS s instead of at the next display frame.
    *  Anything new wakes the loop at once (`wake` cancels the wait). */
   private slow(): void {
@@ -355,7 +336,7 @@ export class Stage {
     this.quality = spent > 12 ? Math.max(0.25, this.quality * 0.85) : Math.min(1, this.quality + 0.01)
     if (this.dead) return
     if (this.parts.length || this.actors.length) this.rafId = this.raf(this.tick)
-    else if (this.residue.length || this.hud) this.slow()
+    else if (this.residue.length) this.slow()
     else this.clear()
   }
 
@@ -407,11 +388,6 @@ export class Stage {
       if (alive) actors[a++] = actor
     }
     actors.length = a
-    const hud = this.hud
-    if (hud) {
-      hud.age += dt
-      if (hud.step?.(dt) === false) this.hud = null
-    }
   }
 
   private draw(): void {
@@ -448,8 +424,6 @@ export class Stage {
       if (!actor.top) continue
       g.save(); actor.draw(g, Math.min(1, actor.age / actor.life), this); g.restore()
     }
-    // the combo badge goes over everything else
-    if (this.hud) { g.save(); this.hud.draw(g, 0, this); g.restore() }
   }
 
   /** a soft radial glow, rendered once per colour and stamped thereafter */
@@ -1359,13 +1333,13 @@ export class Stage {
     }
   }
 
-  /** a small note above the combo badge (progression's unlocks): in, held,
+  /** a small note in the bottom-right corner (progression's unlocks): in, held,
    *  and out within 3 s */
   toast(text: string): void {
     this.add({
       age: 0, life: 3, top: true,
       draw(g, k, stage) {
-        const b = stage.badge
+        const x = stage.width - 14, y = stage.height - 50
         g.globalAlpha = Math.max(0, k < 0.1 ? k / 0.1 : k > 0.8 ? (1 - k) / 0.2 : 1)
         g.font = `800 11px ${IMPACT}`
         g.textAlign = 'right'
@@ -1373,9 +1347,9 @@ export class Stage {
         g.lineJoin = 'round'
         g.lineWidth = 3
         g.strokeStyle = 'rgba(10,12,20,0.9)'
-        g.strokeText(text, b.x + b.w, b.y - 6)
+        g.strokeText(text, x, y)
         g.fillStyle = '#ffd34d'
-        g.fillText(text, b.x + b.w, b.y - 6)
+        g.fillText(text, x, y)
       },
     })
   }
@@ -1876,91 +1850,11 @@ export class Stage {
       },
     })
   }
-
-  /** The combo badge (the Wonder Full take's count, the Argon take's ranks;
-   *  user 2026-10-15: "less emphasis on the combo progress, keep it
-   *  diminutive and to the corner"): a small plate in the bottom-right corner
-   *  with the combo's rank, its count and a thin bar that runs down to the
-   *  moment the combo drops, which a new rank flares (`flare`). Nothing of it
-   *  reaches across the window. `read` is asked every frame; null means the
-   *  combo has dropped, and the badge fades out and lets the loop sleep. One
-   *  badge per stage: asking again while it shows keeps it. */
-  meter(read: () => ComboReading | null): void {
-    if (this.idle || this.hud) return
-    let last: ComboReading | null = null
-    let gone = 0
-    let bumped = 0
-    this.hud = {
-      age: 0, life: Infinity,
-      step(dt) {
-        const now = read()
-        if (now) {
-          if (!last || now.n !== last.n) bumped = this.age
-          last = now
-          gone = 0
-          return true
-        }
-        gone += dt
-        return gone < 0.35
-      },
-      draw(g, _k, stage) {
-        if (!last) return
-        const fade = 1 - Math.min(1, gone / 0.35)
-        const hot = last.color
-        const { x: x0, y: y0, w: bw, h: bh } = stage.badge
-        const flare = Math.max(0, 1 - (this.age - stage.flaredAt) / 0.6)
-        g.globalAlpha = fade * 0.9
-        roundRect(g, x0, y0, bw, bh, 8)
-        g.fillStyle = 'rgba(10,12,20,0.85)'
-        g.fill()
-        g.shadowColor = hot
-        g.shadowBlur = 16 * flare
-        g.lineWidth = 1.5 + 2 * flare
-        g.strokeStyle = hot
-        g.stroke()
-        g.shadowBlur = 0
-        g.globalAlpha = fade
-        g.textAlign = 'left'
-        g.textBaseline = 'middle'
-        g.font = `800 9px ${IMPACT}`
-        g.fillStyle = hot
-        g.fillText(last.rank, x0 + 8, y0 + 12, bw - 56)
-        const bump = 1 + Math.max(0, 0.25 - (this.age - bumped)) * 0.8
-        g.save()
-        g.translate(x0 + bw - 8, y0 + 12)
-        g.scale(bump, bump)
-        g.font = `900 13px ${IMPACT}`
-        g.textAlign = 'right'
-        g.fillStyle = '#ffd34d'
-        g.fillText(`×${last.n}`, 0, 0)
-        g.restore()
-        const barX = x0 + 8, barW = bw - 16, barY = y0 + bh - 7
-        g.fillStyle = 'rgba(255,255,255,0.14)'
-        g.fillRect(barX, barY, barW, 2)
-        g.fillStyle = hot
-        g.fillRect(barX, barY, barW * Math.max(0, Math.min(1, last.left)), 2)
-      },
-    }
-    this.wake()
-  }
-
-  /** where the combo badge sits: the bottom-right corner */
-  get badge(): Rect {
-    return { x: this.width - BADGE.w - BADGE.inset, y: this.height - BADGE.h - BADGE.inset, w: BADGE.w, h: BADGE.h }
-  }
-
-  /** a new rank: the combo badge glows up for a moment */
-  flare(): void {
-    if (this.hud) this.flaredAt = this.hud.age
-  }
-
-  /** whether the combo badge is showing (for tests and the curious) */
-  get metering(): boolean { return !!this.hud }
 }
 
 /* ── geometry helpers ───────────────────────────────────────────────────── */
 
-/** the impact lettering every word and the combo badge use (system fonts only) */
+/** the impact lettering every word uses (system fonts only) */
 const IMPACT = '"Segoe UI Black", "Arial Black", Impact, system-ui, sans-serif'
 
 /** a caption is a name: small capitals, never longer than a card is wide */

@@ -80,7 +80,7 @@ const SINCE_OPUS = [
 ]
 // what the suites import that the Opus take did not export yet
 const OPUS_MISSING = {
-  'apps/desktop/renderer/src/epic/director.ts': ['COMBO_DECAY_MS', 'METER_FROM', 'MILESTONES', 'RANKS', 'climbFor', 'noteRatio', 'rankOf'],
+  'apps/desktop/renderer/src/epic/director.ts': ['climbFor', 'noteRatio'],
   'apps/desktop/renderer/src/epic/stage.ts': ['MAX_DPR', 'MAX_PIXELS'],
 }
 const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-final', 'epicmode-caret', 'epicmode-wheel', 'epicmode-urgent', 'epicmode-comfort', 'epicmode-linger', 'epicmode-progress']
@@ -88,8 +88,7 @@ const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-
 const STUBS = {
   sync: 'export const startEpicSync = undefined',
   tap: 'export const epic = null; export const setEpicTaps = undefined',
-  director: 'export const FAREWELL_MS = 0, PLAYBOOK_KINDS = [], startEpic = undefined, COMBO_DECAY_MS = 0, METER_FROM = 0, '
-    + 'MILESTONES = [], RANKS = [], climbFor = undefined, noteRatio = undefined, rankOf = undefined',
+  director: 'export const FAREWELL_MS = 0, PLAYBOOK_KINDS = [], startEpic = undefined, climbFor = undefined, noteRatio = undefined',
   diff: 'export const diffOrg = undefined, HIRE_WINDOW_MS = 0, pulseEvent = undefined, snapshotOrg = undefined, sparkEvent = undefined, streamEvent = undefined',
   audio: 'export const EpicSynth = undefined, LIGHT_CAP = 0, SOUND_NAMES = [], VOICE_CAP = 0',
   stage: 'export const PARTICLE_CAP = 0, Stage = undefined, MAX_DPR = 0, MAX_PIXELS = 0',

@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**EPIC combo removal, user 2026-10-16 20:45–20:46Z:** remove the combo
+meter, ranks, milestones and rank fanfare. The final correction is "keep the
+rising pitch, but remove everything else": retain only the private burst count
+and decay needed by the existing small-sound pitch climb. Momentum, charge,
+level, chains and action effects are unchanged. This supersedes the small
+corner combo badge; see [EPIC Mode](epic-mode-final.md#combo-removal-2026-10-16).
+
 **Agent mail requests and fan-out, user 2026-10-16 20:20Z:** `orgtree_message`
 accepts `kind: request`, displayed as a request and otherwise handled as a
 message. Attachments addressed to local agents become validated absolute path

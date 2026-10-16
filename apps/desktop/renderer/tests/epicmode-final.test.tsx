@@ -4,9 +4,8 @@
 // The Opus take's suites carry the switch (epicmode-switch), the off contract
 // (epicmode-off) and the engine room (epicmode-engine). This suite covers the
 // pieces brought over from the other three takes, each through the real
-// module it lives in: the combo (count, ranks, milestones, meter, pitch ladder
-// — Wonder Full, Argon, Astra), the agent's name under every word (Argon,
-// Astra), the crystal ice spike (Argon), streamed text as pentatonic runs
+// module it lives in: the burst pitch climb (Wonder Full), the agent's name
+// under every word (Argon, Astra), the crystal ice spike (Argon), streamed text as pentatonic runs
 // (Argon), a refused change and an interrupt that only celebrates once the
 // engine accepted it (Astra, through the real api.ts), other organizations'
 // notices and a 100% usage reading that never says LIMIT (Wonder Full and
@@ -24,7 +23,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  COMBO_DECAY_MS, METER_FROM, MILESTONES, RANKS, climbFor, noteRatio, rankOf, startEpic,
+  climbFor, noteRatio, startEpic,
 } from '../src/epic/director'
 import { EpicSynth } from '../src/epic/audio'
 import { MAX_DPR, MAX_PIXELS, Stage } from '../src/epic/stage'
@@ -49,13 +48,7 @@ const engine = (answer: (path: string) => Response): typeof fetch => (async (inp
 }) as typeof fetch
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-test('the combo ladder: ranks, milestones, the pitch ladder and each agent\'s pentatonic run', () => {
-  assert.deepEqual(MILESTONES, [10, 25, 50, 100, 200, 400])
-  assert.equal(RANKS.length, MILESTONES.length + 1)
-  assert.deepEqual([1, 9, 10, 25, 50, 100, 200, 4000].map(n => rankOf(n).name), [
-    'SPECTACLE ONLINE', 'SPECTACLE ONLINE', 'HYPER-STREAK', 'OVERDRIVE', 'HYPERDRIVE', 'SUPERNOVA',
-    'ABSOLUTE CHAOS', 'CACOPHONY MAXIMA',
-  ])
+test('the pitch climb and each agent\'s pentatonic run', () => {
   assert.equal(climbFor(0), 1)
   assert.equal(climbFor(36), 2, 'an octave at 36 events')
   assert.equal(climbFor(500), 2, 'and no further')
@@ -68,96 +61,25 @@ test('the combo ladder: ranks, milestones, the pitch ladder and each agent\'s pe
   assert.equal(roots.size > 1, true, 'agents start on their own degrees, so writers sound like a chord')
 })
 
-test('every staged event feeds one combo: the corner badge shows from the third, a milestone names the new rank in it, and it all drops after the decay', async () => {
+test('bursts draw no combo readout or rank and stage no milestone effects', () => {
+  const clock = clockwork()
   const rec = recordCanvas()
   const show = startEpic({ audio: null, greet: 'none' })
   try {
-    show.cue('click', { spot: at(100, 100) })
-    show.cue('click', { spot: at(110, 100) })
-    assert.equal(show.combo, 2)
-    assert.equal(show.metering, false, 'no meter for two events')
-    for (let i = 0; i < 10; i++) show.cue('click', { spot: at(120 + i, 100) })
-    assert.equal(show.combo, 12)
-    assert.equal(show.combo >= METER_FROM && show.metering, true, 'the meter is up')
-    await wait(90)
-    for (const word of ['HYPER-STREAK', '×12']) {
-      assert.equal(rec.texts.includes(word), true, `drew ${word}`)
+    for (let i = 0; i < 401; i++) {
+      show.cue('click', { spot: at(100, 100) })
+      // Draw across every former milestone, not just the final count.
+      clock.run(17)
     }
-    // user 2026-10-15: "less emphasis on the combo progress, keep it
-    // diminutive and to the corner": no title across the window
-    for (const word of ['HYPER-STREAK!', 'COMBO ×10']) {
-      assert.equal(rec.texts.includes(word), false, `drew no ${word} title`)
-    }
-    await wait(COMBO_DECAY_MS + 700)
-    assert.equal(show.combo, 0, 'the combo dropped')
-    assert.equal(show.metering, false, 'and the meter faded out')
-  } finally { show.stop(); rec.restore() }
-})
-
-interface Mark { op: 'text' | 'rect'; text?: string; x: number; y: number; w?: number; h?: number; size?: number }
-
-/** A canvas recorder that knows where things land: it follows each context's
- *  transform (setTransform, translate, scale, save, restore) and notes every
- *  text's place and font size and every filled rectangle, in window px. */
-function recordPlaces(): { marks: Mark[]; restore: () => void } {
-  const marks: Mark[] = []
-  const proto = window.HTMLCanvasElement.prototype as unknown as { getContext: unknown }
-  const had = proto.getContext
-  proto.getContext = () => {
-    let m = [1, 0, 0, 1, 0, 0]
-    const stack: number[][] = []
-    let font = ''
-    const place = (x: number, y: number): [number, number] => [m[0]! * x + m[2]! * y + m[4]!, m[1]! * x + m[3]! * y + m[5]!]
-    const text = (s: string, x: number, y: number) => {
-      const [px, py] = place(x, y)
-      marks.push({ op: 'text', text: s, x: px, y: py, size: Number(/([\d.]+)px/.exec(font)?.[1] ?? 0) * Math.abs(m[3]!) })
-    }
-    const ops: Record<string, unknown> = {
-      save: () => { stack.push([...m]) },
-      restore: () => { m = stack.pop() ?? [1, 0, 0, 1, 0, 0] },
-      setTransform: (a: number, b: number, c: number, d: number, e: number, f: number) => { m = [a, b, c, d, e, f] },
-      translate: (x: number, y: number) => { const [e, f] = place(x, y); m = [m[0]!, m[1]!, m[2]!, m[3]!, e, f] },
-      scale: (sx: number, sy: number) => { m = [m[0]! * sx, m[1]! * sx, m[2]! * sy, m[3]! * sy, m[4]!, m[5]!] },
-      fillText: text,
-      strokeText: text,
-      fillRect: (x: number, y: number, w: number, h: number) => {
-        const [x0, y0] = place(x, y), [x1, y1] = place(x + w, y + h)
-        marks.push({ op: 'rect', x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) })
-      },
-      createLinearGradient: () => ({ addColorStop() {} }),
-      createRadialGradient: () => ({ addColorStop() {} }),
-      measureText: (s: string) => ({ width: String(s).length * 7 }),
-    }
-    return new Proxy({}, {
-      get(_target, key) {
-        if (key === 'font') return font
-        if (key === 'then') return undefined
-        return ops[String(key)] ?? (() => undefined)
-      },
-      set(_target, key, value) { if (key === 'font') font = String(value); return true },
-    })
-  }
-  return { marks, restore: () => { proto.getContext = had } }
-}
-
-test('a new rank flares the corner badge: the combo draws nothing big and nothing outside its corner', async () => {
-  const rec = recordPlaces()
-  const show = startEpic({ audio: null, greet: 'none' })
-  try {
-    for (let i = 0; i < 26; i++) show.cue('click', { spot: at(100 + i, 300) })
-    await wait(300)
-    const { innerWidth: w, innerHeight: h } = window
-    const combo = rec.marks.filter(m => m.op === 'text' &&
-      (/^×\d+$/.test(m.text!) || /^COMBO/.test(m.text!) || RANKS.some(r => m.text!.startsWith(r.name))))
-    assert.equal(combo.some(m => m.text === 'OVERDRIVE'), true, 'the badge names the rank the 25th event reached')
-    assert.equal(combo.some(m => m.text === '×26'), true, 'and counts the combo')
-    for (const m of combo) {
-      assert.equal(m.x >= w - 150 && m.y >= h - 60, true, `"${m.text}" is in the bottom-right corner (at ${Math.round(m.x)}, ${Math.round(m.y)})`)
-      assert.equal(m.size! <= 16, true, `"${m.text}" is small (${m.size} px)`)
-    }
-    const whole = rec.marks.filter(m => m.op === 'rect' && m.w! >= w && m.h! >= h)
-    assert.equal(whole.length, 0, `nothing covers the whole window (${whole.length} fills)`)
-  } finally { show.stop(); rec.restore() }
+    const ranks = ['SPECTACLE ONLINE', 'HYPER-STREAK', 'OVERDRIVE', 'HYPERDRIVE',
+      'SUPERNOVA', 'ABSOLUTE CHAOS', 'CACOPHONY MAXIMA']
+    assert.equal(rec.texts.some(t => /^×\d+$/.test(t) || /^COMBO/.test(t) || ranks.includes(t)), false)
+    assert.equal(show.staged, 401, 'only the requested org/user actions are staged')
+    assert.equal('combo' in show || 'metering' in show, false, 'no combo readout API')
+    assert.equal('meter' in Stage.prototype || 'flare' in Stage.prototype, false, 'no combo badge renderer')
+    clock.run(2000)
+    assert.equal(clock.busy, false, 'the pitch count keeps no frame loop alive after the action effects end')
+  } finally { show.stop(); rec.restore(); clock.restore() }
 })
 
 test('words draw over every glow and particle, so a name stays readable', () => {
@@ -185,29 +107,8 @@ test('words draw over every glow and particle, so a name stays readable', () => 
   }
 })
 
-test('the meter keeps the frame loop alive only while its combo lasts, then lets it sleep', () => {
+test('the little sounds climb through a burst; the big ones keep their own pitch', () => {
   const clock = clockwork()
-  const stage = new Stage(document)
-  let reading: { n: number; rank: string; color: string; left: number } | null =
-    { n: 30, rank: 'OVERDRIVE', color: '#ff3b3b', left: 1 }
-  try {
-    stage.meter(() => reading)
-    stage.meter(() => reading)
-    clock.run(1500)
-    assert.equal(clock.frames <= 91, true, `one loop for one meter: at most a frame per display frame (${clock.frames} in 1.5 s)`)
-    assert.equal(stage.metering, true, 'still showing')
-    assert.equal(clock.busy, true, 'a live combo keeps the loop going')
-    reading = null
-    clock.run(1500)
-    assert.equal(stage.metering, false, 'the dropped combo\'s meter faded out')
-    assert.equal(clock.busy, false, 'and nothing asks for frames any more')
-  } finally {
-    stage.destroy()
-    clock.restore()
-  }
-})
-
-test('the little sounds climb with the combo; the big ones keep their own pitch', () => {
   const audio = fakeAudio()
   const plays: { name: string; pitch: number | undefined }[] = []
   const original = EpicSynth.prototype.play
@@ -223,8 +124,13 @@ test('the little sounds climb with the combo; the big ones keep their own pitch'
     assert.equal(clicks.length, 30)
     assert.equal(clicks[29]! > clicks[0]! * 1.4, true, `the 30th click is far higher than the first (${clicks[0]} → ${clicks[29]})`)
     assert.equal(plays.find(p => p.name === 'hire')?.pitch === undefined, true, 'the hire fanfare keeps its pitch')
-    assert.equal(plays.filter(p => p.name === 'combo').length >= 2, true, 'the milestones at 10 and 25 played their fanfares')
-  } finally { show.stop(); EpicSynth.prototype.play = original }
+    assert.equal(plays.some(p => p.name === 'combo'), false, 'no milestone fanfares')
+    clock.run(2500)
+    const from = plays.length
+    show.cue('click', { spot: at(10, 10) })
+    const reset = plays.slice(from).find(p => p.name === 'click')!.pitch ?? 1
+    assert.equal(reset < clicks[29]! / 1.4, true, 'the pitch resets after a quiet 2.5 s')
+  } finally { show.stop(); EpicSynth.prototype.play = original; clock.restore() }
 })
 
 test('streamed text plays each agent\'s pentatonic run, one note per gap', async () => {
