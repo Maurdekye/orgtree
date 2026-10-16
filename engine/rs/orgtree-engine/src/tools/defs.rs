@@ -703,7 +703,8 @@ fn all() -> Vec<Value> {
             "orgtree_work",
             "THE DOCKET: the org's durable record of substantive work, read by the user. Items survive retirement, \
              compaction and reassignment. An item is identified ONLY by its readable `slug` (fixed at creation). Access: \
-             owner, creator, their superiors, the user, listed participants and the reviewer.\n\n\
+             owner, creator, their superiors, the user, listed participants and the reviewer; an item attached to a \
+             PROJECT node (`project`) is co-owned, with full owner rights, by every agent above or below that project.\n\n\
              ACTIONS: `list` — items you may read; include_archived / include_backlogged return those in their own keys, \
              never inside `items` (`groups` gives every group's size). `get` — one item (compact by default; \
              projection=full adds history and attachments). `create` — title, REQUIRED objective, kind code|non-code, owner \
@@ -763,6 +764,7 @@ fn all() -> Vec<Value> {
                 "remove": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to drop" },
                 "dependencies": { "type": "array", "items": { "type": "string" }, "description": "create: items this one depends on" },
                 "parent": { "type": "string", "description": "create/move: the parent item (move with no parent un-nests)" },
+                "project": { "type": "string", "description": "create/update: attach the item to a project node you are above or below (every agent under it co-owns the item); \"\" detaches (owner rights)" },
                 "by": { "type": "string", "description": "supersede: the item that replaces this one" },
                 "target": { "type": "string", "description": "handoff: who should take it (default your superior)" },
                 "reason": { "type": "string", "description": "handoff: why" },

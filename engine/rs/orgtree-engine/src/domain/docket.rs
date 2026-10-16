@@ -47,9 +47,10 @@ const LIST_FIELDS: &[&str] = &[
     "post_completion", "status_at", "superseded_by", "parent", "parent_visible", "legacy_status", "blocked_reason",
     "waiting_reason", "dropped_reason", "participants", "reply_recipients", "archived", "archived_at", "owner_current",
     "owner_state", "questions", "superseded_by_visible", "effective_attention", "attention_sources", "dependencies",
+    "project",
 ];
 const SUMMARY_FIELDS: &[&str] = &[
-    "slug", "ref", "rev", "title", "kind", "status", "owner", "reviewer", "participants", "parent", "docket_at",
+    "slug", "ref", "rev", "title", "kind", "status", "owner", "reviewer", "participants", "parent", "docket_at", "project",
     "effective_attention", "attention_sources", "blocked_reason", "dropped_reason", "superseded_by", "archived",
     "parent_visible", "superseded_by_visible",
 ];
@@ -225,16 +226,49 @@ pub struct Ctx {
     /// every item's (title, status), for dependency and parent rows
     titles: HashMap<String, (String, String)>,
     /// Authorization headers; never included in a rendered item.
-    rights: HashMap<String, (Option<String>, Option<String>, Option<String>, Vec<String>)>,
+    rights: HashMap<String, (Option<String>, Option<String>, Option<String>, Vec<String>, Option<i64>)>,
+    /// node id -> (name, parent id, is a project), for the project an item is
+    /// attached to (docs/rust-engine/PROJECT-NODES.md, Docket)
+    nodes: HashMap<i64, (String, Option<i64>, bool)>,
+}
+
+/// The project node an item is attached to (USER 2026-10-16 20:23Z): every
+/// agent under it co-owns the item, and agents above it manage it too.
+#[nolog]
+fn project_of(it: &Item) -> Option<i64> {
+    it.extra["project_id"].as_i64()
+}
+
+/// Whether agent `me` reaches project `p`: the project is below it, or it is
+/// inside the project (the project is one of its ancestors).
+#[nolog]
+fn reaches_project(ctx: &Ctx, me: i64, under: &HashSet<i64>, p: i64) -> bool {
+    if under.contains(&p) {
+        return true;
+    }
+    let mut cur = ctx.nodes.get(&me).and_then(|n| n.1);
+    let mut guard = 0;
+    while let Some(id) = cur {
+        if id == p {
+            return true;
+        }
+        guard += 1;
+        if guard > 1024 {
+            break;
+        }
+        cur = ctx.nodes.get(&id).and_then(|n| n.1);
+    }
+    false
 }
 
 #[logged]
 pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
     let mut c = Ctx { org: org.slug.clone(), now: Utc::now(), ..Default::default() };
     for r in client
-        .query("SELECT name, id, state, parent_id FROM ot.agents WHERE org_id = $1 AND state <> 'deleted'", &[&org.id])
+        .query("SELECT name, id, state, parent_id, kind = 'project' FROM ot.agents WHERE org_id = $1 AND state <> 'deleted'", &[&org.id])
         .await?
     {
+        c.nodes.insert(r.get(1), (r.get(0), r.get(3), r.get(4)));
         c.agents.insert(r.get(0), (r.get(1), r.get(2), r.get(3)));
     }
     for r in client
@@ -259,7 +293,8 @@ pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
     let mut cursor = 0_i64;
     loop {
         let rows = client.query(
-            "SELECT slug, title, status, owner->>'node', created_by->>'node', reviewer->>'node', participants, id
+            "SELECT slug, title, status, owner->>'node', created_by->>'node', reviewer->>'node', participants, id,
+                    (extra->>'project_id')::bigint
                FROM ot.work_items WHERE org_id = $1 AND id > $2 AND NOT coalesce((extra->>'deleted')::boolean, false)
                ORDER BY id LIMIT 256",
             &[&org.id, &cursor],
@@ -270,7 +305,7 @@ pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
         for r in rows {
             cursor = r.get(7);
             c.titles.insert(r.get(0), (r.get(1), r.get(2)));
-            c.rights.insert(r.get(0), (r.get(3), r.get(4), r.get(5), r.get(6)));
+            c.rights.insert(r.get(0), (r.get(3), r.get(4), r.get(5), r.get(6), r.get(8)));
         }
     }
     Ok(c)
@@ -279,12 +314,14 @@ pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
 /// Keep link metadata only for items this viewer may read, including archives.
 #[logged]
 fn restrict_links(ctx: &mut Ctx, who: &Who, under: &HashSet<i64>) {
-    let Who::Agent { name, .. } = who else { return };
+    let Who::Agent { name, id, .. } = who else { return };
     let agents = &ctx.agents;
     let rights = &ctx.rights;
-    ctx.titles.retain(|slug, _| rights.get(slug).map(|(owner, creator, reviewer, parts)| {
+    let reach: HashSet<i64> = rights.values().filter_map(|r| r.4).filter(|p| reaches_project(ctx, *id, under, *p)).collect();
+    ctx.titles.retain(|slug, _| rights.get(slug).map(|(owner, creator, reviewer, parts, project)| {
         let manages = |n: &Option<String>| n.as_ref().map(|n| n == name || agents.get(n).map(|a| under.contains(&a.0)).unwrap_or(false)).unwrap_or(false);
         manages(owner) || manages(creator) || reviewer.as_ref() == Some(name) || parts.contains(name)
+            || project.map(|p| reach.contains(&p)).unwrap_or(false)
     }).unwrap_or(false));
 }
 
@@ -493,6 +530,10 @@ pub fn view(it: &Item, ctx: &Ctx, detail: Option<(&[Value], &[Value])>) -> Value
         "accepted": it.accepted,
         "superseded_by": it.superseded_by.as_ref().filter(|p| ctx.titles.contains_key(*p)),
         "superseded_by_visible": it.superseded_by.as_ref().map(|s| ctx.titles.contains_key(s)),
+        "project": project_of(it).and_then(|p| ctx.nodes.get(&p)).map(|n| json!({
+            "node": n.0,
+            "co_owners": format!("every agent under project {} co-owns this item with full owner rights", n.0),
+        })),
     });
     if let Some((history, attachments)) = detail {
         let mut history = history.to_vec();
@@ -695,7 +736,8 @@ pub async fn user_page(engine: &Engine, org: &OrgHandle, q: &PageQuery) -> Resul
           (SELECT string_agg(value,E'\\n') FROM jsonb_array_elements_text(done_so_far)),
           (SELECT string_agg(value,E'\\n') FROM jsonb_array_elements_text(working_on_next)))) AS hay
       FROM ot.work_items w WHERE org_id=$1 AND NOT coalesce((extra->>'deleted')::boolean,false)
-        AND ($4::text='' OR owner->>'node'=$4 OR reviewer->>'node'=$4)
+        AND ($4::text='' OR owner->>'node'=$4 OR reviewer->>'node'=$4
+             OR (extra->>'project_id')::bigint = (SELECT id FROM ot.agents WHERE org_id=$1 AND name=$4 AND kind='project' AND state <> 'deleted'))
         AND (cardinality($5::text[])=0 OR owner->>'node'=ANY($5))
     ), grouped AS (
       SELECT source.*, CASE
@@ -860,7 +902,41 @@ fn level(who: &Who, it: &Item, ctx: &Ctx, under: &HashSet<i64>) -> Level {
     if direct == Level::Manage || is_below(it.owner_name()) || is_below(it.creator_name()) {
         return Level::Manage;
     }
+    // attached to a project this agent is inside of or above: co-owner
+    if let (Who::Agent { id, .. }, Some(p)) = (who, project_of(it)) {
+        if reaches_project(ctx, *id, under, p) {
+            return Level::Manage;
+        }
+    }
     direct
+}
+
+/// Resolve the `project` argument of create/update: `None` when absent,
+/// `Some(None)` to detach (`""`, `none`, `null`), `Some(Some(id))` to attach
+/// to a live project the caller reaches.
+#[logged]
+async fn project_arg(client: &impl GenericClient, org: &OrgHandle, who: &Who, args: &Value) -> Result<Option<Option<(i64, String)>>> {
+    let raw = match &args["project"] {
+        Value::Null if args.get("project").is_some() => return Ok(Some(None)),
+        Value::Null => return Ok(None),
+        Value::String(s) => s.trim().trim_start_matches('@').to_string(),
+        _ => refuse!(BadRequest, "`project` is a project node's name, or \"\" to detach the item from its project"),
+    };
+    if raw.is_empty() || raw == "none" || raw == "null" {
+        return Ok(Some(None));
+    }
+    let Some(p) = crate::domain::projects::by_name(client, org.id, &raw).await? else {
+        refuse!(NotFound, "no project named {raw}; `project` takes a project node's name");
+    };
+    if p.state != "live" {
+        refuse!(Conflict, "project {} is retired", p.name);
+    }
+    if let Who::Agent { id, name, .. } = who {
+        if !crate::domain::projects::reaches(client, *id, p.id).await? {
+            refuse!(Forbidden, "{name} cannot attach an item to project {}: only agents above or below a project reach it", p.name);
+        }
+    }
+    Ok(Some(Some((p.id, p.name))))
 }
 
 /// Access granted by explicit docket ACL fields. Prose and mail references do not grant access.
@@ -871,6 +947,39 @@ fn explicit_access_level(me: &str, owner: Option<&str>, creator: Option<&str>, r
         Level::State
     } else {
         Level::None
+    }
+}
+
+#[cfg(test)]
+mod project_access_tests {
+    use super::{reaches_project, Ctx};
+    use std::collections::HashSet;
+
+    // boss(1) > website(2, project) > dev(3); boss > other(4); website > nested(5, project) > deep(6)
+    fn ctx() -> Ctx {
+        let mut c = Ctx::default();
+        for (id, name, parent, project) in [(1, "boss", None, false), (2, "website", Some(1), true), (3, "dev", Some(2), false),
+                                            (4, "other", Some(1), false), (5, "nested", Some(2), true), (6, "deep", Some(5), false)] {
+            c.nodes.insert(id, (name.to_string(), parent, project));
+        }
+        c
+    }
+
+    #[test]
+    fn agents_inside_a_project_reach_it_at_any_depth() {
+        let c = ctx();
+        assert!(reaches_project(&c, 3, &HashSet::new(), 2), "a child of the project co-owns its items");
+        assert!(reaches_project(&c, 6, &HashSet::new(), 2), "so does an agent inside a nested project");
+        assert!(reaches_project(&c, 6, &HashSet::new(), 5));
+    }
+
+    #[test]
+    fn agents_above_reach_it_and_agents_beside_do_not() {
+        let c = ctx();
+        let below_boss: HashSet<i64> = [2, 3, 4, 5, 6].into_iter().collect();
+        assert!(reaches_project(&c, 1, &below_boss, 2), "the agent above the project manages its items");
+        assert!(!reaches_project(&c, 4, &HashSet::new(), 2), "a peer beside the project does not");
+        assert!(!reaches_project(&c, 3, &HashSet::new(), 5), "an agent beside a nested project, inside its parent project, does not reach it");
     }
 }
 
@@ -891,7 +1000,8 @@ mod access_tests {
 /// Narrow event permission read; no item body, history or other private rows are projected.
 #[logged]
 pub(crate) async fn event_readable(client: &impl GenericClient, owner: i64, name: &str, org: i64, slug: &str) -> Result<bool> {
-    let r=client.query_one("WITH RECURSIVE down(id,name,depth) AS (SELECT id,name,0 FROM ot.agents WHERE id=$1 AND org_id=$3 UNION ALL SELECT a.id,a.name,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$3 AND d.depth<1024) SELECT EXISTS(SELECT 1 FROM ot.work_items WHERE org_id=$3 AND slug=$4 AND NOT coalesce((extra->>'deleted')::boolean,false) AND (owner->>'node' IN (SELECT name FROM down) OR created_by->>'node' IN (SELECT name FROM down) OR $2=ANY(participants) OR reviewer->>'node'=$2))", &[&owner,&name,&org,&slug]).await?;
+    // a project-attached item is readable from above or below its project
+    let r=client.query_one("WITH RECURSIVE down(id,name,depth) AS (SELECT id,name,0 FROM ot.agents WHERE id=$1 AND org_id=$3 UNION ALL SELECT a.id,a.name,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$3 AND d.depth<1024), up(id,depth) AS (SELECT parent_id,1 FROM ot.agents WHERE id=$1 AND parent_id IS NOT NULL UNION ALL SELECT a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.id WHERE a.parent_id IS NOT NULL AND u.depth<1024) SELECT EXISTS(SELECT 1 FROM ot.work_items WHERE org_id=$3 AND slug=$4 AND NOT coalesce((extra->>'deleted')::boolean,false) AND (owner->>'node' IN (SELECT name FROM down) OR created_by->>'node' IN (SELECT name FROM down) OR $2=ANY(participants) OR reviewer->>'node'=$2 OR (extra->>'project_id')::bigint IN (SELECT id FROM down WHERE depth>0) OR (extra->>'project_id')::bigint IN (SELECT id FROM up)))", &[&owner,&name,&org,&slug]).await?;
     Ok(r.get(0))
 }
 
@@ -1204,6 +1314,7 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         Some(p) => Some(checked_parent(tx, org, who, None, p).await?),
         None => None,
     };
+    let project = project_arg(tx, org, who, args).await?.flatten();
     let base = slugify(&title, SLUG_MAX);
     let mut slug = base.clone();
     let mut n = 2;
@@ -1228,9 +1339,14 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
             ],
         )
         .await?;
-    let it = item_of(&row);
+    let mut it = item_of(&row);
+    if let Some((pid, _)) = &project {
+        it.extra["project_id"] = json!(pid);
+        tx.execute("UPDATE ot.work_items SET extra = $2 WHERE id = $1", &[&it.id, &it.extra]).await?;
+    }
     post.events.push(crate::runtime::watchdogs::events::event("docket.created",crate::runtime::watchdogs::events::Scope::Docket(org.id,it.slug.clone()),json!({"slug":it.slug,"status":it.status})));
-    history(tx, &it, who, "create", json!({ "title": title, "status": status, "owner": owner_name })).await?;
+    history(tx, &it, who, "create", json!({ "title": title, "status": status, "owner": owner_name,
+        "project": project.as_ref().map(|p| p.1.clone()) })).await?;
     let mut notified = Value::Null;
     if let Some(o) = &owner_name {
         if Some(o.as_str()) != who.name() {
@@ -1507,8 +1623,13 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         attention_repeat_guard(&it, reason.as_deref().unwrap_or_default())?;
     }
     let reviewer = text_arg(args, "reviewer").map(|r| r.trim_start_matches('@').to_string());
+    let project = project_arg(tx, org, who, args).await?;
+    if project.is_some() && lv < Level::Manage {
+        refuse!(Forbidden, "attaching {} to a project or detaching it takes owner rights on the item", it.slug);
+    }
     let substantive = progress || status.is_some() || attention.is_some() || amend || title.is_some() || objective.is_some()
-        || objective_append.is_some() || reviewer.is_some() || reopen || blocked_reason.is_some() || dropped_reason.is_some();
+        || objective_append.is_some() || reviewer.is_some() || reopen || blocked_reason.is_some() || dropped_reason.is_some()
+        || project.is_some();
     if !substantive {
         refuse!(BadRequest, "nothing to update: send done_so_far and working_on_next, and any status, attention or scope change");
     }
@@ -1548,6 +1669,20 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         }
         it.reviewer = Some(json!({ "node": r, "generation": gen }));
         it.reviewer_id = Some(rid);
+    }
+    if let Some(p) = &project {
+        let before = project_of(&it).and_then(|id| ctx.nodes.get(&id)).map(|n| n.0.clone());
+        match p {
+            Some((pid, pname)) => {
+                it.extra["project_id"] = json!(pid);
+                notes.push(format!("attached to project {pname}: every agent under it co-owns the item"));
+            }
+            None => {
+                if let Some(o) = it.extra.as_object_mut() { o.remove("project_id"); }
+                if let Some(b) = &before { notes.push(format!("detached from project {b}")); }
+            }
+        }
+        history(tx, &it, who, "project", json!({ "from": before, "to": p.as_ref().map(|x| x.1.clone()) })).await?;
     }
     // each state's own reason: required on entry, cleared on the way out
     if it.status == "blocked" {
