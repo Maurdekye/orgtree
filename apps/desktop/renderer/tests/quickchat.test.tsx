@@ -357,7 +357,9 @@ test('Quick chat keeps the selected filtered superior as context instead of sele
   const agentList: { current: AgentListSource } = { current: (query, activeOnly) => ({
     map: agents, rows: trayRows(agents, { query, activeOnly }),
   }) }
-  const view = await mountView(<QuickChat slug="org" tree={tree} op={(async () => ({})) as never}
+  const selectionTree = { ...tree, roots: [node('coordinator-opus', 'live', [node('busy-child')])] }
+    as unknown as TreePayload
+  const view = await mountView(<QuickChat slug="org" tree={selectionTree} op={(async () => ({})) as never}
     toast={noop} onHired={noop} agentList={agentList}
     quickChatActiveAgentsOnly onQuickChatActiveAgentsOnly={noop} />, el => el)
   try {
