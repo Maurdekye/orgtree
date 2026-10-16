@@ -8,7 +8,7 @@ the agents under it work on it. A new watchdog kind, the **fair project mail que
 [decided: user 2026-10-16 16:09Z, 16:11Z, 16:13Z, 16:14Z, 20:21Z, 20:23Z; docket
 `project-nodes-in-the-org-hierarchy-with-a-fair-p`, whose description is the authoritative scope]
 
-Status: slice 1 is built (engine, agent tools, canvas). Sections marked **(deferred)** are not
+Status: slices 1 and 2 are built (engine, agent tools, canvas, docket). Sections marked **(deferred)** are not
 built yet.
 
 ## Data model
@@ -119,14 +119,26 @@ folders of the live projects in its subtree too (no `AGENTS.md` delivery).
 on the document). The project's card shows its documents; the org gallery lists them under the
 project's name.
 
-## Docket **(deferred to slice 2)**
+## Docket (slice 2)
 
 User 20:23Z: docket items may attach to a project, and every agent under the project then
-co-owns the item with full owner rights. Plan: `work_items.project_agent_id`; attach/detach by
-anyone with owner rights on the item who reaches the project; co-owner = any agent below the
-project; the assigned owner stays the one owner of record and user replies keep routing to it;
-the item shows "project <name> · co-owned by its agents" and appears in each co-owner's list and
-on the project's desk [user 20:23Z]. User replies keep routing to the assigned owner [user 20:40Z].
+co-owns the item with full owner rights.
+
+- Storage: `work_items.extra.project_id` (no migration). The project's name is resolved at read
+  time, so it follows a rename.
+- Attach/detach: `orgtree_work` create/update `project=<name>`, or `project=""` to detach. It needs
+  owner (manage) rights on the item, and to attach an agent must also reach the project. The user
+  may attach or detach anything.
+- Co-owners: every agent below the project gets manage rights on the item through `level()`. So
+  does every agent above it, since control of a project's activities belongs to the agents above
+  it too [ruling 2, user 20:40Z]. That covers list, get, update, assign, evidence, participants and
+  linked-item visibility, and `event_readable` for watchdog events.
+- The named owner stays the owner of record. Item-linked user replies keep going to it
+  [user 20:40Z, choice 6].
+- Display: `get`/`list` carry `project: {node, co_owners}`. The docket detail shows "Project
+  <name> · co-owned by its agents". The project's docket ("Open project docket" in its menu,
+  the per-node docket surface) lists its attached items: the page query's `agent` filter
+  matches a project's attached items.
 
 ## UI (first slice)
 
@@ -155,7 +167,8 @@ on the project's desk [user 20:23Z]. User replies keep routing to the assigned o
 
 ## Deferred
 
-Docket attach/co-ownership (slice 2); a user composer for project mail; `@org:`/`@net:` mail to
+A docket picker for attaching from the app (the user attaches through an agent or the API for
+now); a user composer for project mail; `@org:`/`@net:` mail to
 projects; undo-history entries for project operations; renaming a project or editing its
 description from the canvas (agents can `orgtree_rename` it); project-aware Quick chat and hire
 sheets; chart/docket visuals pending the user's answer.

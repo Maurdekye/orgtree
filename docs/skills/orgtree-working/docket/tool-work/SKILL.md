@@ -30,6 +30,8 @@ Requires `docket`. Use for substantive work whose scope, ownership, progress and
 
 Owner, creator, their superiors, participants, named reviewer and user can read. Owner/creator/their superiors/user have management rights. Participants/reviewer can change state/progress and add evidence, including completion; retitling, re-scoping, assignment, participants and nesting require management rights. Top-level agents do not automatically manage every peer's item. Prior ownership alone is not retained access after reassignment.
 
+**Project items.** `project=<name>` on create or update attaches an item to a project node you are above or below; `project=""` detaches it. Both take management rights on the item. While attached, every agent above or below the project co-owns it with full management rights, and it appears in their `list` and on the project's docket. The named owner stays the owner of record, and item-linked user replies still go to it. `get` shows `project` with the project's name. See [orgtree-projects](../../team/projects/SKILL.md).
+
 An empty list can mean access is missing: ask the owner to add you as a participant rather than create a duplicate. Adding a participant grants item access, not a mail audience or access to that agent's other work. Participation notices are passive and reach-checked; inspect noticed/noticed_deferred/notice_refused results. A membership mutation may succeed even when its notice cannot be sent.
 
 ## Parameters by purpose

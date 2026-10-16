@@ -24,6 +24,10 @@ A project's folder is `<data>\scratch\<org>\_teams\<project id>`. Every agent un
 
 Write to a project with `orgtree_message` to its name. Its mail wakes nobody: it waits in the project's mailbox until an agent that reaches the project watches it with an `orgtree_watchdog` of kind `fair_queue` (target: the project's name). Each waiting mail then goes to **exactly one** watcher, the least recently woken (one never woken first, ties to the oldest watcher), as ordinary mail from its original sender, marked as coming via the project; the project's copy is marked read. Busy, halted and frozen watchers keep their turn; the mail waits in their mailbox. The first watcher to arm gets any backlog. `orgtree_inbox action=list|fetch project=<name>` shows what waits without claiming it.
 
+## Docket items
+
+`orgtree_work` `project=<name>` (create or update) attaches a docket item to the project; `project=""` detaches it. Attaching or detaching takes owner rights on the item, and attaching also needs you to reach the project. While an item is attached, every agent above or below the project co-owns it with full owner rights (update, status, assign, evidence, participants). It appears in their own lists and on the project's docket ("Open project docket" in the project's menu). The named owner stays the owner of record, and item-linked user replies still go to it.
+
 ## Presentations
 
 `orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project.
