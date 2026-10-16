@@ -1277,7 +1277,9 @@ and the user reads it instead of transcripts: keep it true. List before you crea
 create one per new piece of substantive work (to 'dock' a feature is to create its item). The description states the \
 problem first, then the solution, and is the authoritative standalone scope: requirements and rulings go INTO it \
 (objective_append), never only into mail or progress lists. Update at meaningful boundaries with both done_so_far and \
-working_on_next. Use honest statuses: blocked needs a blocked_reason; review means review by AGENTS; dropped is \
+working_on_next. Before sending an assignment or exact-SHA review request, add the agent as participant or reviewer. \
+Mentioning an agent in the objective or mail grants no docket access. Use honest statuses: blocked needs a blocked_reason; \
+review means review by AGENTS; dropped is \
 terminal non-success, never walked through review; never mark unfinished work done. Your own update claims the item — \
 on someone else's item pass owner = its current holder. ";
 
@@ -1383,6 +1385,7 @@ mod trim_tests {
         assert!(s.contains("DOCUMENTS ARE PRESENTED, FILES ARE SENT (user rule 2026-10-09)"));
         assert!(s.contains("NEVER start a model on an account where a usage window that model spends is at 100%"));
         assert!(s.contains("THE DOCKET") && s.contains("problem") && s.contains("attention_reason"));
+        assert!(s.contains("Mentioning an agent in the objective or mail grants no docket access"));
         assert!(s.contains("BREADCRUMBS (user ruling 2026-08-12)") && s.contains("orgtree_watchdog"));
         assert!(s.contains("[ORGTREE MAIL — delivered mid-task]") && s.contains("REQUIRED: call orgtree_status"));
         assert!(s.contains("it does NOT message the user"));
