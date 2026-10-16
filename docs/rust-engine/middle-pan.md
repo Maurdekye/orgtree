@@ -46,7 +46,36 @@ missed-pan findings. Follow-up fixtures isolate saved camera/pins and provide
 scrollable geometry plus the reader's scroll event. Final tests also cover
 both layouts' actual pinned title/transcript, pointer ownership/cancel/loss,
 left/right event defaults and selection, and inbox/presentation cards. The
-corrected red/green pair and source typecheck await rig verification.
+final corrected pair is independently verified as described below.
+
+## Final independent verification (2026-10-16)
+
+Rig-sol-b measured identical test sources against RED `b131361` (product
+source identical to baseline `0168945`) and GREEN `b740140`:
+
+- GREEN: 70/70 passed, exit 0 in 12 seconds.
+- RED: 60 passed and 10 expected semantic failures, exit 1 in 10 seconds.
+- Neither run skipped or cancelled a test. All ten real desk/pin cases mounted.
+- Six desk header/transcript/composer cases across row and ring layouts failed
+  on the baseline's unchanged camera and passed on GREEN with a +55/+30 pan.
+- Four pinned header/transcript cases failed baseline pointer isolation and
+  passed on GREEN, including subsequent pan, scroll and rectangle checks.
+- Both layouts' left/right, selection, composer and wheel controls passed in
+  both builds. Inbox, presentation and the existing controls also passed.
+
+Strict source-and-test checking includes 840 files with no exclusions. GREEN
+has the same 830 diagnostics as the actual `0168945` baseline, with an empty
+normalized per-file diagnostic delta; this is baseline parity, not a clean
+strict run. The seven new fixture callback return errors were fixed. The
+previous root typecheck exit 0 carries forward because product source is
+byte-identical. No further runtime changes accompanied this receipt update.
+
+Final raw receipts are `desk-middle-pan-final/green4/tests.log` and
+`desk-middle-pan-final/red4/tests.log` in rig-sol-b's owned test output. Fixture
+isolation removes saved pins and camera state before invalidating the pin
+cache: `forgetPins` alone reloads persisted pins. A saved pin sends named
+navigation to that window instead of opening the canvas desk, which explained
+the earlier setup stops. The final tests assert an unpinned canvas target.
 
 Synthetic events and jsdom scroll dimensions do not measure physical browser
 autoscroll, native text-selection gestures or separate-window input. Those
