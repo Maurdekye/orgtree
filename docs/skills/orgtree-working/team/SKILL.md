@@ -18,6 +18,7 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-credits](credits/SKILL.md): Credits: seats, grants, free credits, cascading cost up the chain, and asking for more.
 - [orgtree-charters](charters/SKILL.md): Charters: your own charter, team charters, standing charters from superiors and org.md, and how they are delivered.
 - [orgtree-scope-and-permissions](scope-and-permissions/SKILL.md): What an agent may touch: folders, tool groups, native tools, MCP servers, permission modes and the sensitive-path gate.
+- [orgtree-projects](projects/SKILL.md): Project nodes: free tree nodes that run no turns, with a folder, a mailbox shared through the fair queue, and presentations.
 
 ## Tools
 
@@ -36,5 +37,6 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-tool-swap](tool-swap/SKILL.md): Swap the seats of two agents below you.
 - [orgtree-tool-self-subjugate](tool-self-subjugate/SKILL.md): Step down so a descendant takes your seat.
 - [orgtree-tool-list-tiers](tool-list-tiers/SKILL.md): Model tiers you can hire on and their seat prices.
+- [orgtree-tool-project](tool-project/SKILL.md): Create a project node under you, one of your reports, or a project you are inside.
 
 Tool calls and workflows are in orgtree-working; desktop screens and user settings are in orgtree-app. Cross-category references name the page and breadcrumb instead of linking outside the bundle.

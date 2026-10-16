@@ -8,7 +8,8 @@ the agents under it work on it. A new watchdog kind, the **fair project mail que
 [decided: user 2026-10-16 16:09Z, 16:11Z, 16:13Z, 16:14Z, 20:21Z, 20:23Z; docket
 `project-nodes-in-the-org-hierarchy-with-a-fair-p`, whose description is the authoritative scope]
 
-Status: design plus first slice. Sections marked **(deferred)** are not built yet.
+Status: slice 1 is built (engine, agent tools, canvas). Sections marked **(deferred)** are not
+built yet.
 
 ## Data model
 
@@ -61,6 +62,13 @@ Agents outside that line cannot reach it. With reach an agent may:
   create a nested project in it; hire under it or move its own reports into it when the credits
   come from its own allocation (see Cost: only an agent above the project can pay).
 
+**Creating one**: `create_project` (agents: `orgtree_project`). The parent defaults to the
+caller; agents must give `index`; only the user creates at the top level; an agent creates one
+only under itself, its reports or a project it is inside. `above=<node>` (the canvas's top-edge
+token) puts the project in that node's slot and moves the node, with its team, under it. It
+needs a superior hire's insertion authority. Scope and credits do not change because the
+project is transparent.
+
 Control means control over the **project node and its activities**, not over the other agents
 inside it: an agent in a project cannot retire its sibling. An agent cannot retire or dissolve a
 project that contains itself (that would archive the caller mid-turn); its superiors can.
@@ -70,8 +78,8 @@ project that contains itself (that would archive the caller mid-turn); its super
 
 - Mail to a project is an `ot.mail` row addressed to the project (`recipient_agent_id`), state
   `pending`. Nothing wakes for it.
-- **Inspection** (user 16:14Z): `orgtree_inbox action=list|fetch|conversation project=<name>`
-  shows the project's waiting (unread) mail without claiming it.
+- **Inspection** (user 16:14Z): `orgtree_inbox action=list|fetch project=<name>` shows the
+  project's waiting (unread) mail without claiming it.
 - Claiming happens only through fair-queue delivery.
 
 ## The fair project mail queue (`kind: fair_queue`)
@@ -122,10 +130,18 @@ on the project's desk [user 20:23Z]. User replies keep routing to the assigned o
 
 ## UI (first slice)
 
-- The canvas draws a project as its own card (project mark, name, description line, waiting
-  mail count, documents) in the tree like any node; no desk, no model, no turn controls.
-- Menus: New project (on agents, projects and the top level), Hire under, Presentations, Open
-  scratch folder, Rename, Retire.
+- The canvas draws a project as its own dashed card in the tree like any node: a folder mark,
+  its name, the first line of its description, the waiting-mail count and its documents. It has
+  no desk, model, credit bar or turn controls. A click opens its mailbox.
+- **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a light grey
+  square with a folder icon, alone on the outermost row. That covers the eye card, all four
+  edges of a card and a project's own strip. Its tooltip says "create a project … (free)" and
+  it has no seat price. It opens the New project form (a name and an optional description) and
+  places the project the way the agent tokens place a hire: under the card, beside it (create,
+  then the side hire's reorder) or above it, holding it (`above`).
+- Menus: agents get "New project here…" on the card and the Agents List row alike, and the eye
+  card gets "New project…". A project's own menu offers Open (mailbox, folder, presentations),
+  Hire under this project, New project here… and Retire project….
 - `orgtree_chart` and `orgtree_state_inspect` list projects with `kind: project`. How a project
   should look in the chart and on the docket is still with the user; this is provisional.
 
@@ -140,14 +156,24 @@ on the project's desk [user 20:23Z]. User replies keep routing to the assigned o
 ## Deferred
 
 Docket attach/co-ownership (slice 2); a user composer for project mail; `@org:`/`@net:` mail to
-projects; undo-history entries for project operations; project-aware Quick chat and hire
+projects; undo-history entries for project operations; renaming a project or editing its
+description from the canvas (agents can `orgtree_rename` it); project-aware Quick chat and hire
 sheets; chart/docket visuals pending the user's answer.
 
-## Test plan
+## Tests
 
-- Rust unit tests: `clamp` transparency, the watcher ranking, project tree bodies, project team
-  labels, `fair_queue` argument validation.
-- Rig proof `tools/rig/proofs/project-nodes.mjs`: create a project, hire under it, mail it with
-  no watcher (waits; inspection shows it unclaimed), two watchers alternate least-recently-woken
-  first, a halted watcher still receives, present under the project, the child's prompt carries
-  the project's AGENTS.md, a project never gets an actor.
+- Rust unit tests: `clamp` transparency (`scope`), the watcher ranking and round robin
+  (`projects`), the project tree body (`tree`).
+- Rig proof `tools/rig/proofs/project-nodes.mjs` (41 checks; debug engine, fake CLI, scratch
+  DB). It covers:
+  - creating a project and its fields, and that it gets no turns;
+  - mail waiting with no watcher, inspection without claiming, the backlog going to the first
+    watcher, round robin, and a halted watcher keeping its turn;
+  - transparent credits and the refused hire from below;
+  - present under a project;
+  - the superior, the project's AGENTS.md and PROJECTS BELOW YOU in prompts, status notices
+    and the mail rules through a project;
+  - retire, rename and agent-only refusals;
+  - wrapping a node with `above`.
+- Renderer: `tests/projecttoken.test.tsx` (the hire token) and `tests/projectnode.test.tsx`
+  (the form, the card, the menus). Both are red at base 88e029a.

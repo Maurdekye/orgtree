@@ -15,10 +15,12 @@ Use to recover your own mail context, especially after a fresh session or compac
 
 | Action | Fields and defaults | Returned content |
 | --- | --- | --- |
-| `list` | Optional `limit`, default 50, clamped to 1–200; optional `cursor`. | Your pending/delivering mail in ID order, with IDs, sender, kind, time, state, notice flag and previews. |
+| `list` | Optional `limit`, default 50, clamped to 1–200; optional `cursor`; optional `project`. | Your pending/delivering mail in ID order, with IDs, sender, kind, time, state, notice flag and previews. |
 | `conversation` | Required `peer`; optional `limit`, default 20, clamped to 1–100; optional `cursor`. | Both directions with one correspondent, newest page first, oldest to newest within that page. Previews only. |
-| `fetch` | Required `message_ids`, one to twenty strings; duplicate IDs collapse. | Mail you received or sent, including your own outside sends; first content chunk plus metadata, attachments and replies. |
+| `fetch` | Required `message_ids`, one to twenty strings; duplicate IDs collapse; optional `project`. | Mail you received or sent, including your own outside sends; first content chunk plus metadata, attachments and replies. |
 | `chunk` | Required `delivery_id`, `message_id`, zero-based nonnegative `chunk_index`. | One content chunk from the immutable fetched message. |
+
+`project=<name>` (list and fetch only) reads a project node's mailbox instead of yours: the mail still waiting there for a `fair_queue` watcher. It claims nothing, so the mail stays waiting. Only the user and agents above or below the project may read it ([orgtree-projects](../../team/projects/SKILL.md)).
 
 `peer` accepts an agent name, `user`, `@org:<slug>` or `@net:<address>`. Historical agent mail can remain readable after retirement/deletion. You cannot select yourself as the correspondent. Bare outside-name resolution follows [mail routing](../tool-message/SKILL.md); prefer explicit prefixes to avoid ambiguity.
 

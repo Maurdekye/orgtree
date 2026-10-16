@@ -19,6 +19,7 @@ Required tool group: `user`, through the ancestor chain. Presenting also require
 | `body` | Markdown text, at most 64 KiB of UTF-8 bytes. Use exactly one of body or path. |
 | `path` | Existing `.md`/`.markdown`, or `.html`/`.htm`, instead of body. Relative paths start at your scratch folder; absolute paths still require authority. |
 | `replaces` | Optional existing presentation ID belonging to you in this org. Updates that card in place instead of creating another. Empty value behaves as omitted. |
+| `project` | Optional project node name. The card goes under that project instead of beside your seat; you must be above or below the project ([orgtree-projects](../../team/projects/SKILL.md)). |
 
 Minimal call:
 

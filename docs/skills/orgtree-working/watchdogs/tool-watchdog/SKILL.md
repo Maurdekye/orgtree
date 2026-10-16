@@ -16,8 +16,8 @@ The effective tool permission is `tools.orgtree.watchdogs`. The owner is the cal
 | Parameter | Applies to | Default / meaning |
 |---|---|---|
 | `action` | All calls; required | `create`, `list`, `pause`, `resume`, or `remove`. |
-| `kind` | Create; required | `file`, `command`, `process`, `stream`, `activity`, or `event`. |
-| `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, or event name/prefix. |
+| `kind` | Create; required | `file`, `command`, `process`, `stream`, `activity`, `event`, or `fair_queue`. |
+| `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, event name/prefix, or a project's name for `fair_queue`. |
 | `name` | Create | Optional short name; its normalized slug becomes the owner-local ID. |
 | `pattern` | Create | Regex. Required for `command`; optional otherwise. Process down edges do not use it. |
 | `interval_s` | Create | Default 60 seconds; poll cadence for file/command/process, minimum fire gap for stream/activity/event. Floor 15 seconds for pollers, 5 seconds for pushed/streamed kinds; capped at 2,147,483,647 seconds. |
@@ -70,6 +70,10 @@ In silence mode, an exited stream remains armed and its silence clock can keep f
 `target` is your own name or a live descendant, optionally prefixed `@`. Events are `turn_started`, `turn_done`, and `tool_call NAME`, with no arguments or result text. An optional regex selects those lines. This watches pushed activity, not a command.
 
 The self/descendant relationship is rechecked before a fire. If the subject is no longer permitted/live, the dog can pause with a diagnostic. To watch a visible peer's permitted engine transitions, consider the event kind instead; activity authority remains self/downward only.
+
+### fair_queue
+
+`target` is a project node above or below you. Its mail waits in the project's mailbox until at least one agent watches it this way. Each waiting mail then goes to exactly one watcher: the least recently woken (one never woken first; ties go to the oldest watcher). It arrives as ordinary mail from its original sender, marked as coming via the project, and the project's copy is marked read. Busy, halted and frozen watchers keep their turn, so the mail waits in their mailbox. The first watcher to arm gets any backlog. A `pattern`, silence mode and `shell` are refused. A `once` dog takes one mail and is then spent. See [orgtree-projects](../../team/projects/SKILL.md).
 
 ### event
 

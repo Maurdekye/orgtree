@@ -5,10 +5,10 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 167,
-  "tools": 44,
-  "concepts": 46,
-  "total": 187
+  "leaves": 169,
+  "tools": 45,
+  "concepts": 47,
+  "total": 189
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -22,7 +22,8 @@
   "usage-query-sol": 1,
   "rig-opus": 1,
   "session0-docs-luna": 1,
-  "machine-traps-sol": 1
+  "machine-traps-sol": 1,
+  "project-nodes-opus": 2
  },
  "nodes": [
   {
@@ -90,12 +91,14 @@
     "tool-swap",
     "tool-self-subjugate",
     "tool-list-tiers",
+    "tool-project",
     "hiring",
     "delegating",
     "team-shape",
     "credits",
     "charters",
     "scope-and-permissions",
+    "projects",
     "tool-org-logo"
    ],
    "writer": "org-sol",
@@ -741,6 +744,66 @@
    ],
    "writer": "org-sol",
    "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/projects",
+   "name": "orgtree-projects",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [],
+   "purpose": "Project nodes: free tree nodes that run no turns, with a folder, a mailbox shared through the fair queue, and presentations.",
+   "must_cover": [
+    "who reaches a project (above and below only)",
+    "reporting and transparent credits through a project",
+    "the project folder and its AGENTS.md",
+    "the mailbox, the fair_queue watchdog and inspection without claiming",
+    "presentations under a project"
+   ],
+   "sources": [
+    "docs/rust-engine/PROJECT-NODES.md",
+    "engine/rs/orgtree-engine/src/domain/projects.rs",
+    "engine/rs/orgtree-engine/src/runtime/watchdogs.rs run_fair_queue",
+    "engine/rs/orgtree-engine/migrations/0025_project_nodes.sql"
+   ],
+   "see_also": [
+    "tool-project",
+    "team-shape",
+    "credits"
+   ],
+   "writer": "project-nodes-opus",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-project",
+   "name": "orgtree-tool-project",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_project"
+   ],
+   "tool_group": "team",
+   "purpose": "Create a project node: a free, turn-less node with its own folder, mailbox and presentations.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs orgtree_project",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"create_project\")",
+    "engine/rs/orgtree-engine/src/domain/ops.rs create_project"
+   ],
+   "writer": "project-nodes-opus",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "projects",
+    "hiring",
+    "credits"
+   ]
   },
   {
    "path": "orgtree-working/docket",
@@ -3119,7 +3182,9 @@
    "sources": [
     "apps/desktop/renderer/src/canvas/cards.tsx:1023",
     "apps/desktop/renderer/src/canvas/cards.tsx:648",
-    "apps/desktop/renderer/src/canvas/modals.tsx:563"
+    "apps/desktop/renderer/src/canvas/modals.tsx:563",
+    "apps/desktop/renderer/src/canvas/newproject.tsx",
+    "apps/desktop/renderer/src/canvas/projectcard.tsx"
    ],
    "see_also": [
     "hiring",
@@ -3129,7 +3194,8 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/canvas/modals.tsx#DraftScopeModal",
-    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet"
+    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet",
+    "apps/desktop/renderer/src/canvas/newproject.tsx#NewProjectModal"
    ],
    "ui_dynamic_labels": [
     {

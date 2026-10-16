@@ -1,5 +1,22 @@
 # AGENTS.md — working on Orgtree
 
+- Project nodes (4.4.0) are `ot.agents` rows with `kind = 'project'`: free tree nodes that run
+  no turns, with a folder (`_teams/<id>`), a mailbox and presentations. Invariants:
+  - Every query that picks agents to run, warm, notify, remind or count filters
+    `kind = 'agent'`.
+  - An agent's superior is `ot.superior_of(id)`, its nearest agent ancestor, not `parent_id`.
+  - A project's scope is transparent: `scope::clamp` passes its parent's scope through.
+  - Its `grant_credits` mirrors its live children's stake and is re-settled by
+    `projects::settle_credits` at the end of every `run_in_tx`, so costs go to the nearest
+    agent above (user 2026-10-16 20:40Z).
+  - Project mail reaches agents only through `fair_queue` dogs: one watcher per mail, the
+    least recently woken first.
+  - New awaits on the actor's turn path (`load_ctx`, `mail::send`) are `Box::pin`ned. Inline,
+    they overflowed the debug engine thread's stack at turn start.
+  Design and rulings: [project nodes](docs/rust-engine/PROJECT-NODES.md).
+  [decided: user 2026-10-16 16:11Z–21:02Z; verified: `domain/projects.rs`, `domain/ops.rs`,
+  `runtime/actor.rs`, migration 0025]
+
 - Renderer agent links show one shared identity tooltip after about 500 ms,
   including provider account; absent values are `Unknown`, chosen draft models
   show effort `(not started)`, and archived models carry `(retired)`. The shared

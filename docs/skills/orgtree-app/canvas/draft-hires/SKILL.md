@@ -28,6 +28,10 @@ Apply returns to the draft; only final Hire creates the seat. The final engine o
 
 Default-setting details belong to [Hire defaults: scope](../../org-settings/org-hire-defaults-scope/SKILL.md), [folders](../../org-settings/org-hire-defaults-folders/SKILL.md) and [tools](../../org-settings/org-hire-defaults-tools/SKILL.md), rather than a copied price/default table here.
 
+## Projects
+
+Every hire strip also has a **project token**: a light grey square with a folder icon, alone on the strip's outermost row. Its tooltip says "create a project … (free)" and names where the project lands. It opens the New project form (a name and an optional description) instead of a draft. The project lands where the strip points: under the card, beside it (it is created and then moved to that side), or above it, taking the card's place and holding it. The eye card's token and "New project…" entry create one at the top level. "New project here…" in a card's or an Agents List row's menu does the same under that node. A project costs no seat, so no grant bar is shown. On the canvas a project is a dashed card with a folder mark, its description and its waiting mail. Clicking it opens its mailbox, and its menu offers its folder, presentations, hires and nested projects under it, and Retire. For what a project is, see `orgtree-projects` (orgtree-working › team).
+
 ## See also
 
 - `orgtree-hiring` (orgtree-working › team)
