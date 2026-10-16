@@ -255,6 +255,11 @@ impl AgyProc {
     pub fn hosted_in(&self) -> Option<u32> {
         self.child.as_ref().and_then(|c| c.session())
     }
+
+    /// The sign-in helper that started it.
+    pub fn host(&self) -> Option<crate::runtime::session_host::Host> {
+        self.child.as_ref().and_then(|c| c.host())
+    }
 }
 
 #[derive(Clone)]

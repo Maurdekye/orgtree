@@ -146,6 +146,7 @@ impl OpenCodeProc {
     /// Started by the sign-in helper in the user's session.
     pub fn hosted(&self) -> bool { self.inner.hosted() }
     pub fn hosted_in(&self) -> Option<u32> { self.inner.hosted_in() }
+    pub fn host(&self) -> Option<crate::runtime::session_host::Host> { self.inner.host() }
     pub async fn exit_status(&mut self, reason: &str) -> String { self.inner.exit_status(reason).await }
     pub async fn close(&mut self) {
         if self.active.load(Ordering::Acquire) { self.interrupt(); }

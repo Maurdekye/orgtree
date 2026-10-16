@@ -157,6 +157,11 @@ impl Process {
         self.child.as_ref().and_then(|c| c.session())
     }
 
+    /// The sign-in helper that started it.
+    pub fn host(&self) -> Option<crate::runtime::session_host::Host> {
+        self.child.as_ref().and_then(|c| c.host())
+    }
+
     pub async fn exit_status(&mut self, reason: &str) -> String {
         super::session_host::exit_status(&mut self.child, self.pid, self.process, reason).await
     }

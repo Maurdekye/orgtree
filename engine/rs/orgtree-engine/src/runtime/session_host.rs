@@ -178,6 +178,14 @@ pub struct HostSession {
     pub active: bool,
 }
 
+/// The sign-in helper that started a CLI: the user's session the CLI runs in,
+/// and the helper's pid and process creation stamp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Host {
+    pub session: u32,
+    pub helper: (u32, u64),
+}
+
 /// A stored or requested preference: `signed-in` (or nothing), `session0`, a
 /// kind (`console`, `remote`), or an ordered list of kinds, which may name
 /// `signed-in` for any; a comma-separated string is a list too.
@@ -347,6 +355,14 @@ impl Launched {
         }
     }
 
+    /// The sign-in helper that started it.
+    pub fn host(&self) -> Option<Host> {
+        match &self.kind {
+            Kind::Hosted(h) => Some(h.host()),
+            Kind::Local(_) => None,
+        }
+    }
+
     pub fn alive(&mut self) -> bool {
         match &mut self.kind {
             Kind::Local(c) => matches!(c.try_wait(), Ok(None)),
@@ -424,6 +440,8 @@ mod win {
         pub pid: u32,
         /// the user's session it runs in, whose helper started it
         pub session: u32,
+        /// that helper: its pid and process creation stamp
+        helper: (u32, u64),
         created: u64,
         /// SYNCHRONIZE + query (+ terminate and set-quota when granted); 0 if none
         process: usize,
@@ -479,7 +497,7 @@ mod win {
         env: &[(String, String)],
     ) -> std::result::Result<(Io, Hosted), String> {
         let bridge = &engine.credential_bridge;
-        let helper = bridge.host_pid_in(session).ok_or("host-gone")?;
+        let helper = bridge.helpers().into_iter().find(|(s, _)| *s == session).map(|(_, h)| h).ok_or("host-gone")?;
         let base = format!(r"\\.\pipe\orgtree-cli-{}", uuid::Uuid::new_v4().simple());
         let names = [format!("{base}-in"), format!("{base}-out"), format!("{base}-err")];
         let stdin = serve(&names[0], false)?;
@@ -499,13 +517,13 @@ mod win {
         if process.is_null() {
             process = unsafe { OpenProcess(wait, 0, pid) };
         }
-        let hosted = Hosted { pid, session, created, process: process as usize, engine: engine.clone() };
+        let hosted = Hosted { pid, session, helper, created, process: process as usize, engine: engine.clone() };
         let connected = async {
             if hosted.process == 0 {
                 return Err("host-process".to_string());
             }
             for p in [&stdin, &stdout, &stderr] {
-                accept(p, helper).await?;
+                accept(p, helper.0).await?;
             }
             Ok(())
         }
@@ -530,6 +548,11 @@ mod win {
 
     #[nolog]
     impl Hosted {
+        /// The helper that started it.
+        pub fn host(&self) -> Host {
+            Host { session: self.session, helper: self.helper }
+        }
+
         /// Its tree in an engine job too, when Windows lets this engine hold
         /// one (the helper's job ends it either way).
         pub fn job(&self) -> Option<winproc::ChildJob> {
@@ -614,6 +637,7 @@ mod other {
     pub struct Hosted {
         pub pid: u32,
         pub session: u32,
+        pub helper: (u32, u64),
     }
     #[nolog]
     pub async fn start_hosted(_: &Arc<Engine>, _: u32, _: &str, _: &[String], _: &str, _: &[(String, String)]) -> std::result::Result<(Io, Hosted), String> {
@@ -621,6 +645,9 @@ mod other {
     }
     #[nolog]
     impl Hosted {
+        pub fn host(&self) -> Host {
+            Host { session: self.session, helper: self.helper }
+        }
         pub fn job(&self) -> Option<winproc::ChildJob> {
             None
         }

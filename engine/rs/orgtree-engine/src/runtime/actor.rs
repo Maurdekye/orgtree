@@ -337,6 +337,14 @@ fn continues_in_session0(hosted: bool, in_turn: bool, deliberate: bool) -> bool 
     hosted && in_turn && !deliberate
 }
 
+/// Whether the sign-in helper that started a CLI (`host`) has gone, given
+/// the live helpers (`live`: session, then the helper's pid and process
+/// creation stamp): today only when no helper is left at all.
+#[logged]
+fn helper_gone(_host: crate::runtime::session_host::Host, live: &[(u32, (u32, u64))]) -> bool {
+    live.is_empty()
+}
+
 /// Where an agent's last turn ran (`ot.agents.extra->>'session'`).
 const SIGNED_IN: &str = "signed-in";
 const SESSION0: &str = "session0";
@@ -539,6 +547,18 @@ impl Proc {
             Proc::Agy(p) => p.hosted_in(),
             Proc::Muse(p) => p.hosted_in(),
             Proc::Acp(p) => p.hosted_in(),
+        }
+    }
+
+    /// The sign-in helper that started it.
+    #[nolog]
+    fn host(&self) -> Option<crate::runtime::session_host::Host> {
+        match self {
+            Proc::Claude(p) => p.host(),
+            Proc::Codex(p) => p.host(),
+            Proc::Agy(p) => p.host(),
+            Proc::Muse(p) => p.host(),
+            Proc::Acp(p) => p.host(),
         }
     }
 
@@ -2746,11 +2766,13 @@ impl Actor {
         json!({ "interrupted": true, "restart": restart })
     }
 
-    /// Whether the sign-in helper is gone, given `SESSION_GONE_WAIT` to go.
-    async fn session_gone(&self) -> bool {
+    /// Whether the sign-in helper that started the CLI (`host`) is gone,
+    /// given `SESSION_GONE_WAIT` to go.
+    async fn session_gone(&self, host: Option<crate::runtime::session_host::Host>) -> bool {
+        let Some(host) = host else { return false };
         let until = Instant::now() + SESSION_GONE_WAIT;
         loop {
-            if !self.engine.credential_bridge.can_host() {
+            if helper_gone(host, &self.engine.credential_bridge.helpers()) {
                 return true;
             }
             if Instant::now() >= until {
@@ -6326,7 +6348,7 @@ impl Actor {
         crate::net::typing::stop_agent(&self.engine, self.id);
         self.engine.credential_bridge.revoke(self.id);
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
-        let hosted = self.proc.as_ref().is_some_and(|p| p.hosted());
+        let host = self.proc.as_ref().and_then(|p| p.host());
         let pid = self.proc.as_ref().map(|p| p.pid()).unwrap_or(0);
         self.proc = None;
         self.proc_print = None;
@@ -6349,7 +6371,7 @@ impl Actor {
         // the user, 2026-10-16 11:03Z). Windows ended the CLI, not this engine:
         // the kill record says so, with its exit status.
         let deliberate = self.turn.as_ref().is_some_and(|t| t.interrupted || t.killed) || self.stopping;
-        let session_ended = continues_in_session0(hosted, self.turn.is_some(), deliberate) && self.session_gone().await;
+        let session_ended = continues_in_session0(host.is_some(), self.turn.is_some(), deliberate) && self.session_gone(host).await;
         if let Some(t) = self.turn.as_mut() {
             t.exited = true;
             t.session_ended = session_ended;
@@ -8220,5 +8242,34 @@ mod session_end_tests {
         assert!(!continues_in_session0(true, true, true), "a deliberate end never resumes");
         assert!(!continues_in_session0(false, true, false), "a CLI the engine started ends with no session");
         assert!(!continues_in_session0(true, false, false), "no turn, nothing to resume");
+    }
+
+    use crate::runtime::session_host::Host;
+    const B: Host = Host { session: 7, helper: (700, 11) };
+    const A: (u32, (u32, u64)) = (2, (200, 22));
+
+    /// rig-sol-b's finding on 0bc97a4 (2026-10-16 13:27Z): with helpers in two
+    /// of the user's sessions, a CLI whose own helper went (its session ended)
+    /// while the other stays must see its session end, so its cut turn resumes.
+    #[test]
+    fn a_cli_sees_its_own_helper_go_while_another_stays() {
+        assert!(helper_gone(B, &[A]));
+    }
+
+    /// The same: a later helper in its session, or a later process with its
+    /// helper's pid, is not the helper that started it.
+    #[test]
+    fn a_later_helper_in_its_session_is_not_its_own() {
+        assert!(helper_gone(B, &[A, (7, (701, 33))]), "another helper in session 7");
+        assert!(helper_gone(B, &[A, (7, (700, 44))]), "a later process with B's pid");
+    }
+
+    /// While its own helper hosts, its exit is no session end; with no helper
+    /// left it is.
+    #[test]
+    fn its_own_live_helper_keeps_it() {
+        assert!(!helper_gone(B, &[A, (7, (700, 11))]));
+        assert!(!helper_gone(B, &[(7, (700, 11))]));
+        assert!(helper_gone(B, &[]));
     }
 }

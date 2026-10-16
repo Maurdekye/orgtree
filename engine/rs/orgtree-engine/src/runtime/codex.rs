@@ -503,6 +503,11 @@ impl CodexProc {
         self.hosted.as_ref().map(|h| h.session)
     }
 
+    /// The sign-in helper that started it.
+    pub fn host(&self) -> Option<crate::runtime::session_host::Host> {
+        self.hosted.as_ref().map(|h| h.host())
+    }
+
     pub fn alive(&mut self) -> bool {
         if let Some(h) = &self.hosted {
             return h.alive();

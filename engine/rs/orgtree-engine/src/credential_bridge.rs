@@ -115,6 +115,14 @@ impl HostLeases {
         out.sort();
         out
     }
+    /// The live leases with their holders: (session, (helper pid, process
+    /// creation stamp)), by session.
+    fn helpers(&self) -> Vec<(u32, (u32, u64))> {
+        let v = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let mut out: Vec<(u32, (u32, u64))> = v.iter().filter(|(_, c)| live(c)).map(|(s, c)| (*s, (c.pid, c.created))).collect();
+        out.sort();
+        out
+    }
 }
 struct Grant {
     secret: String,
@@ -199,6 +207,12 @@ impl Bridge {
     /// The live helpers: (Windows session, helper pid), by session.
     pub fn hosting(&self) -> Vec<(u32, u32)> {
         self.hosts.hosting()
+    }
+    /// The live helpers with their process creation stamps: (Windows
+    /// session, (helper pid, stamp)), by session. The stamp tells a helper
+    /// from a later process with the same pid.
+    pub fn helpers(&self) -> Vec<(u32, (u32, u64))> {
+        self.hosts.helpers()
     }
     /// The pid of the helper hosting `session`, which connects the pipes of
     /// a CLI it starts.
