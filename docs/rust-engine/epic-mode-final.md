@@ -202,6 +202,23 @@ for 14 s, and an afterglow where every medium or heavy event happened (8, 12 or
 2026-10-15: "more lingering effects that remain on screen for longer"; see
 [Lingering effects and the loop's slow lane](#lingering-effects-and-the-loops-slow-lane-2026-10-15)).
 
+**Progression.** The show builds up over the session (user 2026-10-15: "more
+progressive idle game mechanics, things that build up over time with more
+momentum and have recursive effects on each other"). Each staged event adds its
+weight to the session's momentum, times a multiplier that grows with it up to
+×3, so a busy spell snowballs; momentum halves every 45 s. An event's lift (its
+multiplier, raised by its agent's own charge) makes it bigger: up to twice the
+particles, marks that linger up to twice as long, shakes, blurs and afterglows
+up to half as strong again (within the caps and the comfort bounds), and the
+little sounds up to three semitones higher. A message spark between two
+charged agents combines their charges. The session's total unlocks extras one
+at a time, each announced once above the badge: embers after heavy events,
+word afterimages, echo rings, and an aurora along the window's edges while
+momentum is high. Crossing a momentum tier makes what lingers flare once. It
+is all numbers decayed from timestamps, with no timer, kept for the app
+session (see
+[Progression: momentum, charge, level and chains](#progression-momentum-charge-level-and-chains-2026-10-15)).
+
 **Budgets.** At most 2,600 particles and 160 actors per window. One frame loop
 per window, running only while something is alive, and at 15 frames a second
 while only lingering marks or the combo badge are. A frame over 12 ms thins
@@ -230,6 +247,8 @@ below is the effect's own, and the stronger of the two plays.
 | Switched off | The window collapses like an old picture tube | Power-down whine (`epicOff`) |
 | Combo of 3 or more | The corner badge (112 × 30 px, bottom right): the rank, **×N** and a 2 px decay bar | The little sounds climb with it |
 | Combo reaches 10/25/50/100/200/400 | The badge names the new rank (HYPER-STREAK, OVERDRIVE, HYPERDRIVE, SUPERNOVA, ABSOLUTE CHAOS, CACOPHONY MAXIMA) and flares; a small ring and a few stars leave it | Brass run into a held chord, timpani, crash, shimmer, pitched up per rank, at 0.4 of its gain (`combo`) |
+| An extra unlocked (the session's total reaches 25, 75, 200, 500) | A small note above the badge, in and out within 3 s: **UNLOCKED · EMBERS**, then **AFTERIMAGES**, **ECHO RINGS**, **AURORA** | — |
+| Momentum crosses a tier (10, 30, 60, 100) | What lingers flares once: a quick gold glow over each of the newest marks, afterglows built up | — |
 
 ### Agents and the org chart
 
@@ -652,7 +671,7 @@ changed, which the captures do not exercise.
 | Green (tip) | 64 of 64 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9, urgent 7, comfort 2 |
 | Before (`f1eed04`) | 57 of 64 pass. The seven that fail are the five alarm tests and the two flash-rate tests |
 | Red (`b77512f`) and Opus (`fdd645f`) controls | Not executed: their bundles no longer build, because the tip's `canvas/modals.tsx` imports `refreshSkills` and `refreshGlobalInstructions`, which their `api.ts` lacks |
-| Urgent capture (`93f201d`) | Passed in Charcoal and Light: the corner's redness 70 and 72 at a pulse's peak, 21 and 22 at a trough, 70 and 72 at a peak 3.6 s on, 0 after the 8 s end; the middle's 26 and 25. 57 PNGs, no console errors |
+| Urgent capture (`93f201d`) | Passed in Charcoal and Light: the corner's redness 70 and 72 at a pulse's peak, 21 and 22 at a trough, 70 and 72 at a peak 3.6 s on, 0 after the 8 s end; the middle's 26 and 25. 57 PNGs, and no console errors in the wheel section, the only part of the capture that listens for them |
 | Urgent capture (`f1eed04`) | Failed as expected: no redness at any moment, in either theme |
 
 ### More shake and blur within comfort bounds; a small corner badge (2026-10-15)
@@ -763,7 +782,7 @@ late-frame test came from it.
 | Before (`0cb2502`) | 62 of 73 pass. The eleven that fail are the nine new comfort tests (the flash flood, the flicker, the late frame, the three shake bounds, reduced motion, the blur and the shakes by weight) and the two combo tests that now expect the badge |
 | Before the frame-timed onsets (`86206b6`) | 72 of 73 pass: only the late-frame test fails, its dip showing 264 ms after the flash |
 | Red (`b77512f`) and Opus (`fdd645f`) controls | Not executed: their bundles no longer build (see the previous section) |
-| Capture (tip) | Passed. Blur, in Charcoal: at the peak of the whole-window blur the middle keeps 0.10 of its sharpness and the inbox bell 0.30; at the peak of the edge blur the bell keeps 0.22 and the middle 0.95; both come back to 1.00, with no blur layer left. The urgent section as before (the corner's redness 71 at a peak in both themes, 21 and 22 at a trough, 0 after the end). 62 PNGs, no console errors |
+| Capture (tip) | Passed. Blur, in Charcoal: at the peak of the whole-window blur the middle keeps 0.10 of its sharpness and the inbox bell 0.30; at the peak of the edge blur the bell keeps 0.22 and the middle 0.95; both come back to 1.00, with no blur layer left. The urgent section as before (the corner's redness 71 at a peak in both themes, 21 and 22 at a trough, 0 after the end). 62 PNGs, and no console errors in the wheel section, the only part of the capture that listens for them |
 | Capture (`0cb2502`) | Failed as expected at the blur section: the stage there has no `blur`, so the fixture's call throws. The 58 shots before it were taken |
 
 ### Lingering effects and the loop's slow lane (2026-10-15)
@@ -854,8 +873,108 @@ visual-before):
 | Green (tip) | 84 of 84 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9, urgent 7, comfort 11, linger 11 |
 | Before (`786f727`) | 73 of 84 pass. The eleven that fail are the lingering suite's |
 | Red (`b77512f`) and Opus (`fdd645f`) controls | Not executed: their bundles no longer build (see [Attention and halt flash at most three a second](#attention-and-halt-flash-at-most-three-a-second-2026-10-15)) |
-| Capture (tip) | Passed. Lingering, in Charcoal: 6 s on, the share of pixels changed was 63% at the frost, 2.6% at the cracks, 5.8% at the scorch mark, 71% at the afterglow and 25% along the floor; 13 s on, 21% at the frost and 16% along the floor; 31 s on, none anywhere, nothing left and no frame drawn for a second. While only marks were left the stage drew 10.5 frames a second. 67 PNGs, no console errors |
+| Capture (tip) | Passed. Lingering, in Charcoal: 6 s on, the share of pixels changed was 63% at the frost, 2.6% at the cracks, 5.8% at the scorch mark, 71% at the afterglow and 25% along the floor; 13 s on, 21% at the frost and 16% along the floor; 31 s on, none anywhere, nothing left and no frame drawn for a second. While only marks were left the stage drew 10.5 frames a second. 67 PNGs, and no console errors in the wheel section, the only part of the capture that listens for them |
 | Capture (`786f727`) | Failed as expected at the lingering section: the stage there has no `afterglow` and leaves nothing behind, so the fixture's call throws. The 63 shots before it were taken |
+
+### Progression: momentum, charge, level and chains (2026-10-15)
+
+The user asked for "more progressive idle game mechanics, things that build up
+over time with more momentum and have recursive effects on each other" (docket
+`epic-mode-next-round-more-shake-and-blur-a-small`, part 3). The approved plan:
+momentum, per-agent charge, a session level and chains, all decayed from
+timestamps with no timer, and kept in memory for the app session until the user
+rules on saving it (the coordinator asked on 2026-10-15).
+
+**The numbers** live in `epic/progress.ts`, and nothing else holds them:
+
+| | Rule |
+| --- | --- |
+| Momentum | Each staged event adds its weight (`WEIGHT`: medium 1, heavy 2, the biggest 3; the org's light events, such as tool calls and thinking, 0.15; the user's own hands nothing) times the multiplier. It halves every 45 s and stops growing at 150 |
+| Multiplier | 1 + log2(1 + momentum / 10), at most ×3: ×2 at 10, ×3 at 30 |
+| Charge | An agent's own events add their weight to its charge (at most 12, halving every 60 s). A message spark (`zap`) between two agents gives both the sum of their charges |
+| Lift | The event's multiplier, raised by its agent's charge (× (1 + charge / 24)), at most ×3 |
+| Level | The session's total weight unlocks, one at a time and in the plan's order: embers (25), word afterimages (75), echo rings (200), the aurora (500) |
+| Chains | The event that lifts momentum over a tier (10, 30, 60, 100) makes what lingers flare once. The same tier counts again only after momentum falls back under it |
+
+**What the lift does.** The director stages each event with its lift:
+
+- up to twice the particles (`Stage.intensity`, 1 + (lift − 1) / 2), within
+  the particle cap;
+- lingering marks up to twice as long, within 30 s; embers fade on their
+  mark's time, so they last as long as it does;
+- shakes, blurs and afterglows up to half as strong again
+  (1 + (lift − 1) / 4), within the comfort bounds;
+- the little sounds' climb up to three semitones higher.
+
+**The extras**, once unlocked: a heavy event leaves embers where it happened;
+an impact word leaves a faint afterimage that swells and rises as the word
+fades; every medium or heavy event sends a white echo ring out 0.3 s after it;
+and while momentum is 60 or more, an aurora drifts along the window's top and
+bottom edges, gone when momentum cools. Each unlock is announced once, by the
+staged event that reached it, in a small note above the combo badge
+(**UNLOCKED · EMBERS** …).
+
+**No timer.** Values decay from their timestamps when they are read, at the
+next event or in a frame already running, so a quiet organization costs
+nothing, and chains happen only inside an event. The state survives EPIC Mode
+turning off and on and starts fresh when the app restarts. Keeping it across
+restarts would mean saving and loading it in `progress.ts` and nowhere else.
+
+**Tests.** `epicmode-progress` (9 tests):
+
+- momentum halves every 45 s from its timestamp, and progression's source
+  holds no timer, frame or listener;
+- each event adds its weight times the multiplier, so a busy spell snowballs;
+  the multiplier reaches and never passes ×3, and ten quiet minutes bring it
+  back to ×1;
+- an agent's own events charge it (halving every 60 s) and lift its effects;
+  a zap between two charged agents combines their charges;
+- the session's total unlocks the four extras one at a time, in the plan's
+  order, each reported once by the event that reached it;
+- crossing a momentum tier is reported once, and again only after falling back
+  under it;
+- through the director, on the fake clock: a busy spell gives up to twice the
+  particles and harder shakes, and an afterglow (8 s at rest) still shows 10 s
+  on; crossing a tier makes what lingers flare once, never on a timer; each
+  extra is announced once, in order, and then plays (embers on a heavy event,
+  the hire's word's afterimage, an echo ring, an aurora while momentum is
+  high, gone four quiet minutes later); and momentum carries across EPIC Mode
+  turning off and on.
+
+`epicmode-linger` adds one: a mark that momentum leaves to linger longer
+stretches its embers with it, drawing them until it goes.
+
+The visual capture has no section of its own for progression and does not look
+for its extras: the tests above cover them. The capture's sections that go
+through the director (the effect scenes, typing, the wheel and urgent mail)
+play with progression on; the blur and lingering sections draw on stages of
+their own.
+
+Measured at `3e3ac4a` with a clean tree, under the machine build lock and a
+4,096 MB kernel job (C:\orgtree-build\epic-final\next4: check-2, visual). The
+capture ran at `069051b`, the same two commits before they moved onto slice 3's
+floor test fix (below): its tree differs from `3e3ac4a` only in that test,
+which the capture does not load.
+
+| Check | Result |
+| --- | --- |
+| Root typecheck | Exit 0 |
+| Strict renderer configuration | 29 diagnostics at the tip and 29 at `9492410` (clean checkout): none added, none removed, none in EPIC files |
+| Strict test configuration | 830 and 830: none added, none removed; all ten EPIC suites are in the file list |
+| Green (tip) | 94 of 94 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 4, wheel 9, urgent 7, comfort 11, linger 12, progress 9 |
+| Before (`9492410`) | 84 of 94 pass. The ten that fail are the progression suite's nine and the lingering suite's new test |
+| Red (`b77512f`) and Opus (`fdd645f`) controls | Not executed: their bundles no longer build (see [Attention and halt flash at most three a second](#attention-and-halt-flash-at-most-three-a-second-2026-10-15)) |
+| Capture (`069051b`) | Passed. The 18 effect scenes showed the same impact words as at slice 3. Urgent mail: the corner's redness 70 and 72 at a peak, 21 and 22 at a trough, 0 after the end. Blur as in slice 2: the whole-window blur keeps 0.10 of the middle's sharpness and 0.30 of the bell's, the edge blur 0.22 of the bell's and 0.95 of the middle's, and both come back to 1.00. Lingering: 6 s on, 64% at the frost, 2.6% at the cracks, 5.9% at the scorch mark, 71% at the afterglow and 22% along the floor; 13 s on, 22% at the frost and 14% along the floor; 31 s on, none, with nothing left and no frame for a second; 10.5 frames a second in the slow lane. 67 PNGs, and no console errors in the wheel section, the only part of the capture that listens for them |
+
+The first run of this check, at `069051b` against `ae08c2f`, had eleven
+failures on the before side, not ten: slice 3's floor test also failed, on
+slice 3's own code. It rained too little for the test's 768 px window, where
+only about one piece in nine reaches the floor, so it failed about one run in
+four by chance (a simulation of the stage's rain physics, 20,000 runs), and
+slice 3's measurement at `dcdfac8` passed it by luck. `9492410`, a tests-only
+commit on slice 3, rains four times as much: about 90 pieces land, never fewer
+than 56, where the test asks for 20. The stage is unchanged. Slice 4 was moved
+onto it and measured again, above.
 
 ## Limits
 
@@ -886,6 +1005,8 @@ visual-before):
   the strongest colour shows.
 - Reduced motion is read as each shake, blur, flash or dip starts, so changing
   the system setting takes effect from the next one.
+- Progression lives in memory for the app session: restarting the app starts
+  it fresh. Keeping it across restarts is the user's call (asked 2026-10-15).
 - Lingering marks stay where they were left in the window: when the canvas
   pans or zooms, or a list scrolls, the cracks, scorch marks, afterglows and the
   floor stay put. Only frost follows its card.

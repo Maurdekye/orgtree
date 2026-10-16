@@ -147,6 +147,16 @@
   ("less emphasis on the combo progress, keep it diminutive and to the corner");
   verified: `epic/stage.ts` `meter`, `flare`; measured: `epicmode-final`, 2026-10-15]
 
+- EPIC Mode's progression (`epic/progress.ts`: momentum, per-agent charge, the session's
+  level, chains) is plain numbers decayed from timestamps when read: never a timer, frame
+  or listener for it, so a quiet org costs nothing, and chains happen only inside an
+  event. It lives in memory for the app session (it survives EPIC off/on and starts fresh
+  on restart); saving it is the user's call (asked 2026-10-15) and would touch only that
+  module. An event's lift scales its effects only within the stage's caps and the comfort
+  bounds ([EPIC Mode final](docs/rust-engine/epic-mode-final.md)). [decided: user
+  2026-10-15 (part 3), plan approved by the coordinator 2026-10-15; verified:
+  `epic/progress.ts`, `epic/director.ts`; measured: `epicmode-progress`, 2026-10-16]
+
 - Personal global instruction files are shared read-only across harnesses, with
   canonical dedup against the CLI's actual account/profile native files. Use
   `startup::snapshot` for launch text and digest together; edits belong to the
