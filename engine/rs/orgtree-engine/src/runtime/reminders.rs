@@ -231,16 +231,12 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
         } else {
             work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status == "blocked").collect()
         };
-        // 3.x `_auto_wake_keeper_pass`: the docket reminder first, because it
-        // names the work; the generic checkup only for an agent the reminder
-        // passes over. Either one is waking mail, so nobody is woken twice.
+        let (remind, check) = wakes(sw, early, a.working, !items.is_empty());
         let wake = async {
-            if !early && sw.idle && !items.is_empty() && idle_reminder(engine, org, a, &items, now).await? {
+            if remind && idle_reminder(engine, org, a, &items, now).await? {
                 return Ok(());
             }
-            // User 2026-10-16: working checkups are independent of docket work.
-            // A due docket reminder above takes precedence and is a real wake.
-            if sw.checkups && a.working {
+            if check {
                 checkup(engine, org, a, now, early).await?;
             }
             anyhow::Ok(())
@@ -251,6 +247,18 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
         }
     }
     Ok(())
+}
+
+/// What the sweep tries for an idle agent, in this order: (the docket
+/// reminder, the working checkup). 3.x `_auto_wake_keeper_pass`: the
+/// reminder first, because it names the work; the checkup for an agent the
+/// reminder passes over. Either one is waking mail, so nobody is woken twice.
+/// User 2026-10-16: working checkups are independent of docket work. A due
+/// docket reminder takes precedence and is a real wake. The sign-in sweep
+/// (`early`) sends no reminder.
+#[logged]
+fn wakes(sw: Switches, early: bool, working: bool, owes: bool) -> (bool, bool) {
+    (!early && sw.idle && owes, sw.checkups && working)
 }
 
 /// The user signed in (`session_watch`; the user, 2026-10-16 12:12Z, 2c): a
@@ -391,5 +399,43 @@ mod checkup_tests {
         assert_eq!(checkup_now(old, now, false), (true, true));
         assert_eq!(checkup_now(recent, now, true), (true, true), "at sign-in: now");
         assert_eq!(checkup_now(None, now, true), (true, true));
+    }
+
+    const ON: Switches = Switches { checkups: true, idle: true, blocked: false };
+    const OFF: Switches = Switches { checkups: false, idle: false, blocked: false };
+
+    // wakes(switches, early, working, owes) -> (the docket reminder, the working checkup)
+
+    /// The user, 2026-10-16 10:01-10:03Z: the working checkup is independent
+    /// of docket work, and a due docket reminder takes precedence.
+    #[test]
+    fn a_working_agent_gets_its_checkup_without_docket_work() {
+        assert_eq!(wakes(ON, false, true, false), (false, true));
+        assert_eq!(wakes(ON, false, true, true), (true, true), "the reminder first, the checkup when it is not due");
+        assert_eq!(wakes(ON, false, false, true), (true, false), "an idle owner is reminded");
+    }
+
+    /// The coordinator's correction of 2c (2026-10-16 13:03Z): at sign-in
+    /// every working agent idle in Session 0 gets its checkup at once, docket
+    /// work or not.
+    #[test]
+    fn the_sign_in_checkup_needs_no_docket_work() {
+        assert_eq!(wakes(ON, true, true, false), (false, true));
+    }
+
+    /// The same correction: at sign-in a docket reminder goes instead only if
+    /// one is due at that moment (`idle_reminder` decides; the checkup follows
+    /// when it is not).
+    #[test]
+    fn a_due_docket_reminder_goes_first_at_sign_in() {
+        assert_eq!(wakes(ON, true, true, true), (true, true));
+    }
+
+    /// The sign-in sweep looks only at working agents, and the switches hold.
+    #[test]
+    fn the_sign_in_sweep_wakes_only_working_agents() {
+        assert_eq!(wakes(ON, true, false, true), (false, false));
+        assert_eq!(wakes(OFF, true, true, true), (false, false));
+        assert_eq!(wakes(OFF, false, true, true), (false, false));
     }
 }
