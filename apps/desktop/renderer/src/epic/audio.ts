@@ -26,7 +26,7 @@ export type SoundName =
   | 'whooshOut' | 'boom' | 'thunder' | 'warp' | 'grab' | 'thud' | 'chime'
   | 'shimmer' | 'wake' | 'sleep' | 'glass' | 'scribble' | 'blip'
   // the final version's additions (docs/rust-engine/epic-mode-final.md)
-  | 'combo' | 'note' | 'confirm' | 'refused' | 'maxed' | 'ping'
+  | 'note' | 'confirm' | 'refused' | 'maxed' | 'ping'
   // urgent mail's alarm, one cycle of it (the director repeats it)
   | 'klaxon'
 
@@ -599,18 +599,6 @@ const RECIPES: Record<SoundName, Recipe> = {
 
   /* ── the final version's additions ───────────────────────────────────── */
 
-  // a combo reaching a new rank (the Wonder Full take's milestone fanfare):
-  // a brass run up the scale into a held chord, timpani and a crash. The
-  // director raises its pitch rank by rank.
-  combo: (k, t) => {
-    ;[60, 64, 67, 72, 76, 79].forEach((n, i) => brass(k, hz(n), t + i * 0.055, 0.1, 0.22, 4200))
-    const hit = t + 0.34
-    for (const n of [72, 76, 79, 84]) brass(k, hz(n), hit, 0.9, 0.2, 5200)
-    drum(k, 82, hit, 0.7, 0.8)
-    crash(k, hit, 1.6, 0.22)
-    RECIPES.shimmer(k, hit + 0.1)
-    return 1.9
-  },
   // one plucked note of an agent's streamed text (the Argon take's
   // pentatonic arpeggio): the director picks the pitch, step by step
   note: (k, t) => {

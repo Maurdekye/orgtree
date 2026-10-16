@@ -15,6 +15,27 @@ Branch `epic/final` holds the Opus take's five product and test commits
 them, so its diff against the approved Opus take (`fdd645f`) is exactly what
 the merge added.
 
+## Combo removal (2026-10-16)
+
+The user removed the combo meter entirely at 20:45Z, then clarified at
+20:46:34Z: "keep the rising pitch, but remove everything else". This supersedes
+the combo and corner-badge descriptions in the historical implementation and
+verification sections below. The stage no longer draws a combo badge, count,
+rank or decay bar, and the director no longer stages milestone effects or
+plays rank fanfares. There is no combo-only frame loop or timer.
+
+The frequent little sounds and streamed notes keep their existing pitch climb.
+Only its private burst count and 2.5 s decay remain; `climbFor` still caps the
+rise at one octave for 36 events. Momentum, per-agent charge, session level,
+chains, lingering effects, shake, blur and progression unlock notes keep their
+existing behaviour. Unlock notes keep the same bottom-right position without
+depending on a combo badge. `styles.css` and `epic.css` have no combo-specific
+styles: the removed badge was canvas drawing code in `Stage.meter`.
+
+The focused renderer regression covers all former milestone thresholds,
+absence of the combo readout and fanfare, the preserved pitch climb and its
+reset after a quiet interval. Existing EPIC suites cover the other effects.
+
 ## The secret switch (shared by all four takes, as ruled)
 
 User rulings 2026-10-14 23:42:07Z and 23:43:17Z, unchanged here:

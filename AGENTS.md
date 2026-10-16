@@ -160,9 +160,8 @@
   celebrates a request the engine refused or did not carry out (the interrupt waits
   for `interrupted: true`), and a 100% usage reading is a reading, never "LIMIT".
   One stage frame loop that sleeps when idle; while only lingering marks
-  (`Stage.leave`: at most 48, none past 30 s, aged on the clock) or the combo badge are
-  alive it draws 15 frames a second on a timer, and the badge keeps it awake only
-  until its combo drops. Sounds are Web Audio synthesis and art is canvas drawing,
+  (`Stage.leave`: at most 48, none past 30 s, aged on the clock) are alive
+  it draws 15 frames a second on a timer. Sounds are Web Audio synthesis and art is canvas drawing,
   never assets. Check the strict renderer and test configs as well as root: the
   test overlay must clear the inherited `exclude: ["tests"]`.
   [decided: user 2026-10-14 23:38–23:43Z; the lingering marks and the slow lane: user
@@ -214,8 +213,7 @@
   2026-10-16). jsdom lays nothing out, so check wrapping in Electron
   (`tools/rig/epic-mode-visual.mjs`, typing scene). A visual fixture that
   models the caret must also model what `caretSpot` clamps (4 screen px inside
-  the right edge) and keep other effects out of the cue it records: the tenth
-  key within 2.5 s draws the combo's milestone flare into the same cue.
+  the right edge).
   [verified: `epic/director.ts`; measured: typing scene, 2026-10-16]
 
 - Photographing a popped-out window in the offscreen capture: a child opened by
@@ -255,12 +253,13 @@
   `epic/stage.ts`; measured: `epicmode-comfort`, `epicmode-urgent`,
   `tools/rig/epic-mode-visual.mjs` urgent and blur sections, 2026-10-15]
 
-- EPIC Mode's combo stays diminutive and in its corner: a 112 × 30 px badge in the
-  bottom-right corner (rank, count, a 2 px bar), which a new rank flares; nothing of the
-  combo reaches across the window, and there are no neon rank titles
-  ([EPIC Mode final](docs/rust-engine/epic-mode-final.md)). [decided: user 2026-10-15
-  ("less emphasis on the combo progress, keep it diminutive and to the corner");
-  verified: `epic/stage.ts` `meter`, `flare`; measured: `epicmode-final`, 2026-10-15]
+- EPIC Mode has no combo meter, ranks, milestones or rank fanfare. Keep the
+  small sounds' rising pitch: a private burst count resets after 2.5 s and
+  climbs at most one octave at 36 events; it never keeps the stage awake.
+  Momentum, charge, level, chains and progression unlock notes are separate
+  and stay unchanged. This replaces the small corner combo badge ruling.
+  [decided: user 2026-10-16 20:45–20:46Z; verified: `epic/director.ts`,
+  `epic/stage.ts`, `epic/audio.ts`; contract: `docs/rust-engine/epic-mode-final.md`]
 
 - EPIC Mode's progression (`epic/progress.ts`: momentum, per-agent charge, the session's
   level, chains) is plain numbers decayed from timestamps when read: never a timer, frame

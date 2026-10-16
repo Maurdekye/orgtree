@@ -155,7 +155,7 @@ test('every event the detectors can produce has a picture and a sound in the pla
     'toastError', 'send', 'destroy', 'epicOn', 'epicLaunch', 'epicOff', 'scroll', 'focus', 'undo', 'redo',
     'shortcut', 'doubleClick', 'linkDown', 'linkUp', 'usageWarn', 'usageMax', 'usageReset', 'brownout',
     // the final version's additions
-    'confirm', 'refused', 'notice', 'combo', 'navigate'] as const) {
+    'confirm', 'refused', 'notice', 'navigate'] as const) {
     assert.equal(PLAYBOOK_KINDS.includes(user), true, `no effect for the user action ${user}`)
   }
 })
@@ -164,7 +164,7 @@ test('every sound synthesizes, and the voice budget holds under a flood', () => 
   const audio = fakeAudio()
   let synth = new EpicSynth(audio.Ctor)
   assert.equal(SOUND_NAMES.length >= 58, true, `only ${SOUND_NAMES.length} sounds`)
-  for (const added of ['combo', 'note', 'confirm', 'refused', 'maxed', 'ping'] as const) {
+  for (const added of ['note', 'confirm', 'refused', 'maxed', 'ping'] as const) {
     assert.equal(SOUND_NAMES.includes(added), true, `the final version's ${added} sound`)
   }
   for (const name of SOUND_NAMES) {

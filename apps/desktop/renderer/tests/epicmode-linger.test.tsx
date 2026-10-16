@@ -311,25 +311,6 @@ test('medium and heavy events leave an afterglow where they happened, the heavy 
   }
 })
 
-test('the corner badge alone keeps the loop at the slow lane, until its combo drops', () => {
-  const clock = clockwork()
-  const stage = new Stage(document)
-  let reading: { n: number; rank: string; color: string; left: number } | null =
-    { n: 12, rank: 'HYPER-STREAK', color: '#ff8a2a', left: 1 }
-  try {
-    stage.meter(() => reading)
-    clock.run(300)
-    const from = clock.frames
-    clock.run(2000)
-    const fps = (clock.frames - from) / 2
-    assert.equal(fps >= 10 && fps <= 16, true, `about 15 frames a second for the badge alone (${fps})`)
-    reading = null
-    clock.run(1500)
-    assert.equal(stage.metering, false, 'the dropped combo\'s badge is gone')
-    assert.equal(clock.busy, false, 'and the loop sleeps')
-  } finally { stage.destroy(); clock.restore() }
-})
-
 test('a mark that momentum leaves to linger longer stretches its embers with it: it never lingers empty', () => {
   const clock = clockwork()
   const rec = recordMarks()

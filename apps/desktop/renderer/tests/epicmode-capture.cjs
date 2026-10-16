@@ -152,10 +152,7 @@ app.whenReady().then(async () => {
       ['final-watchdog-radar', `__epic.start(); __epic.cue('bark', { node: 'erin', other: 'carol' })`, 240],
       ['final-refused', `__epic.start(); __epic.cue('refused', { spot: { x: 500, y: 420, rect: null, el: null, doc: document }, text: 'HTTP 409' })`, 300],
       ['final-usage-100', `__epic.start(); __epic.cue('usageMax', { text: 'CLAUDE' })`, 380],
-      ['final-combo-overdrive', `__epic.start();
-        for (let i = 0; i < 24; i++) __epic.cue('click', { spot: { x: 120 + (i % 8) * 100, y: 120 + Math.floor(i / 8) * 180, rect: null, el: null, doc: document } });
-        __epic.cue('zap', { node: 'carol', other: 'boss' }); __epic.cue('freeze', { node: 'alice' })`, 360],
-      ['final-cacophony-meter', `__epic.start();
+      ['final-cacophony', `__epic.start();
         for (let i = 0; i < 6; i++) __epic.cue('click', { spot: { x: 160 + i * 120, y: 660, rect: null, el: null, doc: document } });
         __epic.cue('zap', { node: 'carol', other: 'boss' }); __epic.cue('hire', { node: 'dave' });
         __epic.cue('tool', { node: 'bob', text: 'Edit' }); __epic.cue('interrupt', { node: 'erin' });
@@ -313,7 +310,6 @@ app.whenReady().then(async () => {
         const width = await js(`window.__typing.narrow(${JSON.stringify(desk)}, ${JSON.stringify(WRAP_START)}, ${JSON.stringify(WRAP_FITS)})`)
         const focused = await focusAt(desk, 'end')
         target.focus()
-        // the combo decays after 2.5 s, so the 10th key's milestone flare stays out of this caret cue
         await sleep(3000)
         await typeText(WRAP_TYPED.slice(0, -1))
         await sleep(3000)
