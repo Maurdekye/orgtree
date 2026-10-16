@@ -753,7 +753,7 @@ mod workspace_notes_tests {
         let old_bytes = format!("{IDENTITY_RULE_HEADER}external rule must survive");
         std::fs::write(&old, &old_bytes).unwrap();
         link_directory(&outside, &inside);
-        let refused = write_identity_rules(&guarded, &spec.identity).is_err();
+        let refused = write_identity_rules(&guarded, &spec.identity, usize::MAX).is_err();
         let preserved = std::fs::read(&old).unwrap() == old_bytes.as_bytes();
         let external_count = std::fs::read_dir(&outside).unwrap().count();
         // Unlink both aliases before recursive cleanup, including red runs.
@@ -796,7 +796,7 @@ mod workspace_notes_tests {
             assert!(result.status.success(), "fixture junction creation failed: status={:?}, stdout={}, stderr={}",
                 result.status.code(), String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
         }
-        let refused = write_identity_rules(&spec.cwd, &spec.identity).is_err();
+        let refused = write_identity_rules(&spec.cwd, &spec.identity, usize::MAX).is_err();
         let preserved = std::fs::read(&old_path).ok().as_deref() == Some(old_bytes.as_bytes());
         let wrote = redirected_rules.join("orgtree-identity-0000.md").exists();
         let canary = std::fs::read_to_string(outside.join("canary")).unwrap();
