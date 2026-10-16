@@ -165,6 +165,15 @@ fn quote(arg: &str, out: &mut String) {
     out.push('"');
 }
 
+/// The CLIs this helper starts for the engine: an absolute path whose file
+/// name is `codex.exe`.
+#[nolog]
+pub fn hostable(exe: &str) -> bool {
+    let path = Path::new(exe);
+    let named_codex = path.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case("codex.exe")).unwrap_or(false);
+    path.is_absolute() && named_codex && !exe.contains('"')
+}
+
 /// `{kind:"spawn", exe, args, cwd, env, pipes:{stdin,stdout,stderr}}` →
 /// `{"pid":N,"created":T}`. Fixed failure codes only.
 #[nolog]
@@ -176,8 +185,7 @@ pub fn spawn(value: &Value) -> Result<String, String> {
     let engine_created = started(engine).ok_or("spawn-unattached")?;
     let exe = value["exe"].as_str().ok_or("spawn-invalid")?;
     let exe_path = Path::new(exe);
-    let named_codex = exe_path.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case("codex.exe")).unwrap_or(false);
-    if !exe_path.is_absolute() || !named_codex || exe.contains('"') {
+    if !hostable(exe) {
         return Err("spawn-refused".into());
     }
     if !exe_path.is_file() {
@@ -391,4 +399,36 @@ pub fn sweep() -> usize {
         }
     }
     HOSTED.lock().unwrap().as_ref().map(|m| m.len()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hostable;
+
+    #[test]
+    fn the_five_harness_clis_by_absolute_path_and_nothing_else() {
+        for ok in [
+            r"C:\Users\u\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe",
+            r"C:\Users\u\AppData\Roaming\npm\node_modules\@openai\codex\vendor\codex\codex.exe",
+            r"C:\Users\u\AppData\Local\agy\bin\AGY.EXE",
+            r"C:\tools\opencode.exe",
+            r"C:\Users\u\AppData\Local\Programs\muse\muse-bin-1.4.6-R0.exe",
+        ] {
+            assert!(hostable(ok), "{ok}");
+        }
+        for no in [
+            "codex.exe",
+            r"bin\claude.exe",
+            r"C:\Windows\System32\cmd.exe",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            r"C:\Program Files\nodejs\node.exe",
+            r"C:\Users\u\AppData\Roaming\npm\claude.cmd",
+            r"C:\x\muse.exe",
+            r"C:\x\muse-bin-.exe",
+            r"C:\x\codex.exe.bat",
+            r#"C:\x\co"dex.exe"#,
+        ] {
+            assert!(!hostable(no), "{no}");
+        }
+    }
 }
