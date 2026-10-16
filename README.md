@@ -127,6 +127,16 @@ Select any image to see it full size.
 <table>
   <tr>
     <td width="50%" valign="top">
+      <a href="docs/images/orgtree-4-3-workspace.png"><img src="docs/images/orgtree-4-3-workspace.png" alt="v4.3 workspace with provider usage across the top, an active-only agents list, round org canvas, Work docket and coordinator desk" width="100%"></a>
+      <p><strong>v4.3 workspace.</strong> Provider usage, active agents, the round canvas, docket and coordinator desk.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-4-2-workspace.png"><img src="docs/images/orgtree-4-2-workspace.png" alt="v4.2 rows workspace with provider usage across the top, an open Work docket ticket and an agent desk" width="100%"></a>
+      <p><strong>v4.2 workspace.</strong> Follow the team in rows with a ticket and agent desk open.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
       <a href="docs/images/orgtree-4-workspace.png"><img src="docs/images/orgtree-4-workspace.png" alt="The v4 workspace: the canvas of agents, the Work docket and Usage panels, and an agent desk with its conversation" width="100%"></a>
       <p><strong>v4 workspace.</strong> The canvas, docket, usage and an agent's desk in one window.</p>
     </td>
