@@ -1007,7 +1007,7 @@ mod scratch_folder_tests {
     use super::managed_scratch_directory;
 
     fn root() -> std::path::PathBuf {
-        let root = std::env::temp_dir().join(format!("managed-scratch-{}", crate::util::uid()));
+        let root = std::env::temp_dir().join(crate::util::uid("managed-scratch"));
         std::fs::create_dir(&root).unwrap();
         root
     }
