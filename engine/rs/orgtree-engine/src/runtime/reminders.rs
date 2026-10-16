@@ -270,19 +270,27 @@ async fn claim(engine: &Engine, agent: i64, key: &str, now: DateTime<Utc>) -> Re
     Ok(n == 1)
 }
 
-/// 3.x `_working_checkup_decision` + `_working_checkup_reserve`. A missing
-/// anchor is stamped first, so a never-active agent waits 20 minutes too.
+/// What a working checkup does now: (stamp the agent, send the checkup).
+/// 3.x `_working_checkup_decision`: a missing anchor is only stamped, so a
+/// never-active agent waits 20 minutes too, and a recent one waits.
+#[logged]
+fn checkup_now(activity: Option<DateTime<Utc>>, now: DateTime<Utc>, early: bool) -> (bool, bool) {
+    let _ = early;
+    match activity {
+        None => (true, false),
+        Some(t) if (now - t).num_seconds() <= AFTER_S => (false, false),
+        _ => (true, true),
+    }
+}
+
+/// 3.x `_working_checkup_decision` + `_working_checkup_reserve`.
 #[logged]
 async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime<Utc>) -> Result<()> {
-    match a.activity {
-        None => {
-            claim(engine, a.id, "working_activity_at", now).await?;
-            return Ok(());
-        }
-        Some(t) if (now - t).num_seconds() <= AFTER_S => return Ok(()),
-        _ => {}
+    let (stamp, send_now) = checkup_now(a.activity, now, false);
+    if !stamp {
+        return Ok(());
     }
-    if !claim(engine, a.id, "working_activity_at", now).await? {
+    if !claim(engine, a.id, "working_activity_at", now).await? || !send_now {
         return Ok(());
     }
     let ev = crate::events::reminder_working_checkup(&org.slug, &a.name, a.generation as i64);
@@ -341,4 +349,24 @@ async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value) -> Result
     changes::notify_id(engine, org_id, vec![Change::Mailbox(a.id)]);
     tracing::info!(agent = %a.name, withdrawn, "automatic wake refused (the agent is not idle); its mail is withdrawn");
     Ok(())
+}
+
+#[cfg(test)]
+mod checkup_tests {
+    use super::*;
+
+    /// The user, 2026-10-16 12:12Z (2c): at sign-in a working agent idle in
+    /// Session 0 gets its checkup at once instead of up to 20 minutes later;
+    /// otherwise 3.x's rule holds.
+    #[test]
+    fn a_sign_in_checkup_does_not_wait_out_the_20_minutes() {
+        let now = Utc::now();
+        let recent = Some(now - chrono::Duration::seconds(60));
+        let old = Some(now - chrono::Duration::seconds(AFTER_S + 60));
+        assert_eq!(checkup_now(None, now, false), (true, false), "never active: stamped, waits");
+        assert_eq!(checkup_now(recent, now, false), (false, false));
+        assert_eq!(checkup_now(old, now, false), (true, true));
+        assert_eq!(checkup_now(recent, now, true), (true, true), "at sign-in: now");
+        assert_eq!(checkup_now(None, now, true), (true, true));
+    }
 }

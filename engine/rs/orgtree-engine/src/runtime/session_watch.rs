@@ -107,6 +107,21 @@ async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// How long the user may be signed in with no sign-in helper before the engine
+/// starts the helper's own task, by attempts made: so far never.
+#[logged]
+pub fn keepalive_wait(attempts: u32) -> Duration {
+    let _ = attempts;
+    Duration::MAX
+}
+
+/// The helper's scheduled task the engine may start: so far none.
+#[logged]
+pub fn helper_task(rig: bool, rig_named: Option<&str>) -> Option<String> {
+    let _ = (rig, rig_named);
+    None
+}
+
 #[logged]
 fn read(path: &Path) -> Option<String> {
     let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
@@ -132,6 +147,26 @@ mod tests {
         assert_eq!(announce("signed-in", "session0"), Some(false));
         assert_eq!(announce("signed-in", "signed-in"), None);
         assert_eq!(announce("session0", "session0"), None);
+    }
+
+    /// The user, 2026-10-16 12:12Z (2d): when the user is signed in and no
+    /// helper connects, the engine starts the helper's task after 30 s, then
+    /// waits 2, 5 and 10 minutes between attempts.
+    #[test]
+    fn the_helper_is_started_after_30_s_then_less_and_less_often() {
+        let s = |n| keepalive_wait(n).as_secs();
+        assert_eq!((s(0), s(1), s(2), s(3), s(9)), (30, 120, 300, 600, 600));
+    }
+
+    /// A rig engine never starts the machine's own helper task, only one a
+    /// proof names.
+    #[test]
+    fn a_rig_engine_starts_only_the_task_a_proof_names() {
+        assert_eq!(helper_task(false, None).as_deref(), Some("\\Orgtree Credential Helper"));
+        assert_eq!(helper_task(false, Some("x")).as_deref(), Some("\\Orgtree Credential Helper"));
+        assert_eq!(helper_task(true, None), None);
+        assert_eq!(helper_task(true, Some(" ")), None);
+        assert_eq!(helper_task(true, Some("OrgtreeRigProof-1")).as_deref(), Some("\\OrgtreeRigProof-1"));
     }
 
     #[test]
