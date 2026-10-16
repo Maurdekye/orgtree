@@ -59,9 +59,9 @@ if (process.argv[2] !== '--electron') {
     console.log('Electron ready')
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
     main = new BrowserWindow({ show: false, width: 1000, height: 700,
-      webPreferences: { contextIsolation: false, nodeIntegration: false, sandbox: false, backgroundThrottling: false } })
+      webPreferences: { contextIsolation: false, nodeIntegration: false, sandbox: false, backgroundThrottling: false, offscreen: true } })
     main.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: {
-      show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false } } }))
+      show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false, offscreen: true } } }))
     const evaluate = code => main.webContents.executeJavaScript(code, true)
     const settle = async win => {
       await within(win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))'), 'two painted frames')
@@ -84,6 +84,7 @@ if (process.argv[2] !== '--electron') {
     const childReady = new Promise(resolve => main.webContents.once('did-create-window', resolve))
     await evaluate('document.querySelector(".popout-button").click()')
     const child = await within(childReady, 'native popout creation')
+    child.webContents.setBackgroundThrottling(false)
     await delay(150)
     await sample('popout-wide', child, 960)
     // Only the native popout changes size. The opener's viewport is untouched.
