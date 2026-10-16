@@ -99,7 +99,10 @@ export default async function (rig) {
   const wakes = name => rig.sql(`SELECT m.id FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
     WHERE a.name = '${name}' AND m.body LIKE '%${CONTINUE}%'`).length
   const of = (name, re) => lines(re).filter(l => l.includes(`/${name} `))
-  const started = name => of(name, /CLI started/).at(-1) ?? ''
+  // the harness's own launch line (`runtime.claude: CLI started agent=1 pid=22100 ... hosted=false`); a bare
+  // /CLI started/ also matches the logged prompt text ("as it was when your CLI started"), which has no pid
+  const LAUNCH = / runtime\.(?:claude|agy|codex|muse|opencode|acp): CLI started agent=\d+ pid=[1-9]\d* /
+  const started = name => of(name, LAUNCH).at(-1) ?? ''
   const pidIn = l => Number((l.match(/ pid=(\d+)/) ?? [])[1] ?? 0)
   const mail = (name, like) => rig.sql(`SELECT m.state, m.turn_id, m.body FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
     WHERE a.name = '${name}' AND m.body LIKE '${like.replace(/'/g, "''")}' ORDER BY m.id`)

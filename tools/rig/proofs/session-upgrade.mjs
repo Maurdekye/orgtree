@@ -70,7 +70,10 @@ export default async function (rig) {
   const prompts = name => rig.fakeLog(name).filter(l => l.kind === 'turn').map(l => l.prompt ?? '')
   const lines = re => rig.engineLog().split(/\r?\n/).filter(l => re.test(l))
   const of = (name, re) => lines(re).filter(l => l.includes(`/${name} `))
-  const started = name => of(name, /CLI started/).at(-1) ?? ''
+  // the harness's own launch line (`runtime.claude: CLI started agent=1 pid=22100 ... hosted=false`); a bare
+  // /CLI started/ also matches the logged prompt text ("as it was when your CLI started"), which has no pid
+  const LAUNCH = / runtime\.(?:claude|agy|codex|muse|opencode|acp): CLI started agent=\d+ pid=[1-9]\d* /
+  const started = name => of(name, LAUNCH).at(-1) ?? ''
   const pidIn = l => Number((l.match(/ pid=(\d+)/) ?? [])[1] ?? 0)
   const lastPid = name => pidIn(started(name))
   const hosted = l => / hosted=true/.test(l)
@@ -127,7 +130,7 @@ export default async function (rig) {
       const prompt = await turn(name, `PROOF-${name}-1`)
       pids[name] = lastPid(name)
       p.check(`1 ${name}: its next turn ran in a new CLI, a child of the helper in a non-zero session, and the old one ended`,
-        pids[name] !== warm && hosted(started(name)) && parentOf(pids[name]) === broker && sessionOf(pids[name]) > 0 && !alive(warm),
+        pids[name] > 0 && pids[name] !== warm && hosted(started(name)) && parentOf(pids[name]) === broker && sessionOf(pids[name]) > 0 && !alive(warm),
         { old: warm, oldAlive: alive(warm), pid: pids[name], parent: parentOf(pids[name]), helper: broker, session: sessionOf(pids[name]), line: started(name) })
       p.check(`1 ${name}: that turn was told it now runs in the signed-in session`, prompt.includes(NOTICE) && prompt.includes(UP)
         && placement(name) === 'signed-in', { placement: placement(name), prompt: prompt.slice(-700) })
@@ -136,7 +139,8 @@ export default async function (rig) {
     // ---- 2. no move, no notice
     const again = await turn('flo', 'PROOF-flo-2')
     p.check('2 flo: a further turn in the signed-in session keeps its CLI and carries no notice',
-      !again.includes(NOTICE) && lastPid('flo') === pids.flo, { pid: lastPid('flo'), was: pids.flo, prompt: again.slice(-500) })
+      !again.includes(NOTICE) && pids.flo > 0 && lastPid('flo') === pids.flo && hosted(started('flo')),
+      { pid: lastPid('flo'), was: pids.flo, line: started('flo'), prompt: again.slice(-500) })
 
     // ---- 3. the helper dies during ann's turn, as at sign-out
     const annTurns = rig.turns('ann').length
@@ -145,7 +149,7 @@ export default async function (rig) {
     kill(broker)
     await rig.waitFor(() => brokerPid(bin) === 0, { timeout: 10000, what: 'helper exit' })
     broker = 0
-    const gone = await rig.waitFor(() => !alive(pids.ann) || null, { timeout: 15000, what: "ann's hosted CLI to end" }).then(() => true, () => false)
+    const gone = pids.ann > 0 && await rig.waitFor(() => !alive(pids.ann) || null, { timeout: 15000, what: "ann's hosted CLI to end" }).then(() => true, () => false)
     p.check("3 ann's hosted CLI ends with the helper", gone, { pid: pids.ann })
     const cut = await rig.waitFor(() => { const t = rig.turns('ann')[annTurns]; return t?.ended_at ? t : null }, { what: "ann's cut turn to end", timeout: 30000 })
     p.check('3 the turn stopped as "the user\'s Windows session ended", logged once, with no error left on the agent',
@@ -154,7 +158,7 @@ export default async function (rig) {
     await rig.waitFor(() => { const t = rig.turns('ann'); return t.length > annTurns + 1 && t.every(x => x.ended_at) ? t : null },
       { what: "ann's next turn", timeout: 90000 })
     const resumed = prompts('ann').at(-1) ?? ''
-    p.check('3 her next turn ran in Session 0, in a CLI the engine started', !hosted(started('ann')) && lastPid('ann') !== pids.ann
+    p.check('3 her next turn ran in Session 0, in a CLI the engine started', lastPid('ann') > 0 && !hosted(started('ann')) && lastPid('ann') !== pids.ann
       && parentOf(lastPid('ann')) === engine && placement('ann') === 'session0', { pid: lastPid('ann'), parent: parentOf(lastPid('ann')), line: started('ann') })
     p.check('3 it was told it now runs in Session 0, and why its turn stopped', resumed.includes(NOTICE) && resumed.includes(DOWN)
       && resumed.includes(CONTINUE), resumed.slice(-1200))
@@ -165,18 +169,23 @@ export default async function (rig) {
 
     // ---- 4. an engine restart
     await quiet('turns to end before the restart')
+    const last = { ann: lastPid('ann'), flo: lastPid('flo') }
     await rig.restart()
+    const engine2 = (await rig.api('GET', '/api/desktop/identity')).pid
+    // a new CLI that the restarted engine started itself, in Session 0
+    const own = name => lastPid(name) > 0 && lastPid(name) !== last[name] && !hosted(started(name)) && parentOf(lastPid(name)) === engine2
+    const launch = name => ({ pid: lastPid(name), was: last[name], parent: parentOf(lastPid(name)), engine: engine2, line: started(name) })
     const after = await turn('ann', 'PROOF-A-AFTER')
-    p.check('4 ann: back in Session 0 after the restart, no move, so no session notice', !after.includes(NOTICE) && !hosted(started('ann'))
-      && placement('ann') === 'session0', after.slice(-700))
+    p.check('4 ann: back in Session 0 after the restart, in a CLI the engine started, no move, so no session notice',
+      !after.includes(NOTICE) && own('ann') && placement('ann') === 'session0', { ...launch('ann'), prompt: after.slice(-700) })
     p.check('4 ann: her restart notice says where she runs', /\[ORGTREE RESTART NOTICE\][\s\S]*Session access at start: Session 0\./.test(after), after.slice(-700))
     const stored = rig.one(`SELECT m.body FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
       WHERE a.name = 'ann' AND m.body LIKE '[ORGTREE RESTART NOTICE]%' ORDER BY m.id DESC LIMIT 1`)
     p.check('4 ann: the stored restart notice says it too', /\nSession access at start: Session 0\.$/.test(stored?.body ?? ''), stored)
     const down = await turn('flo', 'PROOF-flo-AFTER', 120000)
-    p.check('4 flo: last in the signed-in session, her first turn after the restart moved down to Session 0 and was told so',
-      down.includes(NOTICE) && down.includes(DOWN) && /Session access at start: Session 0\./.test(down) && !hosted(started('flo'))
-      && placement('flo') === 'session0', { placement: placement('flo'), prompt: down.slice(-900) })
+    p.check('4 flo: last in the signed-in session, her first turn after the restart moved down to Session 0, in a CLI the engine started, and was told so',
+      down.includes(NOTICE) && down.includes(DOWN) && /Session access at start: Session 0\./.test(down) && own('flo')
+      && placement('flo') === 'session0', { ...launch('flo'), placement: placement('flo'), prompt: down.slice(-900) })
     p.check('4 the wait for the helper ran out once, logged', lines(/did not register again after the engine's start/).length === 1,
       lines(/did not register again/))
   } finally {

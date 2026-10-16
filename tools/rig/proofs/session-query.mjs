@@ -69,7 +69,10 @@ export default async function (rig) {
   const same = (a, want) => !!a && JSON.stringify([a.signed_in, a.this_turn, a.next_turn, a.next_turn_moves]) === JSON.stringify(want)
   const lines = re => rig.engineLog().split(/\r?\n/).filter(l => re.test(l))
   const of = (name, re) => lines(re).filter(l => l.includes(`/${name} `))
-  const started = name => of(name, /CLI started/).at(-1) ?? ''
+  // the harness's own launch line (`runtime.claude: CLI started agent=1 pid=22100 ... hosted=false`); a bare
+  // /CLI started/ also matches the logged prompt text ("as it was when your CLI started"), which has no pid
+  const LAUNCH = / runtime\.(?:claude|agy|codex|muse|opencode|acp): CLI started agent=\d+ pid=[1-9]\d* /
+  const started = name => of(name, LAUNCH).at(-1) ?? ''
   const pidIn = l => Number((l.match(/ pid=(\d+)/) ?? [])[1] ?? 0)
   const hosted = l => / hosted=true/.test(l)
   const placement = name => rig.agentRow(name)?.extra?.session ?? null
@@ -166,7 +169,7 @@ export default async function (rig) {
       { cut, resumed, gapMs: gap, wakes: wakes('ann') - annWakes })
     const got = answers('ann').at(-1)
     p.check('4 the resumed turn ran in Session 0, in a CLI the engine started, and its answer says so',
-      !hosted(started('ann')) && pidIn(started('ann')) !== cutPid && placement('ann') === 'session0'
+      cutPid > 0 && pidIn(started('ann')) > 0 && !hosted(started('ann')) && pidIn(started('ann')) !== cutPid && placement('ann') === 'session0'
       && same(got, [false, 'session0', 'session0', false]), { got, line: started('ann'), placement: placement('ann') })
     await sleep(10000)
     p.check('4 exactly once: no further turn for ann, and flo (idle when her CLI ended) got none',
