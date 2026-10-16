@@ -1,6 +1,9 @@
 //! Orgtree engine.
 //!
 //! `orgtree-engine [serve]`  — the engine (started by the desktop or by `host`)
+//! `orgtree-engine standalone` — the engine with no desktop: mandatory token
+//!   (`ORGTREE_STANDALONE_TOKEN` or `<data>/standalone-token`), optional
+//!   `ORGTREE_BIND`/`ORGTREE_PORT`; see docs/rust-engine/STANDALONE-ENGINE.md
 //! `orgtree-engine host`     — the boot-time supervisor run by the scheduled task
 //! `orgtree-engine mcp-bridge` — stdio MCP bridge for CLIs that need one
 
@@ -83,7 +86,8 @@ fn main() -> ExitCode {
         return credential_bridge::askpass::cli(&args[1..]);
     }
     match args.get(1).map(String::as_str) {
-        None | Some("serve") => serve(),
+        None | Some("serve") => serve(false),
+        Some("standalone") => serve(true),
         Some("host") => host::run(),
         Some("core-control") => core_monitor::cli(&args[2..]),
         Some("core-recovery") => core_recovery::cli(&args[2..]),
@@ -102,14 +106,23 @@ fn main() -> ExitCode {
     }
 }
 
-fn serve() -> ExitCode {
-    let cfg = match Config::from_env() {
+fn serve(standalone: bool) -> ExitCode {
+    let cfg = match Config::from_env(standalone) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("orgtree-engine: {e:#}");
             return ExitCode::from(1);
         }
     };
+    if standalone {
+        // stderr only (stdout stays the launcher protocol), never the log.
+        eprintln!("orgtree-engine standalone: data root {}, listening on {} (port in the ready line)",
+                  cfg.data_root.display(), cfg.bind);
+        if cfg.standalone_generated_token {
+            eprintln!("orgtree-engine standalone: first-run token, saved to {}: {}",
+                      cfg.data_root.join(crate::config::STANDALONE_TOKEN_FILE).display(), cfg.desktop_token);
+        }
+    }
     // before the log opens: a refused rig root gets nothing written into it
     if let Err(e) = rig::init(&cfg) {
         eprintln!("orgtree-engine: {e:#}");
@@ -160,7 +173,7 @@ async fn run(cfg: Config) -> Result<()> {
     let mut startup = core_startup::Startup::begin(&cfg)?;
     let root_id = cfg.data_root_id.clone();
     let progress = move |phase: &str| launch::progress(phase, &root_id);
-    let listener = launch::bind_port(&cfg.data_root).context("could not bind the engine port")?;
+    let listener = launch::bind_port(&cfg.data_root, cfg.bind, cfg.port).context("could not bind the engine port")?;
     let port = listener.local_addr()?.port();
 
     let mut cluster = pg::Cluster::start_observed(&cfg, &progress, &startup.cancelled).await?;
@@ -314,6 +327,18 @@ async fn run_with_cluster(
         winproc::watch_parent(pid, move || {
             tracing::warn!(pid, "parent process exited; shutting down");
             eng.request_shutdown();
+        });
+    }
+    // Windows has no SIGINT path into stop_on_signals: give a standalone
+    // terminal run the same clean Ctrl+C shutdown Unix gets.
+    #[cfg(windows)]
+    if engine.cfg.standalone {
+        let eng = engine.clone();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                tracing::warn!("Ctrl+C received; shutting down");
+                eng.request_shutdown();
+            }
         });
     }
 

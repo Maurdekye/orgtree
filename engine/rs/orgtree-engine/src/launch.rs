@@ -5,7 +5,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::net::{SocketAddr, TcpListener};
+use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -125,18 +125,26 @@ fn lock_byte(file: &File) -> Result<bool> {
     }
 }
 
-/// Bind the persisted port when it is free, else a fresh one in 20000–49151,
+/// Bind the persisted port when it is free, else a fresh one in 20000-49151,
 /// and persist the choice: moving the origin strands the renderer's storage.
+/// A standalone `port_override` (`ORGTREE_PORT`) binds exactly that port or
+/// fails: a published Docker port must never silently move.
 #[logged]
-pub fn bind_port(root: &Path) -> Result<TcpListener> {
+pub fn bind_port(root: &Path, bind: IpAddr, port_override: Option<u16>) -> Result<TcpListener> {
     let file = root.join("engine-port.json");
-    let preferred = std::fs::read_to_string(&file)
+    let persisted = std::fs::read_to_string(&file)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("port").and_then(|p| p.as_u64()))
         .filter(|p| (1024..=65535).contains(p))
         .map(|p| p as u16);
-    let try_bind = |port: u16| TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)));
+    let preferred = port_override.or(persisted);
+    let try_bind = |port: u16| TcpListener::bind(SocketAddr::new(bind, port));
+    if let Some(exact) = port_override {
+        let listener = try_bind(exact)
+            .with_context(|| format!("could not bind {bind}:{exact} (ORGTREE_PORT)"))?;
+        return finish_bind(root, &file, persisted, listener);
+    }
     let listener = match preferred.map(try_bind) {
         Some(Ok(l)) => l,
         _ => {
@@ -152,11 +160,18 @@ pub fn bind_port(root: &Path) -> Result<TcpListener> {
             found.context("no free port in 20000-49151")?
         }
     };
+    finish_bind(root, &file, preferred, listener)
+}
+
+/// Persist the bound port when it moved, and make the listener nonblocking
+/// for tokio.
+#[logged]
+fn finish_bind(root: &Path, file: &Path, previous: Option<u16>, listener: TcpListener) -> Result<TcpListener> {
     let port = listener.local_addr()?.port();
-    if preferred != Some(port) {
+    if previous != Some(port) {
         let tmp = root.join("engine-port.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec(&json!({ "port": port }))?)?;
-        std::fs::rename(&tmp, &file)?;
+        std::fs::rename(&tmp, file)?;
     }
     let _ = std::fs::write(root.join(".port"), port.to_string());
     listener.set_nonblocking(true)?;

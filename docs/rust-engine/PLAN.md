@@ -300,6 +300,7 @@ toast saying this engine does not support it.
 | A7 | Developer › Engine debug view shows Python engine counters | Shows the new engine's counters (sockets, queues, memory); some old fields absent |
 | A8 | Windows load over HTTP and receive pushed updates over the org and app sockets | Unchanged |
 | A9 | "Start at login" only adds or removes the window's own sign-in entry; the boot engine task and (4.x) the credential helper task always start, whatever it says | New (user 2026-10-10 17:45Z and 17:46Z, decision 70): renamed "Run on startup", and it governs everything of Orgtree that starts by itself. Off: nothing starts at boot or sign-in (both tasks disabled; on macOS/Linux no login registration) until the user opens Orgtree, which then runs its own engine; a running engine is left running. On an all-users Windows installation changing it asks for Windows permission; declining leaves it as it was. The switch shows the real task state, and an update keeps the choice |
+| A10 | The engine only runs under the desktop or the boot host | New (user 2026-10-12, 2026-10-16; 4.4.0): `orgtree-engine standalone` runs it headless, directly or in Docker (`standalone/`), with a mandatory API token and a loopback default bind; the desktop paths are unchanged. Its MCP endpoint (`/api/mcp`, `/api/orgs/{slug}/mcp`) acts as the user (chart, user mail and inbox, docket, hire/retire, interrupt, question answers, org creation); headless provider sign-in is a later phase. See [standalone engine](STANDALONE-ENGINE.md) |
 
 ### B. Organizations and canvas
 

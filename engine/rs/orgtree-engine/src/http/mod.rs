@@ -21,6 +21,7 @@ pub mod pictures;
 pub mod settings;
 pub mod templates;
 pub mod tree;
+pub mod usermcp;
 
 use std::sync::Arc;
 
@@ -68,6 +69,9 @@ pub fn router(engine: Arc<Engine>) -> Router {
         // app feed
         .route("/api/app/records", get(orgs::app_records))
         .route("/api/app/ws", get(crate::appfeed::app_ws))
+        // the user MCP endpoint (standalone mode; 404 otherwise)
+        .route("/api/mcp", post(usermcp::orgless).get(usermcp::no_stream))
+        .route("/api/orgs/{slug}/mcp", post(usermcp::per_org).get(usermcp::no_stream))
         // organizations
         .route("/api/orgs", get(orgs::list).post(orgops::create))
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
@@ -328,6 +332,9 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         // A usage route answers with provider readings (`/api/<provider>/usage`,
         // `/api/accounts/usage`, `/api/accounts/{id}/usage`, `/api/usage/history`).
         || path.split('/').any(|segment| segment == "usage")
+        // The user MCP endpoint's bodies are tool arguments and answers
+        // (mail bodies among them), like the agent bridges' traffic.
+        || path == "/api/mcp" || path.ends_with("/mcp")
         || ((path == "/api/openrouter" || path.starts_with("/api/openrouter/")) && !path.starts_with("/api/openrouter/models"))
         || headers.contains_key(axum::http::header::UPGRADE)
         || headers
@@ -362,7 +369,12 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     let headers: Option<serde_json::Map<String, serde_json::Value>> = crate::trace::verbose().then(|| {
         req.headers()
             .iter()
-            .map(|(k, v)| (k.as_str().to_string(), serde_json::Value::String(v.to_str().unwrap_or("<binary>").to_string())))
+            // The desktop/standalone token never reaches the log, verbose or not.
+            .map(|(k, v)| {
+                let secret = k.as_str() == TOKEN_HEADER || *k == axum::http::header::AUTHORIZATION;
+                let shown = if secret { "****" } else { v.to_str().unwrap_or("<binary>") };
+                (k.as_str().to_string(), serde_json::Value::String(shown.to_string()))
+            })
             .collect()
     });
     let req = if quiet {
@@ -388,8 +400,17 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
             crate::trace::fit_value(&format!("HEADERS  {info} | "), crate::trace::Shown::json(&serde_json::Value::Object(headers))));
     }
     let rq = crate::trace::current_rq();
-    let mut res = if req.uri().path().starts_with("/api/") && !engine.cfg.desktop_token.is_empty() && !token_ok(&engine, &req) {
-        (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": "desktop token required" }))).into_response()
+    // Standalone: every path needs the token, and a missing token can never
+    // open it (token_ok is false for an empty token). Other modes keep the
+    // existing rule: /api/ only, and only when a launcher set a token.
+    let denied = if engine.cfg.standalone {
+        !token_ok(&engine, &req)
+    } else {
+        req.uri().path().starts_with("/api/") && !engine.cfg.desktop_token.is_empty() && !token_ok(&engine, &req)
+    };
+    let mut res = if denied {
+        let detail = if engine.cfg.standalone { "standalone token required" } else { "desktop token required" };
+        (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": detail }))).into_response()
     } else {
         next.run(req).await
     };
@@ -424,11 +445,33 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
 }
 
 fn token_ok(engine: &Engine, req: &Request) -> bool {
-    req.headers()
+    token_ok_headers(&engine.cfg.desktop_token, engine.cfg.standalone, req.headers())
+}
+
+/// The token as the desktop sends it (`X-Orgtree-Desktop-Token`), in every
+/// mode; standalone also takes `Authorization: Bearer <token>`, the form
+/// remote callers (curl, MCP clients) send. An empty configured token
+/// matches nothing.
+#[nolog]
+fn token_ok_headers(token: &str, standalone: bool, headers: &axum::http::HeaderMap) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let header_ok = headers
         .get(TOKEN_HEADER)
         .and_then(|v| v.to_str().ok())
-        .map(|v| constant_eq(v.as_bytes(), engine.cfg.desktop_token.as_bytes()))
-        .unwrap_or(false)
+        .map(|v| constant_eq(v.as_bytes(), token.as_bytes()))
+        .unwrap_or(false);
+    if header_ok {
+        return true;
+    }
+    standalone
+        && headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .map(|v| constant_eq(v.as_bytes(), token.as_bytes()))
+            .unwrap_or(false)
 }
 
 fn constant_eq(a: &[u8], b: &[u8]) -> bool {
@@ -436,4 +479,40 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
         return false;
     }
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderMap, HeaderValue};
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+
+    fn with(name: &'static str, value: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(axum::http::HeaderName::from_static(name), HeaderValue::from_str(value).unwrap());
+        h
+    }
+
+    #[test]
+    fn desktop_header_token_passes_in_both_modes() {
+        let h = with(TOKEN_HEADER, TOKEN);
+        assert!(token_ok_headers(TOKEN, false, &h));
+        assert!(token_ok_headers(TOKEN, true, &h));
+    }
+
+    #[test]
+    fn bearer_passes_only_standalone() {
+        let h = with("authorization", &format!("Bearer {TOKEN}"));
+        assert!(token_ok_headers(TOKEN, true, &h));
+        assert!(!token_ok_headers(TOKEN, false, &h));
+    }
+
+    #[test]
+    fn wrong_missing_and_empty_tokens_fail() {
+        assert!(!token_ok_headers(TOKEN, true, &HeaderMap::new()));
+        assert!(!token_ok_headers(TOKEN, true, &with("authorization", "Bearer wrong")));
+        assert!(!token_ok_headers(TOKEN, true, &with(TOKEN_HEADER, "wrong")));
+        assert!(!token_ok_headers("", true, &with("authorization", "Bearer ")));
+    }
 }

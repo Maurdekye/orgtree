@@ -4,6 +4,7 @@
 
 pub(crate) mod control;
 pub mod defs;
+pub mod usermcp;
 mod mailtools;
 pub(crate) use mailtools::typing_peers;
 mod orgview;
@@ -537,7 +538,7 @@ async fn audience_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
 /// orgtree_work.
 #[logged]
 async fn work_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
-    use crate::domain::docket::{self, Who};
+    use crate::domain::docket::Who;
     let Some(org) = engine.orgs.by_id(caller.org_id) else {
         crate::refuse!(NotFound, "organization not open");
     };
@@ -545,6 +546,15 @@ async fn work_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     let m = me(&client, caller).await?;
     drop(client);
     let who = Who::Agent { id: m.id, name: m.name.clone(), generation: m.generation };
+    work_with(engine, &org, &who, args).await
+}
+
+/// `orgtree_work` for a caller the docket already knows (an agent, or the
+/// user through the standalone user MCP endpoint): the same actions, with
+/// the docket's own access rules for that `Who`.
+#[logged]
+pub(crate) async fn work_with(engine: &Arc<Engine>, org: &Arc<crate::orgs::OrgHandle>, who: &crate::domain::docket::Who, args: &Value) -> Result<Done> {
+    use crate::domain::docket;
     let action = args["action"].as_str().unwrap_or("").trim();
     let slug = args["slug"].as_str().or(args["id"].as_str()).map(str::trim).filter(|s| !s.is_empty());
     let need = || -> Result<&str> {
@@ -561,22 +571,22 @@ async fn work_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         }
     };
     let v = match action {
-        "list" => docket::agent_list(engine, &org, &who, args).await?,
-        "get" => docket::agent_get(engine, &org, &who, need()?, args).await?,
-        "create" => docket::create(engine, &org, &who, args).await?,
-        "update" => docket::update(engine, &org, &who, args).await?,
-        "accept" => docket::complete(engine, &org, &who, need()?, args).await?,
+        "list" => docket::agent_list(engine, org, who, args).await?,
+        "get" => docket::agent_get(engine, org, who, need()?, args).await?,
+        "create" => docket::create(engine, org, who, args).await?,
+        "update" => docket::update(engine, org, who, args).await?,
+        "accept" => docket::complete(engine, org, who, need()?, args).await?,
         "assign" => {
             let Some(owner) = args["owner"].as_str().filter(|o| !o.trim().is_empty()) else {
                 crate::refuse!(BadRequest, "assign needs `owner`: you or a subordinate");
             };
-            docket::assign(engine, &org, &who, need()?, owner).await?
+            docket::assign(engine, org, who, need()?, owner).await?
         }
-        "handoff" => docket::handoff(engine, &org, &who, need()?, args["target"].as_str(), args["reason"].as_str().unwrap_or("")).await?,
-        "participants" => docket::participants(engine, &org, &who, need()?, &list("add"), &list("remove")).await?,
-        "evidence" => docket::evidence(engine, &org, &who, need()?, args).await?,
-        "archive" | "supersede" | "move" => docket::arrange(engine, &org, &who, action, need()?, args).await?,
-        "delete" => docket::delete(engine, &org, &who, need()?).await?,
+        "handoff" => docket::handoff(engine, org, who, need()?, args["target"].as_str(), args["reason"].as_str().unwrap_or("")).await?,
+        "participants" => docket::participants(engine, org, who, need()?, &list("add"), &list("remove")).await?,
+        "evidence" => docket::evidence(engine, org, who, need()?, args).await?,
+        "archive" | "supersede" | "move" => docket::arrange(engine, org, who, action, need()?, args).await?,
+        "delete" => docket::delete(engine, org, who, need()?).await?,
         "addendum" | "review" | "verdict" | "candidate_verdict" | "integration_verdict" | "review_verdict" | "review_request"
         | "review_grant" | "review_grants" | "review_revoke" | "decision" | "receipt" | "rangediff" | "receipts" | "artifact"
         | "artifact_read" | "grant" | "revoke" | "finding" | "dispose" | "claim" | "verify" | "check" => crate::refuse!(

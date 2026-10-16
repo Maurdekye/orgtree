@@ -8,6 +8,21 @@
   [decided: user/coordinator 2026-10-16; verified from source: `canvas/agentnav.tsx`,
   `canvas/OrgCanvas.tsx`]
 
+- Standalone engine (4.4.0): `orgtree-engine standalone` runs the engine with
+  no desktop — mandatory token (`ORGTREE_STANDALONE_TOKEN` or the generated
+  `<data>/standalone-token`, also accepted as `Authorization: Bearer`),
+  loopback bind unless `ORGTREE_BIND`, exact `ORGTREE_PORT`, fresh-root
+  cluster bootstrap, no parent watcher. `serve`/`host` ignore all of it and
+  are unchanged. Token headers are masked in the verbose wire log. The user
+  MCP endpoint (`POST /api/mcp`, `/api/orgs/{slug}/mcp`, standalone only)
+  acts as the user (user ruling 2026-10-16): `tools::usermcp` implements each
+  tool against the desktop's own user paths (`Actor::User`, `Who::User`,
+  `From::User`), never a fake agent caller; agent-only tools are not listed.
+  Contract, deferred work (headless sign-in, Docker verification) and tests:
+  [standalone engine](docs/rust-engine/STANDALONE-ENGINE.md).
+  [decided: user 2026-10-12, 2026-10-16; verified: `config.rs`, `launch.rs`,
+  `http/{mod,usermcp}.rs`, `tools/usermcp.rs`, `tools/rig/standalone-engine.mjs`]
+
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;

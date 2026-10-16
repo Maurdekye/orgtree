@@ -1,0 +1,24 @@
+# Standalone Orgtree engine (docs/rust-engine/STANDALONE-ENGINE.md).
+#
+#   ORGTREE_STANDALONE_TOKEN=<at least 32 characters> docker compose up -d
+#   curl -H "Authorization: Bearer $ORGTREE_STANDALONE_TOKEN" http://127.0.0.1:7430/api/desktop/alive
+#
+# Without ORGTREE_STANDALONE_TOKEN the first start generates one, prints it
+# to the container log once, and saves it in the data volume
+# (/data/standalone-token). The published port is loopback-only on the host:
+# reach it remotely over Tailscale or SSH, not by widening this binding.
+services:
+  orgtree-engine:
+    build:
+      context: ..
+      dockerfile: standalone/Dockerfile
+    environment:
+      ORGTREE_STANDALONE_TOKEN: ${ORGTREE_STANDALONE_TOKEN:-}
+    ports:
+      - "127.0.0.1:7430:7430"
+    volumes:
+      - orgtree-data:/data
+    restart: unless-stopped
+
+volumes:
+  orgtree-data:

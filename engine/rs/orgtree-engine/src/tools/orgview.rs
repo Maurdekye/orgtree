@@ -186,6 +186,55 @@ pub async fn chart(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     Done::text(out)
 }
 
+/// The user's own `orgtree_chart` (the standalone user MCP endpoint): the
+/// whole org, no visibility narrowing and no "you are" header.
+#[logged]
+pub async fn chart_as_user(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, args: &Value) -> Result<Done> {
+    let archived = args["include_archived"].as_bool().unwrap_or(false);
+    let charters = args["include_standing_charter"].as_bool().unwrap_or(true);
+    let all = rows(engine, org.id, archived).await?;
+    let mut kids: HashMap<Option<i64>, Vec<&Row>> = HashMap::new();
+    for r in all.iter() {
+        kids.entry(r.parent).or_default().push(r);
+    }
+    let mut out = format!(
+        "Organization {} ({}), as the user. Credits and seats are each agent's own.\n\nuser\n",
+        org.name.load(), org.slug
+    );
+    let mut lines = 0usize;
+    fn walk(
+        out: &mut String,
+        kids: &HashMap<Option<i64>, Vec<&Row>>,
+        at: Option<i64>,
+        prefix: &str,
+        lines: &mut usize,
+        charters: bool,
+    ) {
+        let Some(list) = kids.get(&at) else { return };
+        for (i, r) in list.iter().enumerate() {
+            if *lines >= 600 {
+                if *lines == 600 {
+                    out.push_str(&format!("{prefix}… (more agents not shown)\n"));
+                    *lines += 1;
+                }
+                return;
+            }
+            let last = i + 1 == list.len();
+            out.push_str(&format!("{prefix}{}{}\n", if last { "└─ " } else { "├─ " }, line(r, r.busy)));
+            *lines += 1;
+            let child_prefix = format!("{prefix}{}", if last { "   " } else { "│  " });
+            if charters {
+                if let Some(tc) = r.team_charter.as_deref().filter(|t| !t.trim().is_empty()) {
+                    out.push_str(&format!("{child_prefix}  team charter: {}\n", gist(tc, 300)));
+                }
+            }
+            walk(out, kids, Some(r.id), &child_prefix, lines, charters);
+        }
+    }
+    walk(&mut out, &kids, None, "", &mut lines, charters);
+    Done::text(out)
+}
+
 /// Read-only scope evaluation over one coherent, paged structural snapshot.
 #[logged]
 fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value) -> Result<Value> {
