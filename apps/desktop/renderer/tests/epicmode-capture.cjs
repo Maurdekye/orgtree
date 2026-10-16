@@ -279,7 +279,11 @@ app.whenReady().then(async () => {
         const width = await js(`window.__typing.narrow(${JSON.stringify(desk)}, ${JSON.stringify(WRAP_START)}, ${JSON.stringify(WRAP_FITS)})`)
         const focused = await focusAt(desk, 'end')
         win.webContents.focus()
-        await typeText(WRAP_TYPED)
+        // the combo decays after 2.5 s, so the 10th key's milestone flare stays out of this caret cue
+        await sleep(3000)
+        await typeText(WRAP_TYPED.slice(0, -1))
+        await sleep(3000)
+        await typeText(WRAP_TYPED.slice(-1))
         const name = `typing-wrap-${c.name}-${desk}`
         await shot(name)
         await press('Enter')

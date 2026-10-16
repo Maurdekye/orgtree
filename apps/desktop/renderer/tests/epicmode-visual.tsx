@@ -233,8 +233,10 @@ function trueCaret(field: HTMLTextAreaElement, typed: string): Omit<CaretRecord,
   const areaLines = Math.round(area.scrollHeight / lineHeight)
   area.remove()
   const box = field.getBoundingClientRect()
+  // caretSpot clamps the spark 4 screen px inside the field's right edge
+  const tx = Math.min(box.right - 4, box.left + s * (field.clientLeft + parseFloat(style.paddingLeft) + x - field.scrollLeft))
   return {
-    tx: box.left + s * (field.clientLeft + parseFloat(style.paddingLeft) + x - field.scrollLeft),
+    tx,
     ty: box.top + s * (field.clientTop + parseFloat(style.paddingTop) + (line + 0.5) * lineHeight - field.scrollTop),
     typed, line, lines: lines.length, areaLines, scrollTop: field.scrollTop,
   }
