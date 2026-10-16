@@ -199,7 +199,11 @@ test('the stage caps its particles and leaves nothing behind', () => {
   assert.equal(stage.particleCount, 0, 'a destroyed stage spawns nothing')
 })
 
-test('every effect in the playbook really draws, and the word effects draw their words', async () => {
+// It waits about 18 s of real time (70 ms for each effect, 1.2 s for the slow
+// ones), longer than the runner's 10 s default per test (tests/run.mjs), so it
+// sets its own timeout. Cut short, its loop runs on into the next tests and
+// leaves a stage behind for them.
+test('every effect in the playbook really draws, and the word effects draw their words', { timeout: 40_000 }, async () => {
   const rec = recordCanvas()
   const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
   // the slow ones: a move lands after the chart carries the card; fireworks climb first
