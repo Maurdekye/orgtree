@@ -2926,10 +2926,11 @@
    "covers": [
     "screen:org-canvas"
    ],
-   "purpose": "The canvas itself: pan, zoom, wires, zoom HUD, off-screen jump chips, drag to move or reorder.",
+   "purpose": "The canvas itself: background and middle-button pan across desks and pinned frames, zoom, wires, zoom HUD, off-screen jump chips, drag to move or reorder.",
    "must_cover": [
     "navigation",
-    "drag interactions"
+    "drag interactions",
+    "middle-button pan across canvas desks and pinned frames; separate desk popouts excluded"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/OrgCanvas.tsx:401",

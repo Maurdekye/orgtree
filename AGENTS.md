@@ -507,11 +507,13 @@
   [decided: user 2026-10-13 23:01?23:02Z; verified from source:
   `events/systemruns.tsx`, `events/segments.tsx`, `canvas/desk.tsx`]
 
-- Middle-button pan is captured by each visible canvas viewport before node
-  handlers and shares the background pan/persisted camera. Suppress middle
+- Middle-button pan uses native DOM capture on each visible canvas viewport,
+  including registry-owned desk portals whose React ancestry bypasses it
+  (2026-10-16). Reuse the background pan/persisted camera. Suppress middle
   mousedown/auxclick defaults; never set the eye's click-focus flag for it.
   See [middle pan](docs/rust-engine/middle-pan.md).
-  [decided: user 2026-10-13 22:29UTC; verified: `canvas/OrgCanvas.tsx`]
+  [decided: user 2026-10-13 22:29UTC, 2026-10-16 13:15UTC;
+  verified: `canvas/OrgCanvas.tsx`, `canvas/deskhosts.tsx`, `popout.tsx`]
 
 - Tray Harness setup reads the engine registry, with a five-harness shell fallback;
   detected first, one separator before missing, all setup actions clickable.

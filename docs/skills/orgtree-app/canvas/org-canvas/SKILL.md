@@ -8,7 +8,9 @@ Up: [orgtree-canvas](../SKILL.md)
 
 The canvas lays out the user root, agent reporting lines and related objects. It is a navigable projection of the org, not a free-positioning editor: changing the camera does not change who reports to whom. Use the agent list or a named jump when a card is outside the current view.
 
-Drag the background with the primary or middle pointer button to pan. The wheel over canvas space zooms about the cursor; over a modal, desk, agent tray or pinned window it stays a scrolling gesture. Move the pointer out of the desk before trying to zoom the canvas. Touch navigation uses pan and two-pointer pinch rather than desktop reparent dragging.
+Drag the background with the primary button to pan. Middle-button drag pans from anywhere on the visible canvas, including a desk's header, transcript or composer, presentation cards, the org inbox tile and pinned frames. It moves the canvas camera, leaving the desk's scroll and a pinned frame's placement unchanged. It does not open a link or select text; left and right buttons keep their usual actions. A popped-out desk has no canvas to pan.
+
+The wheel over canvas space zooms about the cursor; over a modal, desk, agent tray or pinned window it stays a scrolling gesture. Move the pointer out of the desk before trying to zoom the canvas. Touch navigation uses pan and two-pointer pinch rather than desktop reparent dragging.
 
 The bottom-left HUD offers switchboard, full view, zoom in and zoom out. Off-screen neighbor chips jump to their agents; a hidden retiree is revealed when navigated to. Far zoom uses reduced locator cards rather than shrinking every desk control into an interactive target. The current layout and appearance choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
 
