@@ -301,6 +301,37 @@ async function openTray(mount: (el: React.ReactElement) => Promise<{ el: HTMLEle
   return el
 }
 
+uiTest('the agents-list row hides a queued model chip and keeps its normal details',
+  async ({ mount }) => {
+    const { CurrentOrg } = await import('../src/popout')
+    const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+    const fixture = treeWithStatus(['epic-combiner'])
+    const agent = fixture.roots[0] as unknown as Record<string, unknown>
+    agent.tier = 'opus'
+    agent.model_id = 'claude-opus'
+    agent.pending_switch = { tier: 'sonnet', by: 'user' }
+    agent.busy = true
+    agent.inflight_at = '2026-10-16T10:00:00.000Z'
+    agent.turns = [{ at: '2026-10-16T09:59:00.000Z', cost: 0, denials: 0 }]
+    const { el } = await mount(
+      <CurrentOrg.Provider value="mine"><OrgCanvas tree={fixture} op={() => Promise.resolve({} as never)}
+        slug="mine" toast={noop} mailEvt={null} /></CurrentOrg.Provider>)
+    await flush()
+    await inAct(() => { (el.querySelector('.tray-toggle') as HTMLElement).click() })
+    await flush()
+
+    const row = el.querySelector('.tray-row') as HTMLElement | null
+    assert.ok(row, 'the agent still has an agents-list row')
+    assert.equal(row!.querySelector('.next-turn[data-next-turn="model"]') === null, true,
+      'the pending model switch chip is absent from the sidebar row')
+    assert.ok(row!.querySelector('.tier.t-opus'), 'the row keeps the current model icon')
+    assert.equal(row!.querySelector('.tray-name')?.textContent, 'epic-combiner',
+      'the row keeps the agent name')
+    assert.ok(row!.querySelector('.tray-status-label.active'), 'the row keeps its current status')
+    assert.ok(row!.querySelector('.tray-status-time'), 'the row keeps the turn age')
+    assert.ok(row!.querySelector('.tray-sum-at'), 'the row keeps the status age')
+  })
+
 uiTest('§5 a reference past the truncation point is still a control',
   async ({ mount }) => {
     const opened: string[] = []

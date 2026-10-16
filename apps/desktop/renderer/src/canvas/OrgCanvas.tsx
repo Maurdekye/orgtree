@@ -4171,6 +4171,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             // the registry that serves every other surface's menu.
             return <AgentTray map={map} rows={rows} query={trayQ} onQuery={setTrayQ}
               archived={trayArch} onArchived={setTrayArch} onPick={goToAgent}
+              showQueuedModelBadge={false}
               compactAt={tree.compact_at} refs={canvasRefs}
               /* the row's menu is the agent's own (canvas/agentmenu.tsx),
                  opened from the ROW. NOT at compact, exactly where the card

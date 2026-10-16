@@ -98,6 +98,9 @@ export interface AgentTrayProps {
   leadingRows?: ReactNode
   /** shown when no row matches; nothing by default (the canvas's behaviour) */
   empty?: ReactNode
+  /** whether to show a pending model switch badge in each row; defaults to
+   *  true for shared trays outside the canvas Agents sidebar */
+  showQueuedModelBadge?: boolean
 }
 
 /** Compact checkbox in the Agents panel's title bar. The host owns the
@@ -118,6 +121,7 @@ export function ActiveAgentsFilter({ checked, onChange }: {
 export function AgentTray({
   map, rows, query, onQuery, archived, onArchived, onPick, onRowMenu, compactAt,
   refs, selected, listProps, mainProps, rowProps, filterLabel, leadingRows, empty,
+  showQueuedModelBadge = true,
 }: AgentTrayProps) {
   const archN = archivedCount(map)
   return (
@@ -167,7 +171,7 @@ export function AgentTray({
               <button type="button" className="tray-main" title={`go to ${n.id}`}
                 {...mainProps?.(n)}>
                 <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier!] ?? '?'}</span>
-                <QueuedModelBadge node={n} />
+                {showQueuedModelBadge && <QueuedModelBadge node={n} />}
                 <span className="tray-name"
                   title={charterLine(n) || n.id}>{n.id}</span>
                 <ContextWheel occ={n.occupancy} cw={n.context_window}
