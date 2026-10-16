@@ -358,6 +358,14 @@ fn recovery_input<'a>(t: &Value, inputs: &'a Value, native: &'a Value) -> &'a Va
 }
 
 #[nolog]
+fn recovery_label(text: &str) -> String {
+    let mut chars = text.chars();
+    let mut out: String = chars.by_ref().take(1024).collect();
+    if chars.next().is_some() { out.push_str(" [truncated]"); }
+    out
+}
+
+#[nolog]
 fn recovery_tool(t: &Value, inputs: &Value, native: &Value) -> String {
     let mut out = format!("{} {}", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or(""));
     if !is_recovery_shell(t) { return out; }
@@ -376,7 +384,7 @@ fn recovery_tool(t: &Value, inputs: &Value, native: &Value) -> String {
     for key in ["workdir", "cwd", "shell"] {
         let id = t["id"].as_str().unwrap_or("");
         if let Some(value) = input.get(key).or_else(|| inputs[id]["input"].get(key)).and_then(Value::as_str) {
-            out.push_str(&format!("\n{key}: {}", crate::util::gist(value, 1024)));
+            out.push_str(&format!("\n{key}: {}", recovery_label(value)));
         }
     }
     out
@@ -410,10 +418,10 @@ mod recovery_command_tests {
     fn description_does_not_replace_multiline_shell_input() {
         let t = json!({"id":"c", "name":"PowerShell", "arg":"Run focused checks"});
         let command = "cargo test -j2 --locked\nWrite-Output 'exact tail'";
-        let inputs = json!({"c":{"input":{"command":command,"workdir":"D:/synthetic/worktree"}}});
+        let inputs = json!({"c":{"input":{"command":command,"workdir":"D:/synthetic/source  worktree"}}});
         let out = recovery_tool(&t, &inputs, &json!({}));
         assert!(out.contains(command));
-        assert!(out.contains("D:/synthetic/worktree"));
+        assert!(out.contains("D:/synthetic/source  worktree"));
         assert!(out.contains("Run focused checks"));
     }
 
@@ -714,7 +722,7 @@ async fn source_hint(client: &Client, agent_id: i64) -> Result<String> {
             if let Some(dir) = input.get("workdir").or_else(|| input.get("cwd"))
                 .or_else(|| retained.get("workdir")).or_else(|| retained.get("cwd"))
                 .and_then(Value::as_str).filter(|s| !s.is_empty()) {
-                return Ok(format!("Source/worktree evidence: last recorded shell directory: {}. This is recorded input, not a verified current checkout; verify its source SHA before continuing.\n\n", crate::util::gist(dir, 1024)));
+                return Ok(format!("Source/worktree evidence: last recorded shell directory: {}. This is recorded input, not a verified current checkout; verify its source SHA before continuing.\n\n", recovery_label(dir)));
             }
         }
     }
