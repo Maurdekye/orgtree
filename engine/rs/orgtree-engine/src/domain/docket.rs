@@ -856,13 +856,36 @@ fn level(who: &Who, it: &Item, ctx: &Ctx, under: &HashSet<i64>) -> Level {
     let Who::Agent { name, .. } = who else { return Level::Manage };
     let me = name.as_str();
     let is_below = |n: Option<&str>| n.and_then(|n| ctx.agents.get(n)).map(|a| under.contains(&a.0)).unwrap_or(false);
-    if it.owner_name() == Some(me) || it.creator_name() == Some(me) || is_below(it.owner_name()) || is_below(it.creator_name()) {
+    let direct = explicit_access_level(me, it.owner_name(), it.creator_name(), it.reviewer_name(), &it.participants);
+    if direct == Level::Manage || is_below(it.owner_name()) || is_below(it.creator_name()) {
         return Level::Manage;
     }
-    if it.participants.iter().any(|p| p == me) || it.reviewer_name() == Some(me) {
-        return Level::State;
+    direct
+}
+
+/// Access granted by explicit docket ACL fields. Prose and mail references do not grant access.
+fn explicit_access_level(me: &str, owner: Option<&str>, creator: Option<&str>, reviewer: Option<&str>, participants: &[String]) -> Level {
+    if owner == Some(me) || creator == Some(me) {
+        Level::Manage
+    } else if reviewer == Some(me) || participants.iter().any(|p| p == me) {
+        Level::State
+    } else {
+        Level::None
     }
-    Level::None
+}
+
+#[cfg(test)]
+mod access_tests {
+    use super::{explicit_access_level, Level};
+
+    #[test]
+    fn explicit_docket_fields_grant_the_matching_access_without_text_scanning() {
+        let participants = vec!["collaborator".to_string()];
+        assert_eq!(explicit_access_level("assignee", Some("assignee"), None, None, &[]), Level::Manage);
+        assert_eq!(explicit_access_level("reviewer", None, None, Some("reviewer"), &[]), Level::State);
+        assert_eq!(explicit_access_level("collaborator", None, None, None, &participants), Level::State);
+        assert_eq!(explicit_access_level("mentioned-only", None, None, None, &[]), Level::None);
+    }
 }
 
 /// Narrow event permission read; no item body, history or other private rows are projected.
