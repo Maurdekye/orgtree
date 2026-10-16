@@ -912,13 +912,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   otherwise. [decided: user 2026-10-14 17:55Z; verified: `domain/templates.rs` tests]
 
 - Models are LISTED most expensive (highest seat) first within each provider, every provider (Claude fable,
-  opus, sonnet, haiku; Muse wonder-full, wonder, spark; Antigravity agy-opus, agy-sonnet,
-  flash, with pro/argon/barium/carbon tying agy-sonnet at 2). Provider groups keep their
-  order and equal seats keep catalog/array order. One rule in two places: the engine's
-  `catalog::listed()` (staffing options, `/api/providers` rows, usage rows, `Avail::listed`
-  for the template picker) and the renderer's `bySeatDesc` / `*_TIERS_LISTED` (hire sheet,
-  switch-model menu, context menus, rehire list, header counts). Hire-token strips are
-  the October14 exception below. A new tier orders
+  opus, sonnet, haiku; Muse wonder-full, wonder, spark). Antigravity is grouped by model
+  family in the renderer: Gemini (pro/argon/barium/carbon/flash), then Claude-backed
+  Antigravity (agy-opus/agy-sonnet); seats sort within each group and ties keep catalog
+  order. The engine's `catalog::listed()` remains seat-sorted; the renderer uses
+  `bySeatDesc` / `*_TIERS_LISTED` except for the shared Antigravity grouping helper in
+  `shared.ts` (hire sheet, Settings, and canvas hire tokens). Hire-token strips keep their
+  existing cheapest-first direction. A new tier orders
   itself. The declaration order of `catalog::TIERS` and of `TIERS`, `CODEX_TIERS`, … is NOT a
   display order: it is the DEFAULT order (the first offered model: the hire sheet's
   pre-selection, Quick chat's fallback) and must not be reordered for display. The user's
@@ -927,8 +927,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `byOpenrouterPriceDesc`); the OpenRouter model browser and language-server lists keep their own
   order. User-visible text says "most expensive first" / "cheapest first", never "dearest"
   (the OpenRouter picker's price-sort toggle; "dearest" read as odd wording, user
-  2026-10-14). [decided: user 2026-10-13 19:14-19:15Z, 2026-10-14 10:57Z; verified:
-  `catalog.rs`, `openrouter.rs`, `shared.ts` and their tests, `pricesortlabel.test.tsx`]
+  2026-10-14). [decided: user 2026-10-13 19:14-19:15Z, 2026-10-14 10:57Z, 2026-10-16;
+  coordinator clarified family order 2026-10-16; verified: `catalog.rs`, `openrouter.rs`,
+  `shared.ts` and their tests, `pricesortlabel.test.tsx`]
 
 - Hire tokens sort cheapest seat first WITHIN each provider row/column, with
   stable equal-price order and the existing inward family-count ordering.

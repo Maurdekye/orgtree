@@ -25,7 +25,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
+  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, orderAntigravityTiers, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX, Z_MINI,
 } from './shared'
 import type {
@@ -756,8 +756,10 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // Sort the filtered copy by the same seat lookup used by these tokens;
     // stable ties retain the incoming catalog order, including OR/LS rows.
     // Provider grouping/count order and dearest-first selectors are separate.
-    const vis = tiers.filter((t) => offerOf(t) !== 'hide')
-      .sort((a, b) => seatOf(a) - seatOf(b))
+    const offered = tiers.filter((t) => offerOf(t) !== 'hide')
+    const vis = key === 'antigravity'
+      ? orderAntigravityTiers(offered, seatOf, 'asc')
+      : offered.sort((a, b) => seatOf(a) - seatOf(b))
     // every tier hid: the same nothing-to-offer case as an empty family above
     if (!vis.length) return
     fams.push({

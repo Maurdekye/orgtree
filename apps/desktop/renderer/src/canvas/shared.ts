@@ -148,6 +148,8 @@ export const MUSE_TIER_SEAT: Record<string, number> = { wonder: 4, 'wonder-full'
  *  menus, the rehire list, the header inventory — the dearest seat comes
  *  first, and equal seats keep the order they were given. Mirrors the
  *  engine's `catalog::listed`, so a tier added to a family orders itself.
+ *  Antigravity keeps Gemini tiers first, then Claude-backed tiers, and sorts
+ *  by seat within each group through `orderAntigravityTiers`.
  *
  *  ⚠ THE DECLARATION ORDER OF `TIERS`, `CODEX_TIERS`, … IS NOT A DISPLAY
  *  ORDER. It is the order a DEFAULT is taken from (the hire sheet and Quick
@@ -158,9 +160,27 @@ export const bySeatDesc = (tiers: readonly string[], seatOf: (tier: string) => n
   tiers.map((tier, at) => ({ tier, at, seat: Number.isFinite(seatOf(tier)) ? seatOf(tier) : 0 }))
     .sort((a, b) => b.seat - a.seat || a.at - b.at)
     .map((e) => e.tier)
+/** Antigravity's visible hire row groups Gemini tiers before its Claude-backed
+ *  tiers. Keep that group order shared across surfaces; each surface supplies
+ *  its own seat direction, and equal seats retain their incoming order. */
+const ANTIGRAVITY_GROUP_ORDER = ['gemini', 'claude'] as const
+const antigravityGroup = (tier: string): typeof ANTIGRAVITY_GROUP_ORDER[number] =>
+  tier.startsWith('agy-') ? 'claude' : 'gemini'
+export const orderAntigravityTiers = (
+  tiers: readonly string[], seatOf: (tier: string) => number, direction: 'asc' | 'desc',
+): string[] => {
+  const groupRank = new Map(ANTIGRAVITY_GROUP_ORDER.map((group, index) => [group, index]))
+  return tiers.map((tier, at) => ({ tier, at,
+    group: groupRank.get(antigravityGroup(tier))!,
+    seat: Number.isFinite(seatOf(tier)) ? seatOf(tier) : 0,
+  })).sort((a, b) => a.group - b.group
+    || (direction === 'asc' ? a.seat - b.seat : b.seat - a.seat)
+    || a.at - b.at).map(({ tier }) => tier)
+}
 export const TIERS_LISTED = bySeatDesc(TIERS, (t) => TIER_SEAT[t] ?? 0)
 export const CODEX_TIERS_LISTED = bySeatDesc(CODEX_TIERS, (t) => CODEX_TIER_SEAT[t] ?? 0)
-export const ANTIGRAVITY_TIERS_LISTED = bySeatDesc(ANTIGRAVITY_TIERS, (t) => ANTIGRAVITY_TIER_SEAT[t] ?? 0)
+export const ANTIGRAVITY_TIERS_LISTED = orderAntigravityTiers(
+  ANTIGRAVITY_TIERS, (t) => ANTIGRAVITY_TIER_SEAT[t] ?? 0, 'desc')
 export const MUSE_TIERS_LISTED = bySeatDesc(MUSE_TIERS, (t) => MUSE_TIER_SEAT[t] ?? 0)
 /** The canonical listed family order shared by hire choices and provider
  *  inventories. Backend provider ids and hire-family ids are both accepted. */
