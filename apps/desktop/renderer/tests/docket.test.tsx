@@ -695,6 +695,29 @@ uiTest('§13 general reply box targets the ASSIGNMENT and handles deferred (arch
   assert.match(toasted[0] ?? '', /archived-agent is archived — the reply waits for rehire/)
 })
 
+uiTest('§13d a standing attention flag routes the default reply to its raiser', async (mount) => {
+  const flagItem = mkItem({
+    slug: 'flagged-work',
+    title: 'Flagged Work',
+    owner: { node: 'item-owner', generation: 1 },
+    manual_attention: { reason: 'Please review this decision', at: '2026-10-16T20:00:00Z',
+      by: { node: 'flag-raiser', generation: 2 }, set_rev: 1 },
+    reply_recipients: [
+      { node: 'item-owner', role: 'owner', state: 'live' },
+      { node: 'flag-raiser', role: 'attention_raiser', state: 'live' },
+    ],
+  })
+  mockWorkItems([flagItem])
+  const { el } = await mount(docketModal())
+  await flush()
+  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await flush()
+
+  assert.match(el.querySelector('.docket-reply-label')?.textContent ?? '', /Reply to flag-raiser/)
+  const chip = el.querySelector('[data-agent-nav="flag-raiser"]')
+  assert.ok(chip, 'the reply recipient chip uses shared agent navigation for tooltip and context menu')
+})
+
 // allow-attachments-in-contextual-reply-composers. The docket's "ticket"
 // reply is the ONE of the three contextual composers whose BACKEND also
 // needed a change (work_item_reply had no attachments field at all before
