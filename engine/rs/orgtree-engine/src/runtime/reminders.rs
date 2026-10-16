@@ -255,18 +255,22 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
 /// reminder passes over. Either one is waking mail, so nobody is woken twice.
 /// User 2026-10-16: working checkups are independent of docket work. A due
 /// docket reminder takes precedence and is a real wake. The sign-in sweep
-/// (`early`) sends no reminder.
+/// (`early`, 2c) looks only at working agents.
 #[logged]
 fn wakes(sw: Switches, early: bool, working: bool, owes: bool) -> (bool, bool) {
-    (!early && sw.idle && owes, sw.checkups && working)
+    if early && !working {
+        return (false, false);
+    }
+    (sw.idle && owes, sw.checkups && working)
 }
 
 /// The user signed in (`session_watch`; the user, 2026-10-16 12:12Z, 2c): a
-/// working agent that owes docket work and sits idle with its last turn in
-/// Session 0 gets its checkup now, not up to 20 minutes later, so its next
-/// turn runs in the signed-in session. The stamp it writes restarts its 20
-/// minutes, so over time this adds no checkup. Idle reminders are not sent
-/// early, and nobody else is woken.
+/// working agent that sits idle with its last turn in Session 0 gets its
+/// checkup now, not up to 20 minutes later, so its next turn runs in the
+/// signed-in session. Docket work or not (the user, 10:01-10:03Z); a docket
+/// reminder goes instead only if one is due at that moment (the
+/// coordinator's correction, 13:03Z). The stamp it writes restarts its 20
+/// minutes, so over time this adds no checkup. Nobody else is woken.
 #[logged]
 pub async fn checkups_at_sign_in(engine: &Arc<Engine>) {
     let sw = switches(engine);
