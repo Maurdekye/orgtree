@@ -364,6 +364,12 @@ test('Quick chat keeps the selected filtered superior as context instead of sele
   try {
     await inAct(async () => { await flush(8) })
     await click(view.el.querySelector('.quickchat-superior'))
+    const filterRow = document.querySelector('.quickchat-pop-superior .tray-filter-row')
+    assert.ok(filterRow, 'the Active filter shares the superior list filter row')
+    assert.ok(filterRow!.querySelector('.modalpin-active-filter'),
+      'the Active checkbox is aligned in the filter row')
+    assert.ok(filterRow!.querySelector('.tray-filter'),
+      'the search input remains in the shared filter row')
     assert.deepEqual(pickerItems(), ['top level', 'coordinator-opus', 'busy-child'],
       'the selected superior remains visible as a ghost context row')
     const root = document.querySelector<HTMLElement>('.quickchat-top')!

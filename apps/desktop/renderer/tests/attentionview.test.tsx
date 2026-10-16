@@ -164,9 +164,12 @@ test('the Agent desk active filter invokes its own preference callback', async t
   t.after(() => v.unmount())
   await inAct(() => flush())
 
-  const input = document.querySelector(
-    '.attn-panel-desk .modalpin-bar input[aria-label="Only active agents"]') as HTMLInputElement | null
-  assert.ok(input, 'the active filter is available in the Agent desk title bar')
+  const filterRow = document.querySelector('.attn-panel-desk .attn-agents .tray-filter-row')
+  assert.ok(filterRow, 'the active filter is located with the Agent desk agent list')
+  const input = filterRow!.querySelector<HTMLInputElement>('input[aria-label="Only active agents"]')
+  assert.ok(input, 'the active filter is beside the Agent desk list filter')
+  assert.equal(document.querySelector('.attn-panel-desk .modalpin-bar input[aria-label="Only active agents"]') === null,
+    true, 'the active filter is not stranded in the distant desk title bar')
   assert.equal(input!.checked, false)
   await inAct(() => input!.click())
   assert.equal(deskSelected, true, 'checking it updates the Attention desk preference')
