@@ -108,8 +108,9 @@ pub const SESSION_UPGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in the 
 pub const SESSION_DOWNGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in Windows Session 0: desktop access is lost, because the user signed out or Orgtree's sign-in helper stopped. You cannot see or use their desktop and apps until they sign in again. The change took effect at this turn. orgtree_session tells you where you run at any time.";
 
 /// A turn whose CLI ran in the operator's signed-in session stopped when that
-/// session ended: the agent is woken to continue in Session 0, where the
-/// session notice joins that turn.
+/// session ended: the agent is woken to continue at once, in a turn placed by
+/// the turn-start rule (Session 0, or another of the user's sessions that
+/// still has a helper), where a session notice joins it when it moved.
 #[logged]
 pub async fn session_ended(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Result<()> {
     let text = "The user's Windows session ended while you were working, so your turn stopped. Continue where you left off.";

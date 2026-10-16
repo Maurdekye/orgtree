@@ -322,27 +322,29 @@ const BG_GRACE: Duration = Duration::from_secs(3);
 /// (docket option-to-run-the-background-engine-in-the-user-s): the error that
 /// gives a turn with no output its mail back, and the transcript's row.
 const SESSION_ENDED: &str = "the user's Windows session ended";
-const SESSION_ENDED_ROW: &str = "The user's Windows session ended during this turn, which stopped there; it continues in Session 0.";
-/// How long a hosted CLI's exit waits for the sign-in helper to go too:
+const SESSION_ENDED_ROW: &str = "The user's Windows session ended during this turn, which stopped there; a new turn continues it.";
+/// How long a hosted CLI's exit waits for its sign-in helper to go too:
 /// Windows can end the CLI a moment before the helper at sign-out.
 const SESSION_GONE_WAIT: Duration = Duration::from_secs(2);
 
-/// Whether a CLI's exit may be the user's Windows session ending under a turn,
-/// which then continues in Session 0 (if the sign-in helper is gone too):
-/// only a CLI the helper started, during a turn that nobody ended on purpose
-/// (the user, 2026-10-16 11:03Z: no resume after an interrupt, halt or
-/// retirement).
+/// Whether a CLI's exit may be the user's Windows session ending under a turn
+/// (if its sign-in helper is gone too), which a new turn then continues at
+/// once wherever the turn-start rule places it: only a CLI a helper started,
+/// during a turn that nobody ended on purpose (the user, 2026-10-16 11:03Z:
+/// no resume after an interrupt, halt or retirement).
 #[logged]
-fn continues_in_session0(hosted: bool, in_turn: bool, deliberate: bool) -> bool {
+fn may_be_session_end(hosted: bool, in_turn: bool, deliberate: bool) -> bool {
     hosted && in_turn && !deliberate
 }
 
 /// Whether the sign-in helper that started a CLI (`host`) has gone, given
 /// the live helpers (`live`: session, then the helper's pid and process
-/// creation stamp): today only when no helper is left at all.
+/// creation stamp): its own lease, so a CLI whose session ended counts while
+/// another of the user's sessions stays hosted (rig-sol-b, 2026-10-16), and a
+/// later helper in its session is not the one that started it.
 #[logged]
-fn helper_gone(_host: crate::runtime::session_host::Host, live: &[(u32, (u32, u64))]) -> bool {
-    live.is_empty()
+fn helper_gone(host: crate::runtime::session_host::Host, live: &[(u32, (u32, u64))]) -> bool {
+    !live.iter().any(|&(session, helper)| session == host.session && helper == host.helper)
 }
 
 /// Where an agent's last turn ran (`ot.agents.extra->>'session'`).
@@ -420,7 +422,7 @@ struct Turn {
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
     /// its CLI ran in the user's session and ended with it (`on_exit`): the
-    /// turn stops cleanly and continues in Session 0, no failure
+    /// turn stops cleanly and a new turn continues it, no failure
     session_ended: bool,
     /// the agent ended this turn itself and asked for a new one at once
     /// (orgtree_interrupt on itself with `restart`)
@@ -2767,7 +2769,7 @@ impl Actor {
     }
 
     /// Whether the sign-in helper that started the CLI (`host`) is gone,
-    /// given `SESSION_GONE_WAIT` to go.
+    /// given `SESSION_GONE_WAIT` to go: that helper, not the last one.
     async fn session_gone(&self, host: Option<crate::runtime::session_host::Host>) -> bool {
         let Some(host) = host else { return false };
         let until = Instant::now() + SESSION_GONE_WAIT;
@@ -6363,15 +6365,17 @@ impl Actor {
         self.claude_lost(&format!("the CLI exited: {reason}")).await;
         self.muse_lost(&format!("the host exited: {reason}")).await;
         // A CLI in the user's session ends with that session: the user signed
-        // out, or the sign-in helper stopped. That is no failure of the agent:
-        // the turn stops cleanly, its mail is kept as for any CLI that died
-        // (given back when the CLI had produced nothing), and a new turn
-        // continues it in Session 0 at once, woken as after an engine restart
-        // mid-turn (docket option-to-run-the-background-engine-in-the-user-s;
+        // out of it, or its sign-in helper stopped (another session of the
+        // user may stay hosted). That is no failure of the agent: the turn
+        // stops cleanly, its mail is kept as for any CLI that died (given back
+        // when the CLI had produced nothing), and a new turn continues it at
+        // once, woken as after an engine restart mid-turn and placed by the
+        // turn-start rule: in Session 0, or another session that still has a
+        // helper (docket option-to-run-the-background-engine-in-the-user-s;
         // the user, 2026-10-16 11:03Z). Windows ended the CLI, not this engine:
         // the kill record says so, with its exit status.
         let deliberate = self.turn.as_ref().is_some_and(|t| t.interrupted || t.killed) || self.stopping;
-        let session_ended = continues_in_session0(host.is_some(), self.turn.is_some(), deliberate) && self.session_gone(host).await;
+        let session_ended = may_be_session_end(host.is_some(), self.turn.is_some(), deliberate) && self.session_gone(host).await;
         if let Some(t) = self.turn.as_mut() {
             t.exited = true;
             t.session_ended = session_ended;
@@ -6380,7 +6384,7 @@ impl Actor {
             let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
             let msg = if session_ended {
                 crate::codex_kills::session_ended(pid, &self.name, &status);
-                tracing::info!(agent = %self.name, %process, pid, "the user's Windows session ended during the turn; it continues in Session 0");
+                tracing::info!(agent = %self.name, %process, pid, "the user's Windows session ended during the turn; a new turn continues it");
                 Some(SESSION_ENDED.to_string())
             } else if quiet {
                 None
@@ -8234,14 +8238,14 @@ mod session_end_tests {
     use super::*;
 
     /// The user, 2026-10-16 11:03Z: a turn the sign-out cut off resumes at
-    /// once in Session 0, as after an engine restart mid-turn; a turn that was
+    /// once, as after an engine restart mid-turn; a turn that was
     /// interrupted, halted, timed out or retired does not.
     #[test]
     fn only_a_turn_the_session_cut_off_continues() {
-        assert!(continues_in_session0(true, true, false));
-        assert!(!continues_in_session0(true, true, true), "a deliberate end never resumes");
-        assert!(!continues_in_session0(false, true, false), "a CLI the engine started ends with no session");
-        assert!(!continues_in_session0(true, false, false), "no turn, nothing to resume");
+        assert!(may_be_session_end(true, true, false));
+        assert!(!may_be_session_end(true, true, true), "a deliberate end never resumes");
+        assert!(!may_be_session_end(false, true, false), "a CLI the engine started ends with no session");
+        assert!(!may_be_session_end(true, false, false), "no turn, nothing to resume");
     }
 
     use crate::runtime::session_host::Host;
