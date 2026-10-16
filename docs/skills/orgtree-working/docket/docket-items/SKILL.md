@@ -8,7 +8,7 @@ Up: [orgtree-docket](../SKILL.md)
 
 Begin by finding the existing work item and reading its current objective. Keep one item through implementation, review, reassignment and resumed work rather than creating a new ticket for each session. Use its returned readable slug in evidence and handoffs; retitling does not create a new identity.
 
-Make the description standalone. Open with a brief statement of the problem and proposed solution. Put every requirement, default, exception, exclusion and signed decision after that paragraph. When a ruling arrives, update the description with the decision and enough rationale to prevent it being re-litigated. A progress bullet or coordination message is not the authoritative scope.
+Make the description standalone. Open with a brief statement of the problem and proposed solution. Put every requirement, default, exception, exclusion and signed decision after that paragraph. When a ruling arrives, update the description with the decision and enough rationale to prevent it being re-litigated. A progress bullet or coordination message is not the authoritative scope. Before sending an assignment or exact-SHA review request, add the agent as a participant or reviewer; mentioning an agent in the objective or mail grants no docket access.
 
 Progress should tell a reader what actually changed and what happens next. Keep done_so_far and working_on_next as complete, scannable lists. Record meaningful boundaries such as a blocker, review handoff or delivery, not every tool call. Cite evidence without claiming a build, commit or running version proves functional acceptance. [Work](../tool-work/SKILL.md) owns list limits, evidence kinds, ownership preservation and revision-checked keep/append parameters.
 
