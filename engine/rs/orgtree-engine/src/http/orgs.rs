@@ -26,8 +26,8 @@ pub async fn list(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     let rows = client
         .query(
             "SELECT o.id, o.slug, o.name, o.created_at,
-                    (SELECT count(*) FROM ot.agents a WHERE a.org_id = o.id AND a.state <> 'deleted'),
-                    (SELECT count(*) FROM ot.agents a WHERE a.org_id = o.id AND a.state = 'live'),
+                    (SELECT count(*) FROM ot.agents a WHERE a.org_id = o.id AND a.state <> 'deleted' AND a.kind = 'agent'),
+                    (SELECT count(*) FROM ot.agents a WHERE a.org_id = o.id AND a.state = 'live' AND a.kind = 'agent'),
                     (SELECT coalesce(sum(cost_usd),0)::float8 FROM ot.agents a WHERE a.org_id = o.id)
                FROM ot.orgs o WHERE o.state = 'active' ORDER BY o.slug",
             &[],

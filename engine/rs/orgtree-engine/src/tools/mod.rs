@@ -219,6 +219,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         }
         "orgtree_audience" => audience_tool(engine, caller, args).await,
         "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
+        "orgtree_project" => treetools::run(engine, caller, args, "create_project").await,
         "orgtree_reorder" => treetools::run(engine, caller, args, "reorder").await,
         "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
         "orgtree_retire" => treetools::run(engine, caller, args, "retire").await,

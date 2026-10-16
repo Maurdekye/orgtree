@@ -42,11 +42,11 @@ fn spoken(p: &str) -> String {
 #[logged]
 async fn live(client: &impl tokio_postgres::GenericClient, org_id: i64, name: &str) -> Result<(i64, Option<i64>)> {
     let r = client
-        .query_opt("SELECT id, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org_id, &name])
+        .query_opt("SELECT id, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live' AND kind = 'agent'", &[&org_id, &name])
         .await?;
     match r {
         Some(r) => Ok((r.get(0), r.get(1))),
-        None => refuse!(NotFound, "no live agent named {name}"),
+        None => refuse!(NotFound, "no live agent named {name} (a project node holds no audiences; write to it if you reach it)"),
     }
 }
 

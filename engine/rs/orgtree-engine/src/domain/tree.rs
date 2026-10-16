@@ -305,7 +305,30 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     if let Some(imp) = extra.get("imported_from") {
         o.insert("imported_from".into(), imp.clone());
     }
+    if raw["kind"].as_str() == Some(crate::domain::projects::KIND) {
+        project_fields(&mut o);
+    }
     Value::Object(o)
+}
+
+/// A project node's record (docs/rust-engine/PROJECT-NODES.md): the agent
+/// fields every reader expects, emptied of what a project never has (model,
+/// session, process, cache, account, credits of its own), and `kind`, which
+/// the canvas draws as a project card. `mail_pending` is the mail waiting in
+/// its mailbox for the fair queue.
+#[nolog]
+fn project_fields(o: &mut Map<String, Value>) {
+    o.insert("kind".into(), json!(crate::domain::projects::KIND));
+    o.insert("model_id".into(), json!(""));
+    o.insert("context_window".into(), Value::Null);
+    o.insert("seat".into(), json!(0.0));
+    o.insert("free".into(), json!(0.0));
+    o.insert("cache_forecast".into(), Value::Null);
+    o.insert("serving_account".into(), Value::Null);
+    o.insert("cheap_compact_on".into(), json!(false));
+    o.insert("cheap_compact_occ".into(), Value::Null);
+    o.insert("proc_control_enabled".into(), json!(false));
+    o.insert("proc_control_reason".into(), json!("a project runs no turns"));
 }
 
 /// The prompt-cache forecast of an agent with no actor running, from the
@@ -437,6 +460,25 @@ pub fn frozen_view(frozen: &Value) -> Value {
         o.entry("until_ts".to_string()).or_insert(Value::Null);
     }
     Value::Object(o)
+}
+
+#[cfg(test)]
+mod project_body_tests {
+    use super::*;
+
+    #[test]
+    fn a_project_record_is_marked_and_has_no_agent_machinery() {
+        let mut o = Map::new();
+        o.insert("model_id".into(), json!("claude-sonnet-5-5"));
+        o.insert("free".into(), json!(12.0));
+        o.insert("mail_pending".into(), json!(3));
+        project_fields(&mut o);
+        assert_eq!(o["kind"], "project");
+        assert_eq!(o["model_id"], "");
+        assert_eq!(o["free"], json!(0.0), "a project never has credits of its own");
+        assert_eq!(o["proc_control_enabled"], false);
+        assert_eq!(o["mail_pending"], 3, "its waiting mail stays visible");
+    }
 }
 
 #[cfg(test)]

@@ -976,11 +976,11 @@ async fn history(tx: &impl GenericClient, it: &Item, who: &Who, op: &str, detail
 async fn live_agent(client: &impl GenericClient, org_id: i64, name: &str) -> Result<(i64, i32)> {
     let name = name.trim().trim_start_matches('@');
     match client
-        .query_opt("SELECT id, generation FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org_id, &name])
+        .query_opt("SELECT id, generation FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live' AND kind = 'agent'", &[&org_id, &name])
         .await?
     {
         Some(r) => Ok((r.get(0), r.get(1))),
-        None => refuse!(NotFound, "no live agent named {name}"),
+        None => refuse!(NotFound, "no live agent named {name} (a project node cannot hold a docket role)"),
     }
 }
 
@@ -1084,7 +1084,7 @@ impl AfterCommit {
 #[logged]
 async fn tell_tx(tx: &impl GenericClient, post: &mut AfterCommit, org_id: i64, it: &Item,
                  to: &str, body: String, kind: &str, wake: bool, ev: Option<Value>) -> Result<()> {
-    let Some(row) = tx.query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org_id, &to]).await? else { return Ok(()) };
+    let Some(row) = tx.query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' AND kind = 'agent'", &[&org_id, &to]).await? else { return Ok(()) };
     let id: i64 = row.get(0);
     tx.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, attachments, reply_to, ev, state)
         VALUES ($1, $2, '@system', 'agent', $3, $4, $5, $6, $7, '[]'::jsonb, $8, $9, 'pending')",
@@ -2485,7 +2485,7 @@ pub(crate) async fn recover_abandoned(engine: &Arc<Engine>, org: &Arc<OrgHandle>
              OR a.generation < CASE WHEN w.owner->>'generation' ~ '^[0-9]{1,9}$' THEN (w.owner->>'generation')::integer ELSE 0 END)
          ORDER BY w.created_at, w.id LIMIT 8 FOR UPDATE OF w SKIP LOCKED", &[&org.id]).await?;
     if rows.is_empty() { return Ok(()); }
-    let Some(target) = tx.query_opt("SELECT id, name, generation FROM ot.agents WHERE org_id = $1 AND state = 'live' AND parent_id IS NULL ORDER BY name LIMIT 1 FOR SHARE", &[&org.id]).await? else { return Ok(()) };
+    let Some(target) = tx.query_opt("SELECT id, name, generation FROM ot.agents WHERE org_id = $1 AND state = 'live' AND kind = 'agent' AND parent_id IS NULL ORDER BY name LIMIT 1 FOR SHARE", &[&org.id]).await? else { return Ok(()) };
     let id: i64 = target.get(0);
     let name: String = target.get(1);
     let generation: i32 = target.get(2);

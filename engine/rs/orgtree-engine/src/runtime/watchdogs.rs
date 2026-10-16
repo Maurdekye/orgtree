@@ -209,7 +209,7 @@ pub async fn start(engine: &Arc<Engine>) {
     let ids: Vec<i64> = client
         .query(
             "SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id JOIN ot.orgs o ON o.id = w.org_id
-              WHERE w.state = 'armed' AND a.state = 'live' AND o.state <> 'trashed' AND (NOT $1 OR w.kind='event')",
+              WHERE w.state = 'armed' AND a.state = 'live' AND a.kind = 'agent' AND o.state <> 'trashed' AND (NOT $1 OR w.kind='event')",
             &[&(crate::mailhub::safe_start() && !crate::rig::recovers())],
         )
         .await
@@ -351,8 +351,24 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Resu
     match dog.kind.as_str() {
         "stream" => run_stream(engine, dog, cancel).await,
         "activity" => run_activity(engine, dog, cancel).await,
+        "fair_queue" => run_fair_queue(engine, dog, cancel).await,
         _ => run_poll(engine, dog.row, cancel).await,
     }
+}
+
+/// A fair project mail queue dog (docs/rust-engine/PROJECT-NODES.md) has no
+/// loop of its own: mail entering its project is handed out by the mail path
+/// (`projects::dispatch`). Arming it hands out whatever waited while nobody
+/// eligible watched; it then only holds its place until paused or removed.
+#[logged]
+async fn run_fair_queue(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Result<()> {
+    let Some(project) = dog.memo["target_id"].as_i64() else {
+        pause(engine, &dog, "its project is unknown").await?;
+        return Ok(());
+    };
+    crate::domain::projects::dispatch(engine, dog.org_id, project).await?;
+    cancel.cancelled().await;
+    Ok(())
 }
 
 // ------------------------------------------------------------ polling dogs
@@ -1388,6 +1404,30 @@ async fn effective_scope(engine: &Engine, agent: i64) -> Result<Value> {
     Ok(eff)
 }
 
+/// A fair_queue dog's smoke: what waits in its project's mailbox and who
+/// else watches it, read now.
+#[logged]
+async fn queue_smoke(engine: &Engine, org_id: i64, p: &crate::domain::projects::Project) -> Result<Value> {
+    let client = engine.db.get().await?;
+    let waiting: i64 = client
+        .query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'", &[&p.id])
+        .await?
+        .get(0);
+    let watchers: Vec<String> = client
+        .query(
+            "SELECT a.name FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+              WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $2
+              ORDER BY w.id LIMIT 64",
+            &[&org_id, &p.id],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    Ok(json!({ "project": p.name, "waiting": waiting, "other_watchers": watchers,
+               "note": if waiting > 0 { "the mail waiting now goes out as soon as this watchdog is armed, one mail per watcher in turn" } else { "nothing waits now" } }))
+}
+
 /// What the target says right now, through the same spawn the runner uses.
 #[logged]
 async fn smoke(kind: &str, target: &str, pattern: Option<&Regex>, shell: Option<&str>, cwd: Option<&Path>) -> Value {
@@ -1522,8 +1562,8 @@ fn free_id(base: &str, taken: &HashSet<String>) -> String {
 #[logged]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
-    if !["file", "command", "process", "stream", "activity", "event"].contains(&kind.as_str()) {
-        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event");
+    if !["file", "command", "process", "stream", "activity", "event", "fair_queue"].contains(&kind.as_str()) {
+        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, fair_queue");
     }
     let target = args["target"].as_str().map(str::trim).unwrap_or("").to_string();
     if target.is_empty() {
@@ -1567,10 +1607,30 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         memo["threshold"]=args["threshold"].clone();
         memo["event_scope"]=json!(args["event_scope"].as_str().unwrap_or("subtree"));
     } else if args.get("threshold").is_some() || args.get("event_scope").is_some() { refuse!(BadRequest,"threshold/event_scope require kind event"); }
+    let mut queue_project: Option<crate::domain::projects::Project> = None;
+    if kind == "fair_queue" {
+        // one project's mailbox; only agents above or below it may claim its mail
+        let Some(p) = crate::domain::projects::by_name(&**client, org_id, &target).await? else {
+            refuse!(NotFound, "no project named {} to watch; fair_queue takes a project's name as target", target.trim_start_matches('@'));
+        };
+        if p.state != "live" {
+            refuse!(Conflict, "project {} is retired", p.name);
+        }
+        crate::domain::projects::require_reach(&**client, owner, &p, "watch its mailbox").await?;
+        if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
+            refuse!(BadRequest, "a fair_queue watchdog fires on each mail it is handed; it has no silence mode");
+        }
+        if args["pattern"].as_str().is_some_and(|p| !p.trim().is_empty()) {
+            refuse!(BadRequest, "a fair_queue watchdog takes every mail its project receives; it has no pattern");
+        }
+        memo["target_id"] = json!(p.id);
+        target = p.name.clone();
+        queue_project = Some(p);
+    }
     if kind == "activity" {
         let t = target.trim_start_matches('@').to_string();
         let row = client
-            .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org_id, &t])
+            .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live' AND kind = 'agent'", &[&org_id, &t])
             .await?;
         let Some(row) = row else { refuse!(NotFound, "no live agent named {t} to watch") };
         let tid: i64 = row.get(0);
@@ -1612,7 +1672,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if kind == "command" && pattern.is_none() {
         refuse!(BadRequest, "a command watchdog needs a pattern — 'ran and printed something' is not an event");
     }
-    let floor = if kind == "stream" || kind == "activity" || kind == "event" { STREAM_FLOOR_S } else { FLOOR_S };
+    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "fair_queue" { STREAM_FLOOR_S } else { FLOOR_S };
     let interval = args["interval_s"].as_i64().unwrap_or(60).max(floor).min(i32::MAX as i64) as i32;
     let once = args["once"].as_bool().unwrap_or(false);
     let notice = args["notice"].as_bool().unwrap_or(false);
@@ -1642,7 +1702,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         _ => {}
     }
     let cwd = scratch.is_dir().then_some(scratch);
-    let smoked = if kind=="event" { events::smoke(engine,owner,&target,args).await? } else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
+    let smoked = if kind=="event" { events::smoke(engine,owner,&target,args).await? }
+        else if let Some(p) = &queue_project { queue_smoke(engine, org_id, p).await? }
+        else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
     if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
     let client = engine.db.get().await?;
@@ -1685,10 +1747,15 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
         "activity" | "event" => " (pushed events)".to_string(),
+        "fair_queue" => format!(" on project {target}"),
         _ => format!(" every {interval}s"),
     };
     let mut status = format!("{}{kind} watchdog{cadence}", if once { "armed — ONE-SHOT " } else { "armed — " });
-    status.push_str(&if fire_mode == "silence" {
+    status.push_str(&if kind == "fair_queue" {
+        ". Each mail entering the project's mailbox goes to exactly ONE of its fair_queue watchers, the least recently woken \
+         (busy, halted or frozen watchers stay in turn). The mail you are handed arrives as ordinary mail from its sender, \
+         marked as coming via the project; reply to the sender, not the project".to_string()
+    } else if fire_mode == "silence" {
         format!(". Silence for {}s arrives as mail from \"{name}\"", quiet.unwrap_or(0))
     } else {
         format!(". A matching event arrives as mail from \"{name}\"")
@@ -1918,7 +1985,7 @@ fn health(d: &Dog) -> Option<String> {
                 hours(age)
             )
         }),
-        "activity" | "event" => None,
+        "activity" | "event" | "fair_queue" => None,
         _ if runs == 0 => (age >= NEVER_RAN_AGE_S)
             .then(|| format!("⚠ armed {} ago but has NEVER RUN A CHECK — the engine has not picked it up; report this.", hours(age))),
         _ => (d.fired == 0 && runs >= QUIET_CHECKS && age >= QUIET_AGE_S).then(|| {

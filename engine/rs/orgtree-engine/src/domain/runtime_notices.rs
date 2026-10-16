@@ -208,7 +208,7 @@ pub(super) async fn deep_reach_tx(
         changed.extend([Change::Audiences,Change::Events,Change::Agent(agent_id),Change::Mailbox(agent_id)]);
         changed.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::NamedAgent(org_id,name.clone()),json!({"agent":name,"grantor":"@user"}))));
     }
-    let rows=c.query("WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM ot.agents WHERE id=$1 AND org_id=$2 UNION ALL SELECT a.id,a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.parent_id WHERE u.depth<1024 AND a.org_id=$2) SELECT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live'", &[&agent_id,&org_id]).await?;
+    let rows=c.query("WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM ot.agents WHERE id=$1 AND org_id=$2 UNION ALL SELECT a.id,a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.parent_id WHERE u.depth<1024 AND a.org_id=$2) SELECT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live' AND a.kind='agent'", &[&agent_id,&org_id]).await?;
     for row in rows {
         let id:i64=row.get(0);
         let target:String=row.get(1);

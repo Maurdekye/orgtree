@@ -670,6 +670,11 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
             }
         }
         }
+        // handed out by a project's fair mail queue (docs/rust-engine/PROJECT-NODES.md)
+        if let Some(p) = &m.via_project {
+            b.push_str(&format!("\n↳ Via project {p}: its fair mail queue handed this to you as one of its fair_queue watchers; it is \
+                                 yours now (the project's copy is marked read). Answer the sender, not the project."));
+        }
         // someone over the mail hub reads only what is sent to them (user 2026-10-09)
         if !m.notice && m.sender.starts_with("@net:") {
             b.push_str(&format!("\n↳ Answer with orgtree_message to {}: a reply only in your turn's text never reaches them.", m.sender));

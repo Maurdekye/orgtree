@@ -21,6 +21,12 @@ pub struct Team {
     pub root: String,
     /// the subtree rooted at the agent itself
     pub own: bool,
+    /// the subtree's root is a project node: the workspace is the project's
+    /// folder (docs/rust-engine/PROJECT-NODES.md)
+    pub project: bool,
+    /// a project below the agent, reached from above: its folder is held,
+    /// but its AGENTS.md goes only to the agents under it
+    pub below: bool,
 }
 
 /// The workspace of the team this agent leads, even when it has no reports.
@@ -38,7 +44,8 @@ pub fn workspaces(teams_root: &std::path::Path, chain: &[(i64, String)]) -> Vec<
     chain
         .iter()
         .enumerate()
-        .map(|(i, (id, name))| Team { dir: workspace(teams_root, *id), root_id: *id, root: name.clone(), own: i == 0 })
+        .map(|(i, (id, name))| Team { dir: workspace(teams_root, *id), root_id: *id, root: name.clone(), own: i == 0,
+                                      project: false, below: false })
         .collect()
 }
 
@@ -52,12 +59,30 @@ pub async fn held(engine: &Engine, org_slug: &str, agent: i64) -> Result<Vec<Tea
                SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1
                UNION ALL SELECT a.id, a.parent_id, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
                 WHERE c.depth < 1024)
-             SELECT c.id, a.name FROM chain c JOIN ot.agents a ON a.id = c.id ORDER BY c.depth",
+             SELECT c.id, a.name, a.kind = 'project' FROM chain c JOIN ot.agents a ON a.id = c.id ORDER BY c.depth",
             &[&agent],
         )
         .await?;
     let chain: Vec<(i64, String)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
-    Ok(workspaces(&engine.cfg.teams_dir(org_slug), &chain))
+    let mut teams = workspaces(&engine.cfg.teams_dir(org_slug), &chain);
+    for (t, r) in teams.iter_mut().zip(&rows) {
+        t.project = r.get(2);
+    }
+    Ok(teams)
+}
+
+/// The folders of the live projects below `agent`, nearest first: an agent
+/// above a project reaches it (user 2026-10-16 16:11Z), folder included.
+/// Only the agents under a project get its AGENTS.md.
+#[logged]
+pub async fn projects_below(engine: &Engine, org_slug: &str, agent: i64) -> Result<Vec<Team>> {
+    let client = engine.db.get().await?;
+    let root = engine.cfg.teams_dir(org_slug);
+    Ok(crate::domain::projects::below(&**client, agent)
+        .await?
+        .into_iter()
+        .map(|(id, name)| Team { dir: workspace(&root, id), root_id: id, root: name, own: false, project: true, below: true })
+        .collect())
 }
 
 #[cfg(test)]

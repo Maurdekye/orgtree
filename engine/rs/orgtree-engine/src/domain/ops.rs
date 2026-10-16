@@ -78,9 +78,11 @@ struct Node {
     scope: Value,
     account: Option<String>,
     session: Option<String>,
+    /// `agent` or `project` (docs/rust-engine/PROJECT-NODES.md)
+    kind: String,
 }
 
-const NODE_COLS: &str = "id, name, parent_id, state, tier, seat::float8, grant_credits::float8, scope, account, session_id";
+const NODE_COLS: &str = "id, name, parent_id, state, tier, seat::float8, grant_credits::float8, scope, account, session_id, kind";
 
 fn node_of(r: &tokio_postgres::Row) -> Node {
     Node {
@@ -94,7 +96,25 @@ fn node_of(r: &tokio_postgres::Row) -> Node {
         scope: r.get(7),
         account: r.get(8),
         session: r.get(9),
+        kind: r.get(10),
     }
+}
+
+impl Node {
+    #[nolog]
+    fn project(&self) -> bool {
+        self.kind == crate::domain::projects::KIND
+    }
+}
+
+/// Operations that only make sense for an agent (a model, an account, a
+/// session, folders, credits of its own) refuse a project node.
+#[logged]
+fn agent_only(n: &Node, verb: &str) -> Result<()> {
+    if n.project() {
+        refuse!(BadRequest, "{} is a project, not an agent: it has no model, account, session or scope, so it cannot {verb}", n.name);
+    }
+    Ok(())
 }
 
 #[logged]
@@ -239,7 +259,17 @@ async fn ensure_room(
     };
     let mut need = need;
     let mut plan = Vec::new();
-    for n in ch.iter().rev() {
+    for (i, n) in ch.iter().enumerate().rev() {
+        // a project is transparent in the credit hierarchy (user 2026-10-16
+        // 20:40Z): it holds exactly its children's stakes, never free credits,
+        // so it passes the need straight up to the agent above it
+        if n.project() {
+            if floor == Some(n.id) {
+                refuse!(Conflict, "insufficient credits: project {} holds no credits; the agent above it pays", n.name);
+            }
+            plan.push((n.id, n.name.clone(), need));
+            continue;
+        }
         let free = n.grant - hold(tx, n.id).await?;
         if free + 1e-9 >= need { break; }
         if floor == Some(n.id) || !cascade {
@@ -248,7 +278,10 @@ async fn ensure_room(
                 n.name, free, need);
         }
         let d = (need - free).ceil();
-        if n.parent.is_none() && n.grant + d > max_top + 1e-9 {
+        // the user's top-level cap binds an agent with no agent above it,
+        // under a top-level project too
+        let credit_top = ch[..i].iter().all(|a| a.project());
+        if credit_top && n.grant + d > max_top + 1e-9 {
             refuse!(Conflict, "insufficient credits: {} would need a grant of {:.0}, over the top-level cap of {:.0}",
                 n.name, n.grant + d, max_top);
         }
@@ -267,15 +300,34 @@ async fn ensure_room(
     Ok(raised)
 }
 
-/// May `actor` act on `target`? The user always; an agent downward only.
+/// May `actor` act on `target`? The user always; an agent downward only,
+/// and on a project from below too, as if the project were its subordinate
+/// (user 2026-10-16 16:11Z: agents above or below a project control it).
 #[logged]
 async fn authorize(tx: &Transaction<'_>, actor: &Actor, target: &Node, verb: &str) -> Result<()> {
     if let Actor::Agent { id, .. } = actor {
         if *id == target.id {
             refuse!(Forbidden, "you cannot {verb} yourself");
         }
-        if !within(tx, *id, target.id).await? {
-            refuse!(Forbidden, "you can only {verb} agents below you; {} is not", target.name);
+        if within(tx, *id, target.id).await? {
+            return Ok(());
+        }
+        if target.project() && within(tx, target.id, *id).await? {
+            return Ok(());
+        }
+        refuse!(Forbidden, "you can only {verb} agents below you (or a project you are above or below); {} is not", target.name);
+    }
+    Ok(())
+}
+
+/// An agent may not retire or dissolve a project it is inside: that would
+/// archive the caller with it in the middle of its turn. Its superiors can
+/// (user 2026-10-16 20:40Z, confirming the implementer's choice).
+#[logged]
+async fn not_inside(tx: &Transaction<'_>, actor: &Actor, n: &Node, verb: &str) -> Result<()> {
+    if let Actor::Agent { id, .. } = actor {
+        if n.project() && *id != n.id && within(tx, n.id, *id).await? {
+            refuse!(Forbidden, "you are inside project {}: to {verb} it would archive you with it; ask an agent above it", n.name);
         }
     }
     Ok(())
@@ -584,7 +636,7 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op
     // protects empty/root sets. Membership/order writers participate too,
     // so a move/restore/archive cannot escape the placement snapshot.
     // run retries 40001; no global topology lock is introduced.
-    let isolation = if matches!(canonical_op(_op), "hire" | "reorder" | "rehire" | "move" | "moves"
+    let isolation = if matches!(canonical_op(_op), "hire" | "create_project" | "reorder" | "rehire" | "move" | "moves"
         | "swap" | "self_subjugate" | "retire" | "dissolve" | "rescind" | "delete") {
         tokio_postgres::IsolationLevel::Serializable
     } else { tokio_postgres::IsolationLevel::ReadCommitted };
@@ -610,6 +662,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
     }
     let mut out = match canonical_op(op) {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
+        "create_project" => create_project(engine, org, &tx, actor, req, fx).await?,
         "rehire" => rehire(engine, org, &tx, actor, req, fx).await?,
         "retire" => retire(org, &tx, actor, req, fx, false).await?,
         "rescind" => retire(org, &tx, actor, req, fx, true).await?,
@@ -709,8 +762,10 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         }
         out["above_self"] = json!(true);
     }
+    // projects stay transparent in the credit hierarchy (user 2026-10-16 20:40Z)
+    fx.agents.extend(crate::domain::projects::settle_credits(tx, org.id).await?);
     if crate::runtime::watchdogs::events::interested(engine,"agents.live") {
-        let ids=tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live'", &[&org.id]).await?.iter().map(|r|r.get(0)).collect();
+        let ids=tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent'", &[&org.id]).await?.iter().map(|r|r.get(0)).collect();
         fx.pulses.push(crate::changes::Change::EngineEvent(crate::runtime::watchdogs::events::live_count(org.id,ids)));
     }
     Ok(out)
@@ -1028,6 +1083,9 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
         if let Actor::Agent { id, name } = actor {
             if anchor.is_none() && p.id != *id && !within(tx, *id, p.id).await? {
+                if p.project() && within(tx, p.id, *id).await? {
+                    refuse!(Forbidden, "hiring under project {} is paid by the agent above it: a project holds no credits and you cannot spend your superiors' (user 2026-10-16); ask the agent above the project to hire", p.name);
+                }
                 refuse!(Forbidden, "{name} can only hire under itself or its reports");
             }
         }
@@ -1050,6 +1108,14 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     let anchor_stake = anchor.as_ref().filter(|_| !self_parent).map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = grant + anchor_stake;
     let need = seat + grant - anchor_stake;
+    // an agent under a top-level project has no agent above it: the
+    // user's top-level cap binds its grant as at the top level
+    if let Some(p) = parent.as_ref().filter(|p| p.project()) {
+        let credit_top: bool = tx.query_one("SELECT ot.superior_of($1) IS NULL", &[&p.id]).await?.get(0);
+        if credit_top && grant > caps.max_top + 1e-9 {
+            refuse!(Conflict, "a grant of {grant:.0} under top-level project {} is over this organization's top-level cap of {:.0}", p.name, caps.max_top);
+        }
+    }
     let raised = match &parent {
         Some(p) => ensure_room(tx, actor, Some(p.id), need, caps.cascade_hire, caps.max_top, fx).await?,
         None => {
@@ -1211,6 +1277,114 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     Ok(out)
 }
 
+/// A new project node (docs/rust-engine/PROJECT-NODES.md): under `parent`
+/// (an agent's default: itself; the user's: the top level), at `index`
+/// among the live siblings (required from agents, as for hires). Free: no
+/// seat, no credits, no CLI. Its folder is its team workspace.
+#[logged]
+async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let agent = matches!(actor, Actor::Agent { .. });
+    ordering::index(req, agent)?;
+    let name = valid_name(str_arg(req, "name").unwrap_or(""))?;
+    name_free(tx, org.id, &name).await?;
+    let parent: Option<Node> = match str_arg(req, "parent") {
+        Some("user" | "@user") => None,
+        Some(p) => Some(node_by_name(tx, org.id, p).await?),
+        None => match actor {
+            Actor::Agent { id, .. } => Some(node_by_id(tx, *id).await?),
+            Actor::User => None,
+        },
+    };
+    if let Some(p) = &parent {
+        if p.state != "live" {
+            refuse!(Conflict, "{} is not live", p.name);
+        }
+        if let Actor::Agent { id, name } = actor {
+            let ok = p.id == *id || within(tx, *id, p.id).await? || (p.project() && within(tx, p.id, *id).await?);
+            if !ok {
+                refuse!(Forbidden, "{name} can create a project only under itself, its reports, or a project it is inside");
+            }
+        }
+    } else if agent {
+        refuse!(Forbidden, "only the user creates a project at the top level");
+    }
+    let parent_id = parent.as_ref().map(|p| p.id);
+    let mut siblings = ordering::siblings(tx, org.id, parent_id, None).await?;
+    let index = ordering::position(req, &siblings, agent)?;
+    let order: f64 = if req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none() {
+        tx.query_one(
+            "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
+            &[&org.id, &parent_id]).await?.get(0)
+    } else {
+        let (order, changed) = ordering::place(tx, &mut siblings, index).await?;
+        fx.agents.extend(changed);
+        order
+    };
+    let description = str_arg(req, "description").map(str::to_string);
+    let title = str_arg(req, "title").map(str::to_string).unwrap_or_default();
+    let born = uuid::Uuid::new_v4().to_string();
+    let id: i64 = tx
+        .query_one(
+            "INSERT INTO ot.agents (org_id, name, parent_id, sibling_order, state, title, charter, tier, seat, grant_credits,
+                                    scope, generation, born, kind)
+             VALUES ($1, $2, $3, $4, 'live', $5, $6, $7, 0, 0, $8, 1, $9, $10) RETURNING id",
+            &[&org.id, &name, &parent_id, &order, &title, &description, &crate::domain::projects::TIER, &scope::transparent(),
+              &born, &crate::domain::projects::KIND],
+        )
+        .await?
+        .get(0);
+    let folder = crate::domain::teams::workspace(&engine.cfg.teams_dir(&org.slug), id).to_string_lossy().to_string();
+    tx.execute("UPDATE ot.agents SET scratch_dir = $2 WHERE id = $1", &[&id, &folder]).await?;
+    event(tx, org.id, "create_project", actor, Some(id),
+          json!({ "node": name, "kind": "project", "parent": parent.as_ref().map(|p| p.name.clone()) }), fx).await?;
+    fx.agents.insert(id);
+    if let Some(p) = &parent {
+        fx.agents.insert(p.id);
+    }
+    fx.events = true;
+    fx.scratch.push(folder.clone());
+    Ok(json!({ "node": name, "kind": "project", "parent": parent.as_ref().map(|p| &p.name), "index": index,
+               "sibling_order": order, "live_sibling_count": siblings.len() + 1, "folder": folder }))
+}
+
+/// `rehire` of a retired project: it comes back where it was, free, with
+/// no model or account to choose. Its retired agents stay retired.
+#[logged]
+async fn restore_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, n: &Node, fx: &mut Effects) -> Result<Value> {
+    authorize(tx, actor, n, "restore").await?;
+    if n.state == "live" {
+        return Ok(json!({ "node": n.name, "cost": 0, "warnings": [format!("project {} is already live — nothing to do", n.name)] }));
+    }
+    if n.state != "archived" {
+        refuse!(Conflict, "project {} cannot be restored from state {}", n.name, n.state);
+    }
+    if let Some(p) = n.parent {
+        let p = node_by_id(tx, p).await?;
+        if p.state != "live" {
+            refuse!(Conflict, "restore {} first: project {} goes back under it", p.name, n.name);
+        }
+    } else if !matches!(actor, Actor::User) {
+        refuse!(Forbidden, "only the user restores a top-level project");
+    }
+    let order: f64 = tx
+        .query_one(
+            "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
+            &[&org.id, &n.parent]).await?.get(0);
+    tx.execute(
+        "UPDATE ot.agents SET state = 'live', archived_at = NULL, seat = 0, grant_credits = 0, sibling_order = $2,
+                row_version = row_version + 1 WHERE id = $1",
+        &[&n.id, &order],
+    )
+    .await?;
+    event(tx, org.id, "rehire", actor, Some(n.id), json!({ "node": n.name, "kind": "project" }), fx).await?;
+    fx.agents.insert(n.id);
+    if let Some(p) = n.parent {
+        fx.agents.insert(p);
+    }
+    fx.events = true;
+    Ok(json!({ "node": n.name, "cost": 0, "kind": "project" }))
+}
+
 #[logged]
 async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     if req.get("index").is_some() {
@@ -1218,6 +1392,9 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     super::tool_groups::validate(&req["tools"])?;
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if n.project() {
+        return restore_project(org, tx, actor, &n, fx).await;
+    }
     if n.state == "live" {
         // asking for what is already true is a no-op, not an error (3.x)
         authorize(tx, actor, &n, "rehire").await?;
@@ -1426,7 +1603,10 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
                 refuse!(Conflict, "you still have live reports; retire or hand them over first");
             }
         }
-        _ => authorize(tx, actor, &n, "retire").await?,
+        _ => {
+            authorize(tx, actor, &n, "retire").await?;
+            not_inside(tx, actor, &n, "retire").await?;
+        }
     }
     // a seat with live reports takes its whole team with it
     let reports: Vec<String> = tx
@@ -1491,6 +1671,7 @@ async fn dissolve(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req
         refuse!(Conflict, "{} is not live", n.name);
     }
     authorize(tx, actor, &n, "dissolve").await?;
+    not_inside(tx, actor, &n, "dissolve").await?;
     let mut ids = subtree(tx, n.id).await?;
     ids.push(n.id);
     let rows = tx
@@ -1573,7 +1754,9 @@ async fn finish_move_credits(engine: &Engine, org: &OrgHandle, tx: &Transaction<
         if grant < -1e-9 || grant + 1e-9 < hold {
             refuse!(Conflict, "insufficient credits: moving would leave {} with grant {:.2} for {:.2} held credits", n.name, grant, hold);
         }
-        if n.parent.is_none() && grant > caps.max_top + 1e-9 {
+        let credit_top: bool = !n.project()
+            && tx.query_one("SELECT ot.superior_of($1) IS NULL", &[id]).await?.get(0);
+        if credit_top && grant > caps.max_top + 1e-9 {
             refuse!(Conflict, "insufficient credits: moving would put {} over the top-level grant cap of {:.0}", n.name, caps.max_top);
         }
     }
@@ -1618,7 +1801,10 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     if let Actor::Agent { id, name } = actor {
         match &target {
             Some(t) if t.id == *id || within(tx, *id, t.id).await? => {}
-            _ => refuse!(Forbidden, "{name} can only move agents within its own team"),
+            // its own reports may also go into a project it is inside (the
+            // project counts as its subordinate, user 2026-10-16 16:11Z)
+            Some(t) if t.project() && n.id != *id && within(tx, t.id, *id).await? && within(tx, *id, n.id).await? => {}
+            _ => refuse!(Forbidden, "{name} can only move agents within its own team, or its own reports into a project it is inside"),
         }
     }
     if target.as_ref().map(|t| t.id) == n.parent {
@@ -1695,7 +1881,8 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         &[&org.id, &n.name, &new],
     )
     .await?;
-    tx.execute("UPDATE ot.watchdogs SET target = $3 WHERE org_id = $1 AND kind = 'activity' AND target = $2", &[&org.id, &n.name, &new])
+    tx.execute("UPDATE ot.watchdogs SET target = $3 WHERE org_id = $1 AND kind IN ('activity', 'fair_queue') AND target = $2",
+        &[&org.id, &n.name, &new])
         .await?;
     event(tx, org.id, "rename", actor, Some(n.id), json!({ "was": n.name, "node": new }), fx).await?;
     fx.agents.insert(n.id);
@@ -1712,6 +1899,9 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
 #[logged]
 async fn reallocate(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if n.project() {
+        refuse!(BadRequest, "{} is a project: projects hold no credits (the agent above a project pays for the agents under it)", n.name);
+    }
     if n.state != "live" {
         refuse!(Conflict, "{} is not live", n.name);
     }
@@ -1775,6 +1965,7 @@ async fn queue_config(tx: &Transaction<'_>, n: &Node, actor: &Actor, mut intent:
 #[logged]
 async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    agent_only(&n, "switch models")?;
     authorize(tx, actor, &n, "switch the model of").await?;
     let tier = str_arg(req, "tier").unwrap_or("").to_string();
     if tier == n.tier {
@@ -1958,6 +2149,7 @@ async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req:
 #[logged]
 async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    agent_only(&n, "change accounts")?;
     authorize(tx, actor, &n, "change the account of").await?;
     let pending: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     let target_tier = pending.as_ref().and_then(|p| p["tier"].as_str()).unwrap_or(&n.tier);
@@ -2022,6 +2214,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
 #[logged]
 async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    agent_only(&n, "be compacted")?;
     authorize(tx, actor, &n, "compact").await?;
     if n.state != "live" {
         refuse!(Conflict, "{} is not live", n.name);
@@ -2064,6 +2257,8 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
 async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let a = node_by_name(tx, org.id, str_arg(req, "a").unwrap_or("")).await?;
     let b = node_by_name(tx, org.id, str_arg(req, "b").unwrap_or("")).await?;
+    agent_only(&a, "swap seats")?;
+    agent_only(&b, "swap seats")?;
     if a.id == b.id {
         refuse!(BadRequest, "an agent cannot swap with itself");
     }
@@ -2166,6 +2361,7 @@ async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transa
     };
     let me = node_by_id(tx, *me_id).await?;
     let d = node_by_name(tx, org.id, str_arg(req, "target").unwrap_or("")).await?;
+    agent_only(&d, "take your seat")?;
     if d.state != "live" {
         refuse!(Conflict, "{} is not live", d.name);
     }
@@ -2247,6 +2443,7 @@ enum Dirs {
 async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, preauthorized: bool, dirs_mode: Dirs) -> Result<Value> {
     super::tool_groups::validate(&req["tools"])?;
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    agent_only(&n, "be re-scoped")?;
     let own = matches!(actor, Actor::Agent { id, .. } if *id == n.id);
     if own {
         let fields: Vec<&str> = req.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();

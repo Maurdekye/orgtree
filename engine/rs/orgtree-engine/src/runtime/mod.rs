@@ -347,7 +347,7 @@ pub fn warm_all(engine: &Arc<Engine>) {
             let rows = client
                 .query(
                     "SELECT a.org_id, a.id, a.name FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
-                      WHERE a.state = 'live' AND a.halt IS NULL AND a.frozen IS NULL
+                      WHERE a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL
                         AND o.killswitch IS NULL AND o.state <> 'trashed'
                       ORDER BY (SELECT max(t.started_at) FROM ot.turns t WHERE t.agent_id = a.id) DESC NULLS LAST, a.id
                       LIMIT $1",
@@ -447,7 +447,7 @@ pub async fn recover(engine: &Arc<Engine>) {
     // A passive build notice also reaches idle seats, without waking them.
     let mut after=0_i64;
     loop {
-        let rows=match client.query("SELECT id,org_id FROM ot.agents WHERE state='live' AND id>$1 AND org_id IN (SELECT id FROM ot.orgs WHERE state='active') ORDER BY id LIMIT 200", &[&after]).await {
+        let rows=match client.query("SELECT id,org_id FROM ot.agents WHERE state='live' AND kind='agent' AND id>$1 AND org_id IN (SELECT id FROM ot.orgs WHERE state='active') ORDER BY id LIMIT 200", &[&after]).await {
             Ok(rows)=>rows, Err(e)=>{ tracing::warn!(error=%e,"restart notice page failed"); break; }
         };
         if rows.is_empty(){break;}
@@ -462,7 +462,7 @@ pub async fn recover(engine: &Arc<Engine>) {
     let waiting = client
         .query(
             "SELECT DISTINCT m.recipient_agent_id, a.org_id, a.name FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
-              WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.state = 'pending' AND NOT m.notice AND a.state = 'live' AND a.halt IS NULL",
+              WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.state = 'pending' AND NOT m.notice AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL",
             &[],
         )
         .await

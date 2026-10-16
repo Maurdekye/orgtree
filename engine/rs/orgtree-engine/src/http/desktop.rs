@@ -25,7 +25,7 @@ pub async fn alive(State(e): State<Arc<Engine>>) -> Json<Value> {
 #[logged]
 pub async fn status(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     let client = e.db.get().await?;
-    let total: i64 = client.query_one("SELECT count(*) FROM ot.agents WHERE state = 'live'", &[]).await?.get(0);
+    let total: i64 = client.query_one("SELECT count(*) FROM ot.agents WHERE state = 'live' AND kind = 'agent'", &[]).await?.get(0);
     let active = e.sched.held.load(Ordering::SeqCst) as i64;
     let waiting = e.sched.waiting.load(Ordering::SeqCst) as i64;
     let active = active.min(total);

@@ -69,13 +69,20 @@ pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedR
             let client = engine.db.get().await?;
             let row = client
                 .query_one(
-                    "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier, extra->'cache_receipt' FROM ot.agents WHERE id = $1",
+                    "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier, extra->'cache_receipt', kind FROM ot.agents WHERE id = $1",
                     &[&handle.id],
                 )
                 .await?;
             Ok((client, row))
         }.await;
         match loaded {
+            // a project node runs no turns, whatever asked for its actor
+            // (docs/rust-engine/PROJECT-NODES.md): its queued messages drop
+            // with the channel, and their reply senders with them
+            Ok((_, row)) if row.get::<_, String>(4) == crate::domain::projects::KIND => {
+                tracing::info!(agent = id, "a project node has no actor; the request is dropped");
+                engine.agents.remove_if(id, &handle);
+            }
             Ok((client, row)) => {
                 let name: String = row.get(0);
                 let span = crate::trace::request_from(&crate::trace::agent_client(id, &name), cause.as_deref());
@@ -1767,7 +1774,7 @@ impl Actor {
         let r = client
             .query_one(
                 "SELECT a.name, a.title, a.tier, a.account, a.scope, a.charter, a.session_id, a.provider, a.generation,
-                        a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, a.parent_id, a.scratch_dir,
+                        a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, ot.superior_of(a.id), a.scratch_dir,
                         p.team_charter, o.name, o.slug, o.settings, o.killswitch IS NOT NULL,
                         (SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts ac ON ac.id = s.account_id
                           WHERE ac.id = a.account AND ac.kind = 'apikey'
@@ -1779,7 +1786,9 @@ impl Actor {
                         a.occupancy, a.context_window, a.occupancy_est, a.compacted_unrun, a.limit_locked,
                         coalesce((a.extra->>'harness_pin')::boolean, false)
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
-                   LEFT JOIN ot.agents p ON p.id = a.parent_id
+                   -- the superior is the nearest AGENT above: a project is
+                   -- transparent for reporting (docs/rust-engine/PROJECT-NODES.md)
+                   LEFT JOIN ot.agents p ON p.id = ot.superior_of(a.id)
                   WHERE a.id = $1",
                 &[&self.id],
             )
@@ -1848,10 +1857,15 @@ impl Actor {
         let eff = scope::with_org_notes(&eff, &org_notes_dir.to_string_lossy());
         // and the workspace of every subtree it is inside, read from the tree now
         let teams = crate::domain::teams::held(&self.engine, &slug, self.id).await?;
+        // and the folders of the projects below it, which it reaches from above
+        let below = crate::domain::teams::projects_below(&self.engine, &slug, self.id).await?;
         let eff = scope::with_team_workspaces(&eff, &teams);
+        let eff = scope::with_team_workspaces(&eff, &below);
         let team_notes: Vec<(PathBuf, String, Option<String>)> = teams.iter().map(|t| {
             let file = t.dir.join(crate::config::ORG_NOTES_FILE);
-            let label = if t.own { "your own team".to_string() } else { format!("{}'s team", t.root) };
+            let label = if t.own { "your own team".to_string() }
+                else if t.project { format!("project {}", t.root) }
+                else { format!("{}'s team", t.root) };
             let text = std::fs::read_to_string(&file).ok();
             (file, label, text)
         }).collect();
@@ -7579,6 +7593,7 @@ fn mail_of(m: &Value) -> Mail {
         reply_to: m.get("reply_to").cloned().unwrap_or(Value::Null),
         replies: crate::domain::replies::value(m.get("reply_to"),m.get("replies")),
         ev: m.get("ev").cloned().unwrap_or(Value::Null),
+        via_project: m["extra"]["via_project"]["name"].as_str().map(str::to_string),
     }
 }
 

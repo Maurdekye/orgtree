@@ -30,6 +30,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0022_openrouter_numbered_keys", include_str!("../migrations/0022_openrouter_numbered_keys.sql")),
     ("0023_undo_history", include_str!("../migrations/0023_undo_history.sql")),
     ("0024_logo_undo", include_str!("../migrations/0024_logo_undo.sql")),
+    ("0025_project_nodes", include_str!("../migrations/0025_project_nodes.sql")),
 ];
 
 #[logged]

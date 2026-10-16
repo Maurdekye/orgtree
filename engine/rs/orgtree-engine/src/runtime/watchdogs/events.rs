@@ -444,7 +444,7 @@ pub fn interested(engine: &Engine, name: &str) -> bool {
 #[logged]
 async fn live_ids(engine: &Engine, org: i64) -> Result<Vec<i64>> {
     let c=engine.db.get().await?;
-    Ok(c.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live'", &[&org]).await?.iter().map(|r|r.get(0)).collect())
+    Ok(c.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent'", &[&org]).await?.iter().map(|r|r.get(0)).collect())
 }
 
 /// Capture live membership in the mutating transaction; emit only after commit.

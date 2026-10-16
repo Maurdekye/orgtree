@@ -151,7 +151,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
             "SELECT a.id, a.name, a.generation, a.last_status, a.extra,
                     (SELECT greatest(t.started_at, t.ended_at) FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1)
                FROM ot.agents a
-              WHERE a.org_id = $1 AND a.state = 'live' AND a.halt IS NULL AND a.frozen IS NULL AND NOT a.limit_locked
+              WHERE a.org_id = $1 AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL AND NOT a.limit_locked
                 AND a.inflight_at IS NULL
                 AND (NOT $3 OR coalesce(a.extra->>'session', 'session0') <> 'signed-in')
                 AND NOT EXISTS (SELECT 1 FROM ot.turns t WHERE t.agent_id = a.id AND t.ended_at IS NULL)

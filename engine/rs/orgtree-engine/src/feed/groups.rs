@@ -155,7 +155,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 .query_one(
                     "SELECT count(*) FILTER (WHERE state = 'live'),
                             coalesce(sum(seat + grant_credits) FILTER (WHERE state = 'live' AND parent_id IS NULL), 0)::float8
-                       FROM ot.agents WHERE org_id = $1 AND state = 'live'",
+                       FROM ot.agents WHERE org_id = $1 AND state = 'live' AND kind = 'agent'",
                     &[&org_id],
                 )
                 .await?;

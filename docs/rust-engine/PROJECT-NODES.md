@@ -25,8 +25,8 @@ Status: design plus first slice. Sections marked **(deferred)** are not built ye
   0025). A project is transparent for reporting: status notices, "your superior" in the prompt,
   the superior/peer mail rules and the "top-level agent" tests use the nearest agent ancestor.
   Agents under a top-level project are therefore top-level agents (they may write to the user).
-  *(Implementer's interpretation: the description does not say whom a project's children report
-  to. A node that "takes no action" cannot receive reports, so they go to the nearest agent.)*
+  [decided: user 2026-10-16 20:40Z, confirming the implementer's proposal: a node that "takes no
+  action" cannot receive reports, so they go to the nearest agent]
 
 ## It runs no turns
 
@@ -37,9 +37,16 @@ reminders, checkups, sign-in notices, org-inbox fallback) also filter `kind = 'a
 
 ## Cost
 
-A project is free: seat 0, nothing for the project itself [user 16:11Z]. Its grant holds the
-credits of the agents under it, exactly like a manager's grant; cascades raise it as usual. An
-agent below the project that hires under it draws only on the project's free credits.
+A project is free and transparent in the credit hierarchy, as though it were not there: every
+credit cost of the agents under it goes to the nearest agent above the project [user 16:11Z;
+user 20:40Z, replacing the first draft's "the project's grant funds its children"]. It has no
+seat and no allocation of its own. Mechanically its `grant_credits` is a mirror that always
+equals the stake of its live children (`projects::settle_credits`, run at the end of every tree
+operation), so the agent above holds those stakes, cascades raise the agent above, and a
+project's free credits are always zero. An agent below a project cannot fund a hire under it
+(that would draw on the agent above); the user's top-level cap applies to each agent under a
+top-level project, never to the project's mirror. A project cannot be given credits
+(`reallocate` refuses).
 
 ## Reach and control
 
@@ -50,13 +57,14 @@ Agents outside that line cannot reach it. With reach an agent may:
 - watch it with a `fair_queue` watchdog;
 - present a document under it (`orgtree_present` with `project`);
 - read and write its folder;
-- act on the project node as on a subordinate: hire under it, move its own reports into it,
-  rename, reorder, retire, dissolve or move it (agents above), create a nested project in it.
+- act on the project node as on a subordinate: rename, reorder, retire, dissolve or move it,
+  create a nested project in it; hire under it or move its own reports into it when the credits
+  come from its own allocation (see Cost: only an agent above the project can pay).
 
-*(Interpretation choices, flagged for the user:)* control means control over the **project
-node and its activities**, not over the other agents inside it: an agent in a project cannot
-retire its sibling. An agent cannot retire or dissolve a project that contains itself (that
-would archive the caller mid-turn); its superiors can.
+Control means control over the **project node and its activities**, not over the other agents
+inside it: an agent in a project cannot retire its sibling. An agent cannot retire or dissolve a
+project that contains itself (that would archive the caller mid-turn); its superiors can.
+[decided: user 2026-10-16 20:40Z, confirming the implementer's choices 1–4 and 6]
 
 ## Mailbox
 
@@ -87,7 +95,8 @@ the project row, never a global lock):
 
 Runs when mail lands, when a `fair_queue` dog is armed (create, resume, rehire) and at engine
 start. With no eligible watcher the mail waits in the project mailbox (shown on the card and to
-inspection) until one arms. *(Interpretation: the backlog goes to the first watcher that arms.)*
+inspection) until one arms; the backlog goes to the first watcher that arms [decided: user
+2026-10-16 20:40Z].
 
 ## Folder and AGENTS.md
 
@@ -108,7 +117,8 @@ User 20:23Z: docket items may attach to a project, and every agent under the pro
 co-owns the item with full owner rights. Plan: `work_items.project_agent_id`; attach/detach by
 anyone with owner rights on the item who reaches the project; co-owner = any agent below the
 project; the assigned owner stays the one owner of record and user replies keep routing to it;
-the item shows "project <name> · co-owned by its agents" and appears in each co-owner's list.
+the item shows "project <name> · co-owned by its agents" and appears in each co-owner's list and
+on the project's desk [user 20:23Z]. User replies keep routing to the assigned owner [user 20:40Z].
 
 ## UI (first slice)
 

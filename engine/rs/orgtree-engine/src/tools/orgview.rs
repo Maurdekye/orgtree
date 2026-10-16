@@ -28,6 +28,10 @@ struct Row {
     busy: bool,
     team_charter: Option<String>,
     hold: f64,
+    /// a project node (docs/rust-engine/PROJECT-NODES.md), with the mail
+    /// waiting in its mailbox
+    project: bool,
+    waiting: i64,
 }
 
 fn age(at: Option<DateTime<Utc>>) -> String {
@@ -51,7 +55,9 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
         .query(
             "SELECT a.id, a.name, a.parent_id, a.title, a.tier, a.state, a.last_status, a.grant_credits::float8, a.seat::float8,
                     a.halt IS NOT NULL, a.frozen IS NOT NULL, a.inflight_at IS NOT NULL, a.team_charter,
-                    (SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live')
+                    (SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live'),
+                    a.kind = 'project',
+                    CASE WHEN a.kind = 'project' THEN (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending') ELSE 0 END
                FROM ot.agents a
               WHERE a.org_id = $1 AND (a.state = 'live' OR ($2 AND a.state IN ('archived', 'unrecoverable')))
               ORDER BY a.sibling_order, a.id",
@@ -75,6 +81,8 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
             busy: r.get(11),
             team_charter: r.get(12),
             hold: r.get(13),
+            project: r.get(14),
+            waiting: r.get(15),
         })
         .collect())
 }
@@ -84,7 +92,12 @@ fn line(r: &Row, busy: bool) -> String {
     if !r.title.is_empty() {
         s.push_str(&format!(" — {}", r.title));
     }
-    s.push_str(&format!(" · {} · grant {} (seat {}, free {})", r.tier, r.grant, r.seat, crate::util::round2(r.grant - r.hold)));
+    if r.project {
+        // provisional: how a project appears in the chart is still the user's to settle
+        s.push_str(&format!(" · PROJECT node (runs no turns, holds no credits) · {} mail waiting", r.waiting));
+    } else {
+        s.push_str(&format!(" · {} · grant {} (seat {}, free {})", r.tier, r.grant, r.seat, crate::util::round2(r.grant - r.hold)));
+    }
     if r.state != "live" {
         s.push_str(&format!(" · {}", r.state));
     }
@@ -316,6 +329,8 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
                     AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb))))
               -- an OpenRouter seat: the harness its session runs on, and whether
               -- it is pinned to it (an explicit hire choice its key's changes skip)
+              -- a project node (docs/rust-engine/PROJECT-NODES.md) says so
+              || CASE WHEN a.kind='project' THEN jsonb_build_object('kind', 'project') ELSE '{}'::jsonb END
               || CASE WHEN a.provider='openrouter' AND a.extra ? 'harness' THEN jsonb_build_object('harness', a.extra->'harness',
                    'harness_pinned', coalesce((a.extra->>'harness_pin')::boolean, false)) ELSE '{}'::jsonb END
              FROM ot.agents a WHERE a.org_id=$1 AND a.state<>'deleted' AND a.id>$2 ORDER BY a.id LIMIT 256",

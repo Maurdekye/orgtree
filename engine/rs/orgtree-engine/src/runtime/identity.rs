@@ -147,8 +147,12 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     // the org's shared notes folder is every agent's, described on its own below
     let all_dirs = i.scope["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default();
     let org_notes_dir = all_dirs.iter().find(|d| crate::domain::scope::is_org_notes(d));
-    // and so are the team workspaces it holds, nearest first
-    let teams: Vec<&Value> = all_dirs.iter().filter(|d| crate::domain::scope::is_team_workspace(d)).collect();
+    // and so are the team workspaces it holds, nearest first, and the folders
+    // of the projects below it (docs/rust-engine/PROJECT-NODES.md)
+    let teams: Vec<&Value> = all_dirs.iter()
+        .filter(|d| crate::domain::scope::is_team_workspace(d) && d["below"].as_bool() != Some(true)).collect();
+    let projects_below: Vec<&Value> = all_dirs.iter()
+        .filter(|d| crate::domain::scope::is_team_workspace(d) && d["below"].as_bool() == Some(true)).collect();
     let dirs: Vec<(String, bool)> = all_dirs
         .iter()
         .filter(|d| !crate::domain::scope::is_shared(d))
@@ -348,7 +352,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     s.push_str(if trim { TRIM_CHECKUPS } else { CHECKUPS });
     let org_dir = org_notes_dir.and_then(|d| d["path"].as_str().map(|p| (p, d["mode"].as_str() != Some("ro"))));
     if trim {
-        s.push_str(&trimmed_folder_rules(i.org_name, org_dir, &teams));
+        s.push_str(&trimmed_folder_rules(i.org_name, org_dir, &teams, &projects_below));
     } else {
         s.push_str(
             "Your scratch folder is your own: keep an AGENTS.md there as standing memories. Existing CLAUDE.md notes still apply; use AGENTS.md for new notes. It is delivered to you at the \
@@ -358,6 +362,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
             s.push_str(&org_notes_rule(i.org_name, d.0, d.1));
         }
         s.push_str(&team_rule(&teams));
+        s.push_str(&projects_rule(&projects_below));
     }
     let mut notes = String::new();
     for (path, text) in i.own_notes { notes.push_str(&own_notes(path, text)); }
@@ -395,7 +400,7 @@ fn trimmed_tool_instructions(tools: &Value, top: bool) -> String {
 /// The trimmed folder paragraph: where the scratch, org and team folders are,
 /// what their AGENTS.md copies are, and the etiquette for shared files.
 #[logged]
-fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Value]) -> String {
+fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Value], projects: &[&Value]) -> String {
     let mut s = String::from(
         "Your scratch folder is your own; keep standing notes in its AGENTS.md (CLAUDE.md notes still apply), \
          delivered at the start of every session. ",
@@ -409,6 +414,9 @@ fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Valu
     let list: Vec<String> = teams.iter().filter_map(|t| {
         let path = t["path"].as_str()?;
         Some(if t["own_team"].as_bool() == Some(true) { format!("{path} (your own team's)") }
+             else if t["project"].as_bool() == Some(true) {
+                 format!("{path} (project {}, which you work on)", t["team"].as_str().unwrap_or("?"))
+             }
              else { format!("{path} ({}'s team)", t["team"].as_str().unwrap_or("?")) })
     }).collect();
     if !list.is_empty() {
@@ -426,6 +434,15 @@ fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Valu
         } else {
             "Your scope lets you read the shared folders, not write there (orgtree-shared-folders). "
         });
+    }
+    if !projects.is_empty() {
+        let list: Vec<String> = projects.iter().filter_map(|t| {
+            Some(format!("{} (project {})", t["path"].as_str()?, t["team"].as_str().unwrap_or("?")))
+        }).collect();
+        s.push_str(&format!(
+            "PROJECTS BELOW YOU, nearest first: {}: project nodes, not agents; you pay for the agents under them,              and you may use their folders, mail them, read their waiting mail and watch them with a fair_queue              watchdog (orgtree-projects). ",
+            list.join(", ")
+        ));
     }
     s
 }
@@ -800,6 +817,9 @@ fn team_rule(teams: &[&Value]) -> String {
     let list: Vec<String> = teams.iter().filter_map(|t| {
         let path = t["path"].as_str()?;
         Some(if t["own_team"].as_bool() == Some(true) { format!("{path} (your own team's)") }
+             else if t["project"].as_bool() == Some(true) {
+                 format!("{path} (the folder of project {}, which you work on)", t["team"].as_str().unwrap_or("?"))
+             }
              else { format!("{path} ({}'s team)", t["team"].as_str().unwrap_or("?")) })
     }).collect();
     let writable = teams.iter().all(|t| t["mode"].as_str() != Some("ro"));
@@ -818,6 +838,27 @@ fn team_rule(teams: &[&Value]) -> String {
          AGENTS.md (it exists once an agent writes it) is that team's shared notes, given at session start to every \
          agent in the subtree: when it has content, its copy is at the end of this prompt, nearest team first, \
          as the file was when your CLI started. {how} ",
+        list.join(", ")
+    )
+}
+
+/// What an agent above a project is told about it (docs/rust-engine/
+/// PROJECT-NODES.md; user 2026-10-16 16:11Z: agents above or below a project
+/// reach it): the folders of the projects in its subtree, nearest first.
+/// Tool names stay out: each belongs to a tool group this sentence ignores.
+#[logged]
+fn projects_rule(projects: &[&Value]) -> String {
+    if projects.is_empty() { return String::new(); }
+    let list: Vec<String> = projects.iter().filter_map(|t| {
+        Some(format!("{} (project {})", t["path"].as_str()?, t["team"].as_str().unwrap_or("?")))
+    }).collect();
+    format!(
+        "PROJECTS BELOW YOU: project nodes in your subtree, nearest first: {}. A project is a node that stands for \
+         one project and is not an agent: it runs no turns, holds no credits (you pay for the agents under it) and \
+         its agents report to the nearest agent above it. You reach each one: its folder is yours to use by the \
+         team-folder rules (its AGENTS.md goes to the agents under it), you may mail it, read its waiting mail \
+         without claiming it, watch it with a fair-queue watchdog (each mail goes to one watcher) and present \
+         documents under it. ",
         list.join(", ")
     )
 }

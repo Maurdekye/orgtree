@@ -124,7 +124,7 @@ async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
     let rows = client
         .query(
             "SELECT a.id, a.org_id, a.scope->'session' FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
-              WHERE a.state = 'live' AND o.state = 'active' ORDER BY a.id",
+              WHERE a.state = 'live' AND a.kind = 'agent' AND o.state = 'active' ORDER BY a.id",
             &[],
         )
         .await?;

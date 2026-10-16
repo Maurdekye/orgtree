@@ -448,11 +448,13 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     // 3.x: a top-level agent's report goes nowhere — the user already gets
     // its own reply mail, and a second [DONE] digest was pure duplication
     // (user ruling); its status chip is the record
-    let superior: Option<String> = match me.parent_id {
-        Some(p) => client.query_opt("SELECT name FROM ot.agents WHERE id = $1", &[&p]).await?.map(|r| r.get(0)),
-        None => None,
-    };
-    let top_level = me.parent_id.is_none();
+    // a project is transparent for reporting: the report goes to the nearest
+    // AGENT above (user 2026-10-16 20:40Z); none above means top-level
+    let superior: Option<String> = client
+        .query_opt("SELECT s.name FROM ot.agents s WHERE s.id = ot.superior_of($1)", &[&me.id])
+        .await?
+        .map(|r| r.get(0));
+    let top_level = superior.is_none();
     drop(client);
     changes::notify_id(engine, me.org_id, vec![Change::Agent(me.id), Change::Events, Change::History(me.id)]);
     let mut told = String::new();
@@ -501,7 +503,7 @@ fn mail_chunk(body: &str, index: usize) -> Result<Value> {
 pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let action = need_str(args, "action")?;
     let allowed = match action {
-        "list" => vec!["action", "cursor", "limit"], "fetch" => vec!["action", "message_ids"],
+        "list" => vec!["action", "cursor", "limit", "project"], "fetch" => vec!["action", "message_ids", "project"],
         "chunk" => vec!["action", "delivery_id", "message_id", "chunk_index"],
         "conversation" => vec!["action", "peer", "cursor", "limit"],
         _ => crate::refuse!(BadRequest, "action must be list, fetch, chunk or conversation"),
@@ -510,10 +512,13 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         if action == "conversation" {
             crate::refuse!(BadRequest, "conversation reads your own mail with one correspondent; it takes peer, cursor and limit only");
         }
-        crate::refuse!(BadRequest, "the manual inbox reads only your own mailbox; it takes no agent, node, org or mailbox argument");
+        crate::refuse!(BadRequest, "the manual inbox reads your own mailbox, or a project's waiting mail with project=<name>; it takes no agent, node, org or mailbox argument");
     }
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
+    if let Some(name) = args.get("project").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        return project_inbox(&client, &me, name, action, args).await;
+    }
     if action == "conversation" {
         return conversation(engine, &client, &me, args).await;
     }
@@ -593,6 +598,54 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         return Done::json(&items[0]);
     }
     Done::json(&json!({"messages":items, "not_found":missing, "deferred_ids":deferred}))
+}
+
+/// A project's waiting (unread) mail, read by an agent above or below the
+/// project without claiming it (user 2026-10-16 16:14Z): `list` previews it,
+/// `fetch` reads whole messages. Only fair-queue delivery claims mail.
+#[logged]
+async fn project_inbox(client: &tokio_postgres::Client, me: &super::Me, name: &str, action: &str, args: &Value) -> Result<Done> {
+    use crate::domain::projects;
+    let Some(p) = projects::by_name(client, me.org_id, name).await? else {
+        crate::refuse!(NotFound, "no project named {name} in this organization");
+    };
+    projects::require_reach(client, me.id, &p, "inspect its mailbox").await?;
+    let note = "Read-only: nothing here is claimed or marked read. Each waiting mail goes to exactly one agent watching the project with a fair_queue watchdog (the least recently woken), and leaves this list then.";
+    if action == "list" {
+        let limit = args["limit"].as_i64().unwrap_or(50).clamp(1, 200);
+        let (total, messages) = projects::waiting(client, p.id, limit).await?;
+        let watchers: i64 = client
+            .query_one("SELECT count(*) FROM ot.watchdogs WHERE kind = 'fair_queue' AND state = 'armed' AND (memo->>'target_id')::bigint = $1", &[&p.id])
+            .await?
+            .get(0);
+        return Done::json(&json!({ "project": p.name, "waiting": total, "fair_queue_watchers": watchers, "messages": messages, "note": note }));
+    }
+    let a = args["message_ids"].as_array().ok_or_else(|| anyhow::anyhow!("fetch needs message_ids"))?;
+    if a.is_empty() || a.len() > 20 || a.iter().any(|v| !v.is_string()) {
+        crate::refuse!(BadRequest, "fetch needs 1 to 20 message IDs");
+    }
+    let ids: Vec<String> = a.iter().filter_map(Value::as_str).map(str::to_string).collect();
+    let rows = client
+        .query(
+            "SELECT uid, sender, kind, created_at, body, attachments, notice FROM ot.mail
+              WHERE recipient_agent_id = $1 AND state = 'pending' AND uid = ANY($2) LIMIT 20",
+            &[&p.id, &ids],
+        )
+        .await?;
+    let mut items = Vec::new();
+    let mut missing = Vec::new();
+    for id in &ids {
+        let Some(r) = rows.iter().find(|r| r.get::<_, String>(0) == *id) else { missing.push(id.clone()); continue };
+        let mut item = mail_chunk(&r.get::<_, String>(4), 0)?;
+        item["id"] = json!(id);
+        item["from"] = json!(r.get::<_, String>(1));
+        item["kind"] = json!(crate::domain::mail::shown_kind(&r.get::<_, String>(2)));
+        item["at"] = json!(iso(r.get(3)));
+        item["attachments"] = r.get::<_, Value>(5);
+        if r.get::<_, bool>(6) { item["notice"] = json!(true); }
+        items.push(item);
+    }
+    Done::json(&json!({ "project": p.name, "messages": items, "not_waiting": missing, "note": note }))
 }
 
 /// The mail the caller and one correspondent exchanged, both directions:

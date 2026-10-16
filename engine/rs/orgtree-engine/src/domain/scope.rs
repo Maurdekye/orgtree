@@ -189,9 +189,26 @@ pub fn clamp_tools(child: &Value, parent: &Value) -> Value {
         "orgtree": super::tool_groups::intersect(child, parent) })
 }
 
+/// The stored scope of a project node: it passes its parent's effective
+/// scope through unchanged (docs/rust-engine/PROJECT-NODES.md).
+#[nolog]
+pub fn transparent() -> Value {
+    json!({ "transparent": true })
+}
+
+/// Does this stored scope pass its parent's through (a project node)?
+#[nolog]
+pub fn is_transparent(scope: &Value) -> bool {
+    scope.get("transparent").and_then(Value::as_bool) == Some(true)
+}
+
 /// The effective scope of a node whose configured scope is `child`, under a
-/// parent whose EFFECTIVE scope is `parent`.
+/// parent whose EFFECTIVE scope is `parent`. A transparent node (a project)
+/// neither narrows nor widens it: its children are clamped by what is above.
 pub fn clamp(child: &Value, parent: &Value) -> Value {
+    if is_transparent(child) {
+        return normalize(parent);
+    }
     let child = normalize(child);
     let parent = normalize(parent);
     let mut out: Map<String, Value> = child.as_object().cloned().unwrap_or_default();
@@ -260,8 +277,13 @@ pub fn with_team_workspaces(effective: &Value, teams: &[crate::domain::teams::Te
     for t in teams {
         let path = t.dir.to_string_lossy().to_string();
         dirs.retain(|d| d["path"].as_str().is_none_or(|p| norm_path(p) != norm_path(&path)));
-        dirs.push(json!({ "path": path, "mode": if may_write { "rw" } else { "ro" },
-                          "team": t.root, "team_id": t.root_id, "own_team": t.own }));
+        let mut entry = json!({ "path": path, "mode": if may_write { "rw" } else { "ro" },
+                                "team": t.root, "team_id": t.root_id, "own_team": t.own });
+        // a project's folder (docs/rust-engine/PROJECT-NODES.md): one the agent
+        // is under, or (`below`) one it reaches from above
+        if t.project { entry["project"] = json!(true); }
+        if t.below { entry["below"] = json!(true); }
+        dirs.push(entry);
     }
     out["add_dirs"] = Value::Array(dirs);
     out
@@ -437,6 +459,24 @@ mod tests {
         for seat in [json!({ "permission_mode": "plan" }), json!({ "tools": { "edit": false } })] {
             assert_eq!(with_org_notes(&seat, notes)["add_dirs"], json!([{ "path": notes, "mode": "ro", "org_notes": true }]));
         }
+    }
+
+    #[test]
+    fn a_project_node_passes_its_parents_scope_through() {
+        let parent = json!({ "permission_mode": "default", "org_visibility": "team",
+            "add_dirs": [{ "path": "E:\\repo", "mode": "rw" }], "tools": { "bash": false, "mcp": ["git"] } });
+        let through = clamp(&transparent(), &parent);
+        assert_eq!(through, normalize(&parent));
+        // its child is clamped by the agent above the project, never by an empty project scope
+        let child = json!({ "add_dirs": [{ "path": "E:\\repo\\src", "mode": "rw" }], "tools": { "mcp": ["git"] } });
+        let eff = clamp(&child, &through);
+        assert_eq!(eff["add_dirs"], json!([{ "path": "E:\\repo\\src", "mode": "rw" }]));
+        assert_eq!(eff["tools"]["bash"], false);
+        assert_eq!(eff["tools"]["mcp"], json!(["git"]));
+        assert_eq!(eff["permission_mode"], "default");
+        // an ordinary empty scope would have dropped every folder
+        assert_eq!(clamp(&child, &clamp(&json!({}), &parent))["add_dirs"], json!([]));
+        assert!(is_transparent(&transparent()) && !is_transparent(&json!({})));
     }
 
     #[test]

@@ -38,6 +38,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_request_credits",
         "orgtree_request_scope",
         "orgtree_hire",
+        "orgtree_project",
         "orgtree_rehire",
         "orgtree_retire",
         "orgtree_dissolve",
@@ -343,9 +344,11 @@ fn all() -> Vec<Value> {
              agent's name, 'user', '@org:<slug>' or '@net:<address>'), both directions, oldest to newest, the newest \
              page first (20 by default, at most 100, previews only: fetch gives the full text; next_cursor pages back \
              to older mail). AFTER A FRESH SESSION OR A COMPACTION, recall your conversation with someone this way \
-             before you reply to them. Manual reads leave automatic delivery unchanged.",
+             before you reply to them. Manual reads leave automatic delivery unchanged. With `project` (a project \
+             you are above or below), list and fetch show that project's waiting mail instead, without claiming it.",
             json!({
                 "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
+                "project": { "type": "string", "description": "list/fetch: a project's name: its waiting (unread) mail, read-only" },
                 "peer": { "type": "string", "description": "conversation: an agent's name, 'user', '@org:<slug>' or '@net:<address>'" },
                 "limit": { "type": "integer", "description": "list: how many (default 50, max 200); conversation: default 20, max 100" },
                 "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: 1 to 20 IDs from list or conversation" },
@@ -491,9 +494,11 @@ fn all() -> Vec<Value> {
              .md): ALWAYS this, never a download card. A card beside your seat opens it. `body` is markdown (64 KB \
              max), or `path` a .md file (read as the markdown, 64 KB max) or a self-contained .html mockup (4 MB \
              max, shown sandboxed with no network). `replaces` updates an earlier card in place. Needs a user \
-             audience (top-level agents hold one); without one, send the document to your superior.",
+             audience (top-level agents hold one); without one, send the document to your superior. `project` \
+             presents it under a project you are above or below instead of beside your own seat.",
             json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
-                    "replaces": { "type": "string" } }),
+                    "replaces": { "type": "string" },
+                    "project": { "type": "string", "description": "a project's name: present under that project" } }),
             &["title"],
         ),
         tool(
@@ -528,6 +533,26 @@ fn all() -> Vec<Value> {
                 seat_scope_props(DIRS_HIRE),
             ),
             &["name", "tier", "grant", "charter", "index"],
+        ),
+        tool(
+            "orgtree_project",
+            "Create a PROJECT NODE: a node in the tree that stands for one project and is not an agent. It runs no \
+             turns and costs nothing; the agents under it work on it and report to the nearest agent above it, which \
+             also pays their credits. It has a folder (its AGENTS.md reaches every agent below it at session start), \
+             a mailbox (orgtree_message to its name; orgtree_inbox project=<name> shows what waits there) and \
+             presentations (orgtree_present project=<name>). Its mail goes to the agents that watch it with \
+             orgtree_watchdog kind=fair_queue: each mail to exactly one of them, the least recently woken. Agents \
+             above or below a project reach and control it; others cannot. Hire under it, move, rename, reorder, \
+             retire, dissolve and rehire it with the usual tools. action=create: `name`, `parent` (default: you; a \
+             report of yours or a project you are inside), `index` REQUIRED (zero-based among live siblings), \
+             `description` (its charter).",
+            json!({
+                "action": { "type": "string", "enum": ["create"] },
+                "name": { "type": "string" }, "parent": { "type": "string" },
+                "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
+                "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
+            }),
+            &["action", "name", "index"],
         ),
         tool(
             "orgtree_rehire",
@@ -625,7 +650,10 @@ fn all() -> Vec<Value> {
              Kinds: file (poll a path; new matching content fires; downtime events recovered), command (run each \
              interval; matching output fires), process (pid:N or port:N; fires when it goes DOWN), stream (a \
              persistent command such as a tail; each matching line fires at once; downtime output lost), activity \
-             (target = your name or any descendant's; events: turn_started, turn_done, tool_call NAME). \
+             (target = your name or any descendant's; events: turn_started, turn_done, tool_call NAME), fair_queue \
+             (target = a project you are above or below: each mail entering its mailbox goes to exactly ONE of its \
+             fair_queue watchers, the least recently woken first, as ordinary mail from its sender; busy, halted or \
+             frozen watchers keep their turn; no pattern or silence). \
              fire_mode='event' is the default. fire_mode='silence' requires quiet_period_s: fires after that many \
              seconds without a matching event; every match and every fire resets the timer. command/stream dogs run \
              with your authority (need bash) but NOT IN YOUR SHELL: on Windows the target runs in cmd.exe with the \
@@ -655,12 +683,12 @@ fn all() -> Vec<Value> {
             json!({
                 "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
                 "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
-                "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event"] },
+                "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "fair_queue"] },
                 "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
                 "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
                 "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
                 "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
-                "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, or (event) dotted event name/prefix ending in .*" },
+                "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue) project name, or (event) dotted event name/prefix ending in .*" },
                 "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },
                 "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
                 "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },

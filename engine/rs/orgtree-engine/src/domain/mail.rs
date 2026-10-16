@@ -248,7 +248,9 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     };
     if to == "user" {
         if let From::Agent { id, name, .. } = &out.from {
-            let row = client.query_one("SELECT parent_id FROM ot.agents WHERE id = $1", &[id]).await?;
+            // a project is transparent for reporting: an agent with no AGENT
+            // above it (one under a top-level project too) is top-level
+            let row = client.query_one("SELECT ot.superior_of($1)", &[id]).await?;
             let top: bool = row.get::<_, Option<i64>>(0).is_none();
             if !top {
                 let aud = client
@@ -288,7 +290,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     // an agent
     let target = client
         .query_opt(
-            "SELECT id, state, parent_id, halt IS NOT NULL FROM ot.agents
+            "SELECT id, state, parent_id, halt IS NOT NULL, kind FROM ot.agents
               WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
             &[&org_id, &to],
         )
@@ -304,6 +306,10 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     let target_id: i64 = target.get(0);
     let state: String = target.get(1);
     let halted: bool = target.get(3);
+    if target.get::<_, String>(4) == crate::domain::projects::KIND {
+        let project = crate::domain::projects::Project { id: target_id, name: to.clone(), state };
+        return send_project(engine, &org, client, out, project, mail_uid).await;
+    }
     if state == "unrecoverable" {
         refuse!(Conflict, "{to} cannot be reached (its session is lost); nothing was sent");
     }
@@ -361,6 +367,63 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         }
     }
     Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to, recipient_state: state, delivery, deferred })
+}
+
+/// Mail to a project node (docs/rust-engine/PROJECT-NODES.md): it waits in
+/// the project's mailbox, wakes nobody, and the fair project mail queue hands
+/// it to one watcher (`projects::dispatch`). Agents write to it only when they
+/// reach it (above or below it, user 2026-10-16 16:11Z); the user always.
+#[logged]
+async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut client: deadpool_postgres::Object,
+                      out: Outgoing, project: crate::domain::projects::Project, mail_uid: String) -> Result<Sent> {
+    let (sender_agent, sender_gen) = match &out.from {
+        From::Agent { id, generation, .. } => {
+            crate::domain::projects::require_reach(&**client, *id, &project, "write to its mailbox").await?;
+            (Some(*id), Some(*generation))
+        }
+        From::User => (None, None),
+        _ => refuse!(Forbidden, "project {} takes mail only from the user and the agents above or below it", project.name),
+    };
+    if project.state != "live" {
+        refuse!(Conflict, "project {} is retired: nothing was sent", project.name);
+    }
+    let tx = client.transaction().await?;
+    tx.execute(
+        "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
+                              recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)
+         VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17)",
+        &[
+            &mail_uid, &org.id, &out.from.name(), &sender_agent, &sender_gen, &project.id, &project.name, &out.kind, &out.notice,
+            &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent, &out.urgent_reason,
+            &out.client_op, &Value::Array(out.replies.clone()),
+        ],
+    )
+    .await?;
+    tx.commit().await?;
+    drop(client);
+    let mut ch = vec![
+        Change::Mailbox(project.id),
+        Change::Spark { from: out.from.spark(), to: project.name.clone() },
+        Change::EngineEvent(crate::runtime::watchdogs::events::event("mail.waiting",
+            crate::runtime::watchdogs::events::Scope::Agent(org.id, project.id), json!({"agent_id": project.id, "mail_id": mail_uid}))),
+    ];
+    if let Some(a) = sender_agent {
+        ch.push(Change::Mailbox(a));
+    }
+    if matches!(out.from, From::User) {
+        ch.push(Change::UserMail);
+    }
+    changes::notify(engine, org, ch);
+    let handed = crate::domain::projects::dispatch(engine, org.id, project.id).await?;
+    let delivery = match handed.iter().find(|h| h.mail == mail_uid) {
+        Some(h) => format!(
+            "Delivered to project {}'s mailbox; its fair queue handed it to {} (fair_queue watchdog {}), who now has it as ordinary mail from you.",
+            project.name, h.watcher, h.dog),
+        None => format!(
+            "Queued in project {}'s mailbox. No agent watches the project with a fair_queue watchdog right now, so it waits there until one does; agents above or below the project can see it with orgtree_inbox project={}.",
+            project.name, project.name),
+    };
+    Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false })
 }
 
 /// A bare recipient is resolved only when no internal agent has that name.
@@ -472,19 +535,20 @@ pub(crate) async fn authorize(
                 SELECT id, parent_id, 0 FROM ot.agents WHERE id = $2
                 UNION ALL SELECT a.id, a.parent_id, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id WHERE up.depth < 1024)
              SELECT
-               (SELECT parent_id FROM ot.agents WHERE id = $1) AS from_parent,
-               (SELECT parent_id FROM ot.agents WHERE id = $2) AS to_parent,
-               EXISTS (SELECT 1 FROM up WHERE id = $1 AND depth > 0) AS from_is_ancestor,
-               (SELECT depth FROM up WHERE id = $1) AS depth",
+               ot.superior_of($1) AS from_parent,
+               ot.superior_of($2) AS to_parent,
+               EXISTS (SELECT 1 FROM up WHERE id = $1 AND depth > 0) AS from_is_ancestor",
             &[&from_id, &to_id],
         )
         .await?;
+    // a project is transparent for reporting: each side's superior is its
+    // nearest AGENT above (user 2026-10-16 20:40Z), so agents under a project
+    // write to the agent above it, and its children are each other's peers
     let from_parent: Option<i64> = rel.get(0);
     let to_parent: Option<i64> = rel.get(1);
     let from_is_ancestor: bool = rel.get(2);
-    let depth: Option<i32> = rel.get(3);
     if from_is_ancestor {
-        if grant_reply_audience && depth.unwrap_or(1) > 1 {
+        if grant_reply_audience && to_parent != Some(from_id) {
             client
                 .execute(
                     "INSERT INTO ot.audiences (org_id, grantee, grantor, reason)

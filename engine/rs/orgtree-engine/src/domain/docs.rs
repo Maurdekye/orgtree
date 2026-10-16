@@ -43,7 +43,7 @@ pub(crate) async fn presenter_in<C: tokio_postgres::GenericClient + Sync>(engine
     let r = client
         .query_one(
             "SELECT a.name, a.scratch_dir, a.scope, o.settings,
-                    a.parent_id IS NULL OR EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
+                    ot.superior_of(a.id) IS NULL OR EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
                          AND au.grantor = '@user' AND au.revoked_at IS NULL AND NOT au.paused)
                FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1 AND a.org_id = $2",
             &[&agent_id, &org.id],
@@ -79,6 +79,10 @@ pub(crate) async fn presenter_in<C: tokio_postgres::GenericClient + Sync>(engine
     // and the workspaces of the subtrees it is inside
     for ancestor in &chain {
         dirs.push(engine.cfg.teams_dir(&org.slug).join(ancestor.get::<_, i64>(2).to_string()).to_string_lossy().to_string());
+    }
+    // and the folders of the projects below it (docs/rust-engine/PROJECT-NODES.md)
+    for (id, _) in crate::domain::projects::below(client, agent_id).await? {
+        dirs.push(engine.cfg.teams_dir(&org.slug).join(id.to_string()).to_string_lossy().to_string());
     }
     Ok(Presenter { id: agent_id, name, may_present: r.get(4), scratch, dirs })
 }
@@ -195,18 +199,38 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
         _ => refuse!(BadRequest, "give exactly one of body (markdown) or path (a .md file or an .html mockup)"),
     };
     let client = engine.db.get().await?;
+    // under the caller's own seat, or under a project it reaches (its own
+    // presentations bucket, user 2026-10-16 16:09Z / 16:11Z)
+    let (owner_id, owner_name, under) = match args["project"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(name) => {
+            let Some(pr) = crate::domain::projects::by_name(&**client, org.id, name).await? else {
+                refuse!(NotFound, "no project named {name} in this organization");
+            };
+            if pr.state != "live" {
+                refuse!(Conflict, "project {} is retired", pr.name);
+            }
+            crate::domain::projects::require_reach(&**client, p.id, &pr, "present under it").await?;
+            (pr.id, pr.name.clone(), Some(pr.name))
+        }
+        None => (p.id, p.name.clone(), None),
+    };
     let bytes = body.len() as i32;
     let id = match args["replaces"].as_str().filter(|s| !s.is_empty()) {
         Some(old) => {
             let n = client
                 .execute(
-                    "UPDATE ot.documents SET title = $3, body = $4, format = $5, bytes = $6, at = now(), dismissed = false, download = $8, preview = $9
+                    "UPDATE ot.documents SET title = $3, body = $4, format = $5, bytes = $6, at = now(), dismissed = false, download = $8, preview = $9,
+                            presented_by = CASE WHEN $10::text IS NULL THEN presented_by ELSE $10 END
                       WHERE org_id = $1 AND uid = $2 AND agent_id = $7",
-                    &[&org.id, &old, &title, &body, &format, &bytes, &p.id, &bundle_download, &bundle_preview],
+                    &[&org.id, &old, &title, &body, &format, &bytes, &owner_id, &bundle_download, &bundle_preview,
+                      &under.as_ref().map(|_| p.name.clone())],
                 )
                 .await?;
             if n == 0 {
-                refuse!(NotFound, "you have no presentation {old} to replace");
+                match &under {
+                    Some(pr) => refuse!(NotFound, "project {pr} has no presentation {old} to replace"),
+                    None => refuse!(NotFound, "you have no presentation {old} to replace"),
+                }
             }
             old.to_string()
         }
@@ -214,23 +238,34 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
             let id = uid("d");
             client
                 .execute(
-                    "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes, download, preview) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-                    &[&id, &org.id, &p.id, &p.name, &title, &body, &format, &bytes, &bundle_download, &bundle_preview],
+                    "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes, download, preview, presented_by)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                    &[&id, &org.id, &owner_id, &owner_name, &title, &body, &format, &bytes, &bundle_download, &bundle_preview,
+                      &under.as_ref().map(|_| p.name.clone())],
                 )
                 .await?;
             id
         }
     };
+    let mut detail = json!({ "id": id, "title": title, "format": format, "bytes": bytes });
+    if let Some(pr) = &under {
+        detail["project"] = json!(pr);
+        detail["by"] = json!(p.name);
+    }
     client
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'present', $2, $3, $4)",
-            &[&org.id, &p.name, &p.id, &json!({ "id": id, "title": title, "format": format, "bytes": bytes })],
+            &[&org.id, &p.name, &owner_id, &detail],
         )
         .await?;
     drop(client);
-    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event(if args["replaces"].as_str().is_some(){"documents.updated"}else{"documents.created"},crate::runtime::watchdogs::events::Scope::Agent(org.id,p.id),json!({"agent_id":p.id,"document":id})));
-    changes::notify(engine, org, vec![Change::Documents(p.id), Change::Events]);
-    let card = json!({ "presentation": { "id": id, "title": title, "format": format } });
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event(if args["replaces"].as_str().is_some(){"documents.updated"}else{"documents.created"},crate::runtime::watchdogs::events::Scope::Agent(org.id,owner_id),json!({"agent_id":owner_id,"document":id})));
+    changes::notify(engine, org, vec![Change::Documents(owner_id), Change::Events]);
+    let mut card = json!({ "presentation": { "id": id, "title": title, "format": format } });
+    if let Some(pr) = &under {
+        card["presentation"]["project"] = json!(pr);
+        return Ok((format!("Presented \"{title}\" under project {pr} (id {id}; pass it as `replaces` with project={pr} to update this card)."), card));
+    }
     Ok((format!("Presented \"{title}\" to the user (id {id}; pass it as `replaces` to update this card)."), card))
 }
 

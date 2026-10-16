@@ -44,6 +44,14 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
             }
         }
         "move" if args.get("moves").map(|m| m.is_array()).unwrap_or(false) => req["op"] = json!("moves"),
+        "create_project" => {
+            if arg_str(args, "action") != Some("create") {
+                crate::refuse!(BadRequest, "orgtree_project takes action=create");
+            }
+            if arg_str(args, "parent").is_none() {
+                req["parent"] = json!(me.name);
+            }
+        }
         _ => {}
     }
     let actor = Actor::Agent { id: me.id, name: me.name.clone() };
