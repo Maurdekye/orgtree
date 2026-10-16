@@ -3929,6 +3929,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               seats={seats}
               onHire={(t) => spawn(n.id, t)}
               onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)}
+              onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
               onOpenDoc={openDocView}
               onOpenGallery={onOpenAgentGallery}
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}

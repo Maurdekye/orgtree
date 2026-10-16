@@ -41,6 +41,8 @@ interface ProjectSquareProps {
   seats: Record<string, number>
   onHire: (tier: string) => void
   onInbox: () => void
+  /** the project's docket: its attached items */
+  onDocket?: () => void
   onOpenDoc?: (id: string) => void
   onOpenGallery?: (id: string) => void
   onDragStart: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
@@ -50,7 +52,7 @@ interface ProjectSquareProps {
 }
 
 export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toast, zoom, hire, seats,
-  onHire, onInbox, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onHire, onInbox, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   const [asking, setAsking] = useState<RetireKind | null>(null)
   const [naming, setNaming] = useState(false)
@@ -69,6 +71,7 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
   if (zoom > 0) Object.assign(style, { '--invzf': Math.max(1 / Z_MAX, 1 / zoom).toFixed(3) })
   const menuEntries = () => projectMenuEntries(node, {
     onInbox,
+    onDocket,
     onScratchFolder: scratchFolderAction(slug, node.id, toast),
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id) : undefined,
     onSettings: () => {},

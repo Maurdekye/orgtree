@@ -333,6 +333,9 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (presentations && (node.documents?.length ?? 0) > 0) {
     open.push({ label: 'Open presentations', onSelect: () => presentations() })
   }
+  // the project's docket: the items attached to it, co-owned by its agents
+  const docket = h.onDocket
+  if (docket) open.push({ label: 'Open project docket', onSelect: () => docket() })
   const entries: MenuEntry[] = [{ label: 'Open', submenuOnly: true, onSelect: () => {}, children: open }]
   const hire = h.onHire
   if (live && hire && !s.piled) {
