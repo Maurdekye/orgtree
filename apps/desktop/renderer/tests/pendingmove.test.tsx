@@ -33,6 +33,7 @@ import { withPendingOrder } from '../src/canvas/pendingorder'
 import type { OpRequest } from '../src/canvas/shared'
 import type { TreeNode, TreePayload } from '../src/types'
 import { projectTree } from '../src/recordprojection'
+import { addPin, forgetPins, readPins } from '../src/canvas/pins'
 
 const W = window as unknown as Window & typeof globalThis
 const asTree = (v: unknown) => v as TreePayload
@@ -235,6 +236,97 @@ async function settledAt(t: TestContext, payload: TreePayload, id: string) {
 }
 
 for (const mode of ['row', 'circular'] as const) {
+  for (const surface of ['desk-header', 'desk-transcript', 'desk-composer', 'pinned-transcript'] as const) {
+    test(`${mode}: middle drag on real ${surface} crosses its portal and pans the canvas`, async t => {
+      useFakeClock(); t.after(realClock)
+      setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+      forgetPins('mine'); t.after(() => forgetPins('mine'))
+      const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+      const viewport = m.el.querySelector<HTMLElement>('.viewport')!
+      const space = m.el.querySelector<HTMLElement>('.space')!
+      if (surface === 'pinned-transcript') {
+        await inAct(() => addPin('mine', 'x', { x: 100, y: 100, w: 600, h: 500 }))
+        await flush()
+      } else {
+        for (const type of ['pointerdown', 'pointerup']) await inAct(() => {
+          card(m.el, 'x')!.dispatchEvent(new W.PointerEvent(type, {
+            bubbles: true, button: 0, pointerId: 1, clientX: 800, clientY: 400,
+          }))
+        })
+        await advance(3000, 50); await flush()
+      }
+      const host = surface === 'pinned-transcript'
+        ? m.el.querySelector<HTMLElement>('.pinwin')! : card(m.el, 'x')!
+      const selector = surface === 'desk-header' ? '.cc-head'
+        : surface === 'desk-composer' ? 'textarea' : '.msgs'
+      const target = host?.querySelector<HTMLElement>(selector)
+      assert.ok(target, `real ${surface} is mounted`)
+      assert.ok(target.closest('.movable-events'), 'use the registry-owned portal, not a stand-in')
+      const scroll = host.querySelector<HTMLElement>('.msgs')!
+      scroll.scrollTop = 17
+      const initial = nums(space.style.transform), position = at(m.el, 'x')
+      const pins = JSON.stringify(readPins('mine'))
+      const captures: number[] = []
+      viewport.setPointerCapture = id => { captures.push(id) }
+      const fire = async (type: string, x: number, y: number) => {
+        const event = new W.PointerEvent(type, { bubbles: true, cancelable: true,
+          button: 1, buttons: type === 'pointerup' ? 0 : 4, pointerId: 77, clientX: x, clientY: y })
+        await inAct(() => target.dispatchEvent(event)); return event
+      }
+      const down = await fire('pointerdown', 800, 400)
+      await fire('pointermove', 855, 430)
+      await fire('pointerup', 855, 430)
+      assert.deepEqual(nums(space.style.transform), [initial[0]! + 55, initial[1]! + 30, initial[2]!])
+      assert.equal(down.defaultPrevented, true)
+      assert.deepEqual(captures, [77], 'the actual viewport owns pointer capture')
+      for (const type of ['mousedown', 'auxclick']) {
+        const event = new W.MouseEvent(type, { bubbles: true, cancelable: true, button: 1 })
+        await inAct(() => target.dispatchEvent(event)); assert.equal(event.defaultPrevented, true, type)
+      }
+      assert.equal(scroll.scrollTop, 17, 'desk transcript did not scroll')
+      assertAt(at(m.el, 'x'), position, 'agent did not move')
+      assert.equal(JSON.stringify(readPins('mine')), pins, 'pin did not move or resize')
+      assert.deepEqual(m.ops, [], 'no node/desk operation')
+      await advance(400, 50)
+      const saved = JSON.parse(localStorage.getItem('orgtree-view-mine')!)
+      assert.deepEqual([saved.x, saved.y, saved.z], nums(space.style.transform))
+    })
+  }
+  test(`${mode}: real desk left/right selection, composer and wheel retain their events/defaults`, async t => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    const m = await mountCanvas(t, before(), () => Promise.resolve({}))
+    for (const type of ['pointerdown', 'pointerup']) await inAct(() => {
+      card(m.el, 'x')!.dispatchEvent(new W.PointerEvent(type, {
+        bubbles: true, button: 0, pointerId: 1, clientX: 800, clientY: 400,
+      }))
+    })
+    await advance(3000, 50); await flush()
+    const desk = card(m.el, 'x')!, msgs = desk.querySelector<HTMLElement>('.msgs')!
+    const composer = desk.querySelector<HTMLTextAreaElement>('textarea')!
+    assert.ok(msgs && composer, 'real desk content is mounted')
+    const text = document.createTextNode('selectable transcript'); msgs.appendChild(text)
+    const range = document.createRange(); range.selectNodeContents(text)
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+    t.after(() => selection.removeAllRanges())
+    const initial = m.el.querySelector<HTMLElement>('.space')!.style.transform
+    let delivered = 0
+    for (const target of [msgs, composer]) {
+      target.addEventListener('pointerdown', () => { delivered++ })
+      for (const button of [0, 2]) for (const type of ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'auxclick']) {
+        const event = new W.PointerEvent(type, { bubbles: true, cancelable: true,
+          button, pointerId: 80, clientX: type === 'pointerdown' ? 800 : 855, clientY: 400 })
+        await inAct(() => target.dispatchEvent(event)); assert.equal(event.defaultPrevented, false, `${type}/${button}`)
+      }
+    }
+    const wheel = new W.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 })
+    await inAct(() => msgs.dispatchEvent(wheel))
+    assert.equal(wheel.defaultPrevented, false, 'wheel remains native desk scroll')
+    assert.equal(delivered, 4, 'left/right pointer presses reached both desk controls')
+    assert.equal(selection.toString(), 'selectable transcript')
+    assert.equal(m.el.querySelector<HTMLElement>('.space')!.style.transform, initial)
+    assert.deepEqual(m.ops, [])
+  })
   for (const surface of ['node', 'switchboard', 'background', 'card-link'] as const) {
     test(`${mode}: middle drag on ${surface} pans only and persists the same viewport`, async t => {
       useFakeClock(); t.after(realClock)
