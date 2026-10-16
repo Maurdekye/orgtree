@@ -1657,7 +1657,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (mapMode) {
     const stat = node.last_status
     return (
-      <div data-copy-agent-name={node.id} className={cls.join(' ') + ' maplod'} style={style}>
+      <div data-copy-agent-name={node.id} data-agent-tooltip={node.id}
+        className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
           <span className={'tier t-' + node.tier} title={tierLabel(node.tier ?? '')}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <MapModeIndicator node={node} />
@@ -1679,6 +1680,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   }
   return (
     <div ref={cardRef} data-first-use-agent={node.id} data-copy-agent-name={focused ? undefined : node.id}
+      data-agent-tooltip={focused ? undefined : node.id}
       className={cls.join(' ') + (farGhost ? ' far-ghosted' : '')} style={style}
       onPointerDown={(e) => {
         downAt.current = { x: e.clientX, y: e.clientY }

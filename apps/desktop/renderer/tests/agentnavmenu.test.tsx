@@ -262,6 +262,18 @@ uiTest('§3 every navigation target on screen offers the SAME menu as that agent
     const targets = navTargets(c.el).filter((x) => !tray.contains(x.el))
     assert.ok(targets.length > 0,
       'the mounted canvas renders at least one marked navigation target')
+    for (const target of targets) {
+      assert.equal(target.el.getAttribute('data-agent-tooltip'), target.id,
+        `${target.where} carries the shared hover tooltip identity`)
+    }
+    for (const row of tray.querySelectorAll<HTMLElement>('.tray-row')) {
+      const id = row.getAttribute('data-copy-agent-name')
+      assert.ok(id, 'each Agents List row identifies its agent')
+      assert.equal(row.getAttribute('data-agent-tooltip'), id,
+        `the ${id} Agents List row carries the shared hover tooltip identity`)
+      assert.equal(row.querySelector('.tray-main')?.getAttribute('data-agent-tooltip'), id,
+        `the ${id} focusable row control carries the shared hover tooltip identity`)
+    }
     const seen: string[] = []
     for (const target of targets) {
       const want = reference.get(target.id)

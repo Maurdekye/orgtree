@@ -7522,6 +7522,33 @@ label.set-row { cursor: pointer; }
   white-space: nowrap; color: var(--dim); font-size: 10px; line-height: 1;
   cursor: pointer; -webkit-app-region: no-drag;
 }
+
+/* One compact identity card shared by every renderer agent link. It is
+   portaled to the owning document so canvas transforms and clipped panels do
+   not move or cut off the fixed-position tooltip. */
+.agent-hover-tooltip {
+  position: fixed;
+  z-index: 1000000;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--fg);
+  box-shadow: 0 8px 24px #0006;
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.agent-hover-tooltip strong {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
 .modalpin-active-filter input {
   width: 12px; height: 12px; margin: 0; accent-color: var(--agent-accent-text, var(--accent));
 }

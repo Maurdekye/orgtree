@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import {
   AgentNavProvider, agentNavProps, useProvideAgentNav,
 } from '../src/canvas/agentnav'
+import type { AgentTooltipInfo } from '../src/canvas/agentnav'
 
 interface TooltipInfo {
   name: string
@@ -46,8 +47,10 @@ test('agent links reveal one account-aware tooltip after the standard delay', as
   await flush()
   const tooltip = document.querySelector('[role="tooltip"]')
   assert.ok(tooltip, 'the shared tooltip appears after the delay')
-  assert.equal(tooltip!.textContent?.replace(/\s+/g, ' ').trim(),
-    'worker Provider: Codex Model: gpt-5.6 Effort: high Account: default · worker@example.test')
+  assert.equal(tooltip!.querySelector('strong')?.textContent, 'worker')
+  assert.deepEqual([...tooltip!.querySelectorAll('span')].map((span) => span.textContent?.trim()), [
+    'Provider: Codex', 'Model: gpt-5.6', 'Effort: high', 'Account: default · worker@example.test',
+  ])
   await v.unmount()
 })
 
@@ -61,10 +64,15 @@ test('archived agent tooltip identifies the last model as retired', async () => 
     <AgentNavProvider><RegisteredLink info={info} /></AgentNavProvider>, host => host)
   await flush()
   const link = v.el.querySelector('[data-agent-tooltip="retired"]') as HTMLElement
+  assert.ok(link, 'the archived agent link exposes the shared tooltip target')
   await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
   await advance(500, 50)
   await flush()
-  assert.equal(document.querySelector('[role="tooltip"]')?.textContent?.replace(/\s+/g, ' ').trim(),
-    'retired Provider: Claude Model: opus (retired) Effort: medium Account: claude/primary · retired@example.test')
+  const tooltip = document.querySelector('[role="tooltip"]')
+  assert.equal(tooltip?.querySelector('strong')?.textContent, 'retired')
+  assert.deepEqual([...tooltip!.querySelectorAll('span')].map((span) => span.textContent?.trim()), [
+    'Provider: Claude', 'Model: opus (retired)', 'Effort: medium',
+    'Account: claude/primary · retired@example.test',
+  ])
   await v.unmount()
 })

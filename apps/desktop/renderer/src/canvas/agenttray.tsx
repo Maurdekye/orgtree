@@ -21,6 +21,7 @@ import { ContextWheel, TrayStatus } from './desk'
 import type { RefRoutes } from './reflinks'
 import { Written } from './reflinks'
 import { charterLine } from '../archived'
+import { agentTooltipProps } from './agentnav'
 
 export interface TrayRow {
   node: CanvasNode
@@ -162,7 +163,7 @@ export function AgentTray({
              summary is a sibling of that button. Nothing in the main line is
              interactive: ContextWheel is only a button when given
              `onCompact`, which the tray does not pass. */
-          <div key={n.id} data-copy-agent-name={n.id}
+          <div key={n.id} data-copy-agent-name={n.id} {...agentTooltipProps(n.id)}
             {...rowProps?.(n)}
             className={'tray-row' + (n.state !== 'live' ? ' off' : '')
               + (ghost ? ' ghost' : '')
@@ -179,6 +180,7 @@ export function AgentTray({
             onContextMenu={onRowMenu ? (e) => onRowMenu(e, n, go) : undefined}>
             <div className="tray-primary">
               <button type="button" className="tray-main" title={`go to ${n.id}`}
+                {...agentTooltipProps(n.id)}
                 {...mainProps?.(n)}>
                 <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier!] ?? '?'}</span>
                 {showQueuedModelBadge && <QueuedModelBadge node={n} />}

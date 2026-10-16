@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Renderer agent links show one shared identity tooltip after about 500 ms,
+  including provider account; absent values are `Unknown`, chosen draft models
+  show effort `(not started)`, and archived models carry `(retired)`. The shared
+  host resolves the current node after the delay and does not show queued model
+  switches. See [agent identity hover tooltip](docs/rust-engine/agent-identity-tooltip.md).
+  [decided: user/coordinator 2026-10-16; verified from source: `canvas/agentnav.tsx`,
+  `canvas/OrgCanvas.tsx`]
+
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;

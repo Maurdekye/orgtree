@@ -39,7 +39,7 @@ import {
 } from '../icons'
 import {
   ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
-  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
+  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
@@ -87,6 +87,7 @@ import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
+import type { AgentTooltipInfo } from './agentnav'
 import { ObjectNavProvider, objectNavProps } from './objectnav'
 import { ObjectNavHost } from './objectnavhost'
 import type { RetireKind } from './agentmenu'
@@ -364,6 +365,27 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
  *  `contextmenu.tsx` now hoists that entry out of the guard, so both arms are
  *  structurally parallel and this paragraph is true for every shape;
  *  agentnavmenu.test.tsx §12/§12.1 hold the two arms to the same answer. */
+export function agentTooltipInfo(n: CanvasNode | undefined): AgentTooltipInfo | null {
+  if (!n || n.state === 'user') return null
+  const draftTier = n.state === 'draft' && !!n.tier
+  const provider = n.tier ? providerOf(n.tier) : null
+  const retired = n.state !== 'live' && n.state !== 'draft'
+  const model = n.tier
+    ? tierLabel(n.tier) + (retired ? ' (retired)' : '')
+    : 'Unknown'
+  const effort = draftTier ? '(not started)'
+    : n.effort_effective !== undefined
+      ? n.effort_effective || 'Default'
+      : n.scope?.effort || 'Unknown'
+  return {
+    name: n.id,
+    provider: provider ? PROVIDER_LABEL[provider] ?? provider : 'Unknown',
+    model,
+    effort,
+    account: n.account_label?.trim() || n.account || 'Unknown',
+  }
+}
+
 function AgentNavHost({ map, op, slug, toast, goTo, build }: {
   map: Map<string, CanvasNode>
   op: OpFn
@@ -383,7 +405,7 @@ function AgentNavHost({ map, op, slug, toast, goTo, build }: {
   useProvideAgentNav((id: string) => {
     const n = map.get(id)
     return n ? build(n, () => goTo(id), setAsking, deskNow) : []
-  })
+  }, (id: string): AgentTooltipInfo | null => agentTooltipInfo(map.get(id)))
   // the CARD's confirm — same wording, same op, same undo toast — portaled
   // into this document, exactly as the tray's menu host does it
   return node && asking
