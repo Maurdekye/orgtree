@@ -15,8 +15,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
-import { CANVAS_BACKGROUNDS, DEFAULT_CANVAS_INTENSITIES, canvasBackgroundOf, resolveCanvasBackground, sanitizeCanvasBackground } from '../../../../packages/contracts/canvas-background'
-import { CanvasBackground, bgGeometry } from '../src/canvas/canvasbackground'
+import {
+  CANVAS_BACKGROUNDS, CANVAS_BACKGROUND_LABELS, DEFAULT_CANVAS_INTENSITIES,
+  canvasBackgroundOf, resolveCanvasBackground, sanitizeCanvasBackground,
+} from '../../../../packages/contracts/canvas-background'
+import type { CanvasBackgroundTheme } from '../../../../packages/contracts/canvas-background'
+import { AsciiLayer, CanvasBackground, bgGeometry } from '../src/canvas/canvasbackground'
+import type { AsciiTestApi } from '../src/canvas/canvasbackground'
+import { buildAtlas, createAsciiRenderer } from '../src/canvas/asciigl'
 import {
   ATLAS_CHARS, GLYPH_POOLS, createTouch, fieldAt, glyphChoiceAt, gradientNoise, gridFor,
   hash32, headingFor, heartRadius, pcg, pickLook, rngStream, sequenceFor, spanFor,
@@ -32,9 +38,21 @@ test('canvas background is absent from the default preferences', () => {
   assert.equal('canvasBackground' in DEFAULT_PREFERENCES, false)
 })
 
-test('native validation accepts the stored shapes and rebuilds them clean', () => {
+test('Claude Waves is the last background option and Checkerboard is kept beside the tile presets', () => {
+  assert.equal(CANVAS_BACKGROUNDS[0], 'dots')
+  assert.equal(CANVAS_BACKGROUNDS[CANVAS_BACKGROUNDS.length - 1], 'ascii')
+  assert.equal(CANVAS_BACKGROUND_LABELS.ascii, 'Claude Waves')
+  assert.equal((CANVAS_BACKGROUNDS as readonly string[]).includes('checkerboard'), true)
+  assert.equal(CANVAS_BACKGROUND_LABELS['checkerboard' as keyof typeof CANVAS_BACKGROUND_LABELS], 'Checkerboard')
+})
+
+test('native validation accepts the stored shapes (including backward-compatible ascii and claude-waves) and rebuilds them clean', () => {
   assert.deepEqual(preferencesPatch({ canvasBackground: { theme: 'ascii' } }),
     { canvasBackground: { theme: 'ascii' } })
+  assert.deepEqual(preferencesPatch({ canvasBackground: { theme: 'claude-waves', intensities: { 'claude-waves': 0.6 } } }),
+    { canvasBackground: { theme: 'ascii', intensities: { ascii: 0.6 } } })
+  assert.deepEqual(preferencesPatch({ canvasBackground: { theme: 'checkerboard', intensities: { checkerboard: 0.4 } } }),
+    { canvasBackground: { theme: 'checkerboard', intensities: { checkerboard: 0.4 } } })
   assert.deepEqual(
     preferencesPatch({ canvasBackground: { theme: 'hex-lines', intensities: { ascii: 0.5, dots: 0, 'hex-lines': 1 } } }),
     { canvasBackground: { theme: 'hex-lines', intensities: { ascii: 0.5, dots: 0, 'hex-lines': 1 } } })
@@ -90,24 +108,28 @@ test('dots geometry is the shipped dot grid verbatim (parallax included)', () =>
   assert.equal(g.backgroundSize, `${28 * V.z}px ${28 * V.z}px`)
 })
 
-test('grid themes pan and zoom 1:1 with the canvas like a floor', () => {
+test('grid, checkerboard and outlined tile themes pan and zoom 1:1 with the canvas like a floor', () => {
   assert.deepEqual(bgGeometry('line-grid', V),
     { backgroundPosition: '120px -40px', backgroundSize: '42px 42px' })
-  assert.deepEqual(bgGeometry('square-tiles', V),
+  assert.deepEqual(bgGeometry('checkerboard' as CanvasBackgroundTheme, V),
     { backgroundPosition: '120px -40px', backgroundSize: '84px 84px' })
   const hexDots = bgGeometry('hex-dots', V)
   assert.equal(hexDots.backgroundPosition, '120px -40px, 141px -3.63px')
   assert.equal(hexDots.backgroundSize, '42px 72.75px')
-  // both hexagon themes ride SVG masks with the same 1:1 floor math
+  // square-tiles, triangle-tiles, hex-lines and hex-tiles ride SVG masks with 1:1 floor math
+  const sq = bgGeometry('square-tiles', V)
+  assert.equal(sq.maskPosition, '120px -40px')
+  assert.equal(sq.maskSize, '42px 42px')
   for (const theme of ['hex-lines', 'hex-tiles'] as const) {
     const hex = bgGeometry(theme, V)
     assert.equal(hex.maskPosition, '120px -40px', theme)
     assert.equal(hex.maskSize, '44.17px 76.5px', theme)
   }
   const tri = bgGeometry('triangle-tiles', V)
-  const [tw, th] = tri.backgroundSize.split(' ').map(s => parseFloat(s))
+  assert.equal(tri.maskPosition, '120px -40px')
+  const [tw, th] = (tri.maskSize ?? '').split(' ').map(s => parseFloat(s))
   assert.equal(tw, 54)
-  assert.ok(Math.abs((th ?? 0) / (tw ?? 1) - 0.866) < 0.01, `triangle tile ratio ${th}/${tw}`)
+  assert.ok(Math.abs((th ?? 0) / (tw ?? 1) - 1.732) < 0.01, `triangle mask tile ratio ${th}/${tw}`)
 })
 
 /* ── the ASCII backdrop's spec module ──────────────────────────────────────
@@ -288,13 +310,46 @@ test('ascii glyph choice cycles the pool sequence at a per-cell pace', () => {
 
 /* ── the stylesheet ────────────────────────────────────────────────────── */
 
-test('styles.css carries every theme pattern, the ascii layer and the mobile-off rule', () => {
+function ruleBlock(css: string, theme: string): string {
+  const idx = css.indexOf(`.canvas-bg[data-canvas-bg="${theme}"]`)
+  if (idx < 0) return ''
+  const end = css.indexOf('}', idx)
+  return end < 0 ? '' : css.slice(idx, end + 1)
+}
+
+test('styles.css carries every theme pattern, Checkerboard, gapped outlined tile presets, the ascii layer and the mobile-off rule', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  for (const theme of ['line-grid', 'hex-dots', 'hex-lines', 'square-tiles', 'triangle-tiles', 'hex-tiles']) {
+  for (const theme of ['line-grid', 'hex-dots', 'hex-lines', 'checkerboard', 'square-tiles', 'triangle-tiles', 'hex-tiles']) {
     assert.equal(css.includes(`.canvas-bg[data-canvas-bg="${theme}"]`), true, theme)
   }
   assert.equal(css.includes('.canvas-bg-ascii {'), true)
   assert.equal(css.includes('html.mobile .canvas-bg-ascii { display: none; }'), true)
+
+  // Checkerboard keeps the existing alternating filled-square conic-gradient unchanged
+  const checker = ruleBlock(css, 'checkerboard')
+  assert.equal(checker.includes('conic-gradient(from 90deg at 50% 50%, var(--canvas-dot) 25%, transparent 0 50%, var(--canvas-dot) 0 75%, transparent 0)'), true)
+
+  // Tile presets (square-tiles, triangle-tiles, hex-tiles) are separately outlined shapes with small gaps
+  for (const tile of ['square-tiles', 'triangle-tiles', 'hex-tiles'] as const) {
+    const block = ruleBlock(css, tile)
+    assert.equal(block.includes('background-color: var(--line)'), true, `${tile} uses var(--line) fill under mask`)
+    assert.equal(block.includes('conic-gradient'), false, `${tile} must not be a filled conic-gradient`)
+    assert.equal(block.includes("fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'"), true, `${tile} must be stroked outlines, not filled shapes`)
+    const encoded = /mask-image:\s*url\("data:image\/svg\+xml,([^"]+)"\)/.exec(block)?.[1] ?? ''
+    const svg = decodeURIComponent(encoded)
+    const d = /\bd='([^']+)'/.exec(svg)?.[1] ?? ''
+    const subpaths = d.split('Z').map(s => s.trim()).filter(Boolean)
+    if (tile === 'square-tiles') {
+      assert.equal(subpaths.length, 1, 'square-tiles has one closed inset square per tile')
+      assert.equal(d.includes('2.5'), true, 'square-tiles is inset from the 0..28 cell edges')
+    } else if (tile === 'triangle-tiles') {
+      assert.equal(subpaths.length, 6, 'triangle-tiles has 6 closed inset triangles (up and down across 2 rows) in the {3,6} periodic tile')
+      assert.equal(d.includes('4.80') && d.includes('2.40'), true, 'triangle-tiles insets both upward and downward triangles')
+    } else if (tile === 'hex-tiles') {
+      assert.equal(subpaths.length, 5, 'hex-tiles has 5 closed inset hexagons in the {6,3} periodic tile')
+      assert.equal(d.includes('3.06') || d.includes('2.65'), true, 'hex-tiles insets each hexagon from the shared honeycomb boundary')
+    }
+  }
 })
 
 /* ── the rendered layer (plain-browser preference path) ────────────────── */
@@ -330,6 +385,16 @@ test('a stored grid theme renders its pattern layer at its remembered intensity'
   assert.equal(bg!.style.backgroundPosition, '120px -40px')
   assert.equal(bg!.style.backgroundSize, '42px 42px')
   assert.equal(bg!.style.opacity, '0.4')
+})
+
+test('a stored checkerboard theme renders its 2x2 square pattern at 1:1 floor scale', async (t) => {
+  storePref({ theme: 'checkerboard', intensities: { checkerboard: 0.35 } })
+  const view = await mountBg(t)
+  const bg = view.el.querySelector<HTMLElement>('[data-canvas-bg="checkerboard"]')
+  assert.equal(bg === null, false)
+  assert.equal(bg!.style.backgroundPosition, '120px -40px')
+  assert.equal(bg!.style.backgroundSize, '84px 84px')
+  assert.equal(bg!.style.opacity, '0.35')
 })
 
 test('dots with a lowered intensity keep the parallax and fade by opacity', async (t) => {
@@ -379,4 +444,227 @@ test('the ascii theme is flagged full-motion when the user allows motion', async
   assert.equal(host === null, false)
   assert.equal(host!.dataset.canvasBg, 'ascii')
   assert.equal(host!.dataset.motion, 'full')
+})
+
+/* ── zoom-out bounding, GPU fence misses, graceful load degradation & recovery ── */
+
+interface MockGlControl {
+  fenceSignaled: boolean
+  contextLost: boolean
+  atlasFonts: string[]
+}
+
+function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
+  const ctrl: MockGlControl = { fenceSignaled: true, contextLost: false, atlasFonts: [] }
+  const w = window as unknown as Record<string, unknown>
+  const prevRo = w.ResizeObserver
+  const prevDpr = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio')
+  const prevFocus = document.hasFocus
+  const prevCw = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'clientWidth')
+  const prevCh = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'clientHeight')
+  const prevGetContext = window.HTMLCanvasElement.prototype.getContext
+
+  w.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => dpr })
+  document.hasFocus = () => true
+  Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 })
+  Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 600 })
+
+  window.HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string): unknown {
+    if (kind === '2d') {
+      const cw = this.width || 1, ch = this.height || 1
+      const rgba = new Uint8ClampedArray(cw * ch * 4)
+      let currentFont = '400 10px monospace'
+      let glyphPx = 10
+      let clipX = 0, clipY = 0, clipW = cw, clipH = ch
+      return {
+        fillStyle: '#fff',
+        textAlign: 'left',
+        textBaseline: 'alphabetic',
+        set font(f: string) {
+          currentFont = f
+          ctrl.atlasFonts.push(f)
+          const m = /(\d+(?:\.\d+)?)px/.exec(f)
+          glyphPx = m ? Number(m[1]) : 10
+        },
+        get font() { return currentFont },
+        measureText: (txt: string) => ({
+          width: txt.length * glyphPx * 0.6,
+          fontBoundingBoxAscent: glyphPx * 0.8,
+          fontBoundingBoxDescent: glyphPx * 0.2,
+        }),
+        save() {},
+        restore() {},
+        beginPath() {},
+        rect(x: number, y: number, rw: number, rh: number) { clipX = x; clipY = y; clipW = rw; clipH = rh },
+        clip() {},
+        fillRect(x: number, y: number, rw: number, rh: number) {
+          for (let py = y; py < y + rh && py < ch; py++) {
+            for (let px = x; px < x + rw && px < cw; px++) {
+              const idx = (py * cw + px) * 4
+              rgba[idx] = 180; rgba[idx + 1] = 180; rgba[idx + 2] = 180; rgba[idx + 3] = 255
+            }
+          }
+        },
+        fillText(txt: string) {
+          if (!txt || txt === ' ') return
+          // 1px text on a 2D canvas produces sub-threshold alpha (< 8), reproducing the zoom-out blanking bug
+          const alpha = glyphPx >= 4 ? 255 : 2
+          const gx = Math.min(clipW - 1, Math.max(1, Math.floor(clipW / 2)))
+          const gy = Math.min(clipH - 1, Math.max(1, Math.floor(clipH / 2)))
+          const idx = ((clipY + gy) * cw + (clipX + gx)) * 4
+          if (idx + 3 < rgba.length) rgba[idx + 3] = alpha
+        },
+        getImageData: () => ({ data: rgba }),
+      }
+    }
+    if (kind === 'webgl2') {
+      const SIGNALED = 0x9119, UNSIGNALED = 0x9118, SYNC_STATUS = 0x9114
+      const COMPILE_STATUS = 0x8B81, LINK_STATUS = 0x8B82, ACTIVE_UNIFORMS = 0x8B86
+      return {
+        SIGNALED, UNSIGNALED, SYNC_STATUS, COMPILE_STATUS, LINK_STATUS, ACTIVE_UNIFORMS,
+        VERTEX_SHADER: 0x8B31, FRAGMENT_SHADER: 0x8B30,
+        TEXTURE0: 0x84C0, TEXTURE1: 0x84C1, TEXTURE2: 0x84C2, TEXTURE3: 0x84C3,
+        TEXTURE_2D: 0x0DE1, TEXTURE_WRAP_S: 0x2802, TEXTURE_WRAP_T: 0x2803,
+        TEXTURE_MIN_FILTER: 0x2801, TEXTURE_MAG_FILTER: 0x2800,
+        CLAMP_TO_EDGE: 0x812F, NEAREST: 0x2600, LINEAR: 0x2601,
+        FRAMEBUFFER: 0x8D40, COLOR_ATTACHMENT0: 0x8CE0,
+        DEPTH_TEST: 0x0B71, BLEND: 0x0BE2, ONE: 1, ONE_MINUS_SRC_ALPHA: 0x0303,
+        UNPACK_ALIGNMENT: 0x0CF5, R8: 0x8229, RED: 0x1903,
+        RGBA8: 0x8058, RGBA: 0x1908, RGBA8UI: 0x8D7C, RGBA_INTEGER: 0x8D99,
+        UNSIGNED_BYTE: 0x1401, COLOR_BUFFER_BIT: 0x4000, TRIANGLES: 0x0004,
+        SYNC_GPU_COMMANDS_COMPLETE: 0x9117, RENDERER: 0x1F01,
+        getExtension: (name: string) => {
+          if (name === 'WEBGL_debug_renderer_info') return { UNMASKED_RENDERER_WEBGL: 0x9246 }
+          if (name === 'WEBGL_lose_context') return { loseContext() { ctrl.contextLost = true }, restoreContext() { ctrl.contextLost = false } }
+          return null
+        },
+        getParameter: (p: number) => p === ACTIVE_UNIFORMS ? 0 : 'ANGLE (NVIDIA GeForce RTX, Direct3D11)',
+        isContextLost: () => ctrl.contextLost,
+        disable() {}, enable() {}, blendFunc() {}, pixelStorei() {},
+        createShader: () => ({}), shaderSource() {}, compileShader() {},
+        getShaderParameter: () => true,
+        createProgram: () => ({}), attachShader() {}, linkProgram() {},
+        getProgramParameter: (_p: unknown, pname: number) => pname === LINK_STATUS ? true : 0,
+        getActiveUniform: () => null, getUniformLocation: () => ({}),
+        createTexture: () => ({}), activeTexture() {}, bindTexture() {}, texParameteri() {},
+        createFramebuffer: () => ({}), bindFramebuffer() {}, framebufferTexture2D() {},
+        useProgram() {}, uniform1ui() {}, uniform1i() {}, uniform1f() {},
+        uniform2f() {}, uniform2i() {}, uniform3f() {}, uniform4f() {}, uniform4fv() {},
+        texImage2D() {}, viewport() {}, clearColor() {}, clear() {}, drawArrays() {},
+        fenceSync: () => ({}),
+        getSyncParameter: () => ctrl.contextLost ? null : (ctrl.fenceSignaled ? SIGNALED : UNSIGNALED),
+        deleteSync() {},
+        readPixels() {},
+      }
+    }
+    return null
+  } as typeof window.HTMLCanvasElement.prototype.getContext
+
+  t.after(() => {
+    w.ResizeObserver = prevRo
+    if (prevDpr) Object.defineProperty(window, 'devicePixelRatio', prevDpr)
+    document.hasFocus = prevFocus
+    if (prevCw) Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', prevCw)
+    if (prevCh) Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', prevCh)
+    window.HTMLCanvasElement.prototype.getContext = prevGetContext
+  })
+  return ctrl
+}
+
+test('buildAtlas keeps a readable glyph size when zoomed far out and retires slow GPU fences without double-faulting', (t) => {
+  const ctrl = installAsciiGlEnv(t, 1)
+  // At extreme zoom-out (scale=0.15) where gridFor clamps cellWidth to 5, buildAtlas must not rasterize at 1px
+  const atlas = buildAtlas(document, 5, 10, 'monospace', 0.15)
+  assert.equal(atlas.missing.some(m => !m), true, 'zoomed-out 5x10 atlas must retain visible glyphs instead of blanking to 1px')
+
+  const visit = visitFromSeed(42, 'mixed')
+  const renderer = createAsciiRenderer(document, visit, 'monospace')
+  assert.equal(renderer === null, false)
+  const grid = gridFor(800, 600, 1)!
+  assert.equal(renderer!.resize({
+    grid, originX: 0, originY: 0, sampleX: 7, sampleY: 7,
+    canvasSizeX: 800, canvasSizeY: 600, calmRadiiX: 200, calmRadiiY: 140,
+    cellOriginX: 0, cellOriginY: 0, cellCentreX: 3.5, cellCentreY: 7,
+    cellWorldW: 7, cellWorldH: 14, cssLeft: 0, cssTop: 0, cssW: 800, cssH: 600,
+  }), true)
+
+  ctrl.fenceSignaled = false
+  const fv = { originX: 0, originY: 0, calmCx: 400, calmCy: 300 }
+  for (let i = 1; i <= 5; i++) renderer!.draw(i, 1, null, fv)
+  assert.equal(renderer!.fellBehind(), false, '1st unsignaled check after fence creation at draw 4 is not yet a fault')
+  renderer!.draw(6, 1, null, fv)
+  assert.equal(renderer!.fellBehind(), true, '2nd unsignaled check on the head fence signals fellBehind')
+  renderer!.draw(7, 1, null, fv)
+  assert.equal(renderer!.fellBehind(), false, 'slow fence must be retired on strike so draw 7 does not immediately double-fault on the same fence')
+  renderer!.destroy()
+})
+
+test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside load without leaving a frozen frame, and recovers automatically from load and WebGL context loss', async (t) => {
+  installAsciiGlEnv(t, 2)
+  stubReducedMotion(t, false)
+  const viewRef = { current: { x: 0, y: 0, z: 1 } }
+  let api: AsciiTestApi | null = null
+  const mounted = await mountView(
+    <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={false} intensity={1}
+      pin={{ seed: 42, pool: 'mixed' }} onReady={a => { api = a }} />,
+    el => el,
+  )
+  t.after(async () => { await mounted.unmount() })
+  for (let i = 0; i < 20 && !api; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(4) })
+  }
+  assert.equal(api === null, false, 'AsciiLayer should initialize with mock WebGL2')
+
+  // 1. High-DPI zoom-out bounding: at dpr=2, zooming out to z=0.35 and z=0.05 must keep cellWidth >= 10
+  viewRef.current = { x: -400, y: -300, z: 0.35 }
+  api!.drawAt(8, 1)
+  const canvasAt035 = mounted.el.querySelector('canvas')!
+  assert.equal(canvasAt035 === null, false)
+  // On 800x600 at dpr=2 (1600x1200 device px), an unclamped z=0.35 shrinks cellWidth to 5 (321 cols = 1605px, >38k cells).
+  // With zoom-out bounding, cellWidth stays >= 10 (<= 161 cols, <= 10k cells).
+  const state035 = api!.state() as { cellWidth?: number; columns?: number; rows?: number }
+  assert.ok((state035.cellWidth ?? 0) >= 10, `expected bounded dpr=2 zoom-out cellWidth >= 10, got ${state035.cellWidth}`)
+  viewRef.current = { x: -400, y: -300, z: 0.05 }
+  api!.drawAt(9, 1)
+  const state005 = api!.state() as { cellWidth?: number; columns?: number; rows?: number }
+  assert.equal(state005.columns, state035.columns, 'zooming below 0.35 clamps to the minimum ASCII zoom grid')
+  assert.equal(state005.rows, state035.rows)
+
+  // 2. Graceful degradation under heavy outside GPU/CPU load:
+  //    First strike drops frame rate (busy-gpu); second strike pauses cleanly AND hides the canvas
+  //    (opacity 0, never leaving a frozen world-coordinate frame stuck to the viewport), then auto-recovers.
+  const simLoad = (api as unknown as { simulateLoad?: (kind: 'gpu' | 'late' | 'stall', count?: number) => void }).simulateLoad
+  assert.equal(typeof simLoad, 'function', 'AsciiTestApi exposes simulateLoad for deterministic load testing')
+  simLoad!('gpu', 1)
+  assert.equal(api!.state().datasetState, 'busy-gpu')
+  assert.equal(api!.state().running, true, '1st GPU fault backs off frame rate while continuing to run')
+  simLoad!('gpu', 1)
+  const pausedState = api!.state()
+  assert.equal(pausedState.running, false, '2nd GPU fault pauses the loop cleanly')
+  const pausedCanvas = mounted.el.querySelector('canvas')!
+  assert.equal(pausedCanvas.style.opacity, '0', 'paused backdrop must fade opacity to 0 so a frozen frame never sticks to the viewport while panning/zooming')
+
+  // Wait for automatic recovery (must recover within ~2.5s, never stuck for 60s)
+  for (let i = 0; i < 30 && !api!.state().running; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 100)); await flush(2) })
+  }
+  assert.equal(api!.state().running, true, 'backdrop must recover automatically after outside load subsides')
+
+  // 3. WebGL context loss & restoration:
+  const glCanvas = mounted.el.querySelector('canvas')!
+  const lostEvent = new window.Event('webglcontextlost', { cancelable: true })
+  glCanvas.dispatchEvent(lostEvent)
+  assert.equal(lostEvent.defaultPrevented, true, 'webglcontextlost must call preventDefault so context can restore')
+  assert.equal(api!.state().running, false, 'loop stops while WebGL context is lost')
+  assert.equal(glCanvas.style.opacity, '0', 'lost context hides canvas instead of leaving a dead element')
+
+  glCanvas.dispatchEvent(new window.Event('webglcontextrestored'))
+  await inAct(async () => { await new Promise(r => setTimeout(r, 50)); await flush(4) })
+  assert.equal(api!.state().running, true, 'webglcontextrestored automatically rebuilds the renderer and resumes animation')
+  assert.equal(mounted.el.querySelector('canvas') === null, false, 'canvas remains mounted after context restoration')
 })

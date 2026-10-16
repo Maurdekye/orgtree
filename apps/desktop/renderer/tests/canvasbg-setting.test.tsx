@@ -94,15 +94,19 @@ async function blur(el: HTMLElement): Promise<void> {
   await inAct(async () => { el.dispatchEvent(new Event('focusout', { bubbles: true })); await flush(6) })
 }
 
-test('Display offers every background theme and one intensity slider, starting on the dot grid', async (t) => {
+test('Display offers every background theme and one intensity slider, starting on the dot grid with Claude Waves last', async (t) => {
   installBridge(t)
   const view = await openDisplay(t)
   const host = panel(view.el)
   assert.equal(host === null, false)
   const select = bgSelect(host!)
   assert.equal(select === null, false)
-  assert.deepEqual([...select!.options].map(o => [o.value, o.textContent]),
+  const options = [...select!.options].map(o => [o.value, o.textContent])
+  assert.deepEqual(options,
     CANVAS_BACKGROUNDS.map(id => [id, CANVAS_BACKGROUND_LABELS[id]]))
+  assert.deepEqual(options[0], ['dots', 'Dot grid'])
+  assert.deepEqual(options[options.length - 1], ['ascii', 'Claude Waves'])
+  assert.equal(options.some(([v, l]) => v === 'checkerboard' && l === 'Checkerboard'), true)
   assert.equal(select!.value, 'dots')
   const slider = bgSlider(host!)
   assert.equal(slider === null, false)
@@ -135,11 +139,20 @@ test('picking a theme stores it at once, and the slider then edits that theme on
   assert.equal(bgSlider(host)!.value, '0.8')
 })
 
-test('a stored choice is what a fresh panel opens on', async (t) => {
+test('a stored choice (including legacy ascii and Checkerboard) is what a fresh panel opens on', async (t) => {
   installBridge(t, { canvasBackground: { theme: 'triangle-tiles', intensities: { 'triangle-tiles': 0.25 } } })
   const view = await openDisplay(t)
   const host = panel(view.el)!
   assert.equal(bgSelect(host)!.value, 'triangle-tiles')
   assert.equal(bgSlider(host)!.value, '0.25')
   assert.equal(host.textContent?.includes('25%'), true)
+  await view.unmount()
+
+  installBridge(t, { canvasBackground: { theme: 'ascii', intensities: { ascii: 0.7 } } })
+  const viewAscii = await openDisplay(t)
+  const hostAscii = panel(viewAscii.el)!
+  const selAscii = bgSelect(hostAscii)!
+  assert.equal(selAscii.value, 'ascii')
+  assert.equal(selAscii.selectedOptions[0]?.textContent, 'Claude Waves')
+  assert.equal(bgSlider(hostAscii)!.value, '0.7')
 })
