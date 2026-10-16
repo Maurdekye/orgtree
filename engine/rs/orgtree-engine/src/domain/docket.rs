@@ -472,6 +472,11 @@ pub fn view(it: &Item, ctx: &Ctx, detail: Option<(&[Value], &[Value])>) -> Value
             recipients.push(json!({ "node": p, "role": "participant", "state": agent_state(p, ctx) }));
         }
     }
+    if let Some(raiser) = attention_raiser(it.attention.as_ref())
+        .filter(|n| Some(*n) != it.owner_name() && !it.participants.iter().any(|p| p == *n))
+    {
+        recipients.push(json!({ "node": raiser, "role": "attention_raiser", "state": agent_state(raiser, ctx) }));
+    }
     let deps: Vec<Value> = it
         .dependencies
         .iter()
@@ -2453,7 +2458,18 @@ pub async fn dismiss(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, set
     user_get(engine, org, &it.slug).await
 }
 
-/// The user's reply on an item: mail to its owner, or to a participant it names.
+fn attention_raiser(attention: Option<&Value>) -> Option<&str> {
+    attention?.get("by")?.get("node")?.as_str()
+}
+
+fn reply_role(target: &str, owner: Option<&str>, participants: &[String], attention_raiser: Option<&str>) -> Option<&'static str> {
+    if Some(target) == owner { Some("owner") }
+    else if participants.iter().any(|p| p == target) { Some("participant") }
+    else if Some(target) == attention_raiser { Some("attention_raiser") }
+    else { None }
+}
+
+/// The user's reply on an item: mail to its owner, a participant, or its current attention raiser.
 #[logged]
 pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body: &str, to: Option<&str>, attachments: Vec<Value>, notice: bool) -> Result<Value> {
     let text = body.trim();
@@ -2462,12 +2478,14 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
     }
     let client = engine.db.get().await?;
     let it = load(&**client, org.id, slug, false).await?;
+    let attention_raiser = attention_raiser(it.attention.as_ref());
     let (target, role) = match to.map(|t| t.trim().trim_start_matches('@')).filter(|t| !t.is_empty()) {
-        Some(t) if Some(t) == it.owner_name() => (t.to_string(), "owner"),
-        Some(t) if it.participants.iter().any(|p| p == t) => (t.to_string(), "participant"),
-        Some(t) => refuse!(Unprocessable, "{t} is neither the owner nor a participant of {}; nothing was sent", it.slug),
-        None => match it.owner_name() {
-            Some(o) => (o.to_string(), "owner"),
+        Some(t) => match reply_role(t, it.owner_name(), &it.participants, attention_raiser) {
+            Some(role) => (t.to_string(), role),
+            None => refuse!(Unprocessable, "{t} is neither the owner, a participant, nor the current attention raiser of {}; nothing was sent", it.slug),
+        },
+        None => match attention_raiser.or_else(|| it.owner_name()) {
+            Some(o) => (o.to_string(), reply_role(o, it.owner_name(), &it.participants, attention_raiser).expect("default reply recipient is valid")),
             None => refuse!(Unprocessable, "{} has no owner to reply to; assign it first", it.slug),
         },
     };
@@ -2477,7 +2495,9 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
         .map(|r| r.get(0));
     let Some(state) = state else { refuse!(NotFound, "{target} no longer exists; nothing was sent") };
     drop(client);
-    let how = if role == "participant" {
+    let how = if role == "attention_raiser" {
+        format!("(the user replied on docket item {} because you raised its attention flag â€” the item is owned by {}; act on the request and coordinate any item update with the owner; this reply does not grant docket access)", it.slug, it.owner_name().unwrap_or("nobody"))
+    } else if role == "participant" {
         format!("(the user replied on docket item {} ADDRESSED TO YOU AS A PARTICIPANT — the item is owned by {}, not by you; act on it and coordinate any update with the owner)", it.slug, it.owner_name().unwrap_or("nobody"))
     } else {
         format!("(the user replied on docket item {} — treat it as item-linked mail and update the item if it changes the work)", it.slug)
@@ -2519,6 +2539,28 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
         "accepted": true, "to": target, "role": role, "deferred": sent.deferred, "notice": notice && state == "live",
         "node_state": state, "delivery": sent.delivery, "id": sent.uid, "ref": format!("@mail:{}", sent.uid),
     }))
+}
+
+#[cfg(test)]
+mod reply_role_tests {
+    use super::{attention_raiser, reply_role};
+    use serde_json::json;
+
+    #[test]
+    fn current_attention_actor_is_read_as_a_reply_destination() {
+        let attention = json!({"by":{"node":"flag-raiser","generation":2}});
+        assert_eq!(attention_raiser(Some(&attention)), Some("flag-raiser"));
+        assert_eq!(attention_raiser(None), None);
+    }
+
+    #[test]
+    fn reply_role_allows_only_owner_participant_or_current_flag_raiser() {
+        let participants = vec!["participant".to_string()];
+        assert_eq!(reply_role("owner", Some("owner"), &participants, Some("owner")), Some("owner"));
+        assert_eq!(reply_role("participant", Some("owner"), &participants, Some("participant")), Some("participant"));
+        assert_eq!(reply_role("raiser", Some("owner"), &participants, Some("raiser")), Some("attention_raiser"));
+        assert_eq!(reply_role("mentioned", Some("owner"), &participants, Some("raiser")), None);
+    }
 }
 
 /// Attach a file to the item itself.

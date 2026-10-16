@@ -2762,7 +2762,9 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
   ]
   const participants = recipients.filter((r) => r.role === 'participant')
   // This pane is keyed by ticket slug. Polling must never redirect a draft.
-  const [replyTo, setReplyTo] = useState(assignee?.node ?? '')
+  const flagRaiser = item.manual_attention?.by && typeof item.manual_attention.by === 'object'
+    ? item.manual_attention.by.node : undefined
+  const [replyTo, setReplyTo] = useState(flagRaiser ?? assignee?.node ?? '')
   const [replyBusy, setReplyBusy] = useState(false)
   const [recipientOpen, setRecipientOpen] = useState(false)
   const recipientSearch = useRef({ text: '', at: 0 })
@@ -3002,11 +3004,11 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
                   onClose={() => setRecipientOpen(false)}
                   inputProps={{ 'aria-label': 'Reply to' }}
                   SelectDisplayProps={{ 'aria-description': recipient
-                    ? `${recipient.role === 'owner' ? 'Assignee' : 'Participant'}${recipient.state === 'retired'
+                    ? `${recipient.role === 'owner' ? 'Assignee' : recipient.role === 'attention_raiser' ? 'Attention flag raiser' : 'Participant'}${recipient.state === 'retired'
                       ? ' — retired; waits for rehire' : recipient.state === 'missing' ? ' — unavailable' : ''}`
                     : replyTo ? 'Unavailable recipient' : 'Choose a recipient' }}
-                  renderValue={(node) => node ? <span className="docket-reply-identity">
-                    <AgentName id={node} tier={recipient?.state === 'missing' || !recipient ? undefined : facts.get(node)?.tier} />
+                  renderValue={(node) => node ? <span className="docket-reply-identity" {...agentNavProps(node)}>
+                    {node}
                   </span> : 'Choose a recipient'}
                   MenuProps={{ slotProps: {
                     paper: { className: 'docket-reply-menu' },
@@ -3032,9 +3034,9 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
                   )}
                   {recipients.map((r) => (
                     <MenuItem key={r.node} value={r.node} disabled={r.state === 'missing'}
-                      title={`${r.role === 'owner' ? 'Assignee' : 'Participant'}${r.state === 'retired'
+                      title={`${r.role === 'owner' ? 'Assignee' : r.role === 'attention_raiser' ? 'Attention flag raiser' : 'Participant'}${r.state === 'retired'
                         ? ' — retired; waits for rehire' : r.state === 'missing' ? ' — unavailable' : ''}`}
-                      aria-label={`${r.node}, ${r.role === 'owner' ? 'assignee' : 'participant'}${r.state === 'retired'
+                      aria-label={`${r.node}, ${r.role === 'owner' ? 'assignee' : r.role === 'attention_raiser' ? 'attention flag raiser' : 'participant'}${r.state === 'retired'
                         ? ', retired; waits for rehire' : r.state === 'missing' ? ', unavailable' : ''}`}>
                       <AgentName id={r.node} tier={r.state === 'missing' ? undefined : facts.get(r.node)?.tier} />
                     </MenuItem>

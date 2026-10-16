@@ -2793,7 +2793,7 @@ export interface WorkItem {
    *  the item (docs/rust-engine/PROJECT-NODES.md, Docket) */
   project?: { node: string; co_owners?: string } | null
   /** Server-derived destinations; tree roots omit some archived predecessors. */
-  reply_recipients?: { node: string; role: 'owner' | 'participant';
+  reply_recipients?: { node: string; role: 'owner' | 'participant' | 'attention_raiser';
     state: 'live' | 'retired' | 'missing' }[]
   created_by: WorkActor | 'user' | '@user'
   at: string
@@ -2942,7 +2942,7 @@ export interface DismissAttentionResult { item: WorkItem }
 // req() throws those as Error(detail)
 export interface WorkItemReplyResult extends Partial<TypedReplyReceipt> {
   accepted: true
-  role?: 'owner' | 'participant'
+  role?: 'owner' | 'participant' | 'attention_raiser'
   to: string
   /** the recipient is archived — mail waits for rehire; say so in the UI */
   deferred: boolean

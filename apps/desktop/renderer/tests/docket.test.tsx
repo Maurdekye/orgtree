@@ -707,15 +707,28 @@ uiTest('§13d a standing attention flag routes the default reply to its raiser',
       { node: 'flag-raiser', role: 'attention_raiser', state: 'live' },
     ],
   })
-  mockWorkItems([flagItem])
+  const calls = mockWorkItems([flagItem])
   const { el } = await mount(docketModal())
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
-  await flush()
 
-  assert.match(el.querySelector('.docket-reply-label')?.textContent ?? '', /Reply to flag-raiser/)
+  assert.match(el.querySelector('.docket-reply-picker')?.textContent ?? '', /Reply to\s*flag-raiser/)
   const chip = el.querySelector('[data-agent-nav="flag-raiser"]')
   assert.ok(chip, 'the reply recipient chip uses shared agent navigation for tooltip and context menu')
+
+  const textarea = el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
+  await inAct(async () => {
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+    nativeSetter?.call(textarea, 'Please take a look')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+  })
+  await inAct(async () => {
+    (el.querySelector('.mail-reply-send') as HTMLButtonElement).click()
+    await flush()
+  })
+  const replyCalls = calls.filter((c) => c.method === 'POST' && c.url.includes('/reply'))
+  assert.equal(replyCalls.length, 1)
+  assert.deepEqual(replyCalls[0]!.body, { body: 'Please take a look', to: 'flag-raiser' })
 })
 
 // allow-attachments-in-contextual-reply-composers. The docket's "ticket"
