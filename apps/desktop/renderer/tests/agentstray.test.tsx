@@ -607,6 +607,7 @@ uiTest('pinned Agents header exposes and applies the active-only preference', as
 uiTest('pinned Agents checkbox keeps its click while the panel raises during activation', async ({ mount }) => {
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const { CurrentOrg } = await import('../src/popout')
+  const { readPinSurfaces } = await import('../src/canvas/pinspace')
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
   const fixture = treeWithStatus(['idle-agent', 'active-agent'])
   const roots = (fixture as unknown as { roots: Record<string, unknown>[] }).roots
@@ -627,13 +628,21 @@ uiTest('pinned Agents checkbox keeps its click while the panel raises during act
   // Match a physical click: pointerdown raises the pinned surface, then the
   // checkbox's click bubbles through the panel's capture handler. Do not wrap
   // the activation in React act(), which would hide an update during capture.
+  const surfaceOrder = () => readPinSurfaces().find(surface => surface.org === 'mine' && surface.modal)?.order
+  const beforePointer = surfaceOrder()
   filter!.dispatchEvent(new window.PointerEvent('pointerdown', {
     bubbles: true, cancelable: true, button: 0, pointerId: 1,
   }))
+  const afterPointer = surfaceOrder()
+  assert.ok(afterPointer !== undefined && beforePointer !== undefined && afterPointer > beforePointer,
+    'pointerdown raises the pinned panel before checkbox activation')
   filter!.dispatchEvent(new window.PointerEvent('pointerup', {
     bubbles: true, cancelable: true, button: 0, pointerId: 1,
   }))
+  const beforeClick = surfaceOrder()
   filter!.click()
+  assert.equal(surfaceOrder(), beforeClick,
+    'click capture does not republish the already-raised surface during checkbox activation')
   await flush(3)
   assert.equal(changes.length, 1, 'one click reaches the active-filter callback')
   assert.equal(changes[0], true, 'the click enables filtering instead of being lost during raise')
