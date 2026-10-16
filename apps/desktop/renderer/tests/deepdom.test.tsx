@@ -102,7 +102,7 @@ test('§4 the working alternatives all DO throw', () => {
 // §5 was tightened, §5b was not, and §5b went on certifying a pattern that
 // was no longer the one running. Two copies of a rule that must agree is the
 // same defect this whole file is about, one level up.
-const SUSPECT = /assert\.(?:not)?deep(?:Strict)?Equal\(\s*([^,]*)/g
+const SUSPECT = /assert\.(?:not)?deep(?:Strict)?Equal\(\s*/g
 // the shapes that read as DOM: a query result or a child list, NOT passed
 // through anything that extracts a value from it. `.map(x => x.textContent)`
 // yields strings and IS the correct form, so the pattern must not flag it.
@@ -123,10 +123,53 @@ const SUSPECT = /assert\.(?:not)?deep(?:Strict)?Equal\(\s*([^,]*)/g
 const DOMISH = /querySelector(?:All)?\(|\.children\b|\.firstElementChild\b|\.lastElementChild\b|\.parentElement\b|getElementsB/
 const SAFE = /\.textContent|\.outerHTML|\.innerHTML|\.className|\.id\b|\.map\(|\.length\b|\.tagName|\.nodeName|\.getAttribute|\.filter\(/
 
+// Find the first assertion operand without treating a comma nested in a call
+// (for example Array.from(nodes, node => node.textContent)) as the argument
+// separator. This is intentionally a small delimiter scanner, not a JS parser.
+const firstOperand = (src: string, start: number): string => {
+  const stack: string[] = []
+  let quote = ''
+  let escaped = false
+  let lineComment = false
+  let blockComment = false
+  for (let i = start; i < src.length; i++) {
+    const char = src[i]!
+    const next = src[i + 1]
+    if (lineComment) {
+      if (char === '\n') lineComment = false
+      continue
+    }
+    if (blockComment) {
+      if (char === '*' && next === '/') { blockComment = false; i++ }
+      continue
+    }
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === quote) quote = ''
+      continue
+    }
+    if (char === '/' && next === '/') { lineComment = true; i++; continue }
+    if (char === '/' && next === '*') { blockComment = true; i++; continue }
+    if (char === "'" || char === '"' || char === '`') { quote = char; continue }
+    if (char === '(' || char === '[' || char === '{') { stack.push(char); continue }
+    if (char === ')' || char === ']' || char === '}') {
+      if (stack.length === 0) return src.slice(start, i)
+      stack.pop()
+      continue
+    }
+    if (char === ',' && stack.length === 0) return src.slice(start, i)
+  }
+  return src.slice(start)
+}
+
 /** THE predicate — does this source text deep-compare something DOM-shaped? */
 const flagsViolation = (src: string): boolean =>
   [...src.matchAll(SUSPECT)]
-    .some((m) => DOMISH.test(m[1] ?? '') && !SAFE.test(m[1] ?? ''))
+    .some((m) => {
+      const operand = firstOperand(src, m.index! + m[0].length)
+      return DOMISH.test(operand) && !SAFE.test(operand)
+    })
 
 test('§5 no suite in this directory deep-compares a DOM node', () => {
   const offenders: string[] = []
@@ -136,7 +179,7 @@ test('§5 no suite in this directory deep-compares a DOM node', () => {
   for (const f of files) {
     const src = readFileSync(path.join(TESTS, f), 'utf8')
     for (const m of src.matchAll(SUSPECT)) {
-      const operand = m[1] ?? ''
+      const operand = firstOperand(src, m.index! + m[0].length)
       if (DOMISH.test(operand) && !SAFE.test(operand)) {
         const line = src.slice(0, m.index).split('\n').length
         offenders.push(`${f}:${line}  ${operand.trim().slice(0, 70)}`)
@@ -162,6 +205,9 @@ test('§5b the guard can actually see a violation', () => {
   assert.equal(flagsViolation(
     "assert.deepEqual([...el.children].map((c) => c.textContent), ['a'])"),
   false, 'and does NOT flag the correct fix')
+  assert.equal(flagsViolation(
+    "assert.deepEqual(Array.from(panel.querySelectorAll('.tray-name'), n => n.textContent), ['a'])"),
+  false, 'Array.from with a mapper also compares extracted strings, not DOM nodes')
   // the exact false positive that an earlier pattern produced six times: a
   // HELPER CALL whose argument merely happens to be named `el`
   assert.equal(flagsViolation("assert.deepEqual(names(el), ['bravo', 'alpha'])"),
