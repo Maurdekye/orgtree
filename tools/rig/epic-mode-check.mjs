@@ -83,7 +83,7 @@ const OPUS_MISSING = {
   'apps/desktop/renderer/src/epic/director.ts': ['climbFor', 'noteRatio'],
   'apps/desktop/renderer/src/epic/stage.ts': ['MAX_DPR', 'MAX_PIXELS'],
 }
-const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-final', 'epicmode-caret', 'epicmode-wheel', 'epicmode-urgent', 'epicmode-comfort', 'epicmode-linger', 'epicmode-progress']
+const SUITES = ['epicmode-switch', 'epicmode-off', 'epicmode-engine', 'epicmode-final', 'epicmode-caret', 'epicmode-wheel', 'epicmode-urgent', 'epicmode-comfort', 'epicmode-linger', 'epicmode-progress', 'epicmode-usage']
 // What the suites import from modules that do not exist at the base.
 const STUBS = {
   sync: 'export const startEpicSync = undefined',
