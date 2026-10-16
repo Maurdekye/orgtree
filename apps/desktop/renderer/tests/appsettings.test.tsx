@@ -10,7 +10,6 @@ import assert from 'node:assert/strict'
 import { AccountsPanel } from '../src/canvas/accounts'
 import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
 import { AccountUsagePanel } from '../src/accountusage'
-import { hireTierChoices } from '../src/canvas/shared'
 import type { AccountsPayload, ProviderInfo, ProvidersPayload } from '../src/types'
 
 const ACCOUNTS: AccountsPayload = {
@@ -305,13 +304,15 @@ test('§3 provider rows present status and model-tier detail', async () => {
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('§3a provider model tiers follow the hire-row order', async () => {
+test('§3a Antigravity settings group Gemini tiers before Claude tiers', async () => {
   localStorage.clear()
   const tiers = [
     { tier: 'flash', provider: 'google', seat: 1, model: 'antigravity-flash', letter: 'F', name: 'Flash' },
     { tier: 'agy-sonnet', provider: 'google', seat: 2, model: 'antigravity-sonnet', letter: 'S', name: 'Sonnet' },
     { tier: 'argon', provider: 'google', seat: 2, model: 'antigravity-argon', letter: 'A', name: 'Argon' },
     { tier: 'agy-opus', provider: 'google', seat: 4, model: 'antigravity-opus', letter: 'O', name: 'Opus' },
+    { tier: 'barium', provider: 'google', seat: 2, model: 'antigravity-barium', letter: 'B', name: 'Barium' },
+    { tier: 'carbon', provider: 'google', seat: 2, model: 'antigravity-carbon', letter: 'C', name: 'Carbon' },
   ]
   stubFetch([], { providers: [
     provider('claude'), provider('openai'), { ...provider('google'), tiers },
@@ -322,12 +323,9 @@ test('§3a provider model tiers follow the hire-row order', async () => {
     const rendered = [...panel.querySelectorAll<HTMLElement>(
       '[aria-label="Antigravity model tiers"] .acct-provider-tier .tier')]
       .map(el => el.className.split(/\s+/).find(name => name.startsWith('t-'))!.slice(2))
-    const hireOrder = hireTierChoices({
-      antigravityHire: { enabled: true, installed: true, reason: null,
-        offeredTiers: tiers.map(tier => tier.tier) },
-    }).filter(choice => ['agy-opus', 'agy-sonnet', 'argon', 'flash'].includes(choice.tier))
-      .map(choice => choice.tier)
-    assert.deepEqual(rendered, hireOrder)
+    assert.deepEqual(rendered, [
+      'argon', 'barium', 'carbon', 'flash', 'agy-opus', 'agy-sonnet',
+    ], 'Gemini-backed tiers stay together before Claude-backed tiers')
   } finally { await view.unmount(); delete g.fetch }
 })
 
