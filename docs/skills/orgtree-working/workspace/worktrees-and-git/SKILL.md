@@ -31,5 +31,7 @@ Leave an assigned worktree in place while its review or integration still needs 
 
 ## See also
 
+- [orgtree-machine-traps](../machine-traps/SKILL.md)
+
 - [orgtree-builds-under-the-lock](../builds-under-the-lock/SKILL.md)
 - [orgtree-reviews-and-landing](../reviews-and-landing/SKILL.md)

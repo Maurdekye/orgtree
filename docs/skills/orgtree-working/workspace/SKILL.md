@@ -13,6 +13,8 @@ Choose the child page for the task; tool pages hold call mechanics, workflow pag
 
 ## Workflows and rules
 
+- [orgtree-machine-traps](machine-traps/SKILL.md): Windows shell escaping, CRLF, encodings, Git Bash paths and file-edit pitfalls on the development machine.
+
 - [orgtree-scratch-folder](scratch-folder/SKILL.md): Your scratch folder and its AGENTS.md standing notes.
 - [orgtree-shared-folders](shared-folders/SKILL.md): The org shared folder and team workspaces: what goes where and their AGENTS.md notes.
 - [orgtree-breadcrumbs](breadcrumbs/SKILL.md): breadcrumbs.md: the realtime compaction log a fresh session resumes from.

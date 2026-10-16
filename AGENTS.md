@@ -2802,52 +2802,13 @@ Never rewrite pushed history or force-push. [decided: team charter; user 2026-10
 
 ## Machine traps
 
-Most damaging first. Every trap here was hit on this machine and is recorded in past agents'
-notes or in [`docs/machine-traps.md`](docs/machine-traps.md), which also lists the safe
-commands. [verified: incidents 2026-08-26 to 2026-10-05]
-
-1. **Concurrent heavy runs exhaust commit memory**: the engine dies and the window goes white
-   (2026-09-16 and 2026-09-18). Use the machine lock and the memory floors; never kill
-   another agent's processes.
-2. **`node_modules` links**: three real deletions through junctions. Use
-   `tools/worktree.py`; a leftover `orgtree-renderer-tests-*` folder in the temp directory
-   holds a junction, so unlink it (`cmd /c rmdir <dir>\node_modules` from PowerShell) before
-   deleting the folder.
-3. **Background work dies with the turn**, and a turn with no output for an hour is killed.
-   Keep long work in the foreground, split into calls that finish well inside the shell
-   tool's timeout, and never end a turn with a background task still running.
-4. **Tests that silently run the wrong tree**: `python -I` does not help, because the packaged
-   runtime's `python313._pth` lists `../backend`; the system Python is 3.10 and lacks the
-   dependencies; use the runner and read `import_provenance`.
-5. **Slow git on drive E:** a commit can take minutes, a first `git status` in a worktree over
-   a minute, `git worktree list` over a minute. Use long timeouts, never kill a slow git
-   command, filter `git worktree list`, and never `find` or `grep -r` from the repository
-   root (hundreds of worktrees).
-6. **PowerShell 5.1:** `>` writes UTF-16; native stderr under `ErrorActionPreference=Stop`
-   becomes an error; `-match` ignores case; `DateTime.Parse('…Z')` converts to local time
-   (use `DateTimeOffset`); `@(...) + $null` adds an empty argument; use `git commit -F` for
-   messages with quotes. `Get-Command bash` may find WSL.
-7. **Git Bash:** MSYS rewrites `/flag` arguments (`MSYS_NO_PATHCONV=1`, or run from
-   PowerShell); `cmd /c rmdir` and `mklink` through it can silently do nothing; the working
-   directory persists between calls, so use absolute paths; long heredocs mangle
-   backslashes and backticks, so write scripts with the edit tool.
-8. **CRLF:** `.gitattributes` makes text CRLF; Python `newline=""`, `sed -i` and script writes
-   flip files to LF. Vector anchors hash the CRLF bytes; migration checksums are
-   LF-normalized. Check `git diff --check`.
-9. **Elevated shells:** PostgreSQL refuses an administrator token, so start disposable
-   clusters unelevated and check that the PostgreSQL tests actually ran.
-10. **8.3 short paths** (`C:\Users\ABCDEF~1\...` from `%TEMP%`) trip a permission prompt that
-    a headless agent cannot answer; expand them to the long name.
-11. **Windows command-line limit** (32,767 characters): put large settings in a file, not on
-    the command line (it broke every agent spawn on 2026-09-01).
-12. **Time:** the machine clock is UTC+3; org timestamps are UTC.
-13. **One `CARGO_TARGET_DIR` for several worktrees:** cargo judges freshness by file times
-    on package-relative paths, so building an older checkout after a newer one says
-    `Finished` in seconds and keeps the newer binary (2026-10-13: a build of the reviewed
-    `b70ca2c` kept the later tip's binary, same hash). Run `cargo clean -p orgtree-engine`
-    before building another worktree into the same target, and check the log says
-    `Compiling orgtree-engine (<that worktree>)`. [verified: 2026-10-13, muse-code-opus
-    build logs]
+Read the authoritative built-in [machine traps page](docs/skills/orgtree-working/workspace/machine-traps/SKILL.md)
+before shell or file-edit work on this Windows machine (orgtree-working > workspace
+> machine-traps). It owns escaping, CRLF, Git Bash/WSL paths, encodings, Edit-tool
+quirks and rerere/mojibake; `docs/machine-traps.md` is a compatibility pointer.
+Current build/worktree workflows are linked there; the old Python/P03 recipes
+are explicitly historical. [decided: user/coordinator 2026-10-16; verified:
+`.gitattributes`, `docs/skills/orgtree-working/workspace/machine-traps/SKILL.md`]
 
 ## Gotchas in Orgtree's own agent tools
 

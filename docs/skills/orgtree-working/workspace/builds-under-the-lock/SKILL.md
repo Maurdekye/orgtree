@@ -27,5 +27,7 @@ Wait using one persistent once watchdog under [waiting for events](../../watchdo
 
 ## See also
 
+- [orgtree-machine-traps](../machine-traps/SKILL.md)
+
 - [orgtree-waiting-for-events](../../watchdogs/waiting-for-events/SKILL.md)
 - [orgtree-worktrees-and-git](../worktrees-and-git/SKILL.md)

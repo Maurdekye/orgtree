@@ -127,7 +127,7 @@ Regex compilation errors are refused. The engine supports lookarounds/backrefere
 
 Command/stream dogs require your effective **Bash tool grant**, including ancestor restrictions, even when the native command shell is Windows cmd.exe. They run with the engine's environment/PATH and the owner's existing scratch directory as cwd, not inside your current tool session.
 
-On Windows `shell: "native"` means `cmd.exe`; use `findstr`, `dir /b`, `%VAR%`, and `%TEMP%`. Bash syntax such as `$(...)`, `$VAR`, `/tmp`, `grep` or `sed` is not portable to it, and `find` is Windows FIND.EXE. `shell: "bash"` explicitly selects `bash -lc`, refused if Bash is unavailable; do not rely on interactive aliases or your current shell's environment. Native Unix commands use `sh -c`.
+On Windows `shell: "native"` means `cmd.exe`; use `findstr`, `dir /b`, `%VAR%`, and `%TEMP%`. Bash syntax such as `$(...)`, `$VAR`, `/tmp`, `grep` or `sed` is not portable to it, and `find` is Windows FIND.EXE. `shell: "bash"` explicitly selects `bash -lc`, refused if Bash is unavailable; the current Windows resolver prefers Git Bash and excludes System32 (see [machine traps](../../workspace/machine-traps/SKILL.md)). Do not rely on interactive aliases or your current shell's environment. Native Unix commands use `sh -c`.
 
 Creation returns `smoke`: **read it**. Command/stream smoke runs the target for up to 8 seconds and reports shell, output, exit status, matching and broken-target hints. A stream exiting immediately is suspicious; a command never exiting is suspicious. File smoke reports existence/current length, process smoke its current state, activity smoke its event-line format, and event smoke its current condition where available.
 
@@ -176,5 +176,7 @@ Read and remove a kept dog:
 ```
 
 ## See also
+
+- [orgtree-machine-traps](../../workspace/machine-traps/SKILL.md)
 
 - [orgtree-waiting-for-events](../waiting-for-events/SKILL.md)

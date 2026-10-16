@@ -5,10 +5,10 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 166,
+  "leaves": 167,
   "tools": 44,
-  "concepts": 45,
-  "total": 186
+  "concepts": 46,
+  "total": 187
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -21,7 +21,8 @@
   "hubchat-dm-sol": 1,
   "usage-query-sol": 1,
   "rig-opus": 1,
-  "session0-docs-luna": 1
+  "session0-docs-luna": 1,
+  "machine-traps-sol": 1
  },
  "nodes": [
   {
@@ -1929,7 +1930,8 @@
    "status": "fixed",
    "registered": false,
    "see_also": [
-    "waiting-for-events"
+    "waiting-for-events",
+    "machine-traps"
    ]
   },
   {
@@ -2377,6 +2379,7 @@
     "shared-folders",
     "breadcrumbs",
     "suggestion-box",
+    "machine-traps",
     "worktrees-and-git",
     "builds-under-the-lock",
     "reviews-and-landing"
@@ -2482,6 +2485,41 @@
    "status": "fixed"
   },
   {
+   "path": "orgtree-working/workspace/machine-traps",
+   "name": "orgtree-machine-traps",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "concept:machine-traps"
+   ],
+   "purpose": "Windows shell escaping, CRLF, encodings, Git Bash paths and file-edit pitfalls on the development machine.",
+   "must_cover": [
+    "shell transport escaping and saved scripts",
+    "CRLF and byte checks",
+    "Git Bash versus WSL and watchdog shell selection",
+    "Windows and MSYS argument paths",
+    "PowerShell and Python encodings",
+    "Edit tool Unicode escapes",
+    "rerere and mojibake",
+    "legacy machine traps and current workflow boundaries"
+   ],
+   "sources": [
+    ".gitattributes",
+    "AGENTS.md (Machine traps)",
+    "engine/rs/orgtree-engine/src/runtime/watchdogs.rs:707-762",
+    "docs/machine-traps.md (compatibility pointer)",
+    "user/coordinator 2026-10-16 machine-traps docket scope and feedback section 6"
+   ],
+   "see_also": [
+    "worktrees-and-git",
+    "builds-under-the-lock",
+    "tool-watchdog"
+   ],
+   "writer": "machine-traps-sol",
+   "status": "fixed"
+  },
+  {
    "path": "orgtree-working/workspace/worktrees-and-git",
    "name": "orgtree-worktrees-and-git",
    "level": 3,
@@ -2500,7 +2538,8 @@
    ],
    "see_also": [
     "builds-under-the-lock",
-    "reviews-and-landing"
+    "reviews-and-landing",
+    "machine-traps"
    ],
    "writer": "comms-sol",
    "status": "fixed"
@@ -2525,7 +2564,8 @@
    ],
    "see_also": [
     "waiting-for-events",
-    "worktrees-and-git"
+    "worktrees-and-git",
+    "machine-traps"
    ],
    "writer": "comms-sol",
    "status": "fixed"
