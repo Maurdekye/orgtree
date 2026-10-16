@@ -3160,6 +3160,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
       onHalt: () => { void toggleAgentHalt(slug, n.id, n.halt?.phase, toast) },
       onHire: (tier) => spawn(n.id, tier),
+      // the card's "New project here…" too: the row and the card are one menu
+      onNewProject: () => setNewProject({ parent: n.id }),
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,

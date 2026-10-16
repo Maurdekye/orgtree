@@ -227,7 +227,8 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       'Copy agent name', 'Focus', 'Hire a subordinate ▸',
       'Open ▸', '· Open desk', '· Open desk in a new window', '· Pin desk as a window',
       '· Open inbox', '· Open docket', '· Open team docket',
-      'Settings', 'Acquire audience', 'Cheap compact…', 'Halt…', 'Retire…',
+      // 4.4.0 project nodes (docs/rust-engine/PROJECT-NODES.md): before the lifecycle group
+      'Settings', 'Acquire audience', 'New project here…', 'Cheap compact…', 'Halt…', 'Retire…',
     ], 'the agent menu, in order')
   })
 
