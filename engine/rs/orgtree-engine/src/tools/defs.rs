@@ -11,6 +11,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_send_notice",
         "orgtree_status",
         "orgtree_next_turn",
+        "orgtree_session",
         "orgtree_org_logo",
         "orgtree_transfers", "orgtree_inbox",
         "orgtree_chart",
@@ -305,6 +306,16 @@ fn all() -> Vec<Value> {
         tool(
             "orgtree_next_turn",
             "Read your own next-turn prefix/namespace changes and compaction forecast. No arguments, no tool-group permission, no writes or provider calls. Reports each delivered instruction file against its session-start copy and when changes take effect (next session start); older sessions without a file baseline stay unknown. Dirty means prefix or namespace change only. Compaction includes observed occupancy and known thresholds, with explicit uncertainty. Never promises a cache hit; the rest of this turn can change the forecast.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "orgtree_session",
+            "Where your turns run on this computer. With Run on boot, Orgtree's engine runs in Windows Session 0, \
+             which has no desktop: there you cannot see or use the user's desktop and apps. While the user is signed in, each \
+             agent's CLI moves into their session at its next turn. Returns signed_in (the user is signed in), \
+             this_turn and next_turn (\"session0\" or \"signed-in\"), next_turn_moves, sign_in_helper (connected) \
+             and a summary. Read-only.",
             json!({}),
             &[],
         ),

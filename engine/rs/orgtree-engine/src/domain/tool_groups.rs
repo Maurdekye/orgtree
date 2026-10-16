@@ -42,12 +42,15 @@ pub fn intersect(child: &Value, parent: &Value) -> Value {
     Value::Object(GROUPS.iter().map(|g| ((*g).to_owned(), json!(enabled(child, g) && enabled(parent, g)))).collect())
 }
 
-/// None means an unknown tool, not an unrestricted tool. Self inspection
-/// and status remain available even with every group switched off.
+/// None means an unknown tool, not an unrestricted tool. Status, next turn
+/// and session have empty prerequisite lists: every agent must be able to
+/// report done/blocked, to inspect its own next turn even with every group
+/// switched off, and to ask where its turns run (docket
+/// let-agents-query-machine-sign-in-state-and-which).
 #[nolog]
 pub fn required(name: &str) -> Option<&'static [&'static str]> {
     Some(match name.strip_prefix("orgtree_")? {
-        "status" | "next_turn" => &[],
+        "status" | "next_turn" | "session" => &[],
         "org_logo" => &["logo"],
         "work" => &["docket"],
         "staff" => &["docket", "team"],

@@ -5,7 +5,9 @@
 //! line goes to `diagnostics\logs\codex-kills.log` and is flushed to disk
 //! before the kill it announces, so it survives that crash (the engine log
 //! sits in the OS cache, which a crash discards); it is mirrored in the
-//! engine log. Grep markers: `codex-force-kill`, `codex-graceful-exit`.
+//! engine log. Grep markers: `codex-force-kill`, `codex-graceful-exit`, and
+//! `codex-session-ended` for a CLI of any harness that the sign-in helper
+//! started and Windows ended with the user's session.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -41,6 +43,15 @@ pub fn force(pid: u32, tree: bool, who: &str, reason: &str, graceful_tried: bool
         "codex-force-kill pid={pid} tree={tree} who={who:?} reason={reason:?} graceful_tried={graceful_tried} waited_ms={waited_ms}"
     ));
     tracing::warn!(pid, tree, who, reason, graceful_tried, waited_ms, "codex-force-kill");
+}
+
+/// A CLI the sign-in helper started in the user's session ended with that
+/// session (sign-out, or the helper stopped) during a turn: Windows ended it,
+/// not this engine, and `status` is how it exited.
+#[logged]
+pub fn session_ended(pid: u32, who: &str, status: &str) {
+    write(&format!("codex-session-ended pid={pid} who={who:?} reason=\"the user's Windows session ended\" status={status:?}"));
+    tracing::info!(pid, who, status, "codex-session-ended");
 }
 
 #[nolog]

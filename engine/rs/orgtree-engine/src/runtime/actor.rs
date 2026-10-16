@@ -327,11 +327,12 @@ const SESSION_GONE_WAIT: Duration = Duration::from_secs(2);
 
 /// Whether a CLI's exit may be the user's Windows session ending under a turn,
 /// which then continues in Session 0 (if the sign-in helper is gone too):
-/// only a CLI the helper started, during a turn.
+/// only a CLI the helper started, during a turn that nobody ended on purpose
+/// (the user, 2026-10-16 11:03Z: no resume after an interrupt, halt or
+/// retirement).
 #[logged]
 fn continues_in_session0(hosted: bool, in_turn: bool, deliberate: bool) -> bool {
-    let _ = deliberate;
-    hosted && in_turn
+    hosted && in_turn && !deliberate
 }
 
 /// Where an agent's last turn ran (`ot.agents.extra->>'session'`).
@@ -509,6 +510,17 @@ impl Proc {
             Proc::Agy(p) => p.alive(),
             Proc::Muse(p) => p.alive(),
             Proc::Acp(p) => p.alive(),
+        }
+    }
+
+    #[nolog]
+    fn pid(&self) -> u32 {
+        match self {
+            Proc::Claude(p) => p.pid,
+            Proc::Codex(p) => p.pid,
+            Proc::Agy(p) => p.pid,
+            Proc::Muse(p) => p.pid,
+            Proc::Acp(p) => p.pid,
         }
     }
 
@@ -743,6 +755,9 @@ struct Actor {
     /// helper (`session_settle`), and said where it started (`session_notes`)
     settled: bool,
     session_noted: bool,
+    /// the seat counted as unsandboxed when its CLI's placement was last
+    /// chosen (`session_host::wanted`), for `session_view`
+    bypass_seat: bool,
     /// the Codex launch's (may_write, permission mode, sandbox, hosted by the
     /// sign-in helper), chosen once per launch so its prompt matches its mode
     codex_seat: Option<(bool, String, codexrt::Sandbox, bool)>,
@@ -883,6 +898,7 @@ impl Actor {
             reconfigured: false,
             settled: false,
             session_noted: false,
+            bypass_seat: false,
             codex_seat: None,
             activity: None,
             rate_limit: None,
@@ -1228,6 +1244,9 @@ impl Actor {
                 let _ = reply.send(out);
             }
             AgentMsg::ProcExited { process, reason } => self.on_exit(process, &reason).await?,
+            AgentMsg::Session(reply) => {
+                let _ = reply.send(self.session_view());
+            }
             AgentMsg::Interrupt(reply) => {
                 let r = if self.turn.is_some() {
                     if let Some(t) = self.turn.as_mut() {
@@ -2634,11 +2653,30 @@ impl Actor {
     /// (Codex decides in `codex_seat`, with its sandbox.)
     fn want_hosted(&mut self, ctx: &Ctx) -> bool {
         let bypass = ctx.effective["permission_mode"].as_str() == Some("bypassPermissions");
+        self.bypass_seat = bypass;
         let want = crate::runtime::session_host::wanted(&self.engine, bypass);
         match self.proc.as_ref() {
             Some(p) if self.bg_pending() && p.hosted() != want => p.hosted(),
             _ => want,
         }
+    }
+
+    /// Where this agent's CLI runs now and where its next turn's will, for
+    /// orgtree_session (docket let-agents-query-machine-sign-in-state-and-which):
+    /// the choice `want_hosted` and `codex_seat` would make if that turn
+    /// started now. `this_turn` is null while no CLI runs.
+    fn session_view(&self) -> Value {
+        let s0 = codexrt::session0();
+        let place = |hosted: bool| if hosted || !s0 { SIGNED_IN } else { SESSION0 };
+        let want = crate::runtime::session_host::wanted(&self.engine, self.bypass_seat);
+        let current = self.proc.as_ref().map(|p| p.hosted());
+        // a CLI holding background work stays where it is (not Codex's)
+        let held = self.proc.as_ref().is_some_and(|p| !p.is_codex() && self.bg_pending() && p.hosted() != want);
+        json!({
+            "this_turn": current.map(place),
+            "next_turn": place(if held { current == Some(true) } else { want }),
+            "held_by_background_work": held,
+        })
     }
 
     /// Whether the sign-in helper is gone, given `SESSION_GONE_WAIT` to go.
@@ -2761,6 +2799,7 @@ impl Actor {
             let may_write = ctx.effective["tools"].get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
             let (sb, hosted) = codexrt::seat_sandbox(&self.engine, may_write, pm);
             self.codex_seat = Some((may_write, pm.to_string(), sb, hosted));
+            self.bypass_seat = codexrt::sandbox(may_write, pm, false).mode == "danger-full-access";
         }
         let plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
@@ -6220,6 +6259,7 @@ impl Actor {
         self.engine.credential_bridge.revoke(self.id);
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
         let hosted = self.proc.as_ref().is_some_and(|p| p.hosted());
+        let pid = self.proc.as_ref().map(|p| p.pid()).unwrap_or(0);
         self.proc = None;
         self.proc_print = None;
         self.proc_notes = None;
@@ -6235,8 +6275,11 @@ impl Actor {
         // A CLI in the user's session ends with that session: the user signed
         // out, or the sign-in helper stopped. That is no failure of the agent:
         // the turn stops cleanly, its mail is kept as for any CLI that died
-        // (given back when the CLI had produced nothing), and it continues in
-        // Session 0 (docket option-to-run-the-background-engine-in-the-user-s).
+        // (given back when the CLI had produced nothing), and a new turn
+        // continues it in Session 0 at once, woken as after an engine restart
+        // mid-turn (docket option-to-run-the-background-engine-in-the-user-s;
+        // the user, 2026-10-16 11:03Z). Windows ended the CLI, not this engine:
+        // the kill record says so, with its exit status.
         let deliberate = self.turn.as_ref().is_some_and(|t| t.interrupted || t.killed) || self.stopping;
         let session_ended = continues_in_session0(hosted, self.turn.is_some(), deliberate) && self.session_gone().await;
         if let Some(t) = self.turn.as_mut() {
@@ -6246,7 +6289,8 @@ impl Actor {
         if self.turn.is_some() {
             let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
             let msg = if session_ended {
-                tracing::info!(agent = %self.name, %process, "the user's Windows session ended during the turn; it continues in Session 0");
+                crate::codex_kills::session_ended(pid, &self.name, &status);
+                tracing::info!(agent = %self.name, %process, pid, "the user's Windows session ended during the turn; it continues in Session 0");
                 Some(SESSION_ENDED.to_string())
             } else if quiet {
                 None

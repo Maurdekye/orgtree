@@ -7,6 +7,7 @@ pub mod defs;
 mod mailtools;
 pub(crate) use mailtools::typing_peers;
 mod orgview;
+mod session;
 mod treetools;
 mod usage;
 mod logo;
@@ -171,7 +172,8 @@ impl Done {
 
 #[logged]
 async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value) -> Result<Done> {
-    if crate::domain::tool_groups::required(name).is_some() && name != "orgtree_status" {
+    // status and session need no group: every agent has them
+    if crate::domain::tool_groups::required(name).is_some_and(|groups| !groups.is_empty()) {
         let tools = caller_tools(engine, caller).await?;
         if !crate::domain::tool_groups::allows(&tools, name) {
             crate::refuse!(Forbidden, "{name} is disabled by your Orgtree tool group scope");
@@ -183,6 +185,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_send_notice" => mailtools::message(engine, caller, args, true).await,
         "orgtree_status" => mailtools::status(engine, caller, args).await,
         "orgtree_next_turn" => next_turn::run(engine, caller, args).await,
+        "orgtree_session" => session::run(engine, caller).await,
         "orgtree_transfers" => mailtools::transfers(engine, caller, args).await,
         "orgtree_inbox" => mailtools::inbox(engine, caller, args).await,
         "orgtree_chart" => orgview::chart(engine, caller, args).await,

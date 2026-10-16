@@ -69,6 +69,9 @@ pub enum AgentMsg {
     /// with the server's own words instead of hanging
     WarmFailed(sched::Slot, String),
     Interrupt(oneshot::Sender<Value>),
+    /// orgtree_session: where the agent's CLI runs now and where its next
+    /// turn's will (`this_turn`, `next_turn`, `held_by_background_work`)
+    Session(oneshot::Sender<Value>),
     Halt(oneshot::Sender<Value>),
     Unhalt(oneshot::Sender<Value>),
     /// a slash command typed on the desk (`/compact`, ...), sent to the CLI as is

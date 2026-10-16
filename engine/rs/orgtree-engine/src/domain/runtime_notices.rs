@@ -104,8 +104,8 @@ pub async fn session_moved(engine: &Arc<Engine>, org_id: i64, agent_id: i64, sig
     Ok(mail::send(engine, org_id, out).await?.uid)
 }
 
-pub const SESSION_UPGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in the user's signed-in Windows session, with access to their desktop and apps. The change took effect at this turn.";
-pub const SESSION_DOWNGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in Windows Session 0: desktop access is lost, because the user signed out or Orgtree's sign-in helper stopped. You cannot see or use their desktop and apps until they sign in again. The change took effect at this turn.";
+pub const SESSION_UPGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in the user's signed-in Windows session, with access to their desktop and apps. The change took effect at this turn. orgtree_session tells you where you run at any time.";
+pub const SESSION_DOWNGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in Windows Session 0: desktop access is lost, because the user signed out or Orgtree's sign-in helper stopped. You cannot see or use their desktop and apps until they sign in again. The change took effect at this turn. orgtree_session tells you where you run at any time.";
 
 /// A turn whose CLI ran in the operator's signed-in session stopped when that
 /// session ended: the agent is woken to continue in Session 0, where the
