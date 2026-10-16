@@ -35,7 +35,7 @@ test('draft model picker', { timeout: 30000 }, async t => {
     useFakeClock(); installFetch(new FakeServer())
     const ops: Record<string, unknown>[] = []
     const v = await mountView(<OrgCanvas tree={tree} slug={tree.slug} toast={noop} mailEvt={null}
-      op={async o => { ops.push(o); return { node: 'chosen-model' } }} />, el => el)
+      op={async o => { ops.push({ ...o }); return { node: 'chosen-model' } }} />, el => el)
     t.after(async () => { await v.unmount(); resetConvos(); realClock() })
     await click(v.el.querySelector('.sq.user button.t-haiku'))
     await advance(200)
@@ -85,7 +85,7 @@ test('draft model picker', { timeout: 30000 }, async t => {
       scope: { permission_mode: 'default', add_dirs: [], tools: { bash: false }, org_visibility: 'team' },
     }] } as unknown as TreePayload
     const v = await mountView(<OrgCanvas tree={branch} slug={tree.slug} toast={noop} mailEvt={null}
-      op={async o => { ops.push(o); return { node: 'kept-child' } }} />, el => el)
+      op={async o => { ops.push({ ...o }); return { node: 'kept-child' } }} />, el => el)
     t.after(async () => { await v.unmount(); resetConvos(); realClock() })
     const boss = [...v.el.querySelectorAll('.sq:not(.user)')].find(el => el.querySelector('.name')?.textContent === 'boss')
     assert.ok(boss)

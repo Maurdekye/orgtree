@@ -19,7 +19,7 @@ await esbuild.build({ entryPoints: entries.length ? entries.map(e => path.join(h
   plugins: [{ name: 'external-jsdom', setup(b) { b.onResolve({ filter: /^jsdom$/ }, () => ({ path: pathToFileURL(require.resolve('jsdom')).href, external: true })) } }], logLevel: 'warning' })
 await esbuild.stop()
 const bundles = (entries.length ? entries : ['uninitmodel.test.tsx']).map(e => path.join(out, e.replace(/\.tsx?$/, '.mjs')))
-const args = ['--test', '--test-concurrency=1', '--test-timeout=30000', ...bundles]
+const args = ['--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=30000', ...bundles]
 const argFile = path.join(out, 'args.txt'); fs.writeFileSync(argFile, args.join('\n'))
 const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'joblimit.ps1'),
   '-LimitMB', '4096', '-TimeoutSec', '120', '-WorkDir', repo, '-Exe', process.execPath, '-ArgFile', argFile], { stdio: 'inherit', windowsHide: true })
