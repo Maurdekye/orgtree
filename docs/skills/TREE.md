@@ -20,8 +20,8 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 |---|---|
 | Categories (level 1, registered) | 2 |
 | Sections (level 2) | 18 |
-| Leaves (level 3) | 165: 43 tool, 44 concept, 33 screen, 45 setting |
-| SKILL.md files in total | 185 |
+| Leaves (level 3) | 164: 43 tool, 44 concept, 33 screen, 44 setting |
+| SKILL.md files in total | 184 |
 | Bytes of the two registered `name` + `description` lines | 403 |
 
 ## 1. Shape and conventions
@@ -129,15 +129,12 @@ These rulings explain choices a reader might otherwise question.
   `reviews-and-landing`, `suggestion-box`) are in `orgtree-working › workspace`.
   Org agents doing software work need them. They are written as practices, with their
   ground truth in `AGENTS.md` and `docs/`, not as engine features.
-- **`orgtree-engine-start-mode`** (owner rig-opus, item
-  `option-to-run-the-background-engine-in-the-user-s`; approved and integrated at
-  rust-engine `7b7dd2e`). It landed first as a standalone registered skill. In the 4.3.0
-  library it is the leaf `engine-start-mode` under `orgtree-app › app-settings`, next to
-  `app-runtime-desktop` ("Run on startup"), with its `name` and content unchanged. It is
-  no longer registered, keeping the "only categories are registered" ruling (coordinator
-  2026-10-15 11:30Z). The library landing removes the standalone copy. Ground truth:
-  `docs/rust-engine/engine-start-mode.md`, `apps/desktop/main/runonstartup.ts`, the
-  `ENGINE_STARTS` choices in `canvas/desktopsettings.tsx`.
+- **`orgtree-engine-start-mode` is gone** (4.3.1, decision 83). The "engine starts" choice it
+  explained was removed (docket `option-to-run-the-background-engine-in-the-user-s`, the user
+  2026-10-16): the engine always starts at boot and agents move into the signed-in session.
+  `app-runtime-desktop` now explains "Run on boot", and `halts-and-restarts`
+  (orgtree-working › runtime) what agents see when they move. Ground truth:
+  `docs/rust-engine/run-on-boot.md`.
 - **Harnesses have their own section** (`orgtree-app › harnesses`, user request 2026-10-15
   12:41Z). It holds one page per harness the engine runs (`runtime/`: Claude Code, Codex,
   Antigravity, Muse, OpenCode over ACP). OpenRouter and local language servers are not
@@ -182,7 +179,6 @@ leaf in it.
 | skills-docs-sol | app › app-settings; plus the coverage guard, category pages and final source review | 13 |
 | orgsettings-sol | app › org-settings | 13 |
 | agentsettings-sol | app › agent-settings | 9 |
-| rig-opus | `engine-start-mode` (written; approved at `7b7dd2e`) | 1 |
 | hubchat-dm-sol | working › team, `tool-org-logo` (4.3.1) | 1 |
 
 - **Section pages** (`<section>/SKILL.md`) are written by the section's writer, using
@@ -446,7 +442,7 @@ The app's frame: windows, homepage, header and menus, status bar, quick chat, tr
 | `onboarding` | screen | `screen:onboarding`, `screen:first-use-guide` | First run: onboarding on the homepage and the first-use guide on a new org's canvas. Must cover: steps. | `apps/desktop/renderer/src/canvas/onboarding.tsx:65`<br>`apps/desktop/renderer/src/canvas/firstuse.tsx:69` | homepage |
 | `attention-view` | screen | `screen:attention-view`, `screen:attention-queue`, `screen:attention-desk-panel` | The Attention view: the needs-attention queue and the agent desk panel. Must cover: queue contents; panels pin/popout. | `apps/desktop/renderer/src/attention/AttentionView.tsx:353`<br>`apps/desktop/renderer/src/attention/AttentionQueue.tsx:108`<br>`apps/desktop/renderer/src/attention/AgentDeskPanel.tsx:140` | docket-review-and-attention, ask-cards |
 | `mobile-layout` | screen | `screen:mobile-agent-sheet`, `screen:hire-sheet`, `screen:legacy-drawer` | Narrow-width layout: the mobile agent sheet, its hire sheet, and the legacy drawer. Must cover: what differs at mobile width. | `apps/desktop/renderer/src/canvas/OrgCanvas.tsx:~4290`<br>`apps/desktop/renderer/src/canvas/OrgCanvas.tsx:4467`<br>`apps/desktop/renderer/src/App.tsx:1402` | agent-desk |
-| `tray-and-windows` | screen | `screen:tray`, `screen:tray-menu`, `screen:popout-windows`, `screen:mockup-viewer`, `screen:conversion-window`, `screen:native-dialogs` | Main-process surfaces: the tray icon and menu, popout windows, mockup viewer, data-conversion window and native dialogs. Must cover: every tray menu item; popout windows. | `apps/desktop/main/index.ts:1753`<br>`apps/desktop/main/index.ts:554`<br>`apps/desktop/main/index.ts:770`<br>`apps/desktop/main/windows.ts:81`<br>`apps/desktop/main/index.ts:2222`<br>`apps/desktop/main/conversion-window.ts:21`<br>`apps/desktop/main/editmenu.ts:114` | app-runtime-desktop, phone-link, engine-start-mode |
+| `tray-and-windows` | screen | `screen:tray`, `screen:tray-menu`, `screen:popout-windows`, `screen:mockup-viewer`, `screen:conversion-window`, `screen:native-dialogs` | Main-process surfaces: the tray icon and menu, popout windows, mockup viewer, data-conversion window and native dialogs. Must cover: every tray menu item; popout windows. | `apps/desktop/main/index.ts:1753`<br>`apps/desktop/main/index.ts:554`<br>`apps/desktop/main/index.ts:770`<br>`apps/desktop/main/windows.ts:81`<br>`apps/desktop/main/index.ts:2222`<br>`apps/desktop/main/conversion-window.ts:21`<br>`apps/desktop/main/editmenu.ts:114` | app-runtime-desktop, phone-link |
 
 #### Section `canvas` — `orgtree-app/canvas/` — writer org-sol
 
@@ -486,8 +482,7 @@ App settings (Orgtree menu > App settings…): Runtime, Display, Default org set
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
-| `app-runtime-desktop` | setting | `np:startAtLogin`, `np:exitOnClose`, `np:automaticUpdates`, `bridge:setRunAsAdministrator` | Runtime > desktop behavior: run on startup, exit on close, automatic updates, run as administrator. Must cover: each switch, default and effect; restarting the background engine. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:50`<br>`apps/desktop/renderer/src/canvas/desktopsettings.tsx:107` | engine-start-mode, tray-and-windows |
-| `engine-start-mode` | setting | `bridge:setEngineStart` | Engine start modes (at boot before sign-in, or at sign-in in the user's session): what each means for agents and when to suggest switching. Must cover: the two modes (at boot, before sign-in, in Session 0 — the default; at sign-in, in the user's session) and what each means for agents; when to suggest switching, to the user or a superior; agents never change the setting themselves; owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); approved and integrated at rust-engine 7b7dd2e. | `docs/rust-engine/engine-start-mode.md`<br>`apps/desktop/main/runonstartup.ts:38`<br>`apps/desktop/renderer/src/canvas/desktopsettings.tsx:92`<br>`tests/engine-start-mode.test.mjs`<br>`apps/desktop/preload/index.ts:78` | app-runtime-desktop |
+| `app-runtime-desktop` | setting | `np:startAtLogin`, `np:exitOnClose`, `np:automaticUpdates`, `bridge:setRunAsAdministrator` | Runtime > desktop behavior: run on boot (where agents run), exit on close, automatic updates, run as administrator. Must cover: each switch, default and effect; restarting the background engine. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:50`<br>`apps/desktop/renderer/src/canvas/desktopsettings.tsx:107` | tray-and-windows |
 | `app-notifications` | setting | `np:notificationsEnabled`, `np:notifyQuestions`, `np:notifyUrgentMail`, `np:notifyTerminalFailures`, `np:notifyDocketAttention`, `np:notifyAllMail`, `np:notifyDocuments`, `np:notifyFrozen`, `np:notifyWhileFocused` | Runtime > Notifications: the master switch and each notification kind. Must cover: each kind and default. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:69`<br>`packages/contracts/notifications.ts:3` | reaching-the-user |
 | `app-quick-staff` | setting | `rt:quick_staff_behavior` | Runtime > Quick staff behavior: request staffing vs staff immediately. Must cover: each choice. | `apps/desktop/renderer/src/canvas/quickstaffsetting.tsx:18` | tool-staff |
 | `app-turn-limits` | setting | `rt:turn_timeout_s`, `rt:turn_idle_s` | Runtime > Turn time limits: total and silence limits. Must cover: defaults and effect. | `apps/desktop/renderer/src/canvas/turnlimitssetting.tsx:84` | turns-and-wakes |

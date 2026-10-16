@@ -15,7 +15,7 @@ Clicking the tray icon toggles its organization activity list. Double-clicking w
 | Automatic updates / Check for updates | Controls or requests updates; unsupported development builds show a disabled explanation |
 | Mail hub status | Shows running/stopped/error state and opens the hub in the browser when available |
 | Connect your phone | Opens the phone panel in the last-used window, creating a homepage if needed |
-| Run on startup | Changes the native startup preference; a pending change disables the checkbox |
+| Run on boot ("Run on sign-in" where Orgtree cannot start at boot) | Changes the native startup preference; a pending change disables the checkbox |
 | Exit on close | Changes the native last-window-close preference |
 | Notifications | Master checkbox and per-event notification switches; subordinate switches are disabled when the master is off |
 | Harness setup | Detected harness status and the corresponding installation destinations |
@@ -35,4 +35,3 @@ Native text context menus offer Cut/Copy/Paste/Select all according to the selec
 
 - [orgtree-app-runtime-desktop](../../app-settings/app-runtime-desktop/SKILL.md)
 - [orgtree-phone-link](../../mailhub/phone-link/SKILL.md)
-- [orgtree-engine-start-mode](../../app-settings/engine-start-mode/SKILL.md)

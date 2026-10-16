@@ -11,8 +11,7 @@ Open the Orgtree menu and choose App settings. These controls apply across organ
 
 ## Settings
 
-- [orgtree-app-runtime-desktop](app-runtime-desktop/SKILL.md): Runtime > desktop behavior: run on startup, exit on close, automatic updates, run as administrator.
-- [orgtree-engine-start-mode](engine-start-mode/SKILL.md): Engine start modes (at boot before sign-in, or at sign-in in the user's session): what each means for agents and when to suggest switching.
+- [orgtree-app-runtime-desktop](app-runtime-desktop/SKILL.md): Runtime > desktop behavior: run on boot (where agents run), exit on close, automatic updates, run as administrator.
 - [orgtree-app-notifications](app-notifications/SKILL.md): Runtime > Notifications: the master switch and each notification kind.
 - [orgtree-app-quick-staff](app-quick-staff/SKILL.md): Runtime > Quick staff behavior: request staffing vs staff immediately.
 - [orgtree-app-turn-limits](app-turn-limits/SKILL.md): Runtime > Turn time limits: total and silence limits.

@@ -7,7 +7,7 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # First run
 
-Homepage onboarding appears when preferences have loaded, onboarding is not complete, and the known organization list is empty. An existing or imported organization suppresses it. The flow introduces appearance, Run on startup, and Exit on close, then organization creation. Those choices use the same native preferences as App settings.
+Homepage onboarding appears when preferences have loaded, onboarding is not complete, and the known organization list is empty. An existing or imported organization suppresses it. The flow introduces appearance, Run on boot (Run on sign-in where Orgtree cannot start at boot), and Exit on close, then organization creation. Those choices use the same native preferences as App settings.
 
 Finishing or skipping first populates the starter charter documents and then marks onboarding complete. If population fails, the flow exposes the error and can be retried. Creating an organization and completing this preference update are separate steps, so inspect a reported failure before recreating an organization that already exists.
 

@@ -1168,7 +1168,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [verified: isolated parent-hire rig 29/29 and neighboring credits20/scope12/
   ordering64/alias7, rig-opus batch 2026-10-13; A/D fix checks pending]
 
-- Native tray refresh must resynchronize the **Run on startup** checkbox from
+- Native tray refresh must resynchronize the **Run on boot** checkbox (it was
+  "Run on startup"; "Run on sign-in" where Orgtree cannot start at boot) from
   committed preferences even while its menu is open, and when that menu is
   shown again. Do not replace an open native Menu object: update the existing
   item in place. A UAC write can finish after a refresh constructed a menu from
@@ -1178,32 +1179,47 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   regression](docs/rust-engine/startup-toggle-acceptance.md).
   [verified from source-composition regression and live saved-state differential,
   2026-10-11; packaged native repaint remains a next-alpha verification limit]
-- **Run on startup** changes one at a time (`changeRunOnStartup`, tray and
+- **Run on boot** changes one at a time (`changeRunOnStartup`, tray and
   Settings alike). The checkmark is the SAVED value. It changes only once the
   change has finished: about 2 s in a non-elevated stand-in, never measured
   after a real Yes. Until then the tray item is disabled and reads "Run on
-  startup (changing…)". The pending flag is
+  boot (changing…)". The pending flag is
   set before anything asynchronous and cleared only in that change's `finally`.
   A second request is refused without touching it. Never show the new value
   early, and never force an open menu closed: a menu open when a change begins
   or ends is rebuilt after it closes.
   [decided: lead-astra 2026-10-11 20:00Z; verified: tests/startup-tray.test.mjs
   on the real closures; native menu view unverified (agents run in Session 0)]
-- **Where the engine starts** is a choice under "run on startup" (Settings ›
-  Desktop › "engine starts"), on all-users Windows installations only: at boot
-  in Session 0 (the default) or at sign-in in the operator's own session. The
-  sign-in mode uses the "Orgtree Sign-in Engine" task, which runs the windowless
-  `orgtree-engine-host.exe`, which runs `orgtree-engine host`. While "run on
-  startup" is on, exactly one engine task is enabled; the credential helper
-  runs in both modes, because the boot-topology core lifecycle requires it.
-  Anything that starts the background engine (recovery, a restart) goes through
-  `startEngineTask()`, never the boot task by name. Never run the console
-  `orgtree-engine.exe` from an interactive-token task: it opens a window at
-  every sign-in. The HKLM record value is `StartupMode`; the renderer API is
-  `EngineStart*`, because `StartupMode` is the window restore/homepage setting.
-  [decided: user 2026-10-15, coordinator 2026-10-15 10:57Z/11:13Z; verified:
-  `tools/boot-engine-task.ps1`, `apps/desktop/main/runonstartup.ts`,
-  `src/engine_host.rs`; details `docs/rust-engine/engine-start-mode.md`, decision 79]
+- **The engine always starts at boot; agents run in the signed-in session while
+  the operator is signed in.** "Run on boot" switches the boot engine task and
+  the "Orgtree Credential Helper" task together (the HKLM record keeps only
+  `RunOnStartup`); there is no "engine starts" choice and no sign-in engine
+  task any more (the installer only recognizes the old one, to delete it).
+  While the helper holds the bridge's host role, every agent's next CLI starts
+  through it in the operator's session (`runtime/session_host.rs`): all five
+  harnesses, bypassPermissions seats included (`HOST_BYPASS_SEATS`; supersedes
+  decision 68 Q1). Otherwise, or when a hosted start fails, the engine starts
+  it in Session 0. Rules that are easy to break:
+  - placement is chosen only at a turn's start (`want_hosted`), never during a
+    turn; a CLI that still holds background work moves at a later turn;
+  - a harness's CLI goes through `session_host::spawn` and its child is a
+    `Launched`, so stop, kill and the forced-kill records work in either
+    session; the helper starts only `hostable()` file names, so a new harness
+    adds its executable there;
+  - a hosted CLI that ends while the helper is gone ends its turn as "the
+    user's Windows session ended", never as a failure;
+  - session notices go out only on a real move (the last placement is
+    `ot.agents.extra.session`); the restart notice's "Session access at start"
+    line is added at delivery; an agent last in the signed-in session waits
+    at its first turn until 15 s after the engine's start for the helper;
+  - anything that starts the background engine (recovery, a restart) goes
+    through `startEngineTask()`, which is the boot task. Never run the console
+    `orgtree-engine.exe` from an interactive-token task: it opens a window at
+    every sign-in.
+  [decided: user 2026-10-16 09:37Z-09:43Z, coordinator rulings A-E 09:43Z;
+  verified: `tools/boot-engine-task.ps1`, `apps/desktop/main/runonstartup.ts`,
+  `src/runtime/session_host.rs`, `src/runtime/actor.rs`; details
+  `docs/rust-engine/run-on-boot.md`, decision 83, which replaced decision 79]
 - **Ending an engine's task does not stop a boot engine.** Since the
   core-lifecycle recovery (2026-10-12) an engine outlives its host, and a task
   End ends only the host. A manual End on the boot task therefore still leaves

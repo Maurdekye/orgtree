@@ -662,7 +662,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     `tools/rig/proofs/credential-broker.mjs`.
     - **Phase 2 (coordinator 2026-10-10 09:35Z):** while the helper runs, the Session 0
       engine has it start sandboxed Codex seats in the user's session, where Codex's
-      sandbox works (openai/codex#46412). bypassPermissions seats stay in Session 0; only
+      sandbox works (openai/codex#46412). bypassPermissions seats stay in Session 0 (ruling
+      Q1; superseded by decision 83, which hosts every agent's CLI, bypass seats too); only
       the helper hosts, never the desktop broker; hosted seats' MCP servers run in the
       user's session; signing out ends hosted seats, whose next turn starts in Session 0
       without the sandbox; a launch the helper cannot make falls back to Session 0.
@@ -886,7 +887,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
     reassign-or-freeze path (`account_removal::remove_key`), its id retired.
     Contract: [`openrouter-keys.md`](openrouter-keys.md).
 
-79. **Where the background engine starts is the operator's choice** (user 2026-10-15 10:37Z, docket
+79. **Superseded by decision 83 (user 2026-10-16 09:37Z): the "engine starts" choice and the
+    sign-in engine task are gone.** As decided on 2026-10-15:
+    **Where the background engine starts is the operator's choice** (user 2026-10-15 10:37Z, docket
     `option-to-run-the-background-engine-in-the-user-s`; default 10:38Z; design approved by the
     coordinator 10:57Z, helper ruling 11:13Z). Extends decision 70. On an installation for all
     users on Windows, "Run on startup" has a second setting, "engine starts":
@@ -912,7 +915,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **One engine:** the data root's lock decides, as always. At sign-in the desktop adopts the
       task's engine through its refused-then-attach path; when its own engine won instead, the
       task's host leaves.
-    Details, verification and what only a real sign-in can show: [`engine-start-mode.md`](engine-start-mode.md).
+    Its document was replaced by [`run-on-boot.md`](run-on-boot.md).
 
 80. **An installer that cannot reach the engine asks it to stop through its own record** (docket
     `installer-s-end-task-fallback-no-longer-stops-th`; design approved by the coordinator
@@ -923,15 +926,15 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **The request:** such an installer first writes `StopRequested` (REG_QWORD, Unix ms) into its
       protected record `HKLM\SOFTWARE\Orgtree\BootEngine`, which only administrators can write.
       Then it ends the task as before.
-    - **The engine:** an engine a task's host started (core mode "boot", either start mode) reads the
+    - **The engine:** an engine a task's host started (core mode "boot") reads the
       value every 2 s (`src/install_stop.rs`). A request newer than its own start stops it the
       graceful way, as the desktop's request does. An older value never stops anything, and a
       future-dated one is logged and stops it. The value is never deleted: the next request
       overwrites it. The stop is logged with the request time, the engine's start time and the
       reason.
     - **Unchanged:** a host exit with no request leaves the engine running (the 2026-10-12 recovery
-      rule), and so does **a manual End on the boot task**. The sign-in engine's launcher stops its
-      engine on End (decision 79).
+      rule), and so does **a manual End on the boot task**. (The sign-in engine's launcher, which
+      stopped its engine on End, went with decision 79; decision 83.)
     - **Rig only:** a rig run (`crate::rig::active`) reads the request from
       `HKCU\<ORGTREE_RIG_STOP_KEY>`; every other engine ignores that variable.
     - Rejected: running the boot task through the windowless launcher. That would change the
@@ -978,3 +981,43 @@ All entries are dated 2026-10-06 unless stated otherwise.
     uncertainty. No hit guarantee or new reset policy. This and the session
     control tool ship together, for one tool-list prefix change. Contract:
     [`next-turn-query.md`](next-turn-query.md).
+
+83. **The engine always starts at boot; agents run in the signed-in session while the operator
+    is signed in** (user 2026-10-16 09:37Z: "agents always start at boot, and then automatically
+    get upgraded when signed in"; 09:38Z one checkbox; docket
+    `option-to-run-the-background-engine-in-the-user-s`; design approved by the coordinator
+    09:43Z with rulings A to E; user 09:43Z on B). Supersedes decision 79, and decision 68's
+    phase 2 rule that bypassPermissions seats stay in Session 0 (ruling Q1).
+    - **One switch, "Run on boot"** (it was "Run on startup"; still stored as `startAtLogin`) in
+      Settings › Desktop, first-run setup and the tray. On (the default): the boot task starts the
+      engine in Session 0 and the "Orgtree Credential Helper" task starts the helper at sign-in.
+      Off: both disabled, never deleted; nothing starts by itself (decision 70). One Windows
+      permission prompt per change. Where Orgtree cannot start at boot (per-user installations,
+      macOS, Linux) the switch reads "Run on sign-in" and starts at sign-in as before (ruling A).
+    - **The sign-in engine is gone.** At upgrade the installer deletes its own "Orgtree Sign-in
+      Engine" task (marker-verified) and drops `StartupMode`; boot and sign-in choices both become
+      on, off stays off (ruling E). `orgtree-engine-host.exe` is no longer shipped.
+    - **Agents in the signed-in session:** while the helper hosts, the engine starts every agent's
+      CLI through it in the operator's session: Claude, Codex, Muse, Antigravity, OpenCode, and
+      bypassPermissions seats too (user 09:43Z: "Yes, all agents"; one switch,
+      `session_host::HOST_BYPASS_SEATS`). Otherwise, and when a hosted start fails, the engine
+      starts them in Session 0. The channel is decision 68's authenticated host role; the helper
+      starts only the five harness CLIs by absolute path; per-agent limits and the forced-kill
+      records are unchanged in either session. The helper task's run level follows "Run Orgtree
+      as administrator" (ruling C).
+    - **At a turn boundary only:** each turn's start picks the placement; a warm CLI elsewhere is
+      replaced then, unless it holds background work. Sign-out ends hosted CLIs: the turn stops
+      cleanly as "the user's Windows session ended" (no failure report; its mail requeued when the
+      CLI had done nothing yet) and the agent is woken to go on in Session 0.
+    - **Agents are told:** a real move either way delivers an `[ORGTREE SESSION NOTICE]` in the
+      turn where it took effect; an agent's first turn ever and a restart that comes back in the
+      same session deliver none. The RESTART NOTICE gets "Session access at start: Session 0." or
+      "...: signed-in session.". An agent last in the signed-in session waits at its first turn
+      after an engine start until 15 s after that start for the helper; the expiry is logged once
+      (ruling D).
+    - Chosen in the implementation, flagged for the user on the docket item: the settle at the
+      first turn; the restart line added at delivery from the real placement; plain system mail
+      for the notices; an engine not in Session 0 counts as the signed-in session; deferral while
+      background work runs; the Claude keepalive CLI stays in Session 0.
+    Details, verification and limits: [`run-on-boot.md`](run-on-boot.md); proofs
+    `tools/rig/proofs/session-upgrade.mjs` and `codex-host.mjs`.

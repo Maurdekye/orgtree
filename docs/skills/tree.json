@@ -5,9 +5,9 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 165,
+  "leaves": 164,
   "tools": 43,
-  "total": 185
+  "total": 184
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -15,7 +15,6 @@
   "runtime-sol": 33,
   "providers-sol": 33,
   "skills-docs-sol": 13,
-  "rig-opus": 1,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
   "hubchat-dm-sol": 1,
@@ -2890,8 +2889,7 @@
    ],
    "see_also": [
     "app-runtime-desktop",
-    "phone-link",
-    "engine-start-mode"
+    "phone-link"
    ],
    "writer": "runtime-sol",
    "status": "fixed"
@@ -3454,7 +3452,6 @@
    "purpose": "App settings (Orgtree menu > App settings…): Runtime, Display, Default org settings, Developer, Shortcuts and About.",
    "children": [
     "app-runtime-desktop",
-    "engine-start-mode",
     "app-notifications",
     "app-quick-staff",
     "app-turn-limits",
@@ -3483,17 +3480,17 @@
     "np:automaticUpdates",
     "bridge:setRunAsAdministrator"
    ],
-   "purpose": "Runtime > desktop behavior: run on startup, exit on close, automatic updates, run as administrator.",
+   "purpose": "Runtime > desktop behavior: run on boot (where agents run), exit on close, automatic updates, run as administrator.",
    "must_cover": [
     "each switch, default and effect",
-    "restarting the background engine"
+    "restarting the background engine",
+    "run on boot: the engine at boot in Session 0, agents in the signed-in session while the user is signed in; \"run on sign-in\" where Orgtree cannot start at boot"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/desktopsettings.tsx:50",
     "apps/desktop/renderer/src/canvas/desktopsettings.tsx:107"
    ],
    "see_also": [
-    "engine-start-mode",
     "tray-and-windows"
    ],
    "writer": "skills-docs-sol",
@@ -3502,10 +3499,6 @@
     "apps/desktop/renderer/src/canvas/accounts.tsx#AccountsPanel"
    ],
    "ui_labels": [
-    {
-     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
-     "label": "run on startup"
-    },
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
      "label": "exit when the last window closes"
@@ -3521,10 +3514,6 @@
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
      "label": "apply the change"
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
-     "label": "run on startup"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
@@ -3560,49 +3549,17 @@
       "setRunAsAdministrator"
      ]
     }
-   ]
-  },
-  {
-   "path": "orgtree-app/app-settings/engine-start-mode",
-   "name": "orgtree-engine-start-mode",
-   "level": 3,
-   "kind": "setting",
-   "registered": false,
-   "covers": [
-    "bridge:setEngineStart"
    ],
-   "purpose": "Engine start modes (at boot before sign-in, or at sign-in in the user's session): what each means for agents and when to suggest switching.",
-   "must_cover": [
-    "the two modes (at boot, before sign-in, in Session 0 — the default; at sign-in, in the user's session) and what each means for agents",
-    "when to suggest switching, to the user or a superior; agents never change the setting themselves",
-    "owned by rig-opus (item option-to-run-the-background-engine-in-the-user-s); approved and integrated at rust-engine 7b7dd2e",
-    "explicit upsides and downsides for boot versus sign-in, including unattended work, desktop/sign-ins, sandbox posture, sign-out, UAC and restart timing; a one-line choice rule"
-   ],
-   "sources": [
-    "docs/rust-engine/engine-start-mode.md",
-    "apps/desktop/main/runonstartup.ts:38",
-    "apps/desktop/renderer/src/canvas/desktopsettings.tsx:92",
-    "tests/engine-start-mode.test.mjs",
-    "apps/desktop/preload/index.ts:78"
-   ],
-   "see_also": [
-    "app-runtime-desktop"
-   ],
-   "writer": "rig-opus",
-   "status": "fixed",
-   "key_sources": [
-    {
-     "key": "bridge:setEngineStart",
-     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
-     "needles": [
-      "bridge.setEngineStart"
-     ]
-    }
-   ],
-   "ui_labels": [
+   "ui_dynamic_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
-     "label": "engine starts"
+     "component": "DesktopSettings",
+     "label": "startupLabel(kind)"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
+     "component": "Onboarding",
+     "label": "startupLabel(kind)"
     }
    ]
   },

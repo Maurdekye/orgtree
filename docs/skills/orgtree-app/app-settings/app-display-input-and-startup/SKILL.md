@@ -17,7 +17,7 @@ These Display controls describe how the user interacts with the app. Agents expl
 | open an org at | `ls:orgtree-start-view` | org | The full org fitted to the window, the switchboard, or where I left off. |
 | play the starting zoom | `ls:orgtree-start-zoom` | On | Animates the initial view; disabled for where I left off because a restored camera does not glide. A brand-new org with no saved camera plays the starting zoom once. |
 
-Quick chat placement and canvas-view choices are browser-local preferences. Native startupMode governs desktop windows; it is different from Run on startup, which controls whether Orgtree starts automatically at all. A canvas destination is not an engine start mode. See [desktop startup](../app-runtime-desktop/SKILL.md).
+Quick chat placement and canvas-view choices are browser-local preferences. Native startupMode governs desktop windows; it is different from Run on boot, which controls whether Orgtree starts automatically at all. A canvas destination is not an engine start mode. See [desktop startup](../app-runtime-desktop/SKILL.md).
 
 The Enter setting is app-wide and is reflected in the read-only shortcut reference. The special quick-chat hire composer retains its own Enter-to-hire/Shift+Enter behavior; use its screen leaf for that workflow. A message-history arrow shortcut also depends on the caret position, not just the Enter preference.
 

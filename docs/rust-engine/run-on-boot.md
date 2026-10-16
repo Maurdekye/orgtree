@@ -1,200 +1,196 @@
-# Where the background engine starts (decision 79)
+# Run on boot, and agents in the signed-in session (decision 83)
 
 Orgtree 4.x starts its background engine at boot in Windows Session 0: the
 "Orgtree Background Engine" task, boot trigger, S4U as the operator. Session 0
 has no interactive desktop (no real cursor or input, a 1024x768 stand-in
-display, none of the user's windows), Codex's sandbox cannot start there, and
-the user's own sign-ins are not directly available. 3.x started the engine at
-the user's sign-in, inside their own session. The user asked on 2026-10-15
-(docket `option-to-run-the-background-engine-in-the-user-s`) for that as an
-option. On an installation for all users on Windows, "Run on startup" now has
-a second choice, "engine starts":
+display, none of the user's windows). Decision 79 (2026-10-15) let the
+operator move the whole engine into their session at sign-in instead ("engine
+starts": at boot, or at sign-in), at the cost of nothing running while they
+were signed out. On 2026-10-16 the user replaced that choice (docket
+`option-to-run-the-background-engine-in-the-user-s`, 09:37Z): "agents always
+start at boot, and then automatically get upgraded when signed in". So the
+engine always starts at boot, and while the operator is signed in its agents'
+CLIs run in their session, started there by the sign-in helper.
 
-| Choice | What starts the engine | Where it runs | When |
-| --- | --- | --- | --- |
-| At boot, before sign-in (default) | "Orgtree Background Engine" task, boot trigger, S4U | Session 0 | from boot, across sign-out |
-| At sign-in, in my session (opt-in) | "Orgtree Sign-in Engine" task, logon trigger, the operator's interactive token | the operator's own session | while they are signed in |
+## The switch
 
-The default for new and existing installations is boot (user, 10:38Z).
-Per-user installations, macOS and Linux have no such choice: their engine
-already runs as the user, started at login or when Orgtree opens.
+One checkbox, **Run on boot** (09:38Z; it was "Run on startup", and it is
+still stored as `startAtLogin`), in App settings › Runtime › Desktop, in
+first-run setup and in the tray. The tray item mirrors the setting.
+
+- **On** (the default): the boot task starts the engine at boot, and the
+  "Orgtree Credential Helper" task starts the helper at the operator's
+  sign-in. The window's own sign-in entry follows the switch as before.
+- **Off:** both tasks are disabled, never deleted, and nothing of Orgtree
+  starts by itself (decision 70).
+- **Where Orgtree cannot start at boot** (a per-user installation, macOS,
+  Linux) the same switch reads **Run on sign-in** and starts Orgtree at
+  sign-in as before (coordinator ruling A). The desktop names it from the
+  tasks it reads (`desktop:startup-kind`): an installation without the boot
+  task is "sign-in".
+- A change on an all-users Windows installation is one elevated script behind
+  one Windows permission prompt (`runonstartup.ts` `elevatedStartupScript`).
+  It verifies both tasks' markers before changing either, switches both, and
+  writes `RunOnStartup` to the installer's record. It never stops, starts or
+  deletes a task: a running engine keeps running. The switch flips only once
+  the change reads back; a declined prompt says what still holds ("so Orgtree
+  still runs on boot"). One change at a time, from the tray or Settings.
+- Crash recovery and "Restart the background engine now" start the boot task
+  (`startEngineTask`).
+- **Run Orgtree as administrator** re-registers the helper task with the
+  matching run level, highest available or least privilege (ruling C), before
+  it writes its own value. The helper's run level is what the agents' CLIs it
+  starts get.
 
 ## Tasks and the installer's record
 
-All three tasks belong to the installer (`tools/boot-engine-task.ps1`).
+Both tasks belong to the installer (`tools/boot-engine-task.ps1`).
 Administrators can change them; the operator can only read and run them. Each
 task's description carries the installer record's id.
 
-- **Boot task**, unchanged: `resources\engine\orgtree-engine.exe "host"`.
-- **Sign-in engine task**: a logon trigger for the operator's SID only. The
-  principal is the operator with an interactive token, at Normal priority
-  (decision 46), with no time limit, IgnoreNew and restart on failure 1 min
-  ×3. Marker `com.maurdekye.orgtree.signin-engine.v1:<id>`. The run level is
-  least privilege, the token Explorer gives the user's own programs, or
-  highest available while "Run Orgtree as administrator" is on. Its action is
-  `resources\engine\orgtree-engine-host.exe`, with no arguments.
-- **Credential helper**, unchanged; it now runs in both modes (below).
+- The protected record `HKLM\SOFTWARE\Orgtree\BootEngine` holds `RunOnStartup`
+  (DWORD, decision 70). `StartupMode` (decision 79) is deleted from it at the
+  next Prepare.
+- **Upgrade from 4.3.x** (ruling E): Register deletes the obsolete "Orgtree
+  Sign-in Engine" task after stopping it, only when it is the installer's own
+  (marker `com.maurdekye.orgtree.signin-engine.v1:<id>` and the expected
+  principal and action), and never registers it again. Both earlier choices,
+  boot and sign-in, become "Run on boot" on; off stays off. Uninstall deletes
+  a leftover one too. `orgtree-engine-host.exe`, the sign-in task's windowless
+  launcher, is no longer shipped.
+- Toggling "Run on boot" still disables rather than deletes (decision 70).
 
-The protected record `HKLM\SOFTWARE\Orgtree\BootEngine` holds `RunOnStartup`
-(DWORD, decision 70) and `StartupMode` (`signin`; absent or anything else means
-boot). Which tasks are enabled:
+## Where agents run
 
-| Run on startup | Boot task | Sign-in engine | Credential helper |
-| --- | --- | --- | --- |
-| off | disabled | disabled | disabled |
-| on, at boot | enabled | disabled | enabled |
-| on, at sign-in | disabled | enabled | enabled |
+The engine stays in Session 0. When an agent's turn starts, its CLI starts
+where it should run (`runtime/session_host.rs` `wanted`):
 
-Tasks are disabled, never deleted (decision 70). Register re-creates all three
-from the record, so an update keeps the mode, and starts only the active ones.
-A sign-in Run made while the operator is not signed in waits for their next
-sign-in and never fails the install. Prepare, Stop and Remove verify, disable
-and stop the sign-in task together with the boot task. The engine is asked to
-shut down first; only when it cannot be asked is the task ended. Each task's
-enabled state is restored if the stop fails. Remove deletes all three. Sign-in
-mode without the launcher binary is refused as an incomplete installation.
+- **In the operator's signed-in session** while the sign-in helper holds the
+  bridge's host role (`Bridge::can_host`: a live 20 s lease, the helper's
+  process alive), through the helper (decision 68, phase 2, now for every
+  harness): Claude, Codex, Muse, Antigravity and OpenCode. bypassPermissions
+  seats are hosted too (the user 09:43Z: "Yes, all agents"; the one-line switch
+  `session_host::HOST_BYPASS_SEATS`), superseding decision 68's Q1.
+- **In Session 0**, started by the engine, while no helper hosts, and when a
+  hosted start fails (the engine logs `the sign-in helper could not start the
+  CLI; starting it in Session 0`).
+- An engine that is not in Session 0 (a per-user installation, a desktop-
+  started engine) runs every CLI in the signed-in session already; nothing is
+  hosted.
 
-## The windowless launcher
+The helper starts only the five harness CLIs, by absolute path
+(`credential_broker_host::hostable`: `claude.exe`, `codex.exe`, `agy.exe`,
+`opencode.exe`, `muse-bin-<version>.exe`). The request carries the child's
+whole environment (the engine's own, or the harness's cleared one, with its
+changes), so neither side logs more than pids and fixed codes. Per-agent
+limits are unchanged, and so are the forced-kill records of Codex and Muse:
+a hosted CLI's graceful exit or forced end goes to `codex-kills.log` like a
+local one's.
 
-`orgtree-engine.exe` is a console program. Run by an interactive-token task, it
-would open a console window at every sign-in; decision 68 made the credential
-broker a separate windowless binary for the same reason. So the sign-in task
-runs `orgtree-engine-host.exe` (`src/engine_host.rs`, GUI subsystem, a few
-dozen lines). The launcher:
+Harness details: Muse drops `--disable-sandbox` when hosted (its OS sandbox
+works in the user's session); Codex keeps its own seat logic
+(`codexrt::seat_sandbox`, the sandbox chosen once per launch); OpenCode is
+hosted through its ACP connection; the Claude keepalive CLI that holds a
+prompt cache warm stays in Session 0.
 
-- starts `orgtree-engine host` beside it with `CREATE_NO_WINDOW`, the same
-  host the boot task runs (`src/host.rs`);
-- waits for the host, so the task lasts exactly as long as the host and records
-  the host's exit code (0 a requested stop, 75 another engine owns the data
-  folder, 1 a failure);
-- names itself to the host in `ORGTREE_HOST_LAUNCHER_PID`.
+## Moves happen at a turn boundary
 
-The host opens that process before doing anything else, so the id cannot pass
-to another process. When the launcher is gone (the task was ended), the host
-stops its engine the graceful way: the shutdown request with its own token, as
-on a console stop. The engine does not inherit the variable. The host code
-itself cannot be built into a second binary: `#[logged]` expands to
-`crate::trace`, which needs the whole engine.
+Placement is chosen at each turn's start (`actor` `want_hosted`), never during
+a turn. A warm CLI in the other placement is replaced at that turn's start
+through the existing reuse checks. A CLI that still holds background work
+(`bg_pending`) is not replaced: it moves at a later turn.
 
-## Changing it
+**Sign-out** ends the helper, its jobs and every hosted CLI. A turn whose
+hosted CLI ends while the helper is gone (checked for up to 2 s) stops
+cleanly as `the user's Windows session ended`: no failure report and no error
+left on the agent, a `session` row in its conversation ("it continues in
+Session 0"), its claimed mail requeued when the CLI had done nothing yet (the
+usual rule), and a waking message: "The user's Windows session ended while
+you were working, so your turn stopped. Continue where you left off." Its
+next turn runs in Session 0.
 
-Settings › Desktop shows "engine starts" under "run on startup"
-(`EngineStartSetting`, `desktop:engine-start` / `desktop:set-engine-start`):
+## What agents are told
 
-- It is shown only where both engine tasks exist, and disabled, with the
-  reason, while "run on startup" is off (coordinator rulings 10:57Z, items 5
-  and 6). It is not in the tray.
-- A change is one elevated script behind one Windows permission prompt
-  (`runonstartup.ts` `elevatedStartupScript`). The script verifies all three
-  tasks' markers before changing any, applies the table, and writes
-  `RunOnStartup` and `StartupMode`. It never stops, starts or deletes a task.
-- The choice flips only once the change reads back. A declined prompt says what
-  still holds. It shares "run on startup"'s one-change-at-a-time guard, and
-  turning "run on startup" off and on keeps the recorded mode.
-- A running engine keeps running (decision 70). For an engine a task started,
-  Settings then offers "Restart the background engine now" (ruling 4, the "Run
-  Orgtree as administrator" pattern). The restart is a graceful stop with proof
-  of exit, then whichever engine task is now enabled, then reattach. Otherwise
-  the change applies at the next sign-in or boot.
-- Crash recovery and both restarts start whichever engine task is enabled
-  (`startEngineTask`); they used to start the boot task.
-- "Run Orgtree as administrator" also re-registers the sign-in engine task with
-  the matching run level. It changes only the installer's own task, and does
-  so before writing its HKLM value, so a refusal leaves the setting as it was.
+- **A real move, either way**, delivers an `[ORGTREE SESSION NOTICE]` in the
+  turn where it took effect: into the signed-in session ("with access to their
+  desktop and apps"), or down to Session 0 ("desktop access is lost, because
+  the user signed out or Orgtree's sign-in helper stopped"). It is plain
+  system mail, claimed into that turn.
+- **No notice** on an agent's first turn ever, and none when a restart comes
+  back in the same session: the last placement is kept per agent
+  (`ot.agents.extra.session`, `signed-in` or `session0`).
+- **The RESTART NOTICE** an agent receives at its first turn after an engine
+  start gets a last line, `Session access at start: Session 0.` or
+  `Session access at start: signed-in session.`, from where that turn's CLI
+  really runs. The stored notice is updated to match.
+- **Restarts while signed in:** after an engine start the helper registers
+  again within seconds. An agent whose last turn ran in the signed-in session
+  waits at its first turn until 15 s after the engine's start for the helper
+  (ruling D), so a restart is no move down and back up. When the wait runs
+  out the engine logs once `the sign-in helper did not register again after
+  the engine's start; agents start in Session 0`, and the agent moves down,
+  told so.
 
-## One engine
+## Decisions beyond the user's words
 
-The data root's lock (`launch::RootLock`, taken before anything else in
-`serve`) decides, as it always has. At sign-in, the sign-in task and the
-window's own sign-in entry ("run on startup") start together:
+The coordinator ruled A (the "Run on sign-in" label), C (the helper's run
+level), D (15 s, logged) and E (delete the old task at upgrade). These were
+chosen in the implementation (rig-opus) and are flagged for the user on the
+docket item:
 
-- When the task's engine holds the root, the desktop's own engine is refused,
-  and the desktop adopts the task's engine through its existing "refused, then
-  attach with retry" path. The sign-in task normally gets there first: logon
-  tasks start before Explorer's startup programs (inferred, not measured).
-- When the desktop's engine wins, it serves that session (also in the user's
-  session) and the task's host leaves with 75.
-
-IgnoreNew keeps a second sign-in (a second session of the same user) from
-starting a second host, and a host that finds a live descriptor leaves at once.
-Quit's logon-scoped barrier (`core_state::blocked`) applies unchanged.
-
-## Credentials, Codex and the helper in the user's session
-
-An engine in the user's session with an interactive logon gets no
-credential-isolation warning (`credential_context::warning`: its session is not
-0, and its logon type is not batch, service or network). So it injects no
-credential adapters, and git and gh use the user's own helpers directly.
-`codexrt::seat_sandbox` hosts Codex in the user's session only from Session 0,
-so Codex starts directly with its own sandbox; Muse's sandbox stays on
-(`musert::os_sandbox`). These decisions depend on the engine's real session,
-not on the setting.
-
-The helper still runs in sign-in mode (coordinator 11:13Z, replacing the
-design's "helper disabled"). The engine a task's host started runs the "boot"
-core lifecycle, which counts the helper as a member: `core_policy` reports "sign-in helper did not start
-after sign-in", and a desktop transition completes only once the helper is
-alive. Next to an engine in the user's session the helper only keeps its leases.
+- the settle wait runs at an agent's first turn, not during the engine's
+  recovery, which runs before the engine serves the helper;
+- the restart-notice line is added when the notice is delivered, from the
+  turn's real placement;
+- the session notices are plain system mail, not typed events;
+- an engine not in Session 0 counts as the signed-in session;
+- an agent's first turn ever is no move;
+- a CLI holding background work moves at a later turn;
+- the Claude keepalive CLI stays in Session 0.
 
 ## Verification
 
-Measured on branch `rig-opus/user-session-engine` (base `b77512f`), logs in
-`C:\orgtree-build\rig-opus\user-session\logs`:
+Measured on branch `rig-opus/session-upgrade` (base `64d862f`); logs in
+`D:\orgtree-work\tmp\rig-opus\batch-session-upgrade\logs` and
+`C:\orgtree-build\rig-opus\session-upgrade\logs`:
 
-- **Installer harness** (`tests/boot-installer.test.ps1`, fake task folder,
-  never a real task): 228 assertions pass. With the unchanged script the new
-  section fails at its first call. Covered: the sign-in task's XML in both run
-  levels, Register in both modes, off disables all three, an update keeps the
-  mode, stop graceful-first / end the task / restore on failure, a changed or
-  unowned task refused before any change, the missing launcher, Remove.
-- **Engine:** `cargo check --all-targets` 0 warnings; clippy 106 warnings, none
-  on changed lines; launcher unit tests 2/2; `x86_64-linux-android` check exit
-  0 with the 4 known `core_monitor`/`core_startup` warnings.
-- **Desktop:** `tests/engine-start-mode.test.mjs` 9/9, `startup-tray` 14/14,
-  `run-as-administrator` 9 + 1 skipped (it needs an elevated process), and
-  `disruptive-policy` 6/6. Every script parses in Windows PowerShell 5.1. At
-  `b77512f` the 9 new tests and the new tray test fail and the 13 old tray
-  tests pass.
-- **Renderer:** `enginestart.test.tsx` 5/5, with `runasadmin`, `desktopstate` and
-  `notificationsettings` 27/27. With the `b77512f` settings panel the new test
-  cannot bundle (no `EngineStartSetting`).
-- **Typechecks:** root 0 errors; renderer 29 and renderer tests 830, both the
-  same files as at `b77512f`.
-- **Pre-existing:** `tests/core-recovery-review.test.mjs` fails 6 of 12 at
-  `b77512f` exactly as on this branch. Its restart slice runs TypeScript
-  through `vm` untransformed.
+- **Installer** (`tests/boot-installer.test.ps1`, fake task folder, never a
+  real task): 203 assertions pass; at the base script the new section fails
+  at the helper's run level.
+- **Engine:** `cargo check --all-targets` and clippy with no warning on a
+  changed line; the `x86_64-linux-android` check (cfg(unix)) with only the 4
+  known `core_monitor`/`core_startup` warnings; unit tests: the harness
+  modules and `session_host` 33/33, the actor 9/9, the helper's 6/6 including
+  `the_five_harness_clis_by_absolute_path_and_nothing_else`.
+- **Desktop:** `tests/run-on-boot.test.mjs` 8/8 and `tests/startup-tray.test.mjs`
+  15/15, in a set of 15 desktop test files whose 10 failures are the same at
+  the base (pre-existing). Renderer `runonboot`, `desktopstate`, `onboarding`,
+  `notificationsettings` and `runasadmin` 33/33. Typechecks: root 0 errors,
+  renderer 29 and renderer tests 830, the same as at the base.
 
-Not run here: the rig proof `tools/rig/proofs/engine-start-signin.mjs` (launcher
-→ host, one engine, ending the task; rig-sol-b runs it), the throwaway-task
-measurement in `tests/disruptive/run-on-startup.test.mjs` (updated for three
-tasks and the mode; it registers per-user tasks, so it needs authorization),
-and any build, installation or real task.
+Not run by rig-opus: the rig proof `tools/rig/proofs/session-upgrade.mjs` (it
+needs a rig home under the operator's profile and an interactive session for
+the helper), the throwaway-task measurement in
+`tests/disruptive/run-on-startup.test.mjs` (updated for two tasks; it
+registers real per-user tasks), and any build, installation or real task.
 
 ## Only the user can confirm
 
-- At a real sign-in with "At sign-in, in my session", the engine starts with no
-  console window. Task Manager shows `orgtree-engine-host.exe`,
-  `orgtree-engine.exe` and the agents in the user's session, not Session 0.
-- Agents there see the real desktop: cursor, screen size, windows. Codex runs
-  sandboxed without the helper hosting it, and git or gh use the user's own
-  sign-ins.
-- The real permission prompt switches both ways, and "Restart the background
-  engine now" moves the engine at once.
-- Signing out stops the engine (below), and the next sign-in starts it again.
-  A reboot starts nothing until sign-in.
+- After a real boot and sign-in, Task Manager shows the engine in Session 0
+  and the agents' CLIs, children of `orgtree-credential-broker.exe`, in the
+  user's session; agents see the real desktop.
+- At a real sign-out the hosted CLIs end, the engine keeps running, and the
+  agents' next turns run in Session 0 with the downgrade notice; at the next
+  sign-in they move back up, told so.
+- The real permission prompt switches "Run on boot" both ways, and an upgrade
+  from 4.3.x deletes the "Orgtree Sign-in Engine" task.
 
 ## Limits
 
-- **Sign-out:** at sign-out Windows ends the session's processes. A sign-in
-  engine stops then the way today's desktop-started engine does, and
-  PostgreSQL recovers at its next start.
-- **Ending the boot task:** since the 2026-10-12 recovery change, ending the
-  boot task no longer stops the boot engine; the core lifecycle keeps it alive
-  when its host exits. The installer's fallback now asks through its record
-  first (decision 80), but a manual End on the boot task still leaves the
-  engine running. The sign-in engine stops on End: its host asks the engine to
-  stop when the launcher is ended.
-- **Downgrade (inferred, not measured):** an older installer does not know the
-  sign-in task. It stays registered, enabled in sign-in mode, and fails
-  harmlessly at sign-in because its launcher binary is gone. The older
-  version's boot task follows "Run on startup" again.
+- **Before the first sign-in after a reboot** everything runs in Session 0;
+  Windows offers no interactive token before then.
+- **A second Windows session** of the same user starts its own helper; the
+  bridge's hold rule keeps the first.
+- **Downgrade (inferred, not measured):** a 4.3.x installer reads no
+  `StartupMode`, which it takes as boot, and registers its sign-in task
+  disabled; its launcher is gone, so nothing starts from it.

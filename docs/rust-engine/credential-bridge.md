@@ -234,13 +234,12 @@ that gap.
 - **Not covered:** before the user signs in to Windows after a reboot there is
   no access (no interactive token exists). A second Windows session of the
   same user starts its own broker; the hold rule keeps the first.
-- **Engine at sign-in (decision 79):** when the operator chooses "At sign-in,
-  in my session", the engine runs in their own session with their interactive
-  token. It gets no isolation warning, so it injects no adapters and never asks
-  the broker for credentials, and it starts Codex directly with Codex's own
-  sandbox (hosting is Session 0 only). The helper task still runs, because that
-  engine's core lifecycle counts the helper as a member; next to that engine it
-  only keeps its leases. See [engine-start-mode.md](engine-start-mode.md).
+- **Agents in the signed-in session (decision 83, which replaced decision 79's
+  sign-in engine):** the engine always starts at boot, and while the helper
+  runs it starts every agent's CLI through it in the operator's session (below,
+  "Every agent's CLI in the user's session"). The helper task follows "Run on
+  boot", and its run level follows "Run Orgtree as administrator". See
+  [run-on-boot.md](run-on-boot.md).
 
 Proof: `tools/rig/proofs/credential-broker.mjs` (run with `ORGTREE_RIG_HOME`
 under your profile, see its header). The broker and a stand-in desktop start
@@ -261,12 +260,14 @@ Codex seats in the user's session instead, where the sandbox works.
   `workspace-write`, when the independent Codex host registered `role: "host", caps: ["spawn"]` (only
   the helper does; the desktop broker never hosts) and its process is alive
   (`Bridge::can_host`, `codexrt::seat_sandbox`). A `bypassPermissions` seat
-  stays in Session 0, so no unsandboxed agent runs beside the user's sign-ins.
+  stayed in Session 0, so no unsandboxed agent ran beside the user's sign-ins
+  (ruling Q1; since decision 83 bypass seats and every other harness are hosted
+  too).
 - **A launcher, not a relay:** the engine creates the child's three stdio
   pipes (`\.\pipe\orgtree-codex-<hex>-in|out|err`, first instance, one
   instance, remote clients rejected) and sends `{kind:"spawn", exe, args, cwd,
   env, pipes}` over the bridge pipe. The helper starts only an absolute path
-  named `codex.exe`, opens the pipes as a client after checking that the
+  named `codex.exe` (since decision 83 any of the five harness CLIs), opens the pipes as a client after checking that the
   attached engine serves them, starts the child suspended with those three
   handles as its only inherited ones, puts it in a kill-on-close job, resumes
   it, and answers `{pid, created}`. The engine checks that the helper is the
@@ -328,3 +329,32 @@ helper-death fallback and continued credential ownership. Set
 `ORGTREE_RIG_EVIDENCE_HOME` to a D: rig directory when the descriptor trust check
 requires the separately authorized run state under an owner-only profile path.
 No live credential lookup is needed for this coexistence proof.
+
+### Every agent's CLI in the user's session (decision 83, 2026-10-16)
+
+The user, 2026-10-16 09:37Z: "agents always start at boot, and then
+automatically get upgraded when signed in". Phase 2's hosted launch now serves
+every harness (`runtime/session_host.rs`, shared by Claude, Codex, Muse,
+Antigravity and OpenCode):
+
+- **Who is hosted:** while the helper holds the host role, every agent's next
+  CLI, bypassPermissions seats included (the user 09:43Z: "Yes, all agents";
+  `session_host::HOST_BYPASS_SEATS`). Codex keeps choosing its sandbox per
+  launch (`codexrt::seat_sandbox`); Muse drops `--disable-sandbox` when hosted;
+  the Claude keepalive CLI stays in Session 0.
+- **What the helper starts:** an absolute path whose file name is `claude.exe`,
+  `codex.exe`, `agy.exe`, `opencode.exe` or `muse-bin-<version>.exe`
+  (`credential_broker_host::hostable`), nothing else. The stdio pipes are
+  `\.\pipe\orgtree-cli-<hex>-in|out|err`; the pipe checks, the suspended start
+  in a kill-on-close job, the kill by pid plus creation time and the sweep of a
+  dead engine's children are phase 2's. The request carries the child's whole
+  environment, so neither side logs more than pids and fixed codes.
+- **When:** at a turn's start, never during a turn ([run-on-boot.md](run-on-boot.md)
+  covers the moves, the session notices and sign-out).
+- **Logs:** `CLI started by the sign-in helper in the user's session` per hosted
+  launch (Codex keeps its own line), `the sign-in helper could not start the
+  CLI; starting it in Session 0` with the code on a fallback, and the helper's
+  `hosting N agent CLI process(es)`.
+
+Proof: `tools/rig/proofs/session-upgrade.mjs` (fake CLIs, `--session0 1`, the
+helper through the temporary interactive task, as `codex-host.mjs`).

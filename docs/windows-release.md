@@ -405,11 +405,15 @@ When the boot step still times out, it names what is running: the dialog shows
 five processes (pid, name, path, parent, and the engine binary's mode),
 `%TEMP%\orgtree-installer-upgrade.log` lists every one.
 
-An update keeps the user's "Run on startup" (decision 70). Prepare records it
-as `RunOnStartup` in `HKLM\SOFTWARE\Orgtree\BootEngine` when the desktop's
-switch has not already done so, taking it from the user's own
-`desktop-settings.json`, else on. Register then writes both tasks enabled or
-disabled to match, and starts them only when it is on.
+An update keeps the user's "Run on boot" (it was "Run on startup"; decisions 70
+and 83). Prepare records it as `RunOnStartup` in
+`HKLM\SOFTWARE\Orgtree\BootEngine` when the desktop's switch has not already
+done so, taking it from the user's own `desktop-settings.json`, else on, and
+deletes the record's old `StartupMode`. Register then writes both tasks (the
+boot engine and the credential helper) enabled or disabled to match, and
+starts them only when it is on. An update from 4.3.x also deletes the
+installer's own "Orgtree Sign-in Engine" task (decision 79's), after stopping
+it.
 
 Apart from that observer, the installer still does not force-kill a process. A
 timeout, a path-verification failure, a tree that cannot be enumerated, or a

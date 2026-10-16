@@ -26,7 +26,11 @@ A deliberate or unexpected engine stop can end running provider processes and th
 
 On a restart notice, re-read breadcrumbs, docket and mail, inspect the actual repository/files/process evidence, and decide what remains. Do not rerun a potentially applied mutation solely because its original reply was lost. Report incomplete or uncertain work honestly. An idle informational notice does not itself require an acknowledgement.
 
-No agent tool in this section restarts the whole app or changes its startup configuration. The desktop's restart/recovery surfaces are described in `orgtree-crash-and-restart` (orgtree-app › app-shell); the landed engine-start choice and its effect on agents are described by `orgtree-engine-start-mode` (orgtree-app › app-settings). Changing that choice leaves the current engine running until an explicit restart or the next automatic start.
+No agent tool in this section restarts the whole app or changes its startup configuration. The desktop's restart/recovery surfaces are described in `orgtree-crash-and-restart` (orgtree-app › app-shell); the "Run on boot" switch is described by `orgtree-app-runtime-desktop` (orgtree-app › app-settings). Changing it leaves the current engine running until an explicit restart or the next automatic start.
+
+## Session 0 and the signed-in session
+
+On an all-users Windows installation the background engine runs in Windows Session 0 from boot. While the user is signed in, your CLI runs in their session, with their desktop and apps; otherwise it runs in Session 0, where there is no desktop: GUI apps, screen captures and anything needing the user's interactive sign-in do not work. You move only between turns, never during one. The turn where a move took effect carries an `[ORGTREE SESSION NOTICE]` saying where you now run, and a restart notice ends with `Session access at start: Session 0.` or `Session access at start: signed-in session.`. No notice means you run where you did. If the user signs out during your turn, that turn stops ("the user's Windows session ended") and you are woken to continue in Session 0: check what the cut turn already did before repeating anything.
 
 ## See also
 
