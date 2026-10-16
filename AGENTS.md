@@ -172,6 +172,14 @@
   key within 2.5 s draws the combo's milestone flare into the same cue.
   [verified: `epic/director.ts`; measured: typing scene, 2026-10-16]
 
+- Photographing a popped-out window in the offscreen capture: a child opened by
+  `window.open` from an `offscreen: true` page never produces a frame, even when its
+  `webPreferences` are offscreen too (`capturePage()` returns an empty image, no
+  `paint` event, `showInactive()` does not help; the DOM receipt still passes and the PNG
+  is a 0-byte file). Open it from `setWindowOpenHandler` as a hidden ordinary window
+  (`show: false`, `paintWhenInitiallyHidden: true`, no `offscreen`): it captures at its full
+  size. [measured: `tests/epicmode-capture.cjs` wrap pass, 2026-10-16]
+
 - A wheel over the canvas is not a zoom by where it lands: OrgCanvas's wheel listener
   leaves `.pinwin`, `.tray`, `.desk-over` and `.overlay` to the browser's own scrolling
   and zooms everywhere else, clamped to [min zoom, `Z_MAX`]. EPIC Mode's hands therefore

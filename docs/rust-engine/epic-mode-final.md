@@ -1022,7 +1022,8 @@ newlines alone. While EPIC Mode is off nothing changes: the code is in
 
 **Tests.** The capture's typing scene gains a wrapped-line pass in every desk
 it types into: alice and bob on the canvas zoomed out (scale 0.5 and 0.75),
-alice zoomed in (1.5), and carol pinned (1), in Charcoal and Light. Each
+alice zoomed in (1.5), and carol pinned (1), in Charcoal and Light, and dave
+in a popped-out desk window (1, Charcoal). Each
 composer is made narrow, holding "the sparks follow" with room for " the" and
 3 px to spare. Typing " the caret" with native keystrokes wraps "caret" onto
 the second line, including the keystroke that moves it. Enter then starts a
@@ -1038,6 +1039,21 @@ caret. `epicmode-caret` gains a jsdom guard: placing the sparks leaves no
 element and no copy of the draft in the document. jsdom lays nothing out, so
 the wrapping itself is checked only in Electron.
 
+The popped-out window and the emit marks (asked for by the coordinator,
+2026-10-16). The popped-out desk is a second window: the page opens it with
+`window.open` the way `popout.tsx` does (a named window, a standards-mode
+shell, the page's root class, tokens and stylesheets copied) and registers it
+with `registerWindow`, so the director gives it its own stage and key
+listeners; native keystrokes are addressed to that window. Its composer is the
+app's classes, not the real Desk component. In the capture it is a hidden
+ordinary Electron window: an offscreen child of the offscreen page never
+produced a frame (`capturePage()` came back empty and no paint event fired,
+measured by a probe), so the first run's popped-out PNGs were 0-byte files
+while the receipt passed. Every wrap PNG carries a green ring where the
+director drew the sparks and a magenta dot at the true caret, so a frame shows
+where the sparks start: they rise and drift afterwards, which is why a frame
+taken a moment after the key has them above the caret's line.
+
 Two limits of the fixture, found by the first wrap run, which failed on the
 test rather than on the fix. (1) A typing cue can hold more than the typed
 key: the tenth key within 2.5 s of the last (the first milestone) draws the
@@ -1050,9 +1066,9 @@ within 4 px of that edge is not told apart from the clamp (the tolerance
 stays 1.5 px).
 
 Measured with a clean tree, under the machine build lock and a 4,096 MB
-kernel job (C:\orgtree-build\epic-final\wrap: check, visual2,
-visual-before2). The check, strict and green rows are at `ab43718`; the
-typing captures are at `a6ffab5`, which differs only in the two capture
+kernel job (C:\orgtree-build\epic-final\wrap: check, visual4,
+visual-before4). The check, strict and green rows are at `ab43718`; the
+typing captures are at `3d75b1a`, which differs only in the two capture
 fixture files (`epicmode-capture.cjs`, `epicmode-visual.tsx`). Those are in
 neither the typecheck, the strict test configuration nor the green suites, so
 the first rows stand for the tip.
@@ -1064,8 +1080,8 @@ the first rows stand for the tip.
 | Strict test configuration | 830 and 830: none added, none removed; all ten EPIC suites are in the file list |
 | Green (tip) | 95 of 95 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 5, wheel 9, urgent 7, comfort 11, linger 12, progress 9 |
 | Before (`5efd8ae`) | 95 of 95 pass: jsdom cannot lay out a wrapped line, so the new guard cannot tell the old code from the fix; the wrapping is the capture's |
-| Typing capture (tip `a6ffab5`) | Passed, 77 PNGs. All five wrap receipts are `atCaret`: alice zoomed out (scale 0.5) maxDx 0, maxDy 0.13; bob (0.75) 0, 0.19; carol pinned (1) 0, 0.25; alice zoomed in (1.5) 0, 0.38; carol pinned in Light 0, 0.25; every receipt 14 of 14 effects, tolerance 1.5 |
-| Typing capture (`5efd8ae`) | Fails in the typing section, as it must: all five wrap receipts are off the caret, by 62, 95, 128, 194 and 128 px across and 9.78, 14.67, 19.55, 29.33 and 19.55 px down (one text line at each desk's scale), with the value, line count, wrap and scroll all true. The same numbers as the first wrap run, so the pauses and the clamp did not hide the old bug |
+| Typing capture (tip `3d75b1a`) | Passed, 79 PNGs. All six wrap receipts are `atCaret`, each 14 of 14 effects, every spark drawn at its spot, the stage the window's: alice zoomed out (scale 0.5) maxDx 0, maxDy 0.13; bob (0.75) 0, 0.19; carol pinned (1) 0, 0.25; alice zoomed in (1.5) 0, 0.38; carol pinned in Light 0, 0.25; dave in the popped-out window (1) 0, 0.25; tolerance 1.5. The two popped-out PNGs and the marked frames were looked at: ring and dot coincide on the second line at the typed "t" |
+| Typing capture (`5efd8ae`) | Fails in the typing section, as it must: all six wrap receipts are off the caret, by 62, 95, 128, 194, 128 and 128 (popped out) px across and 9.78, 14.67, 19.55, 29.33, 19.55 and 19.55 (popped out) px down (one text line at each desk's scale), with the value, line count, wrap and scroll all true. The same numbers as the first wrap run, so the pauses and the clamp did not hide the old bug. In the popped-out PNG the ring sits at the end of the first line, away from the dot on the second |
 
 ## Limits
 
@@ -1092,8 +1108,9 @@ the first rows stand for the tip.
   it got there. Enter, Backspace and paste spark at the start of the lower
   line; a typed character always sparks where it lands. The wrapping is
   checked in the capture's synthetic composers (the app's classes and CSS,
-  not the real Desk component); popped-out desks run the same code in their
-  own window and are not captured.
+  not the real Desk component), on the canvas, pinned, and in a popped-out
+  window opened the way the app opens one; the real popped-out Desk is not
+  rendered.
 - The typing sparks stop 4 screen px inside a field's right edge, and the
   tenth key typed within 2.5 s of the last draws the combo's milestone flare
   at the corner badge as part of the same cue. Both are the code's behaviour,
