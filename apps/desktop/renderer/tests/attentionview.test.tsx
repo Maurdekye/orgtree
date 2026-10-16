@@ -85,8 +85,9 @@ const reset = () => {
  *
  *  The application provides it above OrgCanvas (App.tsx), so this matches the
  *  host the view is mounted into rather than adding anything to it. */
-const view = () => <CurrentOrg.Provider value={SLUG}>
-  <AttentionView slug={SLUG} tree={tree()} op={op} toast={toast} map={emptyMap()} />
+const view = (onActiveAgentsOnly?: (value: boolean) => void) => <CurrentOrg.Provider value={SLUG}>
+  <AttentionView slug={SLUG} tree={tree()} op={op} toast={toast} map={emptyMap()}
+    activeAgentsOnly={false} onActiveAgentsOnly={onActiveAgentsOnly} />
 </CurrentOrg.Provider>
 
 /** what is on screen ANYWHERE in the document — the pin layer is appended to
@@ -152,6 +153,22 @@ test('§1 the Attention view shows both panels and the divider between them', as
   assert.equal(s.desk, true, 'and the dynamic agent Desk panel')
   assert.equal(s.divider, true, 'with a draggable margin between them')
   await v.unmount()
+})
+
+test('the Agent desk title bar exposes the persisted active-agents checkbox', async t => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  let selected: boolean | undefined
+  const v = await mountView(view(value => { selected = value }), () => shape())
+  t.after(() => v.unmount())
+  await inAct(() => flush())
+
+  const input = document.querySelector(
+    '.attn-panel-desk .modalpin-bar input[aria-label="Only active agents"]') as HTMLInputElement | null
+  assert.ok(input, 'the active filter is available in the Agent desk title bar')
+  assert.equal(input!.checked, false)
+  await inAct(() => input!.click())
+  assert.equal(selected, true, 'checking it updates the shared active-agents preference')
 })
 
 test('§2 on the canvas, neither panel is on screen and the stage is hidden', async () => {
