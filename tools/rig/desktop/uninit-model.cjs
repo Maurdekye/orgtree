@@ -22,7 +22,7 @@ module.exports = async (page, { args }) => {
   await page.click('.df-head button.tier')
   await page.waitFor('.ctxmenu')
   await frames(); await page.screenshot('02-model-picker')
-  const before = await page.api('GET', `/api/orgs/${args.org}/tree`)
+  const before = await page.api('GET', `/api/orgs/${args.org}`)
   await page.click({ selector: 'button[role="menuitem"]', text: '^sol', regex: true })
   await page.waitFor('.df-head button.t-sol')
   const staged = await page.eval(() => ({
