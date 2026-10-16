@@ -5,9 +5,9 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 164,
-  "tools": 43,
-  "total": 184
+  "leaves": 165,
+  "tools": 44,
+  "total": 185
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -18,7 +18,8 @@
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
   "hubchat-dm-sol": 1,
-  "usage-query-sol": 1
+  "usage-query-sol": 1,
+  "rig-opus": 1
  },
  "nodes": [
   {
@@ -1449,6 +1450,7 @@
    "children": [
     "tool-status",
     "tool-next-turn",
+    "tool-session",
     "tool-interrupt",
     "tool-halt",
     "tool-unhalt",
@@ -1524,6 +1526,37 @@
    "see_also": [
     "cache-continuity",
     "context-and-compaction"
+   ]
+  },
+  {
+   "path": "orgtree-working/runtime/tool-session",
+   "name": "orgtree-tool-session",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_session"
+   ],
+   "tool_group": "none",
+   "registered": false,
+   "purpose": "Where your turns run: Session 0 or the user's signed-in session, whether the user is signed in, and whether your next turn moves; always available.",
+   "must_cover": [
+    "when to use it and when not",
+    "every returned field, and when it is null",
+    "moves only at a turn's start; background work and the sign-in helper",
+    "the sign-out resume",
+    "refusals and a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/session.rs",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs session_view()",
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+   ],
+   "writer": "rig-opus",
+   "status": "fixed",
+   "see_also": [
+    "halts-and-restarts",
+    "turns-and-wakes",
+    "turn-envelope"
    ]
   },
   {

@@ -354,7 +354,10 @@ Antigravity and OpenCode):
 - **Logs:** `CLI started by the sign-in helper in the user's session` per hosted
   launch (Codex keeps its own line), `the sign-in helper could not start the
   CLI; starting it in Session 0` with the code on a fallback, and the helper's
-  `hosting N agent CLI process(es)`.
+  `hosting N agent CLI process(es)`. A hosted CLI that ends with the user's
+  session under a turn gets a `codex-session-ended` line in the engine's kill
+  record (decision 84).
 
 Proof: `tools/rig/proofs/session-upgrade.mjs` (fake CLIs, `--session0 1`, the
-helper through the temporary interactive task, as `codex-host.mjs`).
+helper through the temporary interactive task, as `codex-host.mjs`), and
+`session-query.mjs` for `orgtree_session` and the sign-out resume.

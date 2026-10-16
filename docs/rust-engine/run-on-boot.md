@@ -106,8 +106,15 @@ cleanly as `the user's Windows session ended`: no failure report and no error
 left on the agent, a `session` row in its conversation ("it continues in
 Session 0"), its claimed mail requeued when the CLI had done nothing yet (the
 usual rule), and a waking message: "The user's Windows session ended while
-you were working, so your turn stopped. Continue where you left off." Its
-next turn runs in Session 0.
+you were working, so your turn stopped. Continue where you left off." That
+message starts one new turn at once, in Session 0, the way a turn cut off by
+an engine restart resumes (the user, 2026-10-16 11:03Z, decision 84): nothing
+else has to wake the agent. A turn that had been interrupted, halted, timed
+out or retired is not resumed (`continues_in_session0`). Windows ended the
+CLI, not the engine: the engine log says `the user's Windows session ended
+during the turn; it continues in Session 0` with the pid, and the kill record
+(`diagnostics\logs\codex-kills.log`) gets one `codex-session-ended pid=...
+who="<agent>" reason="the user's Windows session ended" status="..."` line.
 
 ## What agents are told
 
@@ -130,6 +137,34 @@ next turn runs in Session 0.
   out the engine logs once `the sign-in helper did not register again after
   the engine's start; agents start in Session 0`, and the agent moves down,
   told so.
+- **The session notices end** "orgtree_session tells you where you run at any
+  time."
+
+## Asking where you run: `orgtree_session`
+
+The user, 2026-10-16 11:01Z: "allow agents to query the current machine
+state: whether its logged in, and whether their current turn is running on
+session 0 or the logged in session (and whether or not their next turn will
+change)" (docket `let-agents-query-machine-sign-in-state-and-which`, decision
+84). `orgtree_session` takes no arguments and needs no tool group, like
+`orgtree_status`, so every agent has it on every harness
+(`tools/session.rs`). It answers:
+
+| Field | From |
+|---|---|
+| `signed_in` | `core_state::sessions`, the core monitor's reading of the engine user's Windows sessions (console, remote or disconnected), so a debug rig engine's stand-in `<data>\core-rig-signed-out` applies; `null` when Windows cannot say, or not Windows |
+| `this_turn` | the caller's actor (`AgentMsg::Session`, `session_view`): where its CLI runs (`signed-in` when hosted, or when the engine is not in Session 0; else `session0`); `null` with no CLI |
+| `next_turn` | the same actor, by the rule a turn's start applies: `session_host::wanted`, except that a CLI other than Codex that holds background work stays where it is |
+| `next_turn_moves` | `this_turn` and `next_turn` differ |
+| `sign_in_helper` | `credential_bridge.can_host()` |
+| `summary` | the above in sentences, including why a turn stays (background work) or cannot move (no helper) |
+
+Asking the actor from a tool cannot deadlock: Claude's control requests and
+Codex's tool calls are answered in spawned tasks, and the other harnesses
+reach the tools through the engine's `mcp-bridge` pipe. A change to the
+placement rule (`want_hosted`, `codex_seat`) must change `session_view` with
+it. The tool card is new in every agent's tool list, so each agent's prompt
+cache misses once, at its first turn after the upgrade.
 
 ## Decisions beyond the user's words
 
@@ -168,9 +203,23 @@ Measured on branch `rig-opus/session-upgrade` (base `64d862f`); logs in
   `notificationsettings` and `runasadmin` 33/33. Typechecks: root 0 errors,
   renderer 29 and renderer tests 830, the same as at the base.
 
-Not run by rig-opus: the rig proof `tools/rig/proofs/session-upgrade.mjs` (it
-needs a rig home under the operator's profile and an interactive session for
-the helper), the throwaway-task measurement in
+The `orgtree_session` follow-up (decision 84), measured on branch
+`rig-opus/session-query` (base `4ade769`), same logs folder, `sq-*`:
+
+- **Red** at the test commit: `domain::tool_groups` and
+  `runtime::actor::session_end_tests` 3 pass, 2 fail (the tool is not served;
+  a deliberate end would resume).
+- **Green** at the tip: those plus `runtime::actor`, `tools::`,
+  `domain::runtime_notices`, `codex_kills` and `runtime::session_host`, 30/30;
+  `cargo check --all-targets` with no warning; clippy with no warning on a
+  changed line; the `x86_64-linux-android` check with the same 4 known
+  warnings; `tests/skills-tree-coverage.test.mjs` with only its known
+  failure (two canvas background labels, the same at the base); the source
+  audits as at the base.
+
+Not run by rig-opus: the rig proofs `tools/rig/proofs/session-upgrade.mjs` and
+`session-query.mjs` (they need a rig home under the operator's profile and an
+interactive session for the helper; rig-sol-b runs them in review), the throwaway-task measurement in
 `tests/disruptive/run-on-startup.test.mjs` (updated for two tasks; it
 registers real per-user tasks), and any build, installation or real task.
 

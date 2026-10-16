@@ -1207,7 +1207,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
     session; the helper starts only `hostable()` file names, so a new harness
     adds its executable there;
   - a hosted CLI that ends while the helper is gone ends its turn as "the
-    user's Windows session ended", never as a failure;
+    user's Windows session ended", never as a failure, and one new turn
+    resumes it at once in Session 0, unless the turn had been ended on purpose
+    (interrupt, halt, time limit, retirement: `continues_in_session0`); the
+    kill record gets a `codex-session-ended` line;
+  - `orgtree_session` (no tool group, like `orgtree_status`) answers from the
+    caller's actor (`AgentMsg::Session`, `session_view`) by the rule a turn's
+    start applies: change `want_hosted` or `codex_seat` and `session_view`
+    changes with it;
   - session notices go out only on a real move (the last placement is
     `ot.agents.extra.session`); the restart notice's "Session access at start"
     line is added at delivery; an agent last in the signed-in session waits
@@ -1216,10 +1223,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
     through `startEngineTask()`, which is the boot task. Never run the console
     `orgtree-engine.exe` from an interactive-token task: it opens a window at
     every sign-in.
-  [decided: user 2026-10-16 09:37Z-09:43Z, coordinator rulings A-E 09:43Z;
-  verified: `tools/boot-engine-task.ps1`, `apps/desktop/main/runonstartup.ts`,
-  `src/runtime/session_host.rs`, `src/runtime/actor.rs`; details
-  `docs/rust-engine/run-on-boot.md`, decision 83, which replaced decision 79]
+  [decided: user 2026-10-16 09:37Z-09:43Z, 11:01Z and 11:03Z, coordinator
+  rulings A-E 09:43Z; verified: `tools/boot-engine-task.ps1`,
+  `apps/desktop/main/runonstartup.ts`, `src/runtime/session_host.rs`,
+  `src/runtime/actor.rs`, `src/tools/session.rs`; details
+  `docs/rust-engine/run-on-boot.md`, decisions 83 (which replaced decision 79)
+  and 84]
 - **Ending an engine's task does not stop a boot engine.** Since the
   core-lifecycle recovery (2026-10-12) an engine outlives its host, and a task
   End ends only the host. A manual End on the boot task therefore still leaves

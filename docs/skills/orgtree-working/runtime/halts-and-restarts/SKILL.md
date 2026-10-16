@@ -30,10 +30,11 @@ No agent tool in this section restarts the whole app or changes its startup conf
 
 ## Session 0 and the signed-in session
 
-On an all-users Windows installation the background engine runs in Windows Session 0 from boot. While the user is signed in, your CLI runs in their session, with their desktop and apps; otherwise it runs in Session 0, where there is no desktop: GUI apps, screen captures and anything needing the user's interactive sign-in do not work. You move only between turns, never during one. The turn where a move took effect carries an `[ORGTREE SESSION NOTICE]` saying where you now run, and a restart notice ends with `Session access at start: Session 0.` or `Session access at start: signed-in session.`. No notice means you run where you did. If the user signs out during your turn, that turn stops ("the user's Windows session ended") and you are woken to continue in Session 0: check what the cut turn already did before repeating anything.
+On an all-users Windows installation the background engine runs in Windows Session 0 from boot. While the user is signed in, your CLI runs in their session, with their desktop and apps; otherwise it runs in Session 0, where there is no desktop: GUI apps, screen captures and anything needing the user's interactive sign-in do not work. You move only between turns, never during one. The turn where a move took effect carries an `[ORGTREE SESSION NOTICE]` saying where you now run, and a restart notice ends with `Session access at start: Session 0.` or `Session access at start: signed-in session.`. No notice means you run where you did. If the user signs out during your turn, that turn stops ("the user's Windows session ended") and a new turn starts at once in Session 0, as after an engine restart mid-turn (a turn that was interrupted or halted is not resumed): check what the cut turn already did before repeating anything. To see where you run right now, and whether your next turn moves, call [`orgtree_session`](../tool-session/SKILL.md).
 
 ## See also
 
 - [orgtree-tool-halt](../tool-halt/SKILL.md)
+- [orgtree-tool-session](../tool-session/SKILL.md)
 - [orgtree-tool-interrupt](../tool-interrupt/SKILL.md)
 - `orgtree-kill-switch` (orgtree-app › app-shell)

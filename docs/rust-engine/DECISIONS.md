@@ -1021,3 +1021,23 @@ All entries are dated 2026-10-06 unless stated otherwise.
       background work runs; the Claude keepalive CLI stays in Session 0.
     Details, verification and limits: [`run-on-boot.md`](run-on-boot.md); proofs
     `tools/rig/proofs/session-upgrade.mjs` and `codex-host.mjs`.
+
+84. **Agents can ask where their turns run, and a turn the sign-out cut off resumes at once**
+    (user 2026-10-16 11:01Z and 11:03Z; docket `let-agents-query-machine-sign-in-state-and-which`,
+    on decision 83).
+    - **`orgtree_session`**, with no arguments and no tool group (like `orgtree_status`: every
+      agent has it on every harness), answers whether the operator is signed in, whether the
+      caller's current turn runs in Session 0 or the signed-in session, where its next turn will
+      run and whether that is a move, and whether the sign-in helper is connected. The caller's
+      own actor answers for the turns, by the rule it applies when a turn starts; Windows answers
+      for the sign-in (`core_state::sessions`, as the core monitor reads it). Chosen as a tool
+      rather than a field on another tool because no other read-only tool is available to every
+      agent.
+    - **Sign-out resume:** a turn whose hosted CLI ends with the user's session is resumed at once
+      by one new turn in Session 0, woken as a turn cut off by an engine restart is. A turn that
+      was interrupted, halted, timed out or retired is not resumed (`continues_in_session0`). The
+      end is logged and written to the kill record as `codex-session-ended`, with the pid and exit
+      status: Windows ended the CLI, not the engine.
+    - The new tool card changes every agent's tool list: one prompt-cache miss per agent, at its
+      first turn after the upgrade.
+    Details: [`run-on-boot.md`](run-on-boot.md); proof `tools/rig/proofs/session-query.mjs`.
