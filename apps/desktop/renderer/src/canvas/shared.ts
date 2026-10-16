@@ -1241,6 +1241,9 @@ export interface CanvasScope {
    *  the app-wide default */
   account_fallback?: boolean
   prefer_reserve?: boolean
+  /** where its CLI runs among the user's Windows sessions: absent = any
+   *  signed-in session (NodeScope.session) */
+  session?: string | string[]
 }
 
 /** the app-level event feeds OrgCanvas rides (produced by App's WS handler) */

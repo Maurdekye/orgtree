@@ -94,6 +94,11 @@ export interface NodeScope {
    *  subcategory of the tier, never a tier of its own. Absent = the tier
    *  default; the ledger re-validates it against the node's current tier. */
   model_version?: string
+  /** where the agent's CLI runs among the user's Windows sessions (user
+   *  2026-10-16 12:08Z-12:13Z): absent = any signed-in session; 'session0',
+   *  'console', 'remote', or an ordered list of kinds (orgtree_session
+   *  `prefer`); Session 0 is always the fallback */
+  session?: string | string[]
   /** item 12 (user ruling 2026-09-04): does a luna try the reserve pool
    *  FIRST (true — the default, and what ABSENT means) or its plan pool
    *  first (false)? The other pool is the fallback either way. Stored for

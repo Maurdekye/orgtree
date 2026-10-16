@@ -825,6 +825,19 @@ const VISIBLE_AGENTS_HINT = 'Choose how much of the organization this agent can 
 const FILE_ACCESS_HINT = 'Unrestricted access removes approval prompts, including for shared skill files.'
 const ORGTREE_TOOLS_HINT = 'Tools provided by Orgtree to manage work, agents and communication.'
 const MCP_SERVERS_HINT = 'Choose which registered MCP servers the agent can use.'
+const SESSION_HINT = "Where this agent's CLI runs while the user is signed in to Windows. Session 0 has no desktop: no apps, no screenshots. It applies from the agent's next turn."
+const SESSION_OPTIONS: [string, string][] = [
+  ['signed-in', 'Signed-in session when available'],
+  ['console', 'Console session'],
+  ['remote', 'Remote session'],
+  ['session0', 'Always Session 0'],
+]
+/** an ordered list set through orgtree_session, shown as it is */
+const sessionOptions = (current: string): [string, string][] => {
+  if (SESSION_OPTIONS.some(([v]) => v === current)) return SESSION_OPTIONS
+  const words = current.split(',').map((k) => k === 'signed-in' ? 'any signed-in' : k).join(', then ')
+  return [...SESSION_OPTIONS, [current, words.charAt(0).toUpperCase() + words.slice(1) + ' session']]
+}
 const PERMISSION_OPTIONS = [
   ['plan', 'Read only'],
   ['default', 'Ask before changes'],
@@ -1020,6 +1033,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const setTools = set<ToolGrant>('tools', tools)
   const vis = val('vis', scope.org_visibility ?? 'full')
   const setVis = set<string>('vis', vis)
+  const sess = val('sess', Array.isArray(scope.session) ? scope.session.join(',') : scope.session ?? 'signed-in')
+  const setSess = set<string>('sess', sess)
   const charter = val('charter', node.charter ?? '')
   const setCharter = set<string>('charter', charter)
   const teamCharter = val('teamCharter', node.team_charter ?? '')
@@ -1122,6 +1137,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     ...('tools' in edit ? { tools } : {}),
     ...('vis' in edit ? { org_visibility: vis } : {}),
     ...('pm' in edit ? { permission_mode: pm } : {}),
+    ...('sess' in edit ? { session: sess.includes(',') ? sess.split(',') : sess } : {}),
     charter, team_charter: teamCharter, effort,
     auto_cheap_compact: accMode === '' ? {}
       : { enabled: accMode === 'on',
@@ -1464,6 +1480,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             user's act. */}
         <SetRow label="File and command access" hint={FILE_ACCESS_HINT}><select value={pm} onChange={(e) => setPm(e.target.value)}>
           {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></SetRow>
+
+        <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={(e) => setSess(e.target.value)}>
+          {sessionOptions(sess).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></SetRow>
 
         <SetBlock label="Folders" hint={FOLDERS_HINT}><div className="dirlist">
