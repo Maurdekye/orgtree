@@ -233,7 +233,11 @@ saves the preference; undo restores it. `orgtree_session` lists Session 0
 and each hosting session (id, kind, state, user). A debug rig engine lets a
 proof's helper name a synthetic session (`rig_session`, from
 `ORGTREE_RIG_HELPER_SESSION` in a debug helper) described in
-`<data>\rig-sessions.json`. Windows 11 Pro gives a user one interactive
+`<data>\rig-sessions.json`. A helper runs once per Windows session and
+data root (the mutex `Local\OrgtreeCredentialBroker-<root key>`: a second
+start leaves at once, silently); a synthetic-session helper takes its own
+(`...-rig<N>`), so it runs beside the real session's helper. A release
+helper never reads the variable. Windows 11 Pro gives a user one interactive
 session, so two real sessions occur only on Server or multi-session
 editions: proven here with synthetic helpers only.
 
