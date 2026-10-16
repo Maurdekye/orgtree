@@ -580,8 +580,12 @@
 
 - Sibling drag preview is a node-height accent separator: vertical in tree rows,
   radial through the eye in rings. Preserve angular/x drop request semantics;
-  marker geometry is visual-only. See [reorder separator](docs/rust-engine/reorder-separator.md).
-  [decided: user 2026-10-13 18:58UTC; verified: `canvas/reorderpreview.tsx`, `OrgCanvas.tsx`]
+  marker geometry is visual-only. Ring ends use a 16-world-pixel gutter beyond
+  the endpoint card's tangent extent, including a single remaining target;
+  never space the endpoint marker through the unused arc. Between-agent
+  midpoints are unchanged. See [reorder separator](docs/rust-engine/reorder-separator.md).
+  [decided: user 2026-10-13 18:58UTC; coordinator 2026-10-16 13:58UTC;
+  verified: `canvas/reorderpreview.tsx`, `canvas/ringreorder.ts`, `OrgCanvas.tsx`]
 - Tray primary clicks toggle pending or visible org lists; dismissal invalidates
   late activity/HTML loads. Windows tray-induced blur consumes one immediate
   click, while outside dismissals and later clicks remain usable. Preserve the
