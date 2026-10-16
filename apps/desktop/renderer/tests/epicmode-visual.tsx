@@ -168,39 +168,84 @@ interface CaretRecord {
   /** where the caret really is */
   tx: number
   ty: number
+  /** the character a typing effect is for, which lands at the caret */
+  typed: string
+  /** the caret's line (from 0), the lines the fixture's model breaks the text
+   *  into, and the lines the textarea itself lays it out in */
+  line: number
+  lines: number
+  areaLines: number
+  /** the field's own scroll, down */
+  scrollTop: number
   /** where the effect's sparks were drawn */
   drawn: { x: number; y: number }[]
   /** when it was cued (ms, the page's clock) */
   t: number
 }
 
-/** Where the caret really is: the text before it laid out by the browser in
- *  the field's own font, in an unscaled probe, carried onto the screen by the
- *  scale the fixture itself applied (data-scale), never by anything measured
- *  from the field's transformed box — independent of how the director
- *  estimates it. */
-function trueCaret(field: HTMLTextAreaElement): { x: number; y: number } {
+const FONT = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'fontVariant',
+  'fontKerning', 'fontFeatureSettings', 'letterSpacing', 'wordSpacing'] as const
+
+/** Where the caret really is, worked out apart from the director. The text is
+ *  broken into lines as the browser breaks plain words and single spaces: at
+ *  every newline, and before a word that would overflow the field's content
+ *  width (a space at the end of a line hangs there), each line measured by an
+ *  unscaled probe in the field's own font. A typed character is placed where
+ *  it lands in the text it makes, so a word that no longer fits takes it down
+ *  a line; every other effect is placed at the caret. The textarea's own count
+ *  of lines for the same text (a hidden textarea of the same content width and
+ *  font) checks the model. The spot is carried onto the screen by the scale
+ *  the fixture itself applied (data-scale), never by anything measured from
+ *  the field's transformed box. */
+function trueCaret(field: HTMLTextAreaElement, typed: string): Omit<CaretRecord, 'kind' | 'desk' | 'value' | 'caret' | 'x' | 'y' | 'drawn' | 't'> {
   const s = Number(field.dataset.scale)
   const style = getComputedStyle(field)
-  const lines = field.value.slice(0, field.selectionStart ?? field.value.length).split('\n')
+  const start = field.selectionStart ?? field.value.length
+  const text = typed ? field.value.slice(0, start) + typed + field.value.slice(field.selectionEnd ?? start) : field.value
+  const width = field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+  const lineHeight = parseFloat(style.lineHeight)
   const probe = document.createElement('span')
   probe.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;white-space:pre'
-  for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'fontVariant',
-    'fontKerning', 'fontFeatureSettings', 'letterSpacing', 'wordSpacing'] as const) probe.style[p] = style[p]
-  probe.textContent = lines[lines.length - 1] ?? ''
+  for (const p of FONT) probe.style[p] = style[p]
   document.body.append(probe)
-  const width = probe.getBoundingClientRect().width
+  const measure = (t: string) => { probe.textContent = t; return probe.getBoundingClientRect().width }
+  // each line as [first, end): a newline belongs to the line it ends
+  const lines: [number, number][] = []
+  let at = 0
+  for (const hard of text.split('\n')) {
+    let first = at, last = at
+    for (const word of hard.matchAll(/[^ ]+/g)) {
+      const from = at + word.index!, to = from + word[0].length
+      if (last === first || measure(text.slice(first, to)) <= width) last = to
+      else { lines.push([first, from]); first = from; last = to }
+    }
+    at += hard.length + 1
+    lines.push([first, at])
+  }
+  const line = lines.findIndex(([a, b]) => start >= a && start < b)
+  const x = measure(text.slice(lines[line]![0], start))
   probe.remove()
+  const area = document.createElement('textarea')
+  area.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;box-sizing:content-box;width:${width}px;height:0;padding:0;border:0;overflow:hidden`
+  for (const p of [...FONT, 'lineHeight', 'whiteSpace', 'overflowWrap', 'wordBreak'] as const) area.style[p] = style[p]
+  document.body.append(area)
+  area.value = text
+  const areaLines = Math.round(area.scrollHeight / lineHeight)
+  area.remove()
   const box = field.getBoundingClientRect()
   return {
-    x: box.left + s * (field.clientLeft + parseFloat(style.paddingLeft) + width - field.scrollLeft),
-    y: box.top + s * (field.clientTop + parseFloat(style.paddingTop) + (lines.length - 0.5) * parseFloat(style.lineHeight) - field.scrollTop),
+    tx: box.left + s * (field.clientLeft + parseFloat(style.paddingLeft) + x - field.scrollLeft),
+    ty: box.top + s * (field.clientTop + parseFloat(style.paddingTop) + (line + 0.5) * lineHeight - field.scrollTop),
+    typed, line, lines: lines.length, areaLines, scrollTop: field.scrollTop,
   }
 }
 
 const CARET_KINDS: ReadonlySet<Kind> = new Set<Kind>(['type', 'enter', 'erase'])
 const carets: CaretRecord[] = []
 let drawing: CaretRecord | null = null
+/** the last key pressed, noted before the director sees it: what a typing
+ *  effect is for */
+let lastKey = ''
 const burst = Stage.prototype.burst
 Stage.prototype.burst = function (this: Stage, ...args: Parameters<Stage['burst']>) {
   drawing?.drawn.push({ x: args[0], y: args[1] })
@@ -212,9 +257,9 @@ function recordCarets(show: EpicShow): void {
   show.cue = (kind, ev = {}) => {
     const field = ev.spot?.el
     if (!CARET_KINDS.has(kind) || !ev.spot || !(field instanceof HTMLTextAreaElement)) return cue(kind, ev)
-    const truth = trueCaret(field)
     const record: CaretRecord = { kind, desk: field.getAttribute('data-first-use-chat'), value: field.value,
-      caret: field.selectionStart ?? -1, x: ev.spot.x, y: ev.spot.y, tx: truth.x, ty: truth.y, drawn: [], t: performance.now() }
+      caret: field.selectionStart ?? -1, x: ev.spot.x, y: ev.spot.y, ...trueCaret(field, kind === 'type' ? lastKey : ''),
+      drawn: [], t: performance.now() }
     carets.push(record)
     drawing = record
     try { cue(kind, ev) } finally { drawing = null }
@@ -358,6 +403,10 @@ declare global {
       pan(dx: number, dy: number): void
       /** the stage canvas's box: it must be the window's */
       stageBox(): { left: number; top: number; width: number; height: number } | null
+      /** make `desk`'s composer narrow, holding `start`: just wide enough
+       *  (3px to spare) for `start` and `fits` after it, so the next word typed
+       *  goes down a line. Its width in its own px. */
+      narrow(desk: string, start: string, fits: string): number
     }
     __wheel?: {
       /** the canvas, cto's pinned chat and the open agents list are all drawn */
@@ -391,6 +440,8 @@ if (scene === 'switch') {
     addPin('mine', 'cto', { x: 560, y: 60, w: 410, h: 470 })
     recordWheels()
   }
+  // noted before the director, which listens from EPIC Mode's start
+  if (typing) window.addEventListener('keydown', e => { lastKey = e.key }, true)
   root.render(typing ? <TypingOrg {...camera} /> : wheel ? <WheelOrg /> : <FakeOrg />)
   const api: NonNullable<Window['__epic']> = {
     show: null,
@@ -449,6 +500,21 @@ if (scene === 'switch') {
       stageBox() {
         const r = document.querySelector('canvas.epic-stage')?.getBoundingClientRect()
         return r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null
+      },
+      narrow(desk, start, fits) {
+        const field = document.querySelector<HTMLTextAreaElement>(`textarea[data-first-use-chat="${desk}"]`)!
+        const style = getComputedStyle(field)
+        const probe = document.createElement('span')
+        probe.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;white-space:pre'
+        for (const p of FONT) probe.style[p] = style[p]
+        probe.textContent = start + fits
+        document.body.append(probe)
+        const width = Math.ceil(probe.getBoundingClientRect().width) + 3
+        probe.remove()
+        field.style.flex = 'none'
+        field.style.width = `${width}px`
+        field.value = start
+        return field.clientWidth
       },
     }
   }

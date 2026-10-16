@@ -184,7 +184,8 @@ app.whenReady().then(async () => {
     const native = async k => {
       const before = await fieldValue()
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: k })
-      if (k.length === 1) win.webContents.sendInputEvent({ type: 'char', keyCode: k })
+      // a character, or Enter's newline: the editor inserts on the char event
+      if (k.length === 1 || k === 'Enter') win.webContents.sendInputEvent({ type: 'char', keyCode: k })
       win.webContents.sendInputEvent({ type: 'keyUp', keyCode: k })
       for (let i = 0; i < 40 && (await fieldValue()) === before; i++) await sleep(10)
       await sleep(60)
@@ -194,7 +195,7 @@ app.whenReady().then(async () => {
       await js(`(() => { const t = document.activeElement, key = ${JSON.stringify(k)}
         t.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
         if (key === 'Backspace') { const p = t.selectionStart; if (p > 0) t.setRangeText('', p - 1, p, 'end') }
-        else t.setRangeText(key, t.selectionStart, t.selectionEnd, 'end')
+        else t.setRangeText(key === 'Enter' ? '\\n' : key, t.selectionStart, t.selectionEnd, 'end')
         t.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })); return true })()`)
       await sleep(70)
     }
@@ -256,6 +257,67 @@ app.whenReady().then(async () => {
         receipt.atCaret = receipt.valueAsTyped && receipt.effects === want && receipt.onlyThisDesk
           && receipt.maxDx <= TOLERANCE && receipt.maxDy <= TOLERANCE && receipt.drawnAtSpot && receipt.stageIsWindow
         if (!receipt.atCaret) failed.push(`${c.name}/${desk}: maxDx ${receipt.maxDx} maxDy ${receipt.maxDy} effects ${receipt.effects}/${want} value ${receipt.valueAsTyped}`)
+        receipts.push(receipt)
+        await js(`window.__epic.stop(); true`)
+        write(false)
+      }
+    }
+
+    // Past a full line (user report 2026-10-16, 4.3.1-alpha.1: the sparks
+    // stayed at the end of the first line instead of following the caret onto
+    // the second). Each desk's composer is made narrow, holding the start of a
+    // sentence with room for one more short word; typing the rest wraps the
+    // next word onto the second line, the keystroke that moves it included.
+    // Enter then starts a third line, which scrolls the two-row box and brings
+    // in its scrollbar, narrowing the lines; typing goes on there, and
+    // Backspace. The fixture's true caret breaks the text into lines itself,
+    // and every record's count of lines is checked against the textarea's own.
+    const WRAP_START = 'the sparks follow', WRAP_FITS = ' the', WRAP_TYPED = ' the caret'
+    for (const c of typingCases) {
+      for (const desk of c.desks) {
+        await typingPage(c.z, c.theme)
+        const width = await js(`window.__typing.narrow(${JSON.stringify(desk)}, ${JSON.stringify(WRAP_START)}, ${JSON.stringify(WRAP_FITS)})`)
+        const focused = await focusAt(desk, 'end')
+        win.webContents.focus()
+        await typeText(WRAP_TYPED)
+        const name = `typing-wrap-${c.name}-${desk}`
+        await shot(name)
+        await press('Enter')
+        await typeText('go')
+        await shot(`${name}-scrolled`)
+        await press('Backspace')
+        const state = await js(`(() => ({ value: document.querySelector('textarea[data-first-use-chat="${desk}"]').value,
+          scale: Number(document.querySelector('textarea[data-first-use-chat="${desk}"]').dataset.scale),
+          carets: window.__typing.carets.splice(0), stage: window.__typing.stageBox(), size: { w: innerWidth, h: innerHeight } }))()`)
+        const expected = WRAP_START + WRAP_TYPED + '\ng'
+        const want = WRAP_TYPED.length + 4
+        const off = state.carets.map((r, i) => ({ kind: r.kind, typed: r.typed, caret: r.caret, line: r.line, lines: r.lines, areaLines: r.areaLines,
+          scrollTop: r.scrollTop, dx: +(r.x - r.tx).toFixed(2), dy: +(r.y - r.ty).toFixed(2),
+          drawn: r.drawn.length, drawnOff: r.drawn.length ? +Math.max(...r.drawn.map(d => Math.hypot(d.x - r.x, d.y - r.y))).toFixed(3) : null,
+          sincePrevious: i ? Math.round(r.t - state.carets[i - 1].t) : null }))
+        const worst = axis => off.length ? Math.max(...off.map(o => Math.abs(o[axis]))) : null
+        const enter = off.findIndex(o => o.kind === 'enter')
+        const receipt = {
+          typing: `wrap-${c.name}`, theme: c.theme, z: c.z, desk, scale: state.scale, width, input, focused,
+          shots: [name, `${name}-scrolled`],
+          value: state.value, valueAsTyped: state.value === expected,
+          effects: off.length, effectsExpected: want, onlyThisDesk: state.carets.every(r => r.desk === desk),
+          kinds: off.map(o => o.kind).join(','), lineOfEach: off.map(o => o.line).join(','),
+          // the model of the wrapping agrees with the textarea, every time
+          linesAsLaidOut: off.length > 0 && off.every(o => o.lines === o.areaLines),
+          // typing went onto a second line before any Enter, and the box scrolled
+          wrapped: enter > 0 && off.slice(0, enter).some(o => o.kind === 'type' && o.line >= 1),
+          scrolled: off.some(o => o.scrollTop > 0),
+          maxDx: worst('dx'), maxDy: worst('dy'), tolerance: TOLERANCE,
+          drawnAtSpot: off.length > 0 && off.every(o => o.drawn > 0 && o.drawnOff <= 0.01),
+          stageIsWindow: !!state.stage && state.stage.left === 0 && state.stage.top === 0
+            && state.stage.width === state.size.w && state.stage.height === state.size.h,
+          perEffect: off,
+        }
+        receipt.atCaret = receipt.valueAsTyped && receipt.effects === want && receipt.onlyThisDesk && receipt.linesAsLaidOut
+          && receipt.wrapped && receipt.scrolled
+          && receipt.maxDx <= TOLERANCE && receipt.maxDy <= TOLERANCE && receipt.drawnAtSpot && receipt.stageIsWindow
+        if (!receipt.atCaret) failed.push(`wrap-${c.name}/${desk}: maxDx ${receipt.maxDx} maxDy ${receipt.maxDy} effects ${receipt.effects}/${want} value ${receipt.valueAsTyped} lines ${receipt.linesAsLaidOut} wrapped ${receipt.wrapped} scrolled ${receipt.scrolled}`)
         receipts.push(receipt)
         await js(`window.__epic.stop(); true`)
         write(false)

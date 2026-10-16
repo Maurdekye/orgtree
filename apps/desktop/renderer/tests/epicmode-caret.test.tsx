@@ -15,6 +15,13 @@
 // canvas (epicmode-fakes answers null) the director measures text at 7px a
 // character. Real layout, real transforms and real keystrokes are checked in
 // Electron by tools/rig/epic-mode-visual.mjs (the typing scene).
+//
+// A line that wraps at the field's edge (user report 2026-10-16: past a full
+// line the sparks stayed at the end of the first) needs the browser's own
+// layout: the director lays the text out in a hidden copy of the field, which
+// jsdom cannot, so here it falls back to newlines alone. The wrapping is
+// checked in Electron (the typing scene's narrow composers); here, only that
+// the copy leaves nothing behind.
 
 import './harness'
 import test from 'node:test'
@@ -121,4 +128,21 @@ test('scrolled fields: the scroll is in the field\'s own px, so it scales with t
     const three = await press(run, area, 'one\ntwo\nthree', 's')
     near(three.spot, LEFT + 5 * CHAR * 0.5, TOP + (2.5 * LINE - LINE) * 0.5, 'the scrolled textarea')
   } finally { input.remove(); area.remove(); show.stop() }
+})
+
+test('placing the sparks leaves nothing in the document: no element, none of the draft', async () => {
+  const show = startEpic({ audio: null, greet: 'none' })
+  const run = { seen: watch(show) }
+  const el = field('textarea', 1)
+  // a content width, so the director does make its copy (jsdom lays nothing out)
+  Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => W })
+  const elements = () => [...document.body.children].filter(e => !e.matches('canvas.epic-stage')).length
+  const before = elements()
+  try {
+    await press(run, el, 'a secret draft, long enough to wrap\nonto a second line', 'x')
+    await press(run, el, 'a secret draft', 'Enter')
+    await press(run, el, 'a secret draft', 'Backspace')
+    assert.equal(elements(), before, 'no element left in the document')
+    assert.equal((document.body.textContent ?? '').includes('secret'), false, 'no copy of the draft left in the document')
+  } finally { el.remove(); show.stop() }
 })
