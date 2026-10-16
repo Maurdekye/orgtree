@@ -5,9 +5,10 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 165,
+  "leaves": 166,
   "tools": 44,
-  "total": 185
+  "concepts": 45,
+  "total": 186
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -19,7 +20,8 @@
   "agentsettings-sol": 9,
   "hubchat-dm-sol": 1,
   "usage-query-sol": 1,
-  "rig-opus": 1
+  "rig-opus": 1,
+  "session0-docs-luna": 1
  },
  "nodes": [
   {
@@ -1451,6 +1453,7 @@
     "tool-status",
     "tool-next-turn",
     "tool-session",
+    "session-0-ui-testing",
     "tool-interrupt",
     "tool-halt",
     "tool-unhalt",
@@ -1557,6 +1560,37 @@
     "halts-and-restarts",
     "turns-and-wakes",
     "turn-envelope"
+   ]
+  },
+  {
+   "path": "orgtree-working/runtime/session-0-ui-testing",
+   "name": "orgtree-session-0-ui-testing",
+   "level": 3,
+   "kind": "concept",
+   "covers": [
+    "concept:session-0-ui-testing"
+   ],
+   "purpose": "Session 0 has no interactive desktop; check your session and use reliable UI-test patterns.",
+   "must_cover": [
+    "Session 0 desktop limitations and failure modes",
+    "check current session before UI work",
+    "posted window messages with a positive control",
+    "hidden/offscreen Electron capture timing and size constraints",
+    "one-off interactive scheduled-task route with temporary userData",
+    "name the session constraint when assigning UI work"
+   ],
+   "sources": [
+    "_shared/feedback-4.3.1.md §5.1",
+    "docs/rust-engine/test-rig.md:347-371",
+    "tools/rig/proofs/session-query.mjs",
+    "tools/rig/proofs/credential-broker.mjs"
+   ],
+   "writer": "session0-docs-luna",
+   "status": "fixed",
+   "see_also": [
+    "tool-session",
+    "turns-and-wakes",
+    "builds-under-the-lock"
    ]
   },
   {

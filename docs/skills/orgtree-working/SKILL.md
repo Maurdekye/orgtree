@@ -40,6 +40,7 @@ Open a section below, then the specific tool or workflow leaf it lists. The tool
 | Read earlier correspondence | [orgtree-mail](mail/SKILL.md) |
 | Ask a desktop question or request access | [orgtree-user](user/SKILL.md) |
 | Present a document or deliver a file | [orgtree-user](user/SKILL.md) |
+| Test desktop UI while running in Session 0 | [orgtree-runtime](runtime/SKILL.md) |
 | Understand turns, wakes and stopping controls | [orgtree-runtime](runtime/SKILL.md) |
 | Compact context or recover after a restart | [orgtree-runtime](runtime/SKILL.md) |
 | Wait for an event without polling | [orgtree-watchdogs](watchdogs/SKILL.md) |
