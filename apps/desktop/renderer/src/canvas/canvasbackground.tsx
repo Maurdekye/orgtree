@@ -13,13 +13,19 @@
  * full strength in the current theme's colours, and one number fades the
  * whole layer — the same compositing as mixing alpha into every colour.
  *
- * The flowing-ASCII theme is the one animated layer: a <canvas> painted
- * from pre-rendered glyph sprites (asciifield.ts has the model), reading
- * the camera from viewRef so panning never re-renders it, throttled to
- * ~30 fps, paused while the document or the canvas world is hidden, and
- * reduced to a single still frame under prefers-reduced-motion. Its cost
- * is bounded by the viewport (asciiStep's cell budget), never by the size
- * of the organization.
+ * The flowing-ASCII theme is the one animated layer: a WebGL2 wind-field
+ * + glyph renderer (asciifield.ts has the model, asciigl.ts the pipeline),
+ * independently re-implemented from a prose/math study of the Claude Code
+ * backdrop under the user's 2026-10-15 exact-match ruling. It reads the
+ * camera from viewRef so panning never re-renders React, runs on a
+ * fault-tolerant scheduler with a minutes-long power budget that settles
+ * to calm, pauses hidden, stirs under the pointer (taps ripple; every
+ * third is a heart), and reduces to still frames under
+ * prefers-reduced-motion. Its cost is bounded by the viewport (the grid's
+ * device-pixel budget), never by the size of the organization. Where
+ * WebGL2 or a hardware GL pipeline is unavailable it simply doesn't
+ * appear. Field coordinates are WORLD units (the layer pans/zooms like a
+ * floor); at view (0,0, zoom 1) frames coincide with the reference's.
  *
  * EPIC Mode needs nothing from this layer: its stage is a fixed overlay
  * far above the canvas (epic/stage.ts), so the two coexist as independent,
@@ -30,7 +36,10 @@ import { useCanvasBackground } from '../canvasbgpref'
 import { DEFAULT_CANVAS_INTENSITIES } from '../../../../../packages/contracts/canvas-background'
 import type { CanvasBackgroundTheme } from '../../../../../packages/contracts/canvas-background'
 import type { View } from './shared'
-import { ASCII_BUCKETS, ASCII_CELL_H, ASCII_CELL_W, ASCII_GLYPHS, asciiBucket, asciiField, asciiGlyphAt, asciiStep } from './asciifield'
+import { ASCII_CONFIG, createTouch, gridFor, pickLook, smooth01, visitFromSeed } from './asciifield'
+import type { AsciiTouchFrame, AsciiVisit, GlyphPoolKey } from './asciifield'
+import { createAsciiRenderer } from './asciigl'
+import type { AsciiLayout, AsciiRenderer } from './asciigl'
 
 /* The ORIGINAL dot grid's pan rate relative to the foreground's (user
  * feature 2026-09-03, moved here from OrgCanvas with the layer): kept close
@@ -117,164 +126,464 @@ export function CanvasBackground({ view, viewRef, hidden }: {
 }
 
 /* ── the flowing-ASCII layer ──────────────────────────────────────────────
- * Glyphs are pre-rendered once per brightness bucket into sprite sheets
- * (one row of the whole glyph pool, tinted from the theme's accent mixed
- * toward its dim ink — the reference's faint steel tint, in whichever
- * colours the current visual theme declares). A frame is then nothing but
- * drawImage calls for the cells whose field value clears the bucket floor;
- * the reference's dark negative space costs one field sample and no paint.
- * Sheets rebuild only when the theme colours actually change (observed,
- * debounced — an animated rainbow accent rebuilds at most ~3×/s). */
+ * Orchestration around the GL renderer, mirroring the reference's own
+ * lifecycle: capability gate → font wait → renderer → resize-driven grid;
+ * a setTimeout→rAF frame loop over accumulated animation time A (frame
+ * deltas clamped to 250 ms) advancing field time M by dt·energy·N·re,
+ * where N is the settle fade past the 180 s budget deadline P and re the
+ * resume fade — so the wind itself slows to a stop as the budget ends,
+ * then the loop parks (state "calm") until roused by visibility, focus,
+ * pointer or keys. Late frames and GPU fence misses strike toward an
+ * 83 ms backoff, then a doubling retry (60 s → 480 s); >50 ms stalls go
+ * straight there. Everything stops while hidden. */
 
-const SHEET_GW = 24
-const SHEET_GH = 44
-const ASCII_DPR_CAP = 2
-const ASCII_FRAME_MS = 33
-const ASCII_TINT_MIX = 0.6
-/** Per-bucket glyph alpha before the theme intensity. The reference's ink
- *  is very faint (median ~+20 luminance over its near-black), so even the
- *  top bucket stays well under full strength; the first capture round's
- *  linear 0.18..1 ramp read as uniform bright soup. */
-const BUCKET_ALPHA = [0.08, 0.18, 0.32, 0.52, 0.78]
-const ASCII_REBUILD_MS = 350
+const LOOK_HISTORY_KEY = 'orgtree.canvasBg.asciiLookHistory'
+const LOOK_HISTORY_MAX = 3
+const INTERACTIVE = 'a, button, input, textarea, select, [contenteditable], [draggable="true"], '
+  + '[tabindex], [role="button"], [role="textbox"], .sq'
 
-interface Rgb { r: number; g: number; b: number }
-function parseColour(text: string): Rgb | null {
-  const m = /rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/.exec(text)
-  if (m) return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]) }
-  const h = /^#([0-9a-f]{6})$/i.exec(text.trim())
-  if (h) { const n = parseInt(h[1]!, 16); return { r: n >> 16, g: (n >> 8) & 255, b: n & 255 } }
-  return null
+function loadLookHistory(win: Window | null): string[] {
+  try {
+    const raw = win?.localStorage.getItem(LOOK_HISTORY_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch { return [] }
 }
-const mixColour = (a: Rgb, b: Rgb, t: number): string =>
-  `rgb(${Math.round(a.r + (b.r - a.r) * t)}, ${Math.round(a.g + (b.g - a.g) * t)}, ${Math.round(a.b + (b.b - a.b) * t)})`
+function saveLookHistory(win: Window | null, history: readonly string[], look: string): void {
+  try {
+    win?.localStorage.setItem(LOOK_HISTORY_KEY, JSON.stringify([look, ...history].slice(0, LOOK_HISTORY_MAX)))
+  } catch { /* history is a nicety, never a blocker */ }
+}
+function randomSeed(win: Window | null): number {
+  try {
+    const buf = new Uint32Array(1)
+    win?.crypto.getRandomValues(buf)
+    return buf[0] || 1
+  } catch { return 1 }
+}
+/** Resolve any CSS colour to rgb+alpha in [0,1] via a 1px canvas. */
+function sampleColour(doc: Document, css: string): { rgb: [number, number, number]; alpha: number } {
+  const c = doc.createElement('canvas')
+  c.width = 1
+  c.height = 1
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return { rgb: [1, 1, 1], alpha: 1 }
+  ctx.fillStyle = '#000'
+  ctx.fillStyle = css
+  ctx.fillRect(0, 0, 1, 1)
+  const d = ctx.getImageData(0, 0, 1, 1).data
+  return { rgb: [(d[0] ?? 255) / 255, (d[1] ?? 255) / 255, (d[2] ?? 255) / 255], alpha: (d[3] ?? 255) / 255 }
+}
 
-function AsciiLayer({ view, viewRef, hidden, intensity }: {
+/** Test/fixture pin: fixed seed (and optionally pool) instead of a
+ *  per-mount crypto draw. Production never passes it. */
+export interface AsciiPin { seed: number; pool?: GlyphPoolKey; budgetS?: number }
+export interface AsciiTestApi {
+  visit: AsciiVisit
+  renderer: () => AsciiRenderer | null
+  /** Draw one frame synchronously at the given field time/reveal. */
+  drawAt: (fieldTime: number, reveal?: number) => void
+  tap: (worldX: number, worldY: number) => void
+  state: () => { animTime: number; fieldTime: number; reveal: number; calm: boolean; running: boolean; touchBusy: boolean; datasetState: string }
+}
+
+export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   view: View
   viewRef: { current: View }
   hidden: boolean
   intensity: number
+  pin?: AsciiPin
+  onReady?: (api: AsciiTestApi) => void
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
   const live = useRef({ hidden, intensity })
   live.current = { hidden, intensity }
-  const paintRef = useRef<((t: number) => void) | null>(null)
+  const stillRef = useRef<(() => void) | null>(null)
   const [reduced] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
 
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const doc = canvas.ownerDocument
+    const host = hostRef.current
+    if (!host) return
+    const doc = host.ownerDocument
     const win = doc.defaultView
-    let sheets: HTMLCanvasElement[] = []
-    let builtTint = ''
-    let lastBuild = -Infinity
+    if (!win) return
+    const mq = (q: string): boolean => typeof win.matchMedia === 'function' && win.matchMedia(q).matches
+    if (mq('(prefers-contrast: more)') || mq('(forced-colors: active)')) return
+    let roSupport = true
+    try {
+      const probe = new win.ResizeObserver(() => {})
+      probe.observe(host, { box: 'device-pixel-content-box' })
+      probe.disconnect()
+    } catch { roSupport = false }
+    if (!roSupport) return
+
+    const cfg = ASCII_CONFIG
+    const seed = pin?.seed ?? randomSeed(win)
+    const history = pin ? [] : loadLookHistory(win)
+    const visit = visitFromSeed(seed, pin?.pool ?? pickLook(seed, history))
+    if (!pin) saveLookHistory(win, history, visit.key)
+    const touch = createTouch()
+    const still = reduced
+
+    let cancelled = false
+    let renderer: AsciiRenderer | null = null
+    let dead = false
+    let layoutSig = ''
+    let gridOk = false
+    let shown = false
+    let colourKey = ''
+    let animTime = 0
+    let fieldTime = (seed >>> 0) / 4294967296 * 64
+    const budgetS = pin?.budgetS ?? cfg.power.budgetS
+    let budgetEnd = budgetS
+    let resumeStart = -cfg.power.resumeS
+    let revealStart = 0
+    let calm = false
+    let loopActive = false
+    let timer = 0
     let raf = 0
-    let last = 0
-    let alive = true
+    let rafRequestedAt = 0
+    let lastTsMs: number | null = null
+    let touchEpochS: number | null = null
+    let lateRing: boolean[] = []
+    let lateFaults = 0
+    let strikes = 0
+    let busyWhy = ''
+    let busyOff = false
+    let goodFrames = 0
+    let stallRun = 0
+    let retryS: number = cfg.power.retryS
+    let retryTimer = 0
+    let resizeTimer = 0
+    let firstResize = true
+    let ro: ResizeObserver | null = null
+    let mo: MutationObserver | null = null
+    const parent = host.parentElement
 
-    const tintNow = (): { tint: string; mono: string } => {
-      const cs = win?.getComputedStyle(canvas)
-      const accent = parseColour(cs?.getPropertyValue('--accent') ?? '') ?? { r: 217, g: 119, b: 87 }
-      const dim = parseColour(cs?.getPropertyValue('--dim') ?? '') ?? { r: 157, g: 157, b: 157 }
-      const mono = (cs?.getPropertyValue('--mono') ?? '').trim() || 'Consolas, monospace'
-      return { tint: mixColour(accent, dim, ASCII_TINT_MIX), mono }
+    const touchNow = (): number => {
+      const nowS = performance.now() / 1000
+      if (touchEpochS === null) touchEpochS = nowS
+      return nowS - touchEpochS
     }
-    const buildSheets = (force = false): void => {
-      const now = performance.now()
-      if (!force && now - lastBuild < ASCII_REBUILD_MS) return
-      const { tint, mono } = tintNow()
-      if (!force && tint === builtTint && sheets.length === ASCII_BUCKETS) return
-      lastBuild = now
-      builtTint = tint
-      sheets = []
-      for (let b = 0; b < ASCII_BUCKETS; b++) {
-        const sheet = doc.createElement('canvas')
-        sheet.width = SHEET_GW * ASCII_GLYPHS.length
-        sheet.height = SHEET_GH
-        const ctx = sheet.getContext('2d')
-        if (!ctx) return
-        ctx.font = `${Math.round(SHEET_GH * 0.72)}px ${mono}`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillStyle = tint
-        ctx.globalAlpha = BUCKET_ALPHA[b] ?? 0.78
-        for (let g = 0; g < ASCII_GLYPHS.length; g++) {
-          ctx.fillText(ASCII_GLYPHS[g]!, g * SHEET_GW + SHEET_GW / 2, SHEET_GH / 2 + 1)
-        }
-        sheets.push(sheet)
-      }
+    const setState = (s: string): void => {
+      if (renderer && renderer.canvas.dataset.state !== s) renderer.canvas.dataset.state = s
     }
-
-    const paint = (t: number): void => {
-      const cssW = canvas.clientWidth, cssH = canvas.clientHeight
-      if (!(cssW > 0 && cssH > 0) || sheets.length < ASCII_BUCKETS) return
-      const dpr = Math.min(ASCII_DPR_CAP, win?.devicePixelRatio || 1)
-      const bw = Math.round(cssW * dpr), bh = Math.round(cssH * dpr)
-      if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh }
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
+    const canvasOpacity = (): number => {
+      const cs = win.getComputedStyle(host)
+      const scheme = cs.colorScheme.includes('light') ? 'light' : 'dark'
+      return Math.min(1, Math.min(cfg.strength.base[scheme] * live.current.intensity, cfg.strength.cap[scheme]) * cfg.glow.headroom)
+    }
+    const applyColours = (): void => {
+      if (!renderer || dead) return
+      const cs = win.getComputedStyle(host)
+      const key = `${cs.color} ${cs.colorScheme} ${live.current.intensity}`
+      if (key === colourKey) return
+      colourKey = key
+      const scheme = cs.colorScheme.includes('light') ? 'light' : 'dark'
+      const sampled = sampleColour(doc, cs.color)
+      renderer.setInk(sampled.rgb, sampled.alpha)
+      const glow = cfg.glow.color[scheme]
+      renderer.setGlow([glow[0] ?? 0, glow[1] ?? 0, glow[2] ?? 0])
+      if (shown) renderer.canvas.style.opacity = `${canvasOpacity()}`
+      if (still) drawStill()
+    }
+    const scheduleColours = (): void => {
+      win.requestAnimationFrame(() => { if (!cancelled) applyColours() })
+    }
+    const computeLayout = (): AsciiLayout | null => {
+      const wCss = host.clientWidth, hCss = host.clientHeight
+      if (!(wCss > 0 && hCss > 0)) return null
       const v = viewRef.current
-      const step = asciiStep(v.z, cssW, cssH)
-      const cw = ASCII_CELL_W * step, ch = ASCII_CELL_H * step
-      const cellPw = cw * v.z * dpr, cellPh = ch * v.z * dpr
-      const x0 = (-v.x) / v.z, y0 = (-v.y) / v.z
-      const i0 = Math.floor(x0 / cw), i1 = Math.ceil((x0 + cssW / v.z) / cw)
-      const j0 = Math.floor(y0 / ch), j1 = Math.ceil((y0 + cssH / v.z) / ch)
-      ctx.clearRect(0, 0, bw, bh)
-      ctx.globalAlpha = live.current.intensity
-      for (let j = j0; j <= j1; j++) {
-        const wy = j * ch + ch / 2
-        const sy = (j * ch * v.z + v.y) * dpr
-        for (let i = i0; i <= i1; i++) {
-          const bucket = asciiBucket(asciiField(i * cw + cw / 2, wy, t))
-          if (bucket < 0) continue
-          ctx.drawImage(sheets[bucket]!, asciiGlyphAt(i, j) * SHEET_GW, 0, SHEET_GW, SHEET_GH,
-            (i * cw * v.z + v.x) * dpr, sy, cellPw, cellPh)
-        }
+      const dpr = win.devicePixelRatio || 1
+      const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), v.z * dpr)
+      if (!grid) return null
+      const cellWorldW = grid.cellWidth / grid.scale
+      const cellWorldH = grid.cellHeight / grid.scale
+      const worldLeft = -v.x / v.z, worldTop = -v.y / v.z
+      const i0 = Math.floor(worldLeft / cellWorldW), j0 = Math.floor(worldTop / cellWorldH)
+      const originX = i0 * cellWorldW, originY = j0 * cellWorldH
+      return {
+        grid, originX, originY,
+        sampleX: cellWorldW, sampleY: cellWorldH / 2,
+        canvasSizeX: grid.columns * cellWorldW, canvasSizeY: grid.rows * cellWorldH,
+        calmRadiiX: cfg.card.calmX / v.z, calmRadiiY: cfg.card.calmY / v.z,
+        cellOriginX: i0, cellOriginY: j0,
+        cellCentreX: originX + cellWorldW / 2, cellCentreY: originY + cellWorldH / 2,
+        cellWorldW, cellWorldH,
+        cssLeft: (originX - worldLeft) * v.z, cssTop: (originY - worldTop) * v.z,
+        cssW: grid.columns * cellWorldW * v.z, cssH: grid.rows * cellWorldH * v.z,
       }
-      ctx.globalAlpha = 1
     }
-    paintRef.current = paint
-    buildSheets(true)
-
-    const RO = win?.ResizeObserver
-    const ro = RO ? new RO(() => { if (reduced) paint(0) }) : null
-    ro?.observe(canvas)
-    // the visual theme (dataset, inline vars, rainbow epochs) owns the
-    // colours; follow it without polling getComputedStyle per frame
-    const MO = win?.MutationObserver
-    const mo = MO ? new MO(() => { buildSheets(); if (reduced) paint(0) }) : null
-    mo?.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-visual-theme', 'style', 'class'] })
-
-    if (reduced) {
-      paint(0)
-    } else {
-      const loop = (now: number): void => {
-        if (!alive) return
-        raf = requestAnimationFrame(loop)
-        if (doc.hidden || live.current.hidden) return
-        if (now - last < ASCII_FRAME_MS) return
-        last = now
-        paint(now / 1000)
+    const drawOnce = (time: number, reveal: number): boolean => {
+      if (!renderer || dead) return false
+      const lay = computeLayout()
+      gridOk = lay !== null
+      if (!lay) { setState('unseen'); renderer.canvas.style.display = 'none'; return false }
+      renderer.canvas.style.display = ''
+      const sig = `${lay.grid.columns},${lay.grid.rows},${lay.grid.cellWidth},${lay.grid.scale},${lay.cellOriginX},${lay.cellOriginY}`
+      if (sig !== layoutSig) {
+        if (!renderer.resize(lay)) return false
+        layoutSig = sig
+      } else {
+        renderer.canvas.style.left = `${lay.cssLeft}px`
+        renderer.canvas.style.top = `${lay.cssTop}px`
+        renderer.canvas.style.width = `${lay.cssW}px`
+        renderer.canvas.style.height = `${lay.cssH}px`
       }
-      raf = requestAnimationFrame(loop)
+      const v = viewRef.current
+      const frame: AsciiTouchFrame = touch.frame(touchNow())
+      renderer.draw(time, reveal, frame, {
+        originX: lay.originX, originY: lay.originY,
+        calmCx: (host.clientWidth / 2 - v.x) / v.z,
+        calmCy: (cfg.card.centerY * host.clientHeight - v.y) / v.z,
+      })
+      if (!shown) {
+        shown = true
+        renderer.canvas.style.transition = 'opacity 3000ms'
+        renderer.canvas.style.opacity = `${canvasOpacity()}`
+      }
+      return true
     }
-    return () => {
-      alive = false
-      cancelAnimationFrame(raf)
+    function drawStill(): void {
+      if (drawOnce(fieldTime, 1)) setState('still')
+    }
+    stillRef.current = still ? drawStill : null
+
+    const settleFade = (): number => 1 - smooth01((animTime - budgetEnd) / cfg.power.settleS)
+    const resumeFade = (): number => smooth01((animTime - resumeStart) / cfg.power.resumeS)
+    const revealNow = (): number => (still ? 1 : smooth01((animTime - revealStart) / cfg.wind.revealS) * settleFade())
+    const visibleNow = (): boolean =>
+      !doc.hidden && doc.hasFocus() && !live.current.hidden && host.clientWidth > 0 && host.isConnected
+    const intervalMs = (): number =>
+      busyWhy ? cfg.power.backoffFrameMs
+        : touch.rippling(touchNow()) ? cfg.power.rippleFrameMs : cfg.power.frameMs
+
+    const stopLoop = (): void => {
+      loopActive = false
+      win.clearTimeout(timer)
+      win.cancelAnimationFrame(raf)
+      lastTsMs = null
+    }
+    const enterBusyOff = (why: string): void => {
+      busyOff = true
+      busyWhy = why
+      setState(`busy-${why}`)
+      stopLoop()
+      win.clearTimeout(retryTimer)
+      retryTimer = win.setTimeout(() => {
+        if (cancelled || dead) return
+        busyOff = false
+        busyWhy = ''
+        strikes = 0
+        lateFaults = 0
+        retryS = Math.min(cfg.power.retryMaxS, retryS * 2)
+        tryStart()
+      }, retryS * 1000)
+    }
+    const fault = (why: 'late' | 'gpu' | 'stall'): void => {
+      if (busyOff) return
+      if (why === 'stall') { enterBusyOff(why); return }
+      if (why === 'late') {
+        lateFaults += 1
+        if (lateFaults < 2) return
+        lateFaults = 0
+      }
+      strikes += 1
+      if (strikes >= 2) { enterBusyOff(why); return }
+      busyWhy = why
+      goodFrames = 0
+      setState(`busy-${why}`)
+    }
+    const frame = (tsMs: number): void => {
+      if (cancelled || dead || !loopActive) return
+      const late = performance.now() - rafRequestedAt > 17
+      lateRing = [...lateRing.slice(-9), late]
+      if (lateRing.filter(Boolean).length >= 5) { lateRing = []; fault('late') }
+      if (!loopActive) return
+      if (!visibleNow()) { stopLoop(); return }
+      const dt = lastTsMs === null ? 0 : Math.min(0.25, Math.max(0, (tsMs - lastTsMs) / 1000))
+      lastTsMs = tsMs
+      animTime += dt
+      fieldTime += dt * cfg.wind.energy * settleFade() * resumeFade()
+      const t0 = performance.now()
+      const drew = drawOnce(fieldTime, revealNow())
+      const tookMs = performance.now() - t0
+      stallRun = tookMs > 50 ? stallRun + 1 : 0
+      if (stallRun >= 3) { fault('stall'); return }
+      if (renderer?.fellBehind()) fault('gpu')
+      if (!loopActive) return
+      if (busyWhy) {
+        goodFrames = late ? 0 : goodFrames + 1
+        if (goodFrames >= 30) { busyWhy = ''; setState('moving') }
+      } else if (drew) setState('moving')
+      if (settleFade() <= 0 && !touch.busy(touchNow())) {
+        calm = true
+        setState('calm')
+        if (renderer) renderer.canvas.style.transition = 'opacity 500ms'
+        stopLoop()
+        return
+      }
+      timer = win.setTimeout(() => {
+        rafRequestedAt = performance.now()
+        raf = win.requestAnimationFrame(frame)
+      }, intervalMs())
+    }
+    const tryStart = (): void => {
+      if (cancelled || dead || still || loopActive || busyOff || !renderer) return
+      if (!visibleNow()) return
+      loopActive = true
+      lastTsMs = null
+      rafRequestedAt = performance.now()
+      raf = win.requestAnimationFrame(frame)
+    }
+    const restart = (): void => {
+      revealStart = animTime
+      resumeStart = animTime
+      budgetEnd = animTime + budgetS
+      calm = false
+      if (renderer) renderer.canvas.style.transition = 'opacity 3000ms'
+      drawOnce(fieldTime, revealNow())
+      tryStart()
+    }
+    const rouse = (): void => {
+      if (still || busyOff || !gridOk || dead) return
+      if (calm) { restart(); return }
+      budgetEnd = animTime + budgetS
+      tryStart()
+    }
+    const onVisibleReturn = (): void => {
+      if (cancelled || dead || still) return
+      if (calm) restart()
+      else tryStart()
+    }
+
+    const applyResize = (): void => {
+      if (cancelled || dead || !renderer) return
+      layoutSig = ''
+      if (still) drawStill()
+      else if (!drawOnce(fieldTime, revealNow())) stopLoop()
+      else tryStart()
+    }
+    const onResize = (): void => {
+      if (firstResize) { firstResize = false; applyResize(); return }
+      win.clearTimeout(resizeTimer)
+      resizeTimer = win.setTimeout(applyResize, cfg.power.resizeSettleMs)
+    }
+
+    const toWorld = (e: PointerEvent): { x: number; y: number } => {
+      const rect = host.getBoundingClientRect()
+      const v = viewRef.current
+      return { x: (e.clientX - rect.left - v.x) / v.z, y: (e.clientY - rect.top - v.y) / v.z }
+    }
+    const onInteractive = (e: PointerEvent): boolean => {
+      const t = e.target
+      if (!(t instanceof win.Element) || !parent) return false
+      const hit = t.closest(INTERACTIVE)
+      return hit !== null && hit !== parent && parent.contains(hit)
+    }
+    const interactionLive = (): boolean => !still && !busyOff && gridOk && !dead && (loopActive || calm)
+    const onPointerMove = (e: PointerEvent): void => {
+      if (!interactionLive() || e.pointerType === 'touch') return
+      if (onInteractive(e)) { touch.leave(); return }
+      const p = toWorld(e)
+      if (touch.move(p.x, p.y, touchNow())) rouse()
+    }
+    const onPointerDown = (e: PointerEvent): void => {
+      if (!interactionLive() || e.button !== 0) return
+      if (onInteractive(e)) return
+      const p = toWorld(e)
+      touch.tap(p.x, p.y, touchNow())
+      rouse()
+    }
+    const onPointerLeave = (): void => { touch.leave() }
+    const onKeyDown = (): void => { if (interactionLive()) rouse() }
+    const onContextLost = (e: Event): void => {
+      e.preventDefault()
+      dead = true
+      stopLoop()
       ro?.disconnect()
       mo?.disconnect()
-      if (paintRef.current === paint) paintRef.current = null
+      renderer?.canvas.remove()
     }
+
+    const idleWait = (ms: number): Promise<void> => new Promise(resolve => {
+      const ric = (win as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback
+      if (ric) ric(() => resolve(), { timeout: ms })
+      else win.setTimeout(resolve, Math.min(ms, 50))
+    })
+
+    void (async () => {
+      const family = win.getComputedStyle(host).fontFamily || 'monospace'
+      try { await doc.fonts?.load(`400 16px ${family}`, '.') } catch { /* fall through */ }
+      await idleWait(1500)
+      if (cancelled) return
+      renderer = createAsciiRenderer(doc, visit, family)
+      if (!renderer) return
+      renderer.canvas.style.opacity = '0'
+      renderer.canvas.dataset.state = 'unseen'
+      renderer.canvas.addEventListener('webglcontextlost', onContextLost)
+      host.appendChild(renderer.canvas)
+      applyColours()
+      ro = new win.ResizeObserver(onResize)
+      try { ro.observe(host, { box: 'device-pixel-content-box' }) } catch { ro.observe(host) }
+      mo = new win.MutationObserver(scheduleColours)
+      mo.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-visual-theme', 'style', 'class'] })
+      win.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', scheduleColours)
+      doc.addEventListener('visibilitychange', onVisibleReturn)
+      win.addEventListener('focus', onVisibleReturn)
+      if (parent) {
+        parent.addEventListener('pointermove', onPointerMove, { passive: true })
+        parent.addEventListener('pointerdown', onPointerDown, { passive: true })
+        parent.addEventListener('pointerleave', onPointerLeave, { passive: true })
+        parent.addEventListener('keydown', onKeyDown, { passive: true, capture: true })
+      }
+      applyResize()
+      onReady?.({
+        visit,
+        renderer: () => renderer,
+        drawAt: (t, reveal = 1) => { fieldTime = t; drawOnce(t, reveal) },
+        tap: (wx, wy) => { touch.tap(wx, wy, touchNow()); rouse() },
+        state: () => ({
+          animTime, fieldTime, reveal: revealNow(), calm,
+          running: loopActive, touchBusy: touch.busy(touchNow()),
+          datasetState: renderer?.canvas.dataset.state ?? '',
+        }),
+      })
+    })()
+
+    return () => {
+      cancelled = true
+      stopLoop()
+      win.clearTimeout(retryTimer)
+      win.clearTimeout(resizeTimer)
+      ro?.disconnect()
+      mo?.disconnect()
+      doc.removeEventListener('visibilitychange', onVisibleReturn)
+      win.removeEventListener('focus', onVisibleReturn)
+      if (parent) {
+        parent.removeEventListener('pointermove', onPointerMove)
+        parent.removeEventListener('pointerdown', onPointerDown)
+        parent.removeEventListener('pointerleave', onPointerLeave)
+        parent.removeEventListener('keydown', onKeyDown, { capture: true })
+      }
+      renderer?.destroy()
+      if (stillRef.current === drawStill) stillRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduced, viewRef])
 
-  // Reduced motion means no autonomous loop: one still frame, repainted
-  // only when the user's own pan or zoom moves the floor under it.
-  useEffect(() => { if (reduced) paintRef.current?.(0) }, [reduced, view, intensity])
+  // Still mode has no autonomous loop: repaint the one frame when the
+  // user's own pan/zoom moves the floor, or the colours change.
+  useEffect(() => { if (reduced) stillRef.current?.() }, [reduced, view, intensity])
+  // The canvas world coming back (or going away) is a visibility edge the
+  // loop's own checks also see; nudging here restarts without a 50 ms lag.
+  useEffect(() => {
+    if (!hidden && reduced) stillRef.current?.()
+  }, [hidden, reduced])
 
-  return <canvas ref={canvasRef} className="canvas-bg-ascii" data-canvas-bg="ascii"
+  return <div ref={hostRef} className="canvas-bg-ascii" data-canvas-bg="ascii"
     data-motion={reduced ? 'reduced' : 'full'} aria-hidden="true" />
 }
+

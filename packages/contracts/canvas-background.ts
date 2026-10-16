@@ -43,7 +43,7 @@ export interface ResolvedCanvasBackground {
  *  `dots` is 1 — untouched, it is pixel-identical to the shipped grid. */
 export const DEFAULT_CANVAS_INTENSITIES: Record<CanvasBackgroundTheme, number> = {
   dots: 1,
-  ascii: 0.6,
+  ascii: 1,
   'line-grid': 0.55,
   'hex-dots': 0.85,
   'hex-lines': 0.5,

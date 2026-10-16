@@ -17,11 +17,14 @@
   a per-theme intensity stored sparsely, drawn in current theme colours, mobile
   off. New themes pan/zoom 1:1 like a floor; only dots keep the 0.88 parallax.
   Hexagons are SVG masks over a theme-colour fill (gradient stripes measure as
-  diamonds/cubes/steps, never flat hexagons). ASCII is a bounded sprite canvas
-  (O(viewport), 30fps, hidden-paused, reduced-motion still) and is a
-  PARAMETERIZED APPROXIMATION pending the exact-match phase (user 2026-10-15
-  19:55Z: read the real Claude Code renderer read-only, re-implement it
-  independently, copy NO Anthropic code into repo/docs/tests). Contract,
+  diamonds/cubes/steps, never flat hexagons). ASCII is an exact-match WebGL2
+  re-implementation of the Claude Code backdrop algorithm (user 2026-10-15
+  19:55Z: real renderer studied read-only, re-implemented independently, NO
+  Anthropic code in repo/docs/tests): wind-field + glyph passes in
+  `canvas/asciigl.ts`, spec + CPU mirror in `canvas/asciifield.ts`, seeded
+  per-mount visit, world-coordinate sampling (screen-identical at origin),
+  pointer stir/ripples/heart, 180s settle-to-calm, hidden pause, still mode
+  under reduced motion, silent absence without hardware WebGL2. Contract,
   evidence and limits: [canvas background themes](docs/rust-engine/canvas-background-themes.md).
   [decided: user 2026-10-15; verified from source:
   `canvas/canvasbackground.tsx`, `contracts/canvas-background.ts`, `main/policy.ts`]

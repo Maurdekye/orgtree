@@ -544,11 +544,13 @@ main {
   mask-repeat: repeat;
 }
 /* the flowing-ASCII theme's own layer: same slot and contract as
-   `.canvas-bg` (and the `.glwires` canvas beside it), painted by
-   canvasbackground.tsx from glyph sprites */
+   `.canvas-bg`. The host div clips the WebGL canvas asciigl.ts appends;
+   `color` is the renderer's ink (read as a computed style) and
+   `font-family` its glyph font, so both follow the visual theme. */
 .canvas-bg-ascii {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  pointer-events: none; display: block;
+  pointer-events: none; display: block; overflow: hidden;
+  color: var(--dim); font-family: var(--mono);
 }
 .space {
   position: absolute; transform-origin: 0 0;

@@ -17,7 +17,11 @@ import path from 'node:path'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { CANVAS_BACKGROUNDS, DEFAULT_CANVAS_INTENSITIES, canvasBackgroundOf, resolveCanvasBackground, sanitizeCanvasBackground } from '../../../../packages/contracts/canvas-background'
 import { CanvasBackground, bgGeometry } from '../src/canvas/canvasbackground'
-import { ASCII_BUCKETS, ASCII_GLYPHS, ASCII_MAX_CELLS, asciiBucket, asciiField, asciiGlyphAt, asciiStep } from '../src/canvas/asciifield'
+import {
+  ATLAS_CHARS, GLYPH_POOLS, createTouch, fieldAt, glyphChoiceAt, gradientNoise, gridFor,
+  hash32, headingFor, heartRadius, pcg, pickLook, rngStream, sequenceFor, spanFor,
+  unitFromHash, valueNoise, visitFromSeed,
+} from '../src/canvas/asciifield'
 import { CANVAS_BG_KEY } from '../src/canvasbgpref'
 
 declare const __SRC_DIR__: string
@@ -106,55 +110,180 @@ test('grid themes pan and zoom 1:1 with the canvas like a floor', () => {
   assert.ok(Math.abs((th ?? 0) / (tw ?? 1) - 0.866) < 0.01, `triangle tile ratio ${th}/${tw}`)
 })
 
-/* ── the ASCII field ───────────────────────────────────────────────────── */
+/* ── the ASCII backdrop's spec module ──────────────────────────────────────
+ * Goldens below were produced by evaluating the studied algorithm's
+ * formulas (docs: asciifield.ts header) and are pinned so any drift in the
+ * re-implementation — hash constants, draw order, noise lattice, field
+ * composition — fails here before it can reach the GL-vs-CPU comparison in
+ * the visual fixture. */
 
-test('ascii glyphs are stable per world cell and cover the pool', () => {
-  const seen = new Set<number>()
-  for (let i = -40; i < 40; i++) for (let j = -25; j < 25; j++) {
-    const g = asciiGlyphAt(i, j)
-    assert.equal(g, asciiGlyphAt(i, j))
-    assert.ok(g >= 0 && g < ASCII_GLYPHS.length)
-    seen.add(g)
+const close = (a: number, b: number, eps = 1e-9): void =>
+  assert.ok(Math.abs(a - b) <= eps, `${a} not within ${eps} of ${b}`)
+
+test('ascii seeded draws are pinned: hash, streams, heading, look, visit', () => {
+  assert.equal(hash32(0), 0)
+  assert.equal(hash32(1), 2261973619)
+  assert.equal(hash32(0xDEADBEEF), 707447538)
+  const wind = rngStream(42, 'wind')
+  assert.deepEqual([wind(), wind(), wind(), wind()],
+    [0.23142166482284665, 0.37323672021739185, 0.2431450269650668, 0.5499723774846643])
+  assert.equal(rngStream(42, 'look')(), 0.7473347645718604)
+  assert.equal(headingFor(0), Math.PI / 10)
+  assert.equal(headingFor(0.25), 0.52238110402714)
+  assert.equal(headingFor(0.5), Math.PI - Math.PI / 10)
+  assert.equal(pickLook(42, []), 'figured')
+  assert.equal(pickLook(42, ['mixed']), 'figured')
+  assert.equal(pickLook(42, ['figured']), 'lettered')
+  assert.deepEqual(visitFromSeed(42, 'mixed'), {
+    key: 'mixed', seed: 42, heading: 0.5069074435872191, speed: 50.21120784478262,
+    gustLength: 423.766104853712, gustWidth: 158.4980664239265,
+    bend: 66.95667947875336, bendScale: 385.4144315654412,
+  })
+  assert.equal(visitFromSeed(7, 'plaid').key, 'mixed')
+  for (const s of [0, 1, 123456, 0xFFFFFFFF]) {
+    const v = visitFromSeed(s, 'mixed')
+    assert.ok(v.speed >= 42 && v.speed < 64, `speed ${v.speed}`)
+    assert.ok(v.gustLength >= 380 && v.gustLength < 560)
+    assert.ok(v.gustWidth >= 120 && v.gustWidth < 190)
+    assert.ok(v.bend >= 60 && v.bend < 110)
+    assert.ok(v.bendScale >= 300 && v.bendScale < 440)
+    const lo = Math.PI / 10, hi = Math.PI / 4.3
+    assert.ok((v.heading >= lo && v.heading <= hi) || (v.heading >= Math.PI - hi && v.heading <= Math.PI - lo),
+      `heading ${v.heading} blows up or down`)
   }
-  assert.ok(seen.size > ASCII_GLYPHS.length * 0.7, `only ${seen.size} distinct glyphs`)
 })
 
-test('ascii field stays in 0..1, keeps dark negative space, and moves with time', () => {
-  let zeros = 0, total = 0
-  for (let x = -2000; x <= 2000; x += 137) for (let y = -2000; y <= 2000; y += 149) {
-    for (const t of [0, 13.7, 999]) {
-      const v = asciiField(x, y, t)
-      assert.ok(v >= 0 && v <= 1, `field(${x},${y},${t}) = ${v}`)
-      total++
-      if (t === 0 && v === 0) zeros++
-    }
+test('ascii pcg and noises are pinned, bounded and deterministic (negative lattice included)', () => {
+  assert.equal(pcg(0), 129708002)
+  assert.equal(pcg(1), 2831084092)
+  assert.equal(pcg(0xFFFFFFFF), 3861530882)
+  assert.equal(unitFromHash(pcg(7)), 0.49376022815704346)
+  assert.equal(valueNoise(1.5, 2.5, 3.5, 42, 0x51), -0.009111270308494568)
+  assert.equal(valueNoise(-3.25, 0.75, 8, 42, 0x60), -0.7458693910061811)
+  assert.equal(gradientNoise(1.5, 2.5, 3.5, 42, 0x59), -0.3005865102639296)
+  assert.equal(gradientNoise(-0.5, -0.5, 0, 7, 0x66), -0.025293255131964787)
+  for (let x = -20; x <= 20; x += 1.37) for (let y = -20; y <= 20; y += 1.73) {
+    const v = valueNoise(x, y, 3.25, 99, 0x57)
+    assert.ok(v >= -1.0001 && v <= 1.0001, `valueNoise ${v}`)
+    assert.equal(v, valueNoise(x, y, 3.25, 99, 0x57))
+    const g = gradientNoise(x, y, 3.25, 99, 0x5b)
+    assert.ok(g >= -1.6 && g <= 1.6, `gradientNoise ${g}`)
+    assert.equal(g, gradientNoise(x, y, 3.25, 99, 0x5b))
   }
-  const dark = zeros / (total / 3)
-  assert.ok(dark > 0.2 && dark < 0.85, `negative-space fraction ${dark}`)
-  let moved = 0
-  for (let x = -1000; x <= 1000; x += 211) {
-    if (asciiField(x, 300, 0) !== asciiField(x, 300, 30)) moved++
-  }
-  assert.ok(moved > 3, 'field did not change over 30 seconds')
 })
 
-test('ascii buckets are monotonic with a skip floor, and the step honours the cell budget', () => {
-  assert.equal(asciiBucket(0), -1)
-  assert.equal(asciiBucket(0.02), -1)
-  assert.equal(asciiBucket(1), ASCII_BUCKETS - 1)
-  let prev = -1
-  for (let v = 0; v <= 1.0001; v += 0.05) {
-    const b = asciiBucket(Math.min(1, v))
-    assert.ok(b >= prev, `bucket went backwards at ${v}`)
-    prev = b
+test('ascii heart radius: a circle on the axes, lobes one way, point the other', () => {
+  assert.equal(heartRadius(0, 1), 1)
+  assert.equal(heartRadius(0, -1), 1)
+  assert.equal(heartRadius(1, 0), 1)
+  const d = Math.SQRT1_2
+  close(heartRadius(d, -d), 1.412198264183006, 1e-12)
+  close(heartRadius(d, d), 0.7926722973571825, 1e-12)
+  assert.equal(heartRadius(-d, -d), heartRadius(d, -d))
+  assert.equal(heartRadius(-d, d), heartRadius(d, d))
+})
+
+test('ascii grid sizing: minima refuse, the pixel budget shrinks, cells stay 1:2', () => {
+  assert.deepEqual(gridFor(1600, 900, 1),
+    { cellWidth: 7, cellHeight: 14, columns: 229, rows: 65, left: -1, top: -5, scale: 1 })
+  assert.equal(gridFor(100, 100, 1), null)
+  assert.equal(gridFor(120, 900, 1), null)
+  assert.equal(gridFor(0, 900, 1), null)
+  assert.equal(gridFor(1600, 900, Number.NaN), null)
+  const big = gridFor(8000, 4500, 2)
+  assert.equal(big === null, false)
+  assert.ok(big!.columns * big!.cellWidth * big!.rows * big!.cellHeight <= 21_000_000)
+  assert.equal(big!.cellHeight, big!.cellWidth * 2)
+  assert.ok(big!.cellWidth >= 5)
+})
+
+test('ascii atlas set and pools are the recorded parameters; sequences exclude missing glyphs', () => {
+  assert.equal(ATLAS_CHARS.length, 96)
+  assert.equal(ATLAS_CHARS[0], ' ')
+  assert.equal(ATLAS_CHARS[95], '·')
+  assert.deepEqual(Object.values(GLYPH_POOLS).map(p => p.length), [48, 44, 48])
+  for (const pool of Object.values(GLYPH_POOLS)) {
+    for (const ch of pool) assert.ok(ATLAS_CHARS.includes(ch), `pool char ${ch} outside the atlas`)
   }
-  assert.equal(asciiStep(1, 1000, 700), 1)
-  assert.equal(asciiStep(0.1, 1000, 700), 7)
-  const big = asciiStep(1, 8000, 4000)
-  assert.ok(big > 1)
-  assert.ok((8000 / (10 * big)) * (4000 / (19 * big)) <= ASCII_MAX_CELLS)
-  assert.equal(asciiStep(0, 100, 100), 1)
-  assert.equal(asciiStep(Number.NaN, 100, 100), 1)
+  const none = new Array<boolean>(96).fill(false)
+  assert.deepEqual(Array.from(sequenceFor('mixed', none)),
+    [65, 66, 16, 67, 33, 68, 69, 17, 70, 37, 71, 72, 18, 73, 39, 74, 75, 19, 76, 40, 77, 78, 20, 79,
+      43, 80, 81, 21, 82, 45, 83, 84, 22, 85, 50, 86, 87, 23, 88, 51, 89, 90, 24, 78, 52, 25, 69, 55])
+  const some = none.slice()
+  some[65] = true
+  const trimmed = sequenceFor('mixed', some)
+  assert.equal(trimmed.length, 47)
+  assert.equal(Array.from(trimmed).includes(65), false)
+  assert.deepEqual(Array.from(sequenceFor('mixed', new Array<boolean>(96).fill(true))), [14])
+})
+
+test('ascii field mirror: bounded, mostly dark, calm-gated at the centre, moving with time', () => {
+  const visit = visitFromSeed(42, 'mixed')
+  const span = spanFor(visit, 800, 600)
+  close(span, 574.5976370204518, 1e-9)
+  const base = { time: 8, reveal: 1, visit, span, calmCx: 400, calmCy: 270, taps: [], touchFrame: null, now: 0 }
+  const at = fieldAt({ ...base, x: 100, y: 100 })
+  assert.equal(at.strength, 0)
+  close(at.blowX, 0.8661998248790839, 1e-12)
+  close(at.blowY, 0.49969777203770305, 1e-12)
+  close(at.gate, 0.9967095713829071, 1e-12)
+  close(fieldAt({ ...base, x: 400, y: 270 }).gate, 0.3, 1e-12)
+  let zeros = 0, total = 0, moved = 0
+  for (let x = -1000; x <= 1000; x += 37) for (let y = -600; y <= 600; y += 41) {
+    const f = fieldAt({ ...base, x, y })
+    total++
+    if (f.strength === 0) zeros++
+    assert.ok(f.strength >= 0 && f.strength <= 1.2, `strength ${f.strength}`)
+    assert.ok(f.gate >= 0 && f.gate <= 1, `gate ${f.gate}`)
+    close(Math.hypot(f.blowX, f.blowY), 1, 1e-9)
+    if (fieldAt({ ...base, x, y, time: 40 }).strength !== f.strength) moved++
+  }
+  const dark = zeros / total
+  assert.ok(dark > 0.55 && dark < 0.75, `negative-space fraction ${dark}`)
+  assert.ok(moved > total / 2, `only ${moved}/${total} samples moved in 32 s`)
+  const hiddenField = fieldAt({ ...base, x: 100, y: 100, reveal: 0 })
+  assert.equal(hiddenField.strength, 0)
+  assert.equal(hiddenField.gate, 0)
+})
+
+test('ascii touch: every third tap is the heart, fast sweeps stir wakes, slow ones do not', () => {
+  const t = createTouch()
+  t.tap(100, 100, 1); t.tap(120, 90, 1.2); t.tap(140, 110, 1.4)
+  const f = t.frame(1.5)
+  assert.equal(f.tapCount, 3)
+  assert.equal(f.taps[3], 1)
+  assert.equal(f.taps[7], 1)
+  close(f.taps[11] ?? 0, -1.15, 1e-6)
+  assert.equal(t.rippling(4.9), true)
+  assert.equal(t.frame(5.1).tapCount, 0)
+  assert.equal(t.busy(5.1), false)
+  const fast = createTouch()
+  for (let i = 0; i <= 20; i++) fast.move(i * 20, 100, i * 0.025)
+  assert.equal(fast.frame(0.51).wakeCount, 10)
+  assert.equal(fast.busy(2.8), true)
+  assert.equal(fast.busy(3.0), false)
+  const slow = createTouch()
+  for (let i = 0; i <= 20; i++) slow.move(i * 1.5, 100, i * 0.1)
+  assert.equal(slow.frame(2.01).wakeCount, 0)
+})
+
+test('ascii glyph choice cycles the pool sequence at a per-cell pace', () => {
+  const none = new Array<boolean>(96).fill(false)
+  const seq = sequenceFor('mixed', none)
+  assert.deepEqual(glyphChoiceAt(3, 4, 8, 42, seq, null), { glyph: 67, steps: 13, glowX: 0, glowY: 0 })
+  assert.deepEqual(glyphChoiceAt(-7, 12, 8, 42, seq, null), { glyph: 75, steps: 7, glowX: 0, glowY: 0 })
+  assert.deepEqual(glyphChoiceAt(3, 4, 40, 42, seq, null), { glyph: 68, steps: 63, glowX: 0, glowY: 0 })
+  const members = new Set(Array.from(seq))
+  for (let cx = -30; cx < 30; cx++) for (let cy = -20; cy < 20; cy++) {
+    const choice = glyphChoiceAt(cx, cy, 12.5, 42, seq, null)
+    assert.equal(choice === null, false)
+    assert.equal(members.has(choice!.glyph), true)
+  }
+  const roused = glyphChoiceAt(3, 4, 8, 42, seq, { pushX: 0, pushY: 0, raise: 0, rouse: 1, glowX: 0.5, glowY: 0.25 })
+  assert.equal(roused === null, false)
+  assert.ok(roused!.steps > 13, `roused steps ${roused!.steps}`)
+  assert.ok(roused!.glowX >= 0.5 * 0.65 && roused!.glowX <= 0.5, `glowX ${roused!.glowX}`)
+  assert.ok(roused!.glowY >= 0.25 * 0.65 && roused!.glowY <= 0.25, `glowY ${roused!.glowY}`)
 })
 
 /* ── the stylesheet ────────────────────────────────────────────────────── */
@@ -231,14 +360,14 @@ function stubReducedMotion(t: TestContext, matches: boolean): void {
   t.after(() => { w.matchMedia = prev })
 }
 
-test('the ascii theme renders its canvas layer, flagged reduced under reduced motion', async (t) => {
+test('the ascii theme renders its host layer, flagged reduced under reduced motion', async (t) => {
   storePref({ theme: 'ascii' })
   stubReducedMotion(t, true)
   const view = await mountBg(t)
-  const canvas = view.el.querySelector<HTMLCanvasElement>('canvas.canvas-bg-ascii')
-  assert.equal(canvas === null, false)
-  assert.equal(canvas!.dataset.canvasBg, 'ascii')
-  assert.equal(canvas!.dataset.motion, 'reduced')
+  const host = view.el.querySelector<HTMLElement>('.canvas-bg-ascii')
+  assert.equal(host === null, false)
+  assert.equal(host!.dataset.canvasBg, 'ascii')
+  assert.equal(host!.dataset.motion, 'reduced')
   assert.equal(view.el.querySelector('.canvas-bg') === null, true)
 })
 
@@ -246,7 +375,8 @@ test('the ascii theme is flagged full-motion when the user allows motion', async
   storePref({ theme: 'ascii' })
   stubReducedMotion(t, false)
   const view = await mountBg(t)
-  const canvas = view.el.querySelector<HTMLCanvasElement>('canvas.canvas-bg-ascii')
-  assert.equal(canvas === null, false)
-  assert.equal(canvas!.dataset.motion, 'full')
+  const host = view.el.querySelector<HTMLElement>('.canvas-bg-ascii')
+  assert.equal(host === null, false)
+  assert.equal(host!.dataset.canvasBg, 'ascii')
+  assert.equal(host!.dataset.motion, 'full')
 })

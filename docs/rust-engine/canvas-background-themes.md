@@ -56,23 +56,36 @@ hit-testing, text selection and the pin layer are unaffected by the theme.
   triangular lattice and cannot select flat hexagons or their outlines
   (measured as diamonds, cube illusions and step columns across capture
   rounds) — their mask size/position ride the same `bgGeometry()` math.
-- **Flowing ASCII** is a `<canvas class="canvas-bg-ascii">` painted from
-  pre-rendered glyph sprite sheets (5 brightness buckets × the 62-glyph
-  pool). The model (`canvas/asciifield.ts`, pure math): glyphs are a seeded
-  hash of the world cell (stable under pan/zoom, so the soup reads as a
-  floor); brightness is a two-octave sine field — broad lobes (~900 world
-  px) carrying curving bands (~280 px) — soft-thresholded so roughly half
-  the plane is dark negative space that costs no paint. Tint is the theme
-  accent mixed toward the dim ink, rebuilt when the visual theme changes
-  (observed, debounced). Sampling is in world coordinates, so it pans/zooms
-  like a floor; at far zoom-out (or huge windows) `asciiStep` coarsens the
-  sampling instead of multiplying glyphs.
-- **Motion discipline.** The ASCII loop runs at ~30 fps, reads the camera
-  from `viewRef` (panning never re-renders it), pauses while the document
-  is hidden or the canvas world is put away, and under
-  `prefers-reduced-motion` renders one still frame repainted only by the
-  user's own pan/zoom. DPR is capped at 2. Static themes have no loop at
-  all and animate nothing.
+- **Flowing ASCII** is an independent WebGL2 re-implementation of the
+  Claude Code desktop "New session" backdrop algorithm, matched exactly
+  (see the exact-match section below). A wind pass renders a field texture
+  (light strength, wind direction, calm gate) at one sample per cell
+  column and two per row; a glyph pass draws one quad per grid cell,
+  clipped to the glyph's tight ink box, shaded by the field and by how
+  the glyph's edges face the wind. Each mount draws a seeded "visit"
+  (wind heading, speed, gust size, bend, and one of three glyph pools);
+  cells cycle pool glyphs at their own hashed pace. The host element's
+  computed `color` is the ink (CSS: `var(--dim)`), its `font-family` the
+  glyph font (`var(--mono)`), and the per-theme intensity is the
+  algorithm's strength scale (1.0 = reference presentation). Pointer
+  motion stirs warm wakes; clicks launch ripples, every third in a heart
+  shape — listeners are passive and ignore cards/interactive elements, so
+  canvas selection is unaffected. Sampling is in **world coordinates**
+  (it pans/zooms like a floor; at view 0,0 zoom 1 frames coincide with
+  the reference's pane-anchored original). Where WebGL2 or a hardware GL
+  pipeline is unavailable, under `prefers-contrast: more` or forced
+  colours, or below a minimum grid, the layer simply does not appear.
+- **Motion discipline.** The ASCII scheduler mirrors the reference's: a
+  `setTimeout`→rAF loop over accumulated animation time with clamped
+  frame deltas, a 180-second power budget after which the wind itself
+  slows and the reveal fades to calm (loop parked, zero ongoing cost),
+  wake on visibility/focus/pointer/keys, late-frame and GPU-fence fault
+  strikes backing off to 83 ms frames then a doubling retry, and full
+  pause while the document is hidden or the canvas world is put away.
+  Under `prefers-reduced-motion` it renders still frames only, repainted
+  by the user's own pan/zoom or a theme change. It reads the camera from
+  `viewRef`, so panning never re-renders React. Static themes have no
+  loop at all and animate nothing.
 - **EPIC Mode coexistence.** EPIC's stage is a fixed full-window overlay
   far above the canvas (`epic/stage.ts`, z-index 2147483000); this layer
   sits under `.space`. No shared state, no z-interaction — two
@@ -83,38 +96,61 @@ hit-testing, text selection and the pin layer are unaffected by the theme.
 Background cost is **O(viewport), independent of organization size**. CSS
 themes swap one `background-image` on an existing div whose style OrgCanvas
 already updated every render for the dots: zero new renders, zero JS per
-frame. The ASCII layer is bounded by `ASCII_MAX_CELLS` (16 000 sprite
-blits worst case, typically far fewer because negative space skips) at
-30 fps — measured in the visual fixture against the dot grid over the same
-scene (see Evidence). Large-org live frame time is dominated by OrgCanvas
+frame. The ASCII layer's grid is capped by a 21-megapixel device budget
+(and refuses tiny panes), the wind pass costs one fragment per field
+sample, the glyph pass one small quad per cell with an unseen-cell cull,
+and the power budget settles it to complete idleness after ~3 minutes —
+measured in the visual fixture against the dot grid over the same scene
+(see Evidence). Large-org live frame time is dominated by OrgCanvas
 itself, which this change does not touch beyond the one layer swap.
 
-## The ASCII reference, and what is interpretation
+## The ASCII exact match: sourcing, adaptations, proof
 
-Researched 2026-10-15 by model-research-sol (screenshots and measurements
-in `D:/orgtree-work/model-research/claude-code-ascii/`, public sources
-recorded there) and inspected firsthand by the implementer. Measured from
-the reference: mixed-case Latin letters and digits on a tight monospace
-grid (~193 columns across the app surface, cell aspect about 1:2), very
-faint muted-blue ink on near-black, broad rounded/lobed bright regions
-with large dark negative space, glyph rows axis-aligned. **Not verified**
-(no public recording found): drift speed or direction, whether glyph
-identities change, any activity coupling. The slow drift here is
-therefore a labelled interpretation; every constant that shapes the look
-(glyph pool, cell size, field wavelengths, threshold, tint mix, bucket
-alphas, frame rate) is in `asciifield.ts` / the top of the ASCII layer so
-it can be matched by constants alone. Hue follows the Orgtree visual
-theme per ruling — the reference's steel blue is Claude's own palette,
-not copied.
+The user required a perfect match to the real Claude Code backdrop
+renderer (2026-10-15 19:55Z) and chose to source the exact behaviour by
+reading the real code, accepting the terms-of-service consideration. The
+chain, all under the rules recorded in the docket item (read-only study,
+prose/math notes only, no Anthropic code copied into repo, docs or tests,
+independent reimplementation, supplied/downloaded references deleted when
+done): the renderer was absent from the installed CLI 2.1.292 binary and
+from the desktop app 2.42304.0 package (which loads its UI from claude.ai;
+the downloaded installer was unpacked read-only, never run, and deleted);
+an anonymous claude.ai fetch stopped at the bot wall as instructed; the
+user then supplied the renderer chunk from their own session. That chunk
+was studied in full and reduced to a prose/math specification (grid
+sizing, glyph atlas and pools, seeded visit draw, PCG/value/gradient
+noise, the wind-field composition, tap ripples and heart, pointer wakes,
+glyph choice and shading, scheduler and power budget). `asciifield.ts`
+implements that specification as pure functions **plus a CPU mirror of
+the field/glyph math**; `asciigl.ts` is an independently written WebGL2
+pipeline expressing the same math; `AsciiLayer` mirrors the lifecycle.
 
-**Status (user ruling 2026-10-15 19:55Z): a perfect match is required.**
-The user chose to source the exact behaviour by reading the real Claude
-Code renderer (read-only, locally installed CLI; re-implemented
-independently with no Anthropic code copied — full rules in the docket
-item). Until that phase lands, the ASCII theme in this branch is a
-**parameterized approximation, frozen as measured above — a perfect match
-is NOT claimed for it.** The six grid/tile themes, picker, preference and
-performance work are complete without it.
+Approved adaptations (coordinator, 2026-10-15 21:25Z) — the only places
+Orgtree diverges from the reference's semantics:
+
+1. **World-coordinate field**: the reference samples its pane's CSS
+   pixels; Orgtree samples world units so the backdrop pans/zooms like a
+   floor per the 18:20Z ruling. At view (0,0, zoom 1) the two coincide;
+   the calm ellipse stays screen-centred via a per-frame uniform.
+2. **Full pointer interaction** (stir, ripples, every-third-tap heart),
+   with exclusions on Orgtree cards (`.sq`) and interactive elements;
+   listeners are passive, so selection and clicks are unaffected.
+3. **Intensity slider = strength scale**, default 1.0.
+4. **Ink = the host's computed colour** (Orgtree's muted text); glow
+   colours are the algorithm's per-scheme constants, scheme from the
+   computed `color-scheme`.
+5. **Per-mount crypto seed** with an Orgtree look-history storage key;
+   pinned seed/pool exist only as a test prop.
+6. **Proof**: seeded numerical comparison (GL wind-texture readback vs
+   the CPU mirror at pinned seed/time, in the visual fixture) plus
+   pinned captures; unit goldens pin every derivation (hashes, draw
+   order, noise, field, touch, glyph choice). No supplied file was ever
+   executed.
+
+Also proved in the fixture: the 180 s settle-to-calm and the
+hidden-window pause bring the loop (and with it GPU/CPU work) to idle,
+reduced motion yields the still mode, and canvas clicks still reach
+cards normally with ripples purely visual (see Evidence).
 
 ## Files
 
@@ -122,6 +158,7 @@ New: `packages/contracts/canvas-background.ts`,
 `apps/desktop/renderer/src/canvasbgpref.ts`,
 `apps/desktop/renderer/src/canvas/canvasbackground.tsx`,
 `apps/desktop/renderer/src/canvas/asciifield.ts`,
+`apps/desktop/renderer/src/canvas/asciigl.ts`,
 `apps/desktop/renderer/src/canvas/canvasbgsetting.tsx`,
 tests `canvasbg.test.tsx` + `canvasbg-setting.test.tsx`, visual fixture
 `canvasbg-visual.tsx` + `canvasbg-build.mjs` + `canvasbg-capture.cjs`,
@@ -136,14 +173,18 @@ this doc. Edited: `packages/contracts/index.ts`,
 - Unit/component/panel tests: `node tests/run.mjs canvasbg` (from
   `apps/desktop/renderer`). Includes native validation through the real
   `preferencesPatch`, resolver defaults, floor geometry (with the dot
-  grid's legacy values pinned verbatim), field bounds/determinism/budget,
-  rendered-layer selection per theme, reduced-motion flagging, and the
-  real Display panel driving select + slider through a bridge stub running
-  the real validator.
+  grid's legacy values pinned verbatim), ASCII spec goldens (seeded draws,
+  PCG/noises, heart, grid sizing, atlas/pools/sequences, field mirror,
+  touch, glyph choice), rendered-layer selection per theme,
+  reduced-motion flagging, and the real Display panel driving select +
+  slider through a bridge stub running the real validator.
 - Visual: `node tests/canvasbg-build.mjs` then
   `node_modules/.bin/electron tests/canvasbg-capture.cjs` — one PNG per
   theme (ASCII twice, to show the field's motion; plus zoom variants),
-  receipts with computed-style probes and rAF frame-time stats for
+  pinned-seed ASCII scenes (wind-texture numerical comparison at two
+  field times, tap ripple, heart, card-vs-floor clicks, hidden pause,
+  reduced-motion still, budget settle-to-calm), receipts with
+  computed-style probes and rAF frame-time stats for
   dots/ascii/ascii-panning/line-grid-panning. Outputs under
   `C:/orgtree-build/epic-wonder-full/canvasbg-visual/` (override with
   `CANVASBG_VISUAL_OUT`; a checkout without `node_modules` can pass
@@ -191,15 +232,62 @@ Measured 2026-10-15 under the machine lock at branch tip `d4ac686`
   on `f1eed04` unmodified. Pre-existing; this change adds no audit
   failures and touches no Python.
 
+### Exact-match phase (2026-10-16, on top of `3783926`)
+
+Measured under the machine lock at the exact-match commit (this doc's
+evidence lands with it):
+
+- Typecheck: root `tsc --noEmit` exit 0. Strict renderer and strict tests
+  each report **29 diagnostics — the base baseline count, none in files
+  this phase touches**.
+- Tests: `node tests/run.mjs canvasbg` → **24/24 pass** (19 before; the 3
+  approximation-era field tests replaced by 8 spec-golden suites).
+  Neighbours (`epicmode appsettings theme rainbow`): 87 pass / 1 fail —
+  the same pre-existing `epicmode-engine` 10 s playbook timeout as at
+  base. Root neighbour `tests/unix-boot-engine.test.mjs`: 15 pass, 0
+  fail, 8 skipped.
+- Captures: **all 23 scenes PASS** in one run (`receipts.json`); the
+  ASCII PNGs (live at two times, zoom-out, pinned t=8/t=40, tap, heart,
+  still, calm) were personally inspected — the heart ripple and the
+  lobed flowing mass match the researched reference's structure; the
+  settled-to-calm frame is blank floor as specified.
+- **Numerical proof:** at pinned seed 42 / pool mixed / view (0,0,1), the
+  GL wind-texture readback vs the CPU mirror over 12 972 samples at field
+  times 8 s and 40 s: **every channel (strength, direction GB, gate) has
+  max |diff| = 1/255 and mean ≤ 0.033** — i.e. the shaders and the spec
+  agree to fp32/unorm rounding. Unit goldens pin the derivations the
+  mirror and shaders share (hashes, visit draw order, noises, heart,
+  grid, pools, touch packing, glyph choice).
+- Behaviour proofs in the same receipts: card click delivered to the
+  card with **no** ripple, empty-floor click ripples; hidden window →
+  animation/field time **do not advance at all** for 800 ms (loop
+  rAF-starved, GPU/CPU idle), resume on show; `prefers-reduced-motion`
+  → still mode (single drawn frame, no loop); budget=2 s pin → settles
+  to `calm` with reveal 0 and the loop parked. Frame times over 180 rAF
+  frames: dots median 7.6 ms, ASCII 7.6 ms, ASCII panning 7.7 ms,
+  line-grid panning 7.6 ms — **no measurable delta** at this fixture's
+  vsync-bound rate.
+- Two real finds from the proof, fixed before hand-in: the wind pass
+  initially drew with blending enabled (direction channels smeared
+  across frames — caught only by the readback comparison), and the
+  capture harness needed fresh windows + CDP focus emulation on this
+  GPU-contended machine. Source audits unchanged (same pre-existing
+  `test_hub_isolation.py` errors=6 as base). The user-supplied renderer
+  chunk was deleted after the proof, per the rules.
+
 ## Limits
 
 - Frame-time evidence is from the fixture (real layer and patterns over
   stand-in cards), not a live large organization; the O(viewport) argument
   is the structural guarantee.
-- The ASCII theme is a parameterized approximation pending the
-  exact-match phase (user ruling 2026-10-15 19:55Z): its drift, exact
-  glyph pool weighting, field function and timing are interpretations of
-  stills, not yet verified against the real renderer frame-for-frame.
+- The exact match is to the studied algorithm's mathematics as
+  transcribed into the prose/math specification; the GL-vs-mirror proof
+  binds the shaders to that spec to 1/255, and unit goldens pin the
+  spec's derivations — but pixel identity with a running Claude desktop
+  (its exact font stack, rasterization and compositor) is not claimed:
+  glyph rasterization necessarily follows Orgtree's mono font. The
+  world-coordinate adaptation also diverges from the reference's
+  pane-anchored original whenever the canvas is panned/zoomed, by ruling.
 - Both-on behaviour with EPIC Mode is argued structurally (independent
   layers/loops) and covered by the alpha; the fixture does not mount EPIC.
 - Mobile keeps all canvas backgrounds off, as the dot grid always has.
