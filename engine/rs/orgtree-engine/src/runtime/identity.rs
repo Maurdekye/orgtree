@@ -415,7 +415,7 @@ fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Valu
         let path = t["path"].as_str()?;
         Some(if t["own_team"].as_bool() == Some(true) { format!("{path} (your own team's)") }
              else if t["project"].as_bool() == Some(true) {
-                 format!("{path} (project {}, which you work on)", t["team"].as_str().unwrap_or("?"))
+                 format!("{path} (the folder of project {}, which you work on)", t["team"].as_str().unwrap_or("?"))
              }
              else { format!("{path} ({}'s team)", t["team"].as_str().unwrap_or("?")) })
     }).collect();

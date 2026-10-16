@@ -204,7 +204,7 @@ export default async function (rig) {
     done_so_far: ['outline drafted'], working_on_next: ['fill it in'] })
   p.check('dev2, another agent under the project, updates it with owner rights', coUpdate.ok, said(coUpdate))
   const listed = await rig.tool('dev2', 'orgtree_work', { action: 'list' })
-  p.check('it is in dev2's own docket list', listed.ok && (listed.json?.items ?? []).some((i) => i.slug === slug), said(listed))
+  p.check("it is in dev2's own docket list", listed.ok && (listed.json?.items ?? []).some((i) => i.slug === slug), said(listed))
   const bossSees = await rig.tool('boss', 'orgtree_work', { action: 'get', slug })
   p.check('boss, above the project, reads it', bossSees.ok, said(bossSees))
   const aliceAttach = await rig.tool('alice', 'orgtree_work', { action: 'create', title: 'Sneaky', kind: 'non-code',
