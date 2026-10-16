@@ -114,6 +114,16 @@ struct File {
 
 impl Snapshot {
     #[nolog]
+    pub fn instructions(&self, native: &HashSet<String>) -> super::next_turn::Instructions {
+        let mut out = super::next_turn::Instructions::default();
+        for (key, file) in &self.files {
+            if !native.contains(key) { out.text(Path::new(&file.path), "personal_global", &file.text); }
+        }
+        for path in self.faults.keys() { out.hashed(Path::new(path), "personal_global", None); }
+        out
+    }
+
+    #[nolog]
     pub fn keys(&self) -> impl Iterator<Item = &String> { self.files.keys() }
 
     #[nolog]

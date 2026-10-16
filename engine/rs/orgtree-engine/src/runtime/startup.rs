@@ -72,6 +72,7 @@ pub fn digest(inputs: &Inputs) -> String {
 pub struct Snapshot {
     pub digest: String,
     pub global_notes: String,
+    pub instructions: super::next_turn::Instructions,
     handled: HashSet<String>,
 }
 
@@ -85,6 +86,10 @@ pub fn snapshot(inputs: &Inputs) -> Snapshot {
     };
     let files = native_files(native);
     let native_keys: HashSet<String> = files.keys().map(|path| file_key(Path::new(path))).collect();
+    let mut instructions = global.instructions(&native_keys);
+    for (path, signature) in &files {
+        instructions.hashed(Path::new(path), "native_startup", Some(signature.clone()));
+    }
     let global_notes = global.notes(&native_keys);
     let mut handled = native_keys;
     handled.extend(global.keys().cloned());
@@ -95,7 +100,7 @@ pub fn snapshot(inputs: &Inputs) -> Snapshot {
     let digest = if shared.is_empty() { native_digest } else {
         hex::encode(&Sha256::digest(format!("{native_digest}|global:{shared}").as_bytes())[..12])
     };
-    Snapshot { digest, global_notes, handled }
+    Snapshot { digest, global_notes, handled, instructions }
 }
 
 /// Native files only: used both for cache invalidation and avoiding duplicate delivery.

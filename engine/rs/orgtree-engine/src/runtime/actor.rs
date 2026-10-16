@@ -544,6 +544,8 @@ impl Proc {
 #[derive(Clone, Debug)]
 struct Fingerprint {
     parts: Vec<(&'static str, String)>,
+    instructions: Option<super::next_turn::Instructions>,
+    compact_at: Option<f64>,
     /// the digest of the org's shared notes the launch delivers (None: a
     /// fingerprint saved before it existed). Never part of equality: a warm
     /// CLI keeps the copy it started with (coordinator ruling (b),
@@ -573,11 +575,13 @@ const STARTUP_RECHECK: Duration = Duration::from_secs(20);
 const ADMIT_RETRY_FIRST: Duration = Duration::from_millis(250);
 const ADMIT_RETRY_MAX: Duration = Duration::from_secs(60);
 
-#[logged]
+#[nolog] // private launch metadata: never serialize it to a trace
 impl Fingerprint {
     fn to_json(&self) -> Value {
         let notes = self.org_notes.iter().map(|v| json!([ORG_NOTES_PART, v]));
-        json!(self.parts.iter().map(|(k, v)| json!([k, v])).chain(notes).collect::<Vec<_>>())
+        let files = self.instructions.iter().map(|v| json!(["instruction_files", v]));
+        let compact = self.compact_at.iter().map(|v| json!(["compact_at", v]));
+        json!(self.parts.iter().map(|(k, v)| json!([k, v])).chain(notes).chain(files).chain(compact).collect::<Vec<_>>())
     }
 
     fn from_json(v: &Value) -> Option<Fingerprint> {
@@ -586,14 +590,17 @@ impl Fingerprint {
         let org_notes = all.iter().find(is_notes).and_then(|p| p.get(1)?.as_str().map(str::to_string));
         let parts = all
             .iter()
-            .filter(|p| !is_notes(p))
+            .filter(|p| !is_notes(p) && !matches!(p.get(0).and_then(Value::as_str), Some("instruction_files" | "compact_at")))
             .map(|p| {
                 let name = p.get(0)?.as_str()?;
                 let k = PRINT_PARTS.iter().find(|n| **n == name)?;
                 Some((*k, p.get(1)?.as_str()?.to_string()))
             })
             .collect::<Option<Vec<_>>>()?;
-        (parts.len() == PRINT_PARTS.len()).then_some(Fingerprint { parts, org_notes })
+        let instructions = all.iter().find(|p| p.get(0).and_then(Value::as_str) == Some("instruction_files"))
+            .and_then(|p| serde_json::from_value(p[1].clone()).ok());
+        let compact_at = all.iter().find(|p| p.get(0).and_then(Value::as_str) == Some("compact_at")).and_then(|p| p[1].as_f64());
+        (parts.len() == PRINT_PARTS.len()).then_some(Fingerprint { parts, org_notes, instructions, compact_at })
     }
 
     fn part(&self, name: &str) -> Option<&str> {
@@ -1242,6 +1249,9 @@ impl Actor {
             AgentMsg::Live(reply) => {
                 let _ = reply.send(self.live_view());
             }
+            AgentMsg::NextTurn(reply) => {
+                let _ = reply.send(self.next_turn().await);
+            }
             AgentMsg::Stop(reply) => {
                 // engine shutdown: a running turn's mail stays claimed and
                 // inflight_at stays set, so the next start resumes it. A seat
@@ -1822,7 +1832,7 @@ impl Actor {
     /// The system prompt for this launch (runtime::identity). Reads the
     /// agent's own and its granted folders' AGENTS.md and legacy CLAUDE.md; no side effects.
     #[nolog] // snapshot and return value contain private instruction text
-    fn identity(&self, ctx: &Ctx, external: &[String], startup: &startup::Snapshot) -> String {
+    fn identity(&self, ctx: &Ctx, external: &[String], own_notes: &startup::Notes, folder_notes: &startup::Notes) -> String {
         let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
         let lane = if ctx.harness.as_deref() == Some("opencode") {
             prompt::Lane::OpenCode
@@ -1841,12 +1851,6 @@ impl Actor {
         let sb = if lane == prompt::Lane::Codex { self.codex_seat(may_write, pm).0 } else { codexrt::sandbox(may_write, pm, false) };
         // a read-only seat without the OS sandbox is held by the approval policy instead
         let sandbox = if sb.approval == "untrusted" { "untrusted" } else { sb.mode };
-        // the org's shared notes are delivered on their own (`plan`), not as a granted folder's;
-        // a team workspace's files are never delivered (question 2 on its docket item is open)
-        let folders: Vec<PathBuf> = ctx.effective["add_dirs"].as_array().into_iter().flatten()
-            .filter(|d| !scope::is_shared(d))
-            .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
-        let (own_notes, folder_notes) = startup.standing_notes(&ctx.scratch, &folders);
         let skills = crate::rig::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
         prompt::identity(&prompt::Identity {
             name: &ctx.name,
@@ -1864,8 +1868,8 @@ impl Actor {
             codex_sandbox: if lane == prompt::Lane::Codex { Some(sandbox) } else { None },
             mcp_servers: external,
             extern_holder: ctx.extern_holder,
-            folder_notes: &folder_notes,
-            own_notes: &own_notes,
+            folder_notes,
+            own_notes,
             skills_dir: &skills,
         })
     }
@@ -1895,7 +1899,23 @@ impl Actor {
             }
         }
         let startup = startup::snapshot(&self.startup_inputs(ctx));
-        let base = self.identity(ctx, &external, &startup);
+        let folders: Vec<PathBuf> = ctx.effective["add_dirs"].as_array().into_iter().flatten()
+            .filter(|d| !scope::is_shared(d))
+            .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
+        let (own_notes, folder_notes) = startup.standing_notes(&ctx.scratch, &folders);
+        let base = self.identity(ctx, &external, &own_notes, &folder_notes);
+        let mut instructions = startup.instructions.clone();
+        for (path, text) in &own_notes { instructions.text(std::path::Path::new(path), "own_scratch", text); }
+        for (path, text) in &folder_notes { instructions.text(std::path::Path::new(path), "granted_folder", text); }
+        if let Some(text) = &ctx.org_md {
+            instructions.text(&self.engine.cfg.workspace_dir(&ctx.org_slug).join("org.md"), "org_notes", text);
+        }
+        if let Some(text) = &ctx.org_notes {
+            instructions.text(&ctx.org_notes_dir.join(crate::config::ORG_NOTES_FILE), "shared_scratch", text);
+        }
+        for (path, _, text) in &ctx.team_notes {
+            if let Some(text) = text { instructions.text(path, "team_scratch", text); }
+        }
         let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders(ctx));
         // the org's shared notes as read now, last in the prompt. A CLI keeps
         // the copy it started with: the text stays out of the system prompt
@@ -1937,10 +1957,12 @@ impl Actor {
             }
         }
         let settings = if deny.is_empty() { json!({}) } else { json!({ "permissions": { "deny": deny } }) };
-        let tools_print = format!("{}|{}|{}|{}", disallowed.join(","), allowed.join(","), mcp,
-            crate::domain::tool_groups::normalize(tools));
+        let tools_print = format!("{}|{}|{}|{}|{}", disallowed.join(","), allowed.join(","), mcp,
+            crate::domain::tool_groups::normalize(tools), json!(crate::tools::defs::scoped(tools)));
         let dirs_print = format!("{}|{}", add_dirs.join(";"), settings);
         let print = Fingerprint {
+            instructions: Some(instructions),
+            compact_at: Some(ctx.compact_at),
             parts: vec![
                 ("system_prompt", hash(&base)),
                 ("tools", hash(&tools_print)),
@@ -3745,6 +3767,9 @@ impl Actor {
         self.last_error = None;
         self.activity = Some(("thinking".into(), None));
         self.sent_print = self.proc_print.clone();
+        if let Err(error) = self.save_next_turn_baseline().await {
+            tracing::warn!(agent=self.id, %error, "next-turn launch baseline could not be recorded");
+        }
         let client = self.engine.db.get().await?;
         client.execute("UPDATE ot.turns SET sent_at = now() WHERE id = $1", &[&turn_id]).await?;
         let row = mail_row(&raw, None);
@@ -6481,6 +6506,11 @@ impl Actor {
             self.receipt = Some((Utc::now(), ttl as i64));
             self.save_receipt().await;
         }
+        // Some harnesses name a new session only in their result. Complete
+        // that initial namespace without replacing an already-recorded one.
+        if let Err(error) = self.complete_next_turn_namespace().await {
+            tracing::warn!(agent=self.id, %error, "next-turn session evidence could not be completed");
+        }
         if !turn.interrupted && !classified {
             // 3.x `hard_fail_run`: a run of terminal failures, a turn the idle
             // or time limit killed included, is told once; only a completed
@@ -6954,6 +6984,147 @@ impl Actor {
     }
 
     fn forecast_for(&self, ctx: &Ctx) -> Value {
+        self.forecast_for_print(ctx, None)
+    }
+
+    /// Record the delivered prefix independently of positive cache receipts.
+    /// No text/auth is stored, and a query never writes this baseline.
+    #[nolog]
+    async fn save_next_turn_baseline(&self) -> Result<()> {
+        let Some(print) = &self.proc_print else { return Ok(()) };
+        let client = self.engine.db.get().await?;
+        client.execute(
+            "UPDATE ot.agents SET extra = jsonb_set(coalesce(extra,'{}'::jsonb), '{next_turn_baseline}',
+                jsonb_build_object('print',$2::jsonb,'provider',provider,'session',session_id,
+                    'generation',generation,'harness',extra->>'harness')) WHERE id=$1",
+            &[&self.id, &print.to_json()],
+        ).await?;
+        Ok(())
+    }
+
+    #[nolog]
+    async fn complete_next_turn_namespace(&self) -> Result<()> {
+        let client = self.engine.db.get().await?;
+        client.execute(
+            "UPDATE ot.agents SET extra=jsonb_set(extra,'{next_turn_baseline,session}',to_jsonb(session_id))
+             WHERE id=$1 AND session_id IS NOT NULL
+               AND extra->'next_turn_baseline'->'session'='null'::jsonb
+               AND extra->'next_turn_baseline'->>'generation'=generation::text
+               AND extra->'next_turn_baseline'->>'provider'=provider", &[&self.id],
+        ).await?;
+        Ok(())
+    }
+
+    /// One point-in-time read of this actor's current prefix and policy. No
+    /// pending intent is consumed and no provider/process/session is touched.
+    #[nolog]
+    async fn next_turn(&self) -> Result<Value> {
+        let mut ctx = self.load_ctx().await?;
+        let (baseline, pending_switch, pending_account): (Value, Option<Value>, Option<Value>) = {
+            let client = self.engine.db.get().await?;
+            let row = client.query_one(
+                "SELECT coalesce(extra->'next_turn_baseline','null'::jsonb), pending_switch, pending_account
+                 FROM ot.agents WHERE id=$1 AND org_id=$2", &[&self.id, &self.org_id],
+            ).await?;
+            (row.get(0), row.get(1), row.get(2))
+        };
+        let current = self.plan(&ctx).print;
+        let saved = Fingerprint::from_json(&baseline["print"]);
+        // Legacy aggregate fingerprints can establish a known change, but
+        // never fabricate which historical instruction file changed.
+        let previous = saved.as_ref().or(self.sent_print.as_ref());
+        let files = current.instructions.as_ref().map(|m| m.compare(saved.as_ref().and_then(|p| p.instructions.as_ref()))).unwrap_or_default();
+        let mut reasons = previous.map(|p| current.changed(p)).unwrap_or_default();
+        let queued_switch = pending_switch.as_ref().is_some_and(|p| p["tier"].as_str().is_some_and(|t| t != ctx.tier));
+        let queued_account = pending_account.as_ref().is_some_and(|p| p.get("account").is_some()
+            && p["account"].as_str().filter(|a| *a != "primary" && !a.is_empty()) != ctx.account.as_deref());
+        let starts = self.proc.is_none() || self.reconfigured || !reasons.is_empty() || queued_switch || queued_account
+            || ctx.harness_stamp != ctx.harness_want;
+        if starts && previous.is_some_and(|p| p.org_notes.is_some() && p.org_notes != current.org_notes) {
+            reasons.push("org_notes".into());
+        }
+        let instruction_change = files.iter().any(|f| matches!(f["status"].as_str(), Some("changed" | "added" | "removed")));
+        if starts && instruction_change { reasons.push("instruction_files".into()); }
+        if queued_switch {
+            reasons.push("pending_model_or_provider_switch".into());
+        }
+        if queued_account {
+            reasons.push("pending_account_switch".into());
+        }
+        if ctx.harness_stamp != ctx.harness_want { reasons.push("pending_harness_switch".into()); }
+        if !baseline.is_null() {
+            if baseline["provider"].as_str() != ctx.session_provider.as_deref() { reasons.push("provider_namespace".into()); }
+            if baseline["harness"].as_str() != ctx.harness_stamp.as_deref() { reasons.push("harness_namespace".into()); }
+            if baseline["generation"].as_i64() != Some(i64::from(ctx.generation)) { reasons.push("session_generation".into()); }
+            if baseline["session"].as_str().is_some() && baseline["session"].as_str() != ctx.session_id.as_deref() {
+                reasons.push("session_namespace".into());
+            }
+        }
+        reasons.sort(); reasons.dedup();
+        let file_unknown = saved.as_ref().and_then(|p| p.instructions.as_ref()).is_none()
+            || files.iter().any(|f| f["status"] == "unknown");
+        let unknown = file_unknown || baseline["session"].as_str().is_none();
+        let dirty = if !reasons.is_empty() { Some(true) } else if unknown { None } else { Some(false) };
+
+        let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
+        if ctx.context_window.is_none() && ctx.provider == catalog::OPENROUTER {
+            ctx.context_window = crate::openrouter::favorite(&self.engine, &ctx.tier)
+                .and_then(|f| f["context"].as_i64()).and_then(|w| i32::try_from(w).ok());
+        }
+        let live = self.turn.as_ref().filter(|t| !t.compact).and_then(|t|
+            super::next_turn::live_context(&t.usage, &t.serving_provider, codex, t.acp));
+        if let Some((used, window)) = live {
+            ctx.occupancy = i32::try_from(used).ok();
+            ctx.context_window = window.and_then(|w| i32::try_from(w).ok()).or(ctx.context_window);
+            ctx.context_measured = true;
+        }
+        let forecast = self.forecast_for_print(&ctx, Some(&current));
+        let cheap = forecast["precompact_action"] == "will_compact";
+        let crossing = pending_switch.as_ref().is_some_and(|p| p["crossing"] == true)
+            || ctx.harness_stamp != ctx.harness_want
+            || ctx.session_provider.as_deref().is_some_and(|p| p != ctx.provider)
+            || ctx.session_id.is_none() && ctx.handoff_due.is_some();
+        let native_supported = ctx.provider == catalog::CLAUDE || ctx.provider == catalog::OPENAI
+            || ctx.provider == catalog::OPENROUTER && ctx.harness.as_deref() != Some("opencode");
+        // Running processes retain the threshold they actually started with.
+        let native_frac = if starts { Some(ctx.compact_at) } else { previous.and_then(|p| p.compact_at) };
+        let ratio = ctx.occupancy.zip(ctx.context_window).filter(|(_, w)| *w > 0).map(|(n,w)| f64::from(n)/f64::from(w));
+        let native_due = native_supported && ctx.context_measured && ratio.zip(native_frac).is_some_and(|(r,f)| r >= f);
+        let compacting = self.compact_open.is_some() || self.turn.as_ref().is_some_and(|t| t.compact);
+        let (will, kind, reason) = if compacting {
+            (None, "in_progress", "a compaction is already running; the next boundary is not yet known")
+        } else if crossing {
+            (Some(true), "fresh_session", "a provider/harness crossing or recorded session reset requires a fresh session")
+        } else if cheap {
+            (Some(true), "cheap_compact", "the current admission policy selects a cheap compact")
+        } else if native_due {
+            (None, "harness", "observed context is at the configured threshold; the harness decides when to compact")
+        } else if !native_supported {
+            (None, "unknown", "this harness does not expose a predictable compaction boundary")
+        } else if self.turn.is_some() || unknown || !ctx.context_measured || native_frac.is_none() {
+            (None, "unknown", "current evidence cannot predict the final context or next admission")
+        } else {
+            (Some(false), "none", "no compaction is selected by the current evidence; later changes can alter this")
+        };
+        Ok(json!({
+            "node":ctx.name,
+            "cache": {"dirty":dirty,"reasons":reasons,"guaranteed_hit":false,
+                "instruction_files":files,"instruction_baseline":if file_unknown {"unknown_or_incomplete"} else {"recorded"},
+                "namespace_baseline":if baseline["session"].as_str().is_some() {"recorded"} else {"unknown"},
+                "instruction_changes_at_next_session_start":instruction_change,
+                "next_turn_starts_process":starts,
+                "note":"Prefix and namespace compatibility only; dynamic turn envelopes and effort-only edits do not invalidate an unchanged prefix."},
+            "compaction":{"will_compact":will,"kind":kind,"reason":reason,
+                "occupancy":ctx.occupancy,"context_window":ctx.context_window,"measured":ctx.context_measured,
+                "occupancy_source":if live.is_some() {"current_turn"} else {"last_completed_turn"},
+                "cheap_compact_threshold":ctx.cold_reset,
+                "harness_threshold":if native_supported {native_frac} else {None},
+                "in_progress":compacting,
+                "turn_running":self.turn.is_some(),"note":"A point-in-time forecast; the rest of this turn and later configuration can change it."}
+        }))
+    }
+
+    fn forecast_for_print(&self, ctx: &Ctx, supplied: Option<&Fingerprint>) -> Value {
         let lane = match ctx.provider.as_str() {
             _ if ctx.harness.as_deref()==Some("opencode") => "opencode-acp",
             p if p == catalog::OPENAI => "codex",
@@ -6976,7 +7147,11 @@ impl Actor {
                            "source": "no_completed_fingerprint", "lane": lane, "last_receipt_at": receipt_at,
                            "ttl_seconds": null, "expires_at": null });
         };
-        let now_print = self.plan(ctx).print;
+        let planned;
+        let now_print = match supplied {
+            Some(print) => print,
+            None => { planned = self.plan(ctx).print; &planned },
+        };
         let mut changed = now_print.changed(sent);
         // the org's shared notes reach only a CLI that starts: a warm one
         // serving the next turn keeps its copy
@@ -7445,7 +7620,7 @@ mod print_tests {
     #[nolog]
     fn print(prompt: &str, notes: Option<&str>) -> Fingerprint {
         let parts = PRINT_PARTS.iter().map(|k| (*k, if *k == "system_prompt" { prompt.to_string() } else { format!("{k}-1") })).collect();
-        Fingerprint { parts, org_notes: notes.map(str::to_string) }
+        Fingerprint { parts, org_notes: notes.map(str::to_string), instructions: None, compact_at: None }
     }
 
     /// Another agent's edit of the org's shared notes leaves a warm CLI
@@ -7463,6 +7638,24 @@ mod print_tests {
         let old = json!(a.parts.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>());
         let back = Fingerprint::from_json(&old).unwrap();
         assert_eq!((back.org_notes, back.parts), (None, a.parts));
+    }
+
+    #[test]
+    fn private_file_and_threshold_metadata_roundtrip_without_changing_launch_equality() {
+        let a = print("p", Some("n"));
+        let mut b = a.clone();
+        let mut files = super::super::next_turn::Instructions::default();
+        files.text(std::path::Path::new("not-a-real-file.md"), "own_scratch", "private instruction");
+        b.instructions = Some(files);
+        b.compact_at = Some(0.7);
+        assert_eq!(a, b);
+        let saved = b.to_json();
+        assert!(!saved.to_string().contains("private instruction"));
+        let restored = Fingerprint::from_json(&saved).unwrap();
+        assert_eq!(restored.compact_at, Some(0.7));
+        let rows = restored.instructions.as_ref().unwrap().compare(b.instructions.as_ref());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["status"], "unchanged");
     }
 }
 

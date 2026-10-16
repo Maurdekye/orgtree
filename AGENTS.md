@@ -7,6 +7,16 @@
   [decided: user 2026-10-16; verified: `runtime/identity.rs`, `docs/skills/tree.json`,
   `canvas/modals.tsx`]
 
+- `orgtree_next_turn {}` is always-available, self-only and read-only. Dirty
+  covers prefix/namespace changes only, with no retention timing fields or hit
+  promise. Launches record private per-file instruction baselines independently
+  of cache receipts; legacy/unreadable copies stay unknown. Shared/team edits
+  keep their existing next-process-start delivery. Compaction reuses current
+  policy and distinguishes live/last-turn occupancy and uncertain harness timing.
+  Contract and measured limits: [next-turn query](docs/rust-engine/next-turn-query.md).
+  [decided: user/coordinator 2026-10-16; verified from source: `tools/next_turn.rs`,
+  `runtime/actor.rs`, `runtime/next_turn.rs`, `runtime/startup.rs`]
+
 - Working checkups depend on current `working` status and more than 20 minutes
   of inactivity, with no docket requirement (user 2026-10-16; replaces the
   2026-09-10 actionable-work gate). Docket reminders are independent and keep

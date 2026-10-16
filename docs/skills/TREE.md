@@ -20,8 +20,8 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 |---|---|
 | Categories (level 1, registered) | 2 |
 | Sections (level 2) | 18 |
-| Leaves (level 3) | 164: 42 tool, 44 concept, 33 screen, 45 setting |
-| SKILL.md files in total | 184 |
+| Leaves (level 3) | 165: 43 tool, 44 concept, 33 screen, 45 setting |
+| SKILL.md files in total | 185 |
 | Bytes of the two registered `name` + `description` lines | 403 |
 
 ## 1. Shape and conventions
@@ -361,6 +361,7 @@ Your turns and sessions: status, wakes, checkups, context, compaction, halts and
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
 | `tool-status` | tool | `orgtree_status` | Report working/done/blocked/idle to your superior; always available. Group `none`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:279`<br>`engine/rs/orgtree-engine/src/tools/mailtools.rs status`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
+| `tool-next-turn` | tool | `orgtree_next_turn` | Read self prefix/namespace changes, per-file session copies and compaction evidence. Always available, no arguments, read only. | `engine/rs/orgtree-engine/src/tools/next_turn.rs`<br>`runtime/actor.rs next_turn`<br>`runtime/next_turn.rs` | cache-continuity, context-and-compaction |
 | `tool-interrupt` | tool | `orgtree_interrupt` | Stop a report's current turn. Group `runtime`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:368`<br>`engine/rs/orgtree-engine/src/tools/control.rs interrupt`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
 | `tool-halt` | tool | `orgtree_halt` | Halt agents below you. Group `runtime`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:374`<br>`engine/rs/orgtree-engine/src/tools/control.rs halt(..,true)`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
 | `tool-unhalt` | tool | `orgtree_unhalt` | Release halted agents. Group `runtime`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:380`<br>`engine/rs/orgtree-engine/src/tools/control.rs halt(..,false)`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |

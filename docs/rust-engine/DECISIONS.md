@@ -954,3 +954,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     Targets the 4.3.1 patch/alpha. Contract and measured limits:
     [`profile-pictures.md`](profile-pictures.md#autonomous-logo-tool-431),
     [`undo-history.md`](undo-history.md#logo-history).
+
+83. **Every agent can read its own next-turn prefix and compaction evidence**
+    (user 2026-10-16 12:16-12:18Z; mechanism approved coordinator 12:19Z;
+    docket `agent-tool-is-my-prompt-cache-dirty-and-will-i-c`).
+    `orgtree_next_turn {}` is self-only, read-only and always available, with
+    no tool-group prerequisite. Dirty covers prefix/namespace changes only;
+    the final user simplification removes all retention timing fields. Each
+    instruction file that enters startup is compared with its private
+    delivered hash baseline: own/granted/global/native files, org.md, all
+    team notes and org shared notes. Unknown legacy/unreadable copies stay
+    unknown; edits take effect at the next fresh/resumed process start, with
+    existing shared/team warm-process deferral preserved. Compaction reports
+    known occupancy/thresholds and current policy with honest harness/future
+    uncertainty. No hit guarantee or new reset policy. This and the session
+    control tool ship together, for one tool-list prefix change. Contract:
+    [`next-turn-query.md`](next-turn-query.md).

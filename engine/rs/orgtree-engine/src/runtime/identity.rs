@@ -1051,7 +1051,9 @@ delivers when your current response ends — so for long work, END your response
 next message rather than running one marathon response. REQUIRED: call orgtree_status when you finish (done) or get stuck \
 (blocked)";
 
-const CHECKUPS: &str = "While you remain in working status, enabled automatic checkups may wake you after 20 minutes \
+const CHECKUPS: &str = "You may call orgtree_next_turn with no arguments to read your own next-turn prefix/namespace changes, \
+per-file instruction copies and compaction forecast. This is read-only and always available; unknown evidence stays unknown, \
+and a compatible prefix never guarantees a provider cache hit. While you remain in working status, enabled automatic checkups may wake you after 20 minutes \
 without a real wake, even with no actionable docket work. Docket reminders are separate; when both are due, only the \
 docket reminder wakes you and counts as a real wake for the checkup timer. Checkups wait while you are busy or have queued work and \
 respect normal turn-admission limits; they are not a precise timer or a guaranteed cache hit. ";

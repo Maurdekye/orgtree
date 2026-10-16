@@ -30,6 +30,11 @@ Native startup-file edits are included in launch fingerprints and can replace a 
 
 ## Compaction and account moves
 
+During a turn, use [orgtree_next_turn](../../runtime/tool-next-turn/SKILL.md)
+to inspect your own prefix/namespace changes, each startup instruction copy
+and compaction evidence. Its dirty answer excludes retention timing; it is
+separate from the desktop forecast's lifetime display and never promises a hit.
+
 Known-cold forecasts can participate in the configured automatic cheap-compact policy when measured context occupancy qualifies. Unknown forecasts do not justify a reset. See [context and compaction](../../runtime/context-and-compaction/SKILL.md) for lifecycle mechanics, and [account lanes](../account-lanes/SKILL.md) before proposing a move for capacity.
 
 When explaining a proposed change, name what changes—account namespace, model/session or startup prefix—and what is actually observed. Do not turn “process warm,” “same account,” or “resumed” into a cache-hit claim.

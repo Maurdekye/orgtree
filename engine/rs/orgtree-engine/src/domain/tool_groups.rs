@@ -42,12 +42,12 @@ pub fn intersect(child: &Value, parent: &Value) -> Value {
     Value::Object(GROUPS.iter().map(|g| ((*g).to_owned(), json!(enabled(child, g) && enabled(parent, g)))).collect())
 }
 
-/// None means an unknown tool, not an unrestricted tool. Status is the sole
-/// empty prerequisite list: every agent must be able to report done/blocked.
+/// None means an unknown tool, not an unrestricted tool. Self inspection
+/// and status remain available even with every group switched off.
 #[nolog]
 pub fn required(name: &str) -> Option<&'static [&'static str]> {
     Some(match name.strip_prefix("orgtree_")? {
-        "status" => &[],
+        "status" | "next_turn" => &[],
         "org_logo" => &["logo"],
         "work" => &["docket"],
         "staff" => &["docket", "team"],
@@ -87,7 +87,7 @@ pub fn grant_requested(tools: &mut Value, name: &str) {
 pub fn schema() -> Value {
     let properties: Map<String, Value> = GROUPS.iter().map(|g| ((*g).to_owned(), json!({"type": "boolean"}))).collect();
     json!({"type": "object", "properties": properties, "additionalProperties": false,
-        "description": "Orgtree tool groups (omitted groups stay on); status reporting is always available. staff needs docket and team."})
+        "description": "Orgtree tool groups (omitted groups stay on); status reporting and self next-turn reads are always available. staff needs docket and team."})
 }
 
 #[cfg(test)]
@@ -109,7 +109,7 @@ mod tests {
         for tool in crate::tools::defs::implemented() {
             assert!(required(tool).is_some(), "unclassified tool: {tool}");
             assert!(allows(&json!({}), tool), "default lost {tool}");
-            assert_eq!(allows(&off, tool), *tool == "orgtree_status", "all off: {tool}");
+            assert_eq!(allows(&off, tool), matches!(*tool, "orgtree_status" | "orgtree_next_turn"), "all off: {tool}");
         }
         assert!(!allows(&json!({}), "orgtree_unknown"));
         assert!(!allows(&json!({"orgtree":{"docket":false}}), "orgtree_staff"));

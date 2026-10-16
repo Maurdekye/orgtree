@@ -7,7 +7,8 @@ effective grant is intersected with all ancestors. An agent cannot grant
 capabilities it does not hold. User edits retain the existing scope cascade.
 Malformed group names and non-boolean values are refused.
 
-`orgtree_status` is always available. All other tools require these groups:
+`orgtree_status` and the self-only read `orgtree_next_turn` are always
+available. All other tools require these groups:
 
 | Key | Tools (without the `orgtree_` prefix) |
 | --- | --- |

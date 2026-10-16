@@ -5,9 +5,9 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 164,
-  "tools": 42,
-  "total": 184
+  "leaves": 165,
+  "tools": 43,
+  "total": 185
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -18,7 +18,8 @@
   "rig-opus": 1,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
-  "hubchat-dm-sol": 1
+  "hubchat-dm-sol": 1,
+  "usage-query-sol": 1
  },
  "nodes": [
   {
@@ -1448,6 +1449,7 @@
    "purpose": "Your turns and sessions: status, wakes, checkups, context, compaction, halts and restarts.",
    "children": [
     "tool-status",
+    "tool-next-turn",
     "tool-interrupt",
     "tool-halt",
     "tool-unhalt",
@@ -1493,6 +1495,36 @@
     "checkups-and-reminders",
     "context-and-compaction",
     "halts-and-restarts"
+   ]
+  },
+  {
+   "path": "orgtree-working/runtime/tool-next-turn",
+   "name": "orgtree-tool-next-turn",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_next_turn"
+   ],
+   "tool_group": "none",
+   "purpose": "Read your own prefix/namespace changes, instruction-file copies and compaction forecast; always available.",
+   "must_cover": [
+    "self only/no arguments/read only",
+    "prefix and namespace changes only",
+    "per-file delivered baseline and legacy uncertainty",
+    "compaction observations and thresholds",
+    "no cache-hit promise"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/next_turn.rs",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs next_turn",
+    "engine/rs/orgtree-engine/src/runtime/next_turn.rs"
+   ],
+   "writer": "usage-query-sol",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "cache-continuity",
+    "context-and-compaction"
    ]
   },
   {

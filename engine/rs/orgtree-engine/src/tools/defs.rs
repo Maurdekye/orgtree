@@ -10,6 +10,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_message",
         "orgtree_send_notice",
         "orgtree_status",
+        "orgtree_next_turn",
         "orgtree_org_logo",
         "orgtree_transfers", "orgtree_inbox",
         "orgtree_chart",
@@ -300,6 +301,12 @@ fn all() -> Vec<Value> {
                 "summary": { "type": "string", "description": "one or two sentences" },
             }),
             &["status", "summary"],
+        ),
+        tool(
+            "orgtree_next_turn",
+            "Read your own next-turn prefix/namespace changes and compaction forecast. No arguments, no tool-group permission, no writes or provider calls. Reports each delivered instruction file against its session-start copy and when changes take effect (next session start); older sessions without a file baseline stay unknown. Dirty means prefix or namespace change only. Compaction includes observed occupancy and known thresholds, with explicit uncertainty. Never promises a cache hit; the rest of this turn can change the forecast.",
+            json!({}),
+            &[],
         ),
         tool(
             "orgtree_transfers",

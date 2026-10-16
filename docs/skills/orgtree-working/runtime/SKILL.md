@@ -20,6 +20,7 @@ Your turns and sessions: status, wakes, checkups, context, compaction, halts and
 ## Tools
 
 - [orgtree-tool-status](tool-status/SKILL.md): Report working/done/blocked/idle to your superior; always available.
+- [orgtree-tool-next-turn](tool-next-turn/SKILL.md): Read your own prefix/namespace changes, instruction copies and compaction forecast; always available.
 - [orgtree-tool-interrupt](tool-interrupt/SKILL.md): Stop a report's current turn.
 - [orgtree-tool-halt](tool-halt/SKILL.md): Halt agents below you.
 - [orgtree-tool-unhalt](tool-unhalt/SKILL.md): Release halted agents.

@@ -19,6 +19,7 @@ pub mod history;
 pub mod identity;
 pub mod keepalive;
 pub mod muse;
+pub mod next_turn;
 pub mod opencode;
 pub mod prompt;
 pub mod recovery;
@@ -96,6 +97,8 @@ pub enum AgentMsg {
     ProcExited { process: uuid::Uuid, reason: String },
     /// the live tail and runtime for a chat read
     Live(oneshot::Sender<actor::LiveView>),
+    /// Self-only read; never schedules a turn or applies pending configuration.
+    NextTurn(oneshot::Sender<anyhow::Result<Value>>),
     /// retire/delete/shutdown: end everything and stop
     Stop(oneshot::Sender<()>),
     /// the machine-wide idle-process cap wants this agent's parked CLI closed
