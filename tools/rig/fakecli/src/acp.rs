@@ -77,6 +77,8 @@ pub fn run()->i32 {
         match v["method"].as_str() {
             Some("initialize")=>peer.result(id,json!({"protocolVersion":1,"agentInfo":{"name":"OpenCode","version":"2.0.28"},"agentCapabilities":{"loadSession":true}})),
             Some("session/new")|Some("session/load")=>{
+                super::skills_probe::observe(&PathBuf::from(params["cwd"].as_str().unwrap_or(".")),
+                    &config["skills"].as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from).collect::<Vec<_>>());
                 let load=v["method"]=="session/load";
                 session=if load {params["sessionId"].as_str().unwrap_or("").into()} else{format!("rig-acp-{}-{}",std::process::id(),super::now_ms())};
                 let record=data.join(format!("{session}.json"));

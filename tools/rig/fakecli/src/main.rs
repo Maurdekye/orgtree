@@ -26,6 +26,7 @@ mod agy;
 mod codex;
 mod muse;
 mod acp;
+mod skills_probe;
 
 const VERSION: &str = "2.1.999 (Claude Code fake)";
 
@@ -915,6 +916,7 @@ fn reader(cli: Arc<Cli>, tx: mpsc::Sender<Msg>) {
 fn claude(raw: &[String]) -> i32 {
     let args = parse_args(raw);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    skills_probe::observe(&cwd, &args.add_dirs.iter().map(|p| PathBuf::from(p).join(".claude/skills")).collect::<Vec<_>>());
     let agent = std::env::var("ORGTREE_AGENT")
         .ok()
         .filter(|s| !s.is_empty())

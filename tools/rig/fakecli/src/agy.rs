@@ -449,6 +449,7 @@ pub fn run(raw: &[String]) -> i32 {
         return models(raw);
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    super::skills_probe::observe(&cwd, &[cwd.join(".agents/skills")]);
     let agent = std::env::var("ORGTREE_AGENT").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "probe".into());
     let dir = std::env::var("ORGTREE_FAKECLI_DIR").ok().filter(|s| !s.is_empty()).map(PathBuf::from);
     let arg = |name: &str| raw.iter().position(|a| a == name).and_then(|i| raw.get(i + 1)).cloned();

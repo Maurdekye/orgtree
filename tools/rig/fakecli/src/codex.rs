@@ -189,7 +189,11 @@ struct Job {
 fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>) {
     match method {
         "initialize" => srv.respond(id, json!({ "userAgent": VERSION, "codexHome": srv.home })),
-        "skills/extraRoots/set" => srv.respond(id, json!({})),
+        "skills/extraRoots/set" => {
+            super::skills_probe::observe(&srv.cwd, &p["extraRoots"].as_array().into_iter().flatten()
+                .filter_map(Value::as_str).map(PathBuf::from).collect::<Vec<_>>());
+            srv.respond(id, json!({}));
+        },
         "thread/start" => {
             let tid = srv.uid();
             let path = new_rollout(&srv.home, &tid);

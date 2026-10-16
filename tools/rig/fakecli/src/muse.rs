@@ -372,6 +372,7 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>
         }
         "session/start" => {
             let root = p["workspaceRoot"].as_str().unwrap_or("");
+            super::skills_probe::observe(Path::new(root), &[Path::new(root).join(".agents/skills")]);
             // measured on Muse 1.4.6: a root that is not canonical is refused
             if cfg!(windows) && !root.starts_with(r"\\?\") {
                 srv.log("session_refused", json!({ "root": root }));
