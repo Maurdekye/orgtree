@@ -11,6 +11,12 @@
 //! Codex's and Muse's steer, Antigravity's hook) and an idle one at its next
 //! turn. The move notices of the turn where an agent really moves
 //! (`runtime_notices::SESSION_UPGRADE`, `SESSION_DOWNGRADE`) are unchanged.
+//! The same change fires the watchdog events `session.signed_in` and
+//! `session.signed_out`, and at sign-in working agents idle in Session 0 get
+//! their checkup at once (`reminders::checkups_at_sign_in`; the user,
+//! 2026-10-16 12:12Z, 2c). While the user is signed in and no helper
+//! connects, the engine starts the helper's own task, less and less often
+//! (`keepalive_wait`, 2d).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -60,13 +66,27 @@ async fn watch(engine: Arc<Engine>) {
         _ = tokio::time::sleep(crate::runtime::actor::SESSION_SETTLE.saturating_sub(elapsed)) => {}
     }
     let (mut seen, mut count) = (String::new(), 0u32);
+    let mut keep = Keepalive::default();
+    #[cfg(windows)]
+    let mut sessions = crate::core_process::Sessions::new();
+    let mut ticks = 0u64;
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = engine.shutdown.cancelled() => break,
             _ = tick.tick() => {}
         }
-        let now = if engine.credential_bridge.can_host() { SIGNED_IN } else { SESSION0 };
+        ticks += 1;
+        let hosting = engine.credential_bridge.can_host();
+        // the user is signed in (read as the core monitor reads it) and no helper
+        #[cfg(windows)]
+        if ticks.is_multiple_of(5) {
+            let signed_in = crate::core_state::sessions(&engine.cfg.data_root, &mut sessions).map(|s| !s.is_empty());
+            keepalive(&engine, &mut keep, signed_in == Some(true) && !hosting).await;
+        }
+        #[cfg(not(windows))]
+        let _ = (&mut keep, ticks);
+        let now = if hosting { SIGNED_IN } else { SESSION0 };
         if seen == now {
             count += 1;
         } else {
@@ -81,6 +101,12 @@ async fn watch(engine: Arc<Engine>) {
         tracing::info!(to = now, "where new turns run changed; every agent is told");
         if let Err(e) = tell(&engine, up).await {
             tracing::warn!(error = %format!("{e:#}"), "the sign-in or sign-out notice could not be sent");
+        }
+        // watchdogs may wait for it (2c), and working agents idle in Session 0
+        // get their checkup now, after the notice, so they move at once
+        crate::runtime::watchdogs::events::machine(&engine, if up { "session.signed_in" } else { "session.signed_out" }, json!({ "to": now }));
+        if up {
+            crate::runtime::reminders::checkups_at_sign_in(&engine).await;
         }
     }
 }
@@ -108,18 +134,85 @@ async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
 }
 
 /// How long the user may be signed in with no sign-in helper before the engine
-/// starts the helper's own task, by attempts made: so far never.
+/// starts the helper's own task, by attempts made (the user, 2026-10-16
+/// 12:12Z, 2d): 30 s, then 2, 5 and 10 minutes, then every 10 minutes.
 #[logged]
 pub fn keepalive_wait(attempts: u32) -> Duration {
-    let _ = attempts;
-    Duration::MAX
+    Duration::from_secs(match attempts {
+        0 => 30,
+        1 => 120,
+        2 => 300,
+        _ => 600,
+    })
 }
 
-/// The helper's scheduled task the engine may start: so far none.
+/// The installer's sign-in helper task (tools/boot-engine-task.ps1).
+const HELPER_TASK: &str = "Orgtree Credential Helper";
+/// A rig proof's own stand-in for it, named in the rig's data folder.
+const RIG_HELPER_TASK: &str = "rig-helper-task.txt";
+
+/// The helper's scheduled task the engine may start: the installer's; in a
+/// rig engine only a task a proof names, never the machine's own.
 #[logged]
 pub fn helper_task(rig: bool, rig_named: Option<&str>) -> Option<String> {
-    let _ = (rig, rig_named);
-    None
+    if !rig {
+        return Some(format!("\\{HELPER_TASK}"));
+    }
+    rig_named.map(str::trim).filter(|n| !n.is_empty()).map(|n| format!("\\{}", n.trim_start_matches('\\')))
+}
+
+/// The user is signed in and no helper connects: how long, and how often the
+/// helper's task was started since.
+#[derive(Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct Keepalive {
+    since: Option<std::time::Instant>,
+    attempts: u32,
+}
+
+/// Start the helper's task when the user has been signed in without a helper
+/// for `keepalive_wait`. A disabled task (Run on boot off) refuses, which is
+/// logged like any other result. Windows only: elsewhere nothing hosts.
+#[cfg(windows)]
+#[logged]
+async fn keepalive(engine: &Arc<Engine>, k: &mut Keepalive, missing: bool) {
+    if !missing {
+        *k = Keepalive::default();
+        return;
+    }
+    let since = *k.since.get_or_insert_with(std::time::Instant::now);
+    if since.elapsed() < keepalive_wait(k.attempts) {
+        return;
+    }
+    let rig = crate::rig::active();
+    let named = if rig { std::fs::read_to_string(engine.cfg.data_root.join(RIG_HELPER_TASK)).ok() } else { None };
+    let Some(task) = helper_task(rig, named.as_deref()) else { return };
+    k.attempts += 1;
+    k.since = Some(std::time::Instant::now());
+    let result = run_task(&task).await;
+    tracing::info!(task = %task, attempt = k.attempts, result = %result,
+        "the user is signed in but no sign-in helper connected: started the helper's task");
+}
+
+/// `schtasks /Run` by its absolute path; its exit code and first line.
+#[cfg(windows)]
+#[logged]
+async fn run_task(task: &str) -> String {
+    use std::os::windows::process::CommandExt;
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    let exe = std::path::PathBuf::from(root).join("System32").join("schtasks.exe");
+    let task = task.to_string();
+    tokio::task::spawn_blocking(move || {
+        match std::process::Command::new(&exe).args(["/Run", "/TN", &task]).creation_flags(0x0800_0000).output() {
+            Ok(o) => {
+                let text = String::from_utf8_lossy(if o.status.success() { &o.stdout } else { &o.stderr }).trim().to_string();
+                format!("exit {}: {}", o.status.code().unwrap_or(-1), text.lines().next().unwrap_or(""))
+            }
+            Err(e) => format!("schtasks could not start: {e}"),
+        }
+    })
+    .await
+    .unwrap_or_else(|e| format!("schtasks could not start: {e}"))
 }
 
 #[logged]

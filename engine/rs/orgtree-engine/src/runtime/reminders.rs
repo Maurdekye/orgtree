@@ -98,7 +98,7 @@ async fn tick_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) {
         tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "abandoned docket recovery failed; retry next pass");
     }
     if sw.checkups || sw.idle {
-        if let Err(e) = sweep_org(engine, org, sw).await {
+        if let Err(e) = sweep_org(engine, org, sw, false).await {
             tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "reminder sweep failed");
         }
     }
@@ -140,7 +140,7 @@ fn stamp(v: &Value, key: &str) -> Option<DateTime<Utc>> {
 }
 
 #[logged]
-async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> Result<()> {
+async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, early: bool) -> Result<()> {
     let client = engine.db.get().await?;
     let ks: Option<Value> = client.query_opt("SELECT killswitch FROM ot.orgs WHERE id = $1", &[&org.id]).await?.and_then(|r| r.get(0));
     if ks.is_some() {
@@ -153,11 +153,12 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
                FROM ot.agents a
               WHERE a.org_id = $1 AND a.state = 'live' AND a.halt IS NULL AND a.frozen IS NULL AND NOT a.limit_locked
                 AND a.inflight_at IS NULL
+                AND (NOT $3 OR coalesce(a.extra->>'session', 'session0') <> 'signed-in')
                 AND NOT EXISTS (SELECT 1 FROM ot.turns t WHERE t.agent_id = a.id AND t.ended_at IS NULL)
                 AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id
                                  AND (m.state = 'delivering' OR (m.state = 'pending' AND NOT m.notice)))
               ORDER BY a.id LIMIT $2",
-            &[&org.id, &MAX_AGENTS],
+            &[&org.id, &MAX_AGENTS, &early],
         )
         .await?;
     let mut agents = Vec::with_capacity(rows.len());
@@ -234,13 +235,13 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
         // names the work; the generic checkup only for an agent the reminder
         // passes over. Either one is waking mail, so nobody is woken twice.
         let wake = async {
-            if sw.idle && !items.is_empty() && idle_reminder(engine, org, a, &items, now).await? {
+            if !early && sw.idle && !items.is_empty() && idle_reminder(engine, org, a, &items, now).await? {
                 return Ok(());
             }
             // User 2026-10-16: working checkups are independent of docket work.
             // A due docket reminder above takes precedence and is a real wake.
             if sw.checkups && a.working {
-                checkup(engine, org, a, now).await?;
+                checkup(engine, org, a, now, early).await?;
             }
             anyhow::Ok(())
         };
@@ -250,6 +251,25 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
         }
     }
     Ok(())
+}
+
+/// The user signed in (`session_watch`; the user, 2026-10-16 12:12Z, 2c): a
+/// working agent that owes docket work and sits idle with its last turn in
+/// Session 0 gets its checkup now, not up to 20 minutes later, so its next
+/// turn runs in the signed-in session. The stamp it writes restarts its 20
+/// minutes, so over time this adds no checkup. Idle reminders are not sent
+/// early, and nobody else is woken.
+#[logged]
+pub async fn checkups_at_sign_in(engine: &Arc<Engine>) {
+    let sw = switches(engine);
+    if !sw.checkups {
+        return;
+    }
+    for org in engine.orgs.all() {
+        if let Err(e) = sweep_org(engine, &org, sw, true).await {
+            tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "the sign-in checkups failed");
+        }
+    }
 }
 
 /// Write `key` = now on a still-wakeable agent; false when the gates changed
@@ -272,10 +292,13 @@ async fn claim(engine: &Engine, agent: i64, key: &str, now: DateTime<Utc>) -> Re
 
 /// What a working checkup does now: (stamp the agent, send the checkup).
 /// 3.x `_working_checkup_decision`: a missing anchor is only stamped, so a
-/// never-active agent waits 20 minutes too, and a recent one waits.
+/// never-active agent waits 20 minutes too, and a recent one waits; at
+/// sign-in (`early`) it is sent at once.
 #[logged]
 fn checkup_now(activity: Option<DateTime<Utc>>, now: DateTime<Utc>, early: bool) -> (bool, bool) {
-    let _ = early;
+    if early {
+        return (true, true);
+    }
     match activity {
         None => (true, false),
         Some(t) if (now - t).num_seconds() <= AFTER_S => (false, false),
@@ -285,8 +308,8 @@ fn checkup_now(activity: Option<DateTime<Utc>>, now: DateTime<Utc>, early: bool)
 
 /// 3.x `_working_checkup_decision` + `_working_checkup_reserve`.
 #[logged]
-async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime<Utc>) -> Result<()> {
-    let (stamp, send_now) = checkup_now(a.activity, now, false);
+async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime<Utc>, early: bool) -> Result<()> {
+    let (stamp, send_now) = checkup_now(a.activity, now, early);
     if !stamp {
         return Ok(());
     }
