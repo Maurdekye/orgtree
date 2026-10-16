@@ -42,7 +42,19 @@ measured 13 passing checks and three expected assertion failures: working with
 no items, working with blocked-only items, and the checkups-only recipient set.
 Its JSON verdict was false, although the old proof returned `save()` and exited
 zero; the proof now returns `summary()` so a failing verdict reaches the runner.
-The product change follows that measured red. Final green verification is pending.
+The product change follows that measured red. Independent rig-sol-b verification
+at exact `ca9da887b918def0a94308fea5a1f13769070951` measured reminders 16/16
+(JSON true, exit 0) and adjacent reminder-race 4/4 (retained JSON true).
+The final reminders proof against the base's identical engine source measured
+the same 13 pass / 3 fail, JSON false and exit 1, verifying the exit correction.
+The adjacent race proof still uses its older `save()` return; its JSON assertions,
+not its exit code alone, establish those four passes.
+
+Candidate build and all-target check exited zero without compiler warnings.
+Clippy exited zero with 107 attributed warning locations, none on changed lines;
+this is not a zero-warning Clippy claim. Both proof phases cleaned up their
+synthetic processes. Tests backdate activity in scratch databases and use fake
+CLIs: they do not measure a real twenty-minute interval or a live deployment.
 
 The tests-first `tools/rig/proofs/reminders.mjs` proof covers working with no
 docket items, working with blocked-only items, non-working status controls,
