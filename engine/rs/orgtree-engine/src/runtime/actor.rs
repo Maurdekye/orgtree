@@ -1858,7 +1858,8 @@ impl Actor {
         // and the workspace of every subtree it is inside, read from the tree now
         let teams = crate::domain::teams::held(&self.engine, &slug, self.id).await?;
         // and the folders of the projects below it, which it reaches from above
-        let below = crate::domain::teams::projects_below(&self.engine, &slug, self.id).await?;
+        // heap-owned: the debug actor future sits near the stack limit (AGENTS.md, round 434)
+        let below = Box::pin(crate::domain::teams::projects_below(&self.engine, &slug, self.id)).await?;
         let eff = scope::with_team_workspaces(&eff, &teams);
         let eff = scope::with_team_workspaces(&eff, &below);
         let team_notes: Vec<(PathBuf, String, Option<String>)> = teams.iter().map(|t| {

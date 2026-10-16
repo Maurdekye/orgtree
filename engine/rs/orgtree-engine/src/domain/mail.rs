@@ -308,7 +308,8 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     let halted: bool = target.get(3);
     if target.get::<_, String>(4) == crate::domain::projects::KIND {
         let project = crate::domain::projects::Project { id: target_id, name: to.clone(), state };
-        return send_project(engine, &org, client, out, project, mail_uid).await;
+        // heap-owned, as send_extern: every caller of `send` keeps its future small
+        return Box::pin(send_project(engine, &org, client, out, project, mail_uid)).await;
     }
     if state == "unrecoverable" {
         refuse!(Conflict, "{to} cannot be reached (its session is lost); nothing was sent");

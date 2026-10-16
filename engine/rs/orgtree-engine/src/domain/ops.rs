@@ -1284,18 +1284,30 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
 #[logged]
 async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let agent = matches!(actor, Actor::Agent { .. });
-    ordering::index(req, agent)?;
     let name = valid_name(str_arg(req, "name").unwrap_or(""))?;
     name_free(tx, org.id, &name).await?;
-    let parent: Option<Node> = match str_arg(req, "parent") {
-        Some("user" | "@user") => None,
-        Some(p) => Some(node_by_name(tx, org.id, p).await?),
-        None => match actor {
+    // `above`: the project takes that node's place and the node goes under it
+    // (the hire token's top edge, user 2026-10-16 21:02Z)
+    let anchor = match str_arg(req, "above") {
+        Some(a) => Some(node_by_name(tx, org.id, a).await?),
+        None => None,
+    };
+    if anchor.is_none() {
+        ordering::index(req, agent)?;
+    }
+    let parent: Option<Node> = match (&anchor, str_arg(req, "parent")) {
+        (Some(a), _) => {
+            insertion_authority(tx, actor, a).await?;
+            match a.parent { Some(p) => Some(node_by_id(tx, p).await?), None => None }
+        }
+        (None, Some("user" | "@user")) => None,
+        (None, Some(p)) => Some(node_by_name(tx, org.id, p).await?),
+        (None, None) => match actor {
             Actor::Agent { id, .. } => Some(node_by_id(tx, *id).await?),
             Actor::User => None,
         },
     };
-    if let Some(p) = &parent {
+    if let (Some(p), None) = (&parent, &anchor) {
         if p.state != "live" {
             refuse!(Conflict, "{} is not live", p.name);
         }
@@ -1305,13 +1317,22 @@ async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
                 refuse!(Forbidden, "{name} can create a project only under itself, its reports, or a project it is inside");
             }
         }
-    } else if agent {
+    } else if agent && anchor.is_none() {
         refuse!(Forbidden, "only the user creates a project at the top level");
     }
     let parent_id = parent.as_ref().map(|p| p.id);
-    let mut siblings = ordering::siblings(tx, org.id, parent_id, None).await?;
-    let index = ordering::position(req, &siblings, agent)?;
-    let order: f64 = if req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none() {
+    let mut siblings = ordering::siblings(tx, org.id, parent_id, anchor.as_ref().map(|a| a.id)).await?;
+    let index = match &anchor {
+        // the anchor's own slot among its siblings
+        Some(a) => {
+            let order: f64 = tx.query_one("SELECT sibling_order FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
+            siblings.iter().filter(|s| s.order < order).count()
+        }
+        None => ordering::position(req, &siblings, agent)?,
+    };
+    let order: f64 = if let Some(a) = &anchor {
+        tx.query_one("SELECT sibling_order FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0)
+    } else if req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none() {
         tx.query_one(
             "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
             &[&org.id, &parent_id]).await?.get(0)
@@ -1335,8 +1356,18 @@ async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
         .get(0);
     let folder = crate::domain::teams::workspace(&engine.cfg.teams_dir(&org.slug), id).to_string_lossy().to_string();
     tx.execute("UPDATE ot.agents SET scratch_dir = $2 WHERE id = $1", &[&id, &folder]).await?;
+    if let Some(a) = &anchor {
+        // the wrapped node and its team move in; the project is transparent
+        // for scope and credits, so only their folders and notes change
+        tx.execute("UPDATE ot.agents SET parent_id = $2, sibling_order = 1, row_version = row_version + 1 WHERE id = $1",
+            &[&a.id, &id]).await?;
+        fx.agents.insert(a.id);
+        fx.reconfigure.push(a.id);
+        fx.reconfigure.extend(subtree(tx, a.id).await?);
+    }
     event(tx, org.id, "create_project", actor, Some(id),
-          json!({ "node": name, "kind": "project", "parent": parent.as_ref().map(|p| p.name.clone()) }), fx).await?;
+          json!({ "node": name, "kind": "project", "parent": parent.as_ref().map(|p| p.name.clone()),
+                  "above": anchor.as_ref().map(|a| a.name.clone()) }), fx).await?;
     fx.agents.insert(id);
     if let Some(p) = &parent {
         fx.agents.insert(p.id);

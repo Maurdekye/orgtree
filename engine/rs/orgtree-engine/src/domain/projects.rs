@@ -219,7 +219,7 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
     for r in &rows {
         let owner: i64 = r.get(2);
         // a watcher that has since moved out of the project's line no longer reaches it
-        if reaches(&tx, owner, project).await? {
+        if reaches(&*tx, owner, project).await? {
             eligible.push(Watcher {
                 row: r.get(0),
                 uid: r.get(1),
