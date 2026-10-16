@@ -35,6 +35,19 @@ The saved/configured value initializes the field. New hires normally start from 
 
 The initial value is saved configuration, with `acceptEdits` as the missing-value fallback and built-in hire default. The actual sandbox/approval mechanism depends on the harness and Windows session; the label does not guarantee an identical OS sandbox everywhere. See `orgtree-scope-and-permissions` (orgtree-working › team) and the corresponding provider leaf.
 
+## Desktop session
+
+`node:session` is where the agent's CLI runs among the user's Windows sessions while the user is signed in (Run on boot starts the engine in Session 0, which has no desktop):
+
+| Label | Stored value |
+|---|---|
+| Signed-in session when available | absent (the default) |
+| Console session | `console` |
+| Remote session | `remote` |
+| Always Session 0 | `session0` |
+
+Session 0 is always the fallback. An agent can also set it itself with `orgtree_session` `prefer`, including an ordered list such as "Remote, then console session", which the field shows as it is and sends back only when changed. It is per agent, not inherited, and takes effect from the agent's next turn. Only the engine user's own sessions are used. See `orgtree-tool-session` (orgtree-working › runtime).
+
 ## Superior ceilings and save effects
 
 Effective scope is bounded by every superior: neither visibility nor permission mode can be broader than the narrowest effective setting above it. The desktop is the user's grant surface, so a user save requesting broader scope raises intermediate configured scopes instead of treating the parent's current value as a permanent refusal. The form previews which ancestors gain access; review that warning before Save. A narrower parent makes descendants' effective scope narrower; distinguish a stored configured value from the effective value actually launched.

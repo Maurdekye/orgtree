@@ -1041,3 +1041,23 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - The new tool card changes every agent's tool list: one prompt-cache miss per agent, at its
       first turn after the upgrade.
     Details: [`run-on-boot.md`](run-on-boot.md); proof `tools/rig/proofs/session-query.mjs`.
+
+85. **Agents run in a signed-in session as often as they can** (user 2026-10-16 12:00Z: "agents
+    should find and take advantage of any way they can to locate and run in an active logged in
+    session, as often as possible"; rulings 12:05Z, 12:07Z, 12:12Z, 12:13Z; docket
+    `let-agents-query-machine-sign-in-state-and-which`).
+    - **Self-interrupt:** `orgtree_interrupt` on yourself needs no tool group; `restart: true` starts
+      exactly one new turn at once, placed by the turn-start rule. Refused with background work running.
+    - **Sign-in/out notices:** every live agent gets one passive line when where new turns run changes
+      (a running turn at its next tool boundary); not on a restart while signed in.
+    - **2c:** watchdog events `session.signed_in`/`session.signed_out`; at sign-in, working agents idle in
+      Session 0 that owe docket work get their checkup at once.
+    - **2d:** the engine starts the helper's logon task when the user is signed in without a helper
+      (30 s, then 2, 5, 10 minutes); never the machine's task from a rig engine.
+    - **The user's sessions (only the engine user's own):** one helper lease per session; an agent's
+      preference by kind (scope `session`, default `signed-in`, Session 0 the fallback), set in Agent
+      settings or by `orgtree_session` `prefer`; an on-demand `use` for the next turn;
+      `orgtree_session` lists Session 0 and every hosting session.
+    - Rejected: a forced move of running turns at sign-in (user 12:12Z, item 5). The credential relay
+      stays: every agent CLI still uses it, and Session 0 turns while signed in need it (12:03Z).
+    Details: [`run-on-boot.md`](run-on-boot.md); proofs `self-interrupt.mjs`, `session-choice.mjs`.

@@ -85,6 +85,7 @@ Events are pushed. Creation smoke reports current exact conditions where availab
 | `credentials.isolated`, `credentials.ready` | General boot credential warning raised/cleared. |
 | `engine.started` | Engine startup after persisted event dogs subscribe. |
 | `agent.hired`, `agent.rehired`, `agent.retired`, `agent.halted`, `agent.unhalted`, `agent.frozen`, `agent.unfrozen`, `agent.moved`, `agent.renamed` | Agent lifecycle transitions. |
+| `session.signed_in`, `session.signed_out` | The user signed in or out of Windows (a sign-in helper connected, or the last one stopped); machine-wide. Keep a one-shot dog on `session.signed_in` to wake when the desktop becomes available. |
 | `agent.changed`, `agent.settings.changed`, `org.settings.changed` | Change notifications; settings payloads expose identities/field names rather than saved values or a full audit diff. |
 | `turn.started`, `turn.finished`, `turn.failed`, `turn.stalled`, `turn.limited` | Runtime transitions/outcomes, not model text or raw error bodies. |
 | `mail.waiting`, `mail.delivered`, `mail.changed` | Mail insertion, delivery settlement or mailbox change, without message bodies. |

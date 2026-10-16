@@ -166,6 +166,67 @@ placement rule (`want_hosted`, `codex_seat`) must change `session_view` with
 it. The tool card is new in every agent's tool list, so each agent's prompt
 cache misses once, at its first turn after the upgrade.
 
+## Sign-in and sign-out notices
+
+The user, 2026-10-16 12:07Z (`runtime/session_watch.rs`): an engine in
+Session 0 watches whether any sign-in helper hosts. A change that holds
+for two readings a second apart, from what agents were last told (kept in
+`<data>\session-placement.json`, baseline Session 0, so a restart while
+the user stays signed in tells nobody anything; readings start after the
+15 s settle), sends every live agent one passive line: `[ORGTREE SIGN-IN
+NOTICE]` (or, when its preference keeps it in Session 0, a line saying
+so) or `[ORGTREE SIGN-OUT NOTICE]`. `mail::send` wakes an agent whose
+actor runs, so a running turn takes the line at its next tool boundary
+(Claude's hook, Codex's and Muse's steer, Antigravity's hook); an idle
+agent reads it at its next turn. The move notices stay as they were.
+The same change fires the machine-wide watchdog events `session.signed_in`
+and `session.signed_out`, and at sign-in every working agent that owes
+docket work and sits idle with its last turn in Session 0 gets its
+checkup at once (`reminders::checkups_at_sign_in`; its stamp restarts
+its 20 minutes, so no extra checkup over time; 2c).
+
+## The helper keepalive
+
+While the user is signed in (`core_state::sessions`) and no helper
+connects, the engine starts the helper's own logon task with
+`%SystemRoot%\System32\schtasks.exe /Run /TN "\Orgtree Credential
+Helper"` after 30 s, then after 2, 5 and 10 minutes, then every 10
+minutes, logging each result (2d). A disabled task (Run on boot off)
+refuses. Measured 2026-10-16, read-only: the installed task's ACL gives
+the engine's user RX, which allows an on-demand run (inferred, not
+executed). A rig engine never starts the machine's own task, only a
+proof's task named in `<data>\rig-helper-task.txt`.
+
+## Ending your own turn: `orgtree_interrupt`
+
+The user, 2026-10-16 12:05Z: an agent may point `orgtree_interrupt` at
+itself, with no tool group. The turn ends as a deliberate interrupt (so a
+sign-out at the same moment adds no resume); with `restart: true`,
+`end_turn`, which takes a turn once, wakes exactly one new turn at once,
+placed by the turn-start rule. It is refused while the CLI holds
+background work or no turn runs; another agent still needs the runtime
+group, and `restart` is for one's own turn only. Both ends are logged.
+
+## Choosing among the user's sessions
+
+The user, 2026-10-16 12:12Z and 12:13Z (only the engine user's own
+sessions): the bridge holds one host lease per Windows session
+(`credential_bridge::HostLeases`), side by side; the first helper is the
+core's helper member. `session_host::choose` takes the agent's on-demand
+pick while its session hosts (`orgtree_session` `use`, next turn only; 0
+is Session 0), then its preference (scope `session`: absent =
+`signed-in`, any session; `console`, `remote`, `session0`, or an ordered
+list), an active session before a disconnected one and the lowest id
+first, then Session 0. Kinds come from Windows (`WTSClientProtocolType`:
+RDP is `remote`). Agent settings › Access › "Desktop session" shows and
+saves the preference; undo restores it. `orgtree_session` lists Session 0
+and each hosting session (id, kind, state, user). A debug rig engine lets a
+proof's helper name a synthetic session (`rig_session`, from
+`ORGTREE_RIG_HELPER_SESSION` in a debug helper) described in
+`<data>\rig-sessions.json`. Windows 11 Pro gives a user one interactive
+session, so two real sessions occur only on Server or multi-session
+editions: proven here with synthetic helpers only.
+
 ## Decisions beyond the user's words
 
 The coordinator ruled A (the "Run on sign-in" label), C (the helper's run

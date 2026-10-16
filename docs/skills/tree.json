@@ -1567,8 +1567,8 @@
    "covers": [
     "orgtree_interrupt"
    ],
-   "tool_group": "runtime",
-   "purpose": "Stop a report's current turn.",
+   "tool_group": "none (yourself); runtime (others)",
+   "purpose": "Stop a report's current turn, or end your own and start a new one at once.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
@@ -5491,9 +5491,10 @@
    "registered": false,
    "covers": [
     "node:org_visibility",
-    "node:permission_mode"
+    "node:permission_mode",
+    "node:session"
    ],
-   "purpose": "Scope tab > visible agents and file and command access.",
+   "purpose": "Scope tab > visible agents, file and command access, and desktop session.",
    "must_cover": [
     "caps from superior"
    ],
@@ -5514,6 +5515,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "File and command access"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Desktop session"
     }
    ],
    "key_sources": [
@@ -5529,6 +5534,13 @@
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "needles": [
       "permission_mode"
+     ]
+    },
+    {
+     "key": "node:session",
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "needles": [
+      "SESSION_OPTIONS"
      ]
     }
    ]

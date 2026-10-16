@@ -1215,6 +1215,18 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
     caller's actor (`AgentMsg::Session`, `session_view`) by the rule a turn's
     start applies: change `want_hosted` or `codex_seat` and `session_view`
     changes with it;
+  - placement is a session id, not a yes/no: `session_host::choose` (on-demand
+    `use`, then the scope `session` preference, then Session 0) over
+    `credential_bridge::HostLeases`, one helper lease per session; every
+    harness spawn names the session and a hosted CLI knows it (`hosted_in`);
+  - `orgtree_interrupt` on yourself needs no group (`interrupt_rule`); its
+    `restart` wake comes from `end_turn` (a turn is taken once), never from
+    the interrupt itself;
+  - `session_watch` tells every agent of a sign-in or sign-out once, keeps
+    what it told in `<data>\session-placement.json`, fires
+    `session.signed_in`/`signed_out`, runs the sign-in checkups and the
+    helper keepalive; a rig engine starts only a proof's task, never
+    `\Orgtree Credential Helper`;
   - session notices go out only on a real move (the last placement is
     `ot.agents.extra.session`); the restart notice's "Session access at start"
     line is added at delivery; an agent last in the signed-in session waits
@@ -1227,8 +1239,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   rulings A-E 09:43Z; verified: `tools/boot-engine-task.ps1`,
   `apps/desktop/main/runonstartup.ts`, `src/runtime/session_host.rs`,
   `src/runtime/actor.rs`, `src/tools/session.rs`; details
-  `docs/rust-engine/run-on-boot.md`, decisions 83 (which replaced decision 79)
-  and 84]
+  `docs/rust-engine/run-on-boot.md`, decisions 83 (which replaced decision 79),
+  84 and 85]
 - **Ending an engine's task does not stop a boot engine.** Since the
   core-lifecycle recovery (2026-10-12) an engine outlives its host, and a task
   End ends only the host. A manual End on the boot task therefore still leaves

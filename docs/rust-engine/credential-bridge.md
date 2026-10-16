@@ -361,3 +361,10 @@ Antigravity and OpenCode):
 Proof: `tools/rig/proofs/session-upgrade.mjs` (fake CLIs, `--session0 1`, the
 helper through the temporary interactive task, as `codex-host.mjs`), and
 `session-query.mjs` for `orgtree_session` and the sign-out resume.
+
+Since decision 85 the host role is one lease per Windows session of the
+engine's user (`HostLeases`): helpers in different sessions host side by
+side, a second helper in the same session is held off until the first's
+lease ends, and the first helper is the core's helper member. Spawn and
+kill requests go to the helper of the CLI's session (`host_in`). Proof:
+`session-choice.mjs`.
