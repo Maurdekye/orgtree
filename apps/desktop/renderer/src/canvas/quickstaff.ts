@@ -94,7 +94,13 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
   ).map(tier => antigravityByTier.get(tier)!)
   let nextAntigravity = 0
   const models: MenuItem[] = preview.models.map(m => {
-    if (ANTIGRAVITY_TIERS.includes(m.tier)) m = orderedAntigravity[nextAntigravity++]
+    if (ANTIGRAVITY_TIERS.includes(m.tier)) {
+      const ordered = orderedAntigravity[nextAntigravity]
+      if (ordered !== undefined) {
+        m = ordered
+        nextAntigravity += 1
+      }
+    }
     // tier ▸ EFFORT ▸ account (user ruling 2026-09-15): the account is the last
     // thing chosen, never the layer directly under the model. Where a tier has
     // no effort to choose at all the accounts sit under it directly, because
