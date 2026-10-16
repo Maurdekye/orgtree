@@ -485,6 +485,7 @@ fn scope_request_guidance(text: &str, tools: &Value) -> String {
 #[logged]
 fn scoped_docket_instructions(tools: &Value) -> String {
     let mut text = DOCKET.to_owned();
+    text.push_str("\n\nBefore sending an assignment or an exact-SHA review request, add the agent as participant or reviewer. Mentioning their name in the objective or mail grants no access.");
     if !crate::domain::tool_groups::enabled(tools, "user") {
         let start = text.find("(5) A question").expect("docket question boundary");
         let end = text.find("(6) THE USER'S OWN REVIEW").expect("docket attention boundary");
@@ -562,6 +563,12 @@ mod group_tests {
         assert!(minimal.len() < default.len() / 2);
         let charter = "Preserve this literal text: orgtree_work and orgtree_ask.";
         assert!(render(&scope, Lane::Claude, false, Some(charter)).contains(charter));
+    }
+
+    #[test]
+    fn assignment_guidance_requires_explicit_docket_access() {
+        let text = render(&json!({}), Lane::Claude, false, None);
+        assert!(text.contains("Before sending an assignment or an exact-SHA review request, add the agent as participant or reviewer. Mentioning their name in the objective or mail grants no access."));
     }
 
     /// The Muse lane names its tools with their server prefix, describes Muse's
