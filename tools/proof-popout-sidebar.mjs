@@ -5,6 +5,7 @@ import path from 'node:path'
 import http from 'node:http'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 const repo = process.cwd(), out = process.env.POPOUT_SIDEBAR_OUT
 const deps = process.env.BATCH_NODE_MODULES
 if (!out || !/^C:[\\/]orgtree-build[\\/]/i.test(out) || !process.env.ORGTREE_AGENT || !deps)
@@ -27,8 +28,13 @@ if (process.argv[2] !== '--electron') {
   fs.writeFileSync(path.join(out, 'index.html'), html)
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
-  const run = spawnSync(require('electron'), [path.join(repo, 'tools/proof-popout-sidebar.mjs'), '--electron'],
+  // Electron waits for ESM main evaluation before ready. Awaiting ready at
+  // that module's top level deadlocks; a CJS bootstrap returns immediately.
+  const bootstrap = path.join(out, 'electron-main.cjs')
+  fs.writeFileSync(bootstrap, `const {app}=require('electron');app.setPath('userData',${JSON.stringify(path.join(out, 'electron-profile'))});app.commandLine.appendSwitch('disable-gpu');app.whenReady().then(()=>import(${JSON.stringify(pathToFileURL(path.join(repo, 'tools/proof-popout-sidebar.mjs')).href)})).catch(e=>{console.error(e);app.exit(1)});`)
+  const run = spawnSync(require('electron'), [bootstrap, '--electron'],
     { env, stdio: 'inherit', windowsHide: true, timeout: 90000 })
+  if (run.error) console.error(run.error)
   process.exitCode = run.status ?? 1
 } else {
   const { app, BrowserWindow } = require('electron')
@@ -37,6 +43,11 @@ if (process.argv[2] !== '--electron') {
   const checks = [], samples = []
   const check = (name, ok) => { checks.push({ name, ok: !!ok }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`) }
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+  const within = async (promise, label) => {
+    let timer
+    try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error('Timed out: ' + label)), 8000) })]) }
+    finally { clearTimeout(timer) }
+  }
   const server = http.createServer((req, res) => {
     const name = req.url === '/fixture.js' ? 'fixture.js' : req.url === '/fixture.css' ? 'fixture.css' : 'index.html'
     res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : 'text/html')
@@ -45,6 +56,7 @@ if (process.argv[2] !== '--electron') {
   let main
   try {
     await app.whenReady()
+    console.log('Electron ready')
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
     main = new BrowserWindow({ show: false, width: 1000, height: 700,
       webPreferences: { contextIsolation: false, nodeIntegration: false, sandbox: false, backgroundThrottling: false } })
@@ -52,10 +64,10 @@ if (process.argv[2] !== '--electron') {
       show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false } } }))
     const evaluate = code => main.webContents.executeJavaScript(code)
     const settle = async win => {
-      await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+      await within(win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))'), 'two painted frames')
       await delay(100)
     }
-    await main.loadURL(`http://127.0.0.1:${server.address().port}/`)
+    await within(main.loadURL(`http://127.0.0.1:${server.address().port}/`), 'fixture load')
     await settle(main)
     const sample = async (name, win, width) => {
       await settle(win)
@@ -71,7 +83,7 @@ if (process.argv[2] !== '--electron') {
     await sample('home-wide', main, 960)
     const childReady = new Promise(resolve => main.webContents.once('did-create-window', resolve))
     await evaluate('document.querySelector("button[aria-label=\"Open in new window\"]").click()')
-    const child = await childReady
+    const child = await within(childReady, 'native popout creation')
     await delay(150)
     await sample('popout-wide', child, 960)
     // Only the native popout changes size. The opener's viewport is untouched.
