@@ -28,15 +28,23 @@ test('production IPC registration restricts folder opening to the caller organiz
   register((channel, fn) => { assert.equal(channel, 'desktop:open-agent-scratch-folder'); callback = fn },
     options, { identity: id => id === 'mine-window' ? { org: 'mine' } : { kind: 'homepage' } }, engine,
     { openPath: async directory => { calls.push(['shell', directory]); return '' } },
-    async (current, org, node, opener) => { calls.push([current, org, node]); await opener(temp); return { ok: true } })
+    async (current, org, node, opener, scope) => {
+      calls.push(scope ? [current, org, node, scope] : [current, org, node])
+      await opener(temp); return { ok: true }
+    })
   assert.equal(callback({ id: 'mine-window' }, 'other', 'alice').ok, false)
   assert.equal(callback({ id: 'home-window' }, 'mine', 'alice').ok, false)
   assert.deepEqual(calls, [])
   assert.deepEqual(await callback({ id: 'mine-window' }, 'mine', 'alice'), { ok: true })
   assert.deepEqual(calls, [[engine, 'mine', 'alice'], ['shell', temp]])
+  assert.deepEqual(await callback({ id: 'mine-window' }, 'mine', 'alice', 'team'), { ok: true })
+  assert.deepEqual(await callback({ id: 'mine-window' }, 'mine', '', 'shared'), { ok: true })
+  assert.deepEqual(calls.slice(2), [[engine, 'mine', 'alice', 'team'], ['shell', temp],
+    [engine, 'mine', '', 'shared'], ['shell', temp]])
+  assert.equal(callback({ id: 'mine-window' }, 'other', '', 'shared').ok, false)
   options.dataRoot = ''
   assert.equal(callback({ id: 'mine-window' }, 'mine', 'alice').ok, false)
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 6)
 })
 
 test('identity lookup authenticates, opens only an existing directory, and reports native errors', async () => {
@@ -84,10 +92,12 @@ test('team and shared scope use the existing authenticated resolver and native o
   const directory = path.join(temp, 'engine resolved shared directory')
   await fs.mkdir(directory)
   const requests = [], opened = []
+  let echoScope = true
   const server = createServer((req, res) => {
     requests.push([req.url, req.headers['x-orgtree-desktop-token']])
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ path: directory }))
+    const scope = new URL(req.url, 'http://127.0.0.1').searchParams.get('scope')
+    res.end(JSON.stringify({ path: directory, ...(echoScope ? { scope } : {}) }))
   })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   const engine = { origin: `http://127.0.0.1:${server.address().port}`, token: 'scoped-fixture-token' }
@@ -98,6 +108,10 @@ test('team and shared scope use the existing authenticated resolver and native o
     assert.deepEqual(await openAgentScratchFolder(engine, 'mine', '', open, 'shared'), { ok: true })
     assert.deepEqual(requests[1], ['/api/orgs/mine/nodes/_shared/scratch-folder?scope=shared', 'scoped-fixture-token'])
     assert.deepEqual(opened, [await fs.realpath(directory), await fs.realpath(directory)])
+    echoScope = false
+    assert.equal((await openAgentScratchFolder(engine, 'mine', 'leaf', open, 'team')).ok, false,
+      'an old engine ignoring scope must not open the personal directory')
+    assert.equal(opened.length, 2)
     const count = requests.length
     for (const scope of ['../shared', null, {}, 1]) {
       assert.equal((await openAgentScratchFolder(engine, 'mine', 'leaf', open, scope)).ok, false)

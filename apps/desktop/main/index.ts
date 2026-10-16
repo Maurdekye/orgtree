@@ -1959,11 +1959,11 @@ else {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
     })
-    handle('desktop:open-agent-scratch-folder', (caller, org, node) => {
+    handle('desktop:open-agent-scratch-folder', (caller, org, node, scope) => {
       if (!engineRestartOptions?.dataRoot || windows.identity(caller.id)?.org !== org) {
         return { ok: false, error: 'Open this agent from its local organization window.' }
       }
-      return openAgentScratchFolder(engine, org, node, directory => shell.openPath(directory))
+      return openAgentScratchFolder(engine, org, node, directory => shell.openPath(directory), scope)
     })
     handleApp('desktop:open-charter-folder', async () => {
       const dir = path.join(os.homedir(), '.orgtree', 'charters')

@@ -59,6 +59,7 @@ export interface AgentMenuHandlers {
   onOpenDesk?: () => void
   onInbox: () => void
   onScratchFolder?: () => void
+  onTeamScratchFolder?: () => void
   onDocket?: () => void
   /** the reduced docket for this agent's WHOLE TEAM — it and everyone below
    *  it. For 2.1.5-RC1 this menu entry is the only door to that view, so the
@@ -148,6 +149,9 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   )
   if (h.onScratchFolder && (live || node.state === 'archived')) {
     openEntries.push({ label: 'Open scratch folder', onSelect: h.onScratchFolder })
+  }
+  if (h.onTeamScratchFolder && (live || node.state === 'archived')) {
+    openEntries.push({ label: 'Open team scratch folder', onSelect: h.onTeamScratchFolder })
   }
   const docket = h.onDocket
   if (docket) openEntries.push({ label: 'Open docket', onSelect: () => docket() })

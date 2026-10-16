@@ -3065,6 +3065,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onOpenDesk: go,
       onInbox: () => toggleNodeSurface('node-inbox', n.id, setInboxId),
       onScratchFolder: scratchFolderAction(slug, n.id, toast),
+      onTeamScratchFolder: scratchFolderAction(slug, n.id, toast, 'team'),
       onDocket: () => toggleNodeSurface('agent-docket', n.id, setAgentDocketId),
       onTeamDocket: () => toggleNodeSurface('team-docket', n.id, setTeamDocketId),
       onPresentations: onOpenAgentGallery

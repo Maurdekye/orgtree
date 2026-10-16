@@ -162,6 +162,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox() })
     if (onDocket) entries.push({ label: 'Open global docket', onSelect: () => onDocket() })
     if (onPresentations) entries.push({ label: 'Open presentations', onSelect: () => onPresentations() })
+    const sharedScratch = scratchFolderAction(slug, '', toast, 'shared')
+    if (sharedScratch) entries.push({ label: 'Open shared scratch folder', onSelect: sharedScratch })
     if (onGear) {
       entries.push({ label: 'Org settings',
         title: 'the whole settings modal — hire defaults are a tab of it',
@@ -1461,6 +1463,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onOpenDesk: onRecenter,
       onInbox,
       onScratchFolder: scratchFolderAction(slug, node.id, toast),
+      onTeamScratchFolder: scratchFolderAction(slug, node.id, toast, 'team'),
       onDocket,
       onTeamDocket,
       onPresentations: onOpenAgentGallery

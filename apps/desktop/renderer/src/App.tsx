@@ -7,6 +7,7 @@ import { startPendingMirror, usePendingAttention, waitingNow } from './pending-a
 import { ownsNotifications, useWindowIdentity } from './shell/identity'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
+import { scratchFolderAction } from './scratch-folder'
 import type { NativeDesktop } from './desktop'
 import { WindowControls } from './window-controls'
 import { UpdateNotice } from './update-notice'
@@ -108,7 +109,7 @@ import type { KillSwitchActions } from './KillSwitch'
 import {
   AutorenewIcon, BlockIcon, CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, EyeIcon, LanIcon,
   DataUsageIcon, ShowChartIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HearingIcon, HomeIcon, LockIcon,
-  LockOpenIcon, MailIcon, MenuIcon, PlayIcon, PublicIcon, SettingsIcon,
+  FolderIcon, LockOpenIcon, MailIcon, MenuIcon, PlayIcon, PublicIcon, SettingsIcon,
   StopIcon, StorageIcon, WarnIcon,
 } from './icons'
 import { DirList } from './forms'
@@ -2987,6 +2988,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
    *  path); later changes while the panel is open switch the tab too */
   initialTab?: OrgSettingsTab
 }) {
+  const sharedScratch = scratchFolderAction(tree.slug, '', toast, 'shared')
   // P3 — every field below used to be its own useState SEEDED FROM `tree`.
   // useState(x) snapshots x once at mount and never looks again, so this panel
   // held seventeen private copies of server values that could each go stale
@@ -3141,6 +3143,13 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
           active={tab === 'basic'}>
         {/* folder access lives on the eye's ⚙ gear panel (user ruling) */}
         <OrgPictureEditor slug={tree.slug} name={tree.name} revision={tree.net?.picture_revision} />
+        {sharedScratch && <SetGroup title="Shared scratch folder">
+          <SetRow label="Organization folder" hint="Shared with every agent in this organization.">
+            <button type="button" onClick={sharedScratch}>
+              <FolderIcon fontSize="inherit" /> Open shared scratch folder
+            </button>
+          </SetRow>
+        </SetGroup>}
         <SetGroup title="Credits">
           <SetRow label="top-level grant cap"
             hint="the largest grant any top-level agent may hold">
