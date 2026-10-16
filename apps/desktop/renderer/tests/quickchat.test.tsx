@@ -343,6 +343,40 @@ test('Quick chat has an independent active-only filter for its superior list', a
   } finally { await view.unmount(); localStorage.clear() }
 })
 
+test('Quick chat keeps the selected filtered superior as context instead of selecting top level', async () => {
+  localStorage.clear(); providers(['claude'])
+  rememberSuperior('org', 'coordinator-opus')
+  const agents = new Map<string, CanvasNode>([
+    ['coordinator-opus', {
+      id: 'coordinator-opus', parent: null, state: 'live', tier: 'opus', busy: false,
+    } as CanvasNode],
+    ['busy-child', {
+      id: 'busy-child', parent: 'coordinator-opus', state: 'live', tier: 'sonnet', busy: true,
+    } as CanvasNode],
+  ])
+  const agentList: { current: AgentListSource } = { current: (query, activeOnly) => ({
+    map: agents, rows: trayRows(agents, { query, activeOnly }),
+  }) }
+  const view = await mountView(<QuickChat slug="org" tree={tree} op={(async () => ({})) as never}
+    toast={noop} onHired={noop} agentList={agentList}
+    quickChatActiveAgentsOnly onQuickChatActiveAgentsOnly={noop} />, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    await click(view.el.querySelector('.quickchat-superior'))
+    assert.deepEqual(pickerItems(), ['top level', 'coordinator-opus', 'busy-child'],
+      'the selected superior remains visible as a ghost context row')
+    const root = document.querySelector<HTMLElement>('.quickchat-top')!
+    const selected = document.querySelectorAll('.quickchat-pop .sel')
+    assert.equal(root.classList.contains('sel'), false,
+      'top level is not selected while the actual superior is selected')
+    assert.equal(selected.length, 1, 'only the actual selected superior appears selected')
+    assert.equal(document.querySelector('[data-copy-agent-name="coordinator-opus"]')?.classList.contains('sel'), true,
+      'the selected superior remains highlighted as a filtered context row')
+    assert.equal(document.activeElement, document.querySelector('.quickchat-pop .tray-filter'),
+      'keyboard focus remains on the filter, not top level')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
 async function openSuperiorPicker(selected: string | null = null) {
   localStorage.clear(); providers(['claude'])
   rememberSuperior('org', selected)
