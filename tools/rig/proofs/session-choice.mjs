@@ -9,8 +9,8 @@
 //   1. sign-in (helper A comes up): ann's running Session 0 turn takes the
 //      [ORGTREE SIGN-IN NOTICE] at its next tool boundary; idle flo gets it
 //      passively, no turn; dee (prefers Session 0) is told she stays; eve's
-//      watchdog on session.signed_in fires; cal (working, owes docket work,
-//      idle) gets her checkup at once, and it runs in A's session;
+//      watchdog on session.signed_in fires; cal (working, no docket work,
+//      idle) gets its checkup at once, and it runs in A's session;
 //   2. keepalive: A killed while the user stays signed in; the engine starts
 //      A's task after 30 s (the task the proof names), and A hosts again;
 //   3. two sessions: orgtree_session lists Session 0, A's session and 7;
@@ -65,8 +65,7 @@ export default async function (rig) {
       ] },
       cal: { turns: [
         { name: 'work', match: ['PROOF-WORK'], once: true, steps: [
-          { tool: 'orgtree_status', args: { status: 'working', summary: 'Working on the proof item.' } },
-          { tool: 'orgtree_work', args: { action: 'create', title: 'Proof work for the sign-in checkup', objective: 'Work owed by cal, so the sign-in checkup reaches it.', kind: 'code', owner: 'cal' } },
+          { tool: 'orgtree_status', args: { status: 'working', summary: 'Working on the proof.' } },
           { text: 'OK.' }] },
       ] },
       eve: { turns: [
@@ -124,7 +123,7 @@ export default async function (rig) {
     await seed(rig, { org: { name: 'Session Choice Org' }, agents: [
       { name: 'ann', tier: 'haiku', charter: 'You move between sessions.' },
       { name: 'flo', tier: 'flash', charter: 'You stay idle.' },
-      { name: 'cal', tier: 'haiku', charter: 'You work on a docket item.' },
+      { name: 'cal', tier: 'haiku', charter: 'You keep working.' },
       { name: 'dee', tier: 'haiku', charter: 'You prefer Session 0.' },
       { name: 'eve', tier: 'haiku', charter: 'You wait for the sign-in.' },
     ] })
@@ -135,9 +134,12 @@ export default async function (rig) {
     await turn('cal', 'PROOF-WORK')
     await turn('eve', 'PROOF-DOG')
     await turn('dee', 'PROOF-ASK')
-    p.check('0 eve armed a watchdog on session.signed_in; cal reported working and owns a docket item',
-      !results('eve', 'orgtree_watchdog').at(-1)?.is_error && results('cal', 'orgtree_work').length === 1 && !results('cal', 'orgtree_work')[0].is_error,
-      { dog: results('eve', 'orgtree_watchdog').at(-1), work: results('cal', 'orgtree_work').at(-1) })
+    // the sign-in checkup needs no docket work (the coordinator's correction of 2c, 2026-10-16 13:03Z)
+    const calStatus = results('cal', 'orgtree_status').at(-1)
+    const calWork = rig.sql(`SELECT w.slug FROM ot.work_items w JOIN ot.agents a ON a.id = w.owner_agent_id WHERE a.name = 'cal'`)
+    p.check('0 eve armed a watchdog on session.signed_in; cal reported working and owns no docket item',
+      !results('eve', 'orgtree_watchdog').at(-1)?.is_error && calStatus && !calStatus.is_error && calWork.length === 0,
+      { dog: results('eve', 'orgtree_watchdog').at(-1), status: calStatus, work: calWork })
     p.check('0 dee prefers Session 0 (set in Agent settings) and orgtree_session reports it', answers('dee').at(-1)?.preference === 'session0', answers('dee').at(-1))
     // the watcher starts reading 15 s after the engine's start
     await sleep(Math.max(0, 16000 - (Date.now() - t0)))
@@ -166,7 +168,7 @@ export default async function (rig) {
     const checkup = rig.sql(`SELECT m.id FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
       WHERE a.name = 'cal' AND m.ev->>'variant' = 'reminder.working_checkup'`)
     await quiet('the sign-in turns to end')
-    p.check('1 working cal got her checkup at once, and it ran in the signed-in session', checkup.length === 1 && rig.turns('cal').length > counts.cal
+    p.check('1 working cal, with no docket work, got its checkup at once, and it ran in the signed-in session', checkup.length === 1 && rig.turns('cal').length > counts.cal
       && parentOf(pidIn(started('cal'))) === helpers.a.pid, { checkup, line: started('cal'), helper: helpers.a.pid })
     await rig.userMail('ann', 'PROOF-GO: done waiting.')
     await quiet("ann's waiting turn to end")
