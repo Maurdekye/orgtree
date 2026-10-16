@@ -41,5 +41,22 @@ the offer list returned low/high instead of low/medium/high.
 The tests also retain controls for other tiers and inherited-level clamps.
 `tools/rig/proofs/agy-argon-effort.mjs` exercises synthetic registry discovery,
 saved high-to-medium selection, actual fake-CLI launch arguments, next-turn
-process replacement/resume and turn completion. Final green verification is
-pending; this proof establishes Orgtree delivery only, not real model behavior.
+process replacement/resume and turn completion.
+
+Independent verification by rig-sol-b at exact `bcd6422` on 2026-10-16:
+
+- All nine catalog effort tests passed, including both new regressions and
+  the existing other-tier/clamp controls.
+- The synthetic proof passed all five checks (JSON `passed:true`, exit 0).
+  Saving medium changed the actual next-turn launch to
+  `--model gemini-4-argon --effort medium`, replaced the process, resumed the
+  conversation and completed the turn. Cleanup reported no runs or strays.
+- The debug build and all-target check passed with no compiler warnings.
+  Clippy passed with 210 emitted warning records and none on changed lines;
+  it was not a zero-warning run.
+- Skill coverage was eight passes and one failure: the same pre-existing
+  canvas background/intensity settings-label inventory omission measured on
+  base `b3791bb`. Skill coverage was not wholly green.
+
+These results establish Orgtree's outbound effort delivery, not real Google
+model behavior, account availability, reasoning-token use, latency or quality.
