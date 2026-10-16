@@ -191,3 +191,16 @@ mod tests {
         assert!(answer(&f)["summary"].as_str().unwrap().starts_with("This is not Windows"));
     }
 }
+
+#[cfg(test)]
+mod card_tests {
+    /// The user, 2026-10-16 12:12Z and 12:13Z: an agent sets its preference
+    /// over the user's sessions (`prefer`) and picks one on demand (`use`).
+    #[test]
+    fn the_card_offers_prefer_and_use() {
+        let card = crate::tools::defs::list().into_iter().find(|t| t["name"] == "orgtree_session").expect("no orgtree_session card");
+        let props = &card["inputSchema"]["properties"];
+        assert!(props["prefer"].is_object() && props["use"]["type"] == "integer", "{card}");
+        assert_eq!(card["inputSchema"]["required"], serde_json::json!([]));
+    }
+}

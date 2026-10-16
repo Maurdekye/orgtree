@@ -70,6 +70,40 @@ fn live(b: &Broker) -> bool {
 fn same_holder(b: &Broker, pipe: &str, secret: &str, pid: u32) -> bool {
     b.pipe == pipe && b.pid == pid && equal(&b.secret, secret)
 }
+/// The sign-in helpers holding the host role, by the Windows session each
+/// runs in. So far one at a time, whatever its session.
+#[derive(Default)]
+#[cfg_attr(not(test), allow(dead_code))]
+struct HostLeases(std::sync::Mutex<Vec<(u32, Arc<Broker>)>>);
+#[nolog]
+#[cfg_attr(not(test), allow(dead_code))]
+impl HostLeases {
+    /// Admit `b`, which runs in `session`, unless another live helper holds
+    /// its place; its own renewal replaces its lease.
+    fn admit(&self, session: u32, b: Arc<Broker>) -> Result<(), Fail> {
+        let mut v = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if v.iter().any(|(_, c)| !same_holder(c, &b.pipe, &b.secret, b.pid) && live(c)) {
+            return Err(Fail::Held);
+        }
+        v.retain(|(_, c)| live(c) && !same_holder(c, &b.pipe, &b.secret, b.pid));
+        v.push((session, b));
+        Ok(())
+    }
+    /// Its holder, proven by pipe, secret and pid, gives a lease back.
+    fn release(&self, pipe: &str, secret: &str, pid: u32) -> bool {
+        let mut v = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let before = v.len();
+        v.retain(|(_, c)| !same_holder(c, pipe, secret, pid));
+        v.len() != before
+    }
+    /// The live leases: (session, helper pid), by session.
+    fn hosting(&self) -> Vec<(u32, u32)> {
+        let v = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let mut out: Vec<(u32, u32)> = v.iter().filter(|(_, c)| live(c)).map(|(s, c)| (*s, c.pid)).collect();
+        out.sort();
+        out
+    }
+}
 struct Grant {
     secret: String,
     org: i64,
@@ -1247,5 +1281,33 @@ mod host_slot_tests {
         bridge.codex_host.store(None);
         assert!(bridge.ready());
         assert!(!bridge.can_host());
+    }
+}
+
+#[cfg(all(test, windows))]
+mod host_lease_tests {
+    use super::*;
+
+    #[nolog]
+    fn holder(pipe: &str) -> Arc<Broker> {
+        let pid = std::process::id();
+        Arc::new(Broker { pipe: pipe.into(), secret: "test-only".into(), pid, created: process_stamp(pid).unwrap(),
+            expires: Instant::now() + Duration::from_secs(20) })
+    }
+
+    /// The user, 2026-10-16 12:12Z and 12:13Z: the engine user's sessions are
+    /// each hosted by their own sign-in helper, side by side; one per session.
+    #[test]
+    #[nolog]
+    fn one_helper_per_session_and_sessions_side_by_side() {
+        let hosts = HostLeases::default();
+        assert!(hosts.admit(1, holder("pipe-a")).is_ok());
+        assert!(hosts.admit(2, holder("pipe-b")).is_ok(), "another session's helper is admitted beside the first");
+        assert!(matches!(hosts.admit(1, holder("pipe-c")), Err(Fail::Held)), "one helper per session");
+        assert!(hosts.admit(1, holder("pipe-a")).is_ok(), "its own renewal");
+        assert_eq!(hosts.hosting().iter().map(|h| h.0).collect::<Vec<_>>(), vec![1, 2]);
+        assert!(hosts.release("pipe-a", "test-only", std::process::id()));
+        assert_eq!(hosts.hosting().iter().map(|h| h.0).collect::<Vec<_>>(), vec![2]);
+        assert!(!hosts.release("pipe-a", "test-only", std::process::id()), "released once");
     }
 }

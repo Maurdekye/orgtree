@@ -38,6 +38,48 @@ pub fn wanted(engine: &Engine, bypass: bool) -> bool {
     crate::runtime::codex::session0() && engine.credential_bridge.can_host() && (HOST_BYPASS_SEATS || !bypass)
 }
 
+/// An agent's preference over the engine user's signed-in sessions, kept in
+/// its own scope as `session` (absent: `signed-in`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub enum Pref {
+    /// any signed-in session, an active one first (the default)
+    SignedIn,
+    /// always Session 0
+    Session0,
+    /// sessions of these kinds, in this order (`console`, `remote`, or
+    /// `signed-in` for any), then Session 0
+    Kinds(Vec<String>),
+}
+
+/// One of the engine user's sessions where a sign-in helper hosts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub struct HostSession {
+    pub id: u32,
+    /// `console` or `remote`
+    pub kind: String,
+    /// connected, as opposed to disconnected (signed in, nothing shown)
+    pub active: bool,
+}
+
+/// A stored or requested preference: so far there is none.
+#[logged]
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn parse_pref(v: &serde_json::Value) -> std::result::Result<Pref, String> {
+    let _ = v;
+    Ok(Pref::SignedIn)
+}
+
+/// Where a CLI that starts now runs among `sessions`: a session id, or None
+/// for Session 0. So far: the helper's session whenever one hosts.
+#[logged]
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn choose(sessions: &[HostSession], pref: &Pref, use_id: Option<u32>) -> Option<u32> {
+    let _ = (pref, use_id);
+    sessions.first().map(|s| s.id)
+}
+
 /// A CLI's stdio, whoever started it.
 pub struct Io {
     pub stdin: Box<dyn AsyncWrite + Unpin + Send>,
@@ -464,5 +506,48 @@ mod tests {
         // a command without its folder cannot be hosted (it would start in the helper's)
         let bare = Command::new("codex.exe");
         assert_eq!(request(&bare, false).err().as_deref(), Some("host-invalid"));
+    }
+}
+
+#[cfg(test)]
+mod choice_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[nolog]
+    fn s(id: u32, kind: &str, active: bool) -> HostSession {
+        HostSession { id, kind: kind.into(), active }
+    }
+
+    /// The user, 2026-10-16 12:12Z and 12:13Z: an agent's preference over
+    /// the user's own sessions, by kind; "signed-in" is the default and
+    /// Session 0 the fallback.
+    #[test]
+    fn a_preference_is_one_kind_an_ordered_list_any_or_session0() {
+        assert_eq!(parse_pref(&json!(null)), Ok(Pref::SignedIn));
+        assert_eq!(parse_pref(&json!("signed-in")), Ok(Pref::SignedIn));
+        assert_eq!(parse_pref(&json!("session0")), Ok(Pref::Session0));
+        assert_eq!(parse_pref(&json!("console")), Ok(Pref::Kinds(vec!["console".into()])));
+        assert_eq!(parse_pref(&json!(["remote", "console"])), Ok(Pref::Kinds(vec!["remote".into(), "console".into()])));
+        assert!(parse_pref(&json!("elsewhere")).is_err());
+        assert!(parse_pref(&json!(["remote", 3])).is_err());
+        assert!(parse_pref(&json!([])).is_err());
+        assert!(parse_pref(&json!(["session0", "console"])).is_err(), "Session 0 is the fallback, not a list entry");
+    }
+
+    #[test]
+    fn the_choice_follows_the_request_then_the_preference_then_session0() {
+        let both = [s(3, "remote", false), s(1, "console", true), s(4, "remote", true)];
+        assert_eq!(choose(&both, &Pref::SignedIn, None), Some(1), "any: an active one first, lowest id");
+        assert_eq!(choose(&[s(3, "remote", false)], &Pref::SignedIn, None), Some(3), "a disconnected one rather than none");
+        assert_eq!(choose(&both, &Pref::Session0, None), None);
+        assert_eq!(choose(&both, &Pref::Kinds(vec!["remote".into()]), None), Some(4), "active before disconnected");
+        assert_eq!(choose(&both, &Pref::Kinds(vec!["remote".into(), "console".into()]), None), Some(4));
+        assert_eq!(choose(&[s(1, "console", true)], &Pref::Kinds(vec!["remote".into()]), None), None, "no such kind: Session 0");
+        assert_eq!(choose(&[s(1, "console", true)], &Pref::Kinds(vec!["remote".into(), "signed-in".into()]), None), Some(1));
+        assert_eq!(choose(&both, &Pref::Session0, Some(3)), Some(3), "an on-demand choice wins while its session hosts");
+        assert_eq!(choose(&both, &Pref::SignedIn, Some(0)), None, "on demand, Session 0");
+        assert_eq!(choose(&both, &Pref::Kinds(vec!["remote".into()]), Some(9)), Some(4), "a gone session lapses");
+        assert_eq!(choose(&[], &Pref::SignedIn, Some(3)), None);
     }
 }
