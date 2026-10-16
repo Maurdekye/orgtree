@@ -15,7 +15,14 @@ The existing renderer already creates effort rows and posts the selected value.
 | OpenRouter favorites | low, medium, high, xhigh, max |
 | Codex | The above five levels intersected with the selected model's advertised `supportedReasoningEfforts` |
 | Antigravity Flash | low, medium, high |
-| Antigravity Pro family | low, high |
+| Antigravity Argon | low, medium, high |
+| Antigravity Pro, Barium, Carbon | low, high |
+
+Argon's medium omission was corrected on 2026-10-16 after offline inspection
+of the installed CLI's explicit medium model entry and effort resolver. The
+same mapper supplies picker offers and the runtime `--effort` value. Other
+tiers and conditional model availability are unchanged. See
+[Argon effort](argon-effort.md) for evidence and limits.
 
 References: `engine/backend/orgtree/staffcache.py::_supported_efforts`,
 `providers.py::codex_model_inventory` and `antigravity_effort` at the baseline.

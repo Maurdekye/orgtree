@@ -169,7 +169,7 @@ pub fn muse_effort(level: &str, variants: Option<&[String]>, default: Option<&st
     }
 }
 
-/// Match the 3.x Antigravity CLI vocabulary; larger inherited levels clamp
+/// Match the verified Antigravity CLI vocabulary; larger inherited levels clamp
 /// to high, and the levels below its lowest (`none`, `minimal`) to low.
 /// Staffing offers only levels that need no translation.
 #[logged]
@@ -177,7 +177,7 @@ pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
     match effort {
         "low" | "high" => effort,
         "none" | "minimal" => "low",
-        "medium" if tier == "flash" || antigravity_claude(tier) => effort,
+        "medium" if matches!(tier, "flash" | "argon") || antigravity_claude(tier) => effort,
         _ => "high",
     }
 }

@@ -1457,7 +1457,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   2026-10-12 20:01Z): Claude/OpenRouter Claude Code's five `--effort` levels,
   Codex the model's `model/list` levels from background discovery (menu reads
   never spawn a CLI; `none`/`minimal` kept), Muse the catalog row's variants,
-  Antigravity its tier-specific vocabulary. `catalog::EFFORT_ORDER` (none..max)
+  Antigravity its tier-specific vocabulary. Argon offers low/medium/high
+  (2026-10-16, replacing its low/high restriction after offline CLI evidence);
+  the shared mapper drives both offers and next-turn `--effort` delivery, with
+  conditional availability unchanged. See [Argon effort](docs/rust-engine/argon-effort.md).
+  [verified: `providers/catalog.rs`, `providers/mod.rs`, `runtime/actor.rs`, `runtime/agy.rs`]
+  `catalog::EFFORT_ORDER` (none..max)
   orders them all; a saved level a tier does not name launches as the highest
   it names at or below it, else its lowest, and the saved value is never
   rewritten (`launch_effort`; the effort bar shows the same clamp). Replaces

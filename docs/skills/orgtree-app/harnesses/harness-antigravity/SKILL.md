@@ -18,6 +18,13 @@ Ordinary close drops stdin and waits five seconds before terminating a lingering
 
 ## Information and timing
 
+Argon offers low, medium and high effort. The saved choice reaches `agy` as
+`--effort` when its process starts; changing it takes effect at the next turn
+through process replacement, not mid-turn. Flash and AGY Claude also offer
+medium; Pro, Barium and Carbon retain low/high. Model availability still depends
+on the account's registry. These controls do not promise a measured change in
+reasoning tokens, latency or answer quality.
+
 `agent_response` steps stream text deltas. At the step's DONE state, its input/cache-read/output usage is accumulated; thinking-token counts join output. This adapter has no separate reasoning-text branch: a thinking-token count is not a visible chain of thought. A response supplied only in the final result still becomes a transcript row.
 
 Tool steps provide a tool name, parameters, state and result/error. Orgtree records the first observed step as the start and DONE/ERROR as the end, updating arguments when later step information arrives. No distinct tool-writing phase is reported here; writing time is unknown, and these are engine-observed intervals rather than guaranteed native execution durations.
