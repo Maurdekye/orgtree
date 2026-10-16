@@ -92,8 +92,8 @@ test('§2 each provider lists its models dearest first, and the provider-neutral
   assert.deepEqual(TIERS_LISTED, ['fable', 'opus', 'sonnet', 'haiku'])
   // terra and sol tie at 2: the order the family already had (terra, then sol)
   assert.deepEqual(CODEX_TIERS_LISTED, ['astra', 'terra', 'sol', 'gpt-reserve', 'luna'])
-  // Gemini Pro, Argon, Barium, Carbon and agy-sonnet tie at 2; flash (1) is last
-  assert.deepEqual(ANTIGRAVITY_TIERS_LISTED, ['agy-opus', 'pro', 'argon', 'barium', 'carbon', 'agy-sonnet', 'flash'])
+  // Gemini tiers are one group, followed by Claude-backed Antigravity tiers.
+  assert.deepEqual(ANTIGRAVITY_TIERS_LISTED, ['pro', 'argon', 'barium', 'carbon', 'flash', 'agy-opus', 'agy-sonnet'])
   assert.deepEqual(MUSE_TIERS_LISTED, ['wonder-full', 'wonder', 'spark'])
   assert.deepEqual(ALL_TIERS, [...TIERS_LISTED, ...CODEX_TIERS_LISTED, ...ANTIGRAVITY_TIERS_LISTED, ...MUSE_TIERS_LISTED])
 })
@@ -169,7 +169,7 @@ function card(node: CanvasNode) {
       onDragStart={noop} onDragMove={noop} onDragEnd={noop}
       onDragCancel={noop}
       claudeHire={ON} codexHire={ON}
-      antigravityHire={{ ...ON, offeredTiers: ['flash', 'pro', 'agy-sonnet', 'agy-opus'] }} onNoHarness={noop} />,
+      antigravityHire={{ ...ON, offeredTiers: ['flash', 'pro', 'argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus'] }} onNoHarness={noop} />,
     (el) => el)
 }
 
@@ -177,10 +177,13 @@ test('§5 canvas hire chips: each family cheapest first', async (t: TestContext)
   fresh(t)
   const v = await card(agent())
   t.after(() => v.unmount())
+  const strip = v.el.querySelector<HTMLElement>('.hsof:not(.side)')!
+  const expand = strip.querySelector<HTMLButtonElement>('.hire-expand')
+  if (expand) await inAct(() => expand.click())
   const seen = [...v.el.querySelectorAll<HTMLButtonElement>('.hsof:not(.side) button')].map(tierOf)
   assert.deepEqual(within(seen, TIERS), ['haiku', 'sonnet', 'opus', 'fable'])
   assert.deepEqual(within(seen, CODEX_TIERS), ['luna', 'sol', 'astra'])
-  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['flash', 'agy-sonnet', 'agy-opus'])
+  assert.deepEqual(within(seen, ANTIGRAVITY_TIERS), ['flash', 'argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus'])
   assert.deepEqual(within(seen, MUSE_TIERS), ['spark', 'wonder', 'wonder-full'])
 })
 
@@ -250,7 +253,7 @@ test('§5 hire sheet: each family dearest first, and it still opens on the first
   fresh(t)
   const v = await mountView(
     <HireSheet anchor={agent()} seats={SEATS} defaultGrant={0}
-      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['flash', 'pro', 'agy-sonnet', 'agy-opus'] }}
+      claudeHire={ON} codexHire={ON} antigravityHire={{ ...ON, offeredTiers: ['flash', 'pro', 'argon', 'barium', 'carbon', 'agy-sonnet', 'agy-opus'] }}
       museHire={museHire} onHire={noop} onClose={noop} />, (el) => el)
   t.after(() => v.unmount())
   await flush()
@@ -258,7 +261,7 @@ test('§5 hire sheet: each family dearest first, and it still opens on the first
   const family = (tier: string) => rows.find((r) => r.includes(tier))!
   assert.deepEqual(family('haiku'), ['fable', 'opus', 'sonnet', 'haiku'])
   assert.deepEqual(family('luna'), ['astra', 'sol', 'luna'])
-  assert.deepEqual(family('flash'), ['agy-opus', 'agy-sonnet', 'flash'])
+  assert.deepEqual(family('flash'), ['argon', 'barium', 'carbon', 'flash', 'agy-opus', 'agy-sonnet'])
   assert.deepEqual(family('spark'), ['wonder-full', 'wonder', 'spark'])
   // the pre-selected model is the first OFFERED one in the old order (haiku), not the first on screen (fable)
   const on = [...document.querySelectorAll<HTMLButtonElement>('.hs-tier.on')].map(tierOf)
