@@ -36,7 +36,7 @@ export default async function (rig) {
     return p.summary()
   }
   p.check('unchanged current prefix is clean, without a hit promise or retention metadata', initial.json?.cache?.dirty === false
-    && noTiming(initial.json) && !JSON.stringify(initial.json).includes('guaranteed hit'), initial.json)
+    && noTiming(initial.json) && initial.json?.cache?.guaranteed_hit !== true, initial.json)
   const rows = out => out.json?.cache?.instruction_files ?? []
   for (const file of [own, shared, ...teamFiles]) {
     p.check('session copy initially unchanged: ' + file, rows(initial).some(r => norm(r.path) === norm(file) && r.status === 'unchanged'), rows(initial))
