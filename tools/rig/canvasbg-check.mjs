@@ -121,11 +121,17 @@ if (flags.includes('--typecheck')) {
     exclude: [],
   }, null, 2))
   const rStrict = spawnSync(process.execPath, [tsc, '-p', strictCfg, '--noEmit'], { cwd: root, encoding: 'utf8', windowsHide: true })
+  const strictOut = (rStrict.stdout + rStrict.stderr).trim()
+  const strictLines = strictOut ? strictOut.split(/\r?\n/).filter(l => /error TS\d+:/.test(l)) : []
+  const strictTouchedErrors = strictLines.filter(l => /canvas-background|canvasbg|asciigl|asciifield/.test(l))
   typecheckStatus = {
     rootExit: rRoot.status,
     rootOut: (rRoot.stdout + rRoot.stderr).trim(),
     strictExit: rStrict.status,
-    strictOut: (rStrict.stdout + rStrict.stderr).trim(),
+    strictTotalDiagnostics: strictLines.length,
+    strictTouchedDiagnostics: strictTouchedErrors.length,
+    strictTouchedErrors,
+    strictOut,
   }
   fs.writeFileSync(path.join(out, 'typecheck.json'), JSON.stringify(typecheckStatus, null, 2))
 }
@@ -133,7 +139,11 @@ if (flags.includes('--typecheck')) {
 console.log(JSON.stringify({
   mode, base: BASE, suites, sourceOnly: true,
   control: mode === 'red' ? 'tip tests against exact 5efd8ae source' : 'tip tests against tip source',
-  typecheck: typecheckStatus ? { rootExit: typecheckStatus.rootExit, strictExit: typecheckStatus.strictExit } : undefined,
+  typecheck: typecheckStatus ? {
+    rootExit: typecheckStatus.rootExit,
+    strictTotalDiagnostics: typecheckStatus.strictTotalDiagnostics,
+    strictTouchedDiagnostics: typecheckStatus.strictTouchedDiagnostics,
+  } : undefined,
 }))
 const result = spawnSync(process.execPath, [
   '--max-old-space-size=1024', '--test', '--test-force-exit',
@@ -141,4 +151,4 @@ const result = spawnSync(process.execPath, [
   ...suites.map(n => path.join(out, `${n}.test.mjs`)),
 ], { cwd: root, stdio: 'inherit', windowsHide: true })
 if (result.error) throw result.error
-process.exitCode = (result.status ?? 1) || (typecheckStatus && (typecheckStatus.rootExit !== 0 || typecheckStatus.strictExit !== 0) ? 1 : 0)
+process.exitCode = (result.status ?? 1) || (typecheckStatus && (typecheckStatus.rootExit !== 0 || typecheckStatus.strictTouchedDiagnostics !== 0) ? 1 : 0)

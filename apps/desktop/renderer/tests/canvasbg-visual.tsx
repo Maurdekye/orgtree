@@ -56,11 +56,14 @@ const CARDS: { x: number; y: number; name: string; status: string }[] = [
 
 const liveView = { current: start }
 
+let updateStageView: ((v: { x: number; y: number; z: number }) => void) | null = null
+
 function Stage() {
   const [view, setView] = useState(start)
   const viewRef = useRef(view)
   viewRef.current = view
   liveView.current = view
+  updateStageView = setView
   useEffect(() => {
     if (!pan) return
     let raf = 0
@@ -97,7 +100,7 @@ function Stage() {
         position: 'fixed', left: 8, bottom: 6, color: 'var(--dim)',
         font: '11px var(--mono)', opacity: 0.85,
       }}>
-        {`${theme}${pinned ? ` seed=${pinned.seed}` : ''}${intensity !== null ? ` @ ${intensity}` : ''} · z=${start.z}${pan ? ' · panning' : ''}`}
+        {`${theme}${pinned ? ` seed=${pinned.seed}` : ''}${intensity !== null ? ` @ ${intensity}` : ''} · z=${view.z.toFixed(2)}${pan ? ' · panning' : ''}`}
       </div>
     </div>
   )
@@ -113,6 +116,8 @@ interface FixtureWindow {
   __asciiDraw?: (t: number, reveal?: number) => void
   __asciiTap?: (x: number, y: number) => void
   __asciiState?: () => unknown
+  __setView?: (v: { x: number; y: number; z: number }) => void
+  __runDragZoomOutStress?: () => Promise<unknown>
   __compareWind?: (t: number) => unknown
   __cardClicks?: number
 }
@@ -125,6 +130,43 @@ function onAsciiReady(api: AsciiTestApi): void {
 w.__asciiDraw = (t, reveal) => w.__ascii?.drawAt(t, reveal)
 w.__asciiTap = (x, y) => w.__ascii?.tap(x, y)
 w.__asciiState = () => w.__ascii?.state() ?? null
+w.__setView = (v) => {
+  liveView.current = v
+  updateStageView?.(v)
+}
+w.__runDragZoomOutStress = async () => {
+  const api = w.__ascii
+  if (!api) return { error: 'ascii layer not ready' }
+  const stepMs: number[] = []
+  let minCellWidth = Infinity
+  let maxColumns = 0
+  let maxRows = 0
+  for (let i = 0; i <= 24; i++) {
+    const frac = i / 24
+    const z = 1.2 * Math.pow(0.15 / 1.2, frac)
+    const nextView = { x: Math.round(-260 * (1 - frac) + 40 * frac), y: Math.round(-180 * (1 - frac) + 30 * frac), z }
+    w.__setView?.(nextView)
+    await new Promise<void>(r => requestAnimationFrame(() => r()))
+    const t0 = performance.now()
+    api.drawAt(2 + i * 0.25, 1)
+    const dt = performance.now() - t0
+    stepMs.push(Math.round(dt * 100) / 100)
+    const st = api.state()
+    if (typeof st.cellWidth === 'number' && st.cellWidth < minCellWidth) minCellWidth = st.cellWidth
+    if (typeof st.columns === 'number' && st.columns > maxColumns) maxColumns = st.columns
+    if (typeof st.rows === 'number' && st.rows > maxRows) maxRows = st.rows
+  }
+  const sorted = [...stepMs].sort((a, b) => a - b)
+  return {
+    steps: stepMs.length,
+    medianStepMs: sorted[Math.floor(sorted.length / 2)] ?? 0,
+    maxStepMs: sorted[sorted.length - 1] ?? 0,
+    minCellWidth,
+    maxColumns,
+    maxRows,
+    finalState: api.state(),
+  }
+}
 /* The numerical proof: draw at a pinned field time, read the wind texture
  * back, and diff every sample against the CPU mirror evaluated at the
  * same world points (fragment centres included). Per-channel stats in

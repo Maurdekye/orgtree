@@ -190,8 +190,26 @@ export interface AsciiTestApi {
   /** Draw one frame synchronously at the given field time/reveal. */
   drawAt: (fieldTime: number, reveal?: number) => void
   tap: (worldX: number, worldY: number) => void
-  state: () => { animTime: number; fieldTime: number; reveal: number; calm: boolean; running: boolean; touchBusy: boolean; datasetState: string }
+  simulateLoad?: (kind: 'late' | 'gpu' | 'stall', count?: number) => void
+  state: () => {
+    animTime: number
+    fieldTime: number
+    reveal: number
+    calm: boolean
+    running: boolean
+    touchBusy: boolean
+    datasetState: string
+    cellWidth?: number
+    columns?: number
+    rows?: number
+    busyWhy?: string
+    busyOff?: boolean
+    contextLost?: boolean
+  }
 }
+
+const INITIAL_RETRY_MS = 1500
+const MAX_RETRY_MS = 8000
 
 export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   view: View
@@ -236,9 +254,12 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     let cancelled = false
     let renderer: AsciiRenderer | null = null
     let dead = false
+    let contextLost = false
     let layoutSig = ''
+    let lastLayout: AsciiLayout | null = null
     let gridOk = false
     let shown = false
+    let firstShow = true
     let colourKey = ''
     let animTime = 0
     let fieldTime = (seed >>> 0) / 4294967296 * 64
@@ -260,7 +281,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     let busyOff = false
     let goodFrames = 0
     let stallRun = 0
-    let retryS: number = cfg.power.retryS
+    let retryMs = INITIAL_RETRY_MS
     let retryTimer = 0
     let resizeTimer = 0
     let firstResize = true
@@ -282,7 +303,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       return Math.min(1, Math.min(cfg.strength.base[scheme] * live.current.intensity, cfg.strength.cap[scheme]) * cfg.glow.headroom)
     }
     const applyColours = (): void => {
-      if (!renderer || dead) return
+      if (!renderer || dead || contextLost) return
       const cs = win.getComputedStyle(host)
       const key = `${cs.color} ${cs.colorScheme} ${live.current.intensity}`
       if (key === colourKey) return
@@ -302,33 +323,41 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       const wCss = host.clientWidth, hCss = host.clientHeight
       if (!(wCss > 0 && hCss > 0)) return null
       const v = viewRef.current
-      const dpr = win.devicePixelRatio || 1
-      const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), v.z * dpr)
+      // Bound zoom-out density and device-pixel scale so rapid drag + zoom-out
+      // never explodes fragment count or triggers a cascade of 2D canvas atlas
+      // rebuilds on high-DPI displays. At z >= 0.75 (including z = 1), gridScale
+      // equals z * dpr identically.
+      const z = Math.max(0.35, v.z)
+      const dpr = Math.min(2, Math.max(1, win.devicePixelRatio || 1))
+      const gridScale = Math.max(0.75, z) * dpr
+      const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), gridScale)
       if (!grid) return null
-      const cellWorldW = grid.cellWidth / grid.scale
-      const cellWorldH = grid.cellHeight / grid.scale
-      const worldLeft = -v.x / v.z, worldTop = -v.y / v.z
+      const worldScale = z * dpr
+      const cellWorldW = grid.cellWidth / worldScale
+      const cellWorldH = grid.cellHeight / worldScale
+      const worldLeft = -v.x / z, worldTop = -v.y / z
       const i0 = Math.floor(worldLeft / cellWorldW), j0 = Math.floor(worldTop / cellWorldH)
       const originX = i0 * cellWorldW, originY = j0 * cellWorldH
       return {
         grid, originX, originY,
         sampleX: cellWorldW, sampleY: cellWorldH / 2,
         canvasSizeX: grid.columns * cellWorldW, canvasSizeY: grid.rows * cellWorldH,
-        calmRadiiX: cfg.card.calmX / v.z, calmRadiiY: cfg.card.calmY / v.z,
+        calmRadiiX: cfg.card.calmX / z, calmRadiiY: cfg.card.calmY / z,
         cellOriginX: i0, cellOriginY: j0,
         cellCentreX: originX + cellWorldW / 2, cellCentreY: originY + cellWorldH / 2,
         cellWorldW, cellWorldH,
-        cssLeft: (originX - worldLeft) * v.z, cssTop: (originY - worldTop) * v.z,
-        cssW: grid.columns * cellWorldW * v.z, cssH: grid.rows * cellWorldH * v.z,
+        cssLeft: (originX - worldLeft) * z, cssTop: (originY - worldTop) * z,
+        cssW: grid.columns * cellWorldW * z, cssH: grid.rows * cellWorldH * z,
       }
     }
     const drawOnce = (time: number, reveal: number): boolean => {
-      if (!renderer || dead) return false
+      if (!renderer || dead || contextLost) return false
       const lay = computeLayout()
+      lastLayout = lay
       gridOk = lay !== null
       if (!lay) { setState('unseen'); renderer.canvas.style.display = 'none'; return false }
       renderer.canvas.style.display = ''
-      const sig = `${lay.grid.columns},${lay.grid.rows},${lay.grid.cellWidth},${lay.grid.scale},${lay.cellOriginX},${lay.cellOriginY}`
+      const sig = `${lay.grid.columns},${lay.grid.rows},${lay.grid.cellWidth},${lay.grid.scale},${lay.cellOriginX},${lay.cellOriginY},${lay.cellWorldW}`
       if (sig !== layoutSig) {
         if (!renderer.resize(lay)) return false
         layoutSig = sig
@@ -339,15 +368,17 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         renderer.canvas.style.height = `${lay.cssH}px`
       }
       const v = viewRef.current
+      const z = Math.max(0.35, v.z)
       const frame: AsciiTouchFrame = touch.frame(touchNow())
       renderer.draw(time, reveal, frame, {
         originX: lay.originX, originY: lay.originY,
-        calmCx: (host.clientWidth / 2 - v.x) / v.z,
-        calmCy: (cfg.card.centerY * host.clientHeight - v.y) / v.z,
+        calmCx: (host.clientWidth / 2 - v.x) / z,
+        calmCy: (cfg.card.centerY * host.clientHeight - v.y) / z,
       })
       if (!shown) {
         shown = true
-        renderer.canvas.style.transition = 'opacity 3000ms'
+        renderer.canvas.style.transition = firstShow ? 'opacity 3000ms' : 'opacity 600ms'
+        firstShow = false
         renderer.canvas.style.opacity = `${canvasOpacity()}`
       }
       return true
@@ -375,22 +406,36 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     const enterBusyOff = (why: string): void => {
       busyOff = true
       busyWhy = why
+      shown = false
+      if (renderer) {
+        // Hide the paused canvas so a stale world-coordinate frame is never
+        // left frozen on screen while the user pans or zooms the org chart.
+        renderer.canvas.style.transition = 'opacity 250ms'
+        renderer.canvas.style.opacity = '0'
+      }
       setState(`busy-${why}`)
       stopLoop()
       win.clearTimeout(retryTimer)
+      const waitMs = retryMs
+      retryMs = Math.min(MAX_RETRY_MS, retryMs * 2)
       retryTimer = win.setTimeout(() => {
-        if (cancelled || dead) return
+        if (cancelled || dead || contextLost) return
         busyOff = false
         busyWhy = ''
         strikes = 0
         lateFaults = 0
-        retryS = Math.min(cfg.power.retryMaxS, retryS * 2)
-        tryStart()
-      }, retryS * 1000)
+        stallRun = 0
+        if (still) drawStill()
+        else if (drawOnce(fieldTime, revealNow())) {
+          setState('moving')
+          tryStart()
+        } else {
+          tryStart()
+        }
+      }, waitMs)
     }
     const fault = (why: 'late' | 'gpu' | 'stall'): void => {
-      if (busyOff) return
-      if (why === 'stall') { enterBusyOff(why); return }
+      if (busyOff || contextLost) return
       if (why === 'late') {
         lateFaults += 1
         if (lateFaults < 2) return
@@ -403,7 +448,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       setState(`busy-${why}`)
     }
     const frame = (tsMs: number): void => {
-      if (cancelled || dead || !loopActive) return
+      if (cancelled || dead || contextLost || !loopActive) return
       const late = performance.now() - rafRequestedAt > 17
       lateRing = [...lateRing.slice(-9), late]
       if (lateRing.filter(Boolean).length >= 5) { lateRing = []; fault('late') }
@@ -417,13 +462,21 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       const drew = drawOnce(fieldTime, revealNow())
       const tookMs = performance.now() - t0
       stallRun = tookMs > 50 ? stallRun + 1 : 0
-      if (stallRun >= 3) { fault('stall'); return }
+      if (stallRun >= 3) { stallRun = 0; fault('stall'); if (!loopActive) return }
       if (renderer?.fellBehind()) fault('gpu')
       if (!loopActive) return
       if (busyWhy) {
         goodFrames = late ? 0 : goodFrames + 1
-        if (goodFrames >= 30) { busyWhy = ''; setState('moving') }
-      } else if (drew) setState('moving')
+        if (goodFrames >= 30) {
+          busyWhy = ''
+          strikes = 0
+          retryMs = INITIAL_RETRY_MS
+          setState('moving')
+        }
+      } else if (drew) {
+        retryMs = INITIAL_RETRY_MS
+        setState('moving')
+      }
       if (settleFade() <= 0 && !touch.busy(touchNow())) {
         calm = true
         setState('calm')
@@ -437,7 +490,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       }, intervalMs())
     }
     const tryStart = (): void => {
-      if (cancelled || dead || still || loopActive || busyOff || !renderer) return
+      if (cancelled || dead || contextLost || still || loopActive || busyOff || !renderer) return
       if (!visibleNow()) return
       loopActive = true
       lastTsMs = null
@@ -454,19 +507,19 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       tryStart()
     }
     const rouse = (): void => {
-      if (still || busyOff || !gridOk || dead) return
+      if (still || busyOff || !gridOk || dead || contextLost) return
       if (calm) { restart(); return }
       budgetEnd = animTime + budgetS
       tryStart()
     }
     const onVisibleReturn = (): void => {
-      if (cancelled || dead || still) return
+      if (cancelled || dead || contextLost || still) return
       if (calm) restart()
       else tryStart()
     }
 
     const applyResize = (): void => {
-      if (cancelled || dead || !renderer) return
+      if (cancelled || dead || contextLost || !renderer) return
       layoutSig = ''
       if (still) drawStill()
       else if (!drawOnce(fieldTime, revealNow())) stopLoop()
@@ -489,7 +542,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       const hit = t.closest(INTERACTIVE)
       return hit !== null && hit !== parent && parent.contains(hit)
     }
-    const interactionLive = (): boolean => !still && !busyOff && gridOk && !dead && (loopActive || calm)
+    const interactionLive = (): boolean => !still && !busyOff && gridOk && !dead && !contextLost && (loopActive || calm)
     const onPointerMove = (e: PointerEvent): void => {
       if (!interactionLive() || e.pointerType === 'touch') return
       if (onInteractive(e)) { touch.leave(); return }
@@ -507,11 +560,33 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     const onKeyDown = (): void => { if (interactionLive()) rouse() }
     const onContextLost = (e: Event): void => {
       e.preventDefault()
-      dead = true
+      contextLost = true
+      shown = false
       stopLoop()
-      ro?.disconnect()
-      mo?.disconnect()
-      renderer?.canvas.remove()
+      win.clearTimeout(retryTimer)
+      if (renderer) {
+        renderer.canvas.style.transition = 'opacity 150ms'
+        renderer.canvas.style.opacity = '0'
+        setState('context-lost')
+      }
+    }
+    const onContextRestored = (): void => {
+      if (cancelled || dead || !renderer) return
+      contextLost = false
+      busyOff = false
+      busyWhy = ''
+      strikes = 0
+      lateFaults = 0
+      stallRun = 0
+      layoutSig = ''
+      colourKey = ''
+      if (!renderer.restore()) return
+      applyColours()
+      if (still) drawStill()
+      else if (drawOnce(fieldTime, revealNow())) {
+        setState('moving')
+        tryStart()
+      }
     }
 
     const idleWait = (ms: number): Promise<void> => new Promise(resolve => {
@@ -530,6 +605,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       renderer.canvas.style.opacity = '0'
       renderer.canvas.dataset.state = 'unseen'
       renderer.canvas.addEventListener('webglcontextlost', onContextLost)
+      renderer.canvas.addEventListener('webglcontextrestored', onContextRestored)
       host.appendChild(renderer.canvas)
       applyColours()
       ro = new win.ResizeObserver(onResize)
@@ -549,12 +625,31 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       onReady?.({
         visit,
         renderer: () => renderer,
-        drawAt: (t, reveal = 1) => { fieldTime = t; drawOnce(t, reveal) },
+        drawAt: (t, reveal = 1) => {
+          fieldTime = t
+          if (reveal >= 1 && animTime < cfg.wind.revealS) animTime = cfg.wind.revealS
+          if (drawOnce(t, reveal) && renderer) {
+            renderer.canvas.style.transition = 'none'
+            renderer.canvas.style.opacity = `${canvasOpacity()}`
+          }
+        },
         tap: (wx, wy) => { touch.tap(wx, wy, touchNow()); rouse() },
+        simulateLoad: (kind, count = 1) => {
+          for (let i = 0; i < count; i++) {
+            if (kind === 'late') fault('late')
+            fault(kind)
+          }
+        },
         state: () => ({
           animTime, fieldTime, reveal: revealNow(), calm,
           running: loopActive, touchBusy: touch.busy(touchNow()),
           datasetState: renderer?.canvas.dataset.state ?? '',
+          cellWidth: lastLayout?.grid.cellWidth,
+          columns: lastLayout?.grid.columns,
+          rows: lastLayout?.grid.rows,
+          busyWhy,
+          busyOff,
+          contextLost,
         }),
       })
     })()
@@ -574,7 +669,11 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         parent.removeEventListener('pointerleave', onPointerLeave)
         parent.removeEventListener('keydown', onKeyDown, { capture: true })
       }
-      renderer?.destroy()
+      if (renderer) {
+        renderer.canvas.removeEventListener('webglcontextlost', onContextLost)
+        renderer.canvas.removeEventListener('webglcontextrestored', onContextRestored)
+        renderer.destroy()
+      }
       if (stillRef.current === drawStill) stillRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

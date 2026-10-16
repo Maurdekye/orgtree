@@ -384,11 +384,12 @@ export function buildAtlas(
   c.height = height
   const ctx = c.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('ascii atlas: no 2d context')
-  const weight = scale < 1.5 ? 400 : ASCII_CONFIG.surface.weight
+  const effScale = Math.max(5 / ASCII_CONFIG.grid.cellCss, scale)
+  const weight = effScale < 1.5 ? 400 : ASCII_CONFIG.surface.weight
   ctx.font = `${weight} 100px ${fontFamily}`
   const adv = ctx.measureText('0').width / 100 || 0.6
   const glyphPx = Math.max(1, Math.min(
-    Math.round(ASCII_CONFIG.surface.glyphCss * scale), Math.floor((cellWidth - 2) / adv)))
+    Math.round(ASCII_CONFIG.surface.glyphCss * effScale), Math.floor((cellWidth - 2) / adv)))
   ctx.font = `${weight} ${glyphPx}px ${fontFamily}`
   const zeroAdv = ctx.measureText('0').width
   const probe = ctx.measureText('Mg|')
@@ -464,6 +465,8 @@ export interface AsciiRenderer {
   missing: readonly boolean[]
   /** Structural resize; false if GL is gone. */
   resize: (layout: AsciiLayout) => boolean
+  /** Rebuild GL programs, textures, and framebuffer after webglcontextrestored. */
+  restore: () => boolean
   setInk: (rgb: readonly [number, number, number], alpha?: number) => void
   setGlow: (rgb: readonly [number, number, number]) => void
   draw: (time: number, reveal: number, touch: AsciiTouchFrame | null, view: AsciiFrameView) => void
@@ -542,54 +545,89 @@ export function createAsciiRenderer(
   let fenceMisses = 0
   let drawCount = 0
   let slow = false
-  gl.disable(gl.DEPTH_TEST)
-  gl.enable(gl.BLEND)
-  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-  const windProg = link(gl, WIND_VERTEX, windFragmentSource())
-  const glyphProg = link(gl, glyphVertexSource(), glyphFragmentSource())
-  if (!windProg || !glyphProg) return null
-  const windTex = makeTexture(gl, 0)
-  const atlasTex = makeTexture(gl, 1)
-  const boxTex = makeTexture(gl, 2)
-  const seqTex = makeTexture(gl, 3)
-  const framebuf = gl.createFramebuffer()
-  if (!atlasTex || !boxTex || !windTex || !seqTex || !framebuf) return null
-  gl.activeTexture(gl.TEXTURE0)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuf)
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, windTex, 0)
+  let windProg: { program: WebGLProgram; uniforms: UniformMap } | null = null
+  let glyphProg: { program: WebGLProgram; uniforms: UniformMap } | null = null
+  let windTex: WebGLTexture | null = null
+  let atlasTex: WebGLTexture | null = null
+  let boxTex: WebGLTexture | null = null
+  let seqTex: WebGLTexture | null = null
+  let framebuf: WebGLFramebuffer | null = null
+  let wu: UniformMap = {}
+  let gu: UniformMap = {}
+  let inkRgb: readonly [number, number, number] = [1, 1, 1]
+  let inkAlpha = 1
+  let glowRgb: readonly [number, number, number] = [0, 0, 0]
 
-  gl.useProgram(windProg.program)
-  const wu = windProg.uniforms
-  if (wu.uSeed) gl.uniform1ui(wu.uSeed, visit.seed >>> 0)
-  if (wu.uWindVec) gl.uniform4f(wu.uWindVec, visit.heading, visit.speed, visit.gustLength, visit.gustWidth)
-  if (wu.uGustVec) gl.uniform4f(wu.uGustVec, visit.bend, visit.bendScale, wind.lull, wind.streak)
-  if (wu.uShapeVec) gl.uniform4f(wu.uShapeVec, wind.detail, wind.edge, wind.curl, wind.wisp)
-  if (wu.uTail) gl.uniform1f(wu.uTail, wind.tail)
-  if (wu.uSweep) gl.uniform1f(wu.uSweep, wind.sweep)
-  if (wu.uMorph) gl.uniform1f(wu.uMorph, wind.morph)
-  gl.useProgram(glyphProg.program)
-  const gu = glyphProg.uniforms
-  if (gu.uAtlas) gl.uniform1i(gu.uAtlas, 1)
-  if (gu.uBoxes) gl.uniform1i(gu.uBoxes, 2)
-  if (gu.uWindTex) gl.uniform1i(gu.uWindTex, 0)
-  if (gu.uSequence) gl.uniform1i(gu.uSequence, 3)
-  if (gu.uSeed) gl.uniform1ui(gu.uSeed, visit.seed >>> 0)
-  if (gu.uFill) gl.uniform1f(gu.uFill, surface.fill)
-  if (gu.uFlick) gl.uniform1f(gu.uFlick, wind.flick)
-  if (gu.uFriction) gl.uniform1f(gu.uFriction, wind.friction)
-  if (gu.uGlowAmount) gl.uniform1f(gu.uGlowAmount, glowCfg.amount)
-  if (gu.uInkAlpha) gl.uniform1f(gu.uInkAlpha, 1)
-
+  const atlasCache = new Map<string, AtlasData>()
   let atlas: AtlasData | null = null
   let grid: AsciiGrid | null = null
   let alive = true
   const missing: boolean[] = new Array(ATLAS_CHARS.length).fill(false)
 
+  const initGl = (): boolean => {
+    fences = []
+    fenceMisses = 0
+    drawCount = 0
+    slow = false
+    atlas = null
+    grid = null
+    gl.disable(gl.DEPTH_TEST)
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    windProg = link(gl, WIND_VERTEX, windFragmentSource())
+    glyphProg = link(gl, glyphVertexSource(), glyphFragmentSource())
+    if (!windProg || !glyphProg) return false
+    windTex = makeTexture(gl, 0)
+    atlasTex = makeTexture(gl, 1)
+    boxTex = makeTexture(gl, 2)
+    seqTex = makeTexture(gl, 3)
+    framebuf = gl.createFramebuffer()
+    if (!atlasTex || !boxTex || !windTex || !seqTex || !framebuf) return false
+    gl.activeTexture(gl.TEXTURE0)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuf)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, windTex, 0)
+
+    wu = windProg.uniforms
+    gl.useProgram(windProg.program)
+    if (wu.uSeed) gl.uniform1ui(wu.uSeed, visit.seed >>> 0)
+    if (wu.uWindVec) gl.uniform4f(wu.uWindVec, visit.heading, visit.speed, visit.gustLength, visit.gustWidth)
+    if (wu.uGustVec) gl.uniform4f(wu.uGustVec, visit.bend, visit.bendScale, wind.lull, wind.streak)
+    if (wu.uShapeVec) gl.uniform4f(wu.uShapeVec, wind.detail, wind.edge, wind.curl, wind.wisp)
+    if (wu.uTail) gl.uniform1f(wu.uTail, wind.tail)
+    if (wu.uSweep) gl.uniform1f(wu.uSweep, wind.sweep)
+    if (wu.uMorph) gl.uniform1f(wu.uMorph, wind.morph)
+
+    gu = glyphProg.uniforms
+    gl.useProgram(glyphProg.program)
+    if (gu.uAtlas) gl.uniform1i(gu.uAtlas, 1)
+    if (gu.uBoxes) gl.uniform1i(gu.uBoxes, 2)
+    if (gu.uWindTex) gl.uniform1i(gu.uWindTex, 0)
+    if (gu.uSequence) gl.uniform1i(gu.uSequence, 3)
+    if (gu.uSeed) gl.uniform1ui(gu.uSeed, visit.seed >>> 0)
+    if (gu.uFill) gl.uniform1f(gu.uFill, surface.fill)
+    if (gu.uFlick) gl.uniform1f(gu.uFlick, wind.flick)
+    if (gu.uFriction) gl.uniform1f(gu.uFriction, wind.friction)
+    if (gu.uGlowAmount) gl.uniform1f(gu.uGlowAmount, glowCfg.amount)
+    if (gu.uInk) gl.uniform3f(gu.uInk, inkRgb[0], inkRgb[1], inkRgb[2])
+    if (gu.uInkAlpha) gl.uniform1f(gu.uInkAlpha, inkAlpha)
+    if (gu.uGlowColour) gl.uniform3f(gu.uGlowColour, glowRgb[0], glowRgb[1], glowRgb[2])
+    return true
+  }
+
+  if (!initGl()) return null
+
   const uploadAtlas = (g: AsciiGrid): void => {
-    atlas = buildAtlas(doc, g.cellWidth, g.cellHeight, fontFamily, g.scale)
+    if (!glyphProg) return
+    const cacheKey = `${g.cellWidth}x${g.cellHeight}`
+    let cached = atlasCache.get(cacheKey)
+    if (!cached) {
+      cached = buildAtlas(doc, g.cellWidth, g.cellHeight, fontFamily, g.scale)
+      atlasCache.set(cacheKey, cached)
+    }
+    atlas = cached
     missing.splice(0, missing.length, ...atlas.missing)
     gl.activeTexture(gl.TEXTURE1)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, atlas.width, atlas.height, 0, gl.RED, gl.UNSIGNED_BYTE, atlas.texture)
@@ -616,8 +654,12 @@ export function createAsciiRenderer(
   return {
     canvas,
     missing,
-    resize(layout) {
+    restore() {
       if (!alive || gl.isContextLost()) return false
+      return initGl()
+    },
+    resize(layout) {
+      if (!alive || gl.isContextLost() || !windProg || !glyphProg) return false
       const g = layout.grid
       const prev = grid
       const sameShape = prev !== null && prev.columns === g.columns && prev.rows === g.rows
@@ -647,28 +689,37 @@ export function createAsciiRenderer(
       return true
     },
     setInk(rgb, alpha) {
-      if (!alive) return
+      inkRgb = [rgb[0], rgb[1], rgb[2]]
+      if (alpha !== undefined) inkAlpha = alpha
+      if (!alive || !glyphProg) return
       gl.useProgram(glyphProg.program)
       if (gu.uInk) gl.uniform3f(gu.uInk, rgb[0], rgb[1], rgb[2])
       if (alpha !== undefined && gu.uInkAlpha) gl.uniform1f(gu.uInkAlpha, alpha)
     },
     setGlow(rgb) {
-      if (!alive) return
+      glowRgb = [rgb[0], rgb[1], rgb[2]]
+      if (!alive || !glyphProg) return
       gl.useProgram(glyphProg.program)
       if (gu.uGlowColour) gl.uniform3f(gu.uGlowColour, rgb[0], rgb[1], rgb[2])
     },
     draw(time, reveal, touch, view) {
-      if (!alive || !grid || gl.isContextLost()) return
+      if (!alive || !grid || !windProg || !glyphProg || gl.isContextLost()) return
+      slow = false
       const head = fences[0]
       if (head) {
-        if (gl.getSyncParameter(head, gl.SYNC_STATUS) === gl.SIGNALED) {
+        const status = gl.getSyncParameter(head, gl.SYNC_STATUS)
+        if (status === gl.SIGNALED || status === null) {
           gl.deleteSync(head)
           fences = fences.slice(1)
           fenceMisses = 0
-          slow = false
         } else {
           fenceMisses += 1
-          slow = fenceMisses >= 2
+          if (fenceMisses >= 2) {
+            gl.deleteSync(head)
+            fences = fences.slice(1)
+            fenceMisses = 0
+            slow = true
+          }
         }
       }
       // The wind pass OVERWRITES its texture: blending here would smear

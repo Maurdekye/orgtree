@@ -23,7 +23,7 @@ const path = require('node:path')
 // asciiReady + the GL canvas in probe().
 
 const buildRoot = path.resolve('C:/orgtree-build')
-const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'C:/orgtree-build/epic-wonder-full/canvasbg-visual')
+const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'C:/orgtree-build/backdrop-argon/canvasbg-visual')
 if (!out.startsWith(buildRoot + path.sep)) {
   console.error(`refusing to write outside C:/orgtree-build: ${out}`)
   process.exit(2)
@@ -69,12 +69,78 @@ const SCENES = [
   { name: 'line-grid', query: 'theme=line-grid' },
   { name: 'hex-dots', query: 'theme=hex-dots' },
   { name: 'hex-lines', query: 'theme=hex-lines' },
+  { name: 'checkerboard', query: 'theme=checkerboard' },
   { name: 'square-tiles', query: 'theme=square-tiles' },
   { name: 'triangle-tiles', query: 'theme=triangle-tiles' },
   { name: 'hex-tiles', query: 'theme=hex-tiles' },
   { name: 'ascii-a', query: 'theme=ascii', wait: 1200 },
   { name: 'ascii-b', query: 'theme=ascii', wait: 5200 },
   { name: 'ascii-zoomout', query: 'theme=ascii&z=0.35&x=-60&y=-40', wait: 1500 },
+  {
+    name: 'ascii-drag-zoomout', query: 'theme=ascii&seed=42&pool=mixed&x=-260&y=-180&z=1.2',
+    run: async win => {
+      await waitAscii(win)
+      const stress = await js(win, 'window.__runDragZoomOutStress()')
+      return {
+        stress,
+        checks: {
+          dragZoomSteps: stress?.steps === 25,
+          dragZoomCellBounded: (stress?.minCellWidth ?? 0) >= 5 && (stress?.maxColumns ?? 999) <= 220,
+          dragZoomFast: (stress?.maxStepMs ?? 999) < 50,
+          dragZoomAlive: stress?.finalState?.datasetState !== 'context-lost' && stress?.finalState?.datasetState !== 'unseen',
+        },
+      }
+    },
+  },
+  {
+    name: 'ascii-degrade-recover', query: 'theme=ascii&seed=42&pool=mixed&x=0&y=0&z=1',
+    run: async win => {
+      await waitAscii(win)
+      await sleep(300)
+      const degraded = await js(win, `(() => {
+        const api = window.__ascii
+        const canvas = api.renderer().canvas
+        api.simulateLoad('gpu', 2)
+        return { state: api.state(), opacity: canvas.style.opacity }
+      })()`)
+      const t0 = Date.now()
+      let recoveredLoad = null
+      while (Date.now() - t0 < 2800) {
+        await sleep(120)
+        recoveredLoad = await js(win, `(() => {
+          const api = window.__ascii
+          const canvas = api.renderer().canvas
+          return { state: api.state(), opacity: canvas.style.opacity }
+        })()`)
+        if (recoveredLoad?.state?.datasetState === 'moving') break
+      }
+      const loadRecoveryMs = Date.now() - t0
+      const ctxLost = await js(win, `(() => {
+        const api = window.__ascii
+        const canvas = api.renderer().canvas
+        const ev = new Event('webglcontextlost', { cancelable: true })
+        canvas.dispatchEvent(ev)
+        return { defaultPrevented: ev.defaultPrevented, state: api.state(), opacity: canvas.style.opacity }
+      })()`)
+      await sleep(80)
+      const ctxRestored = await js(win, `(() => {
+        const api = window.__ascii
+        const canvas = api.renderer().canvas
+        canvas.dispatchEvent(new Event('webglcontextrestored'))
+        return { state: api.state(), opacity: canvas.style.opacity }
+      })()`)
+      return {
+        degraded, recoveredLoad, loadRecoveryMs, ctxLost, ctxRestored,
+        checks: {
+          degradedPaused: degraded?.state?.datasetState === 'busy-gpu' && degraded?.state?.running === false,
+          degradedHiddenNoFreeze: degraded?.opacity === '0',
+          recoveredFromLoad: recoveredLoad?.state?.datasetState === 'moving' && Number(recoveredLoad?.opacity) > 0,
+          contextLossHandled: ctxLost?.defaultPrevented === true && ctxLost?.state?.datasetState === 'context-lost' && ctxLost?.opacity === '0',
+          contextRestored: ctxRestored?.state?.datasetState === 'moving' && Number(ctxRestored?.opacity) > 0,
+        },
+      }
+    },
+  },
   { name: 'ascii-pinned-t8', query: 'theme=ascii&seed=42&pool=mixed&x=0&y=0&z=1', run: win => compareScene(win, 8) },
   { name: 'ascii-pinned-t40', query: 'theme=ascii&seed=42&pool=mixed&x=0&y=0&z=1', run: win => compareScene(win, 40) },
   {
@@ -206,9 +272,13 @@ const SCENES = [
   { name: 'measure-linegrid-pan', query: 'theme=line-grid&pan=1', measure: true },
 ]
 
-const withTimeout = (promise, ms, fallback) => Promise.race([
-  promise.catch(() => fallback), new Promise(res => setTimeout(() => res(fallback), ms)),
-])
+function withTimeout(promise, ms, fallback) {
+  let timer = null
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise(res => { timer = setTimeout(() => res(fallback), ms) }),
+  ]).finally(() => { if (timer !== null) clearTimeout(timer) })
+}
 
 async function settled(win, extraMs) {
   await withTimeout(win.webContents.executeJavaScript(`new Promise(res => {
@@ -315,11 +385,13 @@ async function run() {
       await settled(win, 120)
     }
     console.log(`scene ${scene.name}: capture`)
+    await settled(win, 40)
     const image = await withTimeout(win.webContents.capturePage(), 15000, null)
     const png = path.join(shots, scene.name + '.png')
     if (image) fs.writeFileSync(png, image.toPNG())
     const distinct = image ? distinctBytes(image) : 0
     const expectTheme = new URLSearchParams(scene.query).get('theme') || 'dots'
+    const isOutlinedTile = expectTheme === 'square-tiles' || expectTheme === 'triangle-tiles' || expectTheme === 'hex-tiles'
     const checks = {
       ready: info.ready === true,
       theme: info.theme === expectTheme,
@@ -327,6 +399,8 @@ async function run() {
       asciiSized: expectTheme !== 'ascii' || (!!info.asciiCanvas && info.asciiCanvas.w > 0),
       cssPainted: expectTheme === 'ascii' || expectTheme === 'dots'
         || info.backgroundImage !== 'none' || (info.maskImage !== '' && info.maskImage !== 'none'),
+      ...(expectTheme === 'checkerboard' ? { checkerboardGradient: info.backgroundImage.includes('conic-gradient') } : {}),
+      ...(isOutlinedTile ? { tileMaskApplied: info.maskImage !== '' && info.maskImage !== 'none' && info.maskSize !== '' } : {}),
       ...(extra?.checks || {}),
     }
     const ok = Object.values(checks).every(Boolean)

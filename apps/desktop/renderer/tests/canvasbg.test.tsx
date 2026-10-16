@@ -470,6 +470,9 @@ function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
     disconnect() {}
   }
   Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => dpr })
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+  w.requestAnimationFrame = globalThis.requestAnimationFrame
+  w.cancelAnimationFrame = globalThis.cancelAnimationFrame
   document.hasFocus = () => true
   Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 })
   Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 600 })

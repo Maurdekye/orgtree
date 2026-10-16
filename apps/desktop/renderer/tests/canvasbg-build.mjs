@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const buildRoot = path.resolve('C:/orgtree-build')
-const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'C:/orgtree-build/epic-wonder-full/canvasbg-visual')
+const out = path.resolve(process.env.CANVASBG_VISUAL_OUT || 'C:/orgtree-build/backdrop-argon/canvasbg-visual')
 if (!out.startsWith(buildRoot + path.sep)) {
   throw new Error(`refusing to write outside C:/orgtree-build: ${out}`)
 }
