@@ -19,7 +19,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { createPortal } from 'react-dom'
 import { useAppRead } from './appfeed'
 import { getProviders, sendMessage, uploadFile } from './api'
-import { AgentTray, trayRows, type TrayRow } from './canvas/agenttray'
+import { ActiveAgentsFilter, AgentTray, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
 import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
@@ -45,7 +45,7 @@ export const TOP_LEVEL_LABEL = 'top level'
  *  agent map and its rows in the host's order, filtered by `query`
  *  (OrgCanvas fills it: the Attention drawer's order while that view shows,
  *  the canvas tray's otherwise). */
-export type AgentListSource = (query: string) => { map: Map<string, CanvasNode>; rows: TrayRow[] }
+export type AgentListSource = (query: string, activeOnly?: boolean) => { map: Map<string, CanvasNode>; rows: TrayRow[] }
 
 type PopKind = 'superior' | 'model' | 'files'
 /** the canvas hire strip's fade (`.hsof` opacity transition, styles.css) */
@@ -53,7 +53,8 @@ const FADE_MS = 150
 /** how far the pointer may stray from the model chips (or their button) before they close */
 const LEAVE_PX = 70
 
-export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = 'Quick chat' }: {
+export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = 'Quick chat',
+  quickChatActiveAgentsOnly = false, onQuickChatActiveAgentsOnly }: {
   slug: string
   tree: TreePayload
   op: (body: OpRequest, opts?: { quiet?: boolean }) => Promise<OpResult>
@@ -62,6 +63,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   onHired: (id: string) => void
   /** the Agents List on screen; absent = the tree's own order */
   agentList?: { current: AgentListSource | null }
+  quickChatActiveAgentsOnly?: boolean
+  onQuickChatActiveAgentsOnly?: (value: boolean) => void
   /** what the box calls itself: "New chat" in the Attention view, where it is
    *  the only way to start one (user 2026-10-10 19:25Z), else "Quick chat" */
   label?: string
@@ -235,7 +238,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
       {pop?.kind === 'superior' && (
         <Pop anchor={pop.anchor} onClose={close} kind="superior">
-          <SuperiorPicker nodes={nodes} agentList={agentList} superior={superior}
+        <SuperiorPicker nodes={nodes} agentList={agentList} superior={superior}
+          activeOnly={quickChatActiveAgentsOnly} onActiveOnly={onQuickChatActiveAgentsOnly}
             compactAt={tree.compact_at}
             onPick={(s) => { rememberSuperior(slug, s); close() }} />
         </Pop>
@@ -293,19 +297,21 @@ function treeNodes(tree: TreePayload): Map<string, CanvasNode> {
 /** THE AGENTS LIST as a superior picker: the host's rows in the host's
  *  order, live agents only, under the "top level" root row. The filter box,
  *  arrows and Enter pick; Escape closes. */
-function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
+function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick, activeOnly, onActiveOnly }: {
   nodes: Map<string, CanvasNode>
   agentList?: { current: AgentListSource | null }
   superior: QuickSuperior
   compactAt?: number
   onPick: (s: QuickSuperior) => void
+  activeOnly: boolean
+  onActiveOnly?: (value: boolean) => void
 }) {
   const [query, setQuery] = useState('')
   const { map, rows } = useMemo(() => {
-    const host = agentList?.current?.(query)
+    const host = agentList?.current?.(query, activeOnly)
     if (host) return host
-    return { map: nodes, rows: trayRows(nodes, { query }) }
-  }, [agentList, nodes, query])
+    return { map: nodes, rows: trayRows(nodes, { query, activeOnly }) }
+  }, [agentList, nodes, query, activeOnly])
   // a superior must be live: the archived toggle has nothing to offer here
   const liveMap = useMemo(() => new Map([...map].filter(([, n]) => n.state === 'live')), [map])
   const rootMatches = TOP_LEVEL_LABEL.includes(query.trim().toLowerCase())
@@ -340,6 +346,7 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
           onPick(choices[at] ?? null)
         }
       }}>
+      {onActiveOnly && <ActiveAgentsFilter checked={activeOnly} onChange={onActiveOnly} />}
       <AgentTray map={liveMap} rows={indentedRows} query={query} onQuery={setQuery}
         archived={false} onArchived={() => {}} onPick={pick} compactAt={compactAt}
         selected={hi} filterLabel="filter superiors"

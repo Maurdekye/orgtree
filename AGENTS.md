@@ -1,5 +1,10 @@
 # AGENTS.md — working on Orgtree
 
+- The canvas Agents list, Quick chat superior picker and dynamic Attention desk
+  each have an independent persisted active-only filter. Quick chat and desk
+  default off; toggling one never changes another. [decided: user 2026-10-16;
+  verified: `App.tsx`, `QuickChatBox.tsx`, `AttentionView.tsx`, `policy.ts`]
+
 - The built-in Orgtree skill library is also called the glossary or Orgtree
   Encyclopaedia (encyclopedia). These are equivalent terms; keep the library
   name and `orgtree-working`/`orgtree-app` category IDs. Root descriptions,

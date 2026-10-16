@@ -35,6 +35,10 @@ export interface DesktopPreferences extends NotificationPreferences {
   routineNotifications: boolean
   /** The Agents List shows only agents currently running a turn. */
   activeAgentsOnly?: boolean
+  /** Quick chat's superior picker filters independently; absent means off. */
+  quickChatActiveAgentsOnly?: boolean
+  /** The Attention agent desk filters independently; absent means off. */
+  attentionDeskActiveAgentsOnly?: boolean
   onboarded: boolean
   /** Whether an ordinary launch reopens the windows that were open last time,
    *  or starts at a fresh Homepage. See StartupMode. */

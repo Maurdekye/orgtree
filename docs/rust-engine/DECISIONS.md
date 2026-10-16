@@ -1,5 +1,13 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Independent active-agent filters, user 2026-10-16 13:35Z:** the canvas Agents
+list, Quick chat superior picker, and dynamic Attention desk each have their own
+persisted "active only" setting. The two new settings default off so an upgrade
+does not hide agents in those views. Checking one surface filters only that
+surface; the canvas setting remains scoped to its Agents list. The checkbox uses
+the shared active-filter style. See the active-agent filter item on the org
+docket for implementation and verification evidence.
+
 **Claude usage waits, coordinator 2026-10-15 10:09Z**, implementing the user's
 reported short 429 refresh errors: suppress the error when last-good cache age
 is under 900 s and remaining Retry-After is at most 60 s. Long waits or absent/

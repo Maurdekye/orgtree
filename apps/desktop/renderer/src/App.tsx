@@ -790,6 +790,18 @@ export default function App() {
     const bridge = desktop()
     if (bridge?.setPreferences) void bridge.setPreferences({ activeAgentsOnly }).catch(() => {})
   }, [])
+  const quickChatActiveAgentsOnly = deskPrefs?.quickChatActiveAgentsOnly ?? false
+  const setQuickChatActiveAgentsOnly = useCallback((quickChatActiveAgentsOnly: boolean) => {
+    setDeskPrefs(current => current ? { ...current, quickChatActiveAgentsOnly } : current)
+    const bridge = desktop()
+    if (bridge?.setPreferences) void bridge.setPreferences({ quickChatActiveAgentsOnly }).catch(() => {})
+  }, [])
+  const attentionDeskActiveAgentsOnly = deskPrefs?.attentionDeskActiveAgentsOnly ?? false
+  const setAttentionDeskActiveAgentsOnly = useCallback((attentionDeskActiveAgentsOnly: boolean) => {
+    setDeskPrefs(current => current ? { ...current, attentionDeskActiveAgentsOnly } : current)
+    const bridge = desktop()
+    if (bridge?.setPreferences) void bridge.setPreferences({ attentionDeskActiveAgentsOnly }).catch(() => {})
+  }, [])
   const persistAttentionOrgs = useCallback((slug: string, view: OrgView) => {
     // a bridge without setPreferences (an older preload, a test double) must
     // not throw out of the effect that restores the view
@@ -1265,6 +1277,8 @@ export default function App() {
   const quickChat = tree && slug
     ? <QuickChat slug={slug} tree={tree} op={op} toast={toast}
         onHired={setQuickFocus} agentList={agentList}
+        quickChatActiveAgentsOnly={quickChatActiveAgentsOnly}
+        onQuickChatActiveAgentsOnly={setQuickChatActiveAgentsOnly}
         label={v3 && viewMode === 'attention' ? 'New chat' : 'Quick chat'} />
     : null
 
@@ -1615,7 +1629,9 @@ export default function App() {
                   </span>
                 </span>
                 <QuickChat slug={slug} tree={tree} op={op} toast={toast}
-                  onHired={setQuickFocus} agentList={agentList} />
+                  onHired={setQuickFocus} agentList={agentList}
+                  quickChatActiveAgentsOnly={quickChatActiveAgentsOnly}
+                  onQuickChatActiveAgentsOnly={setQuickChatActiveAgentsOnly} />
                 {/* MOBILE-ONLY merged status chip (D-125 orgbar ruling): live
                     count · working · frozen in one glance; tapping it opens
                     the same ⋯ panel. display:none on desktop (.mob-only). */}
@@ -1821,7 +1837,8 @@ export default function App() {
                 renderOrgSlot={v3 ? (ctx) => (
                   <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
                     toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}
-                    activeAgentsOnly={activeAgentsOnly} onActiveAgentsOnly={setActiveAgentsOnly}
+                    attentionDeskActiveAgentsOnly={attentionDeskActiveAgentsOnly}
+                    onAttentionDeskActiveAgentsOnly={setAttentionDeskActiveAgentsOnly}
                     onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
                     onOpenDoc={ctx.onOpenDoc} onOpenMail={ctx.onOpenMail}
                     onNotificationFocus={registerAttentionNotification}

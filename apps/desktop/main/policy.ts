@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 import type { DesktopIdentity } from './build-channel'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', activeAgentsOnly: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', activeAgentsOnly: false, quickChatActiveAgentsOnly: false, attentionDeskActiveAgentsOnly: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -55,9 +55,9 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       // optional and absent by default: an untouched install stores nothing
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.epicMode = val
-    } else if (key === 'activeAgentsOnly') {
+    } else if (key === 'activeAgentsOnly' || key === 'quickChatActiveAgentsOnly' || key === 'attentionDeskActiveAgentsOnly') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
-      result.activeAgentsOnly = val
+      result[key] = val
     } else if (key === 'canvasBackground') {
       // optional and absent by default, like epicMode: the sanitizer rebuilds
       // the stored shape from known fields and rejects anything else

@@ -1132,10 +1132,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // Quick chat's superior picker IS the Agents List on screen: the Attention
   // drawer's rows while that view is presented, the canvas tray's
   // otherwise. Read while the picker is open.
-  if (agentList) agentList.current = (query) => ({
+  if (agentList) agentList.current = (query, activeOnly = false) => ({
     map: mapRef.current,
-    rows: worldHidden ? agentRows(mapRef.current, posOf, { query, activeOnly: activeAgentsOnly })
-      : trayRows(mapRef.current, { query, activeOnly: activeAgentsOnly, compare: canvasTrayCompare() }),
+    rows: worldHidden ? agentRows(mapRef.current, posOf, { query, activeOnly })
+      : trayRows(mapRef.current, { query, activeOnly, compare: canvasTrayCompare() }),
   })
 
   // ---------------------------------------------- wires: geometry + sparks
