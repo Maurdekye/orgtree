@@ -22,6 +22,7 @@ import {
   useCallback, useEffect, useId, useRef, useState,
 } from 'react'
 import { MenuIcon } from '../icons'
+import { useSurfaceDocument } from '../popout'
 import { useEsc } from './shared'
 
 /** Usable `.mailer` width in CSS px, at or below which presentation lists
@@ -33,10 +34,16 @@ export const NARROW_MAILER_WIDTH = NARROW_DOCS_WIDTH
 /** Watches one element's own width. Returns null until it has been measured,
  *  so nothing flashes the wrong layout on the first paint. */
 function useNarrow(threshold: number, enabled: boolean) {
+  const owner = useSurfaceDocument()
   const [el, setEl] = useState<HTMLDivElement | null>(null)
   const [narrow, setNarrow] = useState(false)
   useEffect(() => {
-    if (!enabled || !el || typeof ResizeObserver === 'undefined') { setNarrow(false); return }
+    // MovableSurface adopts this SAME node into a different document. An
+    // observer belongs to its creating window's rendering lifecycle, so both
+    // its constructor and this subscription must follow the surface owner.
+    const Observer = (owner.defaultView as (Window & typeof globalThis) | null)?.ResizeObserver
+      ?? globalThis.ResizeObserver
+    if (!enabled || !el || !Observer) { setNarrow(false); return }
     const measure = () => {
       const w = el.getBoundingClientRect().width
       // a zero box is an unrendered one (a hidden tab, a closing window), not
@@ -44,10 +51,10 @@ function useNarrow(threshold: number, enabled: boolean) {
       setNarrow(w > 0 && w <= threshold)
     }
     measure()
-    const ro = new ResizeObserver(measure)
+    const ro = new Observer(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [el, threshold, enabled])
+  }, [el, threshold, enabled, owner])
   return { setEl, narrow }
 }
 
