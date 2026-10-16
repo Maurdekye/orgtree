@@ -5,7 +5,7 @@
 // helper having been called (a check that abstains reads exactly like a pass).
 //
 //   §11 the helpers: isImg
-//   §12 md(): relative image srcs resolve per node, everything else untouched
+//   §12 md(): relative paths stay author-scoped; absolute and web images proxy
 //   §13 the desk: send_file image cards, delivered/user attachments, embedded
 //       markdown images
 //   §14 the lightbox: open on click, close on Esc/backdrop
@@ -22,7 +22,7 @@ import assert from 'node:assert/strict'
 import { refreshConvo, resetConvos } from '../src/convo'
 import { DeskChat } from '../src/canvas/desk'
 import { MailList } from '../src/canvas/mail'
-import { md } from '../src/canvas/shared'
+import { markdownImageFailed, md } from '../src/canvas/shared'
 import { fmtBytes, isImg } from '../src/canvas/img'
 import { closeLightbox } from '../src/canvas/lightbox'
 import type { CanvasNode, MailRow } from '../src/canvas/shared'
@@ -117,10 +117,45 @@ test('§12.1 a relative src resolves against the given base, one encoding layer'
   assert.ok(!h2.includes('%2520'), 'no double-encoding')
 })
 
-test('§12.2 absolute, data: and anchor srcs pass untouched', () => {
-  const h = md('![a](https://example.com/x.png) ![b](/rooted.png)', B1).__html
-  assert.ok(h.includes('src="https://example.com/x.png"'), 'https kept')
+test('§12.2 rooted relative-to-origin image srcs stay untouched', () => {
+  const h = md('![b](/rooted.png)', B1).__html
   assert.ok(h.includes('src="/rooted.png"'), 'rooted path kept')
+})
+
+test('§12.2a an absolute Windows image path is proxied and has a reveal-link fallback', () => {
+  const h = md('![plot](<C:/orgtree-build/capture one.png>)', B1).__html
+  assert.ok(h.includes('src="/api/markdown-image?path=C%3A%5Corgtree-build%5Ccapture%20one.png"'),
+    `absolute path resolved through bounded image endpoint — got: ${h}`)
+  assert.ok(h.includes('class="md-image-fallback local-file"'), `local fallback exists — got: ${h}`)
+  assert.ok(h.includes('data-local-path="C:\\orgtree-build\\capture one.png"'),
+    `fallback reveals the original path — got: ${h}`)
+})
+
+test('§12.2b an HTTP image URL auto-loads through the credential-free image proxy', () => {
+  const h = md('![remote](https://images.example.test/chart.png?size=large)', B1).__html
+  assert.ok(h.includes('src="/api/markdown-image?url=https%3A%2F%2Fimages.example.test%2Fchart.png%3Fsize%3Dlarge"'),
+    `remote source uses the same-origin proxy — got: ${h}`)
+  assert.ok(h.includes('class="md-image-fallback"'), `a failed image retains a link — got: ${h}`)
+  assert.ok(h.includes('href="https://images.example.test/chart.png?size=large"'),
+    `fallback points at the original URL — got: ${h}`)
+})
+
+test('§12.2c a failed proxied image reveals its fallback link', () => {
+  const host = document.createElement('div')
+  host.innerHTML = md('![remote](https://images.example.test/chart.png)', B1).__html
+  const wrapper = host.querySelector('.md-image-embed')!
+  const img = wrapper.querySelector('img')!
+  markdownImageFailed({ target: img })
+  assert.ok(wrapper.classList.contains('failed'), 'failed state shows fallback')
+  assert.equal(wrapper.querySelector('.md-image-fallback')?.getAttribute('href'),
+    'https://images.example.test/chart.png')
+})
+
+test('§12.2d a non-HTTP data image cannot bypass the image validator', () => {
+  const h = md('![vector](data:image/svg+xml,%3Csvg%3E)', B1).__html
+  assert.ok(!h.includes('src="data:'), `data URL is not left as an image source — got: ${h}`)
+  assert.ok(h.includes('class="md-image-embed failed"'), `blocked image shows its fallback — got: ${h}`)
+  assert.ok(h.includes('class="md-image-fallback"'), `fallback link remains available — got: ${h}`)
 })
 
 test('§12.3 no base → the src is left alone', () => {

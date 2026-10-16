@@ -6137,6 +6137,11 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
   max-width: min(100%, 480px); max-height: 320px; border-radius: 6px;
   cursor: zoom-in;
 }
+.md-image-embed { display: inline-block; max-width: 100%; }
+.md-image-fallback { display: none; }
+.md-image-fallback.failed { display: inline; }
+.md-image-embed.failed > img { display: none; }
+.md-image-embed.failed > .md-image-fallback { display: inline; }
 /* the lightbox: one overlay, always above panels/modals/picker (60) and the
    top banner (90), below toasts (100) */
 .lb-overlay {
