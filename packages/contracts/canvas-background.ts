@@ -7,22 +7,25 @@
  *  preference is optional: absent reads as `dots` at full strength, exactly
  *  the shipped behaviour. */
 export const CANVAS_BACKGROUNDS = [
-  'dots', 'ascii', 'line-grid', 'hex-dots', 'hex-lines',
-  'square-tiles', 'triangle-tiles', 'hex-tiles',
+  'dots', 'line-grid', 'hex-dots', 'hex-lines',
+  'checkerboard', 'square-tiles', 'triangle-tiles', 'hex-tiles', 'ascii',
 ] as const
 export type CanvasBackgroundTheme = typeof CANVAS_BACKGROUNDS[number]
 
 /** Picker order is CANVAS_BACKGROUNDS order: the current background first,
- *  then the flowing ASCII the user asked for, then grids, then tiles. */
+ *  then grids, then checkerboard and outlined tile presets, and Claude Waves
+ *  last (user 2026-10-16). Stored `'ascii'` stays the canonical key so
+ *  existing selections load as Claude Waves. */
 export const CANVAS_BACKGROUND_LABELS: Record<CanvasBackgroundTheme, string> = {
   dots: 'Dot grid',
-  ascii: 'Flowing ASCII',
   'line-grid': 'Line grid',
   'hex-dots': 'Hex dot grid',
   'hex-lines': 'Hex line grid',
+  checkerboard: 'Checkerboard',
   'square-tiles': 'Square tiles',
   'triangle-tiles': 'Triangular tiles',
   'hex-tiles': 'Hexagonal tiles',
+  ascii: 'Claude Waves',
 }
 
 export interface CanvasBackgroundPreference {
@@ -43,17 +46,23 @@ export interface ResolvedCanvasBackground {
  *  `dots` is 1 — untouched, it is pixel-identical to the shipped grid. */
 export const DEFAULT_CANVAS_INTENSITIES: Record<CanvasBackgroundTheme, number> = {
   dots: 1,
-  ascii: 1,
   'line-grid': 0.55,
   'hex-dots': 0.85,
   'hex-lines': 0.5,
+  checkerboard: 0.5,
   'square-tiles': 0.5,
   'triangle-tiles': 0.45,
   'hex-tiles': 0.45,
+  ascii: 1,
 }
 
 export function isCanvasBackgroundTheme(value: unknown): value is CanvasBackgroundTheme {
   return typeof value === 'string' && (CANVAS_BACKGROUNDS as readonly string[]).includes(value)
+}
+
+function normalizeThemeKey(value: unknown): CanvasBackgroundTheme | null {
+  if (value === 'claude-waves') return 'ascii'
+  return isCanvasBackgroundTheme(value) ? value : null
 }
 
 const isIntensity = (value: unknown): value is number =>
@@ -66,14 +75,16 @@ const isIntensity = (value: unknown): value is number =>
 export function sanitizeCanvasBackground(value: unknown): CanvasBackgroundPreference | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const v = value as { theme?: unknown; intensities?: unknown }
-  if (!isCanvasBackgroundTheme(v.theme)) return null
-  const out: CanvasBackgroundPreference = { theme: v.theme }
+  const theme = normalizeThemeKey(v.theme)
+  if (!theme) return null
+  const out: CanvasBackgroundPreference = { theme }
   if (v.intensities !== undefined) {
     if (!v.intensities || typeof v.intensities !== 'object' || Array.isArray(v.intensities)) return null
     const intensities: Partial<Record<CanvasBackgroundTheme, number>> = {}
-    for (const [key, val] of Object.entries(v.intensities)) {
-      if (!isCanvasBackgroundTheme(key) || !isIntensity(val)) return null
-      intensities[key] = val
+    for (const [rawKey, val] of Object.entries(v.intensities)) {
+      const key = normalizeThemeKey(rawKey)
+      if (!key || !isIntensity(val)) return null
+      if (rawKey === key || intensities[key] === undefined) intensities[key] = val
     }
     out.intensities = intensities
   }
