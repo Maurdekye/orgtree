@@ -21,6 +21,15 @@ Claude launch setup writes `.orgtree-identity.md`, `.orgtree-settings.json` and 
 
 The native desktop's agent menu offers **Open > Open scratch folder** for live and archived agents. It opens an existing directory in the OS file manager; a missing folder reports an error rather than being created. That native action is unavailable in a plain browser or phone client.
 
+Next to it, **Open team scratch folder** opens the team that agent leads,
+keyed by its numeric agent id, even when it has no reports. It does not select
+the parent's team for a leaf. The switchboard context menu and **Org settings
+> Basic** both offer **Open shared scratch folder** for the org-wide `_shared`
+folder. Missing team/shared folders are created on demand only inside that
+org's scratch root. Personal/imported scratch keeps its no-create behavior.
+These entries need scoped support in the native shell and local engine;
+older shells do not expose them, and an unsupported engine reports an error.
+
 For collaboration use [shared folders](../shared-folders/SKILL.md), choosing the smallest audience that needs the file. A saved draft is not a delivery to its reader; use the appropriate mail or user-delivery tool when handing it over.
 
 ## See also

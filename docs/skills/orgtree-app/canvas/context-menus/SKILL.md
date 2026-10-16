@@ -17,6 +17,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Open → Pin desk as a window / Show pinned window | Pin or raise its canvas window. |
 | Open → Open inbox | The agent's own mailbox. |
 | Open → Open scratch folder | Existing local directory, offered on supported native surfaces for live/archived identities; missing paths error without creating them. |
+| Open → Open team scratch folder | Immediately after personal scratch; the team this agent leads, keyed by its numeric id even with no reports. Creates a missing managed folder on demand; supported native shells only. |
 | Open → Open docket | Agent-scoped work view when supported. |
 | Open → Open team docket | Work assigned to that agent or its descendants when supported. |
 | Open → Open presentations | Offered when the agent has presented documents and the opener exists. |

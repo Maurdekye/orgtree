@@ -1014,8 +1014,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 - Agent Open > Open scratch folder is a native directory-only action. Resolve
   stored/imported/renamed paths through authenticated agent identity; never
   reconstruct a path in the renderer or open a file. Missing folders report an
-  error without creation. [verified: `http/nodes.rs`, `main/scratch-folder.ts`,
-  2026-10-11; coordinator ruling; details: `docs/rust-engine/scratch-folder.md`]
+  error without creation. Open team scratch folder uses that agent's numeric
+  own-led team id, even for a leaf. Switchboard and Org settings > Basic open
+  the same org shared scratch folder. These new managed targets create on
+  demand inside org scratch, refusing link/reparse/file components. Reuse the
+  same IPC/engine route; scoped capability and response markers prevent older
+  shells/engines silently opening personal scratch instead.
+  [decided: user 2026-10-16 10:16Z; verified: `http/nodes.rs`, `domain/teams.rs`,
+  `main/scratch-folder.ts`; details: `docs/rust-engine/scratch-folder.md`]
 
 - On-demand `orgtree_usage` reads the saved cache under inspection permission.
   Optional single-account refresh also needs inherited runtime permission;

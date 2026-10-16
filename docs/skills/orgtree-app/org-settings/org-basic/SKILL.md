@@ -12,6 +12,14 @@ Agents suggest changes; the user edits them. The following keys live in org
 settings. Effective values include app defaults and the org's own overrides;
 the defaults below are the engine values when neither overrides them.
 
+On supported native desktop shells, the **Shared scratch folder** group has
+an **Open shared scratch folder** button with the folder icon. It opens the
+same org-wide `_shared` directory as the switchboard context entry, creating a
+missing managed folder on demand. This action does not save settings or the
+charter; keep unsaved edits as they are. Browser/phone and older shells omit
+the group. Personal scratch and each agent's own-led team folder remain in
+that agent's Open submenu.
+
 | Control | Key | Default | Effect and limits |
 | --- | --- | --- | --- |
 | top-level grant cap | `org:max_top_grant` | 1,000 | Bounds increases to a top-level agent's grant. Lowering it preserves existing grants above the cap and returns a warning naming them. UI minimum 1, step 1; storage also supports 0 as uncapped, although this form omits a zero cap when saving. Negative values are ignored. |

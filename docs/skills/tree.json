@@ -2297,7 +2297,8 @@
    "must_cover": [
     "what the folder is and who can read it",
     "standing notes delivered each session",
-    "identity files not to edit"
+    "identity files not to edit",
+    "native personal/team/shared folder actions and distinct creation rules"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/runtime/identity.rs l.283-292, own_notes()",
@@ -2946,7 +2947,8 @@
    ],
    "purpose": "The user's root card and its overseer eye with bulk halt, dissolve and cheap compact.",
    "must_cover": [
-    "bulk actions"
+    "bulk actions",
+    "shared scratch folder context entry on overview and focused switchboard"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/cards.tsx:113",
@@ -3082,7 +3084,8 @@
    ],
    "purpose": "Context menus, above all the agent menu and every item in it.",
    "must_cover": [
-    "every agent-menu item"
+    "every agent-menu item",
+    "own-led numeric-id team scratch next to personal scratch"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",
@@ -4524,7 +4527,8 @@
    "purpose": "Basic: org logo, credit caps and grants, compaction threshold, default effort; which tabs save together.",
    "must_cover": [
     "each field",
-    "one save vs immediate tabs"
+    "one save vs immediate tabs",
+    "shared scratch folder button independent of Save"
    ],
    "sources": [
     "apps/desktop/renderer/src/App.tsx:3127-3155",
@@ -4540,6 +4544,10 @@
     "apps/desktop/renderer/src/App.tsx#SettingsPanel"
    ],
    "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/App.tsx",
+     "label": "Organization folder"
+    },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
      "label": "top-level grant cap"

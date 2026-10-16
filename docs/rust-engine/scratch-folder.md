@@ -1,9 +1,51 @@
-# Open an agent's scratch folder
+# Open scratch folders
 
 The shared agent context menu offers **Open > Open scratch folder** for live and
 archived agents in the native desktop. The canvas card, Agents List and desk/tab
 navigation use the same menu definition. A browser, phone or older desktop shell
 without the native capability has no entry.
+
+The same agent Open submenu offers **Open team scratch folder** immediately
+after personal scratch. It opens the team this agent leads, keyed by numeric
+agent id, even if the agent has no reports (user 2026-10-16 10:16Z). Rename and
+retirement preserve that identity. The switchboard's overview and focused
+header menus offer a flat **Open shared scratch folder** entry. The same
+button lives in **Org settings > Basic > Shared scratch folder**, with the
+existing folder icon and settings row styling. It opens independently of Save.
+
+## Team and org shared targets (2026-10-16)
+
+All three entries reuse `desktop:open-agent-scratch-folder`, the native helper,
+the authenticated local engine endpoint and `shell.openPath`. The bridge
+advertises `scratchFolderScopes` before the renderer exposes the new actions;
+an older personal-only shell still offers its original action. Only identity
+and the enumerated `team`/`shared` scope cross IPC, never a renderer path.
+
+The existing endpoint accepts `?scope=team` for a normal agent identity.
+`domain::teams::workspace` supplies the same `_teams/<numeric id>` path used
+by launch grants. Org shared uses the reserved non-agent `_shared` endpoint
+identity with `?scope=shared`; no arbitrary agent is chosen for org actions.
+The path comes from `Config::org_notes_dir`. Conflicting identities and unknown
+scopes are refused. Scoped replies echo their scope, so an old engine ignoring
+query parameters cannot make a personal response look like a team success.
+
+Missing team/shared directories are created on demand. The engine checks the
+configured org-scratch containment, resolves trusted data-root aliases, and
+walks managed components individually. It rejects symlinks, Windows reparse
+points and non-directories before proceeding; it never recursively creates
+through an unchecked org/scratch/team ancestor. Filesystem I/O holds no database
+transaction or client. The original personal path behavior below is unchanged.
+
+Tests first: exact `a5f92af` on base `b3791bb` executed six renderer cases with
+six genuine assertion failures, zero passes/skips/cancellations, exit1/3s.
+Both switchboard surfaces and Settings really mounted; no fixture/setup errors.
+Later assertions after each first failure were not executed. Prepared green6,
+native3, Windows path unit2/adjacent team3, engine proof16 and three screenshots
+remain unrun at source handoff. Portable runners read existing dependencies in
+place and write generated bundles only into the assigned C artifact scope.
+No installed-app or native OS file-manager acceptance is claimed.
+
+## Personal scratch (existing behavior)
 
 The native sender gate binds the request to its organization window. IPC accepts
 only organization and agent identity. Desktop main reads the path through an

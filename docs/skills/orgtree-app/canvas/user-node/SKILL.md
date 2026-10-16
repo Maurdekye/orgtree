@@ -21,6 +21,7 @@ The switchboard's auto toggle controls whether a newly arriving direct line open
 | Open inbox | User inbox, not the outside-org inbox. |
 | Open global docket | Organization work view; see [docket screens](../../desk/docket-screens/SKILL.md). |
 | Open presentations | Organization document gallery; see [presentations](../../desk/presentations/SKILL.md). |
+| Open shared scratch folder | Open this org's shared scratch folder in the OS file manager, creating it on demand. Supported native shells only; available on the overview card and focused switchboard header. |
 | Org settings | Full org settings dialog, including hire defaults. |
 | Cheap-compact all agents… | Confirmation for the live set; busy agents are skipped by bulk compaction rules. |
 | Halt all agents… / Unhalt all agents… | Counted live set; the label becomes Unhalt only when every target is halted. Read per-target results. |
