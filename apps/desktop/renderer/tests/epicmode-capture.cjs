@@ -28,12 +28,15 @@ app.whenReady().then(async () => {
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } })
   win.webContents.setFrameRate(30)
   win.webContents.startPainting()
-  // A popped-out desk window (window.open from the page), offscreen like the page
+  // A popped-out desk window (window.open from the page). Hidden but NOT
+  // offscreen: an offscreen child of this offscreen page never produced a frame
+  // (capturePage() empty, no paint event, even shown), while a hidden ordinary
+  // window with paintWhenInitiallyHidden captures at its full size.
   let popout = null
   win.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: { show: false, width: 520, height: 300,
     useContentSize: true, paintWhenInitiallyHidden: true,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } } }))
-  win.webContents.on('did-create-window', child => { popout = child; child.webContents.setFrameRate(30); child.webContents.startPainting() })
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } } }))
+  win.webContents.on('did-create-window', child => { popout = child })
   const js = code => win.webContents.executeJavaScript(code)
   const SETTLE = 'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 40))))'
   const settle = () => js(SETTLE)
