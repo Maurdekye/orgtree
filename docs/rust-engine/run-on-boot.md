@@ -180,10 +180,11 @@ actor runs, so a running turn takes the line at its next tool boundary
 (Claude's hook, Codex's and Muse's steer, Antigravity's hook); an idle
 agent reads it at its next turn. The move notices stay as they were.
 The same change fires the machine-wide watchdog events `session.signed_in`
-and `session.signed_out`, and at sign-in every working agent that owes
-docket work and sits idle with its last turn in Session 0 gets its
-checkup at once (`reminders::checkups_at_sign_in`; its stamp restarts
-its 20 minutes, so no extra checkup over time; 2c).
+and `session.signed_out`, and at sign-in every working agent that sits
+idle with its last turn in Session 0 gets its checkup at once, docket
+work or not, or the docket reminder instead if one is due at that moment
+(`reminders::checkups_at_sign_in`; its stamp restarts its 20 minutes, so
+no extra checkup over time; 2c).
 
 ## The helper keepalive
 

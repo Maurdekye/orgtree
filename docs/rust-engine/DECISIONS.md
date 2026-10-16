@@ -1051,7 +1051,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **Sign-in/out notices:** every live agent gets one passive line when where new turns run changes
       (a running turn at its next tool boundary); not on a restart while signed in.
     - **2c:** watchdog events `session.signed_in`/`session.signed_out`; at sign-in, working agents idle in
-      Session 0 that owe docket work get their checkup at once.
+      Session 0 get their checkup at once, docket work or not, or a docket reminder instead if one is due
+      then (the user's ruling of 10:01-10:03Z; the coordinator's correction, 13:03Z).
     - **2d:** the engine starts the helper's logon task when the user is signed in without a helper
       (30 s, then 2, 5, 10 minutes); never the machine's task from a rig engine.
     - **The user's sessions (only the engine user's own):** one helper lease per session; an agent's
