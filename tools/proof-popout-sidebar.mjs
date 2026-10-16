@@ -63,8 +63,14 @@ if (process.argv[2] !== '--electron') {
     main.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: {
       show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false, offscreen: true } } }))
     const evaluate = code => main.webContents.executeJavaScript(code, true)
+    const childEvaluate = async (win, expression) => {
+      if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
+      const result = await win.webContents.debugger.sendCommand('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
+      if (result.exceptionDetails) throw Error(JSON.stringify(result.exceptionDetails))
+      return result.result.value
+    }
     const settle = async win => {
-      await within(win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))'), 'two painted frames')
+      await within(childEvaluate(win, 'new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))'), 'two painted frames')
       await delay(100)
     }
     await within(main.loadURL(`http://127.0.0.1:${server.address().port}/`), 'fixture load')
@@ -85,6 +91,7 @@ if (process.argv[2] !== '--electron') {
     await evaluate('document.querySelector(".popout-button").click()')
     const child = await within(childReady, 'native popout creation')
     child.webContents.setBackgroundThrottling(false)
+    console.log('Child ready', JSON.stringify({ url: child.webContents.getURL(), loading: child.webContents.isLoading(), destroyed: child.isDestroyed() }))
     await delay(150)
     await sample('popout-wide', child, 960)
     // Only the native popout changes size. The opener's viewport is untouched.
@@ -99,7 +106,7 @@ if (process.argv[2] !== '--electron') {
       await sample(name, child, width)
     }
     await evaluate('window.__sidebarProof.contentWidth(960)')
-    await child.webContents.executeJavaScript('[...document.querySelectorAll("button")].find(b=>b.textContent==="Return panel").click()')
+    await childEvaluate(child, '[...document.querySelectorAll("button")].find(b=>b.textContent==="Return panel").click()')
     await sample('returned-wide', main, 960)
     await evaluate('window.__sidebarProof.contentWidth(650)')
     await sample('returned-narrow', main, 650)
