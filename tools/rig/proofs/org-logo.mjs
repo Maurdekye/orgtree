@@ -88,7 +88,8 @@ export default async function(rig) {
   const marker='LOGO_INVALID_PRIVATE_'+crypto.randomBytes(12).toString('hex')
   const bad=path.join(scratch,'bad.png');fs.writeFileSync(bad,marker)
   const big=path.join(scratch,'big.png');fs.writeFileSync(big,Buffer.alloc(5*1024*1024+1))
-  const outside=path.join(rig.dir,'ungranted.png');fs.writeFileSync(outside,raw)
+  const outsideRoot=path.join(rig.dir,'ungranted');fs.mkdirSync(outsideRoot,{recursive:true})
+  const outside=path.join(outsideRoot,'ungranted.png');fs.writeFileSync(outside,raw)
   for(const [name,folder] of [
     ['org shared',path.join(rig.data,'scratch',org,'_shared')],
     ['own team',path.join(rig.data,'scratch',org,'_teams',String(rig.agentRow('alice').id))],
@@ -102,11 +103,24 @@ export default async function(rig) {
   for(const [name,args] of [
     ['unsupported bytes',{action:'set',path:bad}],['oversized file',{action:'set',path:big}],
     ['invalid crop',{action:'set',path:image,crop:{x:2,y:0,size:1}}],
-    ['ungranted absolute file',{action:'set',path:outside}],['directory',{action:'set',path:scratch}],
+    ['directory',{action:'set',path:scratch}],
     ['cross-org selector',{action:'remove',org:'another'}],['ambiguous remove with file',{action:'remove',path:image}],
   ]) {
     const rejected=await logo(args)
     p.check(name+' is refused without picture or journal writes',!rejected.ok&&await unchanged(before,count),rejected.ok?rejected.json:undefined)
+  }
+  // Use valid image bytes and real files: these must reach the folder guard,
+  // rather than pass because an image was missing or undecodable. Keep the
+  // relative traversal unnormalized so the engine receives the actual `..`.
+  const traversal=path.relative(scratch,outside)
+  p.check('boundary fixtures name an existing valid image outside scratch',path.isAbsolute(outside)
+    &&traversal.startsWith('..'+path.sep)&&fs.realpathSync(path.resolve(scratch,traversal))===fs.realpathSync(outside)
+    &&fs.readFileSync(outside).equals(raw))
+  for(const [name,source] of [['ungranted absolute file',outside],['relative parent traversal',traversal]]) {
+    const rejected=await logo({action:'set',path:source})
+    p.check(name+' is refused without picture or journal writes',!rejected.ok
+      &&/outside your working folder and the folders you hold/.test(rejected.text)
+      &&await unchanged(before,count),rejected.ok?rejected.json:rejected.text)
   }
   const scopes=(agent,tools)=>rig.api('POST',`/api/orgs/${org}/nodes/${agent}/scope`,{tools})
   await scopes('boss',{orgtree:{logo:false}})
@@ -119,15 +133,33 @@ export default async function(rig) {
   await rig.api('POST',`/api/orgs/${org}/nodes/alice/scope`,{add_dirs:[{path:grantRoot,mode:'ro'}]})
   const granted=await logo({action:'set',path:grantImage})
   p.check('read-only granted folder is a valid source',granted.ok)
+  const junction=path.join(scratch,'escape-junction')
+  // Node's Windows junction creation uses no symlink privilege. Treat failure
+  // as a failed fixture here, not an optional skip hiding an unexecuted case.
+  fs.symlinkSync(outsideRoot,junction,'junction')
   try {
-    fs.symlinkSync(outside,path.join(scratch,'escape.png'))
+    const source=path.join('escape-junction','ungranted.png')
+    p.check('junction fixture resolves to the valid ungranted image',fs.lstatSync(junction).isSymbolicLink()
+      &&fs.realpathSync(path.join(scratch,source))===fs.realpathSync(outside))
+    before=await get();count=n()
+    const escape=await logo({action:'set',path:source})
+    p.check('junction escape is refused without picture or journal writes',!escape.ok
+      &&/outside your working folder and the folders you hold/.test(escape.text)
+      &&await unchanged(before,count),escape.ok?escape.json:escape.text)
+  } finally { fs.rmdirSync(junction) } // remove only the junction, never its target
+  const symlink=path.join(scratch,'escape.png')
+  let symlinkCreated=false
+  try {fs.symlinkSync(outside,symlink);symlinkCreated=true} catch(e) {
+    if(!['EPERM','EACCES','ENOSYS'].includes(e.code))throw e
+    p.note('Symlink boundary skipped: '+e.code+'; NOT EXECUTED: fixture OS refused symlink creation')
+  }
+  if(symlinkCreated)try {
     before=await get();count=n()
     const escape=await logo({action:'set',path:'escape.png'})
-    p.check('symlink escape to ungranted image is refused',!escape.ok&&await unchanged(before,count))
-  } catch(e) {
-    if(!['EPERM','EACCES','ENOSYS'].includes(e.code))throw e
-    p.note('Symlink boundary NOT EXECUTED: fixture OS refused symlink creation, '+e.code)
-  }
+    p.check('symlink escape to ungranted image is refused',!escape.ok
+      &&/outside your working folder and the folders you hold/.test(escape.text)
+      &&await unchanged(before,count))
+  } finally { fs.unlinkSync(symlink) }
   // Hold the org lock with a synthetic uncommitted authority change. Admission
   // sees the old scope, commit waits, then must read the winning current scope.
   async function race(update,args) {

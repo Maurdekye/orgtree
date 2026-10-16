@@ -61,11 +61,32 @@ Local changes remain immediate while hubs are disconnected or outside access is
 disabled; supported hubs converge through the existing gate after re-enable.
 
 Focused fixtures are `tools/rig/proofs/org-logo.mjs`, the extended group UI
-proof, `scopebody.test.tsx` and native group/input tests. **At author hand-in
-these are source-only and unexecuted**: the coordinator paused heavy local
-verification below its free-commit floor. Rust syntax parsing and Node syntax
-checks do not establish compilation or runtime behavior. Rig-haiku owns the
-focused red/green/typecheck verification; original checkpoint below is historical.
+proof, `scopebody.test.tsx` and native group/input tests. Rig-haiku verified
+source `24cc230` on `d4b0889`: engine build/check, group 3/3, tool input 1/1,
+picture 3/3, identity prompt 1/1 and skill coverage 9/9. Native Logo proof
+passed 43/43 with a matched base red at its first named check; shared human
+picture proof passed 21/21. Renderer scopebody passed 6/6, with exactly three
+target failures and three passing controls at base, and historyui passed 8/8.
+Renderer/test typecheck diagnostics remained the baseline 29/830, with no
+added or removed diagnostics. These are isolated component checks; no installed
+app, device or pixel acceptance was performed. The hosted hub binary's
+provenance against pinned source was not verified.
+
+Review remained open: Windows refused file-symlink creation with `EPERM`,
+one test asserted the default-on constant at runtime (one added Clippy warning),
+and the packet's original identity filter matched zero tests. The corrected
+filter is `runtime::identity::group_tests::prompt_follows_every_combination_of_group_switches`;
+Rig's corrected run executed the one test above. A compile-time constant
+assertion replaces the warning-producing assertion. The boundary fixture now
+requires valid existing images reached by absolute path, relative `..`
+traversal and an unprivileged directory junction to be refused by the folder
+guard with unchanged picture and journal. An optional symlink reports
+`skipped: EPERM` explicitly; errors from the actual boundary check cannot be
+mistaken for fixture skips. The junction creation/canonicalization/removal
+preflight passed on this host. Fresh native boundary execution and the Clippy
+109-warning baseline comparison remain for rig-haiku at the revised tip.
+
+Original human-editor verification below is historical.
 
 The additive hub capability is `profile_pictures`; unsupported hubs retain the
 usual fallback. Hub and Hubchat changes are separate repository landings. No
