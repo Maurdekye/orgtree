@@ -7,13 +7,13 @@ export default async function (rig) {
   const p = new Proof('recovery-commands')
   const command = "cargo test --locked -j2 --bin synthetic\nWrite-Output 'EXACT-COMMAND-TAIL'"
   const huge = 'x'.repeat(8191) + 'éBEYOND-COMMAND-CAP'
-  const cwd = 'D:/synthetic/source-worktree'
+  const cwd = 'D:/synthetic/source  worktree'
   rig.scenario({ agents: { tara: { turns: [{ match: 'RECOVERY-SEED', steps: [
     { raw: { type: 'assistant', message: { id: 'recovery-inputs', role: 'assistant', content: [
       { type: 'text', text: 'STALE-EARLIER-TASK: work on the superseded assignment.' },
       { type: 'tool_use', id: 'exact', name: 'PowerShell', input: { command, workdir: cwd, description: 'Focused check description' } },
       { type: 'tool_use', id: 'large', name: 'Bash', input: { command: huge, description: 'Large shell command' } },
-      { type: 'tool_use', id: 'other', name: 'Read', input: { file_path: 'synthetic', command: 'NON-SHELL-PRIVATE-INPUT' } },
+      { type: 'tool_use', id: 'other', name: 'Read', input: { description: 'Public read summary', file_path: 'synthetic', command: 'NON-SHELL-PRIVATE-INPUT' } },
     ] } } },
     { raw: { type: 'user', message: { content: ['exact','large','other'].map(id => ({ type: 'tool_result', tool_use_id: id, content: 'synthetic result' })) } } },
     { text: 'RECOVERY-SEED-DONE' },
@@ -44,9 +44,11 @@ export default async function (rig) {
   rig.exec(`INSERT INTO ot.work_items (org_id,slug,title,status,owner_agent_id,owner,created_by)
     SELECT a.org_id,'new-backlog-'||g,'New backlog '||g,'backlogged',a.id,'{}','{}'
     FROM ot.agents a CROSS JOIN generate_series(1,31) g WHERE a.name='tara'`)
+  const beforeSuperior = rig.turns('tara').length
   const sent = await rig.tool('boss', 'orgtree_message', { metadata: { to: 'tara' }, body: 'SUPERIOR-LATEST-CURRENT: continue the current docket only.' })
   if (!sent.ok) throw new Error(sent.text)
   await settle('boss')
+  await rig.waitTurns('tara', beforeSuperior + 1)
   await settle('tara')
   const compact = await rig.tool('boss', 'orgtree_cheap_compact', { node: 'tara' })
   p.check('superior can cheap compact the idle agent', compact.ok, compact.text)
