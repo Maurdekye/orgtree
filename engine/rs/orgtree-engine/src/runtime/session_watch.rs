@@ -35,6 +35,8 @@ const STEADY: u32 = 2;
 
 pub const SIGNED_IN_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected: your next turn runs in their signed-in Windows session, with access to their desktop and apps. orgtree_session shows where you run.";
 pub const SIGNED_IN_KEPT_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but your session preference keeps your next turn in Windows Session 0. orgtree_session shows where you run and sets the preference.";
+pub const SIGNED_IN_HELD_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but your CLI still runs background work, so your next turn stays in Windows Session 0; a later turn moves once that work is done. orgtree_session shows where you run.";
+pub const SIGNED_IN_USE_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but you picked Windows Session 0 for your next turn (orgtree_session `use`); the turns after it follow your preference. orgtree_session shows where you run.";
 pub const SIGNED_OUT_NOTICE: &str = "[ORGTREE SIGN-OUT NOTICE] The user signed out, or Orgtree's sign-in helper stopped: your next turn runs in Windows Session 0, without their desktop and apps. orgtree_session shows where you run.";
 
 /// Whether a steady reading of where new turns run (`signed-in` while the
@@ -170,12 +172,21 @@ async fn view_of(engine: &Arc<Engine>, agent: i64, pref: &crate::runtime::sessio
     tokio::time::timeout(ASK, rx).await.ok()?.ok()
 }
 
-/// The sign-in line for one agent: today from its stored preference alone
-/// (`by_pref`: one of the user's sessions takes its next turn).
+/// The sign-in line for one agent: where its own runtime would start its next
+/// turn (`view`, its orgtree_session view, in which its on-demand `use` and a
+/// CLI held by background work count; rig-sol-b, 2026-10-16), else where its
+/// stored preference puts it (`by_pref`: one of the user's sessions).
 #[logged]
-fn sign_in_line(by_pref: bool, _view: Option<&serde_json::Value>) -> &'static str {
-    if by_pref {
+fn sign_in_line(by_pref: bool, view: Option<&serde_json::Value>) -> &'static str {
+    let Some(v) = view else {
+        return if by_pref { SIGNED_IN_NOTICE } else { SIGNED_IN_KEPT_NOTICE };
+    };
+    if v["next_turn"] == SIGNED_IN {
         SIGNED_IN_NOTICE
+    } else if v["held_by_background_work"] == true {
+        SIGNED_IN_HELD_NOTICE
+    } else if v["use"] == 0 {
+        SIGNED_IN_USE_NOTICE
     } else {
         SIGNED_IN_KEPT_NOTICE
     }
@@ -327,6 +338,8 @@ mod tests {
     fn each_notice_is_one_line_and_names_where_the_next_turn_runs() {
         assert!(!SIGNED_IN_NOTICE.contains('\n') && SIGNED_IN_NOTICE.contains("your next turn runs in their signed-in Windows session"));
         assert!(!SIGNED_IN_KEPT_NOTICE.contains('\n') && SIGNED_IN_KEPT_NOTICE.contains("keeps your next turn in Windows Session 0"));
+        assert!(!SIGNED_IN_HELD_NOTICE.contains('\n') && SIGNED_IN_HELD_NOTICE.contains("your next turn stays in Windows Session 0"));
+        assert!(!SIGNED_IN_USE_NOTICE.contains('\n') && SIGNED_IN_USE_NOTICE.contains("you picked Windows Session 0 for your next turn"));
         assert!(!SIGNED_OUT_NOTICE.contains('\n') && SIGNED_OUT_NOTICE.contains("your next turn runs in Windows Session 0"));
     }
 
