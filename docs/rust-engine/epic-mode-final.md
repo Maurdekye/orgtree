@@ -376,7 +376,8 @@ every test's outcome per mode.
 synthetic org chart in an offscreen Electron window. It measures the switch
 pixel by pixel in all four contrast themes and records every word each effect
 painted. Since the caret fix it also types into desks on the canvas and a
-pinned one and measures where each typing effect lands; `--before <sha>`
+pinned one and measures where each typing effect lands, and since the wrap
+fix also past a full line in a narrow composer; `--before <sha>`
 bundles the fixture with the sources changed since `<sha>` as they were there.
 
 - `epicmode-switch` (9), `epicmode-off` (3) and `epicmode-engine` (14) are the
@@ -400,9 +401,10 @@ bundles the fixture with the sources changed since `<sha>` as they were there.
   - the canvas pixel budget;
   - a popped-out window's own stage, exercised for the first time;
   - the native preferences file surviving a restart.
-- `epicmode-caret` (4) is the caret fix's: typing, Enter and Backspace cued
+- `epicmode-caret` (5) is the caret fix's: typing, Enter and Backspace cued
   at the caret in a field scaled 0.5 and 1.5, in a pinned one, and in
-  scrolled ones (below).
+  scrolled ones (below); and, since the wrap fix, that placing them leaves
+  nothing in the document.
 
 ### Measured
 
@@ -976,6 +978,95 @@ commit on slice 3, rains four times as much: about 90 pieces land, never fewer
 than 56, where the test asks for 20. The stage is unchanged. Slice 4 was moved
 onto it and measured again, above.
 
+### Typing follows the caret past a full line (fix, 2026-10-16)
+
+On the installed 4.3.1-alpha.1 the user found that once typing goes past a
+full line, the sparks stay at the end of the first line instead of following
+the caret onto the second (docket
+`epic-mode-typing-effects-desync-in-canvas-desks`).
+
+**Cause.** `caretSpot` (`epic/director.ts`) measured the text after the last
+newline with canvas `measureText` and put the effect on that newline's line.
+A line that wraps at the field's edge has no newline, so the effect stayed on
+the first line, pushed against the field's right edge (`box.right − 4`), for
+as long as the user kept typing on the lines below. That was true in every
+textarea with typing effects: desk chat on the canvas, pinned and popped out.
+The canvas caret fix above left it alone (the 4.3.0 release cut asked for
+nothing new), and recorded it under Limits.
+
+**Fix.** A textarea's caret is now found in the browser's own layout
+(`laidOut`). The text goes into a hidden copy of the field: as wide as the
+field's content with its scrollbar left out (the exact CSS width, not the
+rounded `clientWidth`), and in the field's font, spacing, alignment and
+wrapping. Everything from the caret on sits in a marker span, so the copy
+wraps exactly as the field does, and the marker's first box is the spot: x at
+its left, y the middle of its line. At the end of the text or of a line the
+marker is a zero-width space, which never moves a line break. The copy is a
+fixed, hidden, zero-height div, and it is removed before `caretSpot` returns.
+Its offsets are in the field's own px and go onto the screen by the field's
+scale, as before, so canvas desks stay right at every zoom.
+
+A typed character's sparks go where it lands. The copy holds the text with
+that character already in it (replacing any selection), so the keystroke
+whose word no longer fits sparks on the next line with the word. Before, it
+sparked at the end of the line it left. Enter, Backspace, Delete and paste
+spark at the caret. The key handler now works out the effect first and
+places it only for a key that plays one, so Shift, the arrows and other keys
+lay nothing out. Shift+Enter in a textarea still plays nothing.
+
+Unchanged: one-line inputs (Quick chat) never wrap and keep the measured text
+before the caret, minus their scroll. `contenteditable` keeps the selection's
+own rect. Where nothing is laid out (jsdom), a textarea falls back to
+newlines alone. While EPIC Mode is off nothing changes: the code is in
+`director.ts`.
+
+**Tests.** The capture's typing scene gains a wrapped-line pass in every desk
+it types into: alice and bob on the canvas zoomed out (scale 0.5 and 0.75),
+alice zoomed in (1.5), and carol pinned (1), in Charcoal and Light. Each
+composer is made narrow, holding "the sparks follow" with room for " the" and
+3 px to spare. Typing " the caret" with native keystrokes wraps "caret" onto
+the second line, including the keystroke that moves it. Enter then starts a
+third line, which scrolls the two-row box and brings in its scrollbar,
+narrowing the lines; "go" is typed there, then Backspace. The fixture's true
+caret breaks the text into lines itself, the way the browser breaks plain
+words and single spaces: at newlines, and before a word that would overflow,
+with a hanging space. Each line is measured by an unscaled probe, and every
+record's line count is checked against the textarea's own layout of the same
+text. The receipt requires typing to reach a second line before any Enter,
+the box to scroll, and every effect to land within 1.5 screen px of the true
+caret. `epicmode-caret` gains a jsdom guard: placing the sparks leaves no
+element and no copy of the draft in the document. jsdom lays nothing out, so
+the wrapping itself is checked only in Electron.
+
+Two limits of the fixture, found by the first wrap run, which failed on the
+test rather than on the fix. (1) A typing cue can hold more than the typed
+key: the tenth key within 2.5 s of the last (the first milestone) draws the
+combo flare at the badge, and the receipt's `drawnAtSpot` counts every burst
+in the cue. The capture therefore waits 3 s, which resets the combo, before
+the first key and again before the last one, so no wrap keystroke is a
+milestone. (2) `caretSpot` keeps the sparks 4 screen px inside the field's
+right edge, so the fixture's true caret takes the same limit, and a caret
+within 4 px of that edge is not told apart from the clamp (the tolerance
+stays 1.5 px).
+
+Measured with a clean tree, under the machine build lock and a 4,096 MB
+kernel job (C:\orgtree-build\epic-final\wrap: check, visual2,
+visual-before2). The check, strict and green rows are at `ab43718`; the
+typing captures are at `a6ffab5`, which differs only in the two capture
+fixture files (`epicmode-capture.cjs`, `epicmode-visual.tsx`). Those are in
+neither the typecheck, the strict test configuration nor the green suites, so
+the first rows stand for the tip.
+
+| Check | Result |
+| --- | --- |
+| Root typecheck | Exit 0 |
+| Strict renderer configuration | 29 diagnostics at the tip and 29 at `5efd8ae` (clean checkout): none added, none removed, none in EPIC files |
+| Strict test configuration | 830 and 830: none added, none removed; all ten EPIC suites are in the file list |
+| Green (tip) | 95 of 95 pass, none skipped: switch 9, off 3, engine 14, final 16, caret 5, wheel 9, urgent 7, comfort 11, linger 12, progress 9 |
+| Before (`5efd8ae`) | 95 of 95 pass: jsdom cannot lay out a wrapped line, so the new guard cannot tell the old code from the fix; the wrapping is the capture's |
+| Typing capture (tip `a6ffab5`) | Passed, 77 PNGs. All five wrap receipts are `atCaret`: alice zoomed out (scale 0.5) maxDx 0, maxDy 0.13; bob (0.75) 0, 0.19; carol pinned (1) 0, 0.25; alice zoomed in (1.5) 0, 0.38; carol pinned in Light 0, 0.25; every receipt 14 of 14 effects, tolerance 1.5 |
+| Typing capture (`5efd8ae`) | Fails in the typing section, as it must: all five wrap receipts are off the caret, by 62, 95, 128, 194 and 128 px across and 9.78, 14.67, 19.55, 29.33 and 19.55 px down (one text line at each desk's scale), with the value, line count, wrap and scroll all true. The same numbers as the first wrap run, so the pauses and the clamp did not hide the old bug |
+
 ## Limits
 
 - Synthetic state and transports only: no live organization, provider
@@ -996,10 +1087,17 @@ onto it and measured again, above.
 - A card that is off-screen, piled or hidden plays its effect at its open
   desk if any, else at a central spot. Pictures are skipped in a hidden
   window; sound still plays.
-- The typing effects follow hard line breaks only. When a line soft-wraps,
-  they land at the field's right edge on the line of the last hard break, on
-  the canvas and in a pinned desk alike. The caret fix left this alone: the
-  4.3.0 release cut asked for nothing new.
+- A caret exactly where a line wraps is ambiguous: the browser draws it at
+  the end of the upper line or the start of the lower one, depending on how
+  it got there. Enter, Backspace and paste spark at the start of the lower
+  line; a typed character always sparks where it lands. The wrapping is
+  checked in the capture's synthetic composers (the app's classes and CSS,
+  not the real Desk component); popped-out desks run the same code in their
+  own window and are not captured.
+- The typing sparks stop 4 screen px inside a field's right edge, and the
+  tenth key typed within 2.5 s of the last draws the combo's milestone flare
+  at the corner badge as part of the same cue. Both are the code's behaviour,
+  not defects: the capture models the edge and waits out the combo.
 - A flash that waits for its turn takes in every flash asked for meanwhile, and
   the strongest colour wins: in a flood of differently coloured flashes, only
   the strongest colour shows.

@@ -158,6 +158,20 @@
   `canvas/docket.tsx`; measured: `tools/rig/epic-mode-visual.mjs` typing scene,
   2026-10-15]
 
+- A textarea has no API for its caret's position on screen. EPIC Mode's
+  `caretSpot` lays the text out in a hidden copy of the field (its font,
+  spacing, wrapping and exact content width without the scrollbar), puts
+  everything from the caret in a marker span and reads the marker's first
+  client rect; a zero-width space marks the end of the text or of a line,
+  since it never moves a break. Measuring by newlines alone misses soft wraps:
+  the typing sparks stayed at the end of the first line (user report
+  2026-10-16). jsdom lays nothing out, so check wrapping in Electron
+  (`tools/rig/epic-mode-visual.mjs`, typing scene). A visual fixture that
+  models the caret must also model what `caretSpot` clamps (4 screen px inside
+  the right edge) and keep other effects out of the cue it records: the tenth
+  key within 2.5 s draws the combo's milestone flare into the same cue.
+  [verified: `epic/director.ts`; measured: typing scene, 2026-10-16]
+
 - A wheel over the canvas is not a zoom by where it lands: OrgCanvas's wheel listener
   leaves `.pinwin`, `.tray`, `.desk-over` and `.overlay` to the browser's own scrolling
   and zooms everywhere else, clamped to [min zoom, `Z_MAX`]. EPIC Mode's hands therefore
