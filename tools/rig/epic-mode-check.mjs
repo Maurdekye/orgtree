@@ -231,8 +231,11 @@ function tests(mode) {
   if (built.exit !== 0) return { exit: built.exit, seconds: built.seconds, summary: built.summary }
   const dir = path.join(out, mode)
   const junit = path.join(out, `tests-${mode}.xml`)
+  // 10 s per test, the renderer runner's default (tests/run.mjs), so a test
+  // that needs longer fails here as it does in a release round, unless it sets
+  // its own { timeout }
   const r = run(`tests-${mode}`, process.execPath, ['--max-old-space-size=1024', '--test', '--test-force-exit',
-    '--test-concurrency=1', '--test-timeout=30000',
+    '--test-concurrency=1', '--test-timeout=10000',
     '--test-reporter=spec', '--test-reporter-destination=stdout',
     '--test-reporter=junit', `--test-reporter-destination=${junit}`,
     ...suites.map(n => path.join(dir, `${n}.test.mjs`))], { EPIC_TMP: tmp })
