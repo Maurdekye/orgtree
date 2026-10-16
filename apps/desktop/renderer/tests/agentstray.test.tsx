@@ -476,7 +476,12 @@ uiTest('§12 a detached whole-agent list stays open through main clicks and redo
   const { CurrentOrg } = await import('../src/popout')
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
   localStorage.removeItem(WINDOW_LAYOUT_KEY)
-  Object.defineProperty(window, 'orgtreeDesktop', { value: {}, configurable: true })
+  Object.defineProperty(window, 'orgtreeDesktop', {
+    // onEvent/getPreferences: mounting OrgCanvas subscribes the canvas
+    // background preference through the bridge (canvasbgpref.ts)
+    value: { onEvent: () => () => {}, getPreferences: () => Promise.resolve({}) },
+    configurable: true,
+  })
   const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
   const childWindow = child.window as unknown as Window
   childWindow.focus = () => {}

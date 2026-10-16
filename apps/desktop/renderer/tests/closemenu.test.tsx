@@ -246,7 +246,12 @@ test('§4 a POPPED-OUT panel: Close closes its native window and clears the '
   localStorage.removeItem(WINDOW_LAYOUT_KEY)
   // the saved-window layer is desktop-only; without this stub nothing is
   // recorded and the record assertions below would pass vacuously
-  Object.defineProperty(window, 'orgtreeDesktop', { value: {}, configurable: true })
+  Object.defineProperty(window, 'orgtreeDesktop', {
+    // onEvent/getPreferences: mounting OrgCanvas subscribes the canvas
+    // background preference through the bridge (canvasbgpref.ts)
+    value: { onEvent: () => () => {}, getPreferences: () => Promise.resolve({}) },
+    configurable: true,
+  })
   // a REAL second document to be the popped-out window, the way
   // agentstray.test.tsx §12 drives the same surface
   const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
