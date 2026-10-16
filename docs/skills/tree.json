@@ -1809,7 +1809,8 @@
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs:536",
     "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"cheap_compact\")",
-    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()",
+    "docs/rust-engine/recovery-commands.md"
    ],
    "writer": "runtime-sol",
    "status": "fixed",
@@ -2514,7 +2515,8 @@
    "must_cover": [
     "what to write and when",
     "writing for a stranger",
-    "where it lives"
+    "where it lives",
+    "record reusable commands on their first run"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/runtime/identity.rs BREADCRUMBS"

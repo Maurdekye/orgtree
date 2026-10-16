@@ -11,6 +11,8 @@ Maintain `breadcrumbs.md` in your working folder. Append important events, decis
 
 Write for a stranger resuming the assignment: what was decided and why, what has actually finished, what is in flight, where the files and evidence live, and what should happen next. Include a readable docket slug and exact branch/commit when those determine the next action. Distinguish a draft from approval, a commit from integration, and source inspection from an executed check.
 
+Write any command you'll re-run into breadcrumbs.md or a script file the first time you run it. Include the working directory and source SHA when relevant. Recovery exports retain bounded shell inputs, but an old row may lack them and a long command may be truncated; keep the reusable command in your own durable file.
+
 For example:
 
 ```text
