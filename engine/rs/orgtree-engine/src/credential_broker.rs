@@ -108,12 +108,16 @@ mod win {
     }
 
     /// The single-instance mutex (`Local\` is per Windows session): one
-    /// broker per session and data root, the root compared without case.
+    /// broker per session and data root, the root compared without case. A
+    /// debug rig helper standing for another session (`rig_session`) has its
+    /// own, so it runs beside the helper of the real session.
     #[nolog]
     fn instance_name(root: &Path, rig_session: Option<u32>) -> String {
-        let _ = rig_session;
         let key = root.to_string_lossy().to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
-        format!("Local\\OrgtreeCredentialBroker-{key:016x}")
+        match rig_session {
+            Some(s) => format!("Local\\OrgtreeCredentialBroker-{key:016x}-rig{s}"),
+            None => format!("Local\\OrgtreeCredentialBroker-{key:016x}"),
+        }
     }
 
     /// The other Windows session of the user that a debug rig proof's helper
