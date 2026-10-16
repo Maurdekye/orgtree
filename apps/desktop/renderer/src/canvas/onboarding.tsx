@@ -21,7 +21,7 @@ import { applyTheme, THEMES } from '../themes'
 import { isVisualTheme, VISUAL_THEMES } from '../../../../../packages/contracts/visual-theme'
 import type { VisualTheme } from '../../../../../packages/contracts/visual-theme'
 import { SetToggle } from './settingskit'
-import { RUN_ON_STARTUP_HINT } from './desktopsettings'
+import { startupHint, startupLabel, useStartupKind } from './desktopsettings'
 
 /** The gate, pure for testing: show setup only when the desktop preferences
  *  are actually loaded (null = still unknown — never flash setup at someone
@@ -69,6 +69,7 @@ export function Onboarding({ children, windowControls }: {
   windowControls?: ReactNode
 }) {
   const bridge = desktop()
+  const kind = useStartupKind()
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
   const [detectedTheme, setDetectedTheme] = useState<VisualTheme>(() => {
     const value = document.documentElement.dataset.visualTheme
@@ -151,9 +152,9 @@ export function Onboarding({ children, windowControls }: {
       </div>
 
       <div className="field-label">Startup</div>
-      <SetToggle label="run on startup" checked={prefs?.startAtLogin ?? true}
+      <SetToggle label={startupLabel(kind)} checked={prefs?.startAtLogin ?? true}
         disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
-        hint={RUN_ON_STARTUP_HINT} />
+        hint={startupHint(kind)} />
       <SetToggle label="exit when the last window closes" checked={prefs?.exitOnClose ?? false}
         disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
         hint="Off keeps agents running in the tray when the window closes." />

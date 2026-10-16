@@ -108,17 +108,13 @@ export interface UpdateCapability { unattendedInstall: boolean; installDirectory
  *  changing it asks Windows for permission. `available` is false where there
  *  is no background engine for it to apply to. */
 export interface RunAsAdministratorState { available: boolean; enabled: boolean; reason?: string }
-/** Where the background engine starts while "Run on startup" is on (docket
- *  option-to-run-the-background-engine-in-the-user-s): at boot, before
- *  sign-in, in Windows Session 0 (the default), or at the operator's sign-in,
- *  in their own session. */
-export type EngineStartMode = 'boot' | 'signin'
-/** `installed`: an installation for all users on Windows whose installer
- *  registered both engine tasks; only there is the choice shown.
- *  `available`: it can be changed now (`reason` says why not: "Run on
- *  startup" is off, or a change is under way). `restartable`: the engine
- *  running now came from one of the tasks, so a restart moves it at once. */
-export interface EngineStartState { installed: boolean; available: boolean; mode: EngineStartMode; restartable: boolean; reason?: string }
+/** What the startup switch does here (docket
+ *  option-to-run-the-background-engine-in-the-user-s, user 2026-10-16): `boot`
+ *  on an installation for all users on Windows, "Run on boot" (the engine at
+ *  boot, its agents in the user's session while they are signed in);
+ *  `signin` where there is no boot task (a per-user installation, macOS,
+ *  Linux), "Run on sign-in" (coordinator ruling A). */
+export type StartupKind = 'boot' | 'signin'
 /** Which provider CLIs an app-driven sign-in exists for (D-231). Native,
  *  not domain/HTTP: the actual child process MUST be spawned by this
  *  (always-interactive) main process, never by the engine, which may be a
@@ -190,11 +186,8 @@ export interface DesktopBridge {
    *  background engine so the change applies at once; otherwise it applies at
    *  the engine's next start. */
   setRunAsAdministrator?(enabled: boolean, restartNow: boolean): Promise<RunAsAdministratorState>
-  getEngineStart?(): Promise<EngineStartState>
-  /** Change where the background engine starts (a UAC prompt). `restartNow`
-   *  then restarts the background engine through the task now enabled, so the
-   *  change applies at once; otherwise at the next sign-in or boot. */
-  setEngineStart?(mode: EngineStartMode, restartNow: boolean): Promise<EngineStartState>
+  /** What the startup switch is called here: "run on boot" or "run on sign-in". */
+  getStartupKind?(): Promise<StartupKind>
   /** "Chat from your phone" › Turn on phone access: add the Windows Firewall
    *  rule for the hub's relay-only door (Tailscale addresses, or the local
    *  subnet for home Wi-Fi) behind ONE UAC prompt. `declined`: the user said

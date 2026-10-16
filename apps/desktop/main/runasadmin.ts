@@ -19,10 +19,13 @@ import { execFile } from 'node:child_process'
 export const RUN_AS_ADMIN_KEY = 'SOFTWARE\\Orgtree\\Runtime'
 export const RUN_AS_ADMIN_VALUE = 'RunAsAdministrator'
 export const BOOT_TASK = 'Orgtree Background Engine'
-/** The engine at sign-in (docket option-to-run-the-background-engine-in-the-
- *  user-s): with "Run Orgtree as administrator" on, its task runs with the
- *  highest privileges, which its host keeps; off, with least privilege. */
-export const SIGNIN_TASK = 'Orgtree Sign-in Engine'
+/** The sign-in helper, which also starts the boot engine's agent CLIs in the
+ *  operator's signed-in session (docket
+ *  option-to-run-the-background-engine-in-the-user-s): with "Run Orgtree as
+ *  administrator" on, its task runs with the highest privileges, and so do
+ *  the CLIs it starts; off, with least privilege (coordinator ruling C,
+ *  2026-10-16). */
+export const HELPER_TASK = 'Orgtree Credential Helper'
 /** ERROR_CANCELLED: the user declined the UAC prompt. */
 export const UAC_CANCELLED = 1223
 const PROTECTED_KEY_SDDL = 'O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)'
@@ -50,7 +53,7 @@ export async function readRunAsAdministrator(runner: Runner = run): Promise<bool
   return result.code === 0 && parseRegQuery(result.stdout)
 }
 
-/** The script the ELEVATED PowerShell runs: set the sign-in engine task's run
+/** The script the ELEVATED PowerShell runs: set the sign-in helper task's run
  *  level, then create (or re-protect) the key with the protected ACL and set
  *  the DWORD. The task comes first, so a refusal leaves the setting as it was.
  *  Only the installer's own task is changed: its description carries the
@@ -68,14 +71,14 @@ export function elevatedWriteScript(enabled: boolean): string {
     '      $service.Connect()',
     "      $folder = $service.GetFolder('\\')",
     '      $task = $null',
-    `      try { $task = $folder.GetTask('${SIGNIN_TASK}') } catch { if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw } }`,
+    `      try { $task = $folder.GetTask('${HELPER_TASK}') } catch { if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw } }`,
     '      if ($null -ne $task) {',
-    `        if (-not $id -or [string]([xml]$task.Xml).Task.RegistrationInfo.Description -cne ('com.maurdekye.orgtree.signin-engine.v1:' + $id)) { throw 'Refusing to change a task Orgtree did not install: ${SIGNIN_TASK}' }`,
+    `        if (-not $id -or [string]([xml]$task.Xml).Task.RegistrationInfo.Description -cne ('com.maurdekye.orgtree.credential-helper.v1:' + $id)) { throw 'Refusing to change a task Orgtree did not install: ${HELPER_TASK}' }`,
     '        $definition = $task.Definition',
     // 1 = TASK_RUNLEVEL_HIGHEST, 0 = least privilege
     `        $definition.Principal.RunLevel = ${enabled ? 1 : 0}`,
     // 20 = TASK_UPDATE | TASK_DONT_ADD_PRINCIPAL_ACE, 3 = the operator's interactive token, the installer's ACL
-    `        $null = $folder.RegisterTaskDefinition('${SIGNIN_TASK}', $definition, 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")`,
+    `        $null = $folder.RegisterTaskDefinition('${HELPER_TASK}', $definition, 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")`,
     '      }',
     '    } finally { $record.Dispose() }',
     '  }',
