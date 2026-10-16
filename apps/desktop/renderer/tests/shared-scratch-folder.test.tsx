@@ -26,7 +26,8 @@ function installNative(t: import('node:test').TestContext, scoped = true) {
     openAgentScratchFolder: async (...args: unknown[]) => { calls.push(args); return { ok: true } },
   } as unknown as NativeDesktop
   t.after(() => { nativeWindow.orgtreeDesktop = original })
-  return { calls, toast: (lines: string[]) => { toasts.push(lines) }, toasts }
+  const toast: ToastFn = lines => { if (lines?.length) toasts.push(lines) }
+  return { calls, toast, toasts }
 }
 
 const tree = { slug: 'fixture', name: 'Fixture', nodes: [], edges: [],
@@ -47,7 +48,7 @@ test('agent Open menu places Team scratch next to personal scratch and passes sc
   const { calls, toast } = installNative(t)
   for (const state of ['live', 'archived']) {
     const h: AgentMenuHandlers & { onTeamScratchFolder?: () => void } = {
-      onInbox: noop, onScratchFolder: scratchFolderAction('fixture', 'leaf', toast),
+      onInbox: noop, onSettings: noop, onScratchFolder: scratchFolderAction('fixture', 'leaf', toast),
       onTeamScratchFolder: action('fixture', 'leaf', toast, 'team'),
     }
     const entries = agentMenuEntries({ id: 'leaf', state, children: [] } as unknown as CanvasNode, h)
