@@ -321,12 +321,9 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick, activeO
   const choices: QuickSuperior[] = useMemo(() =>
     [...(rootMatches ? [null] : []), ...rows.filter(r => !r.ghost && r.node.state === 'live').map(r => r.node.id)], [rows, rootMatches])
   const [hi, setHi] = useState<QuickSuperior>(superior)
-  const at = Math.max(0, choices.indexOf(hi))
+  const at = choices.indexOf(hi)
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => { ref.current?.querySelector<HTMLInputElement>('.tray-filter')?.focus() }, [])
-  useEffect(() => {
-    if (!choices.includes(hi)) setHi(choices[0] ?? null)
-  }, [choices, hi])
   useEffect(() => {
     ref.current?.querySelector('.tray-row.sel')
       ?.scrollIntoView?.({ block: 'nearest' })
@@ -339,10 +336,22 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick, activeO
           e.preventDefault()
           const n = choices.length
           if (!n) return
-          setHi(choices[(at + (e.key === 'ArrowDown' ? 1 : n - 1)) % n] ?? null)
+          const next = at < 0
+            ? (e.key === 'ArrowDown' ? 0 : n - 1)
+            : (at + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
+          setHi(choices[next] ?? null)
         } else if (e.key === 'Enter') {
           e.preventDefault()
-          if (!choices.length) return
+          if (at < 0) {
+            // The current superior can remain as a ghost context row under
+            // active-only or text filtering. Never turn a missing choice into
+            // index zero; preserve a visible live selection. A root typed as
+            // the query is still an explicit user choice on Enter.
+            if (typeof hi === 'string' && indentedRows.some(r => r.node.id === hi && r.node.state === 'live'))
+              onPick(hi)
+            else if (rootMatches && query.trim()) onPick(null)
+            return
+          }
           onPick(choices[at] ?? null)
         }
       }}>
