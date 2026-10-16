@@ -18,6 +18,9 @@ export default async function (rig) {
   fs.mkdirSync(granted, { recursive: true })
   const grantFiles = ['AGENTS.md', 'CLAUDE.md'].map(n => path.join(granted, n))
   for (const file of grantFiles) fs.writeFileSync(file, 'NEXT_TURN_INSTRUCTION_SECRET_v1\n')
+  // The user grants the synthetic parent first; a hire cannot widen its
+  // parent's folder ceiling merely by naming an add_dir.
+  await rig.op({ op: 'retool', node: 'boss', add_dirs: [{ path: granted, mode: 'rw' }] })
   await rig.op({ op: 'hire', name: 'cacheprobe', parent: 'boss', tier: 'haiku', title: 'next-turn query proof', add_dirs: [{ path: granted, mode: 'rw' }] })
   const id = rig.agentRow('cacheprobe').id
   const root = path.join(rig.data, 'scratch', rig.org)
