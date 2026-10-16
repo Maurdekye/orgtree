@@ -498,8 +498,7 @@ mod win {
     ) -> std::result::Result<(Io, Hosted), String> {
         let bridge = &engine.credential_bridge;
         let helper = bridge.helpers().into_iter().find(|(s, _)| *s == session).map(|(_, h)| h).ok_or("host-gone")?;
-        let base = format!(r"\\.\pipe\orgtree-cli-{}", uuid::Uuid::new_v4().simple());
-        let names = [format!("{base}-in"), format!("{base}-out"), format!("{base}-err")];
+        let names = crate::hosted_pipes::names(&uuid::Uuid::new_v4().simple().to_string());
         let stdin = serve(&names[0], false)?;
         let stdout = serve(&names[1], true)?;
         let stderr = serve(&names[2], true)?;

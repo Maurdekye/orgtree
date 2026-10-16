@@ -35,6 +35,9 @@ mod core_process;
 #[cfg(windows)]
 #[allow(dead_code)] // journal mutations also used by the engine/native desktop probe
 mod core_state;
+#[cfg(windows)]
+#[allow(dead_code)] // the engine names the pipes; this helper's tests pair the two sides
+mod hosted_pipes;
 
 #[cfg(not(windows))]
 #[nolog]

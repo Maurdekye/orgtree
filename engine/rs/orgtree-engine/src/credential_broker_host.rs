@@ -114,14 +114,18 @@ fn started(pid: u32) -> Option<u64> {
     running.then(|| stamp(h.0)).filter(|&t| t != 0)
 }
 
-/// `\\.\pipe\orgtree-codex-<hex>`, served by the attached engine.
+/// `\\.\pipe\orgtree-codex-<hex>`: 1 to 80 ASCII letters, digits or dashes.
+#[nolog]
+fn pipe_name_ok(name: &str) -> bool {
+    name.strip_prefix(r"\\.\pipe\orgtree-codex-")
+        .map(|s| !s.is_empty() && s.len() <= 80 && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'))
+        .unwrap_or(false)
+}
+
+/// A pipe the engine named (`pipe_name_ok`), served by the attached engine.
 #[nolog]
 fn open_pipe(name: &str, access: u32, engine: u32) -> Result<Owned, &'static str> {
-    let ok_name = name
-        .strip_prefix(r"\\.\pipe\orgtree-codex-")
-        .map(|s| !s.is_empty() && s.len() <= 80 && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'))
-        .unwrap_or(false);
-    if !ok_name {
+    if !pipe_name_ok(name) {
         return Err("spawn-invalid");
     }
     let w = wide(name);
@@ -412,7 +416,45 @@ pub fn sweep() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::hostable;
+    use super::{hostable, pipe_name_ok};
+
+    /// The helper opens exactly the pipes the engine serves. Since decision 84
+    /// the engine named them `orgtree-cli-` while this check still wanted
+    /// `orgtree-codex-`, so every hosted launch was refused `spawn-invalid`
+    /// (rig-sol-b's session-upgrade proof at de565da).
+    #[test]
+    fn the_helper_opens_the_pipes_the_engine_serves() {
+        for name in crate::hosted_pipes::names(&"0123456789abcdef".repeat(2)) {
+            assert!(pipe_name_ok(&name), "{name}");
+        }
+    }
+
+    /// And nothing else: another machine's pipe, a lookalike or missing
+    /// prefix, a file path, an empty or overlong id, or a character other than
+    /// an ASCII letter, digit or dash.
+    #[test]
+    fn no_other_pipe_is_opened() {
+        let [stdin, ..] = crate::hosted_pipes::names("0123456789abcdef");
+        let prefix = stdin.strip_suffix("0123456789abcdef-in").unwrap();
+        let leaf = stdin.rsplit_once('\\').unwrap().1;
+        for no in [
+            stdin.replacen(r"\\.\", r"\\server\", 1),
+            stdin.replacen(r"\\.\pipe\", r"\\.\pipe\x", 1),
+            stdin.replacen(r"\\.\pipe\", r"\\?\pipe\", 1),
+            format!(r"C:\pipe\{leaf}"),
+            leaf.to_string(),
+            prefix.to_string(),
+            format!("{prefix}{}", "a".repeat(81)),
+            format!("{prefix}abc/def"),
+            format!(r"{prefix}abc\def"),
+            format!("{prefix}abc def"),
+            format!("{prefix}abc.def"),
+            format!("{prefix}abc\u{e9}"),
+            format!("{prefix}abc\0"),
+        ] {
+            assert!(!pipe_name_ok(&no), "{no}");
+        }
+    }
 
     #[test]
     fn the_five_harness_clis_by_absolute_path_and_nothing_else() {

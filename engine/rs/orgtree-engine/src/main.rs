@@ -31,6 +31,8 @@ mod engine;
 mod events;
 mod feed;
 mod host;
+#[cfg(windows)]
+mod hosted_pipes;
 mod http;
 mod harnesses;
 mod import2x;
