@@ -6118,7 +6118,8 @@
     "only categories registered; nested pages read by path",
     "per-harness delivery (common contract once; harness leaves link here)",
     "global instructions",
-    "snapshot digest and prefix/cache effect"
+        "snapshot digest and prefix/cache effect",
+        "verified-lane instruction trim and separate Antigravity standing-note parts"
    ],
    "sources": [
     "agy-astra/skills-share: engine/rs/orgtree-engine/src/providers/skills.rs",
