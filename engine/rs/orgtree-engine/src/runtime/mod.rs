@@ -73,6 +73,9 @@ pub enum AgentMsg {
     /// orgtree_session: where the agent's CLI runs now and where its next
     /// turn's will (`this_turn`, `next_turn`, `held_by_background_work`)
     Session(oneshot::Sender<Value>),
+    /// orgtree_interrupt on itself: end the running turn; `restart` wakes one
+    /// new turn at once when it has ended
+    InterruptSelf { restart: bool, reply: oneshot::Sender<Value> },
     Halt(oneshot::Sender<Value>),
     Unhalt(oneshot::Sender<Value>),
     /// a slash command typed on the desk (`/compact`, ...), sent to the CLI as is

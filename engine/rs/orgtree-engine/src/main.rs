@@ -324,6 +324,7 @@ async fn run_with_cluster(
     // stamped-identity startup watcher until this point, then hand off once.
     startup.finish();
     core_monitor::start(&engine, core_inbox);
+    runtime::session_watch::start(&engine);
     // an installer that cannot ask through the descriptor asks through its record
     install_stop::start(&engine);
     progress("engine-ready");

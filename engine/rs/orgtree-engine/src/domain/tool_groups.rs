@@ -42,15 +42,17 @@ pub fn intersect(child: &Value, parent: &Value) -> Value {
     Value::Object(GROUPS.iter().map(|g| ((*g).to_owned(), json!(enabled(child, g) && enabled(parent, g)))).collect())
 }
 
-/// None means an unknown tool, not an unrestricted tool. Status, next turn
-/// and session have empty prerequisite lists: every agent must be able to
-/// report done/blocked, to inspect its own next turn even with every group
-/// switched off, and to ask where its turns run (docket
-/// let-agents-query-machine-sign-in-state-and-which).
+/// None means an unknown tool, not an unrestricted tool. Status, next turn,
+/// session and interrupt have empty prerequisite lists: every agent must be
+/// able to report done/blocked, to inspect its own next turn even with every
+/// group switched off, to ask where its turns run and to end (and restart)
+/// its own turn (docket let-agents-query-machine-sign-in-state-and-which).
+/// Interrupting another agent still needs `runtime`, which
+/// `control::interrupt` checks.
 #[nolog]
 pub fn required(name: &str) -> Option<&'static [&'static str]> {
     Some(match name.strip_prefix("orgtree_")? {
-        "status" | "next_turn" | "session" => &[],
+        "status" | "next_turn" | "session" | "interrupt" => &[],
         "org_logo" => &["logo"],
         "work" => &["docket"],
         "staff" => &["docket", "team"],
@@ -59,7 +61,7 @@ pub fn required(name: &str) -> Option<&'static [&'static str]> {
         "message" | "send_notice" | "inbox" | "audience" | "transfers" => &["messaging"],
         "chart" | "state_inspect" | "usage" | "list_tiers" | "list_orgs" | "read_transcript" | "read_scratch" => &["inspection"],
         "watchdog" => &["watchdogs"],
-        "interrupt" | "halt" | "unhalt" | "unstick" | "continue_on" | "account_mark" => &["runtime"],
+        "halt" | "unhalt" | "unstick" | "continue_on" | "account_mark" => &["runtime"],
         "ask" | "withdraw_ask" | "present" | "send_file" | "request_credits" | "request_scope" => &["user"],
         _ => return None,
     })

@@ -116,6 +116,14 @@ pub async fn session_ended(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> 
     mail::system_event(engine, org_id, agent_id, text, false, None).await
 }
 
+/// The agent ended its turn itself with orgtree_interrupt and asked for a new
+/// one (`restart`; the user, 2026-10-16 12:05Z): this wakes that turn at once.
+#[logged]
+pub async fn restart_asked(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Result<()> {
+    let text = "You ended your previous turn yourself with orgtree_interrupt and asked for a new one, so this turn started at once. Continue where you left off.";
+    mail::system_event(engine, org_id, agent_id, text, false, None).await
+}
+
 /// A freeze was released. By hand: the agent's `unstick` notice. By its timer:
 /// no notice, the wake mail says it (`limit_reset` is the org-wide
 /// weekly-Fable halt's notice, as in 3.x).

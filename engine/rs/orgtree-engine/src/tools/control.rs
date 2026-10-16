@@ -30,16 +30,20 @@ pub async fn ask_actor(
     }
 }
 
-/// Who may interrupt whom, and restart: so far never yourself, and only with
-/// the runtime tool group.
+/// Who may interrupt whom, and restart (the user, 2026-10-16 12:05Z): any
+/// agent may end its own turn and have a new one start at once, whatever its
+/// tool groups; interrupting another agent needs the runtime tool group (and
+/// that agent below you), and `restart` is for your own turn only.
 #[logged]
 pub(crate) fn interrupt_rule(is_self: bool, runtime_group: bool, restart: bool) -> std::result::Result<(), &'static str> {
-    let _ = restart;
     if is_self {
-        return Err("you cannot interrupt yourself");
+        return Ok(());
     }
     if !runtime_group {
-        return Err("orgtree_interrupt is disabled by your Orgtree tool group scope");
+        return Err("orgtree_interrupt is disabled by your Orgtree tool group scope (you may still interrupt yourself)");
+    }
+    if restart {
+        return Err("restart is for your own turn only: name yourself as node");
     }
     Ok(())
 }
@@ -47,9 +51,23 @@ pub(crate) fn interrupt_rule(is_self: bool, runtime_group: bool, restart: bool) 
 #[logged]
 pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
+    let restart = args["restart"].as_bool().unwrap_or(false);
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
+    let is_self = t.id == me.id;
+    let runtime_group = !is_self && crate::domain::tool_groups::enabled(&super::caller_tools(engine, caller).await?, "runtime");
+    if let Err(why) = interrupt_rule(is_self, runtime_group, restart) {
+        crate::refuse!(Forbidden, "{why}");
+    }
+    if is_self {
+        drop(client);
+        let r = ask_actor(engine, me.org_id, me.id, |reply| AgentMsg::InterruptSelf { restart, reply }).await;
+        if let Some(why) = r["error"].as_str().or(r["reason"].as_str()) {
+            crate::refuse!(Conflict, "{why}");
+        }
+        return Done::json(&json!({ "node": t.name, "result": r }));
+    }
     downward(&client, &me, &t, "interrupt").await?;
     drop(client);
     let r = ask_actor(engine, me.org_id, t.id, AgentMsg::Interrupt).await;

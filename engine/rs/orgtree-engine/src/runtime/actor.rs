@@ -340,7 +340,7 @@ const SIGNED_IN: &str = "signed-in";
 const SESSION0: &str = "session0";
 /// How long after the engine's start a first turn waits for the sign-in
 /// helper to register again (coordinator ruling D, 2026-10-16).
-const SESSION_SETTLE: Duration = Duration::from_secs(15);
+pub(crate) const SESSION_SETTLE: Duration = Duration::from_secs(15);
 static SETTLE_EXPIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 struct Turn {
@@ -412,6 +412,9 @@ struct Turn {
     /// its CLI ran in the user's session and ended with it (`on_exit`): the
     /// turn stops cleanly and continues in Session 0, no failure
     session_ended: bool,
+    /// the agent ended this turn itself and asked for a new one at once
+    /// (orgtree_interrupt on itself with `restart`)
+    restart: bool,
     /// Codex/Antigravity: the mail this turn was given, without the envelope;
     /// a usage-limit freeze keeps it for the wake (3.x `resume_texts`)
     replay: String,
@@ -464,6 +467,7 @@ impl Turn {
             agy_steer: None,
             exited: false,
             session_ended: false,
+            restart: false,
             replay: String::new(),
         }
     }
@@ -1246,6 +1250,9 @@ impl Actor {
             AgentMsg::ProcExited { process, reason } => self.on_exit(process, &reason).await?,
             AgentMsg::Session(reply) => {
                 let _ = reply.send(self.session_view());
+            }
+            AgentMsg::InterruptSelf { restart, reply } => {
+                let _ = reply.send(self.interrupt_self(restart));
             }
             AgentMsg::Interrupt(reply) => {
                 let r = if self.turn.is_some() {
@@ -2677,6 +2684,31 @@ impl Actor {
             "next_turn": place(if held { current == Some(true) } else { want }),
             "held_by_background_work": held,
         })
+    }
+
+    /// orgtree_interrupt on itself (the user, 2026-10-16 12:05Z): end the
+    /// running turn, a deliberate end, so a sign-out at the same moment adds
+    /// no resume; with `restart`, `end_turn` wakes one new turn at once.
+    /// Refused while the CLI holds background work, which would be left
+    /// running (and keep the CLI where it is).
+    fn interrupt_self(&mut self, restart: bool) -> Value {
+        if self.turn.is_none() {
+            return json!({ "interrupted": false, "reason": "no turn is running" });
+        }
+        if self.bg_pending() {
+            return json!({ "interrupted": false,
+                "reason": "your CLI still runs background work: finish or stop it, then call orgtree_interrupt again" });
+        }
+        let codex_turn = self.turn.as_ref().and_then(|t| t.codex_turn.clone());
+        if !self.proc.as_ref().is_some_and(|p| p.interrupt(codex_turn.as_deref())) {
+            return json!({ "interrupted": false, "reason": "the process could not be reached" });
+        }
+        if let Some(t) = self.turn.as_mut() {
+            t.interrupted = true;
+            t.restart = restart;
+        }
+        tracing::info!(agent = %self.name, restart, "the agent ended its own turn");
+        json!({ "interrupted": true, "restart": restart })
     }
 
     /// Whether the sign-in helper is gone, given `SESSION_GONE_WAIT` to go.
@@ -6394,6 +6426,14 @@ impl Actor {
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
         let Some(turn) = self.take_turn() else { return Ok(()) };
+        // the agent ended this turn itself and asked for a new one: exactly
+        // one, as a turn is taken once; a halt takes its turn without this
+        if turn.restart && !self.stopping {
+            tracing::info!(agent = %self.name, "a new turn starts at once, as the agent asked when it ended its turn");
+            if let Err(e) = crate::domain::runtime_notices::restart_asked(&self.engine, self.org_id, self.id).await {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the restart wake could not be sent");
+            }
+        }
         // a compaction the turn ended before the harness reported its end
         if let Err(e) = self.compact_close("interrupted", Value::Null).await {
             tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "an open compaction row could not be closed");

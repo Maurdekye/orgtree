@@ -399,8 +399,14 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_interrupt",
-            "Stop a report's (or their reports') current turn without retiring it; waiting mail starts its next turn.",
-            json!({ "node": { "type": "string" } }),
+            "Stop a current turn without retiring anyone. node = a report (or their reports): needs the runtime tool \
+             group; waiting mail starts their next turn. node = yourself: ends your own turn, whatever your tool groups; \
+             with restart: true one new turn starts at once, wherever a turn's start places it (in the user's \
+             signed-in session when available; see orgtree_session). Refused while your CLI still runs background work.",
+            json!({
+                "node": { "type": "string" },
+                "restart": { "type": "boolean", "description": "yourself only: start one new turn at once" },
+            }),
             &["node"],
         ),
         tool(
