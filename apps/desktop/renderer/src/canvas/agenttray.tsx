@@ -79,8 +79,6 @@ export interface AgentTrayProps {
   onQuery: (q: string) => void
   archived: boolean
   onArchived: (v: boolean) => void
-  activeOnly?: boolean
-  onActiveOnly?: (v: boolean) => void
   /** press on a row */
   onPick: (id: string) => void
   /** right-click on a row; `go` is the same action a press takes */
@@ -102,10 +100,24 @@ export interface AgentTrayProps {
   empty?: ReactNode
 }
 
+/** Compact checkbox in the Agents panel's title bar. The host owns the
+ *  persisted preference; this component only reports the user's choice. */
+export function ActiveAgentsFilter({ checked, onChange }: {
+  checked: boolean
+  onChange: (value: boolean) => void
+}) {
+  return (
+    <label className="modalpin-active-filter" title="Show only agents currently running a turn">
+      <input type="checkbox" aria-label="Only active agents" checked={checked}
+        onChange={event => onChange(event.currentTarget.checked)} />
+      <span>active</span>
+    </label>
+  )
+}
+
 export function AgentTray({
   map, rows, query, onQuery, archived, onArchived, onPick, onRowMenu, compactAt,
   refs, selected, listProps, mainProps, rowProps, filterLabel, leadingRows, empty,
-  activeOnly = false, onActiveOnly,
 }: AgentTrayProps) {
   const archN = archivedCount(map)
   return (
@@ -118,10 +130,6 @@ export function AgentTray({
         <button type="button" className="tray-arch" onClick={() => onArchived(!archived)}>
           {archived ? '▾ hide' : '▸ show'} {archN} archived
         </button>
-      )}
-      {onActiveOnly && (
-        <button type="button" className="tray-active" aria-pressed={activeOnly}
-          onClick={() => onActiveOnly(!activeOnly)}>active only</button>
       )}
       {leadingRows}
       {rows.map(({ node: n, depth, ghost }) => {

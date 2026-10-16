@@ -59,7 +59,6 @@ export interface AgentDeskPanelProps {
    *  returns undefined and the tree's own child order stands in. */
   posOf?: (id: string) => Pt | undefined
   activeAgentsOnly?: boolean
-  onActiveAgentsOnly?: (value: boolean) => void
   /** the routes the canonical Desk already takes from its host (jump, mail
    *  links, docket links, documents). Passed through untouched — this panel
    *  invents none of them and supplies no stubs. */
@@ -141,7 +140,7 @@ export function inCloseZone(
 
 export function AgentDeskPanel({
   slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
-  activeAgentsOnly = false, onActiveAgentsOnly,
+  activeAgentsOnly = false,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -297,7 +296,6 @@ export function AgentDeskPanel({
             (`data-agent-nav`), because this host builds no menu of its own. */}
         <AgentTray map={map} rows={rows} query={query} onQuery={setQuery}
           archived={archived} onArchived={setArchived}
-          activeOnly={activeAgentsOnly} onActiveOnly={onActiveAgentsOnly}
           onPick={(id) => { select(id); close() }}
           compactAt={tree.compact_at} refs={refs} selected={selectedId}
           filterLabel="Filter agents"

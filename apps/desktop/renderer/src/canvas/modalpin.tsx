@@ -522,6 +522,8 @@ export interface PinFrameProps {
   /** dismiss the surface (the same `close` the panel already had) */
   close: () => void
   children: ReactNode
+  /** compact actions beside pin/pop-out in the title bar */
+  headerActions?: ReactNode
   /** what Escape does while the surface is CENTRED; defaults to `close`.
    *  A PINNED window ignores Escape, like an agent window: it is not a modal
    *  interruption any more, and Escape there cancels a drag instead. */
@@ -560,7 +562,7 @@ export function PinFrame(props: PinFrameProps) {
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 
-function PinFrameInner({ kind, title, panel, close, children,
+function PinFrameInner({ kind, title, panel, close, children, headerActions,
   onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
@@ -837,6 +839,9 @@ function PinFrameInner({ kind, title, panel, close, children,
               {title}</span>
           </>}
           <span className="spacer" />
+          {headerActions && <div className="modalpin-actions"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}>{headerActions}</div>}
           {pinnable && orgScope && <PopoutButton />}
           {pinnable && <button type="button" className="modalpin-btn" disabled={detached}
             title={pinned

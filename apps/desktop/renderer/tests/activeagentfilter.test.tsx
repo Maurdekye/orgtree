@@ -3,7 +3,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { CanvasNode } from '../src/canvas/shared'
 import { USER } from '../src/canvas/shared'
-import { AgentTray, trayRows } from '../src/canvas/agenttray'
+import { ActiveAgentsFilter, AgentTray, trayRows } from '../src/canvas/agenttray'
+import { PinFrame } from '../src/canvas/modalpin'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
 import { flush, inAct, mountView } from './harness'
 
@@ -30,18 +31,25 @@ test('active-only rows include only busy agents and retain idle ancestors as gho
     'turning the active-only filter off restores every live agent')
 })
 
-test('the shared agents tray exposes an active-only toggle', async t => {
+test('the active-only checkbox belongs in the shared agents-list header, not the scrolling tray', async t => {
   let picked: boolean | undefined
   const agents = map()
-  const view = await mountView(<AgentTray map={agents} rows={trayRows(agents)}
-    query="" onQuery={() => {}} archived={false} onArchived={() => {}}
-    activeOnly={false} onActiveOnly={value => { picked = value }} onPick={() => {}} />,
-  host => host)
+  const view = await mountView(
+    <PinFrame kind="active-filter-header-test" title="Agents" panel="tray-panel" close={() => {}}
+      pinnable={false}
+      headerActions={<ActiveAgentsFilter checked={false} onChange={value => { picked = value }} />}>
+      <AgentTray map={agents} rows={trayRows(agents)}
+        query="" onQuery={() => {}} archived={false} onArchived={() => {}}
+        onPick={() => {}} />
+    </PinFrame>, host => host)
   t.after(async () => { await view.unmount() })
   await flush()
-  const toggle = view.el.querySelector('.tray-active') as HTMLButtonElement | null
-  assert.ok(toggle, 'the shared tray renders the active-only filter control')
-  assert.equal(toggle!.getAttribute('aria-pressed'), 'false')
+  const toggle = view.el.querySelector('.modalpin-bar input[aria-label="Only active agents"]') as HTMLInputElement | null
+  assert.ok(toggle, 'the active-only checkbox renders in the shared agents-list header')
+  assert.equal(toggle!.closest('.modalpin-bar') !== null, true,
+    'the active-only checkbox is inside the shared panel header')
+  assert.equal(view.el.querySelector('.tray-active') === null, true,
+    'the active-only control is no longer inside the scrolling tray')
   await inAct(() => toggle!.click())
   assert.equal(picked, true, 'turning the control on requests the active-only preference')
 })

@@ -1820,7 +1820,7 @@ export default function App() {
                 renderOrgSlot={v3 ? (ctx) => (
                   <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
                     toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}
-                    activeAgentsOnly={activeAgentsOnly} onActiveAgentsOnly={setActiveAgentsOnly}
+                    activeAgentsOnly={activeAgentsOnly}
                     onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
                     onOpenDoc={ctx.onOpenDoc} onOpenMail={ctx.onOpenMail}
                     onNotificationFocus={registerAttentionNotification}

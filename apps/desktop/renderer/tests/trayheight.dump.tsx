@@ -108,7 +108,8 @@ flushSync(() => {
   root.render(
     <CurrentOrg.Provider value="mine">
       <OrgCanvas tree={tree(NAMES)} op={() => Promise.resolve({} as never)}
-        slug="mine" toast={() => {}} mailEvt={null} />
+        slug="mine" toast={() => {}} mailEvt={null}
+        activeAgentsOnly={false} onActiveAgentsOnly={() => {}} />
     </CurrentOrg.Provider>)
 })
 

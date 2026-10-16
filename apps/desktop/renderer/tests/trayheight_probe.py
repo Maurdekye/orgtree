@@ -167,7 +167,7 @@ MEASURE = r"""
   // ---- §2 the top controls are on screen AND clickable ------------------
   const bar = panel.querySelector('.modalpin-bar')
   if (!bar) bad.push('the surface has no top bar at all')
-  const controls = [...(bar ? bar.querySelectorAll('button') : []),
+  const controls = [...(bar ? bar.querySelectorAll('button, .modalpin-active-filter') : []),
                     ...panel.querySelectorAll('.tray-filter')]
   if (controls.length < 3) {
     bad.push(`only ${controls.length} top controls found — the fixture is not `
@@ -186,6 +186,24 @@ MEASURE = r"""
       bad.push(`the "${what}" control is on screen but something else takes the `
         + `click: ${hit ? hit.tagName.toLowerCase() + '.' + String(hit.className).trim().split(/\s+/)[0] : 'null'}`)
     }
+  }
+  const active = bar?.querySelector('.modalpin-active-filter')
+  const popout = bar?.querySelector('.popout-button')
+  const pin = bar?.querySelector('[aria-label^="pin this"], [aria-label^="unpin"]')
+  if (!active) bad.push('the active checkbox is missing from the title bar')
+  if (active && bar) {
+    const a = active.getBoundingClientRect(), b = bar.getBoundingClientRect()
+    if (a.left < b.left - 1 || a.right > b.right + 1) {
+      bad.push('the active checkbox does not fit inside the title bar')
+    }
+  }
+  if (active && pin && active.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING) {
+    const a = active.getBoundingClientRect(), p = pin.getBoundingClientRect()
+    if (a.right > p.left + 1) bad.push('the active checkbox overlaps the pin control')
+  }
+  if (active && popout) {
+    const a = active.getBoundingClientRect(), p = popout.getBoundingClientRect()
+    if (a.right > p.left + 1) bad.push('the active checkbox overlaps the pop-out control')
   }
 
   // ---- §3 one scroller, and it is the list -----------------------------
@@ -262,6 +280,35 @@ MEASURE_PINNED = r"""
 }
 """
 
+MEASURE_NARROW_HEADER = r"""
+() => {
+  const bad = []
+  const panel = document.querySelector('.tray-panel')
+  const bar = panel?.querySelector('.modalpin-bar')
+  const active = bar?.querySelector('.modalpin-active-filter')
+  const popout = bar?.querySelector('.popout-button')
+  const pin = bar?.querySelector('[aria-label^="pin this"], [aria-label^="unpin"]')
+  if (!panel || !bar || !active || !popout || !pin) {
+    return ['narrow header fixture is missing the panel, active checkbox, pop-out, or pin control']
+  }
+  panel.style.width = '200px'
+  panel.style.minWidth = '200px'
+  panel.style.maxWidth = '200px'
+  const bounds = bar.getBoundingClientRect()
+  const boxes = [active, popout, pin].map(el => el.getBoundingClientRect())
+  if (panel.getBoundingClientRect().width > 201) bad.push('the narrow fixture did not reach the 200px panel width')
+  if (boxes.some(box => box.width <= 0 || box.left < bounds.left - 1 || box.right > bounds.right + 1)) {
+    bad.push('active checkbox or window controls do not fit inside the narrow title bar')
+  }
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    if (boxes[i].left < boxes[j].right - 1 && boxes[i].right > boxes[j].left + 1) {
+      bad.push('active checkbox overlaps a pin/pop-out control')
+    }
+  }
+  return bad
+}
+"""
+
 FACTS = r"""
 () => {
   const vp = document.querySelector('.viewport').getBoundingClientRect()
@@ -297,14 +344,22 @@ def main() -> int:
                     help="run a known-negative control; the probe must FAIL it "
                          "(except `noop`, which it must PASS)")
     ap.add_argument("--shot")
+    ap.add_argument("--prebuilt-html", help="use a renderer dump built outside the checkout")
+    ap.add_argument("--prebuilt-pinned", help="matching pinned renderer dump")
     args = ap.parse_args()
     css = CSS.read_text(encoding="utf-8")
     sheet = (f"<!doctype html><meta charset='utf-8'><style>{css}\n{FRAME}\n"
              f"{CONTROLS.get(args.expect_fail or '', '')}</style>\n"
              "<div class='probe-header'></div>\n")
-    with tempfile.TemporaryDirectory() as tmp:
-        body = sheet + dump(pathlib.Path(tmp) / "tray.html", ROWS, "inline")
-        pinned = sheet + dump(pathlib.Path(tmp) / "pinned.html", ROWS, "pinned")
+    if bool(args.prebuilt_html) != bool(args.prebuilt_pinned):
+        ap.error("--prebuilt-html and --prebuilt-pinned must be supplied together")
+    if args.prebuilt_html:
+        body = sheet + pathlib.Path(args.prebuilt_html).read_text(encoding="utf-8")
+        pinned = sheet + pathlib.Path(args.prebuilt_pinned).read_text(encoding="utf-8")
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            body = sheet + dump(pathlib.Path(tmp) / "tray.html", ROWS, "inline")
+            pinned = sheet + dump(pathlib.Path(tmp) / "pinned.html", ROWS, "pinned")
 
     bad: list[str] = []
     facts: dict[str, dict] = {}
@@ -317,9 +372,6 @@ def main() -> int:
             tag = f"[{win['width']}x{win['height']}]"
             bad += [f"{tag} {b}" for b in page.evaluate(MEASURE, ROWS)]
             facts[tag] = page.evaluate(FACTS)
-            if args.shot and win is WINDOWS[0]:
-                page.screenshot(path=args.shot)
-                print(f"saved {args.shot}")
             # §6 THE SAME PAGE, RESIZED — not a third fresh page. A cap that is
             # computed once at first layout passes both windows above and fails
             # here, which is exactly what the user does when they drag the
@@ -331,6 +383,14 @@ def main() -> int:
                 bad += [f"{rtag} {b}" for b in page.evaluate(MEASURE, ROWS)]
                 facts[rtag] = page.evaluate(FACTS)
             page.close()
+        page = browser.new_page(viewport={"width": 320, "height": 520})
+        page.set_content(body)
+        page.wait_for_timeout(200)
+        bad += [f"[narrow 200px panel] {b}" for b in page.evaluate(MEASURE_NARROW_HEADER)]
+        if args.shot:
+            page.screenshot(path=args.shot)
+            print(f"saved {args.shot}")
+        page.close()
         page = browser.new_page(viewport=WINDOWS[0])
         page.set_content(pinned)
         page.wait_for_timeout(200)

@@ -3056,12 +3056,14 @@
    "covers": [
     "screen:agents-list"
    ],
-   "purpose": "The agents list tray: hierarchy, search, active-only and archived filters.",
+   "purpose": "The agents list: hierarchy, search, active checkbox in the title bar beside pin/pop-out, and archived filter.",
    "must_cover": [
     "search, active-only meaning and persistence, and archived"
    ],
    "sources": [
-    "apps/desktop/renderer/src/canvas/agenttray.tsx:102"
+    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx:4147",
+    "apps/desktop/renderer/src/canvas/agenttray.tsx:102",
+    "apps/desktop/renderer/src/canvas/modalpin.tsx:522"
    ],
    "see_also": [
     "org-canvas"

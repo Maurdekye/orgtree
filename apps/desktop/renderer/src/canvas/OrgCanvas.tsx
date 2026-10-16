@@ -77,7 +77,7 @@ import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedM
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
-import { AgentTray, trayRows } from './agenttray'
+import { ActiveAgentsFilter, AgentTray, trayRows } from './agenttray'
 import { agentRows } from '../attention/AgentDeskPanel'
 import type { TrayRow } from './agenttray'
 import type { AgentListSource } from '../QuickChatBox'
@@ -4147,7 +4147,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         onPointerDown={(e) => e.stopPropagation()}>
         {trayOpen && (
           <PinFrame inline kind="agent-list" title="Agents" panel="tray-panel"
-            close={() => setTrayOpen(false)} dialogLabel="Agents">
+            close={() => setTrayOpen(false)} dialogLabel="Agents"
+            headerActions={onActiveAgentsOnly
+              ? <ActiveAgentsFilter checked={activeAgentsOnly} onChange={onActiveAgentsOnly} />
+              : undefined}>
           <AgentListMenuHost map={map} op={op} slug={slug} toast={toast}
             render={(menu, ask, deskNow) => {
             // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
@@ -4165,7 +4168,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             // the registry that serves every other surface's menu.
             return <AgentTray map={map} rows={rows} query={trayQ} onQuery={setTrayQ}
               archived={trayArch} onArchived={setTrayArch} onPick={goToAgent}
-              activeOnly={activeAgentsOnly} onActiveOnly={onActiveAgentsOnly}
               compactAt={tree.compact_at} refs={canvasRefs}
               /* the row's menu is the agent's own (canvas/agentmenu.tsx),
                  opened from the ROW. NOT at compact, exactly where the card

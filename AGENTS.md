@@ -1430,6 +1430,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   disabled for non-live, busy or sessionless agents. [user 2026-10-07 17:16Z;
   verified from source and isolated renderer screenshots/smoke]
 
+- The canvas Agents panel's **active** checkbox is in the shared PinFrame title
+  bar beside pop-out and pin, not in the scrolling tray. It filters by the
+  renderer's live-turn `busy` flag; the persisted preference also filters the
+  Attention drawer. [user 2026-10-16; verified: `OrgCanvas.tsx`,
+  `canvas/agenttray.tsx`, `canvas/modalpin.tsx`]
+
 - Staffing composites use `ops::run_in_tx` and publish deferred `Effects` only
   after the caller commits. Busy model/account switches persist intents and
   apply at settlement; admission locks the agent row before claiming mail.

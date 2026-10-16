@@ -5614,13 +5614,11 @@ svg.MuiSvgIcon-root {
 .tray-sum .ref-chip { font-size: inherit; padding: 0 3px; }
 .tray-sum.stale { opacity: .55; font-style: italic; }
 .tray-filter { margin: 2px 4px 6px; }
-.tray-arch, .tray-active {
+.tray-arch {
   background: none; border: none; text-align: left; cursor: pointer;
   color: var(--dim); font-size: 11px; padding: 1px 8px 3px;
 }
-.tray-arch:hover, .tray-active:hover { color: var(--ink); }
-.tray-active { margin: 0 4px 6px; color: var(--muted); }
-.tray-active[aria-pressed="true"] { color: var(--ink); }
+.tray-arch:hover { color: var(--ink); }
 
 /* №26: the shared mail filter input */
 .mail-filter {
@@ -7503,6 +7501,19 @@ label.set-row { cursor: pointer; }
    `.canvas-stage > .viewport *`). */
 .overlay.overlay-pinned .modalpin-win { -webkit-app-region: no-drag; }
 .modalpin-bar .spacer { flex: 1; }
+.modalpin-actions {
+  display: flex; align-items: center; flex: none;
+  -webkit-app-region: no-drag;
+}
+.modalpin-active-filter {
+  display: inline-flex; align-items: center; gap: 3px; flex: none;
+  white-space: nowrap; color: var(--dim); font-size: 10px; line-height: 1;
+  cursor: pointer; -webkit-app-region: no-drag;
+}
+.modalpin-active-filter input {
+  width: 12px; height: 12px; margin: 0; accent-color: var(--agent-accent-text, var(--accent));
+}
+.modalpin-active-filter:hover { color: var(--ink-strong); }
 .modalpin-glyph { font-size: 14px; color: var(--agent-accent-text, var(--accent)); flex: none; }
 .modalpin-name {
   font-weight: 700; color: var(--ink-strong); font-size: 12.5px;
