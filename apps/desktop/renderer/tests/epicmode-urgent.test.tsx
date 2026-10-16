@@ -199,7 +199,9 @@ test('reading the urgent mail ends the alarm', async () => {
   } finally { r.end() }
 })
 
-test('unread, the alarm still ends by itself within ten seconds', async () => {
+// It waits 10.2 s of real time to see the alarm's bound pass, longer than the
+// runner's 10 s default per test (tests/run.mjs), so it sets its own timeout.
+test('unread, the alarm still ends by itself within ten seconds', { timeout: 20_000 }, async () => {
   const r = run()
   try {
     const at = performance.now()
