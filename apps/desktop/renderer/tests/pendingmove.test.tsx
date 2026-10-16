@@ -240,6 +240,7 @@ for (const mode of ['row', 'circular'] as const) {
     test(`${mode}: middle drag on real ${surface} crosses its portal and pans the canvas`, async t => {
       useFakeClock(); t.after(realClock)
       setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+      localStorage.removeItem('orgtree-view-mine')
       forgetPins('mine'); t.after(() => forgetPins('mine'))
       const m = await mountCanvas(t, before(), () => Promise.resolve({}))
       const viewport = m.el.querySelector<HTMLElement>('.viewport')!
@@ -263,7 +264,14 @@ for (const mode of ['row', 'circular'] as const) {
       assert.ok(target, `real ${surface} is mounted`)
       assert.ok(target.closest('.movable-events'), 'use the registry-owned portal, not a stand-in')
       const scroll = host.querySelector<HTMLElement>('.msgs')!
+      // jsdom has no layout. Model a scrollable transcript and report the
+      // reader's scroll so the desk's follow-tail does not reset our fixture.
+      Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 500 })
+      Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 100 })
       scroll.scrollTop = 17
+      await inAct(() => scroll.dispatchEvent(new W.Event('scroll', { bubbles: false })))
+      await flush()
+      assert.equal(scroll.scrollTop, 17, 'reader scroll fixture settled before pan')
       const initial = nums(space.style.transform), position = at(m.el, 'x')
       const pins = JSON.stringify(readPins('mine'))
       const captures: number[] = []
@@ -295,6 +303,8 @@ for (const mode of ['row', 'circular'] as const) {
   test(`${mode}: real desk left/right selection, composer and wheel retain their events/defaults`, async t => {
     useFakeClock(); t.after(realClock)
     setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    localStorage.removeItem('orgtree-view-mine')
+    forgetPins('mine'); t.after(() => forgetPins('mine'))
     const m = await mountCanvas(t, before(), () => Promise.resolve({}))
     for (const type of ['pointerdown', 'pointerup']) await inAct(() => {
       card(m.el, 'x')!.dispatchEvent(new W.PointerEvent(type, {
