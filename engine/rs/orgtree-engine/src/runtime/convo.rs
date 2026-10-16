@@ -332,8 +332,7 @@ async fn restore_mail_notices(client: &Client, agent_id: i64, messages: &mut [Va
     Ok(())
 }
 
-/// A plain-text digest of an agent's recent conversation (what it was asked,
-/// what it said, the tools it used): seeds a fresh session.
+/// Only shell inputs belong in recovery exports; other tools keep summaries.
 #[nolog]
 fn is_recovery_shell(t: &Value) -> bool {
     matches!(t["name"].as_str().unwrap_or("").rsplit("__").next().unwrap_or("").to_ascii_lowercase().as_str(),
@@ -341,8 +340,66 @@ fn is_recovery_shell(t: &Value) -> bool {
 }
 
 #[nolog]
-fn recovery_tool(t: &Value, _inputs: &Value, _native: &Value) -> String {
-    format!("{} {}", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or(""))
+fn recovery_command(input: &Value) -> Option<String> {
+    let command = input.as_str().map(str::to_string).or_else(|| {
+        ["command", "cmd", "CommandLine", "command_line", "script"].iter().find_map(|key| match &input[*key] {
+            Value::String(s) => Some(s.clone()),
+            Value::Array(args) if args.iter().all(Value::is_string) => Some(Value::Array(args.clone()).to_string()),
+            _ => None,
+        })
+    })?;
+    if command.is_empty() { None } else { Some(command) }
+}
+
+#[nolog]
+fn recovery_input<'a>(t: &Value, inputs: &'a Value, native: &'a Value) -> &'a Value {
+    let id = t["id"].as_str().unwrap_or("");
+    native.get(id).filter(|v| recovery_command(v).is_some()).unwrap_or(&inputs[id]["input"])
+}
+
+#[nolog]
+fn recovery_tool(t: &Value, inputs: &Value, native: &Value) -> String {
+    let mut out = format!("{} {}", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or(""));
+    if !is_recovery_shell(t) { return out; }
+    let input = recovery_input(t, inputs, native);
+    let Some(command) = recovery_command(input) else {
+        out.push_str(" [command input not retained]");
+        return out;
+    };
+    const COMMAND_BYTES: usize = 8192;
+    let mut end = command.len().min(COMMAND_BYTES);
+    while !command.is_char_boundary(end) { end -= 1; }
+    out.push_str("\n[command input]\n");
+    out.push_str(&command[..end]);
+    if end < command.len() { out.push_str("\n[command truncated at 8192 UTF-8 bytes]"); }
+    out.push_str("\n[end command input]");
+    for key in ["workdir", "cwd", "shell"] {
+        let id = t["id"].as_str().unwrap_or("");
+        if let Some(value) = input.get(key).or_else(|| inputs[id]["input"].get(key)).and_then(Value::as_str) {
+            out.push_str(&format!("\n{key}: {}", crate::util::gist(value, 1024)));
+        }
+    }
+    out
+}
+
+/// Project only shell inputs, excluding unrelated patches, arguments and full
+/// failed output from these history reads. Keep the existing bounded row scan.
+#[nolog]
+async fn recovery_rows(client: &impl tokio_postgres::GenericClient, agent_id: i64, last: i64) -> Result<Vec<tokio_postgres::Row>> {
+    Ok(client.query(
+        "SELECT c.body, coalesce(shell.inputs, '{}'::jsonb), coalesce(shell.native, '{}'::jsonb)
+         FROM (SELECT seq, body, tool_inputs, tool_native_inputs FROM ot.convo
+               WHERE agent_id = $1 ORDER BY seq DESC LIMIT $2) c
+         LEFT JOIN LATERAL (
+           SELECT jsonb_object_agg(t->>'id', jsonb_build_object('input', c.tool_inputs->(t->>'id')->'input')) AS inputs,
+                  jsonb_object_agg(t->>'id', c.tool_native_inputs->(t->>'id'))
+                    FILTER (WHERE c.tool_native_inputs ? (t->>'id')) AS native
+           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(c.body->'tools') = 'array'
+                                     THEN c.body->'tools' ELSE '[]'::jsonb END) t
+           WHERE t->>'id' IS NOT NULL AND lower(regexp_replace(t->>'name', '^.*__', ''))
+             IN ('bash', 'powershell', 'exec_command', 'run_command', 'run_shell_command', 'shell')
+         ) shell ON true ORDER BY c.seq DESC", &[&agent_id, &last.clamp(1, 5000)],
+    ).await?)
 }
 
 #[cfg(test)]
@@ -395,16 +452,27 @@ mod recovery_command_tests {
         assert!(!out.contains("STALE-HISTORY"));
         assert!(out.len() <= 1024);
     }
+
+    #[test]
+    fn exact_byte_limit_is_not_marked_truncated_and_native_null_falls_back() {
+        let t = json!({"id":"c","name":"mcp__terminal__PowerShell"});
+        let command = format!("{}é", "x".repeat(8190));
+        let inputs = json!({"c":{"input":{"command":command}}});
+        let out = recovery_tool(&t, &inputs, &json!({"c":null}));
+        assert!(out.contains(&command));
+        assert!(!out.contains("truncated"));
+    }
 }
 
-#[logged]
+/// A plain-text digest of the recent conversation, including bounded commands.
+#[nolog] // command bodies must not enter tracing arguments or return values
 pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, last: i64) -> Result<String> {
-    let rows = client
-        .query("SELECT body FROM ot.convo WHERE agent_id = $1 ORDER BY seq DESC LIMIT $2", &[&agent_id, &last])
-        .await?;
+    let rows = recovery_rows(client, agent_id, last.clamp(1, 60)).await?;
     let mut parts: Vec<String> = Vec::new();
     for r in rows.iter().rev() {
         let b: Value = r.get(0);
+        let inputs: Value = r.get(1);
+        let native: Value = r.get(2);
         let role = b["role"].as_str().unwrap_or("");
         let text = crate::util::gist(b["text"].as_str().unwrap_or(""), 1200);
         match role {
@@ -420,7 +488,7 @@ pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, 
                     .as_array()
                     .map(|a| {
                         a.iter()
-                            .map(|t| recovery_tool(t, &Value::Null, &Value::Null))
+                            .map(|t| recovery_tool(t, &inputs, &native))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -428,7 +496,7 @@ pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, 
                     parts.push(format!("[you] {text}"));
                 }
                 if !tools.is_empty() {
-                    parts.push(format!("[your tools] {}", crate::util::gist(&tools.join("; "), 600)));
+                    parts.push(format!("[your tools]\n{}", tools.join("\n")));
                 }
             }
             _ => {}
@@ -444,14 +512,14 @@ pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, 
 
 /// Save the agent's desk history (its newest rows, oldest first) as Markdown
 /// in `dir`, for a session that could not carry the conversation over.
-#[logged]
+#[nolog] // history now includes command bodies
 pub async fn save_history(client: &Client, agent_id: i64, dir: &std::path::Path) -> Result<std::path::PathBuf> {
-    let rows = client
-        .query("SELECT body FROM ot.convo WHERE agent_id = $1 ORDER BY seq DESC LIMIT 5000", &[&agent_id])
-        .await?;
+    let rows = recovery_rows(client, agent_id, 5000).await?;
     let mut out = String::from("# Earlier conversation\n\nYour desk history before you moved to a fresh session, oldest first.\n\n");
     for r in rows.iter().rev() {
         let b: Value = r.get(0);
+        let inputs: Value = r.get(1);
+        let native: Value = r.get(2);
         let ts = b["ts"].as_str().unwrap_or("");
         let text = b["text"].as_str().unwrap_or("");
         match b["role"].as_str().unwrap_or("") {
@@ -466,7 +534,7 @@ pub async fn save_history(client: &Client, agent_id: i64, dir: &std::path::Path)
                     out.push_str("\n\n");
                 }
                 for t in b["tools"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
-                    out.push_str(&format!("- tool: {}\n", recovery_tool(t, &Value::Null, &Value::Null)));
+                    out.push_str(&format!("- tool: {}\n", recovery_tool(t, &inputs, &native)));
                 }
                 if b["tools"].as_array().map(|a| !a.is_empty()).unwrap_or(false) {
                     out.push('\n');
@@ -602,7 +670,7 @@ async fn docket_items(client: &Client, agent_id: i64) -> Result<String> {
         "Your live docket items, as this session starts (newest updated first; the docket is the record, and \
          scope/blocker/dependency excerpts below are bounded; orgtree_work action=get slug=<slug> reads one in full):\n",
     );
-    for (head, lines) in [("", &live), ("Backlogged, not started yet:\n", &backlog), ("Waiting for your review:\n", &review)] {
+    for (head, lines) in [("", &live), ("Waiting for your review:\n", &review), ("Backlogged, not started yet:\n", &backlog)] {
         if !lines.is_empty() {
             s.push_str(head);
             s.push_str(&lines.join("\n"));
@@ -633,19 +701,19 @@ fn recovery_scope(scope: &str, blocked: Option<&str>, dependencies: &[String]) -
 /// The last recorded shell directory is evidence, not a guessed checkout or SHA.
 #[nolog]
 async fn source_hint(client: &Client, agent_id: i64) -> Result<String> {
-    let rows = client.query(
-        "SELECT body, tool_inputs, tool_native_inputs FROM ot.convo WHERE agent_id = $1 ORDER BY seq DESC LIMIT 60",
-        &[&agent_id],
-    ).await?;
+    let rows = recovery_rows(client, agent_id, 60).await?;
     for row in rows {
         let body: Value = row.get(0);
         let inputs: Value = row.get(1);
         let native: Value = row.get(2);
         for tool in body["tools"].as_array().into_iter().flatten().rev() {
             if !is_recovery_shell(tool) { continue; }
+            let input = recovery_input(tool, &inputs, &native);
             let id = tool["id"].as_str().unwrap_or("");
-            let input = native.get(id).unwrap_or(&inputs[id]["input"]);
-            if let Some(dir) = input.get("workdir").or_else(|| input.get("cwd")).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            let retained = &inputs[id]["input"];
+            if let Some(dir) = input.get("workdir").or_else(|| input.get("cwd"))
+                .or_else(|| retained.get("workdir")).or_else(|| retained.get("cwd"))
+                .and_then(Value::as_str).filter(|s| !s.is_empty()) {
                 return Ok(format!("Source/worktree evidence: last recorded shell directory: {}. This is recorded input, not a verified current checkout; verify its source SHA before continuing.\n\n", crate::util::gist(dir, 1024)));
             }
         }
@@ -675,7 +743,7 @@ async fn superior_hint(client: &Client, agent_id: i64) -> Result<String> {
 /// What a fresh session starts with when the agent's earlier session could
 /// not be carried over: its last status, whom it corresponded with, its
 /// recent conversation, and where the whole earlier conversation is saved.
-#[logged]
+#[nolog] // contains raw command and correspondence excerpts
 pub async fn handoff_note(client: &Client, agent_id: i64, why: &str, saved: Option<&std::path::Path>) -> Result<String> {
     let mut note = format!(
         "[Orgtree] You now run on a fresh session ({why}), so your earlier conversation is not in your context. \

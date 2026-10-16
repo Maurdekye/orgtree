@@ -144,8 +144,14 @@ pub fn handoff_reference(handoff: &str, budget: usize) -> String {
     // Keep the history pointer appended by convo::handoff_note; no arbitrary
     // source contents are written. The manual transcript also remains available.
     let history = handoff.lines().rev().find(|l| l.starts_with("Your whole earlier conversation is saved at ")).unwrap_or("");
-    format!("Fresh-session handoff was too large to inline ({} UTF-8 bytes). Read your saved conversation before continuing, or use orgtree_read_transcript for your own node and orgtree_inbox fetch/chunk for referenced mail. {}",
-        handoff.len(), prefix(history, 4096))
+    let tail = format!("\n[Handoff context omitted to fit the input budget ({} UTF-8 bytes originally). Read full current items with orgtree_work action=get, and referenced superior mail with orgtree_inbox fetch/chunk. Older conversation is available in the saved history or orgtree_read_transcript.]\n{}",
+        handoff.len(), prefix(history, 4096));
+    if tail.len() >= budget { return prefix(&tail, budget).to_string(); }
+    // Fresh recovery puts authoritative work before this explicit boundary.
+    // Preserve it instead of replacing the entire note with an older-history
+    // pointer. Legacy notes without the boundary keep the reference-only path.
+    let live = handoff.split_once("Older context follows.").map(|(live, _)| live).unwrap_or("");
+    format!("{}{}", prefix(live, budget - tail.len()), tail)
 }
 
 /// A rejected input field is terminal, not a transient network/context-window
