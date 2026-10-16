@@ -2836,23 +2836,80 @@ const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: bool
     btn.innerHTML = CopyIcon
     wrap.appendChild(btn)
   })
-  // images (user spec 2026-08-25): a RELATIVE src — `![](outbox/plot.png)` in
-  // an agent's reply, a mail body, a presented doc — names a file in the
-  // author's working folder, which the /file endpoint already serves. Resolve
-  // it against the caller's per-node base; absolute/data/anchor srcs pass
-  // untouched. Runs on SANITIZED html, and builds only same-origin /file URLs
-  // from the path, so no new scheme can enter here. decode-then-encode:
-  // marked percent-encodes what it parses, the query param needs exactly one
-  // layer. (No base → leave the src alone; it 404s visibly rather than
-  // silently pointing at the SPA route.)
+  // Images are rewritten only after DOMPurify. Relative paths keep their
+  // author-scoped /file resolution; absolute Windows paths and HTTP(S) URLs
+  // use the guarded image endpoint. The endpoint validates bytes, size and
+  // type, and never forwards app credentials to the remote host.
   tpl.content.querySelectorAll('img').forEach(img => {
-    const src = img.getAttribute('src') ?? ''
-    if (imgBase && src && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(src)) {
-      let rel = src
-      try { rel = decodeURIComponent(src) } catch { /* malformed % — keep raw */ }
-      img.setAttribute('src', imgBase + encodeURIComponent(rel))
+    const raw = img.getAttribute('src') ?? ''
+    let src = raw
+    try { src = decodeURIComponent(raw) } catch { /* malformed % — keep raw */ }
+    const localPath = winFilePath(src)
+    let fallbackHref = raw
+    let blockedSource = !raw
+    if (localPath) {
+      img.setAttribute('src', `/api/markdown-image?path=${encodeURIComponent(localPath)}`)
+      fallbackHref = '#'
+    } else if (/^(?:https?:)?\/\//i.test(src)) {
+      // The endpoint rejects embedded credentials before making a request.
+      try {
+        const remote = new URL(src, document.baseURI)
+        img.setAttribute('src', `/api/markdown-image?url=${encodeURIComponent(remote.href)}`)
+        fallbackHref = remote.href
+      } catch {
+        // Still route the string through the validator; never let a malformed
+        // HTTP(S) source escape as a direct browser request.
+        img.setAttribute('src', `/api/markdown-image?url=${encodeURIComponent(src)}`)
+      }
+    } else if (imgBase && src && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(src)) {
+      // marked encodes spaces; decode then encode exactly once for /file.
+      img.setAttribute('src', imgBase + encodeURIComponent(src))
+      fallbackHref = img.getAttribute('src') ?? raw
+    } else if (/^[a-z][a-z0-9+.-]*:/i.test(src)) {
+      // Data/blob/file and other schemes can bypass the image-byte validator
+      // (notably data:image/svg+xml), so leave only the fallback visible.
+      img.removeAttribute('src')
+      fallbackHref = '#'
+      blockedSource = true
+    }
+    if (blockedSource) {
+      img.removeAttribute('src')
+      fallbackHref = '#'
     }
     img.setAttribute('loading', 'lazy')
+
+    const fallback = document.createElement('a')
+    fallback.className = 'md-image-fallback'
+    fallback.textContent = img.getAttribute('alt') || src || 'Open image'
+    fallback.setAttribute('href', fallbackHref)
+    if (localPath) {
+      fallback.classList.add('local-file')
+      fallback.setAttribute('data-local-path', localPath)
+      fallback.setAttribute('title', `Show in folder — ${localPath}`)
+    } else if (/^https?:\/\//i.test(fallbackHref)) {
+      fallback.setAttribute('target', '_blank')
+      fallback.setAttribute('rel', 'noopener noreferrer')
+    }
+
+    const parentLink = img.closest('a')
+    if (parentLink) {
+      // Avoid invalid nested anchors. If the image fails, the existing link
+      // becomes the image fallback and retains the usual local-file behavior.
+      img.dataset.imageFallbackHref = fallbackHref
+      img.dataset.imageFallbackText = fallback.textContent
+      if (localPath) img.dataset.imageFallbackLocalPath = localPath
+      if (blockedSource) {
+        parentLink.setAttribute('href', '#')
+        parentLink.textContent = fallback.textContent
+        parentLink.classList.add('md-image-fallback', 'failed')
+      }
+    } else {
+      const wrap = document.createElement('span')
+      wrap.className = 'md-image-embed'
+      img.replaceWith(wrap)
+      wrap.append(img, fallback)
+      if (blockedSource) wrap.classList.add('failed')
+    }
   })
   // local file links (user ruling 2026-09-13): a destination normalized to
   // `/C:/…` by `winFileHref` is an absolute WINDOWS FILE, not a route on this
@@ -2936,6 +2993,36 @@ export function revealFileFromEvent(e: {
   if (path) void desktop()?.revealFile?.(path)?.catch?.(() => {})
   return true
 }
+
+/** Failed inline images keep a readable, clickable destination. This is
+ *  delegated because Markdown is installed with innerHTML. */
+export function markdownImageFailed(e: { target: EventTarget | null }): void {
+  const img = (e.target as Element | null)?.closest?.('img')
+  if (!img) return
+  const localPath = img.getAttribute('data-image-fallback-local-path')
+  const href = img.getAttribute('data-image-fallback-href')
+  if (!href) {
+    img.closest('.md-image-embed')?.classList.add('failed')
+    return
+  }
+  const parent = img.closest('a[href]')
+  if (parent) {
+    parent.setAttribute('href', href)
+    parent.textContent = img.getAttribute('data-image-fallback-text') || img.getAttribute('alt') || 'Open image'
+    parent.classList.add('md-image-fallback', 'failed')
+    if (localPath) {
+      parent.setAttribute('href', '#')
+      parent.setAttribute('data-local-path', localPath)
+      parent.classList.add('local-file')
+      parent.setAttribute('title', `Show in folder — ${localPath}`)
+    } else if (/^https?:\/\//i.test(href)) {
+      parent.setAttribute('target', '_blank')
+      parent.setAttribute('rel', 'noopener noreferrer')
+    }
+    return
+  }
+  img.closest('.md-image-embed')?.classList.add('failed')
+}
 if (typeof document !== 'undefined') {
   // CAPTURE, not bubble (docket v3-copy-button-on-code-blocks-in-the-agent-chat):
   // every PinFrame panel — the Attention view's desk, mail, the docket,
@@ -2945,6 +3032,7 @@ if (typeof document !== 'undefined') {
   // Local file links had the same fault and take the same fix.
   document.addEventListener('click', copyCodeFromEvent, true)
   document.addEventListener('click', revealFileFromEvent, true)
+  document.addEventListener('error', markdownImageFailed, true)
 }
 /** `imgBase` (optional): the node-scoped /file URL prefix relative image
  *  srcs resolve against — pass `fileBase(slug, nid)` where the author's
