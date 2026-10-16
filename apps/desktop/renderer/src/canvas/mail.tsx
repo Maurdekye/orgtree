@@ -220,12 +220,17 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // jumpTo (user spec 2026-07-31): a chat's inline mail link opens the box
   // SELECTED on that mail — identity selection means the reading pane shows
   // it; the scroll + flash happen on the row ref below. Human unread inboxes
-  // select their oldest unread on this initial, loaded mount only. All-read
+  // select their oldest unread mail on this initial, loaded mount only. If no
+  // unread mail exists, fall back to the oldest unanswered request. All-read
   // and agent-delivery folders keep the unselected opening; later arrivals
   // never steal the selection. Clicking a selected row still deselects it.
-  const [initialUnread] = useState(() => selectOldestUnread && !jumpTo && !outgoing
-    ? [...all].reverse().find(m => m._wait && !m._ask) : undefined)
-  const [selId, setSelId] = useState<string | null>(jumpTo ?? (initialUnread ? keyOf(initialUnread) : null))
+  const [initialSelection] = useState(() => {
+    if (!selectOldestUnread || jumpTo || outgoing) return undefined
+    const oldestFirst = [...all].reverse()
+    return oldestFirst.find(m => m._wait && !m._ask)
+      ?? oldestFirst.find(m => m._wait && m._ask)
+  })
+  const [selId, setSelId] = useState<string | null>(jumpTo ?? (initialSelection ? keyOf(initialSelection) : null))
   // ⚠ WHICH JUMP HAS BEEN HANDLED, NOT WHETHER ONE HAS. A boolean latch meant
   // the FIRST link into an open mailbox worked and every one after it did
   // nothing at all — the box was already mounted, so the initial `useState`
@@ -255,7 +260,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // rest page in. ⚠ the filter runs over the WHOLE set before the window, so
   // hunting an old message never depends on how far you have paged.
   const [vis, setVis] = useState(() => Math.max(MAIL_WINDOW,
-    initialUnread ? all.findIndex(m => keyOf(m) === keyOf(initialUnread)) + 1 : 0))
+    initialSelection ? all.findIndex(m => keyOf(m) === keyOf(initialSelection)) + 1 : 0))
   // ONE page per commit. A flick emits a burst of scroll events and React
   // batches them, so every event in the burst reads the same `vis` and every
   // one of them adds a window: measured at eight events rendering a whole
@@ -535,8 +540,8 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
-              const target = jumpTo ?? (initialUnread ? keyOf(initialUnread) : null)
-              const request = jumpTo ? jumpKey(jumpTo, jumpSeq) : 'initial-unread'
+              const target = jumpTo ?? (initialSelection ? keyOf(initialSelection) : null)
+              const request = jumpTo ? jumpKey(jumpTo, jumpSeq) : 'initial-selection'
               if (el && target && g.some((x) => keyOf(x) === target)
                 && scrolledRef.current !== request) {
                 scrolledRef.current = request

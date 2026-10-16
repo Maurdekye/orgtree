@@ -1018,6 +1018,56 @@ uiTest('§15 InboxPanel system and user senders are NOT clickable jumps', async 
   assert.equal(jumpBtn, null, 'system sender is not clickable')
 })
 
+uiTest('InboxPanel opens the oldest unanswered request when no unread mail exists', async (mount) => {
+  const tree = mkTree({
+    asks: [
+      { id: 'ask-new', node: 'newer-agent', kind: 'question', status: 'open',
+        at: '2026-10-16T12:00:00.000Z', question: 'Newer question' },
+      { id: 'ask-old', node: 'older-agent', kind: 'question', status: 'open',
+        at: '2026-10-16T10:00:00.000Z', question: 'Older question' },
+    ],
+    asks_open: 2,
+  })
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((() => Promise.resolve({
+    ok: true, status: 200, headers: new Headers(),
+    json: () => Promise.resolve({ pending: [], delivered: [], sent: [] }),
+  })) as typeof fetch)
+
+  const { el } = await mount(
+    <InboxPanel slug="org1" tree={tree} toast={noop} jumpTo={null}
+      close={noop} />
+  )
+  await flush()
+  const selected = el.querySelector('.mailer-list .mailrow.on')
+  assert.ok(selected, 'an unanswered request is auto-selected')
+  assert.match(selected.textContent ?? '', /older-agent/, 'the oldest unanswered request is selected')
+})
+
+uiTest('InboxPanel still prefers unread mail over older unanswered requests', async (mount) => {
+  const tree = mkTree({
+    asks: [{ id: 'ask-old', node: 'older-agent', kind: 'question', status: 'open',
+      at: '2026-10-16T10:00:00.000Z', question: 'Older question' }],
+    asks_open: 1,
+  })
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((() => Promise.resolve({
+    ok: true, status: 200, headers: new Headers(),
+    json: () => Promise.resolve({
+      pending: [{ id: 'unread-mail', from: 'mail-agent', to: '@user',
+        at: '2026-10-16T12:00:00.000Z', body: 'Unread mail takes priority' }],
+      delivered: [], sent: [],
+    }),
+  })) as typeof fetch)
+
+  const { el } = await mount(
+    <InboxPanel slug="org1" tree={tree} toast={noop} jumpTo={null}
+      close={noop} />
+  )
+  await flush()
+  const selected = el.querySelector('.mailer-list .mailrow.on')
+  assert.ok(selected, 'unread mail is auto-selected')
+  assert.match(selected.textContent ?? '', /Unread mail takes priority/)
+})
+
 uiTest('§16 NodeInboxModal counterparty is clickable agent jump that closes modal', async (mount) => {
   let focused: string | null = null
   let closed = false
