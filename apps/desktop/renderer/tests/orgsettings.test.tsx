@@ -296,8 +296,8 @@ test('⑦  Hire defaults displays current registered MCP servers while wildcard 
     const chips = [...currentList.querySelectorAll('.hire-mcp-tags .chip')].map((c) => c.textContent?.trim())
     assert.deepEqual(chips, ['filesystem', 'github', 'memory'])
 
-    // Checklist is not rendered while wildcard is active (4 default tools + 7 Orgtree tool groups + 1 allMcp checkbox)
-    assert.equal(view.el.querySelectorAll('.set-row input[type="checkbox"]').length, 12)
+    // Checklist is not rendered while wildcard is active (4 default tools + 8 Orgtree tool groups + 1 allMcp checkbox)
+    assert.equal(view.el.querySelectorAll('.set-row input[type="checkbox"]').length, 13)
 
     // Uncheck all registered servers
     await inAct(async () => { allBox.click(); await flush(20) })
