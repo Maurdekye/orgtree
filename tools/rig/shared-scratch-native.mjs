@@ -24,7 +24,7 @@ try {
     outfile: helper, bundle: true, platform: 'node', format: 'cjs' })
 } finally { esbuild.stop() }
 console.log(JSON.stringify({ suite: 'scratch-folder-native', proofBundle: helper }))
-const result = spawnSync(process.execPath, ['--test', '--test-force-exit', '--test-concurrency=1', '--test-timeout=15000', test],
+const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1', '--test-timeout=15000', test],
   { cwd: root, stdio: 'inherit', windowsHide: true,
     env: { ...process.env, TMP: path.join(out, 'tmp'), TEMP: path.join(out, 'tmp') } })
 if (result.error) throw result.error
