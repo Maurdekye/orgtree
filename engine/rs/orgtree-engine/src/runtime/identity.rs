@@ -156,6 +156,8 @@ pub fn identity(i: &Identity) -> String {
         s.push_str(&scope_request_guidance(if bypass { GATE_BYPASS } else { GATE_GATED }, tools));
     }
 
+    s.push_str("The built-in Orgtree skill library is also called the glossary or Orgtree Encyclopaedia (encyclopedia). These names mean the same library. Open its orgtree-working category for tools and workflows, or orgtree-app for screens and settings, then follow the section links to the guide you need. ");
+
     // ---- tools ----
     let off: Vec<&str> = [("bash", "the terminal"), ("web", "web access"), ("edit", "file editing"), ("subagents", "subagents")]
         .iter()

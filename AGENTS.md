@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- The built-in Orgtree skill library is also called the glossary or Orgtree
+  Encyclopaedia (encyclopedia). These are equivalent terms; keep the library
+  name and `orgtree-working`/`orgtree-app` category IDs. Root descriptions,
+  the tree manifest, agent introduction and Refresh tooltip carry the aliases.
+  [decided: user 2026-10-16; verified: `runtime/identity.rs`, `docs/skills/tree.json`,
+  `canvas/modals.tsx`]
+
 - Working checkups depend on current `working` status and more than 20 minutes
   of inactivity, with no docket requirement (user 2026-10-16; replaces the
   2026-09-10 actionable-work gate). Docket reminders are independent and keep
