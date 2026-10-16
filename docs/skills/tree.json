@@ -3179,13 +3179,14 @@
     "screen:draft-node",
     "screen:draft-scope-modal"
    ],
-   "purpose": "Hiring from the canvas: spawn chips, the draft card and its pre-hire permissions modal.",
+   "purpose": "Hiring from the canvas: spawn chips, the draft card's model picker and its pre-hire permissions modal.",
    "must_cover": [
     "fields and defaults",
-    "how it maps to orgtree_hire"
+    "how it maps to orgtree_hire",
+    "model icon choices before initialization and preservation of draft fields"
    ],
    "sources": [
-    "apps/desktop/renderer/src/canvas/cards.tsx:1023",
+    "apps/desktop/renderer/src/canvas/cards.tsx#DraftNode",
     "apps/desktop/renderer/src/canvas/cards.tsx:648",
     "apps/desktop/renderer/src/canvas/modals.tsx:563",
     "apps/desktop/renderer/src/canvas/newproject.tsx",

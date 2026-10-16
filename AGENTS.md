@@ -56,6 +56,13 @@
   [decided: user 2026-10-16; verified: `main/jumplist.ts`, `main/index.ts`;
   contract and verification limits: `docs/rust-engine/taskbar-jumplist.md`]
 
+- An uninitialized manual hire's model icon opens the shared hire-tier menu.
+  Picking a tier changes the local draft only: preserve form and placement,
+  drop incompatible account bindings and map known effort levels as the bar
+  does. Final Hire submits that tier through the existing admission gate.
+  [decided: user 2026-10-16 10:54Z; verified: `canvas/cards.tsx`, `canvas/OrgCanvas.tsx`;
+  contract: `docs/rust-engine/draft-model-picker.md`]
+
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;

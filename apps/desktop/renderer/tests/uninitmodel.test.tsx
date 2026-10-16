@@ -51,11 +51,11 @@ test('draft model picker', { timeout: 30000 }, async t => {
     assert.ok(v.el.querySelector('.df-head button.tier.t-sol'), 'selected icon changes')
     await click(v.el.querySelector('.df-foot button.primary'))
     assert.equal(ops.length, 1)
-    assert.equal(ops[0].op, 'hire')
-    assert.equal(ops[0].tier, 'sol')
-    assert.equal(ops[0].grant, 12)
-    assert.equal(ops[0].charter, 'Keep these standing notes.')
-    assert.equal(ops[0].parent, null)
+    assert.equal(ops[0]!.op, 'hire')
+    assert.equal(ops[0]!.tier, 'sol')
+    assert.equal(ops[0]!.grant, 12)
+    assert.equal(ops[0]!.charter, 'Keep these standing notes.')
+    assert.equal(ops[0]!.parent, null)
   })
 
   await t.test('Escape dismisses the picker and leaves the uninitialized hire intact', async t => {
@@ -73,6 +73,41 @@ test('draft model picker', { timeout: 30000 }, async t => {
     })
     assert.equal(document.querySelector('[role="menu"]') === null, true)
     assert.equal(cancelled, false, 'picker Escape must not cancel the draft')
+  })
+
+  await t.test('a subordinate keeps placement and permissions while dropping a previous-provider account', async t => {
+    useFakeClock(); installFetch(new FakeServer())
+    const ops: Record<string, unknown>[] = []
+    const branch = { ...tree, roots: [{
+      id: 'boss', title: 'boss', tier: 'haiku', state: 'live', children: [],
+      seat: 1, grant: 30, free: 30, cost_usd: 0, occupancy: null, turns: [],
+      frozen: null, last_denials: [], audiences_held: [], lineage: [], generation: 0,
+      scope: { permission_mode: 'default', add_dirs: [], tools: { bash: false }, org_visibility: 'team' },
+    }] } as unknown as TreePayload
+    const v = await mountView(<OrgCanvas tree={branch} slug={tree.slug} toast={noop} mailEvt={null}
+      op={async o => { ops.push(o); return { node: 'kept-child' } }} />, el => el)
+    t.after(async () => { await v.unmount(); resetConvos(); realClock() })
+    const boss = [...v.el.querySelectorAll('.sq:not(.user)')].find(el => el.querySelector('.name')?.textContent === 'boss')
+    assert.ok(boss)
+    await click(boss.querySelector('.hsof:not(.side) button.t-haiku'))
+    await advance(200)
+    await type(v.el.querySelector('.df-name'), 'kept-child')
+    await click(v.el.querySelector('.df-gear'))
+    const visibility = document.querySelector('select[aria-label="Visible agents"]') as HTMLSelectElement
+    assert.ok(visibility)
+    await act(async () => { visibility.value = 'self'; visibility.dispatchEvent(new Event('change', { bubbles: true })); await flush() })
+    await click([...document.querySelectorAll('button')].find(b => b.textContent === 'apply') ?? null)
+    await click(v.el.querySelector('.df-head button.tier'))
+    await click(menuItem('sol'))
+    await click(v.el.querySelector('.df-foot button.primary'))
+    assert.equal(ops.length, 1)
+    assert.equal(ops[0]!.tier, 'sol')
+    assert.equal(ops[0]!.parent, 'boss')
+    assert.equal(ops[0]!.grant, 0)
+    assert.equal(ops[0]!.org_visibility, 'self')
+    assert.equal((ops[0]!.tools as { bash: boolean }).bash, false)
+    assert.deepEqual(ops[0]!.add_dirs, [])
+    assert.equal('account' in ops[0]!, false, 'a staged Claude account must not reach a Codex hire')
   })
 
   await t.test('picker follows existing provider offer gates and cannot choose a disabled model', async t => {

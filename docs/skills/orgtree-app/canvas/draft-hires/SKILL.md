@@ -12,6 +12,7 @@ The dashed draft says uninitialized because no live seat exists yet. It shows th
 
 | Draft control | Staged behavior |
 | --- | --- |
+| Model icon | Click to open the model/tier menu. Pick a model to replace the proposed hire's tier; name, charter/presets, grant and placement stay. Availability and refusal reasons follow the regular hire choices. No seat or running agent changes until Hire. Escape closes this menu first. |
 | Name | Starts empty; the first chosen charter preset can fill an empty name, still editable. |
 | Charter presets | Named source files shown as removable cards; their text is prepended to manual charter text only when finalized. Loading errors have Retry; a bounded preset warns how much was omitted. |
 | Grant bar | The draft's allocation editor. Opening grant comes from draft/org defaults, not a universal fixed number. It is bounded by the org cap or available parent room when hire cascade is off. |
@@ -25,6 +26,8 @@ The initial proposal uses the parent's scope when present, otherwise organizatio
 Effort choices follow the chosen tier and, for Muse, the selected login's model catalog. Account choices follow the provider and warmed staffing offers; Use machine default clears a manual selection. Stale/unavailable offers can still be refused at final admission. MCP can select all registered current/future servers or individual discovered servers, with a refresh control. These are proposed grants, bounded by inherited capability.
 
 Apply returns to the draft; only final Hire creates the seat. The final engine operation supplies the placement and chosen scope as a human action. For agent-side explicit fields, funding and kickoff, see `orgtree-tool-hire` (orgtree-working › team) and `orgtree-hiring` (orgtree-working › team). Do not infer that creating a seat starts a task: task/assignment mail is a separate concern.
+
+Changing the model keeps staged folders, tools and visibility. An account belonging to another provider, or excluded by the target model's known staffing offers, returns to automatic placement. A known unsupported effort maps to the highest supported level at or below it, otherwise the lowest; models with no effort setting inherit. Open Draft permissions to choose again. Final Hire still validates current accounts, model support and credits.
 
 Default-setting details belong to [Hire defaults: scope](../../org-settings/org-hire-defaults-scope/SKILL.md), [folders](../../org-settings/org-hire-defaults-folders/SKILL.md) and [tools](../../org-settings/org-hire-defaults-tools/SKILL.md), rather than a copied price/default table here.
 

@@ -309,6 +309,11 @@ jump list has Home, New org and current organizations. Org entries use the
 existing per-org window route; the native app feed updates names and membership.
 See [`taskbar-jumplist.md`](taskbar-jumplist.md).
 
+Uninitialized manual hires let the user change the proposed model by clicking
+the draft's model icon (user 2026-10-16 10:54Z). This changes only the local
+draft; the final Hire uses the selected tier and existing admission checks.
+See [draft model picker](draft-model-picker.md).
+
 Popout Close addition (user 2026-10-13): native modal-window Close dismisses
 its surface instead of reopening it in main. Explicit Pop in returns it.
 Persistent desk content is retained without native Close activating a missing

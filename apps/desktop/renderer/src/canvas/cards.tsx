@@ -29,7 +29,7 @@ import {
   USER_H, USER_W, useAgentShortcuts, Z_MAX, Z_MINI,
 } from './shared'
 import type {
-  AttentionPip, CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
+  AttentionPip, CanvasNode, DraftScope, DraftState, HireProviders, HireState, MailLinkFn, OpFn, Pile,
   WorkLinkFn,
   Pt,
 } from './shared'
@@ -43,7 +43,7 @@ import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { AgentBatchHaltConfirm, AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
-import { hireTierChoices } from './shared'
+import { hireTierChoices, museEffortLevels } from './shared'
 import { scratchFolderAction } from '../scratch-folder'
 import type { RetireKind } from './agentmenu'
 import { BulkCompactConfirm, allAgents } from './bulkcompact'
@@ -53,6 +53,8 @@ import { AgentName, TierChip } from './identity'
 import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
 import { firstUseName, useFirstUse } from './firstuse'
+import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
+import { EFFORT_LEVELS } from './effortlevels'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -1024,6 +1026,9 @@ interface DraftNodeProps {
   onConfirm: (name: string, grant: number, charter: string,
     scope: DraftScope | null) => void
   onCancel: () => void
+  /** Changes only this local proposal; the final Hire submits the chosen tier. */
+  onTierChange?: (tier: string) => void
+  hires?: HireProviders
   /** told the pending grant whenever it changes (and on mount): the canvas
    *  keeps the org inbox clear of this card's credit bar */
   onGrant?: (grant: number) => void
@@ -1052,7 +1057,7 @@ export function presetLabels(presets: CharterPreset[]): Map<string, string> {
 }
 
 export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
-  tree, zoom, pxc, onConfirm, onCancel, onGrant }: DraftNodeProps) {
+  tree, zoom, pxc, onConfirm, onCancel, onGrant, onTierChange, hires = {} }: DraftNodeProps) {
   const [name, setName] = useState('')
   useEffect(() => { firstUseName(tree.slug, name) }, [tree.slug, name])
   const [charter, setCharter] = useState('')
@@ -1061,6 +1066,39 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   // adjustment needed. null = the org/parent defaults, untouched.
   const [scope, setScope] = useState<DraftScope | null>(null)
   const [permsOpen, setPermsOpen] = useState(false)
+  const modelMenu = useContextMenu()
+  const modelButton = useRef<HTMLButtonElement | null>(null)
+  const museHire = useMuseHire()
+  useShowLegacyModels()
+  const chooseModel = (tier: string) => {
+    if (tier === draft.tier) return
+    // Folders, tools and visibility are independent of the model. Only discard
+    // an account the new provider/model cannot use; map a known unsupported
+    // effort just as the effort bar does, rather than submit an invalid hire.
+    setScope(current => {
+      if (!current) return current
+      const next = { ...current }
+      const offer = peekStaffingOptions(tree.slug)?.tiers.find(t => t.tier === tier)
+      if (providerOf(tier) !== providerOf(draft.tier)
+          || (next.account && offer && !offer.accounts.some(a => a.value === next.account || a.id === next.account))) {
+        delete next.account
+      }
+      const levels = MUSE_TIERS.includes(tier)
+        ? museEffortLevels(tier, null, next.account || null) : tierEffortLevels(tree.slug, tier)
+      if (next.effort && levels && !levels.includes(next.effort)) {
+        const ranked = EFFORT_LEVELS.filter(l => levels.includes(l))
+        next.effort = ranked.filter(l => EFFORT_LEVELS.indexOf(l) <= EFFORT_LEVELS.indexOf(next.effort!)).at(-1)
+          ?? ranked[0] ?? ''
+      }
+      if (tier !== 'luna') delete next.prefer_reserve
+      return next
+    })
+    onTierChange?.(tier)
+  }
+  // A menu's own Escape consumes the key before this draft's cancel listener.
+  // Reanchor after the tier button updates so normal menu focus restoration
+  // continues to target the live icon.
+  useEffect(() => { modelMenu.reanchor(modelButton.current) }, [draft.tier, modelMenu.reanchor])
   // named charter presets (user ruling): every .md in docs/charters/. Picked
   // presets appear as CARDS, not text (user spec) — click removes, hover
   // shows the source file's path on disk; only finalizing the hire turns
@@ -1137,7 +1175,16 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
               the same height with equal gaps (user ruling); the gear is
               always visible and stages the pre-hire permissions */}
           <div className="df-head">
-            <span className={'tier t-' + draft.tier} title={tierLabel(draft.tier)}>{TIER_LETTER[draft.tier]}</span>
+            <button ref={modelButton} type="button" className={'tier df-model t-' + draft.tier}
+              aria-label={`Change model (${tierLabel(draft.tier)})`} aria-haspopup="menu" aria-expanded={modelMenu.isOpen}
+              title={`${tierLabel(draft.tier)} — change the model to hire`} disabled={!onTierChange}
+              onClick={e => modelMenu.open(e, hireTierChoices({ ...hires, museHire: hires.museHire ?? museHire })
+                .map(({ tier, offer, reason }) => ({
+                  label: `${tier === draft.tier ? '✓ ' : ''}${tierLabel(tier)} · ${fmtCredits(seats[tier] ?? anyTierSeat(tier))} seat`
+                    + (offer === 'offer' ? '' : ` — ${reason}`),
+                  title: offer === 'offer' ? `Hire on ${tierLabel(tier)}` : reason,
+                  disabled: offer !== 'offer', onSelect: () => chooseModel(tier),
+                })), e.currentTarget)}>{TIER_LETTER[draft.tier]}</button>
             <input className="df-name" placeholder="name…" value={name}
               // focus WITHOUT scroll: autoFocus on an element inside the
               // world transform made the browser scroll the overflow:hidden
@@ -1236,6 +1283,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
           onSave={(s) => { setScope(s); setPermsOpen(false) }}
           close={() => setPermsOpen(false)} />
       )}
+      {modelMenu.node}
     </div>
   )
 }

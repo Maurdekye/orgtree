@@ -3917,6 +3917,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               defaultTop={tree.default_top_grant ?? 50} tree={tree}
               zoom={view.z} pxc={pxPerCredit}
               onConfirm={confirmDraft} onCancel={cancelDraft}
+              onTierChange={tier => setDraft(current => current ? { ...current, tier } : null)}
+              hires={{ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire }}
               onGrant={setDraftGrant} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
