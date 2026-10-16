@@ -243,7 +243,7 @@ test('§3c retiring a project with live agents under it asks for the team retire
 // USER 2026-10-16 20:23Z: docket items may attach to a project; every agent
 // under it co-owns them, and the project's desk lists its attached items.
 
-test('§4a a project's menu opens its docket when the surface offers one', () => {
+test("§4a a project's menu opens its docket when the surface offers one", () => {
   let opened = 0
   const open = projectMenuEntries(project(), handlers({ onDocket: () => { opened++ } }), {})[0]
   assert.ok(open !== 'sep')
