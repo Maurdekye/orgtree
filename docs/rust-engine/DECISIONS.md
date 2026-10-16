@@ -25,6 +25,13 @@ and unchanged human-visible transcript UI (ma67dfed0accb). This refines decision
 64's summary contents and ordering; the one-time snapshot remains outside startup
 fingerprints. See [recovery commands](recovery-commands.md).
 
+**Windows taskbar jump list, user 2026-10-16 15:43Z; staffed 20:24Z for
+4.4.0 only:** right-clicking the taskbar icon lists the current organizations,
+Home and New org. Every entry opens the right view in the running app through
+single-instance handoff; additions, removals and renames update the list.
+Existing switcher slug order and canonical org-window focus are retained.
+Contract and verification limits: [`taskbar-jumplist.md`](taskbar-jumplist.md).
+
 **Independent active-agent filters, user 2026-10-16 13:35Z:** the canvas Agents
 list, Quick chat superior picker, and dynamic Attention desk each have their own
 persisted "active only" setting. The two new settings default off so an upgrade

@@ -73,6 +73,31 @@ test('development tasks quote the app path and reject unsafe org identifiers', (
   const items = tasks[0].items.filter(item => item.type === 'task')
   assert.deepEqual(plain(items.map(i => i.title)), ['Home', 'New org', 'ok'])
   assert.equal(items[2].args, '"D:\\Source With Spaces\\orgtree" --orgtree-taskbar=org:ok')
+  assert.ok(taskbarTasks([{ slug: 'long', name: 'a'.repeat(500) }], 'app.exe')[0].items.at(-1).description.length <= 260)
+})
+
+test('native shell updates only for changed contents and remains Windows-only', () => {
+  const start = source.indexOf("  let taskbarContents = ''")
+  const end = source.indexOf('  /** ⚠ THE EVENTS', start)
+  assert.ok(start >= 0 && end > start)
+  const writes = [], warnings = []
+  const ctx = vm.createContext({
+    taskbarTasks, process: { platform: 'win32', execPath: 'app.exe' },
+    app: { isPackaged: true, setJumpList: list => { writes.push(plain(list)); return 'ok' } },
+    console: { warn: (...args) => warnings.push(args) },
+  })
+  vm.runInContext(transformSync(source.slice(start, end) + '\nglobalThis.refresh = refreshTaskbar', { loader: 'ts' }).code, ctx)
+  ctx.refresh([]); ctx.refresh([])
+  assert.equal(writes.length, 1)
+  ctx.refresh([{ slug: 'a', name: 'Alpha' }]); ctx.refresh([{ slug: 'a', name: 'Alpha' }])
+  ctx.refresh([{ slug: 'a', name: 'Renamed' }]); ctx.refresh([])
+  assert.equal(writes.length, 4, 'add/rename/remove each update once')
+  ctx.process.platform = 'linux'; ctx.refresh([{ slug: 'b', name: 'B' }])
+  assert.equal(writes.length, 4)
+  ctx.process.platform = 'win32'; ctx.app.setJumpList = () => { throw new Error('shell unavailable') }
+  assert.doesNotThrow(() => ctx.refresh([{ slug: 'b', name: 'B' }]))
+  ctx.refresh([{ slug: 'b', name: 'B' }])
+  assert.equal(warnings.length, 1, 'a refused list cannot flood logs on every feed pulse')
 })
 
 const source = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
@@ -113,6 +138,7 @@ test('second-instance and cold launch queue the requested view until window rout
 test('shipping wiring publishes feed changes and preserves installer control priority', () => {
   for (const pattern of [/if \(hasInstallerUpgradeRequest\(commandLine\)\)[^\n]+return/,
     /if \(acceptTaskbar\(commandLine\)\) return/, /await drainTaskbar\(\)/,
-    /taskbarOrgs\(appFeed\.state\)/, /app\.setJumpList\(/])
+    /taskbarOrgs\(appFeed\.state\)/, /app\.setJumpList\(/,
+    /args: process\.argv\.slice\(1\)\.filter\(arg => !arg\.startsWith\('--orgtree-taskbar='/])
     assert.equal(pattern.test(source), true, String(pattern))
 })

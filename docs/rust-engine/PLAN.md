@@ -304,6 +304,11 @@ toast saying this engine does not support it.
 
 ### B. Organizations and canvas
 
+Windows taskbar addition (user 2026-10-16, 4.4.0): the icon's right-click
+jump list has Home, New org and current organizations. Org entries use the
+existing per-org window route; the native app feed updates names and membership.
+See [`taskbar-jumplist.md`](taskbar-jumplist.md).
+
 Popout Close addition (user 2026-10-13): native modal-window Close dismisses
 its surface instead of reopening it in main. Explicit Pop in returns it.
 Persistent desk content is retained without native Close activating a missing

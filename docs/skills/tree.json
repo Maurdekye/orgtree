@@ -3040,6 +3040,7 @@
    "covers": [
     "screen:tray",
     "screen:tray-menu",
+    "screen:taskbar",
     "screen:popout-windows",
     "screen:mockup-viewer",
     "screen:conversion-window",
@@ -3048,6 +3049,7 @@
    "purpose": "Main-process surfaces: the tray icon and menu, popout windows, mockup viewer, data-conversion window and native dialogs.",
    "must_cover": [
     "every tray menu item",
+    "Windows taskbar Home, New org and current organization tasks",
     "popout windows"
    ],
    "sources": [
@@ -3057,7 +3059,8 @@
     "apps/desktop/main/windows.ts:81",
     "apps/desktop/main/index.ts:2222",
     "apps/desktop/main/conversion-window.ts:21",
-    "apps/desktop/main/editmenu.ts:114"
+    "apps/desktop/main/editmenu.ts:114",
+    "apps/desktop/main/jumplist.ts"
    ],
    "see_also": [
     "app-runtime-desktop",

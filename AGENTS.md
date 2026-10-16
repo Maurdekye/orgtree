@@ -48,6 +48,14 @@
   [recovery commands](docs/rust-engine/recovery-commands.md).
   [decided: coordinator 2026-10-16; verified: `runtime/convo.rs`]
 
+- Windows taskbar user tasks list Home, New org and active orgs in switcher
+  slug order. The native app feed updates names/membership; unchanged contents
+  never rewrite the shell list. Strict `--orgtree-taskbar=` navigation queues
+  until window routing is ready, including single-instance handoffs; orgs use
+  their canonical window and relaunches drop the one-shot navigation argument.
+  [decided: user 2026-10-16; verified: `main/jumplist.ts`, `main/index.ts`;
+  contract and verification limits: `docs/rust-engine/taskbar-jumplist.md`]
+
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;

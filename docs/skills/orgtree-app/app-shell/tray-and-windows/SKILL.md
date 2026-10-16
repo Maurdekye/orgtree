@@ -9,6 +9,8 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 Clicking the tray icon toggles its organization activity list. Double-clicking when no window is visible opens the last-used organization or homepage. Right-click opens the native tray menu.
 
+On Windows, right-clicking the **taskbar** icon offers **Home**, **New org** and the current organizations. Home opens a homepage window; New org opens the organization creation view. An org entry focuses that org's existing window or opens its own window. Entries follow the org switcher's slug order, exclude trashed orgs and update when organizations are added, removed or renamed. They also work when the app is closed or still starting: a launch hands its destination to the single running app. Windows controls the taskbar menu's layout and available space.
+
 | Menu entry | Action |
 |---|---|
 | Update status / Update now | Shows progress or applies a downloaded update when offered |

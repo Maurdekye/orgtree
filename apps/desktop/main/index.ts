@@ -44,6 +44,7 @@ import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../.
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
+import { taskbarOrgs, taskbarTarget, taskbarTasks, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
@@ -87,7 +88,7 @@ const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refus
  *  inside this run's mount (see appImageRelaunch). Called before app.quit()
  *  or app.exit(), like app.relaunch(). `args` are for the AppImage only. */
 const relaunchApp = (args: string[] = []) => {
-  if (!linuxAppImage) return app.relaunch()
+  if (!linuxAppImage) return app.relaunch({ args: process.argv.slice(1).filter(arg => !arg.startsWith('--orgtree-taskbar=')) })
   const command = appImageRelaunch(linuxAppImage, process.pid, args)
   const child = spawnProcess(command.file, command.args, { detached: true, stdio: 'ignore', cwd: os.homedir(), env: appImageRelaunchEnv(process.env) })
   child.on('error', error => console.warn('The AppImage could not be relaunched', error))
@@ -463,6 +464,54 @@ else {
     if (record) { revealWindow(record); return }
     const created = await createMainWindow?.({ kind: 'homepage' })
     if (created) revealWindow(created)
+  }
+  // Taskbar navigation can arrive while the engine and window routes are
+  // still starting. Keep cold-launch and second-instance requests in order;
+  // readiness, not a timeout, releases them to the canonical window router.
+  const initialTaskbar = taskbarTarget(process.argv)
+  const pendingTaskbar: TaskbarTarget[] = initialTaskbar ? [initialTaskbar] : []
+  let taskbarReady = false
+  let taskbarDraining: Promise<void> | undefined
+  const drainTaskbar = (): Promise<void> => {
+    taskbarReady = true
+    if (taskbarDraining) return taskbarDraining
+    taskbarDraining = Promise.resolve().then(async () => {
+      while (pendingTaskbar.length && !quitting && !installerUpgradeShutdown) {
+        const target = pendingTaskbar.shift()!
+        try {
+          if (target.kind === 'org') await requestOrgWindow(target.slug, null)
+          else {
+            const record = await createMainWindow?.({ kind: target.kind })
+            if (record) revealWindow(record)
+          }
+        } catch (error) { console.warn('The taskbar destination could not be opened', error) }
+      }
+    }).finally(() => {
+      taskbarDraining = undefined
+      if (pendingTaskbar.length && !quitting && !installerUpgradeShutdown) void drainTaskbar()
+    })
+    return taskbarDraining
+  }
+  const acceptTaskbar = (argv: readonly string[]): boolean => {
+    const target = taskbarTarget(argv)
+    if (!target) return false
+    if (!quitting && !installerUpgradeShutdown) pendingTaskbar.push(target)
+    if (taskbarReady) void drainTaskbar()
+    return true
+  }
+  let taskbarContents = ''
+  const refreshTaskbar = (orgs: readonly TaskbarOrg[]) => {
+    if (process.platform !== 'win32') return
+    const categories = taskbarTasks(orgs, process.execPath, app.isPackaged ? undefined : app.getAppPath())
+    const next = JSON.stringify(categories)
+    if (next === taskbarContents) return
+    // Do not rewrite the shell menu on agent activity/attention changes, or
+    // flood warnings if the shell refuses this exact list. Retry a new list.
+    taskbarContents = next
+    try {
+      const result = app.setJumpList(categories)
+      if (result !== 'ok') console.warn('The taskbar menu could not be updated:', result)
+    } catch (error) { console.warn('The taskbar menu could not be updated', error) }
   }
   /** ⚠ THE EVENTS A WINDOW CANNOT ASK FOR AGAIN, and therefore the only ones
    *  worth holding. A window's control state, its popout state and whether it
@@ -1606,6 +1655,7 @@ else {
     // request. It reaches the primary instance, whose dedicated refusal-safe
     // lifecycle stops the engine and persists layout before exit.
     if (hasInstallerUpgradeRequest(commandLine)) { void requestInstallerUpgradeShutdown(); return }
+    if (acceptTaskbar(commandLine)) return
     // An ordinary second launch is the user asking for the application they
     // already have: restore what they were last in, exactly as a tray
     // double-click does, rather than picking a window arbitrarily.
@@ -1772,6 +1822,7 @@ else {
     loginPreference()
     void reconcileRunOnStartup()
     tray = new Tray(runtimeIcon())
+    refreshTaskbar([])
     // primary click = the org activity list; double-click keeps opening the
     // app itself (second click of the pair dismisses the just-shown popup)
     tray.on('click', (_event, iconBounds) => { void showTrayList(iconBounds) })
@@ -2593,11 +2644,17 @@ else {
         }
         return first
       }
-      const first = await openStartupWindows()
+      const taskbarLaunch = pendingTaskbar.length > 0
+      if (taskbarLaunch) await drainTaskbar()
+      const first = (taskbarLaunch ? lastUsed() ?? [...records.values()][0] : undefined) ?? await openStartupWindows()
+      // A second process may have handed off a task while startup awaited a
+      // document load. Routes exist now; release those requests too.
+      await drainTaskbar()
       engineReady = true
       let noticeSet = ''
       const appFeed = nativeAppFeed(engine, () => {
         if (quitting || installerUpgradeShutdown || appFeed.status !== 'current') return
+        refreshTaskbar(taskbarOrgs(appFeed.state))
         const total = appFeed.state.attentionTotal()
         if (total !== attentionTotal) { attentionTotal = total; rebuildTray() }
         const next = JSON.stringify(appFeed.state.allNotices())
