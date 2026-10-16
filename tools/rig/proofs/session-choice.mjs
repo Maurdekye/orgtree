@@ -8,16 +8,24 @@
 // the user's sign-in comes from the core monitor's debug-rig stand-in.
 //   1. sign-in (helper A comes up): ann's running Session 0 turn takes the
 //      [ORGTREE SIGN-IN NOTICE] at its next tool boundary; idle flo gets it
-//      passively, no turn; dee (prefers Session 0) is told she stays; eve's
-//      watchdog on session.signed_in fires; cal (working, no docket work,
-//      idle) gets its checkup at once, and it runs in A's session;
+//      passively, no turn; dee (prefers Session 0) is told she stays; eve,
+//      who picked Session 0 for her next turn (`use` 0), is told that, and
+//      her watchdog on session.signed_in fires a turn that runs there; cal
+//      (working, no docket work, idle) gets its checkup at once, and it runs
+//      in A's session;
 //   2. keepalive: A killed while the user stays signed in; the engine starts
 //      A's task after 30 s (the task the proof names), and A hosts again;
 //   3. two sessions: orgtree_session lists Session 0, A's session and 7;
 //      ann prefers "remote" and restarts: her new turn runs under helper B;
 //      she picks Session 0 on demand and restarts: the engine starts it; dee
 //      stays in Session 0 throughout;
-//   4. sign-out (stand-in signed out, helpers killed): idle flo gets the
+//   4. one of two sessions ends (rig-sol-b's finding on 0bc97a4): ann
+//      prefers "remote,console"; helper B dies during her turn in session 7
+//      while A stays: the turn stops as "the user's Windows session ended",
+//      ONE new turn starts by itself within seconds, under A (placed as
+//      usual), with one codex-session-ended line and no sign-out notice; with
+//      B back, a turn ann ends herself as B dies again is not resumed;
+//   5. sign-out (stand-in signed out, helpers killed): idle flo gets the
 //      [ORGTREE SIGN-OUT NOTICE] passively.
 // Run it like session-upgrade.mjs (a rig home the descriptor's trust check
 // accepts):
@@ -44,6 +52,7 @@ const pidsOf = exe => (ps(`(Get-Process orgtree-credential-broker -ErrorAction S
   .split(/\s+/).filter(Boolean).map(Number)
 const ASK = { tool: 'orgtree_session', args: {} }
 const RESTARTED = 'You ended your previous turn yourself'
+const CONTINUE = 'Windows session ended while you were working'
 const restart = name => ({ tool: 'orgtree_interrupt', args: { node: name, restart: true } })
 
 export default async function (rig) {
@@ -61,6 +70,10 @@ export default async function (rig) {
         { name: 'wait', match: ['PROOF-WAIT'], once: true, steps: [{ poll_mail: { every_ms: 1000, timeout_ms: 120000 } }, { text: 'OK.' }] },
         { name: 'remote', match: ['PROOF-REMOTE'], once: true, steps: [{ tool: 'orgtree_session', args: { prefer: 'remote' } }, restart('ann'), { sleep_ms: 60000 }] },
         { name: 'zero', match: ['PROOF-ZERO'], once: true, steps: [{ tool: 'orgtree_session', args: { use: 0 } }, restart('ann'), { sleep_ms: 60000 }] },
+        { name: 'order', match: ['PROOF-ORDER'], once: true, steps: [{ tool: 'orgtree_session', args: { prefer: 'remote,console' } }, { text: 'OK.' }] },
+        { name: 'long', match: ['PROOF-LONG'], once: true, steps: [{ sleep_ms: 90000 }, { text: 'OK.' }] },
+        { name: 'resumed', match: [CONTINUE], steps: [ASK, { text: 'OK.' }] },
+        { name: 'quit', match: ['PROOF-QUIT'], once: true, steps: [{ tool: 'orgtree_interrupt', args: { node: 'ann' } }, { sleep_ms: 60000 }, { text: 'OK.' }] },
         { name: 'ask', match: ['PROOF-ASK'], steps: [ASK, { text: 'OK.' }] },
       ] },
       cal: { turns: [
@@ -70,7 +83,8 @@ export default async function (rig) {
       ] },
       eve: { turns: [
         { name: 'dog', match: ['PROOF-DOG'], once: true, steps: [
-          { tool: 'orgtree_watchdog', args: { action: 'create', kind: 'event', target: 'session.signed_in', once: true, name: 'signin' } }, { text: 'OK.' }] },
+          { tool: 'orgtree_watchdog', args: { action: 'create', kind: 'event', target: 'session.signed_in', once: true, name: 'signin' } },
+          { tool: 'orgtree_session', args: { use: 0 } }, { text: 'OK.' }] },
       ] },
       dee: { turns: [{ name: 'ask', match: ['PROOF-ASK'], steps: [ASK, { text: 'OK.' }] }] },
     },
@@ -81,6 +95,9 @@ export default async function (rig) {
   const results = (name, tool) => rig.fakeLog(name).filter(l => l.kind === 'tool_result' && l.tool === tool)
   const prompts = name => rig.fakeLog(name).filter(l => l.kind === 'turn').map(l => l.prompt ?? '')
   const lines = re => rig.engineLog().split(/\r?\n/).filter(l => re.test(l))
+  const killRecord = () => { try { return fs.readFileSync(path.join(rig.data, 'diagnostics', 'logs', 'codex-kills.log'), 'utf8') } catch { return '' } }
+  const wakes = name => rig.sql(`SELECT m.id FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
+    WHERE a.name = '${name}' AND m.body LIKE '%${CONTINUE}%'`).length
   const of = (name, re) => lines(re).filter(l => l.includes(`/${name} `))
   const started = name => of(name, /CLI started/).at(-1) ?? ''
   const pidIn = l => Number((l.match(/ pid=(\d+)/) ?? [])[1] ?? 0)
@@ -137,9 +154,9 @@ export default async function (rig) {
     // the sign-in checkup needs no docket work (the coordinator's correction of 2c, 2026-10-16 13:03Z)
     const calStatus = results('cal', 'orgtree_status').at(-1)
     const calWork = rig.sql(`SELECT w.slug FROM ot.work_items w JOIN ot.agents a ON a.id = w.owner_agent_id WHERE a.name = 'cal'`)
-    p.check('0 eve armed a watchdog on session.signed_in; cal reported working and owns no docket item',
-      !results('eve', 'orgtree_watchdog').at(-1)?.is_error && calStatus && !calStatus.is_error && calWork.length === 0,
-      { dog: results('eve', 'orgtree_watchdog').at(-1), status: calStatus, work: calWork })
+    p.check('0 eve armed a watchdog on session.signed_in and picked Session 0 for her next turn; cal reported working and owns no docket item',
+      !results('eve', 'orgtree_watchdog').at(-1)?.is_error && answers('eve').at(-1)?.use === 0 && calStatus && !calStatus.is_error && calWork.length === 0,
+      { dog: results('eve', 'orgtree_watchdog').at(-1), eve: answers('eve').at(-1), status: calStatus, work: calWork })
     p.check('0 dee prefers Session 0 (set in Agent settings) and orgtree_session reports it', answers('dee').at(-1)?.preference === 'session0', answers('dee').at(-1))
     // the watcher starts reading 15 s after the engine's start
     await sleep(Math.max(0, 16000 - (Date.now() - t0)))
@@ -165,6 +182,10 @@ export default async function (rig) {
     p.check('1 dee was told her preference keeps her in Session 0', deeNote.length === 1 && /keeps your next turn in Windows Session 0/.test(deeNote[0].body), deeNote)
     p.check("1 eve's watchdog on session.signed_in woke her", rig.turns('eve').length > counts.eve && prompts('eve').at(-1)?.includes('signin'),
       { turns: rig.turns('eve').length - counts.eve, prompt: prompts('eve').at(-1)?.slice(-400) })
+    const eveNote = mail('eve', '[ORGTREE SIGN-IN NOTICE]%')
+    p.check('1 eve, who picked Session 0 for her next turn, was told so, and her woken turn ran in Session 0',
+      eveNote.length === 1 && /you picked Windows Session 0 for your next turn/.test(eveNote[0].body) && parentOf(pidIn(started('eve'))) === engine,
+      { eveNote, line: started('eve') })
     const checkup = rig.sql(`SELECT m.id FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
       WHERE a.name = 'cal' AND m.ev->>'variant' = 'reminder.working_checkup'`)
     await quiet('the sign-in turns to end')
@@ -207,7 +228,47 @@ export default async function (rig) {
     await turn('dee', 'PROOF-ASK')
     p.check('3 dee stays in Session 0 with both helpers up', parentOf(pidIn(started('dee'))) === engine && answers('dee').at(-1)?.this_session === 0, answers('dee').at(-1))
 
-    // ---- 4. sign-out
+    // ---- 4. one of two sessions ends during a turn there
+    await turn('ann', 'PROOF-ORDER')
+    p.check('4 ann prefers remote, then console', JSON.stringify(answers('ann').at(-1)?.preference) === '["remote","console"]', answers('ann').at(-1))
+    const annTurns = rig.turns('ann').length
+    const annWakes = wakes('ann')
+    const outsB = mail('flo', '[ORGTREE SIGN-OUT NOTICE]%').length
+    let logAt = rig.fakeLog('ann').length
+    await rig.userMail('ann', 'PROOF-LONG: the long job, please.')
+    await rig.waitFor(() => rig.fakeLog('ann').slice(logAt).some(l => l.kind === 'step' && l.step?.sleep_ms) || null, { what: 'ann to be mid-turn', timeout: 60000 })
+    const cutPid = pidIn(started('ann'))
+    p.check("4 ann's long turn runs under helper B, in session 7", parentOf(cutPid) === helpers.b.pid, { line: started('ann'), b: helpers.b.pid })
+    kill(helpers.b.pid)
+    const cut = await rig.waitFor(() => { const t = rig.turns('ann')[annTurns]; return t?.ended_at ? t : null }, { what: "ann's cut turn to end", timeout: 30000 })
+    const resumed = await rig.waitFor(() => { const t = rig.turns('ann')[annTurns + 1]; return t?.ended_at ? t : null }, { what: "ann's resumed turn", timeout: 60000 })
+    const gap = Date.parse(resumed.started_at) - Date.parse(cut.ended_at)
+    p.check('4 B died while A stays: the cut turn stopped as "the user\'s Windows session ended", and one new turn started by itself within 15 s, woken once',
+      cut.error === "the user's Windows session ended" && gap >= 0 && gap < 15000 && wakes('ann') === annWakes + 1, { cut, resumed, gapMs: gap, wakes: wakes('ann') - annWakes })
+    p.check("4 the new turn was placed as usual: under helper A (no remote session left, console next), and its answer says so",
+      parentOf(pidIn(started('ann'))) === helpers.a.pid && answers('ann').at(-1)?.this_session === realA, { line: started('ann'), a: helpers.a.pid, answer: answers('ann').at(-1) })
+    await sleep(10000)
+    const cutLines = killRecord().split(/\r?\n/).filter(l => l.includes('codex-session-ended') && l.includes(`pid=${cutPid} `))
+    p.check('4 exactly once: no further turn for ann, one codex-session-ended line for her CLI, and no sign-out notice while A hosts',
+      rig.turns('ann').length === annTurns + 2 && cutLines.length === 1 && cutLines[0].includes('who="ann"') && mail('flo', '[ORGTREE SIGN-OUT NOTICE]%').length === outsB,
+      { turns: rig.turns('ann').length - annTurns, cutLines, signOut: mail('flo', '[ORGTREE SIGN-OUT NOTICE]%').length - outsB })
+    // the deliberate-end guard: a turn ann ends herself as B dies is not resumed
+    await startHelper('b', { ORGTREE_RIG_HELPER_SESSION: '7' })
+    await rig.waitFor(() => lines(/took the Codex host slot.*session=7|session=7.*took the Codex host slot/).length >= 2 || null, { what: 'B to host session 7 again', timeout: 30000 })
+    const quitTurns = rig.turns('ann').length
+    logAt = rig.fakeLog('ann').length
+    await rig.userMail('ann', 'PROOF-QUIT: end your own turn.')
+    await rig.waitFor(() => rig.fakeLog('ann').slice(logAt).some(l => l.kind === 'tool_result' && l.tool === 'orgtree_interrupt') || null, { what: "ann's own interrupt", timeout: 60000 })
+    const quitPid = pidIn(started('ann'))
+    const quitHost = parentOf(quitPid)
+    kill(helpers.b.pid)
+    await sleep(15000)
+    p.check('4 a turn ann ended herself (under B) as B died again was not resumed: no new turn, no codex-session-ended line for that CLI',
+      quitHost === helpers.b.pid && rig.turns('ann').length === quitTurns + 1 && rig.turns('ann').every(t => t.ended_at)
+      && !killRecord().split(/\r?\n/).some(l => l.includes('codex-session-ended') && l.includes(`pid=${quitPid} `)),
+      { quitHost, b: helpers.b.pid, turns: rig.turns('ann').length - quitTurns, line: started('ann') })
+
+    // ---- 5. sign-out
     await quiet('turns to end before the sign-out')
     const floTurns = rig.turns('flo').length
     // the keepalive's helper death (2) already told everyone once
@@ -217,7 +278,7 @@ export default async function (rig) {
     await rig.waitFor(() => mail('flo', '[ORGTREE SIGN-OUT NOTICE]%').length > outBefore || null, { what: "flo's sign-out notice", timeout: 30000 }).catch(() => null)
     await sleep(5000)
     const out = mail('flo', '[ORGTREE SIGN-OUT NOTICE]%')
-    p.check('4 idle flo got the sign-out notice passively, and no turn', out.length === outBefore + 1 && out.at(-1).state === 'pending'
+    p.check('5 idle flo got the sign-out notice passively, and no turn', out.length === outBefore + 1 && out.at(-1).state === 'pending'
       && rig.turns('flo').length === floTurns, { outBefore, out })
   } finally {
     for (const h of Object.values(helpers)) { for (const pid of pidsOf(h.bin)) kill(pid) }
