@@ -93,8 +93,7 @@ mod win {
         let Some(root) = data_root() else { return ExitCode::from(2) };
         // One broker per session and data root: a second start (a re-run
         // task) just leaves; another data root (a test rig) has its own.
-        let key = root.to_string_lossy().to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
-        let name = wide(&format!("Local\\OrgtreeCredentialBroker-{key:016x}"));
+        let name = wide(&instance_name(&root, rig_session()));
         let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
         if mutex.is_null() || unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
             return ExitCode::SUCCESS;
@@ -106,6 +105,26 @@ mod win {
         let code = runtime.block_on(serve(root));
         unsafe { CloseHandle(mutex) };
         code
+    }
+
+    /// The single-instance mutex (`Local\` is per Windows session): one
+    /// broker per session and data root, the root compared without case.
+    #[nolog]
+    fn instance_name(root: &Path, rig_session: Option<u32>) -> String {
+        let _ = rig_session;
+        let key = root.to_string_lossy().to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+        format!("Local\\OrgtreeCredentialBroker-{key:016x}")
+    }
+
+    /// The other Windows session of the user that a debug rig proof's helper
+    /// stands for (`ORGTREE_RIG_HELPER_SESSION`); never in a release build.
+    #[nolog]
+    fn rig_session() -> Option<u32> {
+        #[cfg(debug_assertions)]
+        if let Some(s) = std::env::var("ORGTREE_RIG_HELPER_SESSION").ok().and_then(|s| s.parse::<u32>().ok()) {
+            return Some(s);
+        }
+        None
     }
 
     /// The desktop's and the boot host's data root: ORGTREE_V2_DATA, else
@@ -302,8 +321,7 @@ mod win {
         let mut body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id(), "caps": ["spawn"], "role": role});
         // a debug rig proof may stand this helper for another Windows session
         // of the user; only a debug rig engine honours it
-        #[cfg(debug_assertions)]
-        if let Some(s) = std::env::var("ORGTREE_RIG_HELPER_SESSION").ok().and_then(|s| s.parse::<u32>().ok()) {
+        if let Some(s) = rig_session() {
             body["rig_session"] = serde_json::json!(s);
         }
         let body = body.to_string();
@@ -731,6 +749,35 @@ mod win {
         match tokio::time::timeout(Duration::from_secs(6), work).await {
             Ok(r) => r,
             Err(_) => Err(format!("{tool}-timeout")),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::instance_name;
+        use std::path::Path;
+
+        /// The production guard, exactly as before: one broker per Windows
+        /// session and data root, the root compared without case.
+        #[test]
+        fn one_helper_per_session_and_data_root() {
+            let live = Path::new(r"C:\Users\u\AppData\Roaming\Orgtree v2\data");
+            assert_eq!(instance_name(live, None), r"Local\OrgtreeCredentialBroker-7e75d96c8619cdd1");
+            assert_eq!(instance_name(Path::new(r"c:\users\U\appdata\roaming\orgtree V2\DATA"), None), instance_name(live, None));
+            assert_ne!(instance_name(Path::new(r"D:\orgtree-rig\runs\x\data"), None), instance_name(live, None));
+        }
+
+        /// A debug rig proof's second helper stands for another of the user's
+        /// sessions inside the same real one (`ORGTREE_RIG_HELPER_SESSION`),
+        /// so it needs an instance of its own. Before, it found the first
+        /// helper's mutex and left at once, silently (rig-sol-b's
+        /// session-choice run at 727cda4: helper B never came up).
+        #[test]
+        fn a_synthetic_session_helper_runs_beside_the_real_one() {
+            let root = Path::new(r"D:\orgtree-rig\runs\x\data");
+            assert_ne!(instance_name(root, Some(7)), instance_name(root, None));
+            assert_ne!(instance_name(root, Some(7)), instance_name(root, Some(8)));
+            assert_eq!(instance_name(root, Some(7)), instance_name(root, Some(7)));
         }
     }
 }
