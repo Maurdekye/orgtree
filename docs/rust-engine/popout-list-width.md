@@ -52,7 +52,7 @@ directory and loopback fixture server and closes both before finishing.
 
 Root TypeScript passes. Strict renderer/test configurations have existing
 diagnostics; `tools/proof-popout-sidebar-types.mjs` compares diagnostics with
-baseline production code overlaid in memory and rejects any diagnostic in
+a separate clean owned baseline worktree and rejects any diagnostic in
 the edited hook or new fixtures. Final counts and receipts live on docket
 `popped-out-panels-don-t-update-sidebar-visibilit`.
 
