@@ -502,30 +502,36 @@ main {
     radial-gradient(circle, var(--canvas-dot) var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px)),
     radial-gradient(circle, var(--canvas-dot) var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px));
 }
-.canvas-bg[data-canvas-bg="square-tiles"] {
+.canvas-bg[data-canvas-bg="checkerboard"] {
   background-image:
     conic-gradient(from 90deg at 50% 50%, var(--canvas-dot) 25%, transparent 0 50%, var(--canvas-dot) 0 75%, transparent 0);
 }
-.canvas-bg[data-canvas-bg="triangle-tiles"] {
-  /* one downward equilateral triangle per tile; the upward triangles are
-     the gaps between tiles. (A two-wedge version measured as diamonds.) */
-  background-image:
-    conic-gradient(from 150deg at 50% 0%, var(--canvas-dot) 60deg, transparent 0);
+/* Outlined tile presets (user 2026-10-16): each tile is drawn as its own
+   closed outlined polygon in its mathematical tiling ({4,4} squares, {3,6}
+   alternating up/down equilateral triangles, {6,3} regular hexagons), inset
+   from the cell boundary so a small even gap separates neighbouring tiles
+   and adjacent tiles share no edges. */
+.canvas-bg[data-canvas-bg="square-tiles"] {
+  background-image: none;
+  background-color: var(--line);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'28'%20height%3D'28'%20viewBox%3D'0%200%2028%2028'%3E%3Cpath%20d%3D'M2.5%202.5%20H25.5%20V25.5%20H2.5%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'28'%20height%3D'28'%20viewBox%3D'0%200%2028%2028'%3E%3Cpath%20d%3D'M2.5%202.5%20H25.5%20V25.5%20H2.5%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
 }
-/* Hexagon themes are SVG masks over a theme-colour fill — gradient stripe
-   families cannot draw them: they produce the whole triangular lattice
-   (measured as diamonds, cube illusions and step columns across capture
-   rounds), never flat hexagons or their outlines. Both masks share one
-   tile geometry (pointy-top, radius 17, tile 17√3 × 51 world px); TILES
-   fills each hexagon inset to 88% so the gaps read as grout. Colour still
-   comes from the theme variable, intensity is still the layer opacity,
-   and size/position still come from canvasbackground.tsx
-   (mask-size/mask-position) — only the geometry needed paths. */
+.canvas-bg[data-canvas-bg="triangle-tiles"] {
+  background-image: none;
+  background-color: var(--line);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'36'%20height%3D'62.35'%20viewBox%3D'0%200%2036%2062.35'%3E%3Cpath%20d%3D'M18.00%204.80%20L31.84%2028.78%20L4.16%2028.78%20Z%20M-13.84%202.40%20L13.84%202.40%20L0.00%2026.38%20Z%20M22.16%202.40%20L49.84%202.40%20L36.00%2026.38%20Z%20M4.16%2033.58%20L31.84%2033.58%20L18.00%2057.55%20Z%20M0.00%2035.98%20L13.84%2059.95%20L-13.84%2059.95%20Z%20M36.00%2035.98%20L49.84%2059.95%20L22.16%2059.95%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'36'%20height%3D'62.35'%20viewBox%3D'0%200%2036%2062.35'%3E%3Cpath%20d%3D'M18.00%204.80%20L31.84%2028.78%20L4.16%2028.78%20Z%20M-13.84%202.40%20L13.84%202.40%20L0.00%2026.38%20Z%20M22.16%202.40%20L49.84%202.40%20L36.00%2026.38%20Z%20M4.16%2033.58%20L31.84%2033.58%20L18.00%2057.55%20Z%20M0.00%2035.98%20L13.84%2059.95%20L-13.84%2059.95%20Z%20M36.00%2035.98%20L49.84%2059.95%20L22.16%2059.95%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
 .canvas-bg[data-canvas-bg="hex-tiles"] {
   background-image: none;
-  background-color: var(--canvas-dot);
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%202.04%20L27.68%209.52%20L27.68%2024.48%20L14.72%2031.96%20L1.77%2024.48%20L1.77%209.52%20Z%20M0.00%2027.54%20L12.96%2035.02%20L12.96%2049.98%20L0.00%2057.46%20L-12.96%2049.98%20L-12.96%2035.02%20Z%20M29.44%2027.54%20L42.40%2035.02%20L42.40%2049.98%20L29.44%2057.46%20L16.49%2049.98%20L16.49%2035.02%20Z%20M0.00%20-23.46%20L12.96%20-15.98%20L12.96%20-1.02%20L0.00%206.46%20L-12.96%20-1.02%20L-12.96%20-15.98%20Z%20M29.44%20-23.46%20L42.40%20-15.98%20L42.40%20-1.02%20L29.44%206.46%20L16.49%20-1.02%20L16.49%20-15.98%20Z'%20fill%3D'white'%2F%3E%3C%2Fsvg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%202.04%20L27.68%209.52%20L27.68%2024.48%20L14.72%2031.96%20L1.77%2024.48%20L1.77%209.52%20Z%20M0.00%2027.54%20L12.96%2035.02%20L12.96%2049.98%20L0.00%2057.46%20L-12.96%2049.98%20L-12.96%2035.02%20Z%20M29.44%2027.54%20L42.40%2035.02%20L42.40%2049.98%20L29.44%2057.46%20L16.49%2049.98%20L16.49%2035.02%20Z%20M0.00%20-23.46%20L12.96%20-15.98%20L12.96%20-1.02%20L0.00%206.46%20L-12.96%20-1.02%20L-12.96%20-15.98%20Z%20M29.44%20-23.46%20L42.40%20-15.98%20L42.40%20-1.02%20L29.44%206.46%20L16.49%20-1.02%20L16.49%20-15.98%20Z'%20fill%3D'white'%2F%3E%3C%2Fsvg%3E");
+  background-color: var(--line);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%203.06%20L26.79%2010.03%20L26.79%2023.97%20L14.72%2030.94%20L2.65%2023.97%20L2.65%2010.03%20Z%20M0.00%2028.56%20L12.07%2035.53%20L12.07%2049.47%20L0.00%2056.44%20L-12.07%2049.47%20L-12.07%2035.53%20Z%20M29.44%2028.56%20L41.51%2035.53%20L41.51%2049.47%20L29.44%2056.44%20L17.37%2049.47%20L17.37%2035.53%20Z%20M0.00%20-22.44%20L12.07%20-15.47%20L12.07%20-1.53%20L0.00%205.44%20L-12.07%20-1.53%20L-12.07%20-15.47%20Z%20M29.44%20-22.44%20L41.51%20-15.47%20L41.51%20-1.53%20L29.44%205.44%20L17.37%20-1.53%20L17.37%20-15.47%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'29.44'%20height%3D'51'%20viewBox%3D'0%200%2029.44%2051'%3E%3Cpath%20d%3D'M14.72%203.06%20L26.79%2010.03%20L26.79%2023.97%20L14.72%2030.94%20L2.65%2023.97%20L2.65%2010.03%20Z%20M0.00%2028.56%20L12.07%2035.53%20L12.07%2049.47%20L0.00%2056.44%20L-12.07%2049.47%20L-12.07%2035.53%20Z%20M29.44%2028.56%20L41.51%2035.53%20L41.51%2049.47%20L29.44%2056.44%20L17.37%2049.47%20L17.37%2035.53%20Z%20M0.00%20-22.44%20L12.07%20-15.47%20L12.07%20-1.53%20L0.00%205.44%20L-12.07%20-1.53%20L-12.07%20-15.47%20Z%20M29.44%20-22.44%20L41.51%20-15.47%20L41.51%20-1.53%20L29.44%205.44%20L17.37%20-1.53%20L17.37%20-15.47%20Z'%20fill%3D'none'%20stroke%3D'white'%20stroke-width%3D'1.5'%2F%3E%3C%2Fsvg%3E");
   -webkit-mask-repeat: repeat;
   mask-repeat: repeat;
 }

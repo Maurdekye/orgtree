@@ -52,9 +52,9 @@ const PARALLAX_BG = 0.88
  *  themes keeps the floor's scale. */
 const TILE = 28
 const SQRT3 = Math.sqrt(3)
-/** Equilateral triangle side; one filled triangle per S × (√3/2)S tile. */
+/** Equilateral triangle side; two rows of outlined ▲/▽ per S × √3·S SVG mask tile. */
 const TRI_S = 36
-/** Honeycomb mask tile (styles.css hex-lines): pointy-top hexagons of
+/** Honeycomb mask tile (styles.css hex-lines / hex-tiles): pointy-top hexagons of
  *  radius HEX_R; the SVG tile is HEX_R·√3 × 3·HEX_R world px. */
 const HEX_R = 17
 
@@ -69,25 +69,31 @@ export function bgGeometry(theme: CanvasBackgroundTheme, view: View): {
   switch (theme) {
     case 'line-grid':
       return { backgroundPosition: `${px(x)} ${px(y)}`, backgroundSize: `${px(TILE * z)} ${px(TILE * z)}` }
-    case 'square-tiles':
+    case 'checkerboard':
       return { backgroundPosition: `${px(x)} ${px(y)}`, backgroundSize: `${px(2 * TILE * z)} ${px(2 * TILE * z)}` }
+    case 'square-tiles':
+      return {
+        backgroundPosition: '0px 0px', backgroundSize: 'auto',
+        maskPosition: `${px(x)} ${px(y)}`, maskSize: `${px(TILE * z)} ${px(TILE * z)}`,
+      }
     case 'hex-dots': {
       const w = TILE * z, h = TILE * SQRT3 * z
       return { backgroundPosition: `${px(x)} ${px(y)}, ${px(x + w / 2)} ${px(y + h / 2)}`, backgroundSize: `${px(w)} ${px(h)}` }
     }
     case 'hex-lines':
     case 'hex-tiles':
-      // Hexagons are SVG masks, not gradients (styles.css): stripe families
-      // draw the whole triangular lattice and cannot select the honeycomb's
-      // edges or fill flat tiles — capture rounds measured diamonds, cube
-      // illusions and step columns instead. The mask moves with the same
-      // floor math as every other theme.
+      // Hexagons and gapped tile outlines use SVG masks (styles.css) so each
+      // tile is its own closed outlined polygon inset from its tiling cell.
+      // The mask moves with the same floor math as every other theme.
       return {
         backgroundPosition: '0px 0px', backgroundSize: 'auto',
         maskPosition: `${px(x)} ${px(y)}`, maskSize: `${px(HEX_R * SQRT3 * z)} ${px(3 * HEX_R * z)}`,
       }
     case 'triangle-tiles':
-      return { backgroundPosition: `${px(x)} ${px(y)}`, backgroundSize: `${px(TRI_S * z)} ${px(TRI_S * SQRT3 * 0.5 * z)}` }
+      return {
+        backgroundPosition: '0px 0px', backgroundSize: 'auto',
+        maskPosition: `${px(x)} ${px(y)}`, maskSize: `${px(TRI_S * z)} ${px(TRI_S * SQRT3 * z)}`,
+      }
     default:
       // dots (and ascii, which never reaches here): the shipped backdrop,
       // values verbatim from the OrgCanvas div this component replaced
