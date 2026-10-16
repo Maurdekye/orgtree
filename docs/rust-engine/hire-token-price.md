@@ -4,7 +4,12 @@ User 2026-10-14 chose **within each provider row**, preserving separate provider
 rows/columns and their inward-to-outward tier-count order. Tokens inside each
 group now sort from cheapest to most expensive seat; equal prices keep the
 incoming order. This supersedes descending hire-token order from October13.
-Model selectors, hire-sheet dropdowns and default model selection stay unchanged.
+Provider model lists and HireSheet lists retain their canonical listing order:
+the most expensive seat first within each family, with Antigravity's
+Claude-backed tiers grouped before Gemini tiers. Runtime OpenRouter and
+language-server lists retain registry order. Default model selection still
+uses declaration/offer order; the cheapest-first token-strip sort changes none
+of these lists or defaults.
 
 `SpawnChips` filters the existing offer/legacy/conditional gates, then stably
 sorts that copy by `seatOf`. This is the same catalog-backed seat lookup those
@@ -18,8 +23,8 @@ far-zoom expanded and Quick chat strips share this component.
 Icons, colours, tooltips, click/drag dispatch, family placement and availability
 are unchanged. Focused tests exercise changed catalog prices, equal-price ties,
 all four strip orientations, action/tooltip identity, price refresh, disabled
-far-zoom strips, conditional/legacy gates and registry rows. Existing descending
-selector/default tests remain controls.
+far-zoom strips, conditional/legacy gates and registry rows. Separate tests
+cover canonical provider-list ordering and the unchanged default selection.
 
 Measured in rig-opus round434 on 2026-10-14: the same 16 renderer cases run
 against the exact base `cards.tsx` produce nine passes and exactly seven

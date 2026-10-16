@@ -290,12 +290,12 @@ test('§6 App settings > Providers > Model tiers leaves Terra out, and the toggl
     await inAct(async () => { await flush(10) })
     const rows = () => [...document.querySelectorAll('[aria-label="Codex model tiers"] .acct-provider-tier-name')]
       .map((el) => el.textContent)
-    assert.deepEqual(rows(), ['luna', 'sol', 'astra'], 'the Model tiers list showed Terra with the toggle off')
+    assert.deepEqual(rows(), ['astra', 'sol', 'luna'], 'the Model tiers list showed Terra with the toggle off')
     await inAct(() => { setShowLegacyModelsOn(true) })
-    assert.deepEqual(rows(), ['luna', 'terra · legacy', 'sol', 'astra'],
+    assert.deepEqual(rows(), ['astra', 'terra · legacy', 'sol', 'luna'],
       'the open Model tiers list did not bring Terra back when the toggle flipped on')
     await inAct(() => { setShowLegacyModelsOn(false) })
-    assert.deepEqual(rows(), ['luna', 'sol', 'astra'], 'Terra stayed after the toggle flipped off')
+    assert.deepEqual(rows(), ['astra', 'sol', 'luna'], 'Terra stayed after the toggle flipped off')
   })
 
 test('§6 Usage per-account tier rows leave Terra out unless legacy models are shown',

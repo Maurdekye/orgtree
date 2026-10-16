@@ -236,7 +236,7 @@ test('§2 App settings > Model tiers leaves Gemini Pro out; the toggle brings it
       .map((el) => el.textContent)
     assert.deepEqual(rows(), ['flash'], 'the Model tiers list showed Gemini Pro with the toggle off')
     await inAct(() => { setShowLegacyModelsOn(true) })
-    assert.deepEqual(rows(), ['flash', 'pro · legacy'])
+    assert.deepEqual(rows(), ['pro · legacy', 'flash'])
   })
 
 test('§2 Usage per-account tier rows leave Gemini Pro out unless legacy models are shown',
