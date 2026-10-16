@@ -97,7 +97,7 @@ if (process.argv[2] !== '--electron') {
     // Only the native popout changes size. The opener's viewport is untouched.
     await evaluate('window.__sidebarProof.contentWidth(null)')
     for (const [name, width] of [['native-narrow', 800], ['native-wide', 980]]) {
-      child.setContentBounds({ width, height: 620 })
+      child.setContentBounds({ ...child.getContentBounds(), width, height: 620 })
       await sample(name, child, width)
     }
     // Content-only delivery, even when no native/window resize fires.
