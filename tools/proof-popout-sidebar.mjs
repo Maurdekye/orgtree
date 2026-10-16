@@ -62,7 +62,7 @@ if (process.argv[2] !== '--electron') {
       webPreferences: { contextIsolation: false, nodeIntegration: false, sandbox: false, backgroundThrottling: false } })
     main.webContents.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: {
       show: false, width: 1000, height: 680, webPreferences: { backgroundThrottling: false } } }))
-    const evaluate = code => main.webContents.executeJavaScript(code)
+    const evaluate = code => main.webContents.executeJavaScript(code, true)
     const settle = async win => {
       await within(win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))'), 'two painted frames')
       await delay(100)
@@ -82,7 +82,7 @@ if (process.argv[2] !== '--electron') {
     await evaluate('window.__sidebarProof.contentWidth(960)')
     await sample('home-wide', main, 960)
     const childReady = new Promise(resolve => main.webContents.once('did-create-window', resolve))
-    await evaluate('document.querySelector("button[aria-label=\"Open in new window\"]").click()')
+    await evaluate('document.querySelector(".popout-button").click()')
     const child = await within(childReady, 'native popout creation')
     await delay(150)
     await sample('popout-wide', child, 960)
