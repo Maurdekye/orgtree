@@ -63,6 +63,15 @@
   [decided: user 2026-10-16 10:54Z; verified: `canvas/cards.tsx`, `canvas/OrgCanvas.tsx`;
   contract: `docs/rust-engine/draft-model-picker.md`]
 
+- New Claude Agent/Task calls retain bounded helper transcripts privately per
+  root call. Expanded tool rows read live first-level activity; nested helper
+  tools keep ordinary details. Never merge child usage/events into the parent
+  turn or expose private snapshots in the feed. Other harnesses/history and
+  helpers continuing after the parent turn remain deferred in this alpha slice.
+  [decided: user/coordinator 2026-10-16; verified from source:
+  `runtime/helper_transcript.rs`, `http/nodes.rs`, `canvas/helpertranscript.tsx`;
+  contract: `docs/rust-engine/helper-transcripts.md`]
+
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;

@@ -338,6 +338,12 @@ their established restoration rules. See [`popout-close.md`](popout-close.md).
 
 ### C. Agent desk
 
+Helper transcript addition (user 2026-10-16 20:23Z): expanding a helper call
+shows live first-level activity. Initial 4.4.0 alpha slice captures new Claude
+Agent/Task calls only; nested helper tools retain ordinary details. Other
+harnesses, historical recovery and work after the parent's turn are deferred.
+See [`helper-transcripts.md`](helper-transcripts.md).
+
 | # | Today | After the rewrite |
 |---|---|---|
 | C1 | Effort change reaches a running Claude turn mid-flight (the call in flight finishes at the old level, the next model call uses the new one); the change reports `effort_delivery` sent / unchanged / next_turn | Kept, same behaviour: sent as `apply_flag_settings {effortLevel}` on the CLI's control channel; Codex and others apply it from the next turn, as today |

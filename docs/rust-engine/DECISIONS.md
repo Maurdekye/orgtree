@@ -1102,3 +1102,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - Rejected: a forced move of running turns at sign-in (user 12:12Z, item 5). The credential relay
       stays: every agent CLI still uses it, and Session 0 turns while signed in need it (12:03Z).
     Details: [`run-on-boot.md`](run-on-boot.md); proofs `self-interrupt.mjs`, `session-choice.mjs`.
+
+87. **Expanded helper calls show live transcripts, one level only** (user
+    2026-10-16 20:23Z; coordinator initial-slice order 20:25Z). New Claude
+    Agent/Task calls use explicit parent-tool IDs and bounded private captures.
+    Child events/usage never enter the parent turn; nested helper tools stay
+    ordinary input/result details. Other harness adapters, history recovery and
+    helpers continuing after the parent turn are deferred in this alpha slice.
+    Contract and verification limits: [helper transcripts](helper-transcripts.md).

@@ -16,6 +16,20 @@ Pending/undelivered cards sit separately from delivered conversation. Runs of si
 
 Event cards and reference links can open their exact related agent, mail, work item, watchdog or document when a route is available. Copy/reply menus use durable source identity; a missing exact source can disable a reply action rather than inventing a target.
 
+## Helper activity inside a tool call
+
+Expand a helper Agent/Task tool row to see its retained transcript inline.
+New Claude Code helpers stream text, supplied thoughts and tool activity while
+their parent turn runs. This first slice supports one transcript level: the
+helper's own helper tools expand ordinary input/result details only.
+
+Collapsed calls do not read helper snapshots. Completed captures remain
+available on reopening; read errors offer Retry, and a size-limit note means
+some activity was omitted. Older calls and other harnesses explain when no
+transcript was retained. Historical recovery and helpers continuing after the
+parent turn are not included yet. Missing activity is not evidence the helper
+did nothing. Opening this view never runs a helper or sends it a message.
+
 ## Composer
 
 Type a message, attach files or drop supported attachments, and send with the configured Enter behavior or send button. Attachment chips name files and allow removal before sending. Uploads land in the target's upload area; a selected file is not already a delivered message.
