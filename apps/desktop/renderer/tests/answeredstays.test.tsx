@@ -81,14 +81,22 @@ test('the answered entry stays in the list, marked answered, not waiting', async
   assert.equal(askRows(view.el).length, 1, 'the open request is listed')
   assert.ok(askRows(view.el)[0]!.classList.contains('unread'), 'and counted as waiting')
 
+  const wasSelected = askRows(view.el)[0]!.classList.contains('on')
   await submit()
   const rows = askRows(view.el)
   assert.equal(rows.length, 1, 'the entry is still listed after the submit')
   assert.equal(rows[0]!.classList.contains('unread'), false, 'but no longer as waiting')
+  assert.equal(rows[0]!.classList.contains('on'), wasSelected,
+    'submitting the answer preserves the inbox selection that was already open')
   assert.match(rows[0]!.textContent ?? '', /Which colour\?/, 'filed by what it asked')
   assert.doesNotMatch(rows[0]!.textContent ?? '', /awaiting one submit/)
 
-  await inAct(async () => { (rows[0] as HTMLElement).click(); await flush(3) })
+  // Newer inboxes auto-select the oldest unanswered request when they open.
+  // Only click here when the fixture began with no selection; clicking an
+  // already-selected row intentionally closes its read-only card.
+  if (!rows[0]!.classList.contains('on')) {
+    await inAct(async () => { (rows[0] as HTMLElement).click(); await flush(3) })
+  }
   const card = view.el.querySelector('.askcard.nulled')
   assert.ok(card, 'opening it shows the resolved card, read-only')
   assert.match(card!.textContent ?? '', /answered/)

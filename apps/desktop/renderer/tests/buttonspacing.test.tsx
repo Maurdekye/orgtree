@@ -39,7 +39,7 @@ test('drawer rows reclaim the rail below the toggle while the filter keeps its c
   const drawer = rule(attention, '.attn-agents')
   assert.match(drawer, /left:\s*calc\(-1\s*\*\s*var\(--attn-agent-rail,\s*0px\)\);/)
   assert.match(drawer, /width:\s*calc\(232px\s*\+\s*var\(--attn-agent-rail,\s*0px\)\);/)
-  const filter = rule(attention, '.attn-agents .tray-filter')
-  assert.match(filter, /margin-left:\s*calc\(4px\s*\+\s*var\(--attn-agent-rail,\s*0px\)\);/)
-  assert.match(filter, /width:\s*calc\(100%\s*-\s*8px\s*-\s*var\(--attn-agent-rail,\s*0px\)\);/)
+  const filterRow = rule(attention, '.attn-agents .tray-filter-row')
+  assert.match(filterRow, /padding-left:\s*var\(--attn-agent-rail,\s*0px\);/,
+    'the filter row keeps clear of the collapse-button rail')
 })
