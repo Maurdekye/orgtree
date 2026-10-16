@@ -88,6 +88,34 @@ pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupt
     mail::system_event(engine,org_id,agent_id,&body,!interrupted,Some(ev)).await
 }
 
+/// The agent moved between Windows Session 0 and the operator's signed-in
+/// session at the turn now starting (docket
+/// option-to-run-the-background-engine-in-the-user-s; the user, 2026-10-16: a
+/// system message both ways, like the restart notice). A plain system notice,
+/// which the actor claims into that turn; its uid.
+#[logged]
+pub async fn session_moved(engine: &Arc<Engine>, org_id: i64, agent_id: i64, signed_in: bool) -> Result<String> {
+    let client = engine.db.get().await?;
+    let name: String = client.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&agent_id]).await?.get(0);
+    drop(client);
+    let mut out = Outgoing::new(From::System, &name, if signed_in { SESSION_UPGRADE } else { SESSION_DOWNGRADE });
+    out.kind = "system".into();
+    out.notice = true;
+    Ok(mail::send(engine, org_id, out).await?.uid)
+}
+
+pub const SESSION_UPGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in the user's signed-in Windows session, with access to their desktop and apps. The change took effect at this turn.";
+pub const SESSION_DOWNGRADE: &str = "[ORGTREE SESSION NOTICE]\nYou now run in Windows Session 0: desktop access is lost, because the user signed out or Orgtree's sign-in helper stopped. You cannot see or use their desktop and apps until they sign in again. The change took effect at this turn.";
+
+/// A turn whose CLI ran in the operator's signed-in session stopped when that
+/// session ended: the agent is woken to continue in Session 0, where the
+/// session notice joins that turn.
+#[logged]
+pub async fn session_ended(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Result<()> {
+    let text = "The user's Windows session ended while you were working, so your turn stopped. Continue where you left off.";
+    mail::system_event(engine, org_id, agent_id, text, false, None).await
+}
+
 /// A freeze was released. By hand: the agent's `unstick` notice. By its timer:
 /// no notice, the wake mail says it (`limit_reset` is the org-wide
 /// weekly-Fable halt's notice, as in 3.x).

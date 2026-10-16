@@ -1,16 +1,19 @@
 //! Phase 2 of the sign-in credential broker (docket
 //! windows-sign-in-credential-helper-so-git-gh-work, design approved
-//! 2026-10-10 09:24Z): the broker starts the boot engine's sandboxed Codex
-//! app-servers in this signed-in session (Session 1, interactive token), where
-//! Codex's Windows sandbox can start (openai/codex#46412 breaks it in
-//! Session 0).
+//! 2026-10-10 09:24Z): the broker starts the boot engine's agent CLIs in this
+//! signed-in session (interactive token), where they get the user's desktop
+//! and apps and their own OS sandboxes work (openai/codex#46412 breaks Codex's
+//! in Session 0). First sandboxed Codex seats; since 2026-10-16 every
+//! harness's CLI (docket option-to-run-the-background-engine-in-the-user-s,
+//! the user: "agents always start at boot, and then automatically get
+//! upgraded when signed in").
 //!
 //! A launcher, not a relay: the engine creates the child's three stdio pipes,
 //! this process opens them as a client, starts the child suspended with them
 //! as its only inherited handles, puts it in a kill-on-close job held here,
-//! and resumes it. Data then flows between the engine and Codex directly.
-//! Only an absolute path whose file name is `codex.exe` is started. The
-//! request carries the child's whole environment (API key, credential
+//! and resumes it. Data then flows between the engine and the CLI directly.
+//! Only an absolute path to one of the harness CLIs (`hostable`) is started.
+//! The request carries the child's whole environment (API key, credential
 //! capability), so nothing here is logged but pids.
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -165,13 +168,19 @@ fn quote(arg: &str, out: &mut String) {
     out.push('"');
 }
 
-/// The CLIs this helper starts for the engine: an absolute path whose file
-/// name is `codex.exe`.
+/// The CLIs this helper starts for the engine: the five harnesses' own
+/// executables by file name (the engine's `session_host`; the rig's fake CLI
+/// carries the same names), at an absolute path. Muse's is versioned
+/// (`muse-bin-<version>.exe`, `providers::muse_models::bin_in`).
 #[nolog]
 pub fn hostable(exe: &str) -> bool {
     let path = Path::new(exe);
-    let named_codex = path.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case("codex.exe")).unwrap_or(false);
-    path.is_absolute() && named_codex && !exe.contains('"')
+    if !path.is_absolute() || exe.contains('"') {
+        return false;
+    }
+    let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()) else { return false };
+    matches!(name.as_str(), "claude.exe" | "codex.exe" | "agy.exe" | "opencode.exe")
+        || (name.starts_with("muse-bin-") && name.ends_with(".exe") && name.len() > "muse-bin-.exe".len())
 }
 
 /// `{kind:"spawn", exe, args, cwd, env, pipes:{stdin,stdout,stderr}}` →

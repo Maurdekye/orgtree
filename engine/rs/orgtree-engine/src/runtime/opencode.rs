@@ -48,12 +48,15 @@ impl OpenCodeProc {
         let (ready_tx, ready_rx) = watch::channel(false);
         // the split mail tools: opencode's MCP path passes the nested shape
         // through (no-spend pre-check, docs/rust-engine/agent-typing.md)
+        let host = spec.host.then(|| (engine.clone(), caller.agent_id));
         let name = crate::bridge::serve_observed(engine, caller, pipe.clone(), Some(ready_tx), crate::tools::defs::MailShape::Split)?;
         spec.servers = servers(&name, &spec.servers)?;
         let cwd = spec.cwd.to_string_lossy().to_string();
         let prepared = Launch::prepare(spec);
         let mut launch = match prepared { Ok(v) => v, Err(e) => { pipe.cancel(); return Err(e); } };
-        let spawned = acp::Process::spawn(launch.take_spec()?).await;
+        let mut acp_spec = launch.take_spec()?;
+        acp_spec.host = host;
+        let spawned = acp::Process::spawn(acp_spec).await;
         let (mut inner, mut events) = match spawned { Ok(v) => v, Err(e) => { pipe.cancel(); return Err(e); } };
         let opened: Result<String> = async {
             let init = inner.client.request("initialize", json!({"protocolVersion":1,
@@ -140,6 +143,8 @@ impl OpenCodeProc {
         self.inner.client.notify("session/cancel",json!({"sessionId":self.session_id})).is_ok()
     }
     pub fn alive(&mut self) -> bool { self.inner.alive() && self.worker.as_ref().is_some_and(|w| !w.is_finished()) }
+    /// Started by the sign-in helper in the user's session.
+    pub fn hosted(&self) -> bool { self.inner.hosted() }
     pub async fn exit_status(&mut self, reason: &str) -> String { self.inner.exit_status(reason).await }
     pub async fn close(&mut self) {
         if self.active.load(Ordering::Acquire) { self.interrupt(); }
@@ -183,6 +188,9 @@ pub struct Spec {
     /// OpenCode-format MCP entries, generated only from granted engine servers.
     pub servers: Map<String, Value>,
     pub who: String,
+    /// started by the sign-in helper in the operator's signed-in session
+    /// (`session_host::wanted`), else here
+    pub host: bool,
 }
 
 pub struct Launch {
@@ -234,7 +242,7 @@ impl Launch {
             let policy = spec.policy.clone();
             Ok(acp::Spec { exe: spec.exe.clone(), args: vec!["acp".into(), "--log-level".into(), "none".into()],
                 cwd: spec.cwd.clone(), env, who: spec.who.clone(),
-                approval: std::sync::Arc::new(move |method, params| policy.answer(method, params)) })
+                approval: std::sync::Arc::new(move |method, params| policy.answer(method, params)), host: None })
         })();
         match prepared {
             Ok(launch) => Ok(Self { spec: Some(launch), model: format!("orgtree/{}", spec.model), root }),
@@ -328,7 +336,7 @@ pub async fn discover(profile: PathBuf) -> Option<(PathBuf, String)> {
     let mut launch = Launch::prepare(Spec { exe:exe.clone(),cwd:profile.clone(),profile,
         skills_roots:vec![],skill_names:vec![],
         base_url:"http://127.0.0.1:9/v1".into(),key:"unused-discovery".into(),model:"discovery".into(),
-        context:1024,output:1,identity:String::new(),policy,servers:Map::new(),who:"OpenCode ACP discovery".into() }).ok()?;
+        context:1024,output:1,identity:String::new(),policy,servers:Map::new(),who:"OpenCode ACP discovery".into(),host:false }).ok()?;
     let (mut child, _events) = acp::Process::spawn(launch.take_spec().ok()?).await.ok()?;
     let result = child.client.request("initialize",json!({"protocolVersion":1,"clientCapabilities":{},
         "clientInfo":{"name":"Orgtree discovery","version":env!("CARGO_PKG_VERSION")}}),Duration::from_secs(15)).await;

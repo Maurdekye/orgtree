@@ -25,6 +25,7 @@ pub mod prompt;
 pub mod recovery;
 pub mod reminders;
 pub mod sched;
+pub mod session_host;
 pub mod startup;
 pub mod tasks;
 pub mod tool_policy;

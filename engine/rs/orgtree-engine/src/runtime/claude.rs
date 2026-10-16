@@ -12,11 +12,12 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::engine::Engine;
+use crate::runtime::session_host::{self, Launched};
 use crate::runtime::{AgentMsg, AgentTx, Caller, Post};
 use crate::winproc;
 
@@ -42,6 +43,9 @@ pub struct SpawnSpec {
     /// session is forked (`--fork-session --max-turns 1`), a PreToolUse hook
     /// denies every tool in place of the mail hook, and no orgtree tool runs
     pub keepalive: bool,
+    /// started by the sign-in helper in the operator's signed-in session
+    /// (`session_host::wanted`), else here
+    pub host: bool,
 }
 
 impl std::fmt::Debug for SpawnSpec {
@@ -68,6 +72,7 @@ impl std::fmt::Debug for SpawnSpec {
             .field("env", &env)
             .field("env_remove", &self.env_remove)
             .field("keepalive", &self.keepalive)
+            .field("host", &self.host)
             .finish()
     }
 }
@@ -80,7 +85,7 @@ pub struct ClaudeProc {
     /// fired (or dropped) to close the process's stdin: its signal to exit
     stdin_close: Option<oneshot::Sender<()>>,
     waiters: mpsc::UnboundedSender<(String, oneshot::Sender<Value>)>,
-    child: Option<Child>,
+    child: Option<Launched>,
     job: Option<winproc::ChildJob>,
     pub session_id: String,
 }
@@ -92,6 +97,71 @@ fn req_id(prefix: &str) -> String {
     format!("{prefix}_{}", REQ.fetch_add(1, Ordering::Relaxed))
 }
 
+/// The Claude command a spec starts, wherever it runs (`session_host::spawn`).
+#[nolog]
+fn command(spec: &SpawnSpec) -> Command {
+    let mut cmd = Command::new(&spec.exe);
+    cmd.arg("-p")
+        .args(["--input-format", "stream-json", "--output-format", "stream-json"])
+        .arg("--include-partial-messages")
+        .arg("--verbose")
+        .args(["--model", &spec.model])
+        .args(["--permission-mode", &spec.permission_mode])
+        .arg("--append-system-prompt-file")
+        .arg(&spec.identity_file)
+        .arg("--settings")
+        .arg(&spec.settings_file)
+        .arg("--strict-mcp-config")
+        .arg("--mcp-config")
+        .arg(&spec.mcp_file);
+    if let Some(e) = &spec.effort {
+        cmd.args(["--effort", e]);
+    }
+    if !spec.disallowed.is_empty() {
+        cmd.arg("--disallowed-tools").arg(spec.disallowed.join(","));
+    }
+    if !spec.allowed.is_empty() {
+        cmd.arg("--allowedTools").arg(spec.allowed.join(","));
+    }
+    for d in &spec.add_dirs {
+        cmd.arg("--add-dir").arg(d);
+    }
+    match &spec.resume {
+        Some(sid) => {
+            cmd.args(["--resume", sid]);
+            if spec.keepalive {
+                cmd.args(["--fork-session", "--max-turns", "1"]);
+            }
+        }
+        None => {
+            cmd.args(["--session-id", &spec.new_session]);
+        }
+    }
+    cmd.current_dir(&spec.cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    // Inherit no host Claude session or credential override. Authorized
+    // account settings below are applied only after this cleanup (3.x clean_env).
+    // Inspect names only; never log environment values.
+    for (key, _) in std::env::vars_os() {
+        let name = key.to_string_lossy().to_ascii_uppercase();
+        if name.starts_with("CLAUDE_CODE_") || name == "CLAUDECODE" {
+            cmd.env_remove(key);
+        }
+    }
+    for k in &spec.env_remove {
+        cmd.env_remove(k);
+    }
+    for (k, v) in &spec.env {
+        cmd.env(k, v);
+    }
+    winproc::no_window(&mut cmd);
+    winproc::own_group(&mut cmd);
+    cmd
+}
+
 #[logged]
 impl ClaudeProc {
     #[nolog]
@@ -101,75 +171,15 @@ impl ClaudeProc {
         caller: Caller,
         actor: AgentTx,
     ) -> Result<ClaudeProc> {
-        let mut cmd = Command::new(&spec.exe);
-        cmd.arg("-p")
-            .args(["--input-format", "stream-json", "--output-format", "stream-json"])
-            .arg("--include-partial-messages")
-            .arg("--verbose")
-            .args(["--model", &spec.model])
-            .args(["--permission-mode", &spec.permission_mode])
-            .arg("--append-system-prompt-file")
-            .arg(&spec.identity_file)
-            .arg("--settings")
-            .arg(&spec.settings_file)
-            .arg("--strict-mcp-config")
-            .arg("--mcp-config")
-            .arg(&spec.mcp_file);
-        if let Some(e) = &spec.effort {
-            cmd.args(["--effort", e]);
-        }
-        if !spec.disallowed.is_empty() {
-            cmd.arg("--disallowed-tools").arg(spec.disallowed.join(","));
-        }
-        if !spec.allowed.is_empty() {
-            cmd.arg("--allowedTools").arg(spec.allowed.join(","));
-        }
-        for d in &spec.add_dirs {
-            cmd.arg("--add-dir").arg(d);
-        }
-        let session_id = match &spec.resume {
-            Some(sid) => {
-                cmd.args(["--resume", sid]);
-                if spec.keepalive {
-                    cmd.args(["--fork-session", "--max-turns", "1"]);
-                }
-                sid.clone()
-            }
-            None => {
-                cmd.args(["--session-id", &spec.new_session]);
-                spec.new_session.clone()
-            }
-        };
-        cmd.current_dir(&spec.cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        // Inherit no host Claude session or credential override. Authorized
-        // account settings below are applied only after this cleanup (3.x clean_env).
-        // Inspect names only; never log environment values.
-        for (key, _) in std::env::vars_os() {
-            let name = key.to_string_lossy().to_ascii_uppercase();
-            if name.starts_with("CLAUDE_CODE_") || name == "CLAUDECODE" {
-                cmd.env_remove(key);
-            }
-        }
-        for k in &spec.env_remove {
-            cmd.env_remove(k);
-        }
-        for (k, v) in &spec.env {
-            cmd.env(k, v);
-        }
-        winproc::no_window(&mut cmd);
-        winproc::own_group(&mut cmd);
-        let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
-        let job = winproc::child_job(&child);
-        let pid = child.id().unwrap_or(0);
+        let session_id = spec.resume.clone().unwrap_or_else(|| spec.new_session.clone());
+        let (started, hosted) = session_host::spawn(&engine, spec.host, false, caller.agent_id, "Claude", |_| Ok(command(&spec)))
+            .await
+            .with_context(|| format!("could not start {}", spec.exe.display()))?;
+        let session_host::Started { io, launched, job, pid } = started;
         let process = uuid::Uuid::new_v4();
-        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Claude", "CLI started");
-        let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
-        let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
+        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Claude", hosted, "CLI started");
+        let session_host::Io { mut stdin, stdout, stderr } = io;
+        let child = launched;
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         // the stdout reader keeps a sender too, so the channel never closes
         // while the process lives: closing stdin needs its own signal
@@ -289,8 +299,8 @@ impl ClaudeProc {
             job.terminate();
         }
         if let Some(mut c) = self.child.take() {
-            let _ = c.start_kill();
-            let _ = super::wait_exit(&mut c, self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
+            c.start_kill();
+            let _ = c.wait_exit(self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
         }
     }
 
@@ -302,33 +312,35 @@ impl ClaudeProc {
             let _ = close.send(());
         }
         if let Some(mut c) = self.child.take() {
-            let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
+            let status = c.wait_exit(self.pid, self.process, "close requested", Duration::from_secs(5)).await;
             if status.starts_with("exit status unavailable") {
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
-                let _ = c.start_kill();
-                let _ = super::wait_exit(&mut c, self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
+                c.start_kill();
+                let _ = c.wait_exit(self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
             }
         }
     }
 
     pub async fn exit_status(&mut self, reason: &str) -> String {
-        super::exit_status(&mut self.child, self.pid, self.process, reason).await
+        session_host::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub fn alive(&mut self) -> bool {
-        match self.child.as_mut() {
-            Some(c) => matches!(c.try_wait(), Ok(None)),
-            None => false,
-        }
+        self.child.as_mut().is_some_and(|c| c.alive())
+    }
+
+    /// Started by the sign-in helper in the user's session.
+    pub fn hosted(&self) -> bool {
+        self.child.as_ref().is_some_and(|c| c.hosted())
     }
 }
 
 #[logged]
 async fn read_stdout(
     engine: Arc<Engine>,
-    stdout: tokio::process::ChildStdout,
+    stdout: Box<dyn AsyncRead + Unpin + Send>,
     caller: Caller,
     actor: AgentTx,
     process: uuid::Uuid,

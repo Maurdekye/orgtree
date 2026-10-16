@@ -316,6 +316,22 @@ const OWN_TURN_WARN_EVERY: Duration = Duration::from_secs(60);
 /// result, Claude Code 40-110 ms).
 const BG_GRACE: Duration = Duration::from_secs(3);
 
+/// A turn whose CLI ran in the user's signed-in session and ended with it
+/// (docket option-to-run-the-background-engine-in-the-user-s): the error that
+/// gives a turn with no output its mail back, and the transcript's row.
+const SESSION_ENDED: &str = "the user's Windows session ended";
+const SESSION_ENDED_ROW: &str = "The user's Windows session ended during this turn, which stopped there; it continues in Session 0.";
+/// How long a hosted CLI's exit waits for the sign-in helper to go too:
+/// Windows can end the CLI a moment before the helper at sign-out.
+const SESSION_GONE_WAIT: Duration = Duration::from_secs(2);
+/// Where an agent's last turn ran (`ot.agents.extra->>'session'`).
+const SIGNED_IN: &str = "signed-in";
+const SESSION0: &str = "session0";
+/// How long after the engine's start a first turn waits for the sign-in
+/// helper to register again (coordinator ruling D, 2026-10-16).
+const SESSION_SETTLE: Duration = Duration::from_secs(15);
+static SETTLE_EXPIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 struct Turn {
     id: i64,
     started: Instant,
@@ -382,6 +398,9 @@ struct Turn {
     agy_steer: Option<(String, Vec<i64>, Vec<Value>)>,
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
+    /// its CLI ran in the user's session and ended with it (`on_exit`): the
+    /// turn stops cleanly and continues in Session 0, no failure
+    session_ended: bool,
     /// Codex/Antigravity: the mail this turn was given, without the envelope;
     /// a usage-limit freeze keeps it for the wake (3.x `resume_texts`)
     replay: String,
@@ -433,6 +452,7 @@ impl Turn {
             agy_text: HashMap::new(),
             agy_steer: None,
             exited: false,
+            session_ended: false,
             replay: String::new(),
         }
     }
@@ -479,6 +499,18 @@ impl Proc {
             Proc::Agy(p) => p.alive(),
             Proc::Muse(p) => p.alive(),
             Proc::Acp(p) => p.alive(),
+        }
+    }
+
+    /// Started by the sign-in helper in the operator's signed-in session.
+    #[nolog]
+    fn hosted(&self) -> bool {
+        match self {
+            Proc::Claude(p) => p.hosted(),
+            Proc::Codex(p) => p.hosted(),
+            Proc::Agy(p) => p.hosted(),
+            Proc::Muse(p) => p.hosted(),
+            Proc::Acp(p) => p.hosted(),
         }
     }
 
@@ -697,6 +729,10 @@ struct Actor {
     /// (when, ttl seconds) of the last turn that read or wrote the cache
     receipt: Option<(DateTime<Utc>, i64)>,
     reconfigured: bool,
+    /// the first turn since the engine started has waited for the sign-in
+    /// helper (`session_settle`), and said where it started (`session_notes`)
+    settled: bool,
+    session_noted: bool,
     /// the Codex launch's (may_write, permission mode, sandbox, hosted by the
     /// sign-in helper), chosen once per launch so its prompt matches its mode
     codex_seat: Option<(bool, String, codexrt::Sandbox, bool)>,
@@ -835,6 +871,8 @@ impl Actor {
             sent_print,
             receipt,
             reconfigured: false,
+            settled: false,
+            session_noted: false,
             codex_seat: None,
             activity: None,
             rate_limit: None,
@@ -2468,6 +2506,8 @@ impl Actor {
             env,
             env_remove,
             keepalive,
+            // a cache read stays here; ensure_proc places the agent's own CLI
+            host: false,
         };
         Ok((spec, config_dir))
     }
@@ -2516,9 +2556,11 @@ impl Actor {
             return Err(anyhow!("Claude is turned off in App settings"));
         }
         let plan = self.plan(ctx);
+        let want = self.want_hosted(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => {
                 !p.is_codex() && !p.is_agy() && !p.is_muse() && !p.is_acp() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
+                    && p.hosted() == want
             }
             None => false,
         };
@@ -2527,7 +2569,8 @@ impl Actor {
         }
         self.close_proc().await;
         self.reconfigured = false;
-        let (spec, _) = self.claude_spec(ctx, route.as_ref(), &plan, false).await?;
+        let (mut spec, _) = self.claude_spec(ctx, route.as_ref(), &plan, false).await?;
+        spec.host = want;
         let resume = spec.resume.clone();
         let effort = spec.effort.clone();
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
@@ -2571,6 +2614,120 @@ impl Actor {
             self.wait_for_mcp(&plan.external).await;
         }
         Ok(())
+    }
+
+    /// Where this agent's next CLI starts (`session_host::wanted`): in the
+    /// operator's signed-in session while the sign-in helper hosts, else here
+    /// in Session 0. A warm CLI elsewhere is replaced at this turn's start,
+    /// never during a turn; one that still holds background work stays where
+    /// it is, since replacing it would end that work, and moves at a later turn.
+    /// (Codex decides in `codex_seat`, with its sandbox.)
+    fn want_hosted(&mut self, ctx: &Ctx) -> bool {
+        let bypass = ctx.effective["permission_mode"].as_str() == Some("bypassPermissions");
+        let want = crate::runtime::session_host::wanted(&self.engine, bypass);
+        match self.proc.as_ref() {
+            Some(p) if self.bg_pending() && p.hosted() != want => p.hosted(),
+            _ => want,
+        }
+    }
+
+    /// Whether the sign-in helper is gone, given `SESSION_GONE_WAIT` to go.
+    async fn session_gone(&self) -> bool {
+        let until = Instant::now() + SESSION_GONE_WAIT;
+        loop {
+            if !self.engine.credential_bridge.can_host() {
+                return true;
+            }
+            if Instant::now() >= until {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Where the agent's last turn ran (`SIGNED_IN`, `SESSION0`), if it ran one.
+    async fn last_session(&self) -> Option<String> {
+        let client = self.engine.db.get().await.ok()?;
+        client.query_one("SELECT extra->>'session' FROM ot.agents WHERE id = $1", &[&self.id]).await.ok()?.get(0)
+    }
+
+    /// After an engine restart while the operator was signed in, the sign-in
+    /// helper registers again within seconds. The agent's first turn waits for
+    /// it, at most `SESSION_SETTLE` from the engine's start, before it picks
+    /// where its CLI runs, so a restart is no move out of the signed-in session
+    /// and back. Its expiry is logged once.
+    async fn session_settle(&mut self) {
+        if std::mem::replace(&mut self.settled, true) || !codexrt::session0() || self.engine.credential_bridge.can_host() {
+            return;
+        }
+        if self.last_session().await.as_deref() != Some(SIGNED_IN) {
+            return;
+        }
+        let elapsed = (Utc::now() - self.engine.boot.started_at).to_std().unwrap_or_default();
+        let until = Instant::now() + SESSION_SETTLE.saturating_sub(elapsed);
+        while Instant::now() < until {
+            if self.engine.credential_bridge.can_host() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        if !SETTLE_EXPIRED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            tracing::warn!(seconds = SESSION_SETTLE.as_secs(), "the sign-in helper did not register again after the engine's start; agents start in Session 0");
+        }
+    }
+
+    /// Where this turn's CLI runs, against where the agent's last turn ran
+    /// (persisted, so a restart that comes back in the same session is no
+    /// move). The first turn since the engine started says it in the restart
+    /// notice it delivers ("Session access at start"). A real move between
+    /// Session 0 and the operator's signed-in session is told in this turn,
+    /// both ways (the user, 2026-10-16 09:37Z, 09:37:53Z and 09:37:58Z). An
+    /// engine not in Session 0 runs every CLI in the signed-in session.
+    async fn session_notes(&mut self, turn_id: i64, raw: &mut Vec<Value>) {
+        let Some(hosted) = self.proc.as_ref().map(|p| p.hosted()) else { return };
+        let now = if hosted || !codexrt::session0() { SIGNED_IN } else { SESSION0 };
+        if !std::mem::replace(&mut self.session_noted, true) {
+            let line = format!("\nSession access at start: {}.", if now == SIGNED_IN { "signed-in session" } else { "Session 0" });
+            for m in raw.iter_mut().filter(|m| m["ev"]["variant"] == "runtime.restart_notice") {
+                let (Some(id), Some(body)) = (m["id"].as_i64(), m["body"].as_str().map(|b| format!("{b}{line}"))) else { continue };
+                if let Ok(client) = self.engine.db.get().await {
+                    let _ = client.execute("UPDATE ot.mail SET body = $2 WHERE id = $1", &[&id, &body]).await;
+                }
+                m["body"] = Value::String(body);
+            }
+        }
+        let before = self.last_session().await;
+        if before.as_deref() == Some(now) {
+            return;
+        }
+        if let Ok(client) = self.engine.db.get().await {
+            let _ = client
+                .execute("UPDATE ot.agents SET extra = jsonb_set(coalesce(extra, '{}'::jsonb), '{session}', to_jsonb($2::text)) WHERE id = $1",
+                    &[&self.id, &now])
+                .await;
+        }
+        // an agent's first turn ever is no move
+        if before.is_none() {
+            return;
+        }
+        tracing::info!(agent = %self.name, from = before.as_deref().unwrap_or(""), to = now, "the agent moved between sessions at this turn");
+        let uid = match crate::domain::runtime_notices::session_moved(&self.engine, self.org_id, self.id, now == SIGNED_IN).await {
+            Ok(uid) => uid,
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the session notice could not be sent");
+                return;
+            }
+        };
+        // into this turn: the move took effect here
+        let Ok(client) = self.engine.db.get().await else { return };
+        if let Ok(Some(row)) = client
+            .query_opt("UPDATE ot.mail SET state = 'delivering', turn_id = $3
+                         WHERE uid = $1 AND recipient_agent_id = $2 AND state = 'pending'
+                         RETURNING to_jsonb(ot.mail.*)", &[&uid, &self.id, &turn_id])
+            .await
+        {
+            raw.push(row.get(0));
+        }
     }
 
     /// Start (or keep) the agent's Codex app-server on its thread.
@@ -2782,6 +2939,7 @@ impl Actor {
             Err(e) => { self.close_proc().await; return Err(e.into()); }
         };
         let mut plan = self.plan(ctx);
+        let want = self.want_hosted(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => {
                 matches!(&*p, Proc::Agy(a) if a.auth_stamp == stamp)
@@ -2789,6 +2947,7 @@ impl Actor {
                     && self.proc_effort.as_deref() == Some(ctx.effort.as_str())
                     && !self.reconfigured
                     && p.alive()
+                    && p.hosted() == want
             }
             None => false,
         };
@@ -2831,6 +2990,7 @@ impl Actor {
                 ("ORGTREE_AGY_STEER_DIR".into(), agyrt::steer_dir(&ctx.scratch).to_string_lossy().to_string()),
             ]); env },
             turn_timeout_s: self.engine.settings.turn_timeout_s(),
+            host: want,
         };
         self.agy_steer_dir = Some(agyrt::steer_dir(&ctx.scratch));
         plan.skills.workspace(&ctx.scratch)?;
@@ -2855,7 +3015,8 @@ impl Actor {
     #[nolog]
     async fn ensure_acp(&mut self, ctx: &Ctx, route: &OrRoute) -> Result<()> {
         let plan = self.plan(ctx);
-        if self.proc.as_mut().is_some_and(|p| p.is_acp() && p.alive())
+        let want = self.want_hosted(ctx);
+        if self.proc.as_mut().is_some_and(|p| p.is_acp() && p.alive() && p.hosted() == want)
             && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured { return Ok(()); }
         self.close_proc().await;
         self.reconfigured = false;
@@ -2888,7 +3049,7 @@ impl Actor {
             profile:self.engine.cfg.path("profiles").join("opencode").join(self.org_id.to_string()).join(self.id.to_string()).join(ctx.generation.to_string()),
             base_url:route.local.as_ref().map(|r| r.base_url.clone()).unwrap_or_else(|| "https://openrouter.ai/api/v1".into()),
             key:route.key.clone(),model:ctx.model.clone(),context,output:(context/4).min(8192),
-            identity:plan.identity.clone(),policy,servers:granted,who:format!("{} / {}",ctx.org_slug,ctx.name) };
+            identity:plan.identity.clone(),policy,servers:granted,who:format!("{} / {}",ctx.org_slug,ctx.name),host:want };
         let resume = ctx.session_id.clone().filter(|_| ctx.session_provider.as_deref()==Some(ctx.provider.as_str()));
         let actor = self.tx.clone();
         let emit = Arc::new(move |process, event| {
@@ -3048,8 +3209,9 @@ impl Actor {
                 "this Muse model does not list the saved effort; the nearest level it lists is sent");
         }
         let plan = self.plan(ctx);
+        let want = self.want_hosted(ctx);
         let reuse = match self.proc.as_mut() {
-            Some(p) => p.is_muse() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive(),
+            Some(p) => p.is_muse() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive() && p.hosted() == want,
             None => false,
         };
         if reuse {
@@ -3110,6 +3272,7 @@ impl Actor {
             may_write,
             may_shell: on("bash") && may_write,
             sandbox: musert::os_sandbox(codexrt::session0(), may_write, pm),
+            host: want,
             may_web: on("web"),
             may_subagents: on("subagents"),
             servers: granted,
@@ -3649,7 +3812,7 @@ impl Actor {
         .await?;
         tx.commit().await?;
         drop(client);
-        let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let mut raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
         let reset_note = match self.cold_reset(&mut ctx).await {
             Ok(note) => note,
             Err(e) => {
@@ -3657,10 +3820,12 @@ impl Actor {
                 None
             }
         };
+        self.session_settle().await;
         if let Err(e) = self.ensure_proc(&ctx).await {
             self.return_mail(turn_id, true).await;
             return Err(e);
         }
+        self.session_notes(turn_id, &mut raw).await;
         let handoff = match self.take_handoff(&ctx).await {
             Ok(n) => n,
             Err(e) => {
@@ -6044,6 +6209,7 @@ impl Actor {
         crate::net::typing::stop_agent(&self.engine, self.id);
         self.engine.credential_bridge.revoke(self.id);
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
+        let hosted = self.proc.as_ref().is_some_and(|p| p.hosted());
         self.proc = None;
         self.proc_print = None;
         self.proc_notes = None;
@@ -6056,13 +6222,32 @@ impl Actor {
         self.orphans(&format!("the CLI exited: {reason}"));
         self.claude_lost(&format!("the CLI exited: {reason}")).await;
         self.muse_lost(&format!("the host exited: {reason}")).await;
+        // A CLI in the user's session ends with that session: the user signed
+        // out, or the sign-in helper stopped. That is no failure of the agent:
+        // the turn stops cleanly, its mail is kept as for any CLI that died
+        // (given back when the CLI had produced nothing), and it continues in
+        // Session 0 (docket option-to-run-the-background-engine-in-the-user-s).
+        let session_ended = hosted && self.turn.is_some() && self.session_gone().await;
         if let Some(t) = self.turn.as_mut() {
             t.exited = true;
+            t.session_ended = session_ended;
         }
         if self.turn.is_some() {
             let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
-            let msg = if quiet { None } else { Some(format!("the {} process exited during the turn ({status}; {reason})", catalog::provider_label(&self.provider))) };
+            let msg = if session_ended {
+                tracing::info!(agent = %self.name, %process, "the user's Windows session ended during the turn; it continues in Session 0");
+                Some(SESSION_ENDED.to_string())
+            } else if quiet {
+                None
+            } else {
+                Some(format!("the {} process exited during the turn ({status}; {reason})", catalog::provider_label(&self.provider)))
+            };
             self.end_turn(msg, Value::Null).await?;
+            if session_ended {
+                if let Err(e) = crate::domain::runtime_notices::session_ended(&self.engine, self.org_id, self.id).await {
+                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the session-end wake could not be sent");
+                }
+            }
         } else {
             // the next turn starts a CLI: the forecast weighs what it will read (org notes)
             self.update_forecast().await;
@@ -6322,7 +6507,8 @@ impl Actor {
         let mut classified = false;
         let mut exhausted: Option<(i64, String)> = None;
         let mut parked: Option<&'static str> = None;
-        if let (Some(e), false) = (error.as_deref(), turn.interrupted || turn.killed || freeze_rec.is_some()) {
+        // a turn the end of the user's session stopped is no failure (on_exit)
+        if let (Some(e), false) = (error.as_deref(), turn.interrupted || turn.killed || turn.session_ended || freeze_rec.is_some()) {
             let died = turn.exited && turn.activity && res.is_null();
             let account = turn.serving_account.as_deref();
             // Muse classifies its own failures: a sign-in it needs, or one it
@@ -6489,7 +6675,10 @@ impl Actor {
                     .await;
             }
         }
-        if let Some(e) = &error {
+        if turn.session_ended {
+            let row = json!({ "role": "system", "text": SESSION_ENDED_ROW, "ts": now_iso(), "kind": "session" });
+            let _ = self.convo.append(&client, row).await;
+        } else if let Some(e) = &error {
             let ev = crate::events::typed("runtime.turn_failed_terminal", "@system",
                 json!({"kind":"session","org":self.org.slug,"node":self.name,"session_id":session.clone().unwrap_or_default()}),
                 json!({"door":"turn","err":e}));
@@ -6511,7 +6700,7 @@ impl Actor {
         if let Err(error) = self.complete_next_turn_namespace().await {
             tracing::warn!(agent=self.id, %error, "next-turn session evidence could not be completed");
         }
-        if !turn.interrupted && !classified {
+        if !turn.interrupted && !turn.session_ended && !classified {
             // 3.x `hard_fail_run`: a run of terminal failures, a turn the idle
             // or time limit killed included, is told once; only a completed
             // turn makes the next failure news again
@@ -6536,12 +6725,12 @@ impl Actor {
             recovery::parked(&self.engine, self.org_id, self.id, kind, error.as_deref().unwrap_or("")).await;
         }
         self.apply_pending_config().await?;
-        if error.is_some() || limit.is_some() {
+        if (error.is_some() && !turn.session_ended) || limit.is_some() {
             crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event(
                 if limit.is_some(){"turn.limited"}else{"turn.failed"},
                 crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
         }
-        self.last_error = error.clone();
+        self.last_error = if turn.session_ended { None } else { error.clone() };
         self.mcp.last_turn_count = self.mcp.count;
         self.slot = None;
         self.activity = None;

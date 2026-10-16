@@ -239,7 +239,7 @@ mod win {
             let hosted = crate::codex_host::sweep();
             write_events();
             if hosted != hosted_before {
-                note(&root, &format!("hosting {hosted} Codex process(es)"));
+                note(&root, &format!("hosting {hosted} agent CLI process(es)"));
                 hosted_before = hosted;
             }
             tokio::time::sleep(TICK).await;

@@ -12,11 +12,12 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::engine::Engine;
+use crate::runtime::session_host::{self, Io};
 use crate::runtime::{AgentMsg, AgentTx, Caller, Post};
 use crate::winproc;
 
@@ -78,7 +79,7 @@ pub struct CodexProc {
     next: AtomicI64,
     child: Option<Child>,
     /// started by the sign-in helper in the user's session (`child` is None)
-    hosted: Option<host::Hosted>,
+    hosted: Option<session_host::Hosted>,
     job: Option<winproc::ChildJob>,
     /// the thread: this agent's Codex session
     pub session_id: String,
@@ -125,14 +126,15 @@ pub fn sandbox(may_write: bool, permission_mode: &str, session0: bool) -> Sandbo
 
 /// A seat's sandbox, and whether its Codex is started by the sign-in helper
 /// in the user's session, where Codex's sandbox works (docket
-/// windows-sign-in-credential-helper-so-git-gh-work, phase 2). Only sandboxed
-/// seats are hosted: a bypassPermissions seat stays in Session 0, so no
-/// unsandboxed agent runs beside the user's sign-ins (ruling Q1).
+/// windows-sign-in-credential-helper-so-git-gh-work, phase 2; every harness
+/// since 2026-10-16, `session_host`). A bypassPermissions seat moves too (the
+/// user, 2026-10-16 09:43Z: "Yes, all agents", superseding ruling Q1, which
+/// kept it in Session 0), with its own unsandboxed setting.
 #[logged]
 pub fn seat_sandbox(engine: &Engine, may_write: bool, permission_mode: &str) -> (Sandbox, bool) {
     let s0 = session0();
     let own = sandbox(may_write, permission_mode, false);
-    let hosted = s0 && own.mode != "danger-full-access" && engine.credential_bridge.can_host();
+    let hosted = super::session_host::wanted(engine, own.mode == "danger-full-access");
     if hosted {
         (own, true)
     } else {
@@ -203,9 +205,15 @@ impl CodexProc {
             ).await?;
             spec.config.extend(scoped_config);
         }
-        let mut started: Option<(Io, host::Hosted)> = None;
+        let mut started: Option<(Io, session_host::Hosted)> = None;
         if let Some(fallback) = spec.host {
-            match host::spawn(&engine, &spec, &env).await {
+            let mut args = spec.config.clone();
+            args.push("app-server".into());
+            let hosted = match (spec.exe.to_str(), spec.cwd.to_str()) {
+                (Some(exe), Some(cwd)) => session_host::start_hosted(&engine, exe, &args, cwd, &env).await,
+                _ => Err("host-invalid".to_string()),
+            };
+            match hosted {
                 Ok(h) => started = Some(h),
                 Err(code) => {
                     tracing::warn!(agent = caller.agent_id, reason = %code,
@@ -485,6 +493,11 @@ impl CodexProc {
         super::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
+    /// Started by the sign-in helper in the user's session.
+    pub fn hosted(&self) -> bool {
+        self.hosted.is_some()
+    }
+
     pub fn alive(&mut self) -> bool {
         if let Some(h) = &self.hosted {
             return h.alive();
@@ -492,209 +505,6 @@ impl CodexProc {
         match self.child.as_mut() {
             Some(c) => matches!(c.try_wait(), Ok(None)),
             None => false,
-        }
-    }
-}
-
-/// A Codex process's stdio, whoever started it.
-struct Io {
-    stdin: Box<dyn AsyncWrite + Unpin + Send>,
-    stdout: Box<dyn AsyncRead + Unpin + Send>,
-    stderr: Box<dyn AsyncRead + Unpin + Send>,
-}
-
-/// Codex started by the sign-in helper (phase 2 of docket
-/// windows-sign-in-credential-helper-so-git-gh-work). The engine serves the
-/// child's three stdio pipes; the helper, proven to be the interactive
-/// operator by the bridge, connects them, starts `codex.exe` with them in the
-/// user's session and keeps it in a job that ends with the helper or with
-/// this engine. The request carries the child's environment, so nothing here
-/// logs more than pids and fixed codes.
-#[cfg(windows)]
-mod host {
-    use super::*;
-    use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, STILL_ACTIVE, WAIT_OBJECT_0};
-    use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
-        PROCESS_SET_QUOTA, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
-    };
-
-    pub struct Hosted {
-        pub pid: u32,
-        created: u64,
-        /// SYNCHRONIZE + query (+ terminate and set-quota when granted); 0 if none
-        process: usize,
-        engine: Arc<Engine>,
-    }
-
-    impl Drop for Hosted {
-        #[nolog]
-        fn drop(&mut self) {
-            if self.process != 0 {
-                unsafe { CloseHandle(self.process as HANDLE) };
-            }
-        }
-    }
-
-    #[nolog]
-    fn serve(name: &str, inbound: bool) -> std::result::Result<NamedPipeServer, String> {
-        ServerOptions::new()
-            .first_pipe_instance(true)
-            .max_instances(1)
-            .reject_remote_clients(true)
-            .access_inbound(inbound)
-            .access_outbound(!inbound)
-            .create(name)
-            .map_err(|_| "host-pipe".to_string())
-    }
-
-    /// The helper must be the pipe's client (it opens all three before it
-    /// starts the child, so `connect` returns at once).
-    #[nolog]
-    async fn accept(p: &NamedPipeServer, helper: u32) -> std::result::Result<(), String> {
-        use std::os::windows::io::AsRawHandle;
-        tokio::time::timeout(Duration::from_secs(5), p.connect())
-            .await
-            .map_err(|_| "host-pipe".to_string())?
-            .map_err(|_| "host-pipe".to_string())?;
-        let mut client = 0;
-        if unsafe { GetNamedPipeClientProcessId(p.as_raw_handle() as _, &mut client) } == 0 || client != helper {
-            return Err("host-pipe".into());
-        }
-        Ok(())
-    }
-
-    #[nolog]
-    pub async fn spawn(
-        engine: &Arc<Engine>,
-        spec: &CodexSpec,
-        env: &[(String, String)],
-    ) -> std::result::Result<(Io, Hosted), String> {
-        let bridge = &engine.credential_bridge;
-        let helper = bridge.host_pid().ok_or("host-gone")?;
-        let base = format!(r"\\.\pipe\orgtree-codex-{}", uuid::Uuid::new_v4().simple());
-        let names = [format!("{base}-in"), format!("{base}-out"), format!("{base}-err")];
-        let stdin = serve(&names[0], false)?;
-        let stdout = serve(&names[1], true)?;
-        let stderr = serve(&names[2], true)?;
-        let mut args = spec.config.clone();
-        args.push("app-server".into());
-        let env: serde_json::Map<String, Value> = env.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
-        let request = json!({ "kind": "spawn", "exe": spec.exe, "args": args, "cwd": spec.cwd, "env": env,
-                              "pipes": { "stdin": names[0], "stdout": names[1], "stderr": names[2] } });
-        let reply = bridge.host(request).await?;
-        let r: Value = serde_json::from_slice(&reply).map_err(|_| "host-failed".to_string())?;
-        let (pid, created) = match (r["pid"].as_u64(), r["created"].as_u64()) {
-            (Some(p), Some(c)) if p > 0 => (p as u32, c),
-            _ => return Err("host-failed".into()),
-        };
-        let wait = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
-        let mut process = unsafe { OpenProcess(wait | PROCESS_TERMINATE | PROCESS_SET_QUOTA, 0, pid) };
-        if process.is_null() {
-            process = unsafe { OpenProcess(wait, 0, pid) };
-        }
-        let hosted = Hosted { pid, created, process: process as usize, engine: engine.clone() };
-        let connected = async {
-            if hosted.process == 0 {
-                return Err("host-process".to_string());
-            }
-            for p in [&stdin, &stdout, &stderr] {
-                accept(p, helper).await?;
-            }
-            Ok(())
-        }
-        .await;
-        if let Err(code) = connected {
-            // its pipes close first: it gets the chance to exit by itself
-            drop((stdin, stdout, stderr));
-            let who = "Codex launch by the sign-in helper";
-            let started = std::time::Instant::now();
-            let status = hosted.wait_exit(uuid::Uuid::nil(), "the engine could not connect its pipes", Duration::from_secs(3)).await;
-            let waited = started.elapsed().as_millis() as u64;
-            if status.starts_with("exit status unavailable") {
-                crate::codex_kills::force(pid, true, who, "the engine could not connect its pipes", true, waited);
-                hosted.kill().await;
-            } else {
-                crate::codex_kills::graceful(pid, who, "the engine could not connect its pipes", waited);
-            }
-            return Err(code);
-        }
-        Ok((Io { stdin: Box::new(stdin), stdout: Box::new(stdout), stderr: Box::new(stderr) }, hosted))
-    }
-
-    #[nolog]
-    impl Hosted {
-        /// Its tree in an engine job too, when Windows lets this engine hold
-        /// one (the helper's job ends it either way).
-        pub fn job(&self) -> Option<winproc::ChildJob> {
-            (self.process != 0).then(|| winproc::ChildJob::for_process(self.process as HANDLE)).flatten()
-        }
-
-        /// The helper ends it with everything it started; if the helper is
-        /// gone, the process itself is ended here when Windows allows it.
-        pub async fn kill(&self) {
-            let asked = self
-                .engine
-                .credential_bridge
-                .host(json!({ "kind": "kill", "pid": self.pid, "created": self.created }))
-                .await;
-            if asked.is_err() && self.process != 0 {
-                unsafe { TerminateProcess(self.process as HANDLE, 1) };
-            }
-        }
-
-        pub fn alive(&self) -> bool {
-            self.process != 0 && unsafe { WaitForSingleObject(self.process as HANDLE, 0) } != WAIT_OBJECT_0
-        }
-
-        pub async fn wait_exit(&self, process: uuid::Uuid, reason: &str, timeout: Duration) -> String {
-            let handle = self.process;
-            let ms = timeout.as_millis().min(u32::MAX as u128 - 1) as u32;
-            let status = tokio::task::spawn_blocking(move || unsafe {
-                if handle == 0 {
-                    return "exit status unavailable: no process handle".to_string();
-                }
-                if WaitForSingleObject(handle as HANDLE, ms) != WAIT_OBJECT_0 {
-                    return "exit status unavailable: process has not exited".to_string();
-                }
-                let mut code = 0u32;
-                if GetExitCodeProcess(handle as HANDLE, &mut code) == 0 || code == STILL_ACTIVE as u32 {
-                    return "exit status unavailable".to_string();
-                }
-                format!("exit code: {code}")
-            })
-            .await
-            .unwrap_or_else(|_| "exit status unavailable".to_string());
-            tracing::info!(pid = self.pid, %process, reason, %status, hosted = true, "CLI exit observation");
-            status
-        }
-    }
-}
-
-/// No sign-in helper outside Windows: every Codex starts directly.
-#[cfg(not(windows))]
-mod host {
-    use super::*;
-    pub struct Hosted {
-        pub pid: u32,
-    }
-    #[nolog]
-    pub async fn spawn(_: &Arc<Engine>, _: &CodexSpec, _: &[(String, String)]) -> std::result::Result<(Io, Hosted), String> {
-        Err("host-unsupported".into())
-    }
-    #[nolog]
-    impl Hosted {
-        pub fn job(&self) -> Option<winproc::ChildJob> {
-            None
-        }
-        pub async fn kill(&self) {}
-        pub fn alive(&self) -> bool {
-            false
-        }
-        pub async fn wait_exit(&self, _: uuid::Uuid, _: &str, _: Duration) -> String {
-            "exit status unavailable".into()
         }
     }
 }

@@ -18,7 +18,7 @@ use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{FramedRead, LinesCodec};
 use tokio_util::sync::CancellationToken;
@@ -38,6 +38,9 @@ pub struct Spec {
     pub env: Vec<(String, String)>,
     pub who: String,
     pub approval: Approval,
+    /// the engine and agent when the sign-in helper starts it in the
+    /// operator's signed-in session (`session_host::wanted`); None: here
+    pub host: Option<(Arc<crate::engine::Engine>, i64)>,
 }
 
 /// Neither raw frames nor stderr are logged: provider errors and tool arguments
@@ -93,7 +96,7 @@ pub struct Process {
     pub pid: u32,
     pub process: uuid::Uuid,
     pub client: Client,
-    child: Option<Child>,
+    child: Option<super::session_host::Launched>,
     job: Option<crate::winproc::ChildJob>,
     stop: CancellationToken,
     io: Option<tokio::task::JoinHandle<()>>,
@@ -104,20 +107,24 @@ pub struct Process {
 #[nolog]
 impl Process {
     pub async fn spawn(spec: Spec) -> Result<(Self, mpsc::Receiver<Event>)> {
-        let mut command = Command::new(&spec.exe);
-        command.args(&spec.args).current_dir(&spec.cwd).env_clear()
-            .envs(spec.env.iter().map(|(k, v)| (k, v)))
-            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped()).kill_on_drop(true);
-        crate::winproc::no_window(&mut command);
-        crate::winproc::own_group(&mut command);
-        let mut child = command.spawn().context("could not start ACP harness")?;
-        let pid = child.id().unwrap_or(0);
+        let build = |_| {
+            let mut command = Command::new(&spec.exe);
+            command.args(&spec.args).current_dir(&spec.cwd).env_clear()
+                .envs(spec.env.iter().map(|(k, v)| (k, v)))
+                .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped()).kill_on_drop(true);
+            crate::winproc::no_window(&mut command);
+            crate::winproc::own_group(&mut command);
+            Ok(command)
+        };
+        let started = match &spec.host {
+            Some((engine, agent)) => super::session_host::spawn(engine, true, true, *agent, "ACP harness", build).await.map(|(s, _)| s),
+            None => build(false).and_then(super::session_host::spawn_local),
+        };
+        let super::session_host::Started { io, launched, job, pid } = started.context("could not start ACP harness")?;
         let process = uuid::Uuid::new_v4();
-        let job = crate::winproc::child_job(&child);
-        let stdin = child.stdin.take().ok_or_else(|| anyhow!("ACP stdin missing"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("ACP stdout missing"))?;
-        let stderr = child.stderr.take().ok_or_else(|| anyhow!("ACP stderr missing"))?;
+        let super::session_host::Io { stdin, stdout, stderr } = io;
+        let child = launched;
         let stop = CancellationToken::new();
         let (client, events, io) = connection(stdout, stdin, spec.approval, stop.clone());
         // Drain, never retain or log arbitrary stderr. A bounded line decoder
@@ -137,11 +144,16 @@ impl Process {
     }
 
     pub fn alive(&mut self) -> bool {
-        self.child.as_mut().is_some_and(|c| matches!(c.try_wait(), Ok(None)))
+        self.child.as_mut().is_some_and(|c| c.alive())
+    }
+
+    /// Started by the sign-in helper in the user's session.
+    pub fn hosted(&self) -> bool {
+        self.child.as_ref().is_some_and(|c| c.hosted())
     }
 
     pub async fn exit_status(&mut self, reason: &str) -> String {
-        super::exit_status(&mut self.child, self.pid, self.process, reason).await
+        super::session_host::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub async fn close(&mut self) {
@@ -149,8 +161,7 @@ impl Process {
         self.stop.cancel();
         if let Some(io) = self.io.take() { let _ = io.await; }
         if let Some(mut child) = self.child.take() {
-            super::stop_gracefully(&mut child, self.job.as_ref(), &self.who,
-                "ACP close requested", Duration::from_secs(5)).await;
+            child.stop_gracefully(self.job.as_ref(), &self.who, "ACP close requested", Duration::from_secs(5)).await;
         }
         if let Some(stderr) = self.stderr.take() { let _ = stderr.await; }
     }

@@ -17,11 +17,12 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::Engine;
+use crate::runtime::session_host::{self, Launched};
 use crate::runtime::{AgentMsg, AgentTx, Caller, Post};
 use crate::winproc;
 
@@ -57,6 +58,9 @@ pub struct AgySpec {
     pub subagents: bool,
     pub env: Vec<(String, String)>,
     pub turn_timeout_s: u64,
+    /// started by the sign-in helper in the operator's signed-in session
+    /// (`session_host::wanted`), else here
+    pub host: bool,
 }
 
 impl std::fmt::Debug for AgySpec {
@@ -73,7 +77,7 @@ pub struct AgyProc {
     pub pid: u32,
     pub process: uuid::Uuid,
     stdin: mpsc::UnboundedSender<String>,
-    child: Option<Child>,
+    child: Option<Launched>,
     job: Option<Arc<winproc::ChildJob>>,
     pipe: CancellationToken,
     pub model: String,
@@ -86,6 +90,51 @@ impl Drop for AgyProc {
     }
 }
 
+/// The `agy` command a spec starts, wherever it runs (`session_host::spawn`).
+#[nolog]
+fn command(spec: &AgySpec) -> Command {
+    let mut cmd = Command::new(&spec.exe);
+    cmd.arg("-p=")
+        .args(["--input-format", "stream-json", "--output-format", "stream-json"])
+        .arg("--add-dir")
+        .arg(&spec.cwd)
+        .args(["--model", &spec.model]);
+    if let Some(e) = &spec.effort {
+        cmd.args(["--effort", e]);
+    }
+    if let Some(c) = &spec.conversation {
+        cmd.args(["--conversation", c]);
+    }
+    cmd.arg("--dangerously-skip-permissions");
+    if spec.turn_timeout_s > 0 {
+        cmd.arg("--print-timeout").arg(format!("{}s", spec.turn_timeout_s));
+    }
+    cmd.current_dir(&spec.cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    // one credential per spawn: the CLI signs in from the OS keyring, and
+    // its MCP children inherit whatever is not scrubbed here
+    for (k, _) in std::env::vars() {
+        if k.starts_with("ANTHROPIC_")
+            || k.starts_with("CLAUDE_CODE_")
+            || ["CLAUDECODE", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "AGY_ADC_AUTH",
+                "ORGTREE_V2_TOKEN", "ORGTREE_DATA", "ELECTRON_RUN_AS_NODE", "CODEX_HOME"]
+                .contains(&k.as_str())
+        {
+            cmd.env_remove(&k);
+        }
+    }
+    cmd.env("AGY_CLI_DISABLE_AUTO_UPDATE", "true");
+    for (k, v) in &spec.env {
+        cmd.env(k, v);
+    }
+    crate::providers::agy_auth::configure(&mut cmd);
+    winproc::own_group(&mut cmd);
+    cmd
+}
+
 #[logged]
 impl AgyProc {
     #[nolog]
@@ -96,54 +145,15 @@ impl AgyProc {
         // this CLI (coordinator 2026-10-13 21:36Z, tools::defs::MailShape)
         let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone(), crate::tools::defs::MailShape::Flat)?;
         write_workspace(&spec, &pipe_name, &engine.cfg.data_root)?;
-        let mut cmd = Command::new(&spec.exe);
-        cmd.arg("-p=")
-            .args(["--input-format", "stream-json", "--output-format", "stream-json"])
-            .arg("--add-dir")
-            .arg(&spec.cwd)
-            .args(["--model", &spec.model]);
-        if let Some(e) = &spec.effort {
-            cmd.args(["--effort", e]);
-        }
-        if let Some(c) = &spec.conversation {
-            cmd.args(["--conversation", c]);
-        }
-        cmd.arg("--dangerously-skip-permissions");
-        if spec.turn_timeout_s > 0 {
-            cmd.arg("--print-timeout").arg(format!("{}s", spec.turn_timeout_s));
-        }
-        cmd.current_dir(&spec.cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
-        // one credential per spawn: the CLI signs in from the OS keyring, and
-        // its MCP children inherit whatever is not scrubbed here
-        for (k, _) in std::env::vars() {
-            if k.starts_with("ANTHROPIC_")
-                || k.starts_with("CLAUDE_CODE_")
-                || ["CLAUDECODE", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "AGY_ADC_AUTH",
-                    "ORGTREE_V2_TOKEN", "ORGTREE_DATA", "ELECTRON_RUN_AS_NODE", "CODEX_HOME"]
-                    .contains(&k.as_str())
-            {
-                cmd.env_remove(&k);
-            }
-        }
-        cmd.env("AGY_CLI_DISABLE_AUTO_UPDATE", "true");
-        for (k, v) in &spec.env {
-            cmd.env(k, v);
-        }
-        crate::providers::agy_auth::configure(&mut cmd);
         if let Some(failure) = crate::providers::agy_auth::blocked(&engine) { return Err(failure.into()); }
-        winproc::own_group(&mut cmd);
-        let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
-        let job = winproc::child_job(&child).map(Arc::new);
-        let pid = child.id().unwrap_or(0);
+        let (started, hosted) = session_host::spawn(&engine, spec.host, false, caller.agent_id, "Antigravity", |_| Ok(command(&spec)))
+            .await
+            .with_context(|| format!("could not start {}", spec.exe.display()))?;
+        let session_host::Started { io, launched: child, job, pid } = started;
+        let job = job.map(Arc::new);
         let process = uuid::Uuid::new_v4();
-        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Agy", "CLI started");
-        let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
-        let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
+        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Agy", hosted, "CLI started");
+        let session_host::Io { mut stdin, stdout, stderr } = io;
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(async move {
             while let Some(line) = rx.recv().await {
@@ -207,8 +217,8 @@ impl AgyProc {
             job.terminate();
         }
         if let Some(mut c) = self.child.take() {
-            let _ = c.start_kill();
-            let _ = super::wait_exit(&mut c, self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
+            c.start_kill();
+            let _ = c.wait_exit(self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
         }
     }
 
@@ -216,27 +226,29 @@ impl AgyProc {
         let (tx, _) = mpsc::unbounded_channel();
         self.stdin = tx;
         if let Some(mut c) = self.child.take() {
-            let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
+            let status = c.wait_exit(self.pid, self.process, "close requested", Duration::from_secs(5)).await;
             if status.starts_with("exit status unavailable") {
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
-                let _ = c.start_kill();
-                let _ = super::wait_exit(&mut c, self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
+                c.start_kill();
+                let _ = c.wait_exit(self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
             }
         }
         self.pipe.cancel();
     }
 
     pub async fn exit_status(&mut self, reason: &str) -> String {
-        super::exit_status(&mut self.child, self.pid, self.process, reason).await
+        session_host::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub fn alive(&mut self) -> bool {
-        match self.child.as_mut() {
-            Some(c) => matches!(c.try_wait(), Ok(None)),
-            None => false,
-        }
+        self.child.as_mut().is_some_and(|c| c.alive())
+    }
+
+    /// Started by the sign-in helper in the user's session.
+    pub fn hosted(&self) -> bool {
+        self.child.as_ref().is_some_and(|c| c.hosted())
     }
 }
 
@@ -672,7 +684,7 @@ mod workspace_notes_tests {
             exe: PathBuf::from("unused-fake-agy"), cwd: root.join("agent"), model: "fake".into(),
             effort: None, conversation: None, identity: "Synthetic generated identity".into(),
             servers: Map::new(), bash: true, edit: true, web: true, subagents: true,
-            env: vec![], turn_timeout_s: 60,
+            env: vec![], turn_timeout_s: 60, host: false,
         };
         (root, spec)
     }

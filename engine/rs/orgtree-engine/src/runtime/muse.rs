@@ -49,12 +49,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Map, Value};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::Engine;
+use crate::runtime::session_host::{self, Launched};
 use crate::runtime::{AgentMsg, AgentTx, Caller, Post};
 use crate::winproc;
 
@@ -129,6 +130,9 @@ pub struct MuseSpec {
     pub may_shell: bool,
     /// Muse's OS sandbox for shell commands (off only in Session 0, `os_sandbox`)
     pub sandbox: bool,
+    /// started by the sign-in helper in the operator's signed-in session
+    /// (`session_host::wanted`), where the sandbox stays on; else here
+    pub host: bool,
     pub may_web: bool,
     pub may_subagents: bool,
     /// granted external MCP servers (registry entries), besides orgtree's own
@@ -171,7 +175,7 @@ pub struct MuseProc {
     stdin_close: Option<oneshot::Sender<()>>,
     waiters: mpsc::UnboundedSender<(i64, oneshot::Sender<Value>)>,
     next: AtomicI64,
-    child: Option<Child>,
+    child: Option<Launched>,
     job: Option<winproc::ChildJob>,
     /// the agent's tool bridge (its pipe closes with this process)
     pipe: CancellationToken,
@@ -431,34 +435,36 @@ impl MuseProc {
             (None, false)
         };
         let env = crate::providers::muse_models::clean_env(&spec.env);
-        let mut cmd = Command::new(&spec.exe);
-        cmd.args(host_args(&spec, prompt_file.as_deref()))
-            .current_dir(&spec.cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
-        cmd.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
-        winproc::no_window(&mut cmd);
-        winproc::own_group(&mut cmd);
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
+        let build = |hosted: bool| -> Result<Command> {
+            let mut args = host_args(&spec, prompt_file.as_deref());
+            // outside Session 0 the sandbox works: a hosted CLI keeps it (`os_sandbox`)
+            if hosted {
+                args.retain(|a| a != "--disable-sandbox");
+            }
+            let mut cmd = Command::new(&spec.exe);
+            cmd.args(args)
+                .current_dir(&spec.cwd)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true);
+            cmd.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
+            winproc::no_window(&mut cmd);
+            winproc::own_group(&mut cmd);
+            Ok(cmd)
+        };
+        let (started, hosted) = match session_host::spawn(&engine, spec.host, true, caller.agent_id, "Muse", build).await {
+            Ok(s) => s,
             Err(e) => {
                 pipe.cancel();
-                return Err(anyhow!(e).context(format!("could not start {}", spec.exe.display())));
+                return Err(e.context(format!("could not start {}", spec.exe.display())));
             }
         };
-        let job = winproc::child_job(&child);
-        let pid = child.id().unwrap_or(0);
+        let session_host::Started { io, launched: child, job, pid } = started;
         let process = uuid::Uuid::new_v4();
         tracing::info!(agent = caller.agent_id, pid, %process, provider = "Muse", prompt_by_file, profile = spec.seat.profile,
-            shell = spec.may_shell, write = spec.may_write, sandbox = spec.sandbox, "CLI started");
-        let (Some(mut stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
-            pipe.cancel();
-            let who = format!("agent {} (#{})", caller.name, caller.agent_id);
-            super::stop_gracefully(&mut child, job.as_ref(), &who, "no stdio", Duration::from_secs(3)).await;
-            return Err(anyhow!("the Muse host has no stdio"));
-        };
+            shell = spec.may_shell, write = spec.may_write, sandbox = spec.sandbox || hosted, hosted, "CLI started");
+        let session_host::Io { mut stdin, stdout, stderr } = io;
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let (stdin_close, mut close_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
@@ -790,21 +796,23 @@ impl MuseProc {
             let _ = close.send(());
         }
         if let Some(mut c) = self.child.take() {
-            let status = super::stop_gracefully(&mut c, self.job.as_ref(), &self.who, reason, grace).await;
+            let status = c.stop_gracefully(self.job.as_ref(), &self.who, reason, grace).await;
             tracing::info!(pid = self.pid, process = %self.process, reason, %status, "CLI exit observation");
         }
         self.pipe.cancel();
     }
 
     pub async fn exit_status(&mut self, reason: &str) -> String {
-        super::exit_status(&mut self.child, self.pid, self.process, reason).await
+        session_host::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub fn alive(&mut self) -> bool {
-        match self.child.as_mut() {
-            Some(c) => matches!(c.try_wait(), Ok(None)),
-            None => false,
-        }
+        self.child.as_mut().is_some_and(|c| c.alive())
+    }
+
+    /// Started by the sign-in helper in the user's session.
+    pub fn hosted(&self) -> bool {
+        self.child.as_ref().is_some_and(|c| c.hosted())
     }
 }
 
@@ -816,7 +824,7 @@ impl Drop for MuseProc {
 
 #[logged]
 async fn read_stdout(
-    stdout: tokio::process::ChildStdout,
+    stdout: Box<dyn AsyncRead + Unpin + Send>,
     actor: AgentTx,
     process: uuid::Uuid,
     writer: mpsc::UnboundedSender<String>,
@@ -1093,6 +1101,7 @@ mod tests {
             servers: Map::new(),
             resume: None,
             env: vec![],
+            host: false,
         }
     }
 
