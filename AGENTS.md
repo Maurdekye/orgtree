@@ -29,13 +29,15 @@
 - Canvas background themes (App settings > Display): optional
   `DesktopPreferences.canvasBackground` (absent = the original parallax dot
   grid, byte-identical) selects the `.canvas-bg` layer — `dots`, `line-grid`,
-  `hex-dots`, `hex-lines`, `checkerboard` (2×2 square checkerboard),
-  `square-tiles`, `triangle-tiles`, `hex-tiles`, and `ascii` (labeled **Claude
-  Waves**, placed last in the picker; stored `'ascii'` and `'claude-waves'`
-  resolve to `'ascii'`) — each with a per-theme intensity stored sparsely,
-  drawn in current theme colours, mobile off. New themes pan/zoom 1:1 like a
-  floor; only dots keep the 0.88 parallax. Hex lines and the three gapped tile
-  presets (`square-tiles`, `triangle-tiles`, `hex-tiles`) are SVG masks over a
+  `hex-dots`, `hex-lines`, `checkerboard` (2×2 square checkerboard; legacy
+  unversioned `'square-tiles'` selections/intensities migrate here, while
+  `version: 2` selects the new gapped `'square-tiles'`), `square-tiles`,
+  `triangle-tiles`, `hex-tiles`, and `ascii` (labeled **Claude Waves**, placed
+  last in the picker; stored `'ascii'` and `'claude-waves'` resolve to
+  `'ascii'`) — each with a per-theme intensity stored sparsely, drawn in
+  current theme colours, mobile off. New themes pan/zoom 1:1 like a floor; only
+  dots keep the 0.88 parallax. Hex lines and the three gapped tile presets
+  (`square-tiles`, `triangle-tiles`, `hex-tiles`) are SVG masks over a
   theme-colour fill (`var(--line)`), with each tile drawn as its own closed
   outlined polygon inset from its `{4,4}`, `{3,6}`, or `{6,3}` cell so
   neighbouring tiles have a small even gap and share no edges. Claude Waves
@@ -48,8 +50,9 @@
   cached glyph atlases, pointer stir/ripples/heart, 180s settle-to-calm, hidden
   pause, still mode under reduced motion, graceful load backoff (`opacity: 0`
   when `busy-off` so no frozen world frame sticks to the viewport, 1.5s→8s
-  auto-recovery retry, `webglcontextlost`/`webglcontextrestored` recovery), and
-  silent absence without hardware WebGL2. Contract, evidence and limits:
+  auto-recovery retry, `WEBGL_lose_context` / `webglcontextlost` +
+  `webglcontextrestored` resource regeneration), and silent absence without
+  hardware WebGL2. Contract, evidence and limits:
   [canvas background themes](docs/rust-engine/canvas-background-themes.md).
   [decided: user 2026-10-15, 2026-10-16; verified from source:
   `canvas/canvasbackground.tsx`, `canvas/asciigl.ts`, `contracts/canvas-background.ts`, `main/policy.ts`]

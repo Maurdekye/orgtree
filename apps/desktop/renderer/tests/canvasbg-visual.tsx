@@ -40,8 +40,10 @@ const start = {
   y: Number(q.get('y') ?? -180),
   z: Number(q.get('z') ?? 1),
 }
+const versionParam = q.get('version')
 localStorage.setItem(CANVAS_BG_KEY, JSON.stringify({
   theme,
+  ...(versionParam === '1' ? {} : theme === 'square-tiles' ? { version: 2 } : {}),
   ...(intensity !== null ? { intensities: { [theme]: Number(intensity) } } : {}),
 }))
 

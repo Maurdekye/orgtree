@@ -115,28 +115,81 @@ const SCENES = [
         if (recoveredLoad?.state?.datasetState === 'moving') break
       }
       const loadRecoveryMs = Date.now() - t0
-      const ctxLost = await js(win, `(() => {
-        const api = window.__ascii
-        const canvas = api.renderer().canvas
-        const ev = new Event('webglcontextlost', { cancelable: true })
-        canvas.dispatchEvent(ev)
-        return { defaultPrevented: ev.defaultPrevented, state: api.state(), opacity: canvas.style.opacity }
+      const loseIssued = await js(win, `(() => {
+        const r = window.__ascii.renderer()
+        return r ? r.loseContext() : false
       })()`)
-      await sleep(80)
-      const ctxRestored = await js(win, `(() => {
-        const api = window.__ascii
-        const canvas = api.renderer().canvas
-        canvas.dispatchEvent(new Event('webglcontextrestored'))
-        return { state: api.state(), opacity: canvas.style.opacity }
+      const tLoss = Date.now()
+      let ctxLost = null
+      while (Date.now() - tLoss < 1500) {
+        ctxLost = await js(win, `(() => {
+          const api = window.__ascii
+          const r = api.renderer()
+          const canvas = r.canvas
+          return {
+            loseIssued: ${Boolean(loseIssued)},
+            glContextLost: r.isContextLost(),
+            windWhileLost: r.readWind(),
+            state: api.state(),
+            opacity: canvas.style.opacity,
+          }
+        })()`)
+        if (ctxLost?.glContextLost && ctxLost?.state?.contextLost) break
+        await sleep(30)
+      }
+      const restoreIssued = await js(win, `(() => {
+        const r = window.__ascii.renderer()
+        return r ? r.restoreContext() : false
       })()`)
+      const tRestore = Date.now()
+      let ctxRestored = null
+      while (Date.now() - tRestore < 1500) {
+        ctxRestored = await js(win, `(() => {
+          const api = window.__ascii
+          const r = api.renderer()
+          const canvas = r.canvas
+          return {
+            restoreIssued: ${Boolean(restoreIssued)},
+            glContextLost: r.isContextLost(),
+            state: api.state(),
+            opacity: canvas.style.opacity,
+          }
+        })()`)
+        if (ctxRestored && !ctxRestored.glContextLost && ctxRestored.state?.datasetState === 'moving') break
+        await sleep(30)
+      }
+      const postRestore = await js(win, `(() => {
+        const api = window.__ascii
+        const r = api.renderer()
+        api.drawAt(8, 1)
+        const wind = r.readWind()
+        let nonZero = 0
+        if (wind?.data) {
+          for (let i = 0; i < wind.data.length; i += 4) {
+            if ((wind.data[i] || 0) > 0) nonZero++
+          }
+        }
+        const cmp = window.__compareWind(8)
+        return {
+          samples: wind ? wind.width * wind.height : 0,
+          nonZero,
+          compareChannels: cmp?.channels ?? null,
+          opacity: r.canvas.style.opacity,
+          state: api.state(),
+        }
+      })()`)
+      const R = postRestore?.compareChannels?.R
+      const G = postRestore?.compareChannels?.G
+      const A = postRestore?.compareChannels?.A
       return {
-        degraded, recoveredLoad, loadRecoveryMs, ctxLost, ctxRestored,
+        degraded, recoveredLoad, loadRecoveryMs, ctxLost, ctxRestored, postRestore,
         checks: {
           degradedPaused: degraded?.state?.datasetState === 'busy-gpu' && degraded?.state?.running === false,
           degradedHiddenNoFreeze: degraded?.opacity === '0',
           recoveredFromLoad: recoveredLoad?.state?.datasetState === 'moving' && Number(recoveredLoad?.opacity) > 0,
-          contextLossHandled: ctxLost?.defaultPrevented === true && ctxLost?.state?.datasetState === 'context-lost' && ctxLost?.opacity === '0',
-          contextRestored: ctxRestored?.state?.datasetState === 'moving' && Number(ctxRestored?.opacity) > 0,
+          contextLossHandled: ctxLost?.loseIssued === true && ctxLost?.glContextLost === true && ctxLost?.windWhileLost === null && ctxLost?.state?.datasetState === 'context-lost' && ctxLost?.opacity === '0',
+          contextRestored: ctxRestored?.restoreIssued === true && ctxRestored?.glContextLost === false && ctxRestored?.state?.datasetState === 'moving' && Number(ctxRestored?.opacity) > 0,
+          contextPostRestoreDraw: (postRestore?.samples ?? 0) > 1000 && (postRestore?.nonZero ?? 0) > 100 && !!R && R.within2 > 0.98 && !!G && G.within2 > 0.99 && !!A && A.within2 > 0.99,
         },
       }
     },

@@ -116,7 +116,16 @@ export function flushCanvasBackground(): Promise<void> {
   return persist(pref).catch(() => show(storedPref))
 }
 
-function choose(pref: CanvasBackgroundPreference, debounce: boolean): void {
+function withVersion(pref: CanvasBackgroundPreference): CanvasBackgroundPreference {
+  if (pref.theme === 'square-tiles' || pref.intensities?.['square-tiles'] !== undefined) {
+    return { ...pref, version: 2 }
+  }
+  const { version: _drop, ...rest } = pref
+  return rest
+}
+
+function choose(rawPref: CanvasBackgroundPreference, debounce: boolean): void {
+  const pref = withVersion(rawPref)
   show(pref)
   pending = pref
   clearTimeout(saveTimer)

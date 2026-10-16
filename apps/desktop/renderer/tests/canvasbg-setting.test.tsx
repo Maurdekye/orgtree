@@ -139,7 +139,7 @@ test('picking a theme stores it at once, and the slider then edits that theme on
   assert.equal(bgSlider(host)!.value, '0.8')
 })
 
-test('a stored choice (including legacy ascii and Checkerboard) is what a fresh panel opens on', async (t) => {
+test('a stored choice (including legacy ascii, legacy square-tiles -> Checkerboard, and v2 Square tiles) is what a fresh panel opens on', async (t) => {
   installBridge(t, { canvasBackground: { theme: 'triangle-tiles', intensities: { 'triangle-tiles': 0.25 } } })
   const view = await openDisplay(t)
   const host = panel(view.el)!
@@ -155,4 +155,40 @@ test('a stored choice (including legacy ascii and Checkerboard) is what a fresh 
   assert.equal(selAscii.value, 'ascii')
   assert.equal(selAscii.selectedOptions[0]?.textContent, 'Claude Waves')
   assert.equal(bgSlider(hostAscii)!.value, '0.7')
+  await viewAscii.unmount()
+
+  // Legacy unversioned square-tiles selection loads as Checkerboard with its remembered intensity
+  const bridgeLegacy = installBridge(t, { canvasBackground: { theme: 'square-tiles', intensities: { 'square-tiles': 0.3 } } })
+  const viewLegacy = await openDisplay(t)
+  const hostLegacy = panel(viewLegacy.el)!
+  const selLegacy = bgSelect(hostLegacy)!
+  assert.equal(selLegacy.value, 'checkerboard')
+  assert.equal(selLegacy.selectedOptions[0]?.textContent, 'Checkerboard')
+  assert.equal(bgSlider(hostLegacy)!.value, '0.3')
+  assert.equal(hostLegacy.textContent?.includes('30%'), true)
+  // Picking the new Square tiles option stores version: 2 alongside the migrated checkerboard intensity
+  await choose(selLegacy, 'square-tiles')
+  assert.deepEqual(bridgeLegacy.saved().canvasBackground, {
+    theme: 'square-tiles',
+    version: 2,
+    intensities: { checkerboard: 0.3 },
+  })
+  const sliderSq = bgSlider(hostLegacy)!
+  await slide(sliderSq, '0.65')
+  await blur(sliderSq)
+  assert.deepEqual(bridgeLegacy.saved().canvasBackground, {
+    theme: 'square-tiles',
+    version: 2,
+    intensities: { checkerboard: 0.3, 'square-tiles': 0.65 },
+  })
+  await viewLegacy.unmount()
+
+  // Reopening on that v2 square-tiles preference opens on Square tiles at 65%
+  installBridge(t, { canvasBackground: bridgeLegacy.saved().canvasBackground })
+  const viewSq = await openDisplay(t)
+  const hostSq = panel(viewSq.el)!
+  const selSq = bgSelect(hostSq)!
+  assert.equal(selSq.value, 'square-tiles')
+  assert.equal(selSq.selectedOptions[0]?.textContent, 'Square tiles')
+  assert.equal(bgSlider(hostSq)!.value, '0.65')
 })

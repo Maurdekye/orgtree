@@ -467,6 +467,12 @@ export interface AsciiRenderer {
   resize: (layout: AsciiLayout) => boolean
   /** Rebuild GL programs, textures, and framebuffer after webglcontextrestored. */
   restore: () => boolean
+  /** True when the underlying WebGL2 context is currently lost. */
+  isContextLost: () => boolean
+  /** Trigger real WEBGL_lose_context loss for resilience verification. */
+  loseContext: () => boolean
+  /** Trigger real WEBGL_lose_context restoration after loseContext(). */
+  restoreContext: () => boolean
   setInk: (rgb: readonly [number, number, number], alpha?: number) => void
   setGlow: (rgb: readonly [number, number, number]) => void
   draw: (time: number, reveal: number, touch: AsciiTouchFrame | null, view: AsciiFrameView) => void
@@ -537,8 +543,9 @@ export function createAsciiRenderer(
   const rendererName = debugInfo
     ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? '')
     : String(gl.getParameter(gl.RENDERER) ?? '')
+  const loseContextExt = gl.getExtension('WEBGL_lose_context')
   if (/swiftshader|llvmpipe|softpipe|software|warp|basic render/i.test(rendererName)) {
-    gl.getExtension('WEBGL_lose_context')?.loseContext()
+    loseContextExt?.loseContext()
     return null
   }
   let fences: WebGLSync[] = []
@@ -657,6 +664,17 @@ export function createAsciiRenderer(
     restore() {
       if (!alive || gl.isContextLost()) return false
       return initGl()
+    },
+    isContextLost: () => gl.isContextLost(),
+    loseContext() {
+      if (!alive || !loseContextExt) return false
+      loseContextExt.loseContext()
+      return true
+    },
+    restoreContext() {
+      if (!alive || !loseContextExt) return false
+      loseContextExt.restoreContext()
+      return true
     },
     resize(layout) {
       if (!alive || gl.isContextLost() || !windProg || !glyphProg) return false

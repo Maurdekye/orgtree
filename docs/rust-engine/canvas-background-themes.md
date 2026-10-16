@@ -53,15 +53,19 @@ exact slot the dot-grid div always occupied in `OrgCanvas` — first child
 of `.canvas-world`, under `.space`, `pointer-events: none` — so
 hit-testing, text selection and the pin layer are unaffected by the theme.
 
-- **Preference.** `DesktopPreferences.canvasBackground?: { theme,
+- **Preference.** `DesktopPreferences.canvasBackground?: { theme, version?,
   intensities? }` (`packages/contracts/canvas-background.ts`), validated in
   `apps/desktop/main/policy.ts` by the contracts sanitizer, watched/saved
   through `apps/desktop/renderer/src/canvasbgpref.ts` (bridge broadcast +
   localStorage fallback, the EPIC-pref pattern). Absent = dot grid at full
   strength; a corrupt value resolves to the dot grid. Intensities are
   stored sparsely — only themes the user actually adjusted — so default
-  changes still reach untouched themes. The slider saves debounced (one
-  write per drag, like the custom theme colour) with an optimistic preview.
+  changes still reach untouched themes. Legacy unversioned `'square-tiles'`
+  selections and intensities (from 4.3.1-alpha.1 before `'checkerboard'` was
+  split out) automatically migrate to `'checkerboard'`, while new selections
+  of the gapped outlined `'square-tiles'` preset carry `version: 2` (user
+  ruling `mb271a07b3fce`). The slider saves debounced (one write per drag,
+  like the custom theme colour) with an optimistic preview.
 - **Grid/tile themes** are CSS patterns in `styles.css`
   under `.canvas-bg[data-canvas-bg="…"]`. Patterns paint at full
   strength in the theme variables (`--canvas-dot`, `--line`, `--line-soft`)
@@ -315,13 +319,14 @@ evidence lands with it):
 
 Measured under the machine lock on branch `backdrop-argon/backdrop-fixes`:
 
-- **Red control:** executed against `5efd8ae` (`C:/orgtree-build/backdrop-argon/red-control/summary.json`) → **29 tests run, 20 pass / 9 fail**, with every new assertion failing red before the implementation commits: contract order/rename/alias + `checkerboard` (`2 fail`), CSS gapped SVG masks + checkerboard conic gradient (`1 fail`), `CanvasBackground` layer rendering for `checkerboard` and gapped tiles (`1 fail`), zoom-out grid/atlas bounding (`1 fail`), GPU fence retirement + load backoff hiding (`opacity: 0`) + fast auto-recovery (`1 fail`), WebGL context loss/restore (`1 fail`), and Display panel picker order/labels (`2 fail`).
+- **Incident analysis (inferred vs measured):** Reading the session's engine diagnostics log (`2026-10-16_00-27-16.log`) showed no engine/IPC errors around 09:00Z. Because the absence of engine log errors does not by itself establish the runtime failure mode, the connection to outside game GPU/CPU contention (`m134ee5295e37`) is **inferred**, and a full app freeze was **not** reproduced without outside load. Source inspection and deterministic tests/captures **measured** four concrete renderer behaviors at `5efd8ae` that compounded zoom-out and GPU/CPU contention: (1) `computeLayout()` scaled `gridFor` down to `z = 0.05` (triggering uncached 2D canvas `buildAtlas` + `getImageData` rebuilds across zoom steps and returning `null` below `z = 0.42` at `dpr = 1`); (2) `asciigl.ts` kept unsignaled GPU fences at the head of the queue without resetting `slow = false`; (3) `enterBusyOff` stopped the rAF loop while leaving `renderer.canvas.style.opacity = '1'` and waited `60_000 ms` (`retryMs` doubling to `480_000 ms`), leaving a static world-coordinate frame visible on screen until the timer fired; and (4) `AsciiLayer` had no `webglcontextlost`/`webglcontextrestored` handling.
+- **Red control:** executed against `5efd8ae` (`C:/orgtree-build/backdrop-argon/red-control/summary.json`) → **29 tests run, 20 pass / 9 fail**, with every new assertion failing red before the implementation commits: contract order/rename/alias + legacy `square-tiles` → `checkerboard` migration + v2 `square-tiles` (`2 fail`), CSS gapped SVG masks + checkerboard conic gradient (`1 fail`), `CanvasBackground` layer rendering for `checkerboard` (including legacy `square-tiles` migration) and v2 gapped tiles (`1 fail`), zoom-out grid/atlas bounding (`1 fail`), GPU fence retirement + load backoff hiding (`opacity: 0`) + fast auto-recovery (`1 fail`), real `WEBGL_lose_context` loss/restore + resource regeneration (`1 fail`), and Display panel picker order/labels/legacy migration (`2 fail`).
 - **Typecheck and unit/component tests:** root `tsc --noEmit` exit 0; strict renderer and strict tests report **0 diagnostics in touched files** (`C:/orgtree-build/backdrop-argon/green-verify-final/summary.json`). `canvasbg` + `canvasbg-setting` suites → **29/29 pass (0 fail)**; renderer neighbours (`appsettings theme rainbow`) → **29/29 pass (0 fail)**; root neighbour `tests/unix-boot-engine.test.mjs` → **15/15 pass (0 fail)** (**73/73 total pass**).
 - **Electron visual captures (`C:/orgtree-build/backdrop-argon/canvasbg-visual/`):** **all 25 scenes PASS (`receipts.json`)**, with every new/reworked preset and resilience scene inspected:
   - `checkerboard.png` (`distinct=33`, `checkerboardGradient: true`): 2×2 conic-gradient square checkerboard preserved unchanged.
   - `square-tiles.png` (`distinct=36`, `tileMaskApplied: true`, `maskSize: 28px 28px`), `triangle-tiles.png` (`distinct=37`, `tileMaskApplied: true`, `maskSize: 36px 62.35px`), `hex-tiles.png` (`distinct=37`, `tileMaskApplied: true`, `maskSize: 29.44px 51px`): each tile rendered as its own closed outlined polygon inset from its `{4,4}`, `{3,6}`, or `{6,3}` cell with small even gaps and no shared edges.
   - `ascii-drag-zoomout.png` (`distinct=19`, `dragZoomSteps: true`, `dragZoomCellBounded: true`, `dragZoomFast: true`, `dragZoomAlive: true`): 25 rapid pan + zoom-out steps (`z = 1.2 → 0.15`) keep `minCellWidth = 5` px (`dpr = 1`), `maxColumns = 197`, `maxRows = 64`, `medianStepMs = 0.2 ms`, `maxStepMs = 6.3 ms`, and clean 1st-strike `busy-gpu` frame-drop backoff when a GPU fence is still in flight across rapid draws.
-  - `ascii-degrade-recover.png` (`distinct=30`, `degradedPaused: true`, `degradedHiddenNoFreeze: true`, `recoveredFromLoad: true`, `contextLossHandled: true`, `contextRestored: true`): 2nd-strike GPU load immediately pauses the loop and fades `renderer.canvas.style.opacity` to `'0'` (no frozen world-coordinate frame stuck to the viewport), automatically recovers to `dataset.state = 'moving'` after the `1500 ms` retry timer, and cleanly handles `webglcontextlost` (`e.preventDefault()`, `dataset.state = 'context-lost'`, `opacity = '0'`) followed by `webglcontextrestored` (`renderer.restore()` → `dataset.state = 'moving'`, `opacity = '1'`).
+  - `ascii-degrade-recover.png` (`distinct=30`, `degradedPaused: true`, `degradedHiddenNoFreeze: true`, `recoveredFromLoad: true`, `contextLossHandled: true`, `contextRestored: true`, `contextPostRestoreDraw: true`): 2nd-strike GPU load immediately pauses the loop and fades `renderer.canvas.style.opacity` to `'0'`, automatically recovers to `dataset.state = 'moving'` after the `1500 ms` retry timer, and exercises real `WEBGL_lose_context.loseContext()` (`gl.isContextLost() === true`, `readWind() === null`, `dataset.state = 'context-lost'`, `opacity = '0'`) followed by `WEBGL_lose_context.restoreContext()` (`renderer.restore()` rebuilds GL programs/textures/framebuffer, `drawAt(8, 1)` + `readWind()` / `__compareWind(8)` verify regenerated resources produce 12 972 samples matching the CPU mirror).
 
 ## Limits
 

@@ -46,13 +46,24 @@ test('Claude Waves is the last background option and Checkerboard is kept beside
   assert.equal(CANVAS_BACKGROUND_LABELS['checkerboard' as keyof typeof CANVAS_BACKGROUND_LABELS], 'Checkerboard')
 })
 
-test('native validation accepts the stored shapes (including backward-compatible ascii and claude-waves) and rebuilds them clean', () => {
+test('native validation accepts the stored shapes (including backward-compatible ascii, claude-waves, and legacy square-tiles -> checkerboard migration) and rebuilds them clean', () => {
   assert.deepEqual(preferencesPatch({ canvasBackground: { theme: 'ascii' } }),
     { canvasBackground: { theme: 'ascii' } })
   assert.deepEqual(preferencesPatch({ canvasBackground: { theme: 'claude-waves', intensities: { 'claude-waves': 0.6 } } }),
     { canvasBackground: { theme: 'ascii', intensities: { ascii: 0.6 } } })
   assert.deepEqual(preferencesPatch({ canvasBackground: { theme: 'checkerboard', intensities: { checkerboard: 0.4 } } }),
     { canvasBackground: { theme: 'checkerboard', intensities: { checkerboard: 0.4 } } })
+  // Legacy unversioned square-tiles selection and intensity migrate to checkerboard (user mb271a07b3fce)
+  assert.deepEqual(
+    preferencesPatch({ canvasBackground: { theme: 'square-tiles', intensities: { 'square-tiles': 0.3 } } }),
+    { canvasBackground: { theme: 'checkerboard', intensities: { checkerboard: 0.3 } } })
+  assert.deepEqual(
+    preferencesPatch({ canvasBackground: { theme: 'dots', intensities: { 'square-tiles': 0.25 } } }),
+    { canvasBackground: { theme: 'dots', intensities: { checkerboard: 0.25 } } })
+  // Version 2 square-tiles selects the new gapped outlined square tiling preset
+  assert.deepEqual(
+    preferencesPatch({ canvasBackground: { theme: 'square-tiles', version: 2, intensities: { 'square-tiles': 0.4, checkerboard: 0.3 } } }),
+    { canvasBackground: { theme: 'square-tiles', version: 2, intensities: { 'square-tiles': 0.4, checkerboard: 0.3 } } })
   assert.deepEqual(
     preferencesPatch({ canvasBackground: { theme: 'hex-lines', intensities: { ascii: 0.5, dots: 0, 'hex-lines': 1 } } }),
     { canvasBackground: { theme: 'hex-lines', intensities: { ascii: 0.5, dots: 0, 'hex-lines': 1 } } })
@@ -60,7 +71,8 @@ test('native validation accepts the stored shapes (including backward-compatible
   assert.deepEqual(preferencesPatch({ canvasBackground: { theme: 'dots', bogus: 1 } }),
     { canvasBackground: { theme: 'dots' } })
   for (const theme of CANVAS_BACKGROUNDS) {
-    assert.deepEqual(preferencesPatch({ canvasBackground: { theme } }), { canvasBackground: { theme } }, theme)
+    const input = theme === 'square-tiles' ? { theme, version: 2 as const } : { theme }
+    assert.deepEqual(preferencesPatch({ canvasBackground: input }), { canvasBackground: input }, theme)
   }
 })
 
@@ -75,6 +87,8 @@ test('native validation refuses anything that is not a known theme at a sane int
     { theme: 'ascii', intensities: { ascii: Number.POSITIVE_INFINITY } },
     { theme: 'ascii', intensities: { plaid: 0.5 } },
     { theme: 'ascii', intensities: { ascii: '0.5' } },
+    { theme: 'square-tiles', version: 99 },
+    { theme: 'square-tiles', version: '2' },
   ]
   for (const value of bad) {
     assert.throws(() => preferencesPatch({ canvasBackground: value }), /Invalid canvas background/, JSON.stringify(value))
@@ -82,7 +96,7 @@ test('native validation refuses anything that is not a known theme at a sane int
   }
 })
 
-test('the resolver fills defaults and falls back to the dot grid', () => {
+test('the resolver fills defaults, migrates legacy square-tiles to checkerboard, and falls back to the dot grid', () => {
   for (const junk of [null, undefined, 42, 'ascii', { theme: 'plaid' }]) {
     const r = resolveCanvasBackground(junk)
     assert.equal(r.theme, 'dots')
@@ -93,6 +107,13 @@ test('the resolver fills defaults and falls back to the dot grid', () => {
   assert.equal(r.intensities.ascii, 0.2)
   assert.equal(r.intensities.dots, 1)
   assert.equal(r.intensities['line-grid'], DEFAULT_CANVAS_INTENSITIES['line-grid'])
+  const legacySq = resolveCanvasBackground({ theme: 'square-tiles', intensities: { 'square-tiles': 0.3 } })
+  assert.equal(legacySq.theme, 'checkerboard')
+  assert.equal(legacySq.intensities.checkerboard, 0.3)
+  assert.equal(legacySq.intensities['square-tiles'], DEFAULT_CANVAS_INTENSITIES['square-tiles'])
+  const v2Sq = resolveCanvasBackground({ theme: 'square-tiles', version: 2, intensities: { 'square-tiles': 0.65 } })
+  assert.equal(v2Sq.theme, 'square-tiles')
+  assert.equal(v2Sq.intensities['square-tiles'], 0.65)
   assert.equal(canvasBackgroundOf({ canvasBackground: { theme: 'hex-tiles' } }).theme, 'hex-tiles')
   assert.equal(canvasBackgroundOf({}).theme, 'dots')
   assert.equal(canvasBackgroundOf(null).theme, 'dots')
@@ -387,7 +408,7 @@ test('a stored grid theme renders its pattern layer at its remembered intensity'
   assert.equal(bg!.style.opacity, '0.4')
 })
 
-test('a stored checkerboard theme renders its 2x2 square pattern at 1:1 floor scale', async (t) => {
+test('a stored checkerboard theme or legacy square-tiles preference renders the 2x2 square pattern, while v2 square-tiles renders the gapped mask', async (t) => {
   storePref({ theme: 'checkerboard', intensities: { checkerboard: 0.35 } })
   const view = await mountBg(t)
   const bg = view.el.querySelector<HTMLElement>('[data-canvas-bg="checkerboard"]')
@@ -395,6 +416,24 @@ test('a stored checkerboard theme renders its 2x2 square pattern at 1:1 floor sc
   assert.equal(bg!.style.backgroundPosition, '120px -40px')
   assert.equal(bg!.style.backgroundSize, '84px 84px')
   assert.equal(bg!.style.opacity, '0.35')
+  await view.unmount()
+
+  // Legacy unversioned square-tiles selection loads as Checkerboard with its remembered intensity
+  storePref({ theme: 'square-tiles', intensities: { 'square-tiles': 0.3 } })
+  const viewLegacy = await mountBg(t)
+  const bgLegacy = viewLegacy.el.querySelector<HTMLElement>('[data-canvas-bg="checkerboard"]')
+  assert.equal(bgLegacy === null, false)
+  assert.equal(bgLegacy!.style.backgroundSize, '84px 84px')
+  assert.equal(bgLegacy!.style.opacity, '0.3')
+  await viewLegacy.unmount()
+
+  // Version 2 square-tiles selection renders the gapped outlined square-tiles mask
+  storePref({ theme: 'square-tiles', version: 2, intensities: { 'square-tiles': 0.4 } })
+  const viewV2 = await mountBg(t)
+  const bgV2 = viewV2.el.querySelector<HTMLElement>('[data-canvas-bg="square-tiles"]')
+  assert.equal(bgV2 === null, false)
+  assert.equal(bgV2!.style.maskSize, '42px 42px')
+  assert.equal(bgV2!.style.opacity, '0.4')
 })
 
 test('dots with a lowered intensity keep the parallax and fade by opacity', async (t) => {
@@ -451,11 +490,21 @@ test('the ascii theme is flagged full-motion when the user allows motion', async
 interface MockGlControl {
   fenceSignaled: boolean
   contextLost: boolean
+  ctxGen: number
+  lastLostPrevented: boolean
+  invalidResourceUses: number
   atlasFonts: string[]
 }
 
 function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
-  const ctrl: MockGlControl = { fenceSignaled: true, contextLost: false, atlasFonts: [] }
+  const ctrl: MockGlControl = {
+    fenceSignaled: true,
+    contextLost: false,
+    ctxGen: 1,
+    lastLostPrevented: false,
+    invalidResourceUses: 0,
+    atlasFonts: [],
+  }
   const w = window as unknown as Record<string, unknown>
   const prevRo = w.ResizeObserver
   const prevDpr = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio')
@@ -526,6 +575,7 @@ function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
       }
     }
     if (kind === 'webgl2') {
+      const canvasEl = this
       const SIGNALED = 0x9119, UNSIGNALED = 0x9118, SYNC_STATUS = 0x9114
       const COMPILE_STATUS = 0x8B81, LINK_STATUS = 0x8B82, ACTIVE_UNIFORMS = 0x8B86
       return {
@@ -542,27 +592,57 @@ function installAsciiGlEnv(t: TestContext, dpr = 1): MockGlControl {
         UNSIGNED_BYTE: 0x1401, COLOR_BUFFER_BIT: 0x4000, TRIANGLES: 0x0004,
         SYNC_GPU_COMMANDS_COMPLETE: 0x9117, RENDERER: 0x1F01,
         getExtension: (name: string) => {
+          if (ctrl.contextLost) return null
           if (name === 'WEBGL_debug_renderer_info') return { UNMASKED_RENDERER_WEBGL: 0x9246 }
-          if (name === 'WEBGL_lose_context') return { loseContext() { ctrl.contextLost = true }, restoreContext() { ctrl.contextLost = false } }
+          if (name === 'WEBGL_lose_context') {
+            return {
+              loseContext() {
+                ctrl.contextLost = true
+                ctrl.ctxGen += 1
+                const ev = new window.Event('webglcontextlost', { cancelable: true })
+                canvasEl.dispatchEvent(ev)
+                ctrl.lastLostPrevented = ev.defaultPrevented
+              },
+              restoreContext() {
+                if (!ctrl.lastLostPrevented) return
+                ctrl.contextLost = false
+                canvasEl.dispatchEvent(new window.Event('webglcontextrestored'))
+              },
+            }
+          }
           return null
         },
         getParameter: (p: number) => p === ACTIVE_UNIFORMS ? 0 : 'ANGLE (NVIDIA GeForce RTX, Direct3D11)',
         isContextLost: () => ctrl.contextLost,
         disable() {}, enable() {}, blendFunc() {}, pixelStorei() {},
-        createShader: () => ({}), shaderSource() {}, compileShader() {},
-        getShaderParameter: () => true,
-        createProgram: () => ({}), attachShader() {}, linkProgram() {},
-        getProgramParameter: (_p: unknown, pname: number) => pname === LINK_STATUS ? true : 0,
+        createShader: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }), shaderSource() {}, compileShader() {},
+        getShaderParameter: (s: { gen?: number } | null) => !ctrl.contextLost && s?.gen === ctrl.ctxGen,
+        createProgram: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }), attachShader() {}, linkProgram() {},
+        getProgramParameter: (p: { gen?: number } | null, pname: number) =>
+          pname === LINK_STATUS ? (!ctrl.contextLost && p?.gen === ctrl.ctxGen) : 0,
         getActiveUniform: () => null, getUniformLocation: () => ({}),
-        createTexture: () => ({}), activeTexture() {}, bindTexture() {}, texParameteri() {},
-        createFramebuffer: () => ({}), bindFramebuffer() {}, framebufferTexture2D() {},
-        useProgram() {}, uniform1ui() {}, uniform1i() {}, uniform1f() {},
+        createTexture: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }), activeTexture() {},
+        bindTexture(_target: number, tex: { gen?: number } | null) {
+          if (tex && tex.gen !== ctrl.ctxGen) ctrl.invalidResourceUses += 1
+        },
+        texParameteri() {},
+        createFramebuffer: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }),
+        bindFramebuffer(_target: number, fb: { gen?: number } | null) {
+          if (fb && fb.gen !== ctrl.ctxGen) ctrl.invalidResourceUses += 1
+        },
+        framebufferTexture2D() {},
+        useProgram(p: { gen?: number } | null) {
+          if (!p || p.gen !== ctrl.ctxGen) ctrl.invalidResourceUses += 1
+        },
+        uniform1ui() {}, uniform1i() {}, uniform1f() {},
         uniform2f() {}, uniform2i() {}, uniform3f() {}, uniform4f() {}, uniform4fv() {},
         texImage2D() {}, viewport() {}, clearColor() {}, clear() {}, drawArrays() {},
-        fenceSync: () => ({}),
+        fenceSync: () => (ctrl.contextLost ? null : { gen: ctrl.ctxGen }),
         getSyncParameter: () => ctrl.contextLost ? null : (ctrl.fenceSignaled ? SIGNALED : UNSIGNALED),
         deleteSync() {},
-        readPixels() {},
+        readPixels(_x: number, _y: number, _w: number, _h: number, _f: number, _t: number, out: Uint8Array) {
+          if (!ctrl.contextLost && out.length > 0) out[0] = 128
+        },
       }
     }
     return null
@@ -608,7 +688,7 @@ test('buildAtlas keeps a readable glyph size when zoomed far out and retires slo
 })
 
 test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside load without leaving a frozen frame, and recovers automatically from load and WebGL context loss', async (t) => {
-  installAsciiGlEnv(t, 2)
+  const ctrl = installAsciiGlEnv(t, 2)
   stubReducedMotion(t, false)
   const viewRef = { current: { x: 0, y: 0, z: 1 } }
   let api: AsciiTestApi | null = null
@@ -628,8 +708,6 @@ test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside
   api!.drawAt(8, 1)
   const canvasAt035 = mounted.el.querySelector('canvas')!
   assert.equal(canvasAt035 === null, false)
-  // On 800x600 at dpr=2 (1600x1200 device px), an unclamped z=0.35 shrinks cellWidth to 5 (321 cols = 1605px, >38k cells).
-  // With zoom-out bounding, cellWidth stays >= 10 (<= 161 cols, <= 10k cells).
   const state035 = api!.state() as { cellWidth?: number; columns?: number; rows?: number }
   assert.ok((state035.cellWidth ?? 0) >= 10, `expected bounded dpr=2 zoom-out cellWidth >= 10, got ${state035.cellWidth}`)
   viewRef.current = { x: -400, y: -300, z: 0.05 }
@@ -639,8 +717,6 @@ test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside
   assert.equal(state005.rows, state035.rows)
 
   // 2. Graceful degradation under heavy outside GPU/CPU load:
-  //    First strike drops frame rate (busy-gpu); second strike pauses cleanly AND hides the canvas
-  //    (opacity 0, never leaving a frozen world-coordinate frame stuck to the viewport), then auto-recovers.
   const simLoad = (api as unknown as { simulateLoad?: (kind: 'gpu' | 'late' | 'stall', count?: number) => void }).simulateLoad
   assert.equal(typeof simLoad, 'function', 'AsciiTestApi exposes simulateLoad for deterministic load testing')
   simLoad!('gpu', 1)
@@ -658,16 +734,24 @@ test('Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside
   }
   assert.equal(api!.state().running, true, 'backdrop must recover automatically after outside load subsides')
 
-  // 3. WebGL context loss & restoration:
-  const glCanvas = mounted.el.querySelector('canvas')!
-  const lostEvent = new window.Event('webglcontextlost', { cancelable: true })
-  glCanvas.dispatchEvent(lostEvent)
-  assert.equal(lostEvent.defaultPrevented, true, 'webglcontextlost must call preventDefault so context can restore')
+  // 3. Real WEBGL_lose_context loss & restoration (invalidating pre-loss GL resources):
+  const renderer = api!.renderer()!
+  const glCanvas = renderer.canvas
+  assert.equal(renderer.loseContext(), true, 'WEBGL_lose_context.loseContext() succeeds')
+  assert.equal(ctrl.lastLostPrevented, true, 'webglcontextlost must call preventDefault so context can restore')
+  assert.equal(renderer.isContextLost(), true)
+  assert.equal(renderer.readWind(), null, 'readWind returns null while GL context is lost')
   assert.equal(api!.state().running, false, 'loop stops while WebGL context is lost')
   assert.equal(glCanvas.style.opacity, '0', 'lost context hides canvas instead of leaving a dead element')
 
-  glCanvas.dispatchEvent(new window.Event('webglcontextrestored'))
+  assert.equal(renderer.restoreContext(), true, 'WEBGL_lose_context.restoreContext() succeeds')
   await inAct(async () => { await new Promise(r => setTimeout(r, 50)); await flush(4) })
+  assert.equal(renderer.isContextLost(), false)
   assert.equal(api!.state().running, true, 'webglcontextrestored automatically rebuilds the renderer and resumes animation')
+  api!.drawAt(10, 1)
+  const windAfterRestore = renderer.readWind()
+  assert.equal(windAfterRestore === null, false, 'regenerated GL resources draw and read back wind texture after context restore')
+  assert.equal(windAfterRestore!.data[0], 128)
+  assert.equal(ctrl.invalidResourceUses, 0, 'restored renderer must never bind or use invalidated pre-loss GL programs, textures, or framebuffers')
   assert.equal(mounted.el.querySelector('canvas') === null, false, 'canvas remains mounted after context restoration')
 })

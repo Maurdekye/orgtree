@@ -30,6 +30,13 @@ export const CANVAS_BACKGROUND_LABELS: Record<CanvasBackgroundTheme, string> = {
 
 export interface CanvasBackgroundPreference {
   theme: CanvasBackgroundTheme
+  /** Schema version: absent/1 is the pre-Checkerboard 4.3.1-alpha.1 schema
+   *  where `'square-tiles'` was the 2x2 square checkerboard. Version 2 marks
+   *  selections written after `'checkerboard'` was split out (user 2026-10-16
+   *  mb271a07b3fce), so legacy unversioned `'square-tiles'` selections and
+   *  intensities migrate to `'checkerboard'` while v2 `'square-tiles'` selects
+   *  the new gapped outlined square tiling. */
+  version?: 2
   /** Per-theme intensities the user has moved; absent entries use the
    *  defaults below. Stored sparsely so a fresh choice of theme writes one
    *  small object, and a default change can still reach untouched themes. */
@@ -60,8 +67,9 @@ export function isCanvasBackgroundTheme(value: unknown): value is CanvasBackgrou
   return typeof value === 'string' && (CANVAS_BACKGROUNDS as readonly string[]).includes(value)
 }
 
-function normalizeThemeKey(value: unknown): CanvasBackgroundTheme | null {
+function normalizeThemeKey(value: unknown, isV2 = false): CanvasBackgroundTheme | null {
   if (value === 'claude-waves') return 'ascii'
+  if (value === 'square-tiles' && !isV2) return 'checkerboard'
   return isCanvasBackgroundTheme(value) ? value : null
 }
 
@@ -74,20 +82,25 @@ const isIntensity = (value: unknown): value is number =>
  *  can never reach the canvas as anything but the dot grid. */
 export function sanitizeCanvasBackground(value: unknown): CanvasBackgroundPreference | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const v = value as { theme?: unknown; intensities?: unknown }
-  const theme = normalizeThemeKey(v.theme)
+  const v = value as { theme?: unknown; version?: unknown; intensities?: unknown }
+  if (v.version !== undefined && v.version !== 1 && v.version !== 2) return null
+  const isV2 = v.version === 2
+  const theme = normalizeThemeKey(v.theme, isV2)
   if (!theme) return null
   const out: CanvasBackgroundPreference = { theme }
+  let hasV2SquareTiles = isV2 && theme === 'square-tiles'
   if (v.intensities !== undefined) {
     if (!v.intensities || typeof v.intensities !== 'object' || Array.isArray(v.intensities)) return null
     const intensities: Partial<Record<CanvasBackgroundTheme, number>> = {}
     for (const [rawKey, val] of Object.entries(v.intensities)) {
-      const key = normalizeThemeKey(rawKey)
+      const key = normalizeThemeKey(rawKey, isV2)
       if (!key || !isIntensity(val)) return null
       if (rawKey === key || intensities[key] === undefined) intensities[key] = val
+      if (isV2 && key === 'square-tiles') hasV2SquareTiles = true
     }
     out.intensities = intensities
   }
+  if (hasV2SquareTiles) out.version = 2
   return out
 }
 
