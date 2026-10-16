@@ -280,7 +280,7 @@ for (const mode of ['row', 'circular'] as const) {
       Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 500 })
       Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 100 })
       scroll.scrollTop = 17
-      await inAct(() => scroll.dispatchEvent(new W.Event('scroll', { bubbles: false })))
+      await inAct(() => { scroll.dispatchEvent(new W.Event('scroll', { bubbles: false })) })
       await flush()
       const scrollBefore = scroll.scrollTop
       const initial = nums(space.style.transform), position = at(m.el, 'x')
@@ -290,7 +290,7 @@ for (const mode of ['row', 'circular'] as const) {
       const fire = async (type: string, x: number, y: number) => {
         const event = new W.PointerEvent(type, { bubbles: true, cancelable: true,
           button: 1, buttons: type === 'pointerup' ? 0 : 4, pointerId: 77, clientX: x, clientY: y })
-        await inAct(() => target.dispatchEvent(event)); return event
+        await inAct(() => { target.dispatchEvent(event) }); return event
       }
       const down = await fire('pointerdown', 800, 400)
       for (const type of ['pointermove', 'pointerup']) await inAct(() => {
@@ -305,7 +305,7 @@ for (const mode of ['row', 'circular'] as const) {
       assert.deepEqual(captures, [77], 'the actual viewport owns pointer capture')
       for (const type of ['mousedown', 'auxclick']) {
         const event = new W.MouseEvent(type, { bubbles: true, cancelable: true, button: 1 })
-        await inAct(() => target.dispatchEvent(event)); assert.equal(event.defaultPrevented, true, type)
+        await inAct(() => { target.dispatchEvent(event) }); assert.equal(event.defaultPrevented, true, type)
       }
       assert.equal(scroll.scrollTop, scrollBefore, 'desk transcript did not scroll')
       assertAt(at(m.el, 'x'), position, 'agent did not move')
@@ -313,7 +313,7 @@ for (const mode of ['row', 'circular'] as const) {
       assert.deepEqual(m.ops, [], 'no node/desk operation')
       for (const finish of ['pointercancel', 'lostpointercapture']) {
         await fire('pointerdown', 800, 400)
-        await inAct(() => viewport.dispatchEvent(new W.PointerEvent(finish, { bubbles: true, pointerId: 77, button: 1 })))
+        await inAct(() => { viewport.dispatchEvent(new W.PointerEvent(finish, { bubbles: true, pointerId: 77, button: 1 })) })
         await fire('pointermove', 900, 500)
         assert.deepEqual(nums(space.style.transform), [initial[0]! + 55, initial[1]! + 30, initial[2]!], finish)
       }
@@ -345,11 +345,11 @@ for (const mode of ['row', 'circular'] as const) {
       for (const button of [0, 2]) for (const type of ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'auxclick']) {
         const event = new W.PointerEvent(type, { bubbles: true, cancelable: true,
           button, pointerId: 80, clientX: type === 'pointerdown' ? 800 : 855, clientY: 400 })
-        await inAct(() => target.dispatchEvent(event)); assert.equal(event.defaultPrevented, false, `${type}/${button}`)
+        await inAct(() => { target.dispatchEvent(event) }); assert.equal(event.defaultPrevented, false, `${type}/${button}`)
       }
     }
     const wheel = new W.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 })
-    await inAct(() => msgs.dispatchEvent(wheel))
+    await inAct(() => { msgs.dispatchEvent(wheel) })
     assert.equal(wheel.defaultPrevented, false, 'wheel remains native desk scroll')
     assert.equal(delivered, 4, 'left/right pointer presses reached both desk controls')
     assert.equal(selection.toString(), 'selectable transcript')
