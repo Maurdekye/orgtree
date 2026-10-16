@@ -798,7 +798,7 @@ function McpRefresh({ onRead }: { onRead: (names: string[], details: McpServerIn
   const [error, setError] = useState<string[]>([])
   const [skills, setSkills] = useState<number | null>(null)
   return <div className="set-hint">
-    <button type="button" disabled={busy} aria-label="Refresh MCP servers, skills and instructions" onClick={async () => {
+    <button type="button" disabled={busy} aria-label="Refresh MCP servers, skills and instructions" title="Skills include the built-in Orgtree skill library, also called the glossary or Orgtree Encyclopaedia (encyclopedia)." onClick={async () => {
       setBusy(true); setError([])
       const results = await Promise.allSettled([refreshMcpServers(), refreshSkills(), refreshGlobalInstructions()])
       const [mcp, discoveredSkills] = results

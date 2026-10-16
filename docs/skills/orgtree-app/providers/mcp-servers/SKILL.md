@@ -6,6 +6,8 @@ Up: [orgtree-providers](../SKILL.md)
 
 # MCP servers
 
+The shared Refresh tooltip names the built-in Orgtree skill library's aliases: glossary and Orgtree Encyclopaedia (encyclopedia). These refer to the library included among the shared skills; the Refresh label and behavior stay the same.
+
 Orgtree imports external MCP definitions from installed harnesses' user configuration. Discovery reads files without starting a harness or MCP server, signing in, or editing the source configuration. Finding a definition establishes an available name, not working connectivity or authentication in a destination harness.
 
 ## Discovery sources
