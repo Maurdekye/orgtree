@@ -1109,6 +1109,10 @@ button.badge.audience-fold.alert {
   font-size: 60px;
   color: var(--bad);
 }
+.sq-far-status.halted {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  color: var(--bad); font: 600 11px/1 var(--mono); pointer-events: none;
+}
 .sq-far-icon.frozen {
   width: 60px;
   height: 60px;
@@ -1354,6 +1358,9 @@ button.badge.audience-fold.alert {
 .sq-title .name { flex: 1; min-width: 0; }
 .sq-meta { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 16px; }
 .sq-workstate { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.sq-halt-status { display: inline-flex; align-items: center; gap: 3px; min-width: 0;
+  color: var(--bad); font: 600 10px/1 var(--mono); white-space: nowrap; }
+.sq-halt-status .tray-halted { font-size: 11px; }
 .sq-workstate .actlabel { flex: 1 1 auto; }
 .sq-workstate .cc-spin { flex: none; margin-right: 3px; }
 .sq-workstate .statusdot { flex: none; margin-right: 4px; }

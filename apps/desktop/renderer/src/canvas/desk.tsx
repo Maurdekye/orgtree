@@ -616,7 +616,15 @@ export function AgentWorkstate({ node, turn, live = true }: {
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
     () => ageClockSecond)
   const visual = deriveAgentVisualState(node)
-  if (visual.kind === 'halted' && node.halt) return <HaltStatus halt={node.halt} />
+  if (visual.kind === 'halted' && node.halt) {
+    const label = node.halt.phase === 'halting' ? 'Halting…' : 'Halted'
+    return <span className="sq-halt-status" role="status" title={node.halt.phase === 'halting'
+      ? 'Turn admission is blocked; the active turn is still ending'
+      : 'No turn can run. Mail stays unread until explicit unhalt'}>
+      <StopIcon fontSize="inherit" className="tray-halted" titleAccess={label} />
+      <span>{label}</span>
+    </span>
+  }
   if (visual.kind === 'frozen' && node.frozen) return <UsageFreezeStatus frozen={node.frozen} />
   if (visual.turnState === 'working') {
     return (

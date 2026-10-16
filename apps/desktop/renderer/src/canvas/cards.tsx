@@ -1362,7 +1362,10 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
   let stateIcon: ReactNode
   switch (visual.farKind) {
     case 'halted':
-      stateIcon = <StopIcon className="sq-far-icon halted" titleAccess="Halted" />
+      stateIcon = <span className="sq-far-status halted" role="status">
+        <StopIcon className="sq-far-icon halted" titleAccess="Halted" />
+        <span>Halted</span>
+      </span>
       break
     case 'frozen':
       stateIcon = <FrozenIcon className="sq-far-icon frozen tray-frozen" titleAccess="Frozen" />
