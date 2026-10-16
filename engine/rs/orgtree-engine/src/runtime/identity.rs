@@ -1050,5 +1050,6 @@ next message rather than running one marathon response. REQUIRED: call orgtree_s
 (blocked)";
 
 const CHECKUPS: &str = "While you remain in working status, enabled automatic checkups may wake you after 20 minutes \
-without a real wake to check progress and continue unfinished work. They wait while you are busy or have queued work and \
+without a real wake, even with no actionable docket work. Docket reminders are separate; when both are due, only the \
+docket reminder wakes you and counts as a real wake for the checkup timer. Checkups wait while you are busy or have queued work and \
 respect normal turn-admission limits; they are not a precise timer or a guaranteed cache hit. ";

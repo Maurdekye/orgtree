@@ -232,5 +232,5 @@ export default async function (rig) {
   p.check('both switches off: nobody is woken', woken(since).length === 0, summary(woken(since)))
 
   p.keep(rig, { agents: ['alice', 'bob', 'boss', 'carol', 'hank'] })
-  return p.save()
+  return p.summary()
 }

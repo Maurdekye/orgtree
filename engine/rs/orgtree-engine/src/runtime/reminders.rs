@@ -237,7 +237,9 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
             if sw.idle && !items.is_empty() && idle_reminder(engine, org, a, &items, now).await? {
                 return Ok(());
             }
-            if sw.checkups && a.working && !actionable.is_empty() {
+            // User 2026-10-16: working checkups are independent of docket work.
+            // A due docket reminder above takes precedence and is a real wake.
+            if sw.checkups && a.working {
                 checkup(engine, org, a, now).await?;
             }
             anyhow::Ok(())

@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- Working checkups depend on current `working` status and more than 20 minutes
+  of inactivity, with no docket requirement (user 2026-10-16; replaces the
+  2026-09-10 actionable-work gate). Docket reminders are independent and keep
+  their blocked/user-held exclusions. If both are due, the docket reminder
+  wins that sweep; its resulting turn refreshes the working timer. Existing
+  busy/queued/delivery and turn-admission gates remain. Contract and evidence:
+  [working checkups](docs/rust-engine/working-checkups.md).
+  [decided: user 2026-10-16; verified: `engine/rs/orgtree-engine/src/runtime/reminders.rs`]
+
 - Autonomous org Logo edits use `orgtree_org_logo`, gated only by inherited
   `tools.orgtree.logo` (on by default, including old scopes; user 2026-10-15
   22:10Z). Use the existing bounded native picture decoder/store/publisher.
