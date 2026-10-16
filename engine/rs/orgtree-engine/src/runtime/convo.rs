@@ -334,6 +334,52 @@ async fn restore_mail_notices(client: &Client, agent_id: i64, messages: &mut [Va
 
 /// A plain-text digest of an agent's recent conversation (what it was asked,
 /// what it said, the tools it used): seeds a fresh session.
+#[nolog]
+fn recovery_tool(t: &Value, _inputs: &Value, _native: &Value) -> String {
+    format!("{} {}", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or(""))
+}
+
+#[cfg(test)]
+mod recovery_command_tests {
+    use super::*;
+
+    #[test]
+    fn description_does_not_replace_multiline_shell_input() {
+        let t = json!({"id":"c", "name":"PowerShell", "arg":"Run focused checks"});
+        let command = "cargo test -j2 --locked\nWrite-Output 'exact tail'";
+        let inputs = json!({"c":{"input":{"command":command,"workdir":"D:/synthetic/worktree"}}});
+        let out = recovery_tool(&t, &inputs, &json!({}));
+        assert!(out.contains(command));
+        assert!(out.contains("D:/synthetic/worktree"));
+        assert!(out.contains("Run focused checks"));
+    }
+
+    #[test]
+    fn native_command_and_utf8_limit_are_preserved() {
+        let t = json!({"id":"c", "name":"exec_command", "arg":"check"});
+        let command = format!("{}éTAIL", "x".repeat(8191));
+        let inputs = json!({"c":{"input":{"command":"provider fallback"}}});
+        let native = json!({"c":{"cmd":command,"workdir":"D:/synthetic/native"}});
+        let out = recovery_tool(&t, &inputs, &native);
+        assert!(out.contains(&"x".repeat(8191)));
+        assert!(!out.contains("éTAIL"));
+        assert!(out.contains("[command truncated at 8192 UTF-8 bytes]"));
+        assert!(out.contains("D:/synthetic/native"));
+        assert!(!out.contains("provider fallback"));
+    }
+
+    #[test]
+    fn other_inputs_stay_private_and_argv_stays_unambiguous() {
+        let inputs = json!({"c":{"input":{"command":["pwsh","-Command","Write-Output 'a b'"]}}});
+        let shell = recovery_tool(&json!({"id":"c","name":"shell"}), &inputs, &json!({}));
+        assert!(shell.contains("[\"pwsh\",\"-Command\",\"Write-Output 'a b'\"]"));
+        let read = recovery_tool(&json!({"id":"c","name":"Read","arg":"public summary"}), &inputs, &json!({}));
+        assert_eq!(read, "Read public summary");
+        let legacy = recovery_tool(&json!({"id":"old","name":"Bash","arg":"old clipped summary"}), &json!({}), &json!({}));
+        assert!(legacy.contains("command input not retained"));
+    }
+}
+
 #[logged]
 pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, last: i64) -> Result<String> {
     let rows = client
@@ -357,7 +403,7 @@ pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, 
                     .as_array()
                     .map(|a| {
                         a.iter()
-                            .map(|t| format!("{} {}", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or("")))
+                            .map(|t| recovery_tool(t, &Value::Null, &Value::Null))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -403,7 +449,7 @@ pub async fn save_history(client: &Client, agent_id: i64, dir: &std::path::Path)
                     out.push_str("\n\n");
                 }
                 for t in b["tools"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
-                    out.push_str(&format!("- tool: {} {}\n", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or("")));
+                    out.push_str(&format!("- tool: {}\n", recovery_tool(t, &Value::Null, &Value::Null)));
                 }
                 if b["tools"].as_array().map(|a| !a.is_empty()).unwrap_or(false) {
                     out.push('\n');
