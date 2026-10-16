@@ -3954,16 +3954,20 @@
    "covers": [
     "np:visualTheme",
     "np:contrastTheme",
-    "np:agentColorSource"
+    "np:agentColorSource",
+    "np:canvasBackground"
    ],
-   "purpose": "Display > Appearance: theme, custom color, contrast color, agent colors.",
+   "purpose": "Display > Appearance and Canvas background: theme, custom color, contrast color, agent colors, canvas background and intensity.",
    "must_cover": [
     "each choice"
    ],
    "sources": [
     "apps/desktop/renderer/src/themes.tsx:234",
     "apps/desktop/renderer/src/contrast.tsx:93",
-    "apps/desktop/renderer/src/agentcolors.tsx:142"
+    "apps/desktop/renderer/src/agentcolors.tsx:142",
+    "apps/desktop/renderer/src/canvas/canvasbgsetting.tsx:15",
+    "apps/desktop/renderer/src/canvasbgpref.ts:19",
+    "packages/contracts/canvas-background.ts:27"
    ],
    "see_also": [],
    "writer": "skills-docs-sol",
@@ -3972,6 +3976,14 @@
     {
      "file": "apps/desktop/renderer/src/agentcolors.tsx",
      "label": "organization theme color for agents"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/canvasbgsetting.tsx",
+     "label": "background"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/canvasbgsetting.tsx",
+     "label": "intensity"
     },
     {
      "file": "apps/desktop/renderer/src/contrast.tsx",
@@ -4010,6 +4022,14 @@
      "file": "apps/desktop/renderer/src/agentcolors.tsx",
      "needles": [
       "agentColorSource"
+     ]
+    },
+    {
+     "key": "np:canvasBackground",
+     "file": "apps/desktop/renderer/src/canvasbgpref.ts",
+     "needles": [
+      "canvasBackground",
+      "orgtree-canvas-background"
      ]
     }
    ]

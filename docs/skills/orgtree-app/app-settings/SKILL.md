@@ -18,7 +18,7 @@ Open the Orgtree menu and choose App settings. These controls apply across organ
 - [orgtree-app-turn-limits](app-turn-limits/SKILL.md): Runtime > Turn time limits: total and silence limits.
 - [orgtree-app-concurrency-and-checkups](app-concurrency-and-checkups/SKILL.md): Runtime > Turns: concurrent turns, working checkups, MCP wait, docket reminders, process warming.
 - [orgtree-app-charters-and-templates](app-charters-and-templates/SKILL.md): Runtime > Charter documents and Organization templates: template folders, populating documents, restoring default templates.
-- [orgtree-app-display-appearance](app-display-appearance/SKILL.md): Display > Appearance: theme, custom color, contrast color, agent colors.
+- [orgtree-app-display-appearance](app-display-appearance/SKILL.md): Display > Appearance and Canvas background: theme, custom color, contrast color, agent colors, canvas background and intensity.
 - [orgtree-app-display-desk-and-chart](app-display-desk-and-chart/SKILL.md): Display > Desk: chart layout, desk text size, piles, retired agents, card shortcuts, pinned-panel behavior.
 - [orgtree-app-display-input-and-startup](app-display-input-and-startup/SKILL.md): Display > quick chat position, Enter key, and Startup behavior.
 - [orgtree-app-default-org-settings](app-default-org-settings/SKILL.md): Default org settings: values new organizations start with (also the standalone form).
