@@ -480,7 +480,7 @@ fn r_reply_docket(ev: &Value) -> Option<String> {
     let how = if is(req(ev, "role")?, "attention_raiser") {
         let owner = or_str(opt(ev, "owner"), "nobody (unassigned)");
         format!(
-            "(the user replied on this docket item because YOU RAISED ITS ATTENTION FLAG â€” the item is owned by \
+            "(the user replied on this docket item because YOU RAISED ITS ATTENTION FLAG — the item is owned by \
 {owner}; act on the request and coordinate any item update with the owner; this reply does not grant docket access)"
         )
     } else if is(req(ev, "role")?, "participant") {
