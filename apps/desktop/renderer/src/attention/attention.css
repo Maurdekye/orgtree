@@ -257,10 +257,10 @@
   border: 0;
   box-shadow: none;
 }
-/* Only the filter needs clearance for the collapse button. */
-.attn-agents .tray-filter {
-  margin-left: calc(4px + var(--attn-agent-rail, 0px));
-  width: calc(100% - 8px - var(--attn-agent-rail, 0px));
+/* Keep the collapse-button rail clear while the active checkbox stays at the
+   right edge of the filter row. */
+.attn-agents .tray-filter-row {
+  padding-left: var(--attn-agent-rail, 0px);
 }
 @media (prefers-reduced-motion: reduce) {
   .attn-agents, .attn-agents-wrap.list-open .attn-agents,
