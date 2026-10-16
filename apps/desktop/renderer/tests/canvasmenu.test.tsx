@@ -249,6 +249,10 @@ uiTest('Shift+F7 focuses the last live desk using the same camera action as its 
 uiTest('Shift+F6/F7/F8 leave the camera alone while an org modal surface is open', async (host, _viewport, _render, shortcut) => {
   await clickCard(cardOf(host, 'cto'))
   const key = pinSurfaceKey(SLUG, 'shortcut-guard', true)
+  const modal = document.createElement('div')
+  modal.setAttribute('role', 'dialog')
+  modal.setAttribute('aria-modal', 'true')
+  document.body.append(modal)
   await inAct(() => updatePinSurface(key, SLUG, { x: 20, y: 20, w: 400, h: 300 }, true))
   await flush()
   try {
@@ -259,7 +263,7 @@ uiTest('Shift+F6/F7/F8 leave the camera alone while an org modal surface is open
       await shortcut(functionKey)
       assert.ok(same(cam(host), before), `Shift+${functionKey} moved the camera under a modal`)
     }
-  } finally { await inAct(() => removePinSurface(key)) }
+  } finally { await inAct(() => removePinSurface(key)); modal.remove() }
 })
 
 // review-sol 2026-10-01: a desk focused in its PINNED window is a focused desk

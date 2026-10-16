@@ -2904,7 +2904,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
   useLayoutEffect(() => {
     if (!canvasShortcuts) return
-    const allowed = () => !readPinSurfaces().some(surface => surface.org === slug && surface.modal)
+    // A pinned modal panel is a modeless window, despite its component being
+    // a dialog. Only a live modal dialog or menu should suspend canvas moves.
+    const allowed = () => !document.querySelector(
+      '[aria-modal="true"], [role="dialog"]:not(.modalpin-win), [role="menu"]')
     const actions = {
       fitOrg: () => { if (allowed()) fitAll() },
       lastDesk: () => {
@@ -2915,7 +2918,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     canvasShortcuts.current = actions
     return () => { if (canvasShortcuts.current === actions) canvasShortcuts.current = null }
-  }, [canvasShortcuts, fitAll, centerOn, lastDesk, map, modalSurfaces, slug])
+  }, [canvasShortcuts, fitAll, centerOn, lastDesk, map, slug])
   // empty background only: the viewport itself or the world plane under the
   // cards. Cards, desks, pins and the HUD are other elements and keep their
   // own menus (or the browser's); the dot grid and the wire layers are
