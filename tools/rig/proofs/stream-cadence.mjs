@@ -31,6 +31,13 @@ const intervals = rows => distribution(rows.slice(1).map((r, i) => r.at - rows[i
 export default async function (rig, { out } = {}) {
   if (!out) throw Error('measurement output required')
   fs.mkdirSync(out, { recursive: true })
+  await rig.waitFor(async () => (await rig.api('GET','/api/harnesses')).harnesses?.find(h=>h.id==='opencode')?.installed,
+    {what:'synthetic ACP startup discovery',timeout:30000})
+  await rig.waitFor(async () => {
+    const providers=(await rig.api('GET','/api/providers')).providers || []
+    const offered=providers.flatMap(p=>p.tiers || []).map(t=>t.tier)
+    return offered.includes('wonder') && offered.includes('argon')
+  },{what:'synthetic Muse and Argon startup discovery',timeout:30000})
   await rig.api('GET', '/api/openrouter?force=true')
   await rig.api('PUT', '/api/openrouter/keys/openrouter-1', { harness: 'opencode' })
   const scenarios = Object.fromEntries(lanes.map(([name]) => [name, { turns: [{ match: 'CADENCE-PROOF', steps: [
