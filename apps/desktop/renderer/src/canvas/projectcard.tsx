@@ -12,7 +12,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn } from '../types'
 import { FolderIcon, MailIcon } from '../icons'
-import { NODE_H, NODE_W, Z_MAX } from './shared'
+import { NODE_H, NODE_W, useAgentShortcuts, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import { DocChips } from './docs'
@@ -56,6 +56,9 @@ interface ProjectSquareProps {
 export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toast, zoom, hire, seats,
   onHire, onNewProject, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
+  // the mailbox hover button obeys "Show agent card shortcuts", like an
+  // agent card's hover row (user 2026-10-17 19:37Z)
+  const showShortcuts = useAgentShortcuts()
   const [asking, setAsking] = useState<RetireKind | null>(null)
   const [expandedHire, setExpandedHire] = useState(false)
   const waiting = node.mail_pending ?? 0
@@ -100,12 +103,11 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
               <span className="name" title={`project ${node.id}`}>{node.id}</span>
             </div>
             <div className="sq-meta project-meta">
-              <span className="project-kind">project</span>
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
             </div>
           </div>
           {description && <div className="project-desc" title={node.charter ?? undefined}>{description}</div>}
-          <div className="sq-actions project-actions">
+          {showShortcuts && <div className="sq-actions project-actions">
             <button className={'mailbtn' + (waiting > 0 ? ' has' : '')}
               aria-label={`mailbox of project ${node.id}`}
               title={waiting > 0
@@ -115,7 +117,7 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
               onClick={(e) => { e.stopPropagation(); onInbox() }}>
               <MailIcon fontSize="inherit" />{waiting > 0 && <span className="count">{waiting}</span>}
             </button>
-          </div>
+          </div>}
         </>
       )}
       {node.state === 'live' && (

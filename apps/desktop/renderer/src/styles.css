@@ -1363,7 +1363,6 @@ button.badge.audience-fold.alert {
 .sq.project.norm { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .sq.project .project-mark { flex: none; display: inline-flex; color: var(--accent); font-size: 15px; }
 .sq.project .project-meta { gap: 6px; }
-.sq.project .project-kind { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .sq.project .project-desc { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; min-height: 0; }
 .sq.project .project-actions { opacity: 1; }
