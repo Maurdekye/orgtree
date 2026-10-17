@@ -3280,7 +3280,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const peerLinks = useMemo(() => {
     const links: [string, string][] = []
     for (const n of map.values()) {
-      if (!n.children || n.children.length < 2 || n.isBearerOf) continue
+      if (!n.children || n.children.length < 2 || n.isBearerOf || n.peer_mail === false) continue
       const live = n.children.map((c) => c.id).filter((k) => map.get(k)?.state === 'live')
       const sibs = peerOrder(live, target, chartLayout === 'circular')
       for (let i = 0; i + 1 < sibs.length; i++) links.push([sibs[i]!, sibs[i + 1]!])
@@ -3954,6 +3954,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               hire={{ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire }}
               seats={seats}
               onHire={(t) => spawn(n.id, t)}
+              onSettings={() => toggleConfig(n.id)}
               onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)}
               onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
               onOpenDoc={openDocView}

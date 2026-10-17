@@ -13,19 +13,45 @@ pub struct Relation {
 #[nolog]
 pub fn enabled(scope: &Value) -> bool { scope["peer_mail"].as_bool().unwrap_or(true) }
 
-/// Baseline reach: reporting peers, superior, descendants or a live audience.
 #[nolog]
-pub fn check(r: Relation, audience: bool, parent_name: &str) -> Result<()> {
-    let _ = parent_name;
-    if r.ancestor || r.from_superior == Some(r.to) || r.from_superior == r.to_superior || audience { return Ok(()); }
-    crate::refuse!(Forbidden, "not in mail reach; ask for an audience with orgtree_audience")
+pub fn with_setting(scope: &Value, on: bool) -> Value {
+    let mut next = scope.clone();
+    next["peer_mail"] = Value::Bool(on);
+    next
 }
 
+
+/// Reach outside the command chain stays conditional on a directional audience.
+#[nolog]
+pub fn check(r: Relation, audience: bool, parent_name: &str) -> Result<()> {
+    if r.from == r.to { crate::refuse!(BadRequest, "you cannot write to yourself"); }
+    if r.ancestor || r.from_superior == Some(r.to) { return Ok(()); }
+    let restricted = r.from_parent.is_some() && r.from_parent == r.to_parent && !r.enabled;
+    if restricted && !audience {
+        crate::refuse!(Forbidden, "{} has turned OFF \"Subordinates may message each other\"; direct siblings need an audience to send mail. Ask with orgtree_audience; your superior may grant one", parent_name);
+    }
+    if r.from_superior == r.to_superior || audience { return Ok(()); }
+    crate::refuse!(Forbidden, "you may write to your superior, your reports and their reports, reachable peers, and agents that granted you an audience; ask for an audience with orgtree_audience")
+}
+
+/// A manager may connect two direct tree siblings that both report to it,
+/// including siblings directly under a transparent project it owns.
 #[nolog]
 pub fn delegate(actor: i64, from_parent: Option<i64>, to_parent: Option<i64>,
     from_superior: Option<i64>, to_superior: Option<i64>) -> bool {
-    let _ = (actor,from_parent,to_parent,from_superior,to_superior);
-    false
+    from_parent.is_some() && from_parent == to_parent
+        && from_superior == Some(actor) && to_superior == Some(actor)
+}
+
+/// Delivered in the live turn envelope, so a toggle is visible without a
+/// provider restart or a cached static-prompt policy becoming stale.
+#[nolog]
+pub fn describe(parent: Option<&str>, on: bool) -> String {
+    match parent {
+        Some(parent) if !on => format!("Peer mail under {parent}: OFF (Subordinates may message each other). You need a directional audience to mail another direct child of {parent}. You may still request one; your nearest agent superior may grant it. Superior and subordinate reach is unchanged."),
+        Some(parent) => format!("Peer mail under {parent}: ON (Subordinates may message each other)."),
+        None => "Peer mail at the top level: ON (no parent setting).".into(),
+    }
 }
 
 #[cfg(test)]
@@ -82,4 +108,20 @@ mod tests {
         assert!(!delegate(1,Some(100),Some(200),Some(1),Some(1)));
         assert!(!delegate(1,None,None,None,None));
     }
+    #[test]
+    fn transparent_project_setting_cannot_raise_ancestor_permissions() {
+        let project = super::super::scope::transparent();
+        let off = with_setting(&project,false);
+        assert!(super::super::scope::is_transparent(&off));
+        assert_eq!(off.as_object().unwrap().len(),2,"setting does not inject default tool/folder grants");
+        assert!(!enabled(&off));
+        assert!(enabled(&json!({})),"each child has its own default, not its parent's policy");
+    }
+    #[test]
+    fn live_policy_description_explains_directional_audiences_and_default() {
+        let off=describe(Some("project-p"),false);
+        assert!(off.contains("OFF") && off.contains("project-p") && off.contains("directional audience"));
+        assert!(describe(None,true).contains("ON"));
+    }
+
 }

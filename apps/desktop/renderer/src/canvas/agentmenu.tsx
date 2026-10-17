@@ -337,6 +337,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const docket = h.onDocket
   if (docket) open.push({ label: 'Open project docket', onSelect: () => docket() })
   const entries: MenuEntry[] = [{ label: 'Open', submenuOnly: true, onSelect: () => {}, children: open }]
+  if (live) entries.push({label:'Settings',onSelect:h.onSettings})
   const hire = h.onHire
   if (live && hire && !s.piled) {
     refreshAgyModels()

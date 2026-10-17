@@ -35,7 +35,7 @@ const RETOOL_OPS: &[&str] = &["retool", "switch_model", "account", "scope"];
 /// The `/ops` operations a user request records.
 pub const RECORDED_OPS: &[&str] = &["move", "moves", "reorder", "promote", "demote", "hire", "retire", "retool", "switch_model", "account"];
 /// The agent's own configured settings a retool entry restores.
-const SCOPE_FIELDS: &[&str] = &["add_dirs", "tools", "org_visibility", "permission_mode", "effort", "model_version", "account_fallback", "auto_cheap_compact", "session"];
+const SCOPE_FIELDS: &[&str] = &["add_dirs", "tools", "org_visibility", "permission_mode", "effort", "model_version", "account_fallback", "auto_cheap_compact", "session", "peer_mail"];
 /// Step fields that may name an earlier step's agent (`"$0.node"`).
 const REF_FIELDS: &[&str] = &["node", "target", "parent", "new_parent", "above", "before", "after"];
 /// Org settings a user grant may raise (folders by the scope save; all four
@@ -304,6 +304,7 @@ async fn retool_facts(tx: &Transaction<'_>, org: i64, id: i64) -> Result<Option<
     let sc = scope::normalize(&r.get::<_, Value>(0));
     let mut out = Map::new();
     for k in SCOPE_FIELDS {
+        if *k == "peer_mail" { out.insert((*k).into(),json!(super::peer_mail::enabled(&sc))); continue; }
         out.insert((*k).into(), sc.get(*k).filter(|v| !v.is_null()).cloned().unwrap_or_else(absent));
     }
     for (i, k) in [(1usize, "charter"), (2usize, "team_charter")] {
@@ -1349,6 +1350,7 @@ fn scope_body(fields: &Map<String, Value>, side: &str) -> Value {
             }
             "auto_cheap_compact" => { b.insert(k.clone(), if gone { json!({}) } else { v.clone() }); }
             "session" => { b.insert(k.clone(), if gone { json!("signed-in") } else { v.clone() }); }
+            "peer_mail" => { b.insert(k.clone(), if gone { json!(true) } else { v.clone() }); }
             _ => {}
         }
     }
@@ -1518,6 +1520,14 @@ mod tests {
         assert_eq!(named(&json!({ "op": "reorder", "node": "$0.node" })), Vec::<String>::new());
         assert_eq!(named(&json!({ "op": "hire", "parent": "bob", "above": "carol" })), vec!["carol"]);
         assert_eq!(named(&json!({ "op": "moves", "moves": [{ "node": "a" }, { "node": "$0.node" }] })), vec!["a"]);
+    }
+
+    #[test]
+    fn peer_mail_undo_restores_on_default_and_redoes_off() {
+        assert!(SCOPE_FIELDS.contains(&"peer_mail"));
+        let fields=json!({"peer_mail":{"before":{"absent":true},"after":false}});
+        assert_eq!(scope_body(fields.as_object().unwrap(),"before")["peer_mail"],true);
+        assert_eq!(scope_body(fields.as_object().unwrap(),"after")["peer_mail"],false);
     }
 
     #[test]

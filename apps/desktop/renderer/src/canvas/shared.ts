@@ -1084,6 +1084,7 @@ export function availableAutopsyModels(
 // One structural type covers every card; fields absent on some card kinds
 // are optional and consumers guard (or assert) exactly where the JS did.
 export interface CanvasNode {
+  peer_mail?: boolean
   /** 'project' for a project node (TreeNode's) */
   kind?: 'project'
   hidden_retired_children?: number
@@ -1234,6 +1235,7 @@ export interface CanvasNode {
  *  so the canvas-side scope is NodeScope with everything but the two
  *  always-present lists optional */
 export interface CanvasScope {
+  peer_mail?: boolean
   add_dirs: DirGrant[]
   tools: Partial<ToolGrant>
   permission_mode?: string

@@ -479,7 +479,7 @@ fn scoped_tool_instructions(tools: &Value) -> String {
         crate::domain::tool_groups::allows(tools, name)).copied().collect::<Vec<_>>();
     let mut text = format!("Your available Orgtree tools: {}. ", names.join(", "));
     if crate::domain::tool_groups::enabled(tools, "messaging") {
-        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. Send only to authorized audiences. ");
+        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. Peers may require a directional audience when their actual parent's \"Subordinates may message each other\" setting is OFF; audience requests still work (orgtree-peer-mail). Send only to authorized audiences. ");
     }
     if crate::domain::tool_groups::enabled(tools, "team") {
         text.push_str("On hire state the charter, folders, tool switches, visibility and index explicitly. index is zero-based among live siblings; 0 is first and live_child_count appends. Superior insertion excludes its target from the former sibling set. orgtree_reorder changes only a live descendant's sibling position. ");
@@ -1035,7 +1035,7 @@ it with no escalation at all; that adjusts Git's ownership trust only, not OS wr
 write. Use the repository's own path, never a parent path, a wildcard, or a global config change. Read, search and plan \
 freely; when the work genuinely needs a write, raise it rather than looking for a way around. ";
 
-const TOOLS_SENTENCE: &str = "The tools: orgtree_message (reach your reports at any depth, your superior, your peers; \
+const TOOLS_SENTENCE: &str = "The tools: orgtree_message (reach your reports at any depth, your superior, your peers (a directional audience is required between direct siblings when their parent turns off Subordinates may message each other); \
 `to` may be a list, so one call sends the same message to several recipients — for example the user's inbox and their \
 @net: hub address — with each recipient's outcome reported back; nothing is ever forwarded on your behalf, so name every \
 recipient yourself), \

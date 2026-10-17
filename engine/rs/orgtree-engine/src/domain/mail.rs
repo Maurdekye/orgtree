@@ -514,69 +514,45 @@ pub async fn agent_reply_quote(engine: &Engine, org_id: i64, agent_id: i64, agen
     refuse!(NotFound, "reply_to: no message {id} among the mail you received or sent (the id ends its FROM line; orgtree_inbox lists them)");
 }
 
-/// May agent `from` write to agent `to`? Superior, any descendant, peers,
-/// and anyone who granted it an audience. Writing to a non-child descendant
-/// grants that descendant an audience to reply.
+/// Mail reach, including the direct parent's optional sibling gate.
 #[logged]
 pub(crate) async fn authorize(
-    client: &impl tokio_postgres::GenericClient,
-    org_id: i64,
-    from_id: i64,
-    from_name: &str,
-    to_id: i64,
-    to_name: &str,
-    grant_reply_audience: bool,
+    client: &impl tokio_postgres::GenericClient, org_id: i64,
+    from_id: i64, from_name: &str, to_id: i64, to_name: &str, grant_reply_audience: bool,
 ) -> Result<()> {
-    if from_id == to_id {
-        refuse!(BadRequest, "you cannot write to yourself");
-    }
-    let rel = client
-        .query_one(
-            "WITH RECURSIVE up(id, parent_id, depth) AS (
-                SELECT id, parent_id, 0 FROM ot.agents WHERE id = $2
-                UNION ALL SELECT a.id, a.parent_id, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id WHERE up.depth < 1024)
-             SELECT
-               ot.superior_of($1) AS from_parent,
-               ot.superior_of($2) AS to_parent,
-               EXISTS (SELECT 1 FROM up WHERE id = $1 AND depth > 0) AS from_is_ancestor",
-            &[&from_id, &to_id],
-        )
-        .await?;
-    // a project is transparent for reporting: each side's superior is its
-    // nearest AGENT above (user 2026-10-16 20:40Z), so agents under a project
-    // write to the agent above it, and its children are each other's peers
-    let from_parent: Option<i64> = rel.get(0);
-    let to_parent: Option<i64> = rel.get(1);
-    let from_is_ancestor: bool = rel.get(2);
-    if from_is_ancestor {
-        if grant_reply_audience && to_parent != Some(from_id) {
-            client
-                .execute(
-                    "INSERT INTO ot.audiences (org_id, grantee, grantor, reason)
-                     SELECT $1, $2, $3, 'reply to a message from a distant superior'
-                      WHERE NOT EXISTS (SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL)",
-                    &[&org_id, &to_name, &from_name],
-                )
-                .await?;
+    if from_id == to_id { refuse!(BadRequest, "you cannot write to yourself"); }
+    let rel = client.query_one(
+        "WITH RECURSIVE up(id,parent_id,depth) AS (
+           SELECT id,parent_id,0 FROM ot.agents WHERE id=$2
+           UNION ALL SELECT a.id,a.parent_id,up.depth+1 FROM ot.agents a JOIN up ON a.id=up.parent_id WHERE up.depth<1024)
+         SELECT ot.superior_of($1),ot.superior_of($2),
+           EXISTS(SELECT 1 FROM up WHERE id=$1 AND depth>0), f.parent_id,t.parent_id,p.name,p.scope
+         FROM ot.agents f JOIN ot.agents t ON t.id=$2
+         LEFT JOIN ot.agents p ON p.id=f.parent_id WHERE f.id=$1", &[&from_id,&to_id]).await?;
+    let from_superior: Option<i64> = rel.get(0);
+    let to_superior: Option<i64> = rel.get(1);
+    let ancestor: bool = rel.get(2);
+    if ancestor {
+        if grant_reply_audience && to_superior != Some(from_id) {
+            client.execute(
+                "INSERT INTO ot.audiences(org_id,grantee,grantor,reason)
+                 SELECT $1,$2,$3,'reply to a message from a distant superior'
+                 WHERE NOT EXISTS(SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor=$3 AND revoked_at IS NULL)",
+                &[&org_id,&to_name,&from_name]).await?;
         }
         return Ok(());
     }
-    if from_parent == Some(to_id) || (from_parent == to_parent) {
-        return Ok(());
-    }
-    let aud = client
-        .query_opt(
-            "SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL AND NOT paused",
-            &[&org_id, &from_name, &to_name],
-        )
-        .await?;
-    if aud.is_some() {
-        return Ok(());
-    }
-    refuse!(
-        Forbidden,
-        "you may write to your superior, your reports and their reports, your peers, and agents that granted you an audience; {to_name} is none of these (ask for an audience with orgtree_audience)"
-    )
+    let parent_name: Option<String> = rel.get(5);
+    let parent_scope: Option<Value> = rel.get(6);
+    let relation = super::peer_mail::Relation { from:from_id,to:to_id,from_parent:rel.get(3),to_parent:rel.get(4),
+        from_superior,to_superior,ancestor:false,
+        enabled:super::peer_mail::enabled(parent_scope.as_ref().unwrap_or(&Value::Null)) };
+    let parent_name = parent_name.as_deref().unwrap_or("your parent");
+    if super::peer_mail::check(relation,false,parent_name).is_ok() { return Ok(()); }
+    let audience = client.query_opt(
+        "SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor=$3 AND revoked_at IS NULL AND NOT paused",
+        &[&org_id,&from_name,&to_name]).await?.is_some();
+    super::peer_mail::check(relation,audience,parent_name)
 }
 
 /// A wake-up from the engine itself (crash recovery, watchdogs, freezes ending).

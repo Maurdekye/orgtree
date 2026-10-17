@@ -993,7 +993,28 @@ interface NodeConfigProps {
   close: () => void
 }
 
-export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
+export function NodeConfig(props: NodeConfigProps) {
+  return props.node.kind === 'project' ? <ProjectConfig {...props} /> : <AgentConfig {...props} />
+}
+
+function ProjectConfig({node,slug,toast,close}:NodeConfigProps) {
+  const [edit,setEdit] = useState<boolean | undefined>()
+  const [busy,setBusy] = useState(false)
+  const on = edit ?? node.peer_mail ?? node.configured_scope?.peer_mail ?? true
+  return <PinFrame kind="node-config" restore={{agent:node.id,generation:node.generation}}
+    title={`${node.id} ? project settings`} panel="settings cfg" close={close}>
+    <h3>{node.id} ? project settings</h3>
+    <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
+      hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />
+    <div className="row"><button disabled={busy} onClick={()=>{
+      setBusy(true)
+      void userGesture(slug,[{op:'scope',node:node.id,peer_mail:on}],`Settings: ${node.id}`)
+        .then(()=>close()).catch((e:Error)=>toast([`error: ${e.message}`])).finally(()=>setBusy(false))
+    }}>save</button><button onClick={close}>cancel</button></div>
+  </PinFrame>
+}
+
+function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
   antigravityProvider, openrouterProvider, langserverProvider, museProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
   const [tab, setTab] = useState<NodeConfigTab>('charter')
   const tabId = useId()
@@ -1039,6 +1060,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const setCharter = set<string>('charter', charter)
   const teamCharter = val('teamCharter', node.team_charter ?? '')
   const setTeamCharter = set<string>('teamCharter', teamCharter)
+  const peerMail = val('peerMail', node.peer_mail ?? node.configured_scope?.peer_mail ?? scope.peer_mail ?? true)
+  const setPeerMail = set<boolean>('peerMail', peerMail)
   const model = val('model', node.tier!)
   const setModel = set<string>('model', model)
   const effort = val('effort', scope.effort ?? '')
@@ -1132,7 +1155,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // the wire, and any capability field makes the save lock and re-clamp the
   // node's whole subtree — re-sending untouched folders and tools made an
   // effort-only save on a large manager take about 2 s (agent-settings-save)
-  const scopeBody = {
+  const scopeBody = Object.keys(edit).length === 1 && 'peerMail' in edit ? {peer_mail:peerMail} : {
+    ...('peerMail' in edit ? {peer_mail:peerMail} : {}),
     ...('dirs' in edit ? { add_dirs: dirs } : {}),
     ...('tools' in edit ? { tools } : {}),
     ...('vis' in edit ? { org_visibility: vis } : {}),
@@ -1362,6 +1386,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           onChange={(e) => setCharter(e.target.value)} /></SetBlock>
         <SetBlock label="Team instructions" hint="Shared instructions for this agent and its team; changes restart their processes."><textarea rows={10} className="charterbox" value={teamCharter}
           onChange={(e) => setTeamCharter(e.target.value)} /></SetBlock>
+        <SetToggle label="Subordinates may message each other"
+          checked={peerMail} onChange={setPeerMail}
+          hint="Off requires an audience between this manager's direct agents and hides their peer connector lines. Changes apply immediately." />
         </SettingsTabPanel>
         <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
         <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="model tier" title={modelChoiceTitle(model, unavailable(model))}

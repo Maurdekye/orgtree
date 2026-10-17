@@ -204,7 +204,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     if grantee.is_empty() {
         refuse!(BadRequest, "name who receives the audience (from)");
     }
-    let (gid, _) = live(client, org.id, &grantee).await?;
+    let (gid, grantee_parent) = live(client, org.id, &grantee).await?;
     let grantor = match actor {
         Actor::User => party(target),
         Actor::Agent { id, name } => {
@@ -248,8 +248,12 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                     let (oid, oparent) = live(client, org.id, other).await?;
                     let peer = oparent == my_parent && oid != *id;
                     let superior = my_parent == Some(oid);
-                    if !(peer || superior) {
-                        refuse!(Forbidden, "you grant audiences with yourself, a live peer, your direct superior, the user (top-level) or the org inbox");
+                    let delegated = if grantee_parent.is_some() && grantee_parent == oparent {
+                        let nearest = client.query_one("SELECT ot.superior_of($1), ot.superior_of($2)", &[&gid, &oid]).await?;
+                        super::peer_mail::delegate(*id, grantee_parent, oparent, nearest.get(0), nearest.get(1))
+                    } else { false };
+                    if !(peer || superior || delegated) {
+                        refuse!(Forbidden, "you grant audiences with yourself, a live peer, your direct superior, the user (top-level), the org inbox, or between direct tree siblings whose nearest agent superior is you");
                     }
                     if !below {
                         refuse!(Forbidden, "{grantee} is not in your subtree");

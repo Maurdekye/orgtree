@@ -41,6 +41,7 @@ interface ProjectSquareProps {
   seats: Record<string, number>
   onHire: (tier: string) => void
   onInbox: () => void
+  onSettings?: () => void
   /** the project's docket: its attached items */
   onDocket?: () => void
   onOpenDoc?: (id: string) => void
@@ -52,7 +53,7 @@ interface ProjectSquareProps {
 }
 
 export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toast, zoom, hire, seats,
-  onHire, onInbox, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onHire, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   const [asking, setAsking] = useState<RetireKind | null>(null)
   const [naming, setNaming] = useState(false)
@@ -74,7 +75,7 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
     onDocket,
     onScratchFolder: scratchFolderAction(slug, node.id, toast),
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id) : undefined,
-    onSettings: () => {},
+    onSettings: () => onSettings?.(),
     onHire,
     onNewProject: () => setNaming(true),
     onRetireAsk: setAsking,

@@ -83,6 +83,8 @@ export interface ToolGrant {
 // schema.py NodeScope — permission_mode / org_visibility are `str` there, so
 // they stay `string` here (old docs may carry values outside today's literals)
 export interface NodeScope {
+  /** Node-local subordinate mail policy; absent=ON, never inherited. */
+  peer_mail?: boolean
   permission_mode: string
   add_dirs: DirGrant[]
   tools: ToolGrant
@@ -353,6 +355,7 @@ export interface PendingAccount {
 }
 
 export interface TreeNode {
+  peer_mail?: boolean
   /** Foreground projection omits the lineage axis even for live agents. */
   lineage_loaded?: boolean
   lineage_revision?: string
@@ -2268,6 +2271,7 @@ export interface AudiencesPayload {
 // ---------------------------------------------------------------- requests
 // api.py Op — the ledger op envelope (POST /api/orgs/{slug}/ops)
 export interface OpRequest {
+  peer_mail?: boolean
   op: string
   /** Batch halt/unhalt: validated together before parallel actor control. */
   nodes?: string[]
@@ -2308,6 +2312,7 @@ export interface OpRequest {
 
 // api.py Scope (POST .../nodes/{nid}/scope)
 export interface ScopeRequest {
+  peer_mail?: boolean
   add_dirs?: DirGrant[] | null
   tools?: Partial<ToolGrant> | null
   org_visibility?: string | null

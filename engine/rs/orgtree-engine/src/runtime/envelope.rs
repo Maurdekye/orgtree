@@ -278,7 +278,8 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
                     a.session_id, coalesce(a.occupancy, 0), a.extra->'envelope'->'org_state',
                     (SELECT p.name FROM ot.agents p WHERE p.id = a.parent_id),
                     EXISTS (SELECT 1 FROM ot.audiences u WHERE u.org_id = a.org_id AND u.grantee = a.name AND u.grantor = '@user'
-                             AND u.revoked_at IS NULL AND NOT u.paused)
+                             AND u.revoked_at IS NULL AND NOT u.paused),
+                    (SELECT p.scope FROM ot.agents p WHERE p.id=a.parent_id)
                FROM ot.agents a WHERE a.id = $1",
             &[&agent_id],
         )
@@ -294,6 +295,9 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let prior: Option<Value> = me.get(9);
     let superior: Option<String> = me.get(10);
     let user_audience: bool = me.get(11);
+    let parent_scope: Option<Value> = me.get(12);
+    let peer_policy = crate::domain::peer_mail::describe(superior.as_deref(),
+        crate::domain::peer_mail::enabled(parent_scope.as_ref().unwrap_or(&Value::Null)));
     let rows: Vec<Row> = client
         .query(
             "SELECT a.id, a.name, a.parent_id, a.tier, a.state, a.halt IS NOT NULL, a.last_status, a.inflight_at,
@@ -329,7 +333,9 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let facts = Facts {
         agent_id, my_name, parent, vis, seat, grant, hold, sid, occ: occ as i64, prior, superior, user_audience, rows, ask,
     };
-    Ok(render(&facts, &live, Utc::now()))
+    let mut state = render(&facts, &live, Utc::now());
+    state.text = state.text.replacen("\nCredits:", &format!("\n{peer_policy}\nCredits:"), 1);
+    Ok(state)
 }
 
 /// Everything `render` reads, loaded in one go.

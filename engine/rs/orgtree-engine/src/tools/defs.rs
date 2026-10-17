@@ -123,7 +123,7 @@ const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
 const MESSAGE_DESC: &str = "Send mail. You may write to your superior, your reports and their reports (writing to a non-child \
      descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
      (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
-     '@net:<slug>'. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
+     '@net:<slug>'. Peers sharing an actual parent need a directional audience when that parent's Subordinates may message each other setting is OFF. Audience requests remain allowed. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
      later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
      recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
      and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
@@ -632,7 +632,7 @@ fn all() -> Vec<Value> {
              'extern' = the org inbox) for an audience; the request goes straight to that agent (or the user; an \
              org-inbox request to your top-level agent) for a yes or no, and the answer arrives as mail. grant: give \
              `from` an audience with you (a report, or anyone whose request waits on you), or via `target` with a \
-             live peer, your direct superior, 'user' (if you are top-level) or 'extern' (outside @org:/@net: mail \
+             live peer, your direct superior, or between two direct tree siblings whose nearest agent superior is you; also 'user' (if you are top-level) or 'extern' (outside @org:/@net: mail \
              reaches holders only; a top-level agent may grant it to itself). deny: decline a request waiting on \
              you (`from` = requester). revoke: rescind one you granted (`grantee`); an org-inbox holder may revoke \
              itself and a top-level agent any user or org-inbox grant in its subtree.",

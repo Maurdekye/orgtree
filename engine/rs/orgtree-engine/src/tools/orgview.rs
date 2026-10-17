@@ -32,6 +32,7 @@ struct Row {
     /// waiting in its mailbox
     project: bool,
     waiting: i64,
+    peer_mail: bool,
 }
 
 fn age(at: Option<DateTime<Utc>>) -> String {
@@ -57,7 +58,7 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
                     a.halt IS NOT NULL, a.frozen IS NOT NULL, a.inflight_at IS NOT NULL, a.team_charter,
                     (SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live'),
                     a.kind = 'project',
-                    CASE WHEN a.kind = 'project' THEN (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending') ELSE 0 END
+                    CASE WHEN a.kind = 'project' THEN (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending') ELSE 0 END, a.scope
                FROM ot.agents a
               WHERE a.org_id = $1 AND (a.state = 'live' OR ($2 AND a.state IN ('archived', 'unrecoverable')))
               ORDER BY a.sibling_order, a.id",
@@ -83,12 +84,14 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
             hold: r.get(13),
             project: r.get(14),
             waiting: r.get(15),
+            peer_mail: crate::domain::peer_mail::enabled(&r.get::<_,Value>(16)),
         })
         .collect())
 }
 
 fn line(r: &Row, busy: bool) -> String {
     let mut s = r.name.clone();
+    s.push_str(if r.peer_mail { " ? subordinate peer mail ON" } else { " ? subordinate peer mail OFF (audiences required)" });
     if !r.title.is_empty() {
         s.push_str(&format!(" — {}", r.title));
     }

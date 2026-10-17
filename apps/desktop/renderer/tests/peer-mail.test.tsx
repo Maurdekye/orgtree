@@ -10,7 +10,7 @@ import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
 const node=(id:string,children:CanvasNode[]=[],on?:boolean,project=false):CanvasNode => ({
-  id,title:id,tier:project?'project':'haiku',kind:project?'project':'agent',model_id:'haiku',state:'live',
+  id,title:id,tier:project?'project':'haiku',...(project?{kind:'project' as const}:{}),model_id:'haiku',state:'live',
   parent:USER,children,seat:1,grant:10,free:10,turns:[],lineage:[],documents:[],audiences_held:[],
   charter:'',team_charter:'',peer_mail:on,
   scope:{permission_mode:'acceptEdits',add_dirs:[],tools:{bash:true,web:true,edit:true,subagents:true,mcp:[]},

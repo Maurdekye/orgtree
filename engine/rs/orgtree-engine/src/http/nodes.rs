@@ -548,10 +548,24 @@ pub(crate) async fn apply_user_scope_in_tx(
     let row = tx
         .query_one("SELECT scope, charter, team_charter, tier, account, pending_account->>'account' FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
-    crate::domain::tool_groups::validate(&b["tools"])?;
+    let peer_mail = b.get("peer_mail").map(|value| value.as_bool()
+        .ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("peer_mail must be a boolean".into())))).transpose()?;
     let before: Value = row.get(0);
+    // A node-local policy is not a permission grant. Preserve a project's
+    // transparent scope and do not cascade default tools up to its ancestors.
+    if let Some(enabled) = peer_mail.filter(|_| b.as_object().is_some_and(|o|
+        o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "peer_mail")))) {
+        let next = crate::domain::peer_mail::with_setting(&before,enabled);
+        tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&next]).await?;
+        tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'scope','@user',$2,$3)",
+            &[&org.id,&a.id,&json!({"node":a.name,"change":{"peer_mail":enabled}})]).await?;
+        return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids:vec![],fields:vec!["peer_mail".into()],
+            effort_change:None,structural:false,org_folders_changed:false,out:json!({"ok":true,"peer_mail":enabled,"cascaded":[]}) });
+    }
+    crate::domain::tool_groups::validate(&b["tools"])?;
     let mut sc = scope::normalize(&before);
     let obj = sc.as_object_mut().unwrap();
+    if let Some(enabled) = peer_mail { obj.insert("peer_mail".into(),json!(enabled)); }
     let effort_saved = b.get("effort").is_some();
     if let Some(d) = b.get("add_dirs").filter(|v| v.is_array()) {
         obj.insert("add_dirs".into(), scope::normalize(&json!({ "add_dirs": d }))["add_dirs"].clone());
@@ -706,7 +720,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         .collect();
     Ok(ScopeEffects {
         agent_id: a.id, subtree, effort_change, notice_ids,
-        fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier","session"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
+        fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier","session","peer_mail"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
         structural: b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false),
         org_folders_changed,
         out: json!({ "ok": true, "cascaded": cascaded }),

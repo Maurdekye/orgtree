@@ -188,6 +188,7 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     }
     o.insert("scope".into(), effective.clone());
     o.insert("configured_scope".into(), configured.clone());
+    o.insert("peer_mail".into(), json!(super::peer_mail::enabled(&configured)));
     o.insert("cost_usd".into(), json!(f(&raw["cost_usd"])));
     if raw["cost_unknown"].as_bool().unwrap_or(false) {
         o.insert("cost_usd_unknown".into(), json!(true));
