@@ -688,7 +688,7 @@ uiTest('Owner context-menu entry resolves the assigned agent tooltip', async (t)
   t.after(() => v.unmount())
   await flush(); await advance(200, 16); await flush()
   const row = [...v.el.querySelectorAll('.docket-row')]
-    .find((r) => r.querySelector('.docket-rowname')?.textContent === 'Fix the thing') as HTMLElement
+    .find((r) => r.querySelector('.docket-rowname')?.textContent === 'tooltip-owner') as HTMLElement
   assert.ok(row, 'ticket row rendered')
   assert.equal(await rightClick(row), true)
   const ownerItem = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')]
