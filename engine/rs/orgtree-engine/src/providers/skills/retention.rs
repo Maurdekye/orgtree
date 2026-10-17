@@ -9,6 +9,11 @@ pub struct References {
 }
 
 #[nolog]
+fn session_references(_session: Option<&str>, _generation: i32, _record: &serde_json::Value) -> References {
+    References::default()
+}
+
+#[nolog]
 fn prune(_data: &Path, _current: &str, _refs: &References, _observed: SystemTime, _now: SystemTime) -> anyhow::Result<()> {
     // Red control: current materialization never removes old snapshots.
     Ok(())
@@ -100,6 +105,21 @@ mod tests {
         t.prune(References::default());
         assert!(!abandoned.exists(), "abandoned owned staging directory was not pruned");
         assert!(fresh.exists() && foreign.exists() && unowned.exists() && incomplete.exists());
+    }
+
+    #[test]
+    fn skills_prune_session_bindings_survive_idle_and_reject_stale_records() {
+        use serde_json::json;
+        let record = json!({"session":"thread-a","generation":2,"paths":["snapshot/old"],"known":true});
+        let idle = session_references(Some("thread-a"), 2, &record);
+        assert_eq!(idle.paths, vec![PathBuf::from("snapshot/old")]);
+        assert!(!idle.uncertain);
+        assert!(session_references(Some("thread-b"), 2, &record).uncertain);
+        assert!(session_references(Some("thread-a"), 3, &record).uncertain);
+        assert!(session_references(Some("legacy"), 1, &json!(null)).uncertain);
+        assert!(!session_references(None, 1, &json!(null)).uncertain);
+        assert!(session_references(Some("thread-a"), 2,
+            &json!({"session":"thread-a","generation":2,"known":true,"paths":[42]})).uncertain);
     }
 
     #[cfg(any(unix, windows))]
