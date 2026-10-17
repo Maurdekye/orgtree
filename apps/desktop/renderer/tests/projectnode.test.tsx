@@ -74,6 +74,14 @@ test('§1d beside a node: created among its siblings, then the side hire\'s reor
     { op: 'reorder', node: 'website', after: 'dev1' })
 })
 
+test('§1d2 spaces in a typed name become hyphens, for the create and the side reorder alike', () => {
+  // USER 2026-10-17 19:22:46Z (docket hiring-spaces-in-an-agent-s-name-become-hyphens-a)
+  assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true, beside: { anchor: 'dev1', side: 'right' } }, 'my  web site', ''), [
+    { op: 'create_project', name: 'my-web-site', parent: 'boss' },
+    { op: 'reorder', node: 'my-web-site', after: 'dev1' },
+  ])
+})
+
 test('§1e the preview tree holds a draft PROJECT card where the project will go', () => {
   const tree = { slug: 'org', roots: [{ id: 'boss', title: 'boss', tier: 'haiku', state: 'live', children: [] }] } as unknown as TreePayload
   const root = withDraftTree(tree, { parent: 'boss', tier: 'project', project: true })
