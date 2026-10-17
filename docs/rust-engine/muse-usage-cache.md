@@ -50,8 +50,12 @@ two valid identity failures and 13 passing quota/privacy controls. A third
 failure mistakenly expected identity in the quota-only `orgtree_usage` result;
 that assertion was corrected to inspect the fake Codex turn's account roster
 after restart. The first candidate passed 15/16 with only that invalid assertion
-failing; preserve both receipts. Two
-focused `muse_identity_tests` additionally check the unchanged in-memory clock
+failing; preserve both receipts. The corrected proof passed 16/16 at `0b0cc2a`
+(engine `6f98248`) with test-only `RUST_MIN_STACK=16777216`. With the default
+debug stack, fake Codex admission overflowed during tool-catalog construction,
+before the roster assertion; default-stack debug and release checks belong to
+the combined hardening round. No production stack setting changed. Two focused
+`muse_identity_tests` additionally check the unchanged in-memory clock
 and auth evidence, absent cache and clearing an old email. Candidate results
 are recorded with the exact hand-in SHA in the docket.
 
