@@ -155,7 +155,13 @@ co-owns the item with full owner rights.
   its name, the first line of its description and its documents (no "project" label; its
   mailbox button with the waiting-mail count shows only with Show agent card shortcuts on, like
   an agent card's hover row [user 2026-10-17 19:37Z]). It has
-  no desk, model, credit bar or turn controls. A click opens its mailbox.
+  no model, credit bar or turn controls.
+- **The project desk** [user 2026-10-17 19:38Z]: a click, or zooming in, walks the camera to
+  the project and opens its desk (`canvas/projectdesk.tsx`) in the agent desk's frame and header,
+  with tabs mail (its inbox, the mail waiting and its fair-queue watchers), docket (attached
+  items), presented, members (the nodes under it, each a jump) and about (the description, named
+  as the standing charter, with settings and the folder). No chat: a project takes no turns. It
+  pins as a window like an agent desk.
 - **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a light grey
   square with a folder icon, alone on the outermost row. That covers the eye card, all four
   edges of a card and a project's own strip. Its tooltip says "create a project … (free)" and
