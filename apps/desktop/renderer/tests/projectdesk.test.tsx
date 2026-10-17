@@ -18,6 +18,8 @@
 //      confirmations; the gear opens settings (20:09:45Z);
 //   §5 bare (a pinned window) draws the same desk unscaled, and pin is offered
 //      only where a pin handler is given.
+//   §6 project settings carry the agent settings' items that apply (name,
+//      description, peer mail, actions) and none of the turn-only ones.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projectdesk
 
@@ -27,6 +29,7 @@ import assert from 'node:assert/strict'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { ProjectSquare } from '../src/canvas/projectcard'
+import { NodeConfig } from '../src/canvas/modals'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -213,4 +216,29 @@ test('§5 bare draws it unscaled; pin only where a pin handler is given', async 
   assert.ok(bare.querySelector('.desk-bare .desk-body .cc-tabs'), 'the bare frame')
   assert.equal(bare.querySelector('.desk-over') === null, true)
   assert.equal(bare.querySelector('button.cc-pin') === null, true, 'no pin without a handler')
+})
+
+/* ─── §6 project settings ───────────────────────────────────────────────── */
+// USER 2026-10-17 20:10Z: project settings have the agent settings' items
+// where they apply or have a parallel; turn-only items are left out.
+
+test('§6 project settings: name, description, peer mail, actions; no turn-only items; save sends set_description', async (t) => {
+  serve(t)
+  const ops: OpRequest[] = []
+  const nd = project()
+  const view = await mountView(<NodeConfig node={nd} map={new Map([[nd.id, nd]])} tree={tree} slug="org"
+    op={async (b) => { ops.push(b); return {} as OpResult }} toast={noop} close={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  const text = document.body.textContent ?? ''
+  for (const want of ['Name', 'Project actions', 'Description', 'Subordinates may message each other', 'dissolve project'])
+    assert.ok(text.includes(want), `has "${want}"`)
+  for (const not of ['Model', 'Visible agents', 'File and command access', 'Instructions', 'rescind'])
+    assert.equal(text.includes(not), false, `no "${not}" on a project`)
+  const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Project description"]')!
+  assert.equal(box.value, '# The site\n\nDeploy from **main** only.')
+  await inAct(() => { setText(box, 'New text.') })
+  const save = [...document.querySelectorAll('button')].find((b) => b.textContent === 'save')!
+  await inAct(async () => { save.click(); await flush(4) })
+  assert.deepEqual(ops, [{ op: 'set_description', node: 'website', description: 'New text.' }])
 })
