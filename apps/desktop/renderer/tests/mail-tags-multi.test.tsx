@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { MailTagPicker } from '../src/canvas/mailtagpicker'
+import { MailList } from '../src/canvas/mail'
 import { mailMatchesTags, mailTagHue } from '../src/canvas/mailtags'
 
 const choices=['Alpha Build','Progress','Review']
@@ -98,4 +99,17 @@ test('mail matching requires ALL selected tags without depending on their order'
   assert.equal(mailMatchesTags(['Alpha Build','Progress'],['Alpha Build','Progress']),true)
   assert.equal(mailMatchesTags(['Alpha Build','Progress'],['Progress','Alpha Build']),true)
   assert.equal(mailMatchesTags(undefined,['Alpha Build','Progress']),false)
+})
+
+test('mail rows keep a compact tag preview and collapse additional tags into +N',async()=>{
+  const tags=['build','release','a deliberately long release tag']
+  const row={id:'tagged',from:'coordinator',kind:'message',at:'2026-10-17T19:50:00Z',body:'A release update',tags}
+  const v=await mountView(<MailList delivered={[row]}/>,el=>el)
+  try{
+    const rendered=v.el.querySelector<HTMLElement>('.mailrow');assert.ok(rendered)
+    assert.equal(rendered.querySelector('.mfrom')?.textContent,'coordinator')
+    assert.equal(rendered.querySelectorAll('.mail-tag[data-tag-key]').length,1,'one tag preview leaves sender/kind space')
+    const more=rendered.querySelector('.mail-tag-more');assert.ok(more,'extra tags need a count pill')
+    assert.equal(more.textContent,'+2')
+  }finally{await v.unmount()}
 })
