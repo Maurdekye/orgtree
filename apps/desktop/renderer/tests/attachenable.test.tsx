@@ -191,6 +191,53 @@ test('§2b …and the upload it forms is addressed to the RIGHT org and the '
     'and the chip names the file that was attached')
 })
 
+test('pasting a clipboard file into the inbox reply uploads and stages it, '
+  + 'while ordinary text paste remains native', async (t) => {
+  const urls: string[] = []
+  const saved = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(typeof input === 'string' ? input : (input as Request).url)
+    if (url.includes('/upload')) {
+      urls.push(url)
+      return response({ path: 'uploads/clipboard.png', bytes: 3 })
+    }
+    if (url.endsWith('/inbox')) {
+      return response({ pending: [inboxMail], delivered: [], sent: [] })
+    }
+    return response({})
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = saved })
+
+  const view = await mountView(
+    <InboxPanel slug="mine" tree={tree} toast={noop} close={noop} jumpTo={null} />,
+    (h) => h)
+  t.after(async () => { await view.unmount(); resetConvos() })
+  await flush()
+
+  const box = replyBoxIn(view.el)
+  const textarea = box.querySelector('textarea')!
+  const file = new File([new Uint8Array([1, 2, 3])], 'clipboard.png',
+    { type: 'image/png' })
+  const filePaste = new Event('paste', { bubbles: true, cancelable: true })
+  Object.defineProperty(filePaste, 'clipboardData', { value: { files: [file] } })
+  await inAct(() => { textarea.dispatchEvent(filePaste) })
+  await flush(3)
+
+  assert.equal(filePaste.defaultPrevented, true,
+    'a file paste is consumed so the image is attached instead of inserted as text')
+  assert.equal(urls.length, 1, 'pasting one clipboard file makes one upload')
+  assert.match(urls[0]!, /\/api\/orgs\/mine\/nodes\/alpha\/upload\?name=clipboard\.png$/)
+  const chip = view.el.querySelector('.attach-row .attach-chip')
+  assert.ok(chip, 'the uploaded clipboard file is staged on the reply')
+  assert.match(chip!.textContent ?? '', /clipboard\.png/)
+
+  const textPaste = new Event('paste', { bubbles: true, cancelable: true })
+  Object.defineProperty(textPaste, 'clipboardData', { value: { files: [] } })
+  await inAct(() => { textarea.dispatchEvent(textPaste) })
+  assert.equal(textPaste.defaultPrevented, false,
+    'plain text paste is left to the browser textarea')
+})
+
 // ------------------------------------------------ §3 the gate is NOT widened
 
 test('§3 CONTROL — attach stays disabled when there is genuinely nowhere to '
