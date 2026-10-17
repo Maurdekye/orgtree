@@ -46,7 +46,9 @@ mod agy_thinking_pg_tests {
         assert!(writer.append_agy_step(&mut client,session,6,rows()).await.unwrap().is_none());
         assert_eq!((writer.seq,writer.ver),(2,2));
         let mut failed=rows(); failed[1]["synthetic_reject"]=json!(true);
-        assert!(writer.append_agy_step(&mut client,session,7,failed).await.is_err());
+        let failed=writer.append_agy_step(&mut client,session,7,failed).await.unwrap_err();
+        assert!(!format!("{failed:?}").contains("synthetic thought"));
+        assert!(!format!("{failed:?}").contains("synthetic response"));
         assert_eq!((writer.seq,writer.ver),(2,2));
         let receipt:i64=client.query_one("SELECT count(*) FROM ot.agy_step_receipts WHERE step_index=7",&[]).await.unwrap().get(0);
         assert_eq!(receipt,0);
@@ -94,11 +96,14 @@ impl ConvoWriter {
     /// restart. A rollback leaves both the receipt and all rows absent.
     #[nolog]
     pub async fn append_agy_step(&mut self, client: &mut Client, session: &str, index: i64, rows: Vec<Value>) -> Result<Option<Vec<(i64, Value)>>> {
-        let tx = client.transaction().await?;
+        // PG errors can carry a failing row in their detail. Do not propagate
+        // that diagnostic through the actor's ordinary error logging.
+        let redact = |_| anyhow::anyhow!("AGY transcript transaction failed");
+        let tx = client.transaction().await.map_err(redact)?;
         let inserted = tx.execute(
             "INSERT INTO ot.agy_step_receipts (agent_id,session_id,step_index) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
             &[&self.agent_id,&session,&index],
-        ).await?;
+        ).await.map_err(redact)?;
         if inserted==0 { return Ok(None); }
         let (mut seq,mut ver)=(self.seq,self.ver);
         let mut saved=Vec::with_capacity(rows.len());
@@ -108,10 +113,10 @@ impl ConvoWriter {
             body["convo_revision"]=json!(ver);
             let inputs=take_tool_inputs(&mut body,seq);
             tx.execute("INSERT INTO ot.convo (agent_id,seq,ver,body,tool_inputs) VALUES ($1,$2,$3,$4,$5)",
-                &[&self.agent_id,&seq,&ver,&body,&inputs]).await?;
+                &[&self.agent_id,&seq,&ver,&body,&inputs]).await.map_err(redact)?;
             saved.push((seq,body));
         }
-        tx.commit().await?;
+        tx.commit().await.map_err(redact)?;
         self.seq=seq; self.ver=ver;
         for (seq,body) in &saved { self.remember(*seq,body.clone()); }
         Ok(Some(saved))
