@@ -66,12 +66,19 @@ impl Instructions {
 /// Latest observed input occupancy, not cumulative spend or output tokens.
 #[nolog]
 pub fn live_context(usage: &Value, provider: &str, codex: bool, acp: bool) -> Option<(i64, Option<i64>)> {
-    let n = |k: &str| usage[k].as_i64().unwrap_or(0);
-    let used = if acp { n("context_used") }
-        else if codex { usage.pointer("/last/inputTokens").and_then(Value::as_i64).unwrap_or(0) }
-        else if provider == "google" || provider == "muse" { n("last_prompt") }
-        else { n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens") };
-    (used > 0).then_some((used, usage["context_window"].as_i64().filter(|n| *n > 0)))
+    let nonnegative = |v: &Value| v.as_i64().filter(|n| *n >= 0);
+    let optional = |key: &str| match usage.get(key) {
+        None => Some(0),
+        Some(v) => nonnegative(v),
+    };
+    let used = if acp { nonnegative(&usage["context_used"])? }
+        else if codex { nonnegative(usage.pointer("/last/inputTokens")?)? }
+        else if provider == "muse" && usage.get("context_used").is_some() { nonnegative(&usage["context_used"])? }
+        else if provider == "google" || provider == "muse" { nonnegative(&usage["last_prompt"])? }
+        else { nonnegative(&usage["input_tokens"])?
+            .checked_add(optional("cache_read_input_tokens")?)?
+            .checked_add(optional("cache_creation_input_tokens")?)? };
+    Some((used, usage["context_window"].as_i64().filter(|n| *n > 0)))
 }
 
 #[cfg(test)]
@@ -126,11 +133,17 @@ mod tests {
         assert_eq!(live_context(&json!({"input_tokens":12,"cache_read_input_tokens":-4}), "claude", false, false), None);
         assert_eq!(live_context(&json!({"input_tokens":"12"}), "claude", false, false), None);
         assert_eq!(live_context(&json!({"input_tokens":i64::MAX,"cache_read_input_tokens":1}), "claude", false, false), None);
+        assert_eq!(live_context(&json!({"last":{"inputTokens":0}}), "openai", true, false), Some((0,None)));
+        assert_eq!(live_context(&json!({"last":{"inputTokens":-1}}), "openai", true, false), None);
+        assert_eq!(live_context(&json!({"context_used":0}), "other", false, true), Some((0,None)));
+        assert_eq!(live_context(&json!({"context_used":"71"}), "other", false, true), None);
+        assert_eq!(live_context(&json!({"last_prompt":0}), "google", false, false), Some((0,None)));
     }
 
     #[test]
     fn muse_direct_context_snapshot_takes_precedence_over_older_prompt() {
         assert_eq!(live_context(&json!({"context_used":71,"last_prompt":40,"context_window":1000}), "muse", false, false), Some((71,Some(1000))));
         assert_eq!(live_context(&json!({"context_used":0,"context_window":1000}), "muse", false, false), Some((0,Some(1000))));
+        assert_eq!(live_context(&json!({"context_used":-1,"last_prompt":40}), "muse", false, false), None);
     }
 }
