@@ -13,11 +13,14 @@ export async function setup(){return {name:'session-blip-admission','boot-isolat
 export default async function(rig){
   const p=new Proof('session-blip-admission')
   const children=[]
+  const agents=[{name:'recover',tier:'haiku'},{name:'fallback',tier:'haiku'},
+    {name:'recover-codex',tier:'sol'},{name:'fallback-codex',tier:'sol'}]
+  const names=agents.map(a=>a.name)
   const token=name=>`SESSION-BLIP-${name}`
   const prompts=name=>rig.fakeLog(name).filter(l=>l.kind==='turn').map(l=>l.prompt??'')
   const logs=()=>rig.engineLog().split(/\r?\n/)
   const held=name=>logs().some(l=>l.includes(`/${name} `)&&l.includes('host lease temporarily missing; deferring CLI start during placement debounce'))
-  const quiet=()=>['recover','fallback'].every(name=>rig.turns(name).length>0&&rig.turns(name).every(t=>t.ended_at))
+  const quiet=()=>names.every(name=>rig.turns(name).length>0&&rig.turns(name).every(t=>t.ended_at))
   const placement=()=>{try{return JSON.parse(fs.readFileSync(path.join(rig.data,'session-placement.json'),'utf8')).placement}catch{return null}}
   const bin=path.join(rig.dir,'bin','orgtree-credential-broker.exe')
   fs.copyFileSync(brokerExe(),bin)
@@ -35,42 +38,34 @@ export default async function(rig){
     // No losing timer is left behind after a child exits.
     let timer;try{await Promise.race([entry.exited,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('owned helper did not exit')),5000)})])}finally{clearTimeout(timer)}
   }
-  let helper
   try{
     rig.scenario({default:{turns:[{steps:[{text:'OK.'}]}]}})
-    await seed(rig,{org:{name:'Session Blip Admission'},agents:[{name:'recover',tier:'haiku'},{name:'fallback',tier:'haiku'}]})
+    await seed(rig,{org:{name:'Session Blip Admission'},agents})
     await rig.waitFor(quiet,{what:'initial fake turns',timeout:45000})
-    helper=start()
-    await rig.waitFor(()=>placement()==='signed-in',{what:'signed-in placement cache',timeout:35000})
-    p.check('fixture reaches signed-in placement with owned authenticated helper',helper.child.pid>0&&placement()==='signed-in')
-
-    await stop(helper)
-    await rig.userMail('recover',token('recover'))
-    await rig.waitFor(()=>held('recover'),{what:'actual launch inside retained-placement gap',timeout:5000})
-    p.check('recovery case exercises real missing-host launch before sending mail',!prompts('recover').some(s=>s.includes(token('recover'))))
-    helper=start()
-    const recovered=await rig.waitFor(()=>prompts('recover').some(s=>s.includes(token('recover')))&&quiet(),
-      {what:'unsent mail retries after helper recovery without another wake',timeout:20000}).catch(()=>false)
-    p.check('unsent mail resumes automatically in signed-in session after lease recovery',!!recovered&&rig.agentRow('recover')?.extra?.session==='signed-in')
-
-    // Re-establish cache before the independent no-recovery case.
-    await rig.waitFor(()=>placement()==='signed-in',{what:'placement before confirmed loss',timeout:15000})
-    await stop(helper)
-    await rig.userMail('fallback',token('fallback'))
-    await rig.waitFor(()=>held('fallback'),{what:'actual launch before confirmed Session0 fallback',timeout:5000})
-    p.check('fallback case exercises real missing-host launch before sending mail',!prompts('fallback').some(s=>s.includes(token('fallback'))))
-    const fallback=await rig.waitFor(()=>prompts('fallback').some(s=>s.includes(token('fallback')))&&quiet(),
-      {what:'unsent mail retries after confirmed Session0 fallback without another wake',timeout:20000}).catch(()=>false)
-    p.check('unsent mail resumes automatically in Session0 after confirmed loss',!!fallback&&rig.agentRow('fallback')?.extra?.session==='session0')
-    for(const name of ['recover','fallback']){
+    for(const name of names){
+      let helper=start()
+      await rig.waitFor(()=>placement()==='signed-in'&&logs().some(l=>l.includes('Sign-in helper took the Codex host slot')&&l.includes(`pid=${helper.child.pid} `)),
+        {what:`${name}: authenticated helper and signed-in placement cache`,timeout:35000})
+      p.check(`${name}: fixture reaches signed-in placement with owned authenticated helper`,helper.child.pid>0&&placement()==='signed-in')
+      await stop(helper)
+      await rig.userMail(name,token(name))
+      await rig.waitFor(()=>held(name),{what:`${name}: actual launch inside retained-placement gap`,timeout:5000})
+      p.check(`${name}: real missing-host launch precedes mail delivery`,!prompts(name).some(s=>s.includes(token(name))))
+      const recovering=name.startsWith('recover')
+      if(recovering)helper=start()
+      const resumed=await rig.waitFor(()=>prompts(name).some(s=>s.includes(token(name)))&&quiet(),
+        {what:`${name}: unsent mail retries without another wake`,timeout:20000}).catch(()=>false)
+      const wanted=recovering?'signed-in':'session0'
+      p.check(`${name}: unsent mail resumes automatically in ${wanted}`,!!resumed&&rig.agentRow(name)?.extra?.session===wanted)
       const row=rig.agentRow(name)
       p.check(`${name}: no terminal launch failure or hard-failure counter`,!row?.last_error&&!(row?.extra?.hard_fail_run>0))
       const mail=rig.sql(`SELECT m.state FROM ot.mail m JOIN ot.agents a ON a.id=m.recipient_agent_id WHERE a.name='${name}' AND m.body='${token(name)}'`)
       p.check(`${name}: original waking mail was delivered exactly once`,mail.length===1&&mail[0].state==='delivered'&&prompts(name).filter(s=>s.includes(token(name))).length===1)
+      await stop(helper)
     }
   }finally{
     for(const entry of children)await stop(entry)
-    p.keep(rig,{agents:['recover','fallback'],grep:/deferring CLI start|admission|where new turns run changed|turn could not start/})
+    p.keep(rig,{agents:names,grep:/deferring CLI start|admission|where new turns run changed|turn could not start/})
   }
   return p.summary()
 }
