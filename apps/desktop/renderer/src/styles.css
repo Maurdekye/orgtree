@@ -1831,6 +1831,8 @@ html.mobile .edge-jump { display: none; }
    armed) and a dashed border — a dog is not an agent */
 .desk-dog-chip { border-style: dashed; }
 .desk-dog-chip .wd-glyph { font-size: 9px; }
+.wd-next-check { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.desk-dog-chip .wd-next-check { font-size: 9px; opacity: .82; }
 .desk-dog-chip.armed .wd-glyph { color: var(--ok, #4a9); }
 .desk-dog-chip.paused, .desk-dog-chip.exited { opacity: .6; }
 .desk-body .tier {
@@ -6318,6 +6320,7 @@ html.mobile .ms-doglist button {
   background: none; border: none; border-top: 1px solid var(--line-soft);
   color: var(--ink);
 }
+html.mobile .ms-doglist .wd-next-check { margin-left: auto; font-size: 11px; }
 html.mobile .ms-doglist button.oneshot {
   border-left: 2px dashed color-mix(in srgb, var(--warn, #e5c07b) 70%, var(--line));
 }

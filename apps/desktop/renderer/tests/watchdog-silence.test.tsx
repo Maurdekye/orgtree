@@ -1,7 +1,8 @@
-import { mountView } from './harness'
+import { advance, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WatchdogPanel } from '../src/canvas/modals'
+import { watchdogCountdownText } from '../src/canvas/watchdogcountdown'
 import type { Watchdog } from '../src/types'
 
 const noop = () => {}
@@ -56,4 +57,30 @@ test('watchdog countdown is omitted for non-periodic, paused and unknown schedul
     assert.doesNotMatch(view.el.textContent ?? '', /next check in|checking…/, name)
     await view.unmount()
   }
+})
+
+test('watchdog countdown ticks locally without a refreshed row', async (t) => {
+  useFakeClock()
+  const checkedAt = new Date(Date.now()).toISOString()
+  const dog = { ...base, kind: 'file' as const, interval_s: 60, last_check: checkedAt }
+  const view = await mountView(<WatchdogPanel slug="test" dog={dog}
+    toast={noop} close={noop} />, host => host.textContent ?? '')
+  t.after(async () => { await view.unmount(); realClock() })
+  assert.match(view.el.textContent ?? '', /next check in 1:00/)
+  await advance(1_000)
+  assert.match(view.el.textContent ?? '', /next check in 0:59/)
+})
+
+test('overdue polling shows a short checking grace, then rolls to the next interval', () => {
+  const dog: Watchdog = { ...base, kind: 'command', interval_s: 60,
+    last_check: '2026-10-17T12:00:00.000Z' }
+  assert.equal(watchdogCountdownText(dog, Date.parse('2026-10-17T12:01:02.000Z')), 'checking…')
+  assert.equal(watchdogCountdownText(dog, Date.parse('2026-10-17T12:01:04.000Z')), 'next check in 0:56')
+})
+
+test('silence deadline may shorten the next periodic check', () => {
+  const dog: Watchdog = { ...base, kind: 'process', interval_s: 60, fire_mode: 'silence',
+    quiet_period_s: 20, silence_since: '2026-10-17T12:00:30.000Z',
+    last_check: '2026-10-17T12:00:00.000Z' }
+  assert.equal(watchdogCountdownText(dog, Date.parse('2026-10-17T12:00:17.000Z')), 'next check in 0:33')
 })
