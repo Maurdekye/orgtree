@@ -6,12 +6,13 @@ use std::collections::BTreeMap;
 pub const MAX_CALLS: usize = 16;
 const MAX_ROWS: usize = 64;
 const MAX_BYTES: usize = 64 * 1024;
+const MAX_BLOCKS: usize = 64;
 
 #[derive(Default)]
 pub struct Transcript {
     messages: Vec<Value>,
     current: String,
-    blocks: BTreeMap<i64, (String, String)>,
+    blocks: BTreeMap<i64, (String, String, usize)>,
     truncated: bool,
     pub dirty: bool,
 }
@@ -27,15 +28,13 @@ impl Transcript {
                 let message = &event["message"];
                 let id = message["id"].as_str().unwrap_or("");
                 if id.is_empty() { return; }
-                let mut row = json!({"id":id,"role":"assistant","text":"","thinking":"","tools":[]});
+                let mut row = new_message(id);
                 for block in message["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str().unwrap_or("") {
-                        "text" => append(&mut row["text"], block["text"].as_str().unwrap_or(""), &mut self.truncated),
-                        "thinking" => append(&mut row["thinking"], block["thinking"].as_str().unwrap_or(""), &mut self.truncated),
+                        "text" => { content(&mut row, "text", block["text"].as_str().unwrap_or(""), &mut self.truncated); }
+                        "thinking" => { content(&mut row, "thinking", block["thinking"].as_str().unwrap_or(""), &mut self.truncated); }
                         "tool_use" | "server_tool_use" => {
-                            if row["tools"].as_array().unwrap().len() < 8 {
-                                row["tools"].as_array_mut().unwrap().push(tool(block, &mut self.truncated));
-                            } else { self.truncated = true; }
+                            content_tool(&mut row, block, &mut self.truncated);
                         }
                         _ => {}
                     }
@@ -93,32 +92,34 @@ impl Transcript {
                 if id.is_empty() { return; }
                 self.current = id.to_string(); self.blocks.clear();
                 if !self.messages.iter().any(|r| r["id"] == id) {
-                    self.messages.push(json!({"id":id,"role":"assistant","text":"","thinking":"","tools":[]}));
+                    self.messages.push(new_message(id));
                 }
             }
             "content_block_start" => {
                 let block = &event["content_block"];
                 let kind = block["type"].as_str().unwrap_or("").to_string();
                 let id = block["id"].as_str().unwrap_or("").to_string();
-                if self.blocks.len() < 64 { self.blocks.insert(index, (kind.clone(), id)); }
+                if self.blocks.len() >= MAX_BLOCKS { self.truncated = true; return; }
+                if self.blocks.contains_key(&index) { return; }
                 if let Some(row) = self.messages.iter_mut().find(|r| r["id"] == self.current) {
-                    match kind.as_str() {
-                        "tool_use" | "server_tool_use" if row["tools"].as_array().unwrap().len() < 8 => {
-                            row["tools"].as_array_mut().unwrap().push(tool(block, &mut self.truncated));
-                        }
-                        "text" => append(&mut row["text"], block["text"].as_str().unwrap_or(""), &mut self.truncated),
-                        "thinking" => append(&mut row["thinking"], block["thinking"].as_str().unwrap_or(""), &mut self.truncated),
-                        _ => {}
-                    }
+                    let order = match kind.as_str() {
+                        "tool_use" | "server_tool_use" => content_tool(row, block, &mut self.truncated),
+                        "text" => content(row, "text", block["text"].as_str().unwrap_or(""), &mut self.truncated),
+                        "thinking" => content(row, "thinking", block["thinking"].as_str().unwrap_or(""), &mut self.truncated),
+                        _ => None,
+                    };
+                    if let Some(order) = order { self.blocks.insert(index, (kind, id, order)); }
                 }
             }
             "content_block_delta" => {
-                let Some((kind, id)) = self.blocks.get(&index) else { return };
+                let Some((kind, id, order)) = self.blocks.get(&index) else { return };
                 let Some(row) = self.messages.iter_mut().find(|r| r["id"] == self.current) else { return };
                 let delta = &event["delta"];
                 match kind.as_str() {
-                    "text" => append(&mut row["text"], delta["text"].as_str().unwrap_or(""), &mut self.truncated),
-                    "thinking" => append(&mut row["thinking"], delta["thinking"].as_str().unwrap_or(""), &mut self.truncated),
+                    "text" | "thinking" => {
+                        append(&mut row[kind.as_str()], delta[kind.as_str()].as_str().unwrap_or(""), &mut self.truncated);
+                        row["content_blocks"][*order]["end"] = json!(utf16_len(&row[kind.as_str()]));
+                    }
                     "tool_use" | "server_tool_use" => {
                         if let Some(chip) = row["tools"].as_array_mut().unwrap().iter_mut().find(|t| t["id"] == *id) {
                             if chip["input_text"] == "{}" { chip["input_text"] = json!(""); }
@@ -144,6 +145,37 @@ impl Transcript {
         }
         snapshot
     }
+}
+
+#[nolog]
+fn new_message(id: &str) -> Value {
+    json!({"id":id,"role":"assistant","text":"","thinking":"","tools":[],"content_blocks":[]})
+}
+
+#[nolog]
+fn utf16_len(value: &Value) -> usize {
+    // Msg slices strings in JavaScript, so offsets count UTF-16 code units.
+    value.as_str().unwrap_or("").encode_utf16().count()
+}
+
+#[nolog]
+fn content(row: &mut Value, kind: &str, text: &str, truncated: &mut bool) -> Option<usize> {
+    let order = row["content_blocks"].as_array().unwrap().len();
+    if order >= MAX_BLOCKS { *truncated = true; return None; }
+    let start = utf16_len(&row[kind]);
+    append(&mut row[kind], text, truncated);
+    let end = utf16_len(&row[kind]);
+    row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":kind,"start":start,"end":end}));
+    Some(order)
+}
+
+#[nolog]
+fn content_tool(row: &mut Value, block: &Value, truncated: &mut bool) -> Option<usize> {
+    let order = row["content_blocks"].as_array().unwrap().len();
+    if order >= MAX_BLOCKS || row["tools"].as_array().unwrap().len() >= 8 { *truncated = true; return None; }
+    row["content_blocks"].as_array_mut().unwrap().push(json!({"kind":"tool","id":block["id"]}));
+    row["tools"].as_array_mut().unwrap().push(tool(block, truncated));
+    Some(order)
 }
 
 #[nolog]
@@ -177,6 +209,16 @@ fn text_content(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ordered_fragments_remain_bounded_and_report_omitted_activity() {
+        let mut t = Transcript::default();
+        let content: Vec<_> = (0..100).map(|_| json!({"type":"text","text":"x"})).collect();
+        t.observe(&json!({"type":"assistant","message":{"id":"many","content":content}}));
+        let value = t.snapshot();
+        assert_eq!(value["messages"][0]["content_blocks"].as_array().unwrap().len(), MAX_BLOCKS);
+        assert_eq!(value["truncated"], true);
+        assert!(serde_json::to_vec(&value).unwrap().len() <= MAX_BYTES);
+    }
     #[test]
     fn completed_helper_preserves_native_block_order_and_utf16_offsets() {
         let mut t = Transcript::default();
