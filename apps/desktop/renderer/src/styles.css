@@ -1853,6 +1853,8 @@ html.mobile .edge-jump { display: none; }
   border: 1px solid var(--line); border-radius: 5px; background: var(--input);
   color: var(--dim); font-size: 11.5px; padding: 2px 8px; cursor: pointer;
 }
+/* a project's jump card carries the folder mark in place of a tier letter */
+.desk-nav-chip .project-mark { display: inline-flex; color: var(--accent); }
 .desk-nav-chip:hover {
   color: var(--ink-strong);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));

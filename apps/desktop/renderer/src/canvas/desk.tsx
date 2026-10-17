@@ -29,6 +29,7 @@ import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
 import { museEffortLevels } from './shared'
 import { useAgyModelsRefresh } from './shared'
+import { downJumpTargets, upJumpTargets } from './shared'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -66,7 +67,7 @@ import { openLightbox } from './lightbox'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
   ArrowDownIcon, ArrowRightIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
-  DownloadIcon, EditIcon, EyeIcon, FileIcon, FrozenIcon,
+  DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
   DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, NotificationsActiveIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, WarnIcon,
@@ -1800,7 +1801,9 @@ export function NavChip({ n, dir, onJump }:
         {dir === 'up' ? <ArrowUpIcon fontSize="inherit" /> : <ArrowDownIcon fontSize="inherit" />}
         {eye
           ? <><EyeIcon fontSize="inherit" /> switchboard</>
-          : <><span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+          : n.kind === 'project'
+            ? <><span className="project-mark"><FolderIcon fontSize="inherit" /></span>{n.id}</>
+            : <><span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               {n.id}</>}
         {n.busy && <DestinationBusy tier={n.tier} />}
         {(n.mail_pending ?? 0) > 0 &&
@@ -3563,12 +3566,16 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           where a jump-to-switchboard chip points at where you already are
           (user report 2026-08-04). Bearer pseudo-cards float beside a
           successor and have no meaningful parent chip. */}
-      {onJump && !node.isBearerOf && node.parent && map.has(node.parent)
-        && !(bare && node.parent === USER) && (
-        <div className="desk-nav">
-          <NavChip n={map.get(node.parent)!} dir="up" onJump={onJump} />
-        </div>
-      )}
+      {/* through projects (user 2026-10-17 22:13Z): one card per project
+          between this agent and its nearest agent superior, after it */}
+      {onJump && !node.isBearerOf && (() => {
+        const up = upJumpTargets(node, map).filter((n) => !(bare && n.id === USER))
+        return up.length > 0 && (
+          <div className="desk-nav">
+            {up.map((n) => <NavChip key={n.id} n={n} dir="up" onJump={onJump} />)}
+          </div>
+        )
+      })()}
       {/* FR-03: presented documents on their OWN strip under the header.
           They used to sit inline in .cc-head, where long titles starved the
           name of width (it ellipsized to nothing) and shoved the action/tab
@@ -4073,7 +4080,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         const jump = onJump ?? (() => {})
         const reports = onJump
           ? node.children.filter((c) => c.state !== 'draft' && !c.isBearerOf) : []
-        const alive = reports.filter((c) => c.state === 'live')
+        // projects are passthrough: their live members are jump cards too
+        const alive = downJumpTargets(reports.filter((c) => c.state === 'live'))
         const retired = reports.filter((c) => c.state !== 'live')
         if (!reports.length && !deskDogs) return null
         const dogs = deskDogs?.dogs ?? []

@@ -28,6 +28,10 @@ Idle age measures time since the last completed turn ended, including killed tur
 
 Freeze badges show the recorded cause/deadline/provenance rather than promising a guaranteed wake. The user unstick control is an explicit recovery override. For freeze mechanics see `orgtree-usage-freezes` (orgtree-working › accounts). For cache evidence see `orgtree-cache-continuity` there.
 
+## Jump cards
+
+The row above the conversation jumps up to the agent's superior; the row below jumps down to its reports, then its watchdogs. Projects pass through: an agent under projects gets an up card for its nearest agent superior and for each project in between (superior first, then outermost to innermost), and a report that is a project brings a card for each of its live members, through nested projects. A project's card shows a folder instead of a model letter. Long rows fold per **Collapse many jump cards on desks**.
+
 ## Composer banners
 
 Halted/organization-stop banners identify the durable hold; waiting-for-turn-slot points to concurrency limits; model-loading reports startup work. Cache warnings describe send-time risk or configured compaction, not guaranteed provider behavior. A queued/compacting agent has no running steering window merely because it has pending work.

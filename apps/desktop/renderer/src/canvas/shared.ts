@@ -2010,6 +2010,36 @@ export function peerOrder(ids: string[], target: Map<string, Pt>, circular: bool
   return circular ? ids : [...ids].sort((p, q) => (target.get(p)?.x ?? 0) - (target.get(q)?.x ?? 0))
 }
 
+/** A desk's UP jump cards (user 2026-10-17 22:13Z, "projects are
+ *  passthrough"): its nearest agent superior and every project between them,
+ *  read top-down — the superior first, then the projects outermost to
+ *  innermost. An agent directly under an agent gets its one card. */
+export function upJumpTargets(node: Pick<CanvasNode, 'parent'>, map: Map<string, CanvasNode>): CanvasNode[] {
+  const chain: CanvasNode[] = []
+  let id = node.parent
+  while (id && map.has(id)) {
+    const p = map.get(id)!
+    chain.push(p)
+    if (p.kind !== 'project') break
+    id = p.parent
+  }
+  return chain.reverse()
+}
+
+/** A desk's DOWN jump cards through projects: each report, and for a project
+ *  also its live direct members, recursing through nested projects, in tree
+ *  order (user 2026-10-17 22:13Z). */
+export function downJumpTargets(reports: CanvasNode[]): CanvasNode[] {
+  const out: CanvasNode[] = []
+  for (const c of reports) {
+    out.push(c)
+    if (c.kind === 'project') {
+      out.push(...downJumpTargets((c.children ?? []).filter((k) => k.state === 'live' && !k.isBearerOf)))
+    }
+  }
+  return out
+}
+
 /** The neighbour lines along siblings already in peer order: consecutive
  *  AGENTS only. A project node gets no line of its own; agents on either side
  *  of one (or of a run of them) are joined straight past it (user 2026-10-17
