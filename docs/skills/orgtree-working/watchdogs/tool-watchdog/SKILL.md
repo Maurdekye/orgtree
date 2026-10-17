@@ -35,6 +35,24 @@ Supply parameters for the chosen action; this tool has no edit action. To change
 
 Names become lowercase letters/digits/hyphens, with a 24-character base. Without a name, the base comes from kind and target. A clash gets the first free `-2`, `-3`, … suffix. Use the returned ID rather than guessing it. There can be at most **8 kept dogs per agent and 32 per org**; armed, paused and exited dogs count, spent/removed dogs do not. They consume no agent seat.
 
+## Restart and resume schedules
+
+Polling and silence deadlines survive engine restarts. A future slot stays put;
+an overdue slot runs/fires at most once immediately, then the first original
+recurrence slot in the future is used. For a six-hour dog last run at h0,
+shutdown at h5 and restart at h7 produce one catch-up at h7 and next at h12.
+Creation still performs smoke and an immediate initial poll. Explicit resume
+begins a new recurrence and resets the quiet reference; ordinary restart does
+neither. There is no interval edit: remove/recreate to use a new interval.
+
+An overdue polling-silence watcher checks the target first. A match now resets
+the quiet clock and suppresses the overdue alarm; otherwise one quiet fire
+advances its original recurrence. A process watcher still needs an observed
+UP-to-DOWN edge. Pushed stream/activity/event behavior is otherwise unchanged.
+`list` includes actual `last_check`/`last_fired` evidence and fixed
+`next_check_at`/`next_silence_at` where applicable. The UI countdown uses those
+persisted deadlines and stays checking when overdue until the engine updates it.
+
 ## Choose a kind
 
 ### file

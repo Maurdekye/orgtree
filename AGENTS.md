@@ -16,6 +16,13 @@
   binding only the global `document` silently breaks pop-outs. [verified:
   `popout.tsx`, `agentnav.tsx`, `shared.ts`; coordinator 2026-10-17]
 
+- Watchdog recurrence survives restart: persisted next poll/quiet slots skip
+  missed periods with at most one catch-up and keep the original phase. Actual
+  last-check/fire timestamps remain evidence. Polling silence checks the target
+  first; a fresh match suppresses overdue quiet mail. Explicit resume begins a
+  new recurrence; process DOWN remains edge-only. See [watchdog recurrence](docs/rust-engine/watchdog-recurrence.md).
+  [decided: user/coordinator 2026-10-17; verified: `runtime/watchdogs.rs`, migration0027]
+
 - Orgtree tool cards keep call contracts and glossary pointers; procedures live
   in the named guides. Input schemas and mail shapes are unchanged. Twenty-three
   rare cards permit native Claude search, 22 common cards stay eager; the SDK

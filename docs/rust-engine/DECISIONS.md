@@ -1,5 +1,13 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
+quiet timers retain fixed next timestamps through restarts. Missed slots
+produce at most one immediate catch-up, then continue the original phase
+(h0 +6h, restart h7 -> next h12). Explicit resume starts a new recurrence.
+Coordinator 14:50Z keeps target-check-first for overdue polling silence: a
+fresh match resets quiet and suppresses the alarm. Process-down edges remain
+observations, not periodic fires. See [watchdog recurrence](watchdog-recurrence.md).
+
 **EPIC heat camera lock, user 2026-10-17 12:58Z:** heat stays attached to
 the cards during pan, zoom and animated camera movement. Diffusion remains
 in canvas coordinates; the shared `.space` transform moves both. Grid bounds
