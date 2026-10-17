@@ -117,6 +117,7 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     let node = q.node.trim().to_string();
+    let members = project_members(&client, &o, &node).await?;
     let limit = if q.limit > 0 { q.limit.min(1000) } else { 60 };
     let mut offset = q.offset.max(0);
     let mut located = None;
@@ -124,9 +125,10 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
         // grow the window until it holds the located card
         let pos: Option<i64> = client
             .query_one(
-                "SELECT (SELECT count(*) FROM ot.documents d2 WHERE d2.org_id = $1 AND d2.id > d.id AND ($3 = '' OR d2.node_name = $3))
+                "SELECT (SELECT count(*) FROM ot.documents d2 WHERE d2.org_id = $1 AND d2.id > d.id
+                          AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d2.node_name = $3) ELSE d2.agent_id = ANY($4) END)
                    FROM ot.documents d WHERE d.org_id = $1 AND d.uid = $2",
-                &[&o.id, &q.locate, &node],
+                &[&o.id, &q.locate, &node, &members],
             )
             .await
             .ok()
@@ -135,32 +137,71 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
             located = Some(q.locate.clone());
             offset = 0;
             if p >= limit {
-                return list_page(&client, &o, &node, 0, p + 1, located).await;
+                return list_page(&client, &o, &node, members.as_deref(), 0, p + 1, located).await;
             }
         }
     }
-    list_page(&client, &o, &node, offset, limit, located).await
+    list_page(&client, &o, &node, members.as_deref(), offset, limit, located).await
+}
+
+/// A PROJECT's gallery holds the documents presented under it and those of
+/// every node below it, nested projects included, whatever their state (user
+/// 2026-10-17 20:07:52Z, docket point 8). `None` for an agent or the whole
+/// org: those keep the plain `node_name` filter. One recursive read per
+/// request; the page query itself stays bounded by LIMIT.
+#[logged]
+async fn project_members(client: &tokio_postgres::Client, o: &crate::orgs::OrgHandle, node: &str) -> ApiResult<Option<Vec<i64>>> {
+    if node.is_empty() {
+        return Ok(None);
+    }
+    let project: Option<i64> = client
+        .query_opt(
+            "SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND kind = 'project' AND state <> 'deleted'
+              ORDER BY (state = 'live') DESC, id DESC LIMIT 1",
+            &[&o.id, &node],
+        )
+        .await?
+        .map(|r| r.get(0));
+    let Some(root) = project else { return Ok(None) };
+    let rows = client
+        .query(
+            "WITH RECURSIVE below(id, depth) AS (
+               SELECT $1::bigint, 0
+               UNION ALL SELECT a.id, b.depth + 1 FROM ot.agents a JOIN below b ON a.parent_id = b.id
+                WHERE b.depth < 1024)
+             SELECT id FROM below",
+            &[&root],
+        )
+        .await?;
+    Ok(Some(rows.iter().map(|r| r.get(0)).collect()))
 }
 
 async fn list_page(
     client: &tokio_postgres::Client,
     o: &crate::orgs::OrgHandle,
     node: &str,
+    members: Option<&[i64]>,
     offset: i64,
     limit: i64,
     located: Option<String>,
 ) -> ApiResult<Json<Value>> {
+    let members: Option<Vec<i64>> = members.map(<[i64]>::to_vec);
     let rows = client
         .query(
             "SELECT d.uid, d.node_name, d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at
                FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
-              WHERE d.org_id = $1 AND ($2 = '' OR d.node_name = $2)
+              WHERE d.org_id = $1
+                AND CASE WHEN $5::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2) ELSE d.agent_id = ANY($5) END
               ORDER BY d.id DESC OFFSET $3 LIMIT $4",
-            &[&o.id, &node, &offset, &limit],
+            &[&o.id, &node, &offset, &limit, &members],
         )
         .await?;
     let total: i64 = client
-        .query_one("SELECT count(*) FROM ot.documents WHERE org_id = $1 AND ($2 = '' OR node_name = $2)", &[&o.id, &node])
+        .query_one(
+            "SELECT count(*) FROM ot.documents
+              WHERE org_id = $1 AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR node_name = $2) ELSE agent_id = ANY($3) END",
+            &[&o.id, &node, &members],
+        )
         .await?
         .get(0);
     let docs: Vec<Value> = rows
