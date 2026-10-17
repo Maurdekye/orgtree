@@ -14,8 +14,14 @@ const cpu = pid => {
   return Number(r.stdout.trim())
 }
 export async function setup() {
-  return { ...(await keysSetup()), name: 'stream-cadence', streamProbe: true, quietLog: true,
-    fixture: { org: { name: 'Stream cadence', settings: { default_top_grant: 2, max_concurrent_turns: 16 } } } }
+  const keys = await keysSetup()
+  return { ...keys, name: 'stream-cadence', streamProbe: true, quietLog: true,
+    prepare: async info => {
+      await keys.prepare(info)
+      fs.mkdirSync(path.join(info.dir,'fakecli'),{recursive:true})
+      fs.writeFileSync(path.join(info.dir,'fakecli/agy-models.txt'),'gemini-4-argon\tGemini 4 Argon\n')
+    },
+    fixture: { org: { name: 'Stream cadence', settings: { default_top_grant: 4 } } } }
 }
 const distribution = values => {
   const a = values.toSorted((x, y) => x - y)
@@ -33,7 +39,7 @@ export default async function (rig, { out } = {}) {
   ] }] }]))
   rig.scenario({ agents: scenarios, default: { turns: [{ steps: [{ text: 'Ready.' }] }] } })
   for (const [name, tier] of lanes) {
-    await rig.op({ op: 'hire', name, tier, grant: 2, charter: 'Synthetic stream cadence fixture only.' })
+    await rig.op({ op: 'hire', name, tier, grant: 4, charter: 'Synthetic stream cadence fixture only.' })
   }
   const scratch = rig.one(`SELECT scratch_dir FROM ot.agents WHERE name='opencode'`)?.scratch_dir
   if (!scratch) throw Error('no ACP scratch')
@@ -54,13 +60,16 @@ export default async function (rig, { out } = {}) {
       engineCpuSec:cpuAfter - cpuBefore,
       ...(value ? { wire:intervals(value.wire), ingest:intervals(value.ingest), paint:intervals(value.paint),
         wireSizes:distribution(value.wire.map(x => x.size)), publications:value.publish.length,
-        mutations:value.mutations,longTasks:value.longTasks,finalMarker:value.final.includes('CADENCE_END'),
+        mutations:value.mutations,msgRenders:value.msgRenders.length,deskRenders:value.deskRenders,longTasks:value.longTasks,finalMarker:value.final.includes('CADENCE_END'),
         metrics:Object.fromEntries(['TaskDuration','ScriptDuration','LayoutDuration','RecalcStyleDuration'].map(name => [name,
           (value.after.metrics.find(x=>x.name===name)?.value || 0)-(value.before.metrics.find(x=>x.name===name)?.value || 0)])),
       } : {}) }
     results.push(summary)
     console.log(JSON.stringify(summary))
     if (!desktop.ok) throw Error(`${agent}: ${desktop.error}`)
+    if (!value.wire.length || value.wire.length !== value.ingest.length || value.paint.length < 2 || !summary.finalMarker)
+      throw Error(`${agent}: incomplete wire/ingestion/paint denominator`)
+    if (agent !== 'agy' && !value.wire.some(f=>f.kind==='thinking')) throw Error(`${agent}: thought stream did not execute`)
   }
   // Keep only this engine incarnation's log. Later starts must not move a
   // byte-offset window into the middle of a concatenated multi-engine log.

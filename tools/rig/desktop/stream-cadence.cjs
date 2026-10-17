@@ -7,7 +7,7 @@ module.exports = async (page, { org, args }) => {
   await page.cdp('Performance.enable')
   const before = await page.cdp('Performance.getMetrics')
   await page.eval(() => {
-    const p = window.__streamProbe = { wire: [], ingest: [], publish: [], paint: [], mutations: 0, frames: 0, stop: false, longTasks: [] }
+    const p = window.__streamProbe = { wire: [], ingest: [], publish: [], paint: [], msgRenders: [], deskRenders: 0, mutations: 0, frames: 0, stop: false, longTasks: [] }
     const host = document.querySelector('.msgs')
     p.observer = new MutationObserver(records => { p.mutations += records.length })
     p.observer.observe(host, { childList: true, subtree: true, characterData: true })
@@ -16,8 +16,10 @@ module.exports = async (page, { org, args }) => {
     let last = ''
     const frame = () => {
       p.frames++
-      const text = [...host.querySelectorAll('.draft,.thoughtbody.live')].map(e => e.textContent).join('|')
-      if (text !== last) { p.paint.push({at:Date.now(),size:text.length,text}); last = text }
+      const draft = [...host.querySelectorAll('.draft')].map(e => e.textContent).join('')
+      const thinking = [...host.querySelectorAll('.thoughtbody.live')].map(e => e.textContent).join('')
+      const text = thinking + '|' + draft
+      if (text !== last) { p.paint.push({at:Date.now(),size:text.length,draft:draft.length,thinking:thinking.length,text}); last = text }
       if (!p.stop) requestAnimationFrame(frame)
     }
     requestAnimationFrame(frame)

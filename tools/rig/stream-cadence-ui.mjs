@@ -26,6 +26,19 @@ await esbuild.build({ entryPoints: [path.join(repo, 'apps/desktop/renderer/src/m
   define: { 'process.env.NODE_ENV': '"production"' }, banner: { js: observe },
   loader: { '.svg': 'dataurl', '.png': 'dataurl', '.woff2': 'dataurl' }, logLevel: 'warning',
   plugins: [{ name: 'cadence-observers', setup(build) {
+    build.onLoad({ filter: /[/\\]canvas[/\\]desk\.tsx$/ }, async ({ path: source }) => {
+      let contents = fs.readFileSync(source, 'utf8').replaceAll('\r\n','\n')
+      const desk = '  const node = useNodeMetadata(slug, baseNode)'
+      const msg = contents.indexOf('export const Msg = memo(function Msg(')
+      const body = contents.indexOf('}) {', msg)
+      if (!contents.includes(desk) || msg < 0 || body < 0) throw Error('desk observation anchors changed')
+      contents = contents.slice(0,body+4) + `
+        (globalThis as any).__streamProbe?.msgRenders.push({at:Date.now(),role:m.role,id:m.row_id});
+` + contents.slice(body+4)
+      contents = contents.replace(desk, `  if ((globalThis as any).__streamProbe) (globalThis as any).__streamProbe.deskRenders++;
+` + desk)
+      return {contents,loader:'tsx'}
+    })
     build.onLoad({ filter: /[/\\]convo\.ts$/ }, async ({ path: source }) => {
       let contents = fs.readFileSync(source, 'utf8')
       const a = 'export function ingestStream(slug: string, ev: StreamEvent): void {'
