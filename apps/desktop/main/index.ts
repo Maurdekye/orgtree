@@ -32,6 +32,8 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
 import { nativeAppFeed } from './appfeed'
+import { ActivitySounds } from './activity-sounds'
+import { SoundPlayer } from './sound-player'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
@@ -404,6 +406,10 @@ else {
     window.setIcon(image)
     if (process.platform === 'win32') configureTaskbar(window, process.execPath, file, identity.appUserModelId, identity.displayName)
   }
+  const soundPlayer = new SoundPlayer()
+  const activitySounds = new ActivitySounds(kind => soundPlayer.play(kind),
+    () => preferences.get(), error => console.warn('[orgtree] activity sound failed', error))
+  app.once('will-quit', () => { activitySounds.close(); soundPlayer.close() })
   const notifications = new NativeNotifications(
     data => new Notification({ title: data.title, body: data.body }),
     // ⚠ TARGETED, NOT BROADCAST. A notification belongs to one organization,
@@ -1925,6 +1931,7 @@ else {
       }
       return setPreferences(value)
     })
+    handleApp('desktop:preview-activity-sound', value => activitySounds.preview(value))
     handleApp('desktop:set-effective-theme', value => setEffectiveTheme(value))
     handle('desktop:show', caller => revealWindow(caller))
     handleApp('desktop:quit', () => { app.quit() })
@@ -2605,6 +2612,8 @@ else {
         noticeSet = next
         const owner = windows.notificationOwner()
         if (owner) sendTo(owner.id, { type: 'notification-poll', data: null })
+      }, frame => {
+        if (!quitting && !installerUpgradeShutdown) activitySounds.receive(frame)
       })
       appFeed.start()
       app.once('will-quit', () => appFeed.stop())

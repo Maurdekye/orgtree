@@ -32,3 +32,4 @@ Older preferences with routineNotifications enabled and no explicit notifyAllMai
 ## See also
 
 - `orgtree-reaching-the-user` (orgtree-working › user).
+- [orgtree-app-activity-sounds](../app-activity-sounds/SKILL.md): independent response and task completion audio.

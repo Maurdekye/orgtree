@@ -4,6 +4,7 @@ import type { NativePreferences } from '../desktop'
 import type { RunAsAdministratorState, StartupKind, UpdateCapability } from '../../../../../packages/contracts'
 import { SetGroup, SetRow, SetToggle } from './settingskit'
 import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../packages/contracts/notifications'
+import { ACTIVITY_SOUND_OPTIONS, activitySoundPreferences } from '../../../../../packages/contracts/activity-sounds'
 
 /** "Run on boot" (the user, 2026-10-16 09:38Z; it was "Run on startup", and it
  *  is stored as startAtLogin): one switch for everything of Orgtree that
@@ -70,6 +71,7 @@ export function DesktopSettings() {
   }
   const currentPrefs = notificationPreferences(prefs ?? {})
   const masterOn = currentPrefs.notificationsEnabled
+  const sounds = activitySoundPreferences(prefs ?? {})
   return <><SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
     <SetToggle label={startupLabel(kind)} checked={prefs?.startAtLogin ?? true}
@@ -99,6 +101,16 @@ export function DesktopSettings() {
       checked={currentPrefs[key]} disabled={!prefs || busy || !masterOn}
       onChange={value => put({ [key]: value })}
       hint={key === 'notifyWhileFocused' ? 'When off, notifications pause while any Orgtree window has focus.' : undefined} />)}
+  </SetGroup>
+  <SetGroup title="Sounds">
+    {ACTIVITY_SOUND_OPTIONS.map(({ key, label, hint }) => <SetToggle key={key} label={label}
+      checked={sounds[key]} disabled={!prefs || busy} onChange={value => put({ [key]: value })}
+      hint={hint} action={<button type="button" disabled={!prefs || !bridge.previewActivitySound}
+        aria-label={`Preview ${label.toLowerCase()}`} onClick={() => {
+          void bridge.previewActivitySound?.(key === 'responseSound' ? 'response' : 'task')
+            .then(ok => { if (!ok) setError('Could not play the sound.') })
+            .catch((e: Error) => setError(e.message))
+        }}>Preview</button>} />)}
   </SetGroup></>
 }
 

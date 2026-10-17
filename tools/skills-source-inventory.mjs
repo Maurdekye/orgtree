@@ -88,5 +88,10 @@ export function sourceInventory(repo) {
   for (const match of fs.readFileSync(path.join(repo, notifications), 'utf8').matchAll(/\{ key: '[^']+', label: '([^']+)', default: (?:true|false) \}/g)) {
     labels.push({ file: notifications, label: match[1] })
   }
+  // Activity sound controls use their own generated preference options.
+  const activitySounds = 'packages/contracts/activity-sounds.ts'
+  for (const match of fs.readFileSync(path.join(repo, activitySounds), 'utf8').matchAll(/\{ key: '[^']+', label: '([^']+)'/g)) {
+    labels.push({ file: activitySounds, label: match[1] })
+  }
   return { components: components.sort(), labels, dynamicLabels }
 }
