@@ -687,7 +687,8 @@ uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action
   ])
   const focused: string[] = []; let closed = 0
   function OwnerRegistry() {
-    useProvideAgentNav(id => [{ label: 'Focus', onSelect: () => { focused.push(id) } }])
+    useProvideAgentNav(id => [{ label: 'Focus', onSelect: () => { focused.push(id) } }],
+      id => id === 'agent1' ? { title: 'Claude Haiku 5.5 · high' } : null)
     return null
   }
   const v = await mountView(
@@ -703,6 +704,13 @@ uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action
   assert.ok(!parent.classList.contains('on'), 'not selected by the right-click')
   const have = labels()
   assert.deepEqual(have, ['Open details', 'Owner… ▸', '· Copy agent name', '· Focus', 'Copy ticket title', 'Copy slug', 'Copy reference', 'Hide 1 sub-item'])
+  const ownerItem = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')]
+    .find(button => button.textContent?.trim() === 'Owner… ▸')!
+  assert.equal(ownerItem.getAttribute('data-agent-tooltip'), 'agent1',
+    'Owner menu entry participates in the shared agent tooltip lookup')
+  await inAct(() => ownerItem.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(ownerItem.title, 'Claude Haiku 5.5 · high',
+    'Owner menu entry resolves the current owner through the shared native tooltip')
   await pick('Copy reference'); await flush(3)
   assert.deepEqual(clip.writes, ['@item:org1/parent-item'])
   await rightClick(parent)
