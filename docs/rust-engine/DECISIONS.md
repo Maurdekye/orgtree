@@ -48,8 +48,10 @@ simulation with fixed flux and delta impulses, solved by Jacobi iteration with
 cooling. This replaces the initial radial-glow proposal; reduced motion shows
 a static field. Every tool signature hashes its normalised name to select
   pitch, interval, timbre and envelope, replacing the proposed family table.
-  The 09:41Z factory directive replaces musical/chime voicing with machinery
-  and mechanical impacts. Real-link tool/message transport pulses remain,
+  The 09:41Z factory directive uses machinery and mechanical impacts. User
+  feedback at 21:25Z retains five original 4.3.2 event phrases alongside that
+  palette: hire and victory fanfares, turnEnd bells, answer harp and coins.
+  Their existing event routing, gain and pitch remain. Real-link tool/message transport pulses remain,
   disabled under reduced motion. User feedback at 19:33Z removes the working-card
   piston bump as distracting, replacing the coordinator's 09:42Z approval:
   working cards stay still. Heat and sound are unchanged.

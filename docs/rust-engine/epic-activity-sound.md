@@ -81,11 +81,31 @@ the canvas, observer, timer and media-query listener.
 the name to choose thunk, clunk, clank or stamp, material/body pitch,
 inharmonic resonance, interval, waveform, envelope and low-pass colour.
 There is no mapping from tool categories to sounds: every name is hashed.
-All action sounds now use material impacts; alarms remain mechanical buzzers.
-No musical phrases or random tool signature remains. The same
+Tool sounds and most event sounds use material impacts; alarms remain mechanical
+buzzers. Five selected event phrases retain their original musical voicing as
+described below. No random tool signature remains. The same
 normalised tool sounds the same across harnesses; the existing burst pitch
 climb still transposes it with activity. Tool-call sounds feed the same heat
 impulse path as other agent action sounds.
+
+## Classic event sounds
+
+User feedback at 21:25Z on 2026-10-17 keeps some fun, game-like 4.3.x event
+sounds alongside the factory palette. These five recipes and their synthesis
+helpers come from 4.3.2 (`d6e8540`), with the original notes, timing and voice
+lifetimes. Existing event routing, pitch and gain modifiers still apply.
+
+| Original sound | Retained phrase | Events |
+| --- | --- | --- |
+| `hire` | Rising brass fanfare, drums and cymbal crash | Hire and rehire |
+| `victory` | Four-note victory fanfare | Docket item completed; killswitch turned off |
+| `turnEnd` | Two FM bell chimes | Completed agent turn |
+| `answer` | Eleven-note pentatonic harp run | Answered question |
+| `coins` | Whoosh and sparkling coin reward | Credit change, credit request, cost effect and usage reset |
+
+The continuous machinery layers, deterministic tool impacts, other factory
+event sounds and their heat impulses remain. Every recipe uses the existing
+master bus, limiter, voice caps and tray-mute fade. Cards remain still.
 
 ## Factory motion
 
@@ -104,3 +124,5 @@ Focused suites: `epicmode-activity`, `epicmode-heat`, plus existing EPIC audio,
 off-contract, director, progression and usage neighbours. Numerical tests cover
 diffusion, symmetry, accumulation, cooling, stable bounded values and cadence;
 audio tests cover gain scaling, shared resources, crossfades and cleanup.
+`epicmode-gamey` checks the five retained pitch schedules and voice lifetimes;
+each control fails against the factory-only recipes before restoration.
