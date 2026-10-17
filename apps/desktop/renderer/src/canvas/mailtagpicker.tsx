@@ -32,7 +32,7 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
       setPosition({left:Math.max(8,Math.min(r.left,w.innerWidth-width-12)),top:r.bottom+height+8>w.innerHeight?Math.max(8,r.top-height-4):r.bottom+4,width,maxHeight})}
     place();ownerDocument.addEventListener('scroll',place,true);ownerDocument.defaultView?.addEventListener('resize',place)
     return ()=>{ownerDocument.removeEventListener('scroll',place,true);ownerDocument.defaultView?.removeEventListener('resize',place)}
-  },[open,ownerDocument,choices.length,query,loading,error,hasMore,position.width,position.maxHeight])
+  },[open,ownerDocument,choices,selected.length,query,loading,error,hasMore,position.width,position.maxHeight])
   useEffect(()=>{
     if(!open)return
     search.current?.focus()
