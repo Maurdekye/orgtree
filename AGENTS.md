@@ -527,6 +527,19 @@
   lane proofs; do not increase stack limits or suppress lints to hide it.
   [verified: round 434 own-tip failure; `providers/agy_auth.rs`, 2026-10-14]
 
+- Antigravity keeps ONE sign-in per Windows user (Credential Manager target
+  `gemini:antigravity`): a separate `USERPROFILE` folder still reads it, with or
+  without `.gemini\antigravity-keyring-unavailable` (two user-approved probes,
+  AGY 1.3.5, 2026-10-16). A registered google subscription row that is not the
+  default sign-in is its own `agy_auth::Login` (`USERPROFILE`/`HOME` at its
+  folder, own latch/stamp) and runs only when its silent check names an account
+  the default sign-in does not; else it is latched `not_isolated` and refused,
+  never silently run on the default sign-in. The Add dialog offers only an API
+  key for Antigravity. Never run the real `agy` from an Antigravity seat (shared
+  sign-in). See [Antigravity accounts](docs/rust-engine/antigravity-accounts.md).
+  [decided: user/coordinator 2026-10-16 20:41Z; verified: `providers/agy_auth.rs`,
+  `runtime/actor.rs`, `usage.rs`, `canvas/accountsregistry.tsx`]
+
 - Main app menu orders App settings / Usage / Usage history; main ShellHeader
   orders Inbox / Work (Docket) / Presentations / Org settings. `APP_FKEYS` backs
   main-window function-key actions and the Settings explainer; typing fields
