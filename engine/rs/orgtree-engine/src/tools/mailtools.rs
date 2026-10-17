@@ -863,4 +863,15 @@ pub async fn transfers(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
         _ => crate::refuse!(BadRequest,"action must be list, get, retry, cancel or remove"),
     };
     Done::json(&value)
+    #[test]
+    fn tag_metadata_roundtrips_and_rejects_wrong_level() {
+        let out=flat_args(&json!({"metadata":{"to":"user","tags":["alpha build"]},"body":"ready"})).unwrap();
+        assert_eq!(out["tags"],json!(["alpha build"]));
+        assert!(flat_args(&json!({"metadata":{"to":"user"},"tags":["alpha build"],"body":"ready"})).is_err());
+    }
+    #[test]
+    fn tagged_network_recipient_never_advertises_typing() {
+        assert!(typing_peers(&json!({"to":"@net:remote","tags":["alpha build"]})).is_none());
+    }
+
 }
