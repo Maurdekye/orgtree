@@ -48,6 +48,12 @@ session. Hand probes to a non-Antigravity agent as a script.
 - Desktop: Add Antigravity account states the limit and offers only an API key;
   no profile creation and no second sign-in terminal. Subscription rows show
   the limit.
+- Usage admission (`at_limit`), balancing and fallback capacity (`has_room`)
+  read a registered profile's `agy:<id>` cache, as its own usage probe does.
+  A missing, stale or unavailable profile reading stays unknown instead of
+  borrowing the default account's usage. Ambient aliases and rows without a
+  nonblank profile folder keep the native `agy` cache; API keys have no
+  subscription reading. Model-pool filtering is unchanged.
 
 ## Options for real multi-account (not built)
 
@@ -64,4 +70,7 @@ session. Hand probes to a non-Antigravity agent as a script.
   call's `USERPROFILE`; like 1.3.5 it names the same account in every home
   unless the proof writes `<home>\.gemini\rig-agy-identity`).
 - Units: `providers::agy_auth` tests `agy_profile_*`.
+- Usage units: `usage::agy_reading_tests` exercises admission, balancing and
+  fallback with conflicting native/profile readings, missing/stale/failed
+  profile evidence, native aliases, API keys and separate model pools.
 - Renderer: `tests/accountsregistry-create.test.tsx`.

@@ -553,6 +553,14 @@
   [decided: user/coordinator 2026-10-16 20:41Z; verified: `providers/agy_auth.rs`,
   `runtime/actor.rs`, `usage.rs`, `canvas/accountsregistry.tsx`]
 
+- Antigravity admission, balancing and fallback capacity read a registered
+  profile's `agy:<id>` usage cache, matching its probe and reset-evidence
+  routing. Missing/stale/failed profile evidence stays unknown; it never
+  borrows native capacity. Ambient or missing-folder aliases still read `agy`;
+  API keys have no subscription reading. [verified: `usage.rs::reading_of`,
+  `usage/agy_reading_tests.rs`, 2026-10-17; contract:
+  `docs/rust-engine/antigravity-accounts.md`]
+
 - Main app menu orders App settings / Usage / Usage history; main ShellHeader
   orders Inbox / Work (Docket) / Presentations / Org settings. `APP_FKEYS` backs
   main-window function-key actions and the Settings explainer; typing fields
