@@ -228,7 +228,9 @@ test('an OpenRouter tier is named by its model, never by its or- slug on the rea
     const agent = node(TIER)
     const fixture = tree({
       tiers: { haiku: 1, sonnet: 2, opus: 5, fable: 10, [TIER]: 2 },
-      roots: [agent], effort_default: 'high',
+      roots: [{ ...agent, title: 'agent', tier: TIER, model_id: TIER, state: 'live',
+        children: [], ui_order: 0, resumable: false } as unknown as TreeNode],
+      effort_default: 'high',
     })
     const map = new Map([[agent.id, agent]])
     view = await mountView(<AgentNavProvider>
