@@ -23,13 +23,36 @@ app.whenReady().then(async()=>{
   const org={slug:'synthetic',name:'Synthetic',logo:record.sha256}
   await cache.prepare([org])
   const icons=cache.paths([org])
+  const decoded=[]
   for(const [file,size] of [[icons.home,64],[icons.create,64],[icons.orgs.synthetic,256]]){
     assert.ok(file&&fs.existsSync(file))
+    const bytes=fs.readFileSync(file)
+    assert.equal(bytes.readUInt16LE(2),1)
+    assert.equal(bytes.readUInt16LE(4),1)
+    assert.equal(bytes[6]||256,size)
+    assert.equal(bytes[7]||256,size)
+    const offset=bytes.readUInt32LE(18),length=bytes.readUInt32LE(14)
+    assert.equal(offset+length,bytes.length)
+    const embedded=nativeImage.createFromBuffer(bytes.subarray(offset,offset+length))
+    assert.deepEqual(embedded.getSize(),{width:size,height:size})
     const image=nativeImage.createFromPath(file)
     assert.equal(image.isEmpty(),false)
-    assert.deepEqual(image.getSize(),{width:size,height:size})
+    // The Windows file-icon loader can select a 256px shell representation
+    // even for the single 64px image. Verify the actual glyph against the
+    // independently decoded embedded PNG at a common resolution instead.
+    const dimensions=image.getSize()
+    assert.equal(dimensions.width,dimensions.height)
+    assert.ok(dimensions.width>=16&&dimensions.width<=256)
+    const actual=image.resize({width:64,height:64}).toBitmap()
+    const expected=embedded.resize({width:64,height:64}).toBitmap()
+    let alphaError=0
+    for(let at=3;at<actual.length;at+=4)alphaError+=Math.abs(actual[at]-expected[at])
+    alphaError/=64*64*255
+    assert.ok(alphaError<0.03,`native ICO shape differs from embedded PNG: ${alphaError}`)
+    decoded.push({file,stored:size,native:dimensions.width,alphaError})
+    fs.writeFileSync(path.join(out,path.basename(file)+'.native.png'),image.toPNG())
     checked++
   }
   assert.notDeepEqual(fs.readFileSync(icons.home),fs.readFileSync(icons.create));checked++
-  console.log(JSON.stringify({checks:checked,passed:true,scope:'synthetic PNG/ICO native image decode only'}))
+  console.log(JSON.stringify({checks:checked,passed:true,decoded,scope:'synthetic PNG/ICO native image decode only'}))
 }).then(()=>app.exit(0),error=>{console.error(error);app.exit(1)})
