@@ -19,7 +19,7 @@ pub fn supported(st: &State, tier: &str, version: Option<&str>) -> bool {
     }
 }
 
-#[logged]
+#[nolog]
 pub fn validate(st: &State, tier: &str, version: Option<&str>, value: &Value) -> anyhow::Result<bool> {
     let Some(enabled) = value.as_bool() else { crate::refuse!(BadRequest, "fast_mode must be a boolean") };
     if enabled && !supported(st,tier,version) { crate::refuse!(BadRequest, "this model does not offer fast mode") }

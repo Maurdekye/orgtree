@@ -762,7 +762,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         .collect();
     Ok(ScopeEffects {
         agent_id: a.id, subtree, effort_change, notice_ids,
-        fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier","session","peer_mail"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
+        fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier","session","peer_mail","fast_mode"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
         structural: b.as_object().map(|o| o.keys().any(|k| k != "effort" && k != "fast_mode")).unwrap_or(false),
         org_folders_changed,
         out: json!({ "ok": true, "cascaded": cascaded }),
