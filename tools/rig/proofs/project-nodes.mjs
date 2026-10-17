@@ -195,35 +195,19 @@ export default async function (rig) {
     wrap.ok ? wrap.v : wrap.error)
   p.check('boss pays exactly as before the wrap', Math.abs(free('boss') - bossFree1) < 1e-6, { before: bossFree1, after: free('boss') })
 
-  // ------------------------------------------------------------ docket items attached to a project (slice 2)
-  // USER 2026-10-16 20:23Z: every agent under the project co-owns an attached item
+  // ------------------------------------------------------------ docket items and projects (point 23)
+  // USER 2026-10-17 22:21Z, superseding 2026-10-16 20:23Z: items no longer attach to projects;
+  // a project's docket lists the items owned by the agents under it
+  const attach = await rig.tool('dev1', 'orgtree_work', { action: 'create', title: 'Attached', kind: 'non-code',
+    objective: 'Try to attach.', project: 'site' })
+  p.check('orgtree_work refuses `project`: items no longer attach to projects', !attach.ok && /no longer attach to projects/.test(attach.text), said(attach))
   const made2 = await rig.tool('dev1', 'orgtree_work', { action: 'create', title: 'Site launch checklist', kind: 'non-code',
-    objective: 'The site has no launch checklist. Write one.', project: 'site' })
+    objective: 'The site has no launch checklist. Write one.' })
   const slug = made2.json?.slug
-  const itemRow = slug ? rig.sql(`SELECT extra FROM ot.work_items WHERE slug = '${slug}'`)[0] : null
-  p.check('dev1 creates an item attached to project site', made2.ok && Number(itemRow?.extra?.project_id) === web.id, said(made2))
-  const seen = await rig.tool('dev2', 'orgtree_work', { action: 'get', slug })
-  p.check('the item names its project and its co-owners', seen.ok && seen.json?.project?.node === 'site'
-    && /co-owns/.test(seen.json?.project?.co_owners ?? ''), said(seen))
+  p.check('dev1 creates its own item', made2.ok && !!slug, said(made2))
   const coUpdate = await rig.tool('dev2', 'orgtree_work', { action: 'update', slug, owner: 'dev1',
     done_so_far: ['outline drafted'], working_on_next: ['fill it in'] })
-  p.check('dev2, another agent under the project, updates it with owner rights', coUpdate.ok, said(coUpdate))
-  const listed = await rig.tool('dev2', 'orgtree_work', { action: 'list' })
-  p.check("it is in dev2's own docket list", listed.ok && (listed.json?.items ?? []).some((i) => i.slug === slug), said(listed))
-  const bossSees = await rig.tool('boss', 'orgtree_work', { action: 'get', slug })
-  p.check('boss, above the project, reads it', bossSees.ok, said(bossSees))
-  const aliceAttach = await rig.tool('alice', 'orgtree_work', { action: 'create', title: 'Sneaky', kind: 'non-code',
-    objective: 'An item from beside the project.', project: 'site' })
-  p.check('alice, beside the project, cannot attach an item to it', !aliceAttach.ok && /above or below a project/.test(aliceAttach.text), said(aliceAttach))
-  const carolRead = await rig.tool('carol', 'orgtree_work', { action: 'get', slug })
-  p.check('carol, beside the project, cannot read the attached item', !carolRead.ok, said(carolRead))
-  const detach = await rig.tool('dev2', 'orgtree_work', { action: 'update', slug, owner: 'dev1', project: '',
-    done_so_far: ['outline drafted'], working_on_next: ['fill it in'] })
-  const after = rig.sql(`SELECT extra FROM ot.work_items WHERE slug = '${slug}'`)[0]
-  p.check('a co-owner detaches it', detach.ok && after?.extra?.project_id === undefined, said(detach))
-  const lost = await rig.tool('dev2', 'orgtree_work', { action: 'update', slug, owner: 'dev1',
-    done_so_far: ['x'], working_on_next: ['y'] })
-  p.check('once detached, dev2 is no longer a co-owner', !lost.ok, said(lost))
+  p.check('dev2, beside dev1 under the same project, holds no owner rights on it (no co-ownership)', !coUpdate.ok, said(coUpdate))
 
   // ------------------------------------------------------------ nested project descriptions
   const ui = await opTry({ op: 'create_project', name: 'ui', parent: 'site', description: 'The UI part of the site.' })
@@ -298,6 +282,30 @@ export default async function (rig) {
   const agentGallery = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5&limit=50`)
   p.check('an agent\'s gallery is still its own documents only', (agentGallery.documents ?? []).every(d => d.node === 'dev5')
     && (agentGallery.documents ?? []).some(d => d.title === 'UI sketch'), (agentGallery.documents ?? []).map(d => [d.node, d.title]))
+
+  // ------------------------------------------------------------ the project docket (point 23)
+  const nestedItem = await rig.tool('dev5', 'orgtree_work', { action: 'create', title: 'UI review', kind: 'non-code',
+    objective: 'The UI needs a review. Do one.' })
+  const outsideItem = await rig.tool('alice', 'orgtree_work', { action: 'create', title: 'Alice chores', kind: 'non-code',
+    objective: 'Alice has chores. Do them.' })
+  const page = await rig.api('GET', `/api/orgs/${rig.org}/work-items-page?agent=site`)
+  const pageTitles = (page.items ?? []).map(i => i.title)
+  p.check('the project docket lists items owned under it, nested included, and nothing from outside',
+    nestedItem.ok && outsideItem.ok && pageTitles.includes('Site launch checklist') && pageTitles.includes('UI review')
+    && !pageTitles.includes('Alice chores'), { titles: pageTitles, nested: said(nestedItem), outside: said(outsideItem) })
+  const agentPage = await rig.api('GET', `/api/orgs/${rig.org}/work-items-page?agent=dev1`)
+  p.check('an agent\'s docket is unchanged: its own items only', (agentPage.items ?? []).every(i => i.owner?.node === 'dev1')
+    && (agentPage.items ?? []).some(i => i.title === 'Site launch checklist'), (agentPage.items ?? []).map(i => [i.owner?.node, i.title]))
+  // migration 0028 on a row that still carries the old attachment: nothing is lost
+  rig.exec(`UPDATE ot.work_items SET extra = extra || jsonb_build_object('project_id', ${web.id}) WHERE slug = '${slug}'`)
+  const before0028 = rig.one(`SELECT title, owner, objective, done_so_far FROM ot.work_items WHERE slug = '${slug}'`)
+  rig.exec(fs.readFileSync(path.resolve('engine/rs/orgtree-engine/migrations/0028_project_items_detach.sql'), 'utf8'))
+  const after0028 = rig.one(`SELECT title, owner, objective, done_so_far, extra FROM ot.work_items WHERE slug = '${slug}'`)
+  p.check('migration 0028 keeps the item whole and records the old project as former_project_id',
+    after0028.extra.project_id === undefined && Number(after0028.extra.former_project_id) === web.id
+    && JSON.stringify([after0028.title, after0028.owner, after0028.objective, after0028.done_so_far])
+       === JSON.stringify([before0028.title, before0028.owner, before0028.objective, before0028.done_so_far]),
+    { before: before0028, after: after0028 })
 
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
