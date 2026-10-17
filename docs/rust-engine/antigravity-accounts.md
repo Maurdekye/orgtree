@@ -54,6 +54,10 @@ session. Hand probes to a non-Antigravity agent as a script.
   borrowing the default account's usage. Ambient aliases and rows without a
   nonblank profile folder keep the native `agy` cache; API keys have no
   subscription reading. Model-pool filtering is unchanged.
+- Account placement validates the selected profile's quota and marks without
+  consulting the native account's quota. Staffing offers the tier when an
+  eligible profile can serve it, with the exhausted native choice unavailable.
+  Org restrictions, account switches and the profile-isolation guard still apply.
 
 ## Options for real multi-account (not built)
 
@@ -73,4 +77,7 @@ session. Hand probes to a non-Antigravity agent as a script.
 - Usage units: `usage::agy_reading_tests` exercises admission, balancing and
   fallback with conflicting native/profile readings, missing/stale/failed
   profile evidence, native aliases, API keys and separate model pools.
+- Placement units: `domain::ops::agy_placement_tests` and the staffing-options
+  test in `usage::agy_reading_tests` use conflicting native/profile quotas and
+  verify that native aliases retain native refusals.
 - Renderer: `tests/accountsregistry-create.test.tsx`.

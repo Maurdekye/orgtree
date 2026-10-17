@@ -29,8 +29,9 @@ struct Offer {
 /// Tiers this build can run for a new hire: each installed, enabled CLI's
 /// current tiers, and the OpenRouter favorites while a key is stored.
 #[logged]
-fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
+fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
     let st = engine.providers.state.load();
+    let view = engine.accounts.view();
     let mut out: Vec<Offer> = catalog::listed()
         .iter()
         .copied()
@@ -40,7 +41,12 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
                 || (t.provider == catalog::GOOGLE && crate::providers::agy_offered(engine, t.tier)))
             && engine.settings.provider_enabled(t.provider))
         .filter(|t| !catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled())
-        .filter(|t| crate::usage::antigravity_limit(engine, t.tier).is_none())
+        // Native exhaustion cannot hide a tier another eligible profile
+        // can serve. Keep the native choice gated separately below.
+        .filter(|t| crate::usage::antigravity_limit(engine, t.tier).is_none()
+            || eligible_accounts(engine, t.tier, org_slug).iter().any(|a| matches!(
+                crate::providers::agy_auth::login_of(&view, a["id"].as_str()),
+                crate::providers::agy_auth::Login::Profile { .. })))
         .filter(|t| match t.provider {
             catalog::CLAUDE => st.claude.installed,
             catalog::OPENAI => st.codex.installed,
@@ -240,7 +246,7 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
     let (_item, mut ctx) = quick_context(engine, org, slug).await?;
     let request = ctx["mode"] == "request";
     let org_default = org_default(engine, org).await?;
-    let models: Vec<Value> = runnable_tiers(engine)
+    let models: Vec<Value> = runnable_tiers(engine, &org.slug)
         .into_iter()
         .filter_map(|t| {
             let mut m = json!({ "tier": t.tier, "seat": t.seat, "efforts": t.efforts });
@@ -311,7 +317,7 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
         refuse!(Unprocessable, "Request staffing cannot pin an account — the assignee makes that choice when it hires.");
     }
     if let Some(t) = tier {
-        let Some(info) = runnable_tiers(engine).into_iter().find(|x| x.tier == t) else {
+        let Some(info) = runnable_tiers(engine, &org.slug).into_iter().find(|x| x.tier == t) else {
             refuse!(Unprocessable, "{t} cannot be staffed right now. Reopen Staff….");
         };
         if let Some(e) = effort {
@@ -513,11 +519,12 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
 /// accounts, and whether a hire naming no account can run it.
 #[logged]
 pub fn options(engine: &Engine, org_slug: &str) -> Value {
-    let tiers: Vec<Value> = runnable_tiers(engine)
+    let tiers: Vec<Value> = runnable_tiers(engine, org_slug)
         .into_iter()
         .filter_map(|t| {
             let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
             let host = host_for(engine, org_slug, &t.tier, t.provider)
+                && crate::usage::antigravity_limit(engine, &t.tier).is_none()
                 && (t.provider != catalog::MUSE || crate::providers::muse_offered(engine, &t.tier));
             if accounts.is_empty() && !host {
                 return None;

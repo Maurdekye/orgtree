@@ -414,8 +414,11 @@ fn harness_label(harness: &str) -> &'static str {
 #[logged]
 fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&str>) -> Result<()> {
     let provider = catalog::provider_of(tier);
-    if let Some(reason) = crate::usage::antigravity_limit(engine, tier) {
-        refuse!(Conflict, "{reason}");
+    let agy_login = crate::providers::agy_auth::login_of(&engine.accounts.view(), raw);
+    if agy_login == crate::providers::agy_auth::Login::Primary {
+        if let Some(reason) = crate::usage::antigravity_limit(engine, tier) {
+            refuse!(Conflict, "{reason}");
+        }
     }
     if let Some(prefix) = raw.and_then(|v| v.strip_suffix("/primary")) {
         if prefix != provider {
@@ -451,6 +454,11 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
             refuse!(BadRequest, "{id} is a {} account and {tier} runs on {provider}", a.provider);
         }
         if provider == catalog::GOOGLE {
+            if matches!(agy_login, crate::providers::agy_auth::Login::Profile { .. }) {
+                if let Some(reason) = crate::usage::at_limit(engine, Some(a), tier) {
+                    refuse!(Conflict, "{id}: {reason}");
+                }
+            }
             if let Some(until) = a.limited_for(tier, chrono::Utc::now()) {
                 refuse!(Conflict, "{id} has exhausted this Antigravity model group's quota until {until}");
             }

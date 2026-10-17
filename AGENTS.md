@@ -557,7 +557,10 @@
   profile's `agy:<id>` usage cache, matching its probe and reset-evidence
   routing. Missing/stale/failed profile evidence stays unknown; it never
   borrows native capacity. Ambient or missing-folder aliases still read `agy`;
-  API keys have no subscription reading. [verified: `usage.rs::reading_of`,
+  API keys have no subscription reading. Placement validates the selected
+  profile's quota; staffing keeps a tier offered when an eligible profile can
+  serve it while still refusing the exhausted native choice.
+  [verified: `usage.rs::reading_of`, `domain/ops.rs`, `domain/staffing.rs`,
   `usage/agy_reading_tests.rs`, 2026-10-17; contract:
   `docs/rust-engine/antigravity-accounts.md`]
 
