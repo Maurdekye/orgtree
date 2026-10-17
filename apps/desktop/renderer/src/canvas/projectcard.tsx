@@ -15,12 +15,12 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
-import { FolderIcon, MailIcon } from '../icons'
+import { DocIcon, DocketIcon, FolderIcon, MailIcon } from '../icons'
 import { NODE_H, NODE_W, useAgentShortcuts, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
-import { ProjectActivity, ProjectDesk, ProjectLastActivity } from './projectdesk'
+import { ProjectActivity, ProjectDesk, ProjectLastActivity, subtreeDocCount } from './projectdesk'
 import { PinnedPlaceholder } from './pins'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -98,6 +98,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
   }
   const toggle = (which: 'b' | 'l' | 'r' | 't') => setExpandedHire((v) => v === which ? null : which)
   const waiting = node.mail_pending ?? 0
+  const docs = subtreeDocCount(node)
   const description = (node.charter ?? '').trim().split('\n')[0] ?? ''
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
@@ -148,6 +149,15 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
           </div>
           {description && <div className="project-desc" title={node.charter ?? undefined}>{description}</div>}
           {showShortcuts && <div className="sq-actions project-actions">
+            {/* the agent card's hover row, for what a project holds (user
+                2026-10-17 22:21Z): its docket, its mailbox with the waiting
+                mail, and its presented documents (its own and its subtree's) */}
+            {onDocket && <button className="mailbtn docketbtn" aria-label={`Docket for project ${node.id}`}
+              title={`Docket for project ${node.id}: the items owned by agents under it`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onDocket() }}>
+              <DocketIcon fontSize="inherit" />
+            </button>}
             <button className={'mailbtn' + (waiting > 0 ? ' has' : '')}
               aria-label={`mailbox of project ${node.id}`}
               title={waiting > 0
@@ -157,6 +167,13 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
               onClick={(e) => { e.stopPropagation(); onInbox() }}>
               <MailIcon fontSize="inherit" />{waiting > 0 && <span className="count">{waiting}</span>}
             </button>
+            {onOpenGallery && docs > 0 &&
+              <button className="presentedbtn" aria-label={`presented documents for project ${node.id}`}
+                title={`open the ${docs} presented document${docs === 1 ? '' : 's'} of project ${node.id} and the agents under it`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onOpenGallery(node.id) }}>
+                <DocIcon fontSize="inherit" />
+              </button>}
           </div>}
         </>
       )}
