@@ -131,6 +131,10 @@ const dogs: Record<string, unknown[]> = {
   fairqueue: [fqDog('q1', 'dev1', 'armed'), fqDog('q2', 'boss', 'paused')],
 }
 if (scene === 'activity') { try { localStorage.setItem('orgtree-agent-shortcuts', '1') } catch { /* private mode */ } }
+// the hover row reveals its buttons on the card's :hover, as on an agent card;
+// here it is held open for the capture
+if (scene === 'activity') document.head.insertAdjacentHTML('beforeend',
+  '<style>.sq.project .sq-actions .mailbtn { opacity: .8 !important; visibility: visible !important; }</style>')
 const rows: Record<string, unknown[]> = {
   'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
