@@ -943,12 +943,6 @@ pub async fn file(
         .into_response())
 }
 
-#[derive(Deserialize, Debug)]
-pub struct ScratchQuery {
-    #[serde(default)]
-    path: String,
-}
-
 #[derive(Clone, Copy, Deserialize, Debug, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ScratchFolderScope {
@@ -1078,53 +1072,6 @@ mod scratch_folder_tests {
         assert!(std::fs::read_dir(outside).unwrap().next().is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
-}
-
-#[logged]
-pub async fn scratch(
-    State(e): State<Arc<Engine>>,
-    Path((slug, nid)): Path<(String, String)>,
-    Query(q): Query<ScratchQuery>,
-) -> ApiResult<Json<Value>> {
-    let org = org(&e, &slug)?;
-    let a = agent(&e, &org, &nid).await?;
-    let client = e.db.get().await?;
-    let dir: Option<String> = client.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
-    drop(client);
-    let root = dir.map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&org.slug).join(&a.name));
-    if q.path.is_empty() && !root.exists() {
-        // a seat that has not written anything yet: an empty folder
-        return Ok(Json(json!({ "dir": q.path, "entries": [] })));
-    }
-    // 3.x node_scratch: both ends resolved (links, junctions, an absolute or
-    // drive path that `join` would let replace the root), then a
-    // component-wise containment test, so a sibling `<root>-x` is outside too
-    let base = std::fs::canonicalize(&root).map_err(|_| ApiError::not_found("this agent's folder could not be read"))?;
-    let target = std::fs::canonicalize(root.join(q.path.trim_start_matches(['/', '\\'])))
-        .map_err(|_| ApiError::not_found(format!("no such path: {}", q.path)))?;
-    if !target.starts_with(&base) {
-        return Err(ApiError::unprocessable("path escapes the scratch space"));
-    }
-    if target.is_dir() {
-        let mut entries: Vec<Value> = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(&target) {
-            for ent in rd.flatten() {
-                let md = ent.metadata().ok();
-                let is_dir = md.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-                entries.push(json!({ "name": ent.file_name().to_string_lossy(), "dir": is_dir,
-                                     "size": if is_dir { Value::Null } else { json!(md.map(|m| m.len()).unwrap_or(0)) } }));
-            }
-        }
-        entries.sort_by(|x, y| {
-            (!x["dir"].as_bool().unwrap_or(false), x["name"].as_str().unwrap_or(""))
-                .cmp(&(!y["dir"].as_bool().unwrap_or(false), y["name"].as_str().unwrap_or("")))
-        });
-        return Ok(Json(json!({ "dir": q.path, "entries": entries })));
-    }
-    let bytes = std::fs::read(&target).map_err(|_| ApiError::not_found("no such file"))?;
-    let text = String::from_utf8_lossy(&bytes);
-    let (clipped, _) = convo::clip(&text, 400_000);
-    Ok(Json(json!({ "file": q.path, "content": clipped })))
 }
 
 /// `GET /nodes/{nid}/inbox`: the agent's mailbox (pending, delivered, sent).

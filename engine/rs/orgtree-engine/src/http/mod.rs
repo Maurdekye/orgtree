@@ -236,7 +236,6 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/toolinput/{seq}/{tool}", get(nodes::toolinput))
         .route("/api/orgs/{slug}/nodes/{nid}/helpertranscript/{seq}/{tool}", get(nodes::helpertranscript))
         .route("/api/orgs/{slug}/nodes/{nid}/tooloutput/{seq}/{tool}", get(nodes::tooloutput))
-        .route("/api/orgs/{slug}/nodes/{nid}/scratch", get(nodes::scratch))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch-folder", get(nodes::scratch_folder))
         .fallback(api_not_found);
     // test-only: debug builds in rig mode (tools/rig), never a release build
