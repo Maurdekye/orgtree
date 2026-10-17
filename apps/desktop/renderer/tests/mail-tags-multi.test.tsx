@@ -128,6 +128,8 @@ test('user inbox drops only the Mail reply labels while retaining its reply quot
   const v=await mountView(<MailList delivered={[row]}/>,el=>el)
   try{
     assert.match(v.el.querySelector('.mailrow')?.textContent??'',/Mail reply/,'positive control: typed reply label is present before opting in')
+    await inAct(()=>v.el.querySelector<HTMLElement>('.mailrow')!.click())
+    assert.match(v.el.querySelector('.mailer-head')?.textContent??'',/Mail reply/,'positive control: the selected header carries the typed label')
     assert.match(v.el.querySelector('.reply-preview')?.textContent??'',/In reply to/,'positive control: the recorded quote is rendered')
     await v.render(<MailList delivered={[row]} hideMailReplyKind/>)
     assert.doesNotMatch(v.el.querySelector('.mailrow')?.textContent??'',/Mail reply/)
@@ -137,7 +139,7 @@ test('user inbox drops only the Mail reply labels while retaining its reply quot
 })
 test('hiding Mail reply kind does not hide another typed kind label',async()=>{
   const v=await mountView(<MailList delivered={[replyRow('reply.document')]} hideMailReplyKind/>,el=>el)
-  try{assert.match(v.el.querySelector('.mailrow')?.textContent??'',/Document reply/)}
+  try{assert.match(v.el.querySelector('.mailrow')?.textContent??'',/Presentation reply/)}
   finally{await v.unmount()}
 })
 
