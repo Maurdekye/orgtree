@@ -483,6 +483,82 @@ mod project_body_tests {
 }
 
 #[cfg(test)]
+mod turn_clock_tests {
+    use super::*;
+
+    const START: &str = "2026-10-17T15:00:00+00:00";
+    const END: &str = "2026-10-17T15:12:30+00:00";
+
+    // Every harness finishes through Actor::end_turn, which writes the same
+    // ledger timestamps. Exercise the actual shared wire projection with each
+    // lane's accounting shape: no harness or UI may substitute the start time.
+    fn completed(lane: &str, extra: Value) {
+        let mut row = json!({"started_at":START,"ended_at":END,"ms":750000,
+            "cost_usd":"0.125","toks":321,"denials":0,"model":lane});
+        row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let projected = turn_stat(&row);
+        assert_eq!(projected["at"], ts(&json!(END)), "{lane} idle age must start at completion, not admission");
+        assert_eq!(projected["ms"], row["ms"]);
+        assert_eq!(projected["cost"], json!(0.125));
+        assert_eq!(projected["toks"], row["toks"]);
+        assert_eq!(projected["cost_source"], row["cost_source"]);
+    }
+
+    #[test]
+    fn antigravity_completed_turn_uses_end_time() {
+        completed("gemini-4-argon", json!({"cost_source":"priced"}));
+    }
+
+    #[test]
+    fn claude_completed_turn_uses_end_time() {
+        completed("claude-sonnet-5-5", json!({"cost_source":"cli"}));
+    }
+
+    #[test]
+    fn codex_completed_turn_uses_end_time() {
+        completed("gpt-6", json!({"cost_source":"priced","approvals":2}));
+    }
+
+    #[test]
+    fn muse_completed_turn_uses_end_time() {
+        completed("wonder", json!({"cost_source":"unknown"}));
+    }
+
+    #[test]
+    fn acp_completed_turn_uses_end_time() {
+        completed("openrouter/synthetic", json!({"cost_source":"unknown"}));
+    }
+
+    #[test]
+    fn killed_turn_uses_its_completion_without_losing_accounting() {
+        let row = json!({"started_at":START,"ended_at":END,"cost_usd":0,
+            "killed":true,"estimated":true,"approvals":3,"denials":2});
+        let projected = turn_stat(&row);
+        assert_eq!(projected["at"], ts(&json!(END)));
+        assert_eq!(projected["killed"], true);
+        assert_eq!(projected["estimated"], true);
+        assert_eq!(projected["approvals"], 3);
+        assert_eq!(projected["denials"], 2);
+    }
+
+    #[test]
+    fn open_or_legacy_turn_without_completion_keeps_start_fallback() {
+        for row in [json!({"started_at":START}), json!({"started_at":START,"ended_at":null})] {
+            assert_eq!(turn_stat(&row)["at"], ts(&json!(START)));
+        }
+        assert_eq!(turn_stat(&json!({}))["at"], Value::Null, "no invented timestamp");
+    }
+
+    #[test]
+    fn imported_turn_with_equal_timestamps_keeps_its_existing_age() {
+        // Both importers write the old completion timestamp into both columns.
+        // Those turns masked the wrong start-only projection.
+        let row = json!({"started_at":END,"ended_at":END});
+        assert_eq!(turn_stat(&row)["at"], ts(&json!(END)));
+    }
+}
+
+#[cfg(test)]
 mod idle_runtime_tests {
     use super::*;
 
