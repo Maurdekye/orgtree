@@ -33,7 +33,7 @@ fn header_measurement_org_baseline() {
         }
         assert_eq!(full + reference, 40);
         println!("HEADER_MEASURE {}", json!({"block":"org","fixture":name,"turns":40,"first_bytes":first,"total_bytes":total,
-            "full":full,"reference":reference,"inferred_tokens_bytes_div4":total as f64 / 4.0}));
+            "full":full,"reference":reference,"inferred_tokens_bytes_div2":total as f64 / 2.0}));
     }
 }
 

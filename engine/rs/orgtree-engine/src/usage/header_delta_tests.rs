@@ -37,7 +37,7 @@ async fn header_measurement_usage_baseline() {
             total += output.len();
         }
         println!("HEADER_MEASURE {}",json!({"block":"usage","fixture":name,"turns":40,"first_bytes":first,"total_bytes":total,
-            "full":full,"reference":reference,"inferred_tokens_bytes_div4":total as f64 / 4.0,
+            "full":full,"reference":reference,"inferred_tokens_bytes_div2":total as f64 / 2.0,
             "count_method":"existing actor key/reference decision with product turn_board formatter"}));
     }
 }
