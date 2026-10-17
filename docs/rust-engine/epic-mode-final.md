@@ -170,14 +170,19 @@ While EPIC Mode is off, a window holds:
 - the switch row (the trigger: always rendered, invisible);
 - one native preference subscription (`epic/sync.ts`), the same kind the
   theme, contrast and Rainbow syncs hold;
-- three null checks: `epic?.frame` and `epic?.tree` in App.tsx, and
-  `epic?.refused` in `req`'s failure path. `interruptNode` checks `epic`
+- a borrowed reference to the App's latest tree, assigned at its existing
+  publication sites, so enabling mid-turn can seed activity immediately;
+- null checks: `epic?.frame` in App.tsx, `epic?.tree` inside that tree
+  publication helper, and `epic?.refused` in `req`'s failure path. `interruptNode` checks `epic`
   once and, while it is null, returns the request untouched.
 
 Nothing else. The director chunk is never fetched, no element is added, no
 listener is attached and no AudioContext exists. `epicmode-off.test.tsx` counts
 exactly this. Turning EPIC Mode off plays a CRT power-down and then removes
 every listener, element, AudioContext and tap.
+
+Activity audio, physical heat diffusion and hashed tool signatures added
+in 4.4.0 are specified in [EPIC activity sound](epic-activity-sound.md).
 
 ## How the show is built
 

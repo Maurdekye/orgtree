@@ -47,7 +47,9 @@
      2026-10-14): only a frozen or limit-locked agent says LIMIT HIT. */
 import { EpicSynth, type AudioContextCtor, type PlayOptions, type SoundName } from './audio'
 import { Stage, type Rect } from './stage'
-import { setEpicTaps } from './tap'
+import { epicTreeNow, setEpicTaps } from './tap'
+import { activitySources, countActivity, emptyActivity } from './activity'
+import { SoundHeatmap } from './heatmap'
 import * as progress from './progress'
 import {
   diffOrg, isInboxEnd, isUserEnd, pulseEvent, snapshotOrg, sparkEvent, streamEvent,
@@ -214,6 +216,7 @@ class Show implements EpicShow {
   private main: Theater
   private extra = new Map<Window, Theater>()
   private synth: EpicSynth | null = null
+  private heat: SoundHeatmap
   private snaps = new Map<string, OrgSnap>()
   private lastAt = new Map<string, number>()
   private lastRect = new Map<string, Rect>()
@@ -239,6 +242,7 @@ class Show implements EpicShow {
   constructor(opts: EpicOptions) {
     this.view = opts.view ?? window
     this.doc = this.view.document
+    this.heat = new SoundHeatmap(this.doc)
     const Ctor = opts.audio === undefined
       ? ((this.view as unknown as { AudioContext?: AudioContextCtor; webkitAudioContext?: AudioContextCtor }).AudioContext
         ?? (this.view as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext ?? null)
@@ -253,6 +257,7 @@ class Show implements EpicShow {
       tree: (org, tree) => this.onTree(org, tree),
       action: (org, kind, node) => this.onAction(org, kind, node),
       refused: (_path, status) => this.onRefused(status),
+      clear: () => { this.synth?.activity(emptyActivity()); this.heat.clear() },
     })
     this.cleanups.push(() => setEpicTaps(null))
     // the app feed: usage readings crossing 90% and 100%, and resetting; and
@@ -263,12 +268,19 @@ class Show implements EpicShow {
     const sync = () => this.syncWindows()
     this.cleanups.push(subscribeWindows(sync))
     sync()
+    this.activity(epicTreeNow())
     const greet = opts.greet ?? 'none'
     if (greet === 'enable') this.cue('epicOn')
     else if (greet === 'launch') this.cue('epicLaunch')
   }
 
   get staged(): number { return this.count }
+
+  private activity(tree: Parameters<typeof activitySources>[0]): void {
+    const sources = this.synth ? activitySources(tree) : []
+    this.synth?.activity(countActivity(sources))
+    this.heat.update(sources)
+  }
 
   get burst(): number { return performance.now() - this.burstAt < BURST_DECAY_MS ? this.burstN : 0 }
 
@@ -341,7 +353,7 @@ class Show implements EpicShow {
     if (link?.type === 'epic_link') {
       // the first open of a window's socket is not news; a drop and its
       // return are
-      if (link.up === false) { this.linkDown.add(org); this.cue('linkDown') }
+      if (link.up === false) { this.linkDown.add(org); this.activity(null); this.cue('linkDown') }
       else if (this.linkDown.delete(org)) this.cue('linkUp')
       return
     }
@@ -356,6 +368,7 @@ class Show implements EpicShow {
     if (this.ended) return
     let snap: OrgSnap
     try { snap = snapshotOrg(tree) } catch { return }
+    this.activity(tree)
     const prev = this.snaps.get(org)
     this.snaps.set(org, snap)
     // an urgent mail was read: its alarm stops
@@ -634,8 +647,10 @@ class Show implements EpicShow {
     const w = c ? (c.t.view.innerWidth || 1) : 1
     const pan = c ? Math.max(-1, Math.min(1, (c.at.x / w) * 2 - 1)) * 0.8 : 0
     const climb = CLIMB.has(name) ? climbFor(this.burst) * 2 ** ((this.lift - 1) / 8) : 1
-    const pitch = opts.pitch !== undefined || climb !== 1 ? (opts.pitch ?? rand(0.95, 1.05)) * climb : undefined
-    this.synth.play(name, { pan, ...opts, pitch, gain: (opts.gain ?? 1) * (SOFT[name] ?? 1) })
+    const pitch = opts.pitch !== undefined || climb !== 1 ? (opts.pitch ?? (name === 'tool' ? 1 : rand(0.95, 1.05))) * climb : undefined
+    const played = this.synth.play(name, { pan, ...opts, tool: name === 'tool' ? c?.ev.text : undefined,
+      pitch, gain: (opts.gain ?? 1) * (SOFT[name] ?? 1) })
+    if (played && c?.ev.node) this.heat.impulse(c.ev.node)
   }
 
   /** URGENT MAIL, the loudest moment in the show (user 2026-10-15: "a massive
@@ -675,6 +690,7 @@ class Show implements EpicShow {
   stop(opts: { farewell?: boolean; quiet?: boolean } = {}): void {
     if (this.ended) return
     this.ended = true
+    this.heat.stop()
     this.alarm?.end()
     if (opts.quiet) { this.synth?.close(); this.synth = null }
     for (const fn of this.cleanups.splice(0)) { try { fn() } catch { /* already gone */ } }

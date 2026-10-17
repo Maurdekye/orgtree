@@ -1,5 +1,14 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**EPIC continuous sound and physical heat, user 2026-10-17 09:18–09:25Z:**
+live mid-turn agents hum; their activity adds distinct continuous layers whose
+volume grows with count, capped. The sounds drive a world-space heat-diffusion
+simulation with fixed flux and delta impulses, solved by Jacobi iteration with
+cooling. This replaces the initial radial-glow proposal; reduced motion shows
+a static field. Every tool signature hashes its normalised name to select
+pitch, interval, timbre and envelope, replacing the proposed family table.
+4.4.0 only. Details: [EPIC activity sound](epic-activity-sound.md).
+
 **EPIC combo removal, user 2026-10-16 20:45–20:46Z:** remove the combo
 meter, ranks, milestones and rank fanfare. The final correction is "keep the
 rising pitch, but remove everything else": retain only the private burst count

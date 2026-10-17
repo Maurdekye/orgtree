@@ -16,6 +16,10 @@
    ticks) are dropped first and only the loud events still get through, so a
    flood of events cannot pile thousands of live nodes onto the audio thread. */
 
+import { ActivityAudio } from './ambience'
+import type { ActivityCounts } from './activity'
+import { toolVoice } from './toolvoice'
+
 export type SoundName =
   | 'zap' | 'ice' | 'thaw' | 'stop' | 'halt' | 'resume' | 'hire' | 'retire'
   | 'move' | 'reorder' | 'turnStart' | 'turnEnd' | 'tool' | 'toolDone'
@@ -31,6 +35,7 @@ export type SoundName =
   | 'klaxon'
 
 export interface PlayOptions {
+  tool?: string
   /** -1 (left) … 1 (right): where on screen the effect happened */
   pan?: number
   /** a multiplier on every frequency, for variety between repeats */
@@ -53,6 +58,7 @@ const rand = (lo: number, hi: number): number => lo + Math.random() * (hi - lo)
 /* ── the kit: tiny helpers every recipe is written in ───────────────────── */
 
 interface Kit {
+  tool?: string
   ctx: AudioContext
   /** this voice's input: panned, then split into the dry bus and the reverb */
   out: AudioNode
@@ -327,12 +333,14 @@ const RECIPES: Record<SoundName, Recipe> = {
     bell(k, 1975.5, t + 0.09, 1.0, 0.1)
     return 1.2
   },
-  // a tool call: mechanical ka-chunk with a laser pew
+  // Each normalised tool name has its own original two-note signature.
   tool: (k, t) => {
-    hiss(k, { at: t, dur: 0.035, peak: 0.4, filter: { type: 'bandpass', f: 1800, q: 2 } })
-    tone(k, { f: 190, to: 60, at: t, dur: 0.07, peak: 0.45 })
-    tone(k, { type: 'square', f: 1500, to: 320, at: t + 0.03, dur: 0.11, peak: 0.07 })
-    return 0.16
+    const voice = toolVoice(k.tool ?? 'tool')
+    tone(k, { type: voice.type, f: voice.hz, at: t, dur: voice.duration, attack: voice.attack,
+      peak: 0.16, filter: { type: 'lowpass', f: voice.filter } })
+    tone(k, { type: voice.type, f: voice.hz * 2 ** (voice.interval / 12), at: t + 0.055,
+      dur: voice.duration, attack: voice.attack, peak: 0.09, filter: { type: 'lowpass', f: voice.filter } })
+    return voice.duration + 0.06
   },
   toolDone: (k, t) => {
     tone(k, { f: 1046, to: 1568, at: t, dur: 0.07, peak: 0.12 })
@@ -674,6 +682,7 @@ export class EpicSynth {
   private voices = 0
   private timers = new Set<ReturnType<typeof setTimeout>>()
   private closed = false
+  private ambience: ActivityAudio
 
   constructor(Ctor: AudioContextCtor) {
     const ctx = new Ctor()
@@ -690,6 +699,7 @@ export class EpicSynth {
     master.connect(ctx.destination)
     this.bus = ctx.createGain()
     this.bus.connect(limiter)
+    this.ambience = new ActivityAudio(ctx, this.bus)
     const verb = ctx.createConvolver()
     verb.buffer = impulse(ctx, 2.6, 2.4)
     this.wet = ctx.createGain()
@@ -700,6 +710,8 @@ export class EpicSynth {
   }
 
   get active(): number { return this.voices }
+
+  activity(counts: ActivityCounts): void { if (!this.closed) this.ambience.update(counts) }
 
   /** Play one sound now. Returns false when the budget dropped it. */
   play(name: SoundName, opts: PlayOptions = {}): boolean {
@@ -723,7 +735,8 @@ export class EpicSynth {
     send.gain.value = 0.55
     out.connect(send)
     send.connect(this.wet)
-    const kit: Kit = { ctx, out: input, wet: this.wet, noise: this.noise, p: opts.pitch ?? rand(0.95, 1.05) }
+    const kit: Kit = { ctx, out: input, wet: this.wet, noise: this.noise, tool: opts.tool,
+      p: opts.pitch ?? (name === 'tool' ? 1 : rand(0.95, 1.05)) }
     let seconds = 0.5
     try { seconds = recipe(kit, ctx.currentTime + 0.01) } catch { /* a node the platform lacks: stay silent */ }
     this.voices++
@@ -742,6 +755,9 @@ export class EpicSynth {
     for (const timer of this.timers) clearTimeout(timer)
     this.timers.clear()
     this.voices = 0
-    try { void this.ctx.close().catch(() => {}) } catch { /* already closed */ }
+    const close = () => { try { void this.ctx.close().catch(() => {}) } catch { /* already closed */ } }
+    const fade = this.ambience.stop()
+    if (fade) setTimeout(close, fade)
+    else close()
   }
 }

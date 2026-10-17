@@ -21,8 +21,19 @@ export interface EpicTaps {
    *  non-GET request, on the failure path only (the Astra take: a refused
    *  request never celebrates; it gets its own alarm) */
   refused(path: string, status: number): void
+  /** The current org view went away; release state-driven effects. */
+  clear?(): void
 }
 
 export let epic: EpicTaps | null = null
+let latestTree: TreePayload | null = null
+
+/** Borrow the App's existing snapshot, without copying it or adding readers. */
+export function epicTreeNow(): TreePayload | null { return latestTree }
+export function publishEpicTree(tree: TreePayload): void {
+  latestTree = tree
+  epic?.tree(tree.slug, tree)
+}
+export function clearEpicTree(): void { latestTree = null; epic?.clear?.() }
 
 export function setEpicTaps(taps: EpicTaps | null): void { epic = taps }

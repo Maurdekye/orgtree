@@ -151,7 +151,7 @@ import type {
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
 import { EngineDebugPanel, setEngineDebugOn, useEngineDebug } from './canvas/enginedebug'
 import { bindRoomSocket } from './streamrooms'
-import { epic } from './epic/tap'
+import { epic, publishEpicTree, clearEpicTree } from './epic/tap'
 // every tier picker reads the runtime tier registries during render: fill
 // them as the providers payload arrives, before any consumer re-renders
 onAppValue('providers', syncProviderRegistries)
@@ -923,7 +923,7 @@ export default function App() {
           replay as Extract<WsEvent, { type: 'node_stream' }>[])
         const shown = applyPrimedAsks(want, t, readStartedAt)
         setTree(shown)
-        epic?.tree(want, shown)
+        publishEpicTree(shown)
         // point 31: forget submitted cards this tree has caught up with
         settleFromTree(want, shown)
         // and mail reads it counts (a read saved before this read began)
@@ -953,7 +953,7 @@ export default function App() {
         replaceNodeMetadata(slug, shown.roots)
         const visible = applyPrimedAsks(slug, shown, readStartedAt)
         setTree(visible)
-        epic?.tree(slug, visible)
+        publishEpicTree(visible)
         settleFromTree(slug, visible)
         if (readStartedAt) settleReadsFromTree(slug, readStartedAt)
         setTreeRead({ at: Date.now(), error: null })
@@ -1094,7 +1094,7 @@ export default function App() {
   // a conversation belongs to ONE org — dropping the store on an org switch
   // keeps a stale chat from ever being shown under a different tree
   useEffect(() => { resetConvos() }, [slug])
-  useEffect(() => () => { if (slug) clearNodeMetadata(slug) }, [slug])
+  useEffect(() => () => { if (slug) { clearNodeMetadata(slug); clearEpicTree() } }, [slug])
   // ⚠ STAFFING AVAILABILITY LOADS HERE, WHEN THE ORG DOES (user requirement
   // 2026-09-15). Every staffing surface — the ticket context menus, the hire
   // modal's model/account/effort selects — reads this one answer, and none of

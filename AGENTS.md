@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- EPIC 4.4.0 activity audio uses the existing busy/activity tree state: one
+  shared hum and six capped, count-scaled layers, all on the existing bus.
+  The App lends its latest tree reference (no copy/listener/audio off) so
+  enabling mid-turn starts immediately. Sounds feed a world-space Jacobi heat
+  equation beneath the cards; reduced motion shows a static baseline. Tool
+  signatures hash normalised names, with no family table. Contract and tests:
+  [EPIC activity sound](docs/rust-engine/epic-activity-sound.md).
+  [decided: user 2026-10-17 09:18–09:25Z; verified: `epic/{activity,ambience,heatfield,heatmap,toolvoice}.ts`]
+
 - Project nodes (4.4.0) are `ot.agents` rows with `kind = 'project'`: free tree nodes that run
   no turns, with a folder (`_teams/<id>`), a mailbox and presentations. Invariants:
   - Every query that picks agents to run, warm, notify, remind or count filters
@@ -213,7 +222,7 @@
   until hovered (`--panel-2`), revealed in the theme accent when checked, invisible
   again when unticked; stored as optional native `DesktopPreferences.epicMode`
   (boolean only, absent = off). OFF CONTRACT: one preference subscription per window
-  (`epic/sync.ts`) and null-checked taps (`epic?.frame`/`epic?.tree` in App.tsx,
+  (`epic/sync.ts`), a borrowed latest-tree reference, and null-checked taps (`epic?.frame` in App.tsx,
   `epic?.refused` on `req`'s failure path; `interruptNode` returns the bare request
   while off). Never add listeners, DOM or audio outside `epic/director.ts`, which
   loads only by `import()` when on and removes everything when it stops. A tree is a
