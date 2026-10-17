@@ -56,6 +56,14 @@ export function projectCounts(node: CanvasNode): { active: number; hired: number
   return { active: agents.filter((a) => a.busy).length, hired: agents.length, agents }
 }
 
+/** The presented tab's count: the project's own documents and those of every
+ *  node under it, as its gallery lists them (http/docs.rs project_members;
+ *  user 2026-10-17 20:07:52Z, docket point 8). */
+export function subtreeDocCount(node: CanvasNode): number {
+  const own = node.documents_count ?? node.documents?.length ?? 0
+  return own + (node.children ?? []).reduce((sum, c) => sum + subtreeDocCount(c), 0)
+}
+
 /** The project's agents as the app header's activity chip shows an org's
  *  (shell/treeinfo.tsx ActiveAgentSummary): the spinner while any is active,
  *  then active/hired. On the project desk's header and the project card at
@@ -132,7 +140,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const members = node.children.filter((c) => c.state === 'live')
   const count = (tab: Tab) => tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? mine?.length ?? 0
-      : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0 : 0
+      : tab === 'presented' ? subtreeDocCount(node) : 0
   const content = (
     <>
       <div className="cc-head">
@@ -205,6 +213,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       </div>}
       {view === 'presented' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
+        {/* nid = the project: the engine widens a project's gallery to its subtree */}
         <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs} />
       </div>}
     </>

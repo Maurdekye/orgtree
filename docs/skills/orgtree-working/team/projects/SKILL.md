@@ -40,7 +40,7 @@ Write to a project with `orgtree_message` to its name. Its mail wakes nobody: it
 
 ## Presentations
 
-`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project.
+`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab) also lists every document presented by the agents below it, nested projects included.
 
 ## See also
 

@@ -175,7 +175,9 @@ co-owns the item with full owner rights.
   a window like an agent desk.
   - Tabs: **desk**, then the agent desk's three: **inbox** (its mailbox), **docket** (items
     attached to it) and **presented** (documents presented under it with `orgtree_present
-    project=`; documents agents present beside their own seats stay on their own desks).
+    project=`, plus every document presented by a node below it, nested projects included: the
+    engine's gallery widens `node=<project>` to the subtree; user 2026-10-17 20:07:52Z).
+    An agent's own gallery is unchanged.
   - The desk tab holds the chat desk's jump cards (up to the parent, down to its live members)
     and the description editor: Markdown (`md`) while unfocused, a monospace text box while
     focused. Leaving the box saves a change with `set_description`; Escape drops it.
