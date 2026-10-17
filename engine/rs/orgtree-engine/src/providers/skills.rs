@@ -15,6 +15,8 @@ const MAX_BUNDLE: usize = 32 * 1024 * 1024;
 #[derive(Clone)]
 struct Bundle {
     name: String,
+    /// Keep family/variant identity apart from collision aliases assigned by merge.
+    declared_name: String,
     sources: Vec<String>,
     files: Arc<BTreeMap<PathBuf, Vec<u8>>>,
     digest: String,
@@ -31,8 +33,28 @@ pub struct Registry {
 impl Registry {
     /// Select the receiving harness's variants without changing source bundles.
     #[nolog]
-    pub fn for_lane(&self, _lane: crate::runtime::identity::Lane) -> Registry {
-        self.clone()
+    pub fn for_lane(&self, lane: crate::runtime::identity::Lane) -> Registry {
+        let declared: BTreeSet<&str> = self.bundles.iter().map(|b| b.declared_name.as_str()).collect();
+        let mut families: BTreeMap<String, Vec<&Bundle>> = BTreeMap::new();
+        for bundle in &self.bundles {
+            if is_builtin(bundle) { continue; }
+            let (stem, variant, _) = skill_variant(&bundle.declared_name);
+            // A suffix alone does not prove a duplicate: retain an unpaired
+            // harness-specific guide on every lane that has no alternative.
+            let paired = variant.is_some() && (declared.contains(stem) || declared.iter().any(|other| {
+                *other != bundle.declared_name.as_str() && skill_variant(other).0 == stem
+            }));
+            let family = if paired { stem } else { &bundle.declared_name };
+            families.entry(family.to_owned()).or_default().push(bundle);
+        }
+        let mut selected: BTreeSet<&str> = BTreeSet::new();
+        for candidates in families.values() {
+            let best = candidates.iter().map(|b| skill_rank(b, lane)).max().unwrap_or(0);
+            // Equally preferred distinct bundles remain collisions, rather than
+            // silently losing different resource trees from the same source.
+            selected.extend(candidates.iter().filter(|b| skill_rank(b, lane) == best).map(|b| b.name.as_str()));
+        }
+        merge(self.bundles.iter().filter(|b| is_builtin(b) || selected.contains(b.name.as_str())).cloned().collect())
     }
 
     #[nolog]
@@ -724,6 +746,7 @@ fn bundle_from_files(
         sha.update(bytes);
     }
     Some(Bundle {
+        declared_name: name.clone(),
         name,
         sources: vec![source.into()],
         files: Arc::new(files),
@@ -744,6 +767,46 @@ fn portable_name(name: &str) -> String {
         .collect::<String>()
         .trim_end_matches('-')
         .to_string()
+}
+
+/// Only named harness suffixes (optionally numbered copies) establish a
+/// variant. Source/collision suffixes are not inferred from advertised aliases.
+#[nolog]
+fn skill_variant(name: &str) -> (&str, Option<crate::runtime::identity::Lane>, u32) {
+    use crate::runtime::identity::Lane;
+    let (base, copy) = name.rsplit_once('-').and_then(|(head, tail)| tail.parse::<u32>().ok().map(|n| (head, n))).unwrap_or((name, 0));
+    for (suffix, lane) in [
+        ("-claude-code", Lane::Claude), ("-antigravity", Lane::Antigravity),
+        ("-opencode", Lane::OpenCode), ("-claude", Lane::Claude),
+        ("-codex", Lane::Codex), ("-muse", Lane::Muse), ("-agy", Lane::Antigravity),
+    ] {
+        if let Some(stem) = base.strip_suffix(suffix).filter(|s| !s.is_empty()) {
+            return (stem, Some(lane), copy);
+        }
+    }
+    (name, None, 0)
+}
+
+#[nolog]
+fn skill_rank(bundle: &Bundle, lane: crate::runtime::identity::Lane) -> u32 {
+    use crate::runtime::identity::Lane;
+    let source_lane = |source: &str| match source {
+        "claude" | "claude-plugin" => Some(Lane::Claude), "codex" => Some(Lane::Codex),
+        "antigravity" => Some(Lane::Antigravity), "muse" => Some(Lane::Muse),
+        "opencode" => Some(Lane::OpenCode), _ => None,
+    };
+    let native = bundle.sources.iter().any(|s| source_lane(s) == Some(lane));
+    let (_, variant, copy) = skill_variant(&bundle.declared_name);
+    if variant == Some(lane) { return 1000 + u32::from(native) * 100 - copy.min(99); }
+    if variant.is_none() && native { return 800; }
+    // A generic workspace skill is usable by all harnesses. With no native or
+    // generic alternative, a deterministic foreign variant remains available.
+    let neutral = bundle.sources.iter().any(|s| source_lane(s).is_none());
+    let fallback = bundle.sources.iter().map(|s| match s.as_str() {
+        "claude" | "claude-plugin" => 5, "codex" => 4, "antigravity" => 3,
+        "muse" => 2, "opencode" => 1, _ => 6,
+    }).max().unwrap_or(0);
+    if variant.is_none() { 600 + u32::from(neutral) * 10 + fallback } else { 200 + fallback * 10 - copy.min(99) }
 }
 
 #[nolog]
@@ -859,6 +922,28 @@ mod tests {
         assert_eq!(first.digest, make("edited foreign variant").digest);
         assert!(first.names().contains(&"orgtree-workflows".to_string()));
         assert_eq!(first.digest, first.for_lane(Lane::Codex).digest);
+    }
+
+    #[test]
+    fn skills_import_lane_exports_selected_resources_for_every_harness() {
+        use crate::runtime::identity::Lane;
+        let bundles: Vec<_> = [
+            ("guide", "claude", "Claude"), ("guide-codex", "codex", "Codex"),
+            ("guide-antigravity", "antigravity", "Antigravity"), ("guide-muse", "muse", "Muse"),
+            ("guide-opencode", "opencode", "OpenCode"),
+        ].into_iter().map(|(name, source, body)| fixture(name, body, body, source)).collect();
+        let registry = merge(bundles);
+        for (lane, expected) in [(Lane::Claude,"Claude"),(Lane::Codex,"Codex"),
+            (Lane::Antigravity,"Antigravity"),(Lane::Muse,"Muse"),(Lane::OpenCode,"OpenCode")] {
+            let selected = registry.for_lane(lane);
+            assert_eq!(selected.bundles.len(), 1);
+            let root = Temp::new();
+            let snapshot = selected.materialize(&root.0).unwrap();
+            let bundle = &selected.bundles[0];
+            assert_eq!(std::fs::read(snapshot.join("skills").join(&bundle.name).join("references/data.txt")).unwrap(), expected.as_bytes());
+            assert!(String::from_utf8_lossy(&bundle.files[Path::new("SKILL.md")]).contains(expected));
+        }
+        assert_eq!(registry.bundles.len(), 5, "selection never mutates sources");
     }
 
     /// Explicit read-only skill corpus measurement; never read credentials or

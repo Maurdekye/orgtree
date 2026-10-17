@@ -1,7 +1,7 @@
 # Shared native skills and installed Claude plugins
 
-The engine discovers read-only skill bundles and exposes the same content to
-Claude Code, Codex, Antigravity, Muse and OpenCode. No discovery operation starts
+The engine discovers read-only skill bundles and selects a receiving harness's
+variants for Claude Code, Codex, Antigravity, Muse and OpenCode. No discovery operation starts
 a harness, executes a skill, authenticates, or changes a native user config.
 
 ## Sources and evidence
@@ -53,6 +53,31 @@ per bundle and bounded traversal depth. These are implementation limits, not
 claims that arbitrary external packages were validated. OpenCode's flat Markdown
 format is accepted with its sibling resource tree. Skill bodies, resource bytes,
 native paths and plugin definitions never appear in the public registry or logs.
+
+### Per-harness variants (2026-10-17)
+
+The inventory remains complete; only an agent's exported catalog is filtered.
+A declared skill name ending in `-claude`, `-claude-code`, `-codex`,
+`-antigravity`, `-agy`, `-muse` or `-opencode` (optionally followed by a numeric
+copy suffix) joins its unsuffixed family when another family member exists.
+An unpaired skill remains available to every harness; a suffix alone never
+removes the only version of a guide.
+
+Prefer an explicit matching variant, then an unsuffixed skill from that harness's
+native source, then a generic fallback. For equally named foreign fallbacks,
+the stable source preference is Claude, Codex, Antigravity, Muse, OpenCode;
+neutral workspace sources are generic. Prefer an unnumbered variant over its
+numbered copies at the same native-source priority. Equally preferred distinct
+bundles from the same source retain their collision aliases and resources.
+Selection uses declared names, not collision aliases; built-in category names
+stay reserved. Existing whole-bundle content deduplication still applies.
+
+The selected bundle digest is used consistently by launch, idle rechecks and
+next-turn forecasts. Editing an unselected variant does not invalidate another
+harness's skill prefix. Refresh takes effect at the existing safe process
+boundary; no user skill files or native configs are rewritten. This selects
+Orgtree's imports; native-only skills a CLI supplies independently remain under
+that CLI's own discovery rules.
 
 ## Built-in guides
 

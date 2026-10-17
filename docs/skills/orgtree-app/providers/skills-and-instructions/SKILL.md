@@ -44,6 +44,10 @@ A bundle contains a UTF-8 `SKILL.md` with `name` and `description` frontmatter p
 
 Identical bundles combine source labels. Different content with the same normalized name receives a deterministic source suffix, with numeric disambiguation when necessary; built-ins keep their plain names first. Workspace exports use reserved `orgtree-` aliases and ownership markers. An existing user-created destination is not overwritten.
 
+At an agent's launch boundary, the shared inventory is filtered for its actual harness. A named harness suffix (such as `-codex`, optionally with a numeric copy suffix) selects that variant when the family has another member. Prefer the explicit matching variant, then that harness's unsuffixed native source, then a generic fallback. A guide without an alternative remains available on every harness. Distinct equally preferred same-source bundles keep their collision aliases and resources. The complete global inventory and user files remain unchanged; built-in category names stay reserved. Independently discovered native-only skills remain governed by the CLI.
+
+Launch, idle refresh checks and next-turn forecasts use the same selected content digest. A change only to an unselected variant does not reset another harness's skill prefix; changed selected content still takes effect at the normal process boundary. Availability and a stable digest do not guarantee provider prompt-cache hits or that a model chooses a guide.
+
 Discovery skips malformed entries, linked bundles/resources, generated copies, `.git`, `.trash`, `.in_use` and `node_modules`. Bounds include 512 imported bundles, 64 MiB imported content, 8 MiB per file, 32 MiB per bundle and 2,048 entries per bundle, with bounded traversal depth. The public registry exposes aliases, source labels and a content digest; bodies, resources, native paths and plugin definitions remain private.
 
 Discovery does not execute a skill, authenticate or change a native user configuration. Loading guidance does not itself authorize its scripts or external actions; apply the session's actual scope and instructions.
