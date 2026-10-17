@@ -1,6 +1,7 @@
 //! Reset evidence from a refused turn. Raw refusal text never enters tracing.
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 
 pub struct Reset {
     pub until: DateTime<Utc>,
@@ -9,36 +10,113 @@ pub struct Reset {
 }
 
 #[nolog]
-pub fn reported(error: &str, info: Option<&Value>, prior: &Value, now: DateTime<Utc>) -> Option<Reset> {
-    let lower = error.to_lowercase();
-    let rejected = info.map(|r| r["status"] == "rejected" || !r["rateLimitReachedType"].is_null()).unwrap_or(false);
-    let worded = lower.contains("usage limit") || lower.contains("hit your limit") || lower.contains("limit reached")
-        || lower.contains("rate limit") || lower.contains("resets") || super::recovery::worded_limit(error);
-    if !rejected && !worded { return None; }
-    let from_info = info.and_then(|r| r["resetsAt"].as_i64().or_else(|| {
-        ["primary", "secondary"].iter()
-            .filter(|w| r[**w]["usedPercent"].as_i64().unwrap_or(0) >= 100)
-            .filter_map(|w| r[*w]["resetsAt"].as_i64()).max()
-    })).and_then(|t| DateTime::from_timestamp(t, 0)).filter(|t| *t > now);
-    if let Some(until) = from_info { return Some(Reset { until, wall: None, parsed: true }); }
-    if let Some(secs) = super::recovery::reset_in_seconds(error) {
-        let (_, until) = super::recovery::countdown_until(secs, prior, now);
-        return Some(Reset { until, wall: Some(json!({"secs": secs, "until": crate::util::iso(until)})), parsed: true });
+fn timestamp(v: &Value) -> Option<DateTime<Utc>> {
+    v.as_i64().and_then(|t| DateTime::from_timestamp(t, 0))
+        .or_else(|| v.as_str().and_then(crate::util::parse_ts))
+}
+
+/// A clock-only refusal uses the CLI host's local zone. Unknown named zones
+/// are not guessed; ambiguous local times choose the later instant.
+#[nolog]
+fn absolute(text: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    static ISO: OnceLock<regex::Regex> = OnceLock::new();
+    static CLOCK: OnceLock<regex::Regex> = OnceLock::new();
+    let iso = ISO.get_or_init(|| regex::Regex::new(
+        r"(?i)reset(?:s|ting)?(?:\s+at)?\s+(\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d|\s+UTC))").unwrap());
+    if let Some(c) = iso.captures(text) {
+        let raw = c[1].replace(" UTC", "Z").replace(" utc", "Z");
+        return DateTime::parse_from_rfc3339(&raw.replace(' ', "T")).ok().map(|t| t.with_timezone(&Utc));
     }
-    let from_text = error.split('|').nth(1).and_then(|s| s.trim().parse::<i64>().ok()).and_then(|t| DateTime::from_timestamp(t, 0));
-    Some(Reset { until: from_text.unwrap_or_else(|| now + chrono::Duration::hours(1)), wall: None, parsed: from_text.is_some() })
+    let clock = CLOCK.get_or_init(|| regex::Regex::new(
+        r"(?i)reset(?:s|ting)?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(UTC))?\s*(?:[).,;?]|$)").unwrap());
+    let c = clock.captures(text)?;
+    // A bare number is not a clock (nor a duration's leading number).
+    if c.get(2).is_none() && c.get(3).is_none() { return None; }
+    let mut hour: u32 = c[1].parse().ok()?;
+    let minute: u32 = c.get(2).map(|m| m.as_str().parse()).transpose().ok()?.unwrap_or(0);
+    if let Some(ap) = c.get(3) {
+        if !(1..=12).contains(&hour) { return None; }
+        hour = hour % 12 + if ap.as_str().eq_ignore_ascii_case("pm") { 12 } else { 0 };
+    }
+    let utc = c.get(4).is_some();
+    let date = if utc { now.date_naive() } else { now.with_timezone(&Local).date_naive() };
+    let at = date.and_hms_opt(hour, minute, 0)?;
+    let resolve = |at| if utc { Some(Utc.from_utc_datetime(&at)) }
+        else { Local.from_local_datetime(&at).latest().map(|t| t.with_timezone(&Utc)) };
+    let candidate = resolve(at)?;
+    if candidate > now { Some(candidate) } else { resolve(at.checked_add_signed(Duration::days(1))?) }
 }
 
 #[nolog]
-pub fn cached_reset(_provider: &str, _tier: &str, _window: Option<&str>, _reading: &Value,
-    _reported_at: DateTime<Utc>, _now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-    None
+pub fn reported(error: &str, info: Option<&Value>, prior: &Value, now: DateTime<Utc>) -> Option<Reset> {
+    let lower = error.to_lowercase();
+    let rejected = info.is_some_and(|r| r["status"] == "rejected" || !r["rateLimitReachedType"].is_null()
+        || !r["quota"]["resetsAtMs"].is_null());
+    let worded = lower.contains("usage limit") || lower.contains("hit your limit") || lower.contains("limit reached")
+        || lower.contains("rate limit") || lower.contains("resets") || super::recovery::worded_limit(error);
+    if !rejected && !worded { return None; }
+    let mut deadlines = Vec::new();
+    if let Some(r) = info {
+        deadlines.extend(timestamp(&r["resetsAt"]));
+        deadlines.extend(r["quota"]["resetsAtMs"].as_i64().and_then(DateTime::from_timestamp_millis));
+        for w in ["primary", "secondary"] {
+            if r[w]["usedPercent"].as_f64().is_some_and(|p| p.is_finite() && p >= 100.0) {
+                deadlines.extend(timestamp(&r[w]["resetsAt"]));
+            }
+        }
+    }
+    let mut wall = None;
+    if let Some(secs) = super::recovery::reset_in_seconds(error)
+        .filter(|s| Duration::try_seconds(*s).and_then(|d| now.checked_add_signed(d)).is_some()) {
+        let (_, until) = super::recovery::countdown_until(secs, prior, now);
+        deadlines.push(until);
+        wall = Some(json!({"secs":secs,"until":crate::util::iso(until)}));
+    }
+    deadlines.extend(absolute(error, now));
+    deadlines.extend(error.split('|').nth(1).and_then(|s| s.trim().parse::<i64>().ok())
+        .and_then(|t| DateTime::from_timestamp(t, 0)));
+    let until = deadlines.into_iter().filter(|t| *t > now).max();
+    Some(Reset { until: until.unwrap_or_else(|| now + Duration::hours(1)), wall, parsed: until.is_some() })
+}
+
+#[nolog]
+fn window_kind(window: &str) -> &str {
+    match window {
+        "five_hour" | "primary" | "5h" => "session",
+        "seven_day" | "secondary" | "weekly" | "7d" => "weekly_all",
+        other => other,
+    }
+}
+
+/// The refused window, if the harness names one. With no name only full,
+/// applicable windows from a fresh reading may extend the hold.
+#[nolog]
+pub fn window(info: Option<&Value>) -> Option<&str> {
+    let r = info?;
+    r["rateLimitType"].as_str().or(r["rateLimitReachedType"].as_str()).or_else(|| {
+        ["secondary", "primary"].into_iter().find(|w| r[*w]["usedPercent"].as_f64().is_some_and(|p| p >= 100.0))
+    })
+}
+
+#[nolog]
+pub fn cached_reset(provider: &str, tier: &str, window: Option<&str>, reading: &Value,
+    reported_at: DateTime<Utc>, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    if reading["available"] != true || !reading["error"].is_null() || reading["reauth_required"] == true { return None; }
+    let observed = reading["observed_at"].as_str().and_then(crate::util::parse_ts)?;
+    if observed < reported_at || observed > now { return None; }
+    reading["limits"].as_array()?.iter()
+        .filter(|w| crate::usage::spends(provider, tier, w))
+        .filter(|w| window.is_none_or(|win| w["kind"].as_str().is_some_and(|k| window_kind(k) == window_kind(win))
+            || w["group"] == win))
+        .filter(|w| w["percent"].as_f64().is_some_and(|p| p.is_finite() && p >= 100.0) || w["is_active"] == true)
+        .filter_map(|w| w["resets_at"].as_str().and_then(crate::util::parse_ts))
+        .filter(|t| *t > now).max()
 }
 
 #[cfg(test)]
 mod usage_reset_tests {
     use super::*;
-    use chrono::Duration;
+    use chrono::{Duration, Timelike};
     fn now() -> DateTime<Utc> { DateTime::parse_from_rfc3339("2026-10-17T01:45:00Z").unwrap().with_timezone(&Utc) }
 
     #[test]
@@ -121,4 +199,43 @@ mod usage_reset_tests {
         reading["available"] = json!(false);
         assert_eq!(cached_reset("google", "agy-opus", None, &reading, n, n), None);
     }
+    #[test]
+    fn malformed_and_named_zone_resets_keep_fallback_and_never_panic() {
+        for text in ["usage limit; resets in 99999999999999999999999h", "usage limit; resets at 99:80",
+            "usage limit; resets 7am America/New_York", "usage limit; resets in 9223372036854775807s"] {
+            let r = reported(text, None, &Value::Null, now()).unwrap();
+            assert_eq!(r.until, now()+Duration::hours(1), "{text}");
+            assert!(!r.parsed, "{text}");
+        }
+    }
+
+    #[test]
+    fn clock_am_pm_and_structured_iso_choose_latest_without_early_wake() {
+        let n = now();
+        let r = reported("usage limit; resets 7am UTC", None, &Value::Null, n).unwrap();
+        assert_eq!(r.until, n.date_naive().and_hms_opt(7,0,0).unwrap().and_utc());
+        let info = json!({"status":"rejected","resetsAt":"2026-10-18T00:00:00Z"});
+        assert_eq!(reported("usage limit; resets in 2h", Some(&info), &Value::Null, n).unwrap().until,
+            crate::util::parse_ts("2026-10-18T00:00:00Z").unwrap());
+        let r = reported("usage limit; resets 12:30pm UTC", None, &Value::Null, n).unwrap();
+        assert_eq!(r.until.hour(), 12);
+    }
+
+    #[test]
+    fn cache_rejects_failed_future_nonfull_and_unrelated_model_readings() {
+        let n = now();
+        let base = json!({"available":true,"observed_at":crate::util::iso(n),"limits":[
+            {"kind":"weekly_all","percent":100,"resets_at":crate::util::iso(n+Duration::hours(9))}]});
+        assert!(cached_reset("claude","sol",None,&base,n,n).is_some());
+        for (field, value) in [("error",json!("unavailable")), ("reauth_required",json!(true)),
+            ("observed_at", json!(crate::util::iso(n+Duration::seconds(1))))] {
+            let mut r=base.clone();r[field]=value;
+            assert_eq!(cached_reset("claude","sol",None,&r,n,n),None);
+        }
+        let mut r=base.clone();r["limits"][0]["percent"]=json!(99);
+        assert_eq!(cached_reset("claude","sol",None,&r,n,n),None);
+        let mut r=base;r["limits"][0]["kind"]=json!("weekly_scoped");r["limits"][0]["model"]=json!("fable");
+        assert_eq!(cached_reset("claude","sol",None,&r,n,n),None);
+    }
+
 }

@@ -182,6 +182,29 @@ fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts:
     v["available"].as_bool().unwrap_or(false).then_some(v)
 }
 
+/// Safe cached reset evidence for the login that actually served this turn.
+/// A missing/mismatched registered id never falls back to the native login.
+#[nolog]
+pub(crate) fn freeze_reading(engine: &Engine, provider: &str, account_id: Option<&str>) -> Option<Value> {
+    use crate::providers::catalog;
+    let view = engine.accounts.view();
+    let account = match account_id {
+        Some(id) => Some(view.get(id).filter(|a| a.provider == provider && !a.is_apikey())?),
+        None => None,
+    };
+    let folder = account.and_then(|a| a.config_dir.as_deref());
+    let key = match provider {
+        catalog::CLAUDE => claude_key(folder),
+        catalog::OPENAI => codex_key(folder),
+        catalog::GOOGLE => "agy".to_owned(),
+        catalog::MUSE => muse_key(folder),
+        _ => return None,
+    };
+    let reading = engine.usage.fresh(&key, PEEK_MAX)?;
+    Some(json!({"available":reading["available"], "error":reading["error"],
+        "reauth_required":reading["reauth_required"], "observed_at":reading["observed_at"], "limits":reading["limits"]}))
+}
+
 /// Whether `tier` spends this reading window (the user's rule, 2026-09-12):
 /// Claude: the session and the standard weekly window for every tier, and a
 /// model-scoped weekly window only for the model it names (so fable needs
@@ -192,7 +215,7 @@ fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts:
 /// models share it, so another model's reading is no evidence for this one;
 /// user ruling 2026-10-12: never assume Wonder and Wonder Full share a pool).
 #[nolog]
-fn spends(provider: &str, tier: &str, w: &Value) -> bool {
+pub(crate) fn spends(provider: &str, tier: &str, w: &Value) -> bool {
     use crate::providers::catalog;
     match provider {
         catalog::CLAUDE => match w["kind"].as_str().unwrap_or("") {
