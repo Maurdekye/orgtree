@@ -2021,6 +2021,18 @@ export function subtreeDocCount(node: CanvasNode): number {
   return own + (node.children ?? []).reduce((sum, c) => sum + subtreeDocCount(c), 0)
 }
 
+/** A project's presentation chips (user 2026-10-17 22:47:29Z): its own
+ *  documents and every node's below it, newest first, from the tree payload. */
+export function subtreeDocs(node: CanvasNode): NonNullable<CanvasNode['documents']> {
+  const all: NonNullable<CanvasNode['documents']> = []
+  const walk = (n: CanvasNode) => {
+    all.push(...(n.documents ?? []))
+    for (const c of n.children ?? []) walk(c)
+  }
+  walk(node)
+  return all.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+}
+
 /** A desk's UP jump cards (user 2026-10-17 22:13Z, "projects are
  *  passthrough"): its nearest agent superior and every project between them,
  *  read top-down — the superior first, then the projects outermost to

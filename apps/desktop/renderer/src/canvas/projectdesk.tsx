@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
 import { AutorenewIcon, FolderIcon, SettingsIcon } from '../icons'
-import { md, subtreeDocCount, USER } from './shared'
+import { md, subtreeDocCount, subtreeDocs, USER } from './shared'
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
@@ -26,6 +26,8 @@ import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
 import type { RefRoutes } from './reflinks'
 import { LastTurnAge, NavChip } from './desk'
+import { PresentationCard, recentDocumentChips } from './docs'
+import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 
@@ -47,6 +49,8 @@ export interface ProjectDeskProps {
   onConfig?: () => void
   /** pin this desk as a window (absent: no pin button) */
   onPin?: () => void
+  /** open a presented document (the header's presentation strip) */
+  onOpenDoc?: (id: string) => void
 }
 
 /** The agents under a project, nested projects crossed but not counted:
@@ -137,7 +141,7 @@ function DescriptionEditor({ node, op, toast, editable }: {
       : { dangerouslySetInnerHTML: md(saved) })} />
 }
 
-export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin }: ProjectDeskProps) {
+export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onOpenDoc }: ProjectDeskProps) {
   const [view, setView] = useState<Tab>('desk')
   const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | null>(null)
   // the docket tab: the items attached to this project (slice 2), one poll,
@@ -212,6 +216,18 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           </span>
         </div>
       </div>
+      {/* its presentations and its subtree's, on their own strip under the
+          header as on an agent desk (user 2026-10-17 22:47:29Z) */}
+      {onOpenDoc && subtreeDocs(node).length > 0 && (
+        <div className="desk-docs">
+          {recentDocumentChips(subtreeDocs(node)).map((d) => (
+            <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
+              className="doc-badge" direct onOpen={onOpenDoc}>
+              <DocIcon fontSize="inherit" /><span>{d.title}</span>
+            </PresentationCard>
+          ))}
+        </div>
+      )}
       {view === 'desk' && <>
         {onJump && parent && <div className="desk-nav"><NavChip n={parent} dir="up" onJump={onJump} /></div>}
         <DescriptionEditor node={node} op={op} toast={toast} editable={live} />

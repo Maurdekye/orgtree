@@ -16,7 +16,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
 import { DocIcon, DocketIcon, FolderIcon, MailIcon } from '../icons'
-import { NODE_H, NODE_W, useAgentShortcuts, Z_MAX } from './shared'
+import { NODE_H, NODE_W, subtreeDocs, useAgentShortcuts, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
@@ -207,13 +207,14 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       )}
       {deskOpen && (
         <ProjectDesk node={node} slug={slug} tree={tree!} map={map ?? new Map()} toast={toast} refs={refs!}
-          op={op} onJump={onJump} onConfig={onSettings} onPin={onPin} />
+          op={op} onJump={onJump} onConfig={onSettings} onPin={onPin} onOpenDoc={onOpenDoc} />
       )}
       {pinnedFocus && !deskOpen && onShowPin && (
         <div className="pin-holder"><PinnedPlaceholder id={node.id} onShow={onShowPin} /></div>
       )}
-      {lod !== 'mini' && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
-        <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc} />
+      {/* its own presentations and its subtree's (user 2026-10-17 22:47:29Z) */}
+      {lod !== 'mini' && !deskOpen && subtreeDocs(node).length > 0 && onOpenDoc && (
+        <DocChips slug={slug} docs={subtreeDocs(node)} onOpen={onOpenDoc} />
       )}
       {menu.node}
       {asking && createPortal(

@@ -71,6 +71,9 @@ export interface AgentMenuHandlers {
   /** the agent's presented documents — the entry appears only when it has
    *  some, so the gate is here and the caller passes the opener */
   onPresentations?: () => void
+  /** TEAM presentations: this agent's and everyone's under it, through
+   *  projects (user 2026-10-17 22:47Z), beside the team docket */
+  onTeamPresentations?: () => void
   onLineage?: () => void
   onSettings: () => void
   /** grant or revoke this agent's user audience through the audited API */
@@ -169,6 +172,14 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       label: 'Open team docket',
       title: `tickets assigned to ${node.id} or to any agent below it`,
       onSelect: () => teamDocket(),
+    })
+  }
+  const teamPresentations = h.onTeamPresentations
+  if (teamPresentations) {
+    openEntries.push({
+      label: 'Open team presentations',
+      title: `documents presented by ${node.id} or by any agent below it, through projects`,
+      onSelect: () => teamPresentations(),
     })
   }
   const presentations = h.onPresentations

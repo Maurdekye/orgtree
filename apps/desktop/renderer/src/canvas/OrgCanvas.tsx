@@ -199,7 +199,7 @@ export interface OrgCanvasProps {
   /** open the selected agent's presentations in a shell modal. `keepOpen` is
    *  the desk corner's pin/pop-out asking for the surface to be SHOWN rather
    *  than toggled — see PanelCorner (canvas/panelcorner.tsx). */
-  onOpenAgentGallery?: (agentId: string, opts?: { keepOpen?: boolean }) => void
+  onOpenAgentGallery?: (agentId: string, opts?: { keepOpen?: boolean; team?: boolean }) => void
 }
 
 /** has this spring arrived? Both the spring loop (which snaps to the target on
@@ -3164,6 +3164,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onTeamDocket: () => toggleNodeSurface('team-docket', n.id, setTeamDocketId),
       onPresentations: onOpenAgentGallery
         ? () => onOpenAgentGallery(n.id) : undefined,
+      onTeamPresentations: onOpenAgentGallery
+        ? () => onOpenAgentGallery(n.id, { team: true }) : undefined,
       onLineage: () => toggleNodeSurface('lineage', n.id, setLineageId),
       onSettings: () => toggleConfig(n.id),
       onToggleUserAudience: () => audienceAction(slug,
@@ -4203,7 +4205,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
           onShowOnCanvas={showOnCanvas}
           projectDesk={(n) => <ProjectDesk bare node={n} slug={slug} tree={tree} map={map} op={op} toast={toast}
-            refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} />}
+            refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView} />}
           onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
             && shownRetired.has(id) ? dismissRetiredAgent(id) : undefined} />
       )}

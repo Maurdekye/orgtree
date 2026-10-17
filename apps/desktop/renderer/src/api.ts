@@ -729,14 +729,19 @@ export interface DocRow {
    *  ledger rather than looked up client-side: the gallery lists cards from
    *  agents the tree walk does not carry. Null once the node is gone. */
   tier?: string | null
+  /** the agent that PRESENTED it; differs from `node` for a document
+   *  presented under a project (user 2026-10-17 22:47:51Z) */
+  presented_by?: string
+  presenter_tier?: string | null
 }
 /** `limit` is the size of the WINDOW the caller is holding, not a page size:
  *  the gallery reads from offset 0 and grows the window as the reader scrolls,
  *  so every response is a complete newest-first prefix (canvas/gallery.tsx).
  *  Omitted, the server's own default applies. */
-export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string }> =>
+export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0, team = false): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string }> =>
   req(`/api/orgs/${slug}/documents?offset=${offset}&node=${encodeURIComponent(node)}`
     + (limit > 0 ? `&limit=${limit}` : '')
+    + (team ? '&team=1' : '')
     + (locate ? `&locate=${encodeURIComponent(locate)}` : ''))
 export const dismissDocument = (slug: string, did: string):
   Promise<{ ok: boolean; node: string }> =>

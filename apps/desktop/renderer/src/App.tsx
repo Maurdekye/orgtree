@@ -494,6 +494,8 @@ export default function App() {
   // The card's document shortcut opens the same list/reader layout scoped to
   // that agent, independently of whether its desk is currently pinned.
   const [agentGalleryId, setAgentGalleryId] = useState<string | null>(null)
+  // the agent gallery in TEAM scope (user 2026-10-17 22:47Z)
+  const [agentGalleryTeam, setAgentGalleryTeam] = useState(false)
   usePersistedModalOpen('agent-gallery', slug, Boolean(agentGalleryId), agentGalleryId ? {agent:agentGalleryId, generation: tree ? flatNodes(tree).get(agentGalleryId)?.generation : undefined} : undefined)
   // the native work docket (docket-final-spec.md) — its own list+pane modal,
   // same pattern as the gallery above.
@@ -1870,6 +1872,7 @@ export default function App() {
                   // pop-out asking for a surface to act on. Those two must never
                   // close the very panel they are about to move, so they opt out
                   // of the toggle and keep the rest of the route.
+                  setAgentGalleryTeam(!!opts?.team)
                   if (!opts?.keepOpen && agentGalleryId === id && isModalPinned('agent-gallery', slug)) {
                     if (pinnedModalBehind('agent-gallery', slug)) raisePinnedModal('agent-gallery', slug)
                     else setAgentGalleryId(null)
@@ -1992,7 +1995,7 @@ export default function App() {
           close={() => setShowGallery(false)} />
       )}
       {agentGalleryId && slug && (
-        <AgentGalleryModal slug={slug} nid={agentGalleryId}
+        <AgentGalleryModal slug={slug} nid={agentGalleryId} team={agentGalleryTeam}
           node={tree ? flatNodes(tree).get(agentGalleryId) : undefined}
           toast={toast}
           refs={galleryRefs}

@@ -150,8 +150,8 @@ const EMPTY_WINDOW: DocWindowState = {
  *  one page more" — it would unmount every row and drop the reader back to the
  *  top. So this hook keeps its own state and resets only on `slug`/`node`. */
 function useDocWindow(slug: string, node: string, locate = '',
-  seq: unknown = 0): DocWindow {
-  const ident = `${slug}/${node}`
+  seq: unknown = 0, team = false): DocWindow {
+  const ident = `${slug}/${node}${team ? '/team' : ''}`
   const [want, setWant] = useState(DOC_PAGE)
   const [attempt, setAttempt] = useState(0)
   const [last, setLast] = useState<DocWindowState>(EMPTY_WINDOW)
@@ -166,7 +166,7 @@ function useDocWindow(slug: string, node: string, locate = '',
   useEffect(() => {
     let dead = false
     const tick = () => {
-      getDocuments(slug, 0, node, locate, want).then((d) => {
+      getDocuments(slug, 0, node, locate, want, team).then((d) => {
         if (dead) return
         // A `locate` for a row BELOW the window answers with that row's own
         // page rather than a prefix from zero (api.py snaps the offset to
@@ -214,7 +214,7 @@ function useDocWindow(slug: string, node: string, locate = '',
     const t = setInterval(tick, 5000)
     const off = onLiveBump(tick)
     return () => { dead = true; clearInterval(t); off() }
-  }, [ident, slug, node, locate, seq, want, attempt])
+  }, [ident, slug, node, locate, seq, want, attempt, team])
   const settled = last.win >= want
   const grow = useCallback(() => {
     setWant((w) => (last.rows != null && last.win >= w && last.more && !last.error)
@@ -514,9 +514,9 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           <span className="mfrom">{r.title || '(untitled)'}</span>
                           <span className="mtime">{ago(r.at)}</span>
                         </div>
-                        <div className="l2" data-copy-agent-name={r.node || undefined}>
-                          <TierChip tier={r.tier} />
-                          {r.node || '?'}
+                        <div className="l2" data-copy-agent-name={r.presented_by || r.node || undefined}>
+                          <TierChip tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier} />
+                          {r.presented_by || r.node || '?'}
                           {r.format === 'html' && <MockupBadge />}
                           {r.evicted && <span className="badge evicted">content evicted</span>}
                         </div>
@@ -584,7 +584,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             the title row, it should be first, the title second"). */}
         <div className="doc-pane-meta-row">
           {row.node ? (
-            <AgentName id={row.node} tier={row.tier}
+            <AgentName id={row.presented_by || row.node} tier={row.presented_by ? row.presenter_tier ?? row.tier : row.tier}
               onFocus={onFocusAgent
                 ? (id) => { close(); onFocusAgent(id) }
                 : undefined} />
@@ -665,13 +665,16 @@ export interface AgentGalleryViewProps {
    *  MODAL wrapper sets it; the same view on the agent desk keeps its
    *  persistent column (see CollapsibleMailer). */
   collapsible?: boolean
+  /** TEAM presentations (user 2026-10-17 22:47Z): this node's and everyone's
+   *  under it, passing through projects. A project's gallery is always so. */
+  team?: boolean
 }
 
 /** Agent-scoped presentation gallery opened from a card action.  The list and
  * reader remain AgentGalleryView's single implementation; this wrapper only
  * gives that view the same movable/pinnable shell as inbox and docket. */
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
-  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery' }: AgentGalleryViewProps & { close: () => void }) {
+  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery', team }: AgentGalleryViewProps & { close: () => void }) {
   /** WHICH PRESENTATION THIS SURFACE IS SHOWING — the row on screen right now,
    *  NOT the one it was opened on.
    *
@@ -694,14 +697,14 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
    *  report-upward effect below does not re-run on the render it causes. */
   const [shown, setShown] = useState<string | null>(initialDocument ?? null)
   return (
-    <PinFrame kind={pinKind} title={`Presented documents for ${nid}`}
+    <PinFrame kind={pinKind} title={team ? `Team presentations for ${nid}` : `Presented documents for ${nid}`}
       restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}) }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs} onShown={setShown}
         onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow}
-        collapsible />
+        collapsible team={team} />
     </PinFrame>
   )
 }
@@ -713,11 +716,11 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
   refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
-  collapsible }: AgentGalleryViewProps) {
-  const w = useDocWindow(slug, nid)
-  // a project's list holds its subtree's cards too (review P2): the engine
-  // scoped it, so the rows are not narrowed to `nid` here
-  const wide = (node as { kind?: string } | undefined)?.kind === 'project'
+  collapsible, team }: AgentGalleryViewProps) {
+  const w = useDocWindow(slug, nid, '', 0, team)
+  // a team or project list holds other nodes' cards: the engine scoped it, so
+  // the rows are not narrowed to `nid` here
+  const wide = !!team || (node as { kind?: string } | undefined)?.kind === 'project'
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
     return (node?.documents ?? []).map((d) => ({
@@ -828,9 +831,11 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                   <span className="mfrom">{r.title || '(untitled)'}</span>
                   <span className="mtime">{ago(r.at)}</span>
                 </div>
-                <div className="l2" data-copy-agent-name={r.node || undefined}>
-                  <TierChip tier={r.tier} />
-                  {r.node || '?'}
+                <div className="l2" data-copy-agent-name={r.presented_by || r.node || undefined}>
+                  {/* the agent that presented it, also for a card presented
+                      under a project (user 2026-10-17 22:47:51Z) */}
+                  <TierChip tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier} />
+                  {r.presented_by || r.node || '?'}
                   {r.format === 'html' && <MockupBadge />}
                   {r.evicted && <span className="badge evicted">content evicted</span>}
                 </div>
