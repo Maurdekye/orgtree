@@ -34,10 +34,21 @@ module.exports = async (page) => {
   for (const scene of ['row-end', 'between']) {
     await page.goto(`/?scene=${scene}`)
     await page.waitFor('.sq.project', { timeout: 15000 })
-    await page.eval(async () => { await new Promise((r) => setTimeout(r, 1500)) })
+    await page.eval(async () => {
+      await new Promise((r) => setTimeout(r, 800))
+      // fit the whole org, as the HUD button does, so every card is on screen
+      const fit = document.querySelector('.zoomhud button[title="Fit the whole org"]')
+      if (fit) fit.click()
+      await new Promise((r) => setTimeout(r, 1500))
+    })
     await settle()
     details[scene] = await page.eval(() => ({
       peerWires: [...document.querySelectorAll('path.peer, .edge.peer')].length,
+      cards: [...document.querySelectorAll('.sq')].map((el) => {
+        const r = el.getBoundingClientRect()
+        return [el.getAttribute('data-copy-agent-name') || el.className.split(' ').slice(0, 3).join('.'), Math.round(r.x), Math.round(r.y), Math.round(r.width)]
+      }),
+      viewport: (() => { const v = document.querySelector('.viewport'); const r = v && v.getBoundingClientRect(); return r ? [r.width, r.height] : null })(),
     }))
     screenshots.push(await page.screenshot(`${prefix}-${scene}-1000x700`))
   }

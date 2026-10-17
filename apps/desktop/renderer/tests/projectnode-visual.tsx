@@ -51,7 +51,9 @@ function Cards() {
         {sq('mini', 0)}
         {sq('norm', 170)}
       </div>
-      <div id="token" style={{ position: 'absolute', left: 60, top: 520, transform: 'scale(2)', transformOrigin: '0 0' }}>
+      {/* the strip shows on a card's hover; here it is held open for the capture */}
+      <style>{'#token .hsof { opacity: 1 !important; pointer-events: auto !important; position: static !important; }'}</style>
+      <div id="token" style={{ position: 'absolute', left: 140, top: 450, transform: 'scale(2)', transformOrigin: '0 0' }}>
         <SpawnChips onSpawn={noop} seats={{ haiku: 1 }} claudeHire={{ enabled: true, installed: true, reason: null }}
           onProject={noop} zoom={1} expanded />
       </div>
@@ -78,7 +80,8 @@ const rows: Record<string, unknown[]> = {
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
 }
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : (
-  <div style={{ position: 'fixed', inset: 0 }}>
+  <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
+    <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
     <OrgCanvas tree={tree(rows[scene]!)} slug="org" op={() => Promise.resolve({} as OpResult)}
       toast={noop} mailEvt={null} onOpenAgentGallery={noop} />
   </div>
