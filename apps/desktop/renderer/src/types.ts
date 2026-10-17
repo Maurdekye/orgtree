@@ -691,6 +691,8 @@ export interface AskTab {
 
 /** FR-18: a watchdog — a free persistent pet (ledger `watchdogs`) */
 export interface Watchdog {
+  next_check_at?: string
+  next_silence_at?: string
   id: string
   owner: string
   name: string

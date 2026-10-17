@@ -57,6 +57,7 @@ const SHELL_ERRORS: &[&str] = &[
 ];
 
 pub mod events;
+mod schedule;
 
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 
@@ -98,6 +99,7 @@ struct Dog {
     fired: i64,
     created_at: DateTime<Utc>,
     last_fired: Option<DateTime<Utc>>,
+    last_check: Option<DateTime<Utc>>,
     silence_since: Option<DateTime<Utc>>,
     exit: Option<Value>,
     memo: Value,
@@ -158,7 +160,7 @@ fn matches(re: &Result<Option<Regex>, String>, line: &str) -> bool {
 
 const DOG_COLS: &str = "w.uid, w.org_id, w.owner_agent_id, a.name, a.state = 'live', a.scratch_dir, w.name, w.kind, w.target,
     w.pattern, w.shell, w.interval_s, w.fire_mode, w.quiet_period_s, w.once, w.state, w.fired, w.created_at, w.last_fired,
-    w.silence_since, w.exit, w.memo, w.id";
+    w.silence_since, w.exit, w.memo, w.id, w.last_check";
 /// The states in which a dog holds its id (D67): a removed or spent dog's
 /// id is free again for a new dog of the same owner.
 const HOLDS_ID: &str = "('armed', 'paused', 'exited')";
@@ -186,6 +188,7 @@ fn dog_of(r: &tokio_postgres::Row) -> Dog {
         fired: r.get::<_, i32>(16) as i64,
         created_at: r.get(17),
         last_fired: r.get(18),
+        last_check: r.get(23),
         silence_since: r.get(19),
         exit: r.get(20),
         run: memo.get("run").cloned().filter(Value::is_object).unwrap_or_else(|| json!({})),
@@ -377,6 +380,11 @@ async fn run_fair_queue(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationTok
 async fn run_poll(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken) -> Result<()> {
     loop {
         let Some(dog) = load(engine, row).await? else { return Ok(()) };
+        let deadline=dog.last_check.unwrap_or(dog.created_at)+chrono::Duration::seconds(dog.interval_s.max(FLOOR_S));
+        tokio::select! {
+            _=tokio::time::sleep(schedule::wait_until(deadline,Utc::now()))=>{},
+            _=cancel.cancelled()=>return Ok(()),
+        }
         let span = crate::trace::request(&format!("dog:{}/{}", dog.uid, dog.owner_name));
         let next = tracing::Instrument::instrument(poll_once(engine, dog), span).await?;
         let Some(wait) = next else { return Ok(()) };
@@ -432,7 +440,9 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
             return Ok(None);
         }
     }
-    let mut wait = dog.interval_s.max(FLOOR_S);
+    let now=Utc::now();
+    let deadline=dog.last_check.unwrap_or(dog.created_at)+chrono::Duration::seconds(dog.interval_s.max(FLOOR_S));
+    let mut wait=(schedule::next_slot(deadline,dog.interval_s.max(FLOOR_S),now)-now).num_seconds();
     if let Some(d) = dog.due_in() {
         wait = wait.min(d.max(1));
     }
@@ -1921,7 +1931,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
     let sql = format!(
         "WITH RECURSIVE down(id, depth) AS (SELECT $1::bigint, 0 UNION ALL
            SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id WHERE d.depth < 1024)
-         SELECT {DOG_COLS}, w.last_check FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+         SELECT {DOG_COLS} FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
           WHERE w.owner_agent_id IN (SELECT id FROM down) AND w.state IN ('armed', 'paused', 'exited')
           ORDER BY w.id"
     );
