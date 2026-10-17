@@ -1797,6 +1797,7 @@ html.mobile .edge-jump { display: none; }
 .turn-status-banner.queued,
 .turn-status-banner.compacting { color: var(--warn, #e5c07b); }
 .turn-status-banner.blocked { color: var(--bad); }
+.turn-status-banner.halted { color: var(--bad); }
 .turn-status-banner.done { color: var(--ok); }
 .turn-status-banner.idle { color: var(--dim); }
 .turn-status-banner .turn-status-time {

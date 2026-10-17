@@ -618,12 +618,19 @@ export function AgentWorkstate({ node, turn, live = true }: {
     () => ageClockSecond)
   const visual = deriveAgentVisualState(node)
   if (visual.kind === 'halted' && node.halt) {
-    const label = node.halt.phase === 'halting' ? 'Halting…' : 'Halted'
-    return <span className="sq-halt-status" role="status" title={node.halt.phase === 'halting'
+    const haltedAt = node.halt.phase === 'halted'
+      ? node.halt.at ?? node.halt.requested_at : null
+    const label = node.halt.phase === 'halting' ? 'Halting…' : 'Halted for'
+    const statusText = node.halt.phase === 'halting'
       ? 'Turn admission is blocked; the active turn is still ending'
-      : 'No turn can run. Mail stays unread until explicit unhalt'}>
-      <StopIcon fontSize="inherit" className="tray-halted" titleAccess={label} />
+      : haltedAt ? `Halted for ${ago(haltedAt)}`
+        : 'Halted; halt time unavailable. Mail stays unread until explicit unhalt'
+    return <span className="sq-halt-status" role="status" title={statusText}
+      aria-label={statusText}>
+      <StopIcon fontSize="inherit" className="tray-halted" titleAccess={
+        node.halt.phase === 'halting' ? label : haltedAt ? `Halted for ${ago(haltedAt)}` : 'Halted'} />
       <span>{label}</span>
+      {node.halt.phase === 'halted' && <span className="sq-idle-time">{haltedAt ? ago(haltedAt) : '—'}</span>}
     </span>
   }
   if (visual.kind === 'frozen' && node.frozen) return <UsageFreezeStatus frozen={node.frozen} />
@@ -832,12 +839,14 @@ export type TurnBannerState = 'idle' | 'working' | 'queued' | 'compacting'
 
 /** One persistent desk-header status/time seat. Its label and clock change
  * together at a turn boundary: active states measure the current admission,
- * while Idle measures the last completed turn. Canvas cards continue to use
- * LastTurnAge; the focused desk deliberately has no second age chip. */
-export function TurnStatusBanner({ state, turn, inflightAt, tasks = 0,
+ * Halted measures the halt timestamp, and Idle measures the last completed
+ * turn. Canvas cards continue to use LastTurnAge; the focused desk deliberately
+ * has no second age chip. */
+export function TurnStatusBanner({ state, turn, inflightAt, halted = false, haltedAt, tasks = 0,
   reportedSummary, recordedState, tier, frozen }: {
   frozen?: TreeFrozen | null;
   state: TurnBannerState; turn?: TurnStat | null; inflightAt?: string | null;
+  halted?: boolean; haltedAt?: string | null;
   tasks?: number | null; reportedSummary?: string | null; recordedState?: string | null;
   tier?: string | null
 }) {
@@ -845,20 +854,24 @@ export function TurnStatusBanner({ state, turn, inflightAt, tasks = 0,
     () => ageClockSecond)
   if (frozen) return <UsageFreezeStatus frozen={frozen} variant="banner" />
   const active = state !== 'idle'
-  const reference = active ? inflightAt : turn?.at
+  const reference = active ? inflightAt : halted ? haltedAt : turn?.at
   const elapsed = reference ? ago(reference) : '—'
   const outOfTurnState = (!active && recordedState && recordedState !== 'idle') ? recordedState : null
-  const displayClass = outOfTurnState || (state === 'working' ? 'working active' : state)
+  const displayClass = halted ? 'halted' : outOfTurnState || (state === 'working' ? 'working active' : state)
   const label = active
     ? (state === 'working' ? 'Active'
       : state === 'queued' ? 'Queued' : 'Compacting')
-    : outOfTurnState
+    : halted ? 'Halted for'
+      : outOfTurnState
       ? (outOfTurnState.charAt(0).toUpperCase() + outOfTurnState.slice(1))
       : 'Idle'
   const taskText = (tasks ?? 0) > 0
     ? `${tasks} task${tasks === 1 ? '' : 's'}` : ''
   const title = !active
-    ? (turn
+    ? halted
+      ? (haltedAt ? `Halted for ${elapsed}` : 'Halted; halt time unavailable')
+        + (reportedSummary ? ` · ${reportedSummary}` : '')
+      : (turn
       ? `${label} · last turn ended ${fmtStamp(turn.at)}`
         + (turn.killed ? ' (killed)' : '')
       : `${label} · no completed turn yet`)
@@ -3381,6 +3394,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               onToggle={live && processAction ? toggleProcess : undefined} />
           </span>
           <TurnStatusBanner state={turnBannerState} turn={lastTurn}
+            halted={node.halt?.phase === 'halted'}
+            haltedAt={node.halt?.phase === 'halted' ? node.halt.at ?? node.halt.requested_at : null}
             frozen={isUsageFrozen(node) ? node.frozen : null}
             inflightAt={node.inflight_at} tasks={node.tasks}
             recordedState={node.last_status?.status}

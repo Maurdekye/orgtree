@@ -41,6 +41,11 @@
   [decided: user 2026-10-12, 2026-10-16; verified: `config.rs`, `launch.rs`,
   `http/{mod,usermcp}.rs`, `tools/usermcp.rs`, `tools/rig/standalone-engine.mjs`]
 
+- A halted agent's status duration is measured from `halt.at` (falling back to
+  `requested_at` for legacy state), not its last turn; the desk header says
+  “Halted for” and the card/list clocks tick from that halt timestamp. Usage
+  freeze remains a separate state. [verified from source: `canvas/desk.tsx`]
+
 - Fresh-session recovery leads with current docket scope/blockers/dependencies,
   recorded shell directory and recent superior mail before older context. Shell
   inputs in saved history/digest retain 8,192 UTF-8 bytes with explicit clipping;
