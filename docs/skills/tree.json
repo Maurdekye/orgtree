@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 172,
+  "leaves": 173,
   "tools": 45,
-  "concepts": 50,
-  "total": 194
+  "concepts": 51,
+  "total": 195
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -24,7 +24,7 @@
   "skills-docs-sol": 13,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
-  "skilltree-opus": 2,
+  "skilltree-opus": 3,
   "compaction-cmds-sol": 1
  },
  "nodes": [
@@ -2689,7 +2689,8 @@
    ],
    "see_also": [
     "docket-review-and-attention",
-    "worktrees-and-git"
+    "worktrees-and-git",
+    "iterative-development"
    ],
    "writer": "comms-sol",
    "status": "fixed"
@@ -6886,7 +6887,7 @@
    "kind": "category",
    "registered": true,
    "description": "Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): suggested workflows for committees and development teams.",
-   "purpose": "Suggested workflow entry point: organise independent committee decisions and development teams.",
+   "purpose": "Suggested workflow entry point: organise independent decisions, development teams and iterative releases.",
    "children": [
     "collaboration-patterns"
    ],
@@ -6903,10 +6904,11 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "Choose an independent committee decision or a development team with an accountable implementer.",
+   "purpose": "Choose independent committee decisions, accountable development-team roles and an iterative release process.",
    "children": [
     "committee-mode",
-    "dev-team"
+    "dev-team",
+    "iterative-development"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -6995,7 +6997,8 @@
     "builds-under-the-lock",
     "reviews-and-landing",
     "org-templates",
-    "create-organization"
+    "create-organization",
+    "iterative-development"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7050,6 +7053,47 @@
      ]
     }
    ]
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/iterative-development",
+   "name": "orgtree-iterative-development",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:iterative-development"
+   ],
+   "purpose": "Two-phase specification/feedback and hardening, release-line routing, feature freeze and exact-build delivery.",
+   "must_cover": [
+    "explicit user phase gates per release line",
+    "phase1 author checks and exact-SHA integration",
+    "alpha quick smoke without independent or combined rounds",
+    "phase2 static/exact-SHA independent review and combined base comparison",
+    "user question returns phase1 until renewed go-ahead",
+    "release notes/version/publication owner",
+    "patch and feature lines with both-line patch base and merge forward",
+    "feature freeze and retained last fixes",
+    "installer path/sha256/change list",
+    "explicit small-fix alpha waiver",
+    "all new bugs target next line after confirmed release",
+    "generic suggested workflow, no new authority"
+   ],
+   "sources": [
+    "User development-phase rulings 2026-10-16 15:57Z, 15:58Z and 16:01Z; release-line ruling 2026-10-16 20:17Z; final-fix/release routing and publication request 2026-10-17 14:49-14:50Z",
+    "docs/skills/orgtree-working/workspace/reviews-and-landing/SKILL.md",
+    "docs/skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md",
+    "docs/skills/orgtree-working/docket/tool-work/SKILL.md",
+    "docs/skills/orgtree-working/user/tool-send-file/SKILL.md"
+   ],
+   "see_also": [
+    "dev-team",
+    "tool-work",
+    "reviews-and-landing",
+    "builds-under-the-lock",
+    "tool-send-file"
+   ],
+   "writer": "skilltree-opus",
+   "status": "fixed"
   }
  ],
  "exempt": {

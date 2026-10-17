@@ -8,6 +8,12 @@
   See [tool cards](docs/rust-engine/tool-cards.md). [decided: user/coordinator
   2026-10-17; verified: `tools/defs.rs`, `runtime/actor.rs`]
 
+- The generic specification/feedback and hardening release pattern has its home
+  in `orgtree-iterative-development` (orgtree-workflows › collaboration-patterns).
+  Phase gates and release-line routing there are suggested workflow rules, not
+  automatic product permissions. [decided: user 2026-10-17 14:50Z; documented:
+  `docs/skills/orgtree-workflows/collaboration-patterns/iterative-development/SKILL.md`]
+
 - Turn-body ORG STATE and PROVIDER USAGE headers use a full snapshot for a new
   session, then semantic row deltas or one-line references (including small
   reports). Ages never trigger refreshes; usage freshness/reset/limit transitions

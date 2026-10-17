@@ -27,5 +27,6 @@ Update the existing docket with the complete current outcome and remaining limit
 
 ## See also
 
+- `orgtree-iterative-development` (orgtree-workflows › collaboration-patterns): a suggested two-phase feedback and hardening process, with explicit user phase gates.
 - [orgtree-docket-review-and-attention](../../docket/docket-review-and-attention/SKILL.md)
 - [orgtree-worktrees-and-git](../worktrees-and-git/SKILL.md)
