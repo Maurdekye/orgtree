@@ -899,3 +899,24 @@ mod effort_enum_tests {
         assert_eq!(super::EFFORT, want.as_slice());
     }
 }
+
+#[cfg(test)]
+mod builder_stack_tests {
+    /// One-shot capture while all() is still byte-for-byte the c89111b source.
+    /// Removed after capture; the checked-in fixture remains the regression guard.
+    #[test]
+    #[ignore = "explicit pre-refactor snapshot capture only"]
+    fn capture_all_before_builder_split() {
+        let output = std::env::var_os("ORGTREE_ALL_TOOLS_SNAPSHOT").expect("snapshot output path");
+        let bytes = serde_json::to_vec(&super::all()).unwrap();
+        std::fs::write(output, &bytes).unwrap();
+        println!("captured all() serialized bytes: {}", bytes.len());
+    }
+
+    #[test]
+    fn all_tool_json_matches_pre_split_snapshot() {
+        let bytes = serde_json::to_vec(&super::all()).unwrap();
+        assert!(bytes.as_slice() == include_bytes!("../../testdata/tool-cards-c89111b.json"),
+            "all() JSON differs from the pre-split c89111b capture (tool order, key order, descriptions and schemas count)");
+    }
+}
