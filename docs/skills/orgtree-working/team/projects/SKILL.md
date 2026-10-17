@@ -36,7 +36,7 @@ Write to a project with `orgtree_message` to its name. Its mail wakes nobody: it
 
 ## Docket items
 
-`orgtree_work` `project=<name>` (create or update) attaches a docket item to the project; `project=""` detaches it. Attaching or detaching takes owner rights on the item, and attaching also needs you to reach the project. While an item is attached, every agent above or below the project co-owns it with full owner rights (update, status, assign, evidence, participants). It appears in their own lists and on the project's docket ("Open project docket" in the project's menu). The named owner stays the owner of record, and item-linked user replies still go to it.
+A project's docket lists every item owned by an agent under the project, nested projects included: the project desk's docket tab and "Open project docket" in its menu. Items are not attached to a project, and nobody co-owns an item because of one; give an item an owner under the project to put it on that docket. (`orgtree_work` refuses a `project` argument.)
 
 ## Presentations
 

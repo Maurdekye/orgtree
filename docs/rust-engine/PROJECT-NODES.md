@@ -128,26 +128,20 @@ the project don't get it. Like a team charter, it reaches a running CLI at its n
 on the document). The project's card shows its documents; the org gallery lists them under the
 project's name.
 
-## Docket (slice 2)
+## Docket
 
-User 20:23Z: docket items may attach to a project, and every agent under the project then
-co-owns the item with full owner rights.
+User 2026-10-17 22:21Z, superseding the 2026-10-16 20:23Z ruling that items may attach to a
+project: "just have a 'project docket' that can be viewed which shows all tickets assigned to
+agents under the project".
 
-- Storage: `work_items.extra.project_id` (no migration). The project's name is resolved at read
-  time, so it follows a rename.
-- Attach/detach: `orgtree_work` create/update `project=<name>`, or `project=""` to detach. It needs
-  owner (manage) rights on the item, and to attach an agent must also reach the project. The user
-  may attach or detach anything.
-- Co-owners: every agent below the project gets manage rights on the item through `level()`. So
-  does every agent above it, since control of a project's activities belongs to the agents above
-  it too [ruling 2, user 20:40Z]. That covers list, get, update, assign, evidence, participants and
-  linked-item visibility, and `event_readable` for watchdog events.
-- The named owner stays the owner of record. Item-linked user replies keep going to it
-  [user 20:40Z, choice 6].
-- Display: `get`/`list` carry `project: {node, co_owners}`. The docket detail shows "Project
-  <name> · co-owned by its agents". The project's docket ("Open project docket" in its menu,
-  the per-node docket surface) lists its attached items: the page query's `agent` filter
-  matches a project's attached items.
+- Items no longer attach to projects and nobody co-owns an item through a project. `orgtree_work`
+  create/update refuse a `project` argument with a plain explanation.
+- A project's docket (the desk's docket tab, "Open project docket" in its menu) lists every item
+  OWNED by an agent under the project, through nested projects: the page query's `agent=<project>`
+  reads as the team view rooted at the project, and the renderer uses `teamItems`.
+- Migration `0028_project_items_detach` moves any `extra.project_id` to `extra.former_project_id`,
+  a plain record with no rights attached. The item keeps its owner, history and every other field,
+  so nothing is lost; an item whose owner sits under the project still shows on its docket.
 
 ## UI (first slice)
 
@@ -178,7 +172,7 @@ co-owns the item with full owner rights.
   and header; a click never opens a modal (20:04Z). No chat: a project takes no turns. It pins as
   a window like an agent desk.
   - Tabs: **desk**, then the agent desk's three: **inbox** (its mailbox), **docket** (items
-    attached to it) and **presented** (documents presented under it with `orgtree_present
+    owned by agents under it) and **presented** (documents presented under it with `orgtree_present
     project=`, plus every document presented by a node below it, nested projects included: the
     engine's gallery widens `node=<project>` to the subtree; user 2026-10-17 20:07:52Z).
     An agent's own gallery is unchanged.
@@ -193,9 +187,8 @@ co-owns the item with full owner rights.
 - **Dissolving a project** is the agent `dissolve`: the project and every agent under it are
   archived with context kept, fair_queue and other dogs of the archived agents pause, and each
   comes back with rehire (a restored project comes back alone, its agents stay retired until
-  rehired). Its folder, mailbox (waiting mail stays), presentations and attached docket items
-  are untouched; the items keep their `project_id` and named owner, but with nobody live under
-  the project nobody co-owns them until agents are restored.
+  rehired). Its folder, mailbox (waiting mail stays) and presentations are untouched; docket
+  items stay with their owners.
 - **Project settings** (`ProjectConfig`, 20:10Z): Open project folder, Name (rename), Project
   actions (retire or dissolve, restore, delete permanently), Description, Subordinates may
   message each other, and History when the node has records. Left out as turn- or credit-only:
@@ -229,8 +222,7 @@ co-owns the item with full owner rights.
 
 ## Deferred
 
-A docket picker for attaching from the app (the user attaches through an agent or the API for
-now); a user composer for project mail; `@org:`/`@net:` mail to
+A user composer for project mail; `@org:`/`@net:` mail to
 projects; undo-history entries for project operations; renaming a project or editing its
 description from the canvas (agents can `orgtree_rename` it); project-aware Quick chat and hire
 sheets; chart/docket visuals pending the user's answer.
