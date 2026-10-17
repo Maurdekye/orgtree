@@ -55,10 +55,10 @@ const handlers = (extra: Partial<AgentMenuHandlers> = {}): AgentMenuHandlers => 
   onInbox: noop, onSettings: noop, onRetireAsk: noop, ...extra,
 })
 type Item = Exclude<ReturnType<typeof agentMenuEntries>[number], 'sep'>
-/** 4.2: the subtree compaction is the "subtree" entry under the "Cheap compact…" branch */
+/** 4.2: the subtree compaction is the "Cheap compact subtree…" entry under the "Compact…" branch */
 const subtreeEntry = (node: CanvasNode, h: AgentMenuHandlers): Item | undefined => {
-  const branch = agentMenuEntries(node, h).find((e): e is Item => e !== 'sep' && e.label === 'Cheap compact…')
-  return branch?.children?.find((c) => c.label === 'subtree')
+  const branch = agentMenuEntries(node, h).find((e): e is Item => e !== 'sep' && e.label === 'Compact…')
+  return branch?.children?.find((c) => c.label === 'Cheap compact subtree…')
 }
 const labelsOf = (node: CanvasNode, h: AgentMenuHandlers) =>
   agentMenuEntries(node, h).map((e) => (e === 'sep' ? 'sep' : e.label))
@@ -71,7 +71,7 @@ test('§1a a live agent with live reports offers the subtree entry, above the '
   const labels = labelsOf(boss, handlers())
   const entry = subtreeEntry(boss, handlers())
   assert.ok(entry, JSON.stringify(labels))
-  assert.ok(labels.indexOf('Cheap compact…') < labels.indexOf('Dissolve…'), JSON.stringify(labels))
+  assert.ok(labels.indexOf('Compact…') < labels.indexOf('Dissolve…'), JSON.stringify(labels))
   assert.ok(!entry.danger, 'compaction retires no one; it must not read as a destructive action')
 })
 

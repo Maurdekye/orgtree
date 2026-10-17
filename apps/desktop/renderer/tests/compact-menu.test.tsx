@@ -1,16 +1,20 @@
 import { inAct, mountView, flush } from './harness'
-import test from 'node:test'
+import test, { beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { agentMenuEntries, AgentRetireConfirm } from '../src/canvas/agentmenu'
 import { CurrentOrg } from '../src/popout'
 import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
 import type { CanvasNode, OpFn } from '../src/canvas/shared'
 
+const originalFetch=globalThis.fetch
+const response=(data:unknown)=>({ok:true,status:200,headers:new Headers(),json:async()=>data} as Response)
+beforeEach(()=>{globalThis.fetch=(async()=>response({supported:true,reason:null})) as typeof fetch})
+afterEach(()=>{globalThis.fetch=originalFetch})
 const noop=()=>{}
 const agent=(extra:Record<string,unknown>={}):CanvasNode=>({
   id:'worker',state:'live',tier:'sonnet',model_id:'sonnet',children:[],
   session_id:'session',busy:false,seat:2,grant:0,free:0,
-  normal_compact:{supported:true,reason:null},...extra,
+  ...extra,
 } as unknown as CanvasNode)
 const handlers=(extra:Partial<AgentMenuHandlers>={}):AgentMenuHandlers=>({
   onInbox:noop,onSettings:noop,onHalt:noop,onRetireAsk:noop,...extra,
@@ -68,7 +72,8 @@ test('compact modal explains both choices and offers Cancel',async()=>{
   }finally{await v.unmount()}
 })
 test('unsupported normal compaction is disabled with a visible reason',async()=>{
-  const v=await mountView(compact(agent({normal_compact:{supported:false,reason:'Codex does not support normal compact in Orgtree.'}})),el=>el)
+  globalThis.fetch=(async()=>response({supported:false,reason:'Codex does not support normal compact in Orgtree.'})) as typeof fetch
+  const v=await mountView(compact(),el=>el)
   try{
     const normal=button(v.el,'Normal compact')
     assert.ok(normal)
@@ -80,8 +85,9 @@ test('unsupported normal compaction is disabled with a visible reason',async()=>
 test('normal compact sends the existing route and reports started:false truthfully',async()=>{
   const old=globalThis.fetch,paths:string[]=[],notes:string[]=[]
   globalThis.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{
-    paths.push(String(input));assert.equal(init?.method,'POST')
-    return {ok:true,status:200,headers:new Headers(),json:async()=>({started:false,reason:'the agent is halted'})} as Response
+    if(init?.method!=='POST')return response({supported:true,reason:null})
+    paths.push(String(input))
+    return response({started:false,reason:'the agent is halted'})
   }) as typeof fetch
   const v=await mountView(compact(agent(),undefined,x=>notes.push(...x)),el=>el)
   try{
@@ -116,4 +122,28 @@ test('Cancel owns initial focus, Tab stays inside, Escape restores the opener',a
   }finally{await v.unmount()}
   assert.equal(document.activeElement===opener,true)
   opener.remove()
+})
+
+test('failed capability read keeps normal disabled and cheap available',async()=>{
+  globalThis.fetch=(async()=>{throw new Error('offline')}) as typeof fetch
+  const v=await mountView(compact(),el=>el)
+  try{
+    assert.equal(button(v.el,'Normal compact')?.disabled,true)
+    assert.equal(button(v.el,'Cheap compact')?.disabled,false)
+    assert.match(dialog(v.el)?.textContent??'',/Could not check normal compaction: offline/)
+  }finally{await v.unmount()}
+})
+test('an admitted normal compact reports started and never sends a cheap op',async()=>{
+  const methods:string[]=[],notes:string[]=[],ops:unknown[]=[]
+  globalThis.fetch=(async(_input:RequestInfo|URL,init?:RequestInit)=>{
+    methods.push(init?.method??'GET')
+    return response(init?.method==='POST'?{started:true}:{supported:true,reason:null})
+  }) as typeof fetch
+  const v=await mountView(compact(agent(),async req=>{ops.push(req);return {} as never},xs=>notes.push(...xs)),el=>el)
+  try{
+    await inAct(async()=>{button(v.el,'Normal compact')!.click();await flush()})
+    assert.deepEqual(methods,['GET','POST'])
+    assert.deepEqual(ops,[])
+    assert.deepEqual(notes,['compaction of worker started'])
+  }finally{await v.unmount()}
 })

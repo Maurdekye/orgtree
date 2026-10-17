@@ -1,3 +1,4 @@
+import { AgentCompactConfirm } from './agentcompact'
 import { historyEnabled, historyUndo } from '../historyregistry'
 import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/systemruns'
 import { livePartials } from '../livePartials'
@@ -57,7 +58,7 @@ import type {
 } from '../types'
 import { openAppSettings } from './settingskit'
 import {
-  audienceAction, compactNode, fileBase, fileUrl, getChat,
+  audienceAction, fileBase, fileUrl, getChat,
   interruptNode, processControl, retractMail,
   saveScope, sendMessage,
   unstickNode, uploadFile,
@@ -3615,46 +3616,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             .catch(() => {})}
           close={() => setAsking(null)} />
       )}
-      {askCompact && (() => {
-        // FR-24: only backend evidence may call the next turn known-cold.
-        // Generic UI idle / last-turn age is neither an authoritative cache
-        // receipt nor a provider-lane TTL and must never manufacture expiry.
-        const forecast = node.cache_forecast
-        const cold = forecast?.state === 'known_incompatible'
-          || forecast?.state === 'expired_known_entry'
-        const coldLabel = forecast?.state === 'known_incompatible'
-          ? 'incompatible with the last observed cache entry'
-          : 'past the derived cache TTL'
-        return <ConfirmModal title={`compact ${node.id} now?`}
-          body={'Same as the automatic split: the session forks and compacts — '
-            + 'the successor carries on under this name; the pre-compaction '
-            + 'self is archived in place as a consultable knowledge bearer.'
-            + (cold ? ` ⚠ The next-turn cache forecast is ${coldLabel}`
-              + (forecast?.reason ? `: ${forecast.reason}` : '')
-              + '. This fork re-reads the whole transcript at near-full price. CHEAP '
-              + 'COMPACT instead retires the agent and hires a fresh '
-              + 'replacement (same tier/grant/charter) that reads the old '
-              + 'transcript selectively, read-only, only as needed.'
-              : ' Cheap compact is the fresh-replacement alternative: zero '
-              + 'starting context, the old transcript granted read-only.')}
-          confirmLabel="compact"
-          onConfirm={() => compactNode(slug, node.id)
-            .then(() => toast([`compaction of ${node.id} started`]))
-            .catch((e: Error) => toast([`error: ${e.message}`]))}
-          altLabel="cheap compact"
-          onAlt={() => op({ op: 'cheap_compact', node: node.id })
-            .then(() => {
-              // the session just changed under this desk — ask for the chat
-              // NOW rather than letting the old transcript sit until the
-              // next heartbeat (user report 2026-08-12; the 89fecd9 class:
-              // the client must refetch the thing it is actually rendering)
-              void refresh(true)
-              toast([`${node.id} cheap-compacted — fresh session; its old `
-                + 'self is consultable in its lineage'])
-            })
-            .catch((e: Error) => toast([`error: ${e.message}`]))}
-          close={() => setAskCompact(false)} />
-      })()}
+      {askCompact && <AgentCompactConfirm node={node} slug={slug} op={op} toast={toast}
+        onCheap={() => { void refresh(true) }} close={() => setAskCompact(false)}/>}
       {/* last_error moved INTO the chat stream (it renders at the end, where
           it actually occurred). On the non-chat tabs it would otherwise be the
           only surface showing a failed turn, so it still renders here for

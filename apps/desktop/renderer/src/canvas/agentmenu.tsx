@@ -39,6 +39,7 @@ import type { ToastFn } from '../types'
 import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
+import { AgentCompactConfirm } from './agentcompact'
 import { fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
@@ -260,25 +261,25 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const hasTeam = canRetire && descendants.length > 0
   const lifecycle: MenuEntry[] = []
   if (ask) lifecycle.push({
-    label: 'Cheap compact…', warning: true,
+    label: 'Compact…', warning: true,
     disabled: !canRetire,
     actionDisabled: !!node.busy || !node.session_id,
     title: !canRetire ? 'Only live agents can be compacted'
       : node.busy ? 'Wait until this agent finishes its turn'
       : !node.session_id ? 'No conversation to compact yet'
-      : 'Start a fresh session with a handoff from this conversation',
+      : 'Choose normal harness compaction or a fresh session with a summary handoff',
     onSelect: () => ask('cheap-compact'),
     children: hasTeam ? [
-      { label: 'subtree', warning: true,
+      { label: 'Cheap compact subtree…', warning: true,
         title: `Cheap-compact ${node.id} and its live descendants; busy agents are skipped`,
         onSelect: () => ask('cheap-compact-subtree') },
-      { label: 'all subordinates', warning: true,
+      { label: 'Cheap compact all subordinates…', warning: true,
         title: `Cheap-compact live descendants only; ${node.id} stays unchanged`,
         onSelect: () => ask('cheap-compact-subordinates') },
     ] : undefined,
   })
   if (canRetire && h.onHalt) lifecycle.push({
-    label: node.halt?.phase === 'halted' ? 'Unhalt…' : 'Halt…',
+    label: (node.halt?.phase === 'halted' ? 'Unhalt' : 'Halt') + (hasTeam && ask ? '…' : ''),
     title: node.halt?.phase === 'halted' ? 'Allow pending work to resume'
       : node.halt?.phase === 'halting' ? 'Finish halting the active turn'
       : 'End this turn and block wakes until explicitly unhalted',
@@ -432,13 +433,7 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
       op={op} toast={toast} close={close} />
   }
   if (kind === 'cheap-compact') {
-    return <ConfirmModal title={`cheap compact ${node.id}?`}
-      body="Start a fresh session seeded with a handoff from this conversation. The agent keeps its settings and team; its previous conversation is retained."
-      confirmLabel="cheap compact"
-      onConfirm={() => op({ op: 'cheap_compact', node: node.id })
-        .then(() => toast([`${node.id} cheap-compacted — fresh session ready`]))
-        .catch((e: Error) => toast([`error: ${e.message}`]))}
-      close={close} />
+    return <AgentCompactConfirm node={node} op={op} toast={toast} close={close}/>
   }
   if (kind === 'cheap-compact-subtree' || kind === 'cheap-compact-subordinates') {
     const descendantsOnly = kind === 'cheap-compact-subordinates'

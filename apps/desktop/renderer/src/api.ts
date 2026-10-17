@@ -619,7 +619,10 @@ export const processControl = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action }),
   })
-export const compactNode = (slug: string, nid: string): Promise<{ started: boolean }> =>
+export interface CompactCapability { supported: boolean; reason: string | null }
+export const compactCapability = (slug: string, nid: string): Promise<CompactCapability> =>
+  req(`/api/orgs/${slug}/nodes/${nid}/compact`)
+export const compactNode = (slug: string, nid: string): Promise<{ started: boolean; reason?: string }> =>
   req(`/api/orgs/${slug}/nodes/${nid}/compact`, { method: 'POST' })
 /** ⭐ the user's per-node override (ruling 2026-08-06): releases EVERY lock
  *  holding the agent — any freeze kind, limit_locked, the org fable_lock if
