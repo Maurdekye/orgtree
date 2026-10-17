@@ -187,6 +187,9 @@ pub async fn chart(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
 }
 
 /// Read-only scope evaluation over one coherent, paged structural snapshot.
+#[cfg(test)]
+mod session_measurement_tests;
+
 #[logged]
 fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value) -> Result<Value> {
     let mut chain = Vec::new();
