@@ -871,6 +871,12 @@ mod startup_card_tests {
 
     #[test]
     fn startup_card_measurements() {
+        if let Some(file) = std::env::var_os("ORGTREE_TOOL_CARDS_FILE") {
+            std::fs::write(file,serde_json::to_vec(&json!({
+                "split":scoped_as(&json!({}),MailShape::Split),
+                "flat":scoped_as(&json!({}),MailShape::Flat)
+            })).unwrap()).unwrap();
+        }
         let off = json!({"orgtree": crate::domain::tool_groups::GROUPS.iter().map(|g| ((*g).to_owned(), json!(false))).collect::<serde_json::Map<_,_>>()});
         for (lane, shape) in [("claude",MailShape::Split),("codex",MailShape::Split),
             ("antigravity",MailShape::Flat),("muse",MailShape::Split),("opencode",MailShape::Split)] {
