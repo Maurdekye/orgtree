@@ -224,11 +224,11 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     assert.deepEqual(have, [
       // User 2026-09-30: only Focus and Open desk swap; all other slots stay.
       // 4.2: the entries group under branches (Open ▸, Hire a subordinate ▸); '· ' marks a branch's entry
-      'Copy agent name', 'Focus', 'Hire a subordinate ▸',
+      // USER 2026-10-17 21:18Z: "New project here…" directly under "Hire a subordinate"
+      'Copy agent name', 'Focus', 'Hire a subordinate ▸', 'New project here…',
       'Open ▸', '· Open desk', '· Open desk in a new window', '· Pin desk as a window',
       '· Open inbox', '· Open docket', '· Open team docket',
-      // 4.4.0 project nodes (docs/rust-engine/PROJECT-NODES.md): before the lifecycle group
-      'Settings', 'Acquire audience', 'New project here…', 'Cheap compact…', 'Halt…', 'Retire…',
+      'Settings', 'Acquire audience', 'Cheap compact…', 'Halt…', 'Retire…',
     ], 'the agent menu, in order')
   })
 
