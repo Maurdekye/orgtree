@@ -324,10 +324,10 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
             d=next;pending=staged;batch.clear();if fresh_baseline{baseline=Some(now);}
             set_health(engine,&d,None);
             if d.silence(){
-                if d.due_in().map(|s|s<=0).unwrap_or(false){if fire(engine,&d,&[silence_line(&d)]," WENT QUIET —").await?{return Ok(true)}d.fired+=1;d.silence_since=Some(Utc::now());}
+                if d.due_in().map(|s|s<=0).unwrap_or(false){if fire_quiet(engine,&mut d).await?{return Ok(true)}d.fired+=1;}
             }else if !pending.events.is_empty() && d.last_fired.map(|t|Utc::now()>=t+chrono::Duration::seconds(d.interval_s.max(STREAM_FLOOR_S))).unwrap_or(true){
                 let lines=pending.lines(&access);
-                if !lines.is_empty(){if fire(engine,&d,&lines,"").await?{return Ok(true)}d.fired+=1;d.last_fired=Some(Utc::now());}
+                if !lines.is_empty(){if fire(engine,&mut d,&lines,"").await?{return Ok(true)}d.fired+=1;d.last_fired=Some(Utc::now());}
                 pending=Pending::default();
             }
             Ok(false)

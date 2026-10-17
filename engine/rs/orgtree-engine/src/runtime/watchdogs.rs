@@ -100,6 +100,8 @@ struct Dog {
     created_at: DateTime<Utc>,
     last_fired: Option<DateTime<Utc>>,
     last_check: Option<DateTime<Utc>>,
+    next_check_at: Option<DateTime<Utc>>,
+    next_silence_at: Option<DateTime<Utc>>,
     silence_since: Option<DateTime<Utc>>,
     exit: Option<Value>,
     memo: Value,
@@ -130,9 +132,30 @@ impl Dog {
         if !self.silence() {
             return None;
         }
-        let quiet = self.quiet_s.unwrap_or(600);
-        let since = self.silence_since.unwrap_or(self.created_at);
-        Some(quiet - (Utc::now() - since).num_seconds())
+        let wait=schedule::wait_until(self.quiet_deadline(),Utc::now());
+        Some(wait.as_secs() as i64+i64::from(wait.subsec_nanos()>0))
+    }
+
+    #[nolog]
+    fn polling(&self)->bool { matches!(self.kind.as_str(),"file"|"command"|"process") }
+
+    #[nolog]
+    fn poll_deadline(&self)->DateTime<Utc> {
+        self.next_check_at.unwrap_or_else(|| self.last_check
+            .map(|at|at+chrono::Duration::seconds(self.interval_s.max(FLOOR_S)))
+            .unwrap_or(self.created_at))
+    }
+
+    #[nolog]
+    fn quiet_deadline(&self)->DateTime<Utc> {
+        self.next_silence_at.unwrap_or_else(||self.silence_since.unwrap_or(self.created_at)
+            +chrono::Duration::seconds(self.quiet_s.unwrap_or(600).max(1)))
+    }
+
+    #[nolog]
+    fn next_wake(&self)->DateTime<Utc> {
+        let poll=self.poll_deadline();
+        if self.silence() { poll.min(self.quiet_deadline()) } else { poll }
     }
 
     #[nolog]
@@ -160,7 +183,7 @@ fn matches(re: &Result<Option<Regex>, String>, line: &str) -> bool {
 
 const DOG_COLS: &str = "w.uid, w.org_id, w.owner_agent_id, a.name, a.state = 'live', a.scratch_dir, w.name, w.kind, w.target,
     w.pattern, w.shell, w.interval_s, w.fire_mode, w.quiet_period_s, w.once, w.state, w.fired, w.created_at, w.last_fired,
-    w.silence_since, w.exit, w.memo, w.id, w.last_check";
+    w.silence_since, w.exit, w.memo, w.id, w.last_check, w.next_check_at, w.next_silence_at";
 /// The states in which a dog holds its id (D67): a removed or spent dog's
 /// id is free again for a new dog of the same owner.
 const HOLDS_ID: &str = "('armed', 'paused', 'exited')";
@@ -189,6 +212,8 @@ fn dog_of(r: &tokio_postgres::Row) -> Dog {
         created_at: r.get(17),
         last_fired: r.get(18),
         last_check: r.get(23),
+        next_check_at: r.get(24),
+        next_silence_at: r.get(25),
         silence_since: r.get(19),
         exit: r.get(20),
         run: memo.get("run").cloned().filter(Value::is_object).unwrap_or_else(|| json!({})),
@@ -380,7 +405,8 @@ async fn run_fair_queue(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationTok
 async fn run_poll(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken) -> Result<()> {
     loop {
         let Some(dog) = load(engine, row).await? else { return Ok(()) };
-        let deadline=dog.last_check.unwrap_or(dog.created_at)+chrono::Duration::seconds(dog.interval_s.max(FLOOR_S));
+        if dog.state!="armed" { return Ok(()); }
+        let deadline=dog.next_wake();
         tokio::select! {
             _=tokio::time::sleep(schedule::wait_until(deadline,Utc::now()))=>{},
             _=cancel.cancelled()=>return Ok(()),
@@ -424,12 +450,11 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
     save_run(engine, &mut dog, matched).await?;
     if dog.silence() {
         if dog.due_in().map(|s| s <= 0).unwrap_or(false) {
-            if fire(engine, &dog, &[silence_line(&dog)], " WENT QUIET —").await? {
+            if fire_quiet(engine, &mut dog).await? {
                 return Ok(None);
             }
-            dog.silence_since = Some(Utc::now());
         }
-    } else if matched && fire(engine, &dog, &events, "").await? {
+    } else if matched && fire(engine, &mut dog, &events, "").await? {
         return Ok(None);
     }
     if let Some(lost) = subject_lost(&dog) {
@@ -440,13 +465,7 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
             return Ok(None);
         }
     }
-    let now=Utc::now();
-    let deadline=dog.last_check.unwrap_or(dog.created_at)+chrono::Duration::seconds(dog.interval_s.max(FLOOR_S));
-    let mut wait=(schedule::next_slot(deadline,dog.interval_s.max(FLOOR_S),now)-now).num_seconds();
-    if let Some(d) = dog.due_in() {
-        wait = wait.min(d.max(1));
-    }
-    Ok(Some(Duration::from_secs(wait as u64)))
+    Ok(Some(schedule::wait_until(dog.next_wake(),Utc::now())))
 }
 
 /// Check the target once: the matching event lines, and whether the subject
@@ -585,23 +604,26 @@ fn note_life(run: &mut Value, alive: bool) {
 #[logged]
 async fn save_run(engine: &Engine, dog: &mut Dog, matched: bool) -> Result<()> {
     let reset = matched && dog.silence();
+    let now=Utc::now();
+    let next_poll=dog.polling().then(||schedule::next_slot(dog.poll_deadline(),dog.interval_s.max(FLOOR_S),now));
+    let changed=reset || next_poll!=dog.next_check_at;
     let client = engine.db.get().await?;
     let updated = client
         .query_opt(
             "UPDATE ot.watchdogs SET last_check = now(), memo = jsonb_set(memo, '{run}', $2),
-                    silence_since = CASE WHEN $3 THEN now() ELSE silence_since END
-              WHERE id = $1 AND state = 'armed' RETURNING silence_since",
-            &[&dog.row, &dog.run, &reset],
+                    silence_since = CASE WHEN $3 THEN now() ELSE silence_since END,
+                    next_check_at = $4,
+                    next_silence_at = CASE WHEN $3 THEN now()+greatest(coalesce(quiet_period_s,600),1)*interval '1 second' ELSE next_silence_at END
+              WHERE id = $1 AND state = 'armed' RETURNING silence_since,next_check_at,next_silence_at,last_check",
+            &[&dog.row, &dog.run, &reset, &next_poll],
         )
         .await?;
     drop(client);
-    if reset {
-        if let Some(reset_at) = updated.and_then(|row| row.get::<_, Option<DateTime<Utc>>>(0)) {
-            dog.silence_since = Some(reset_at);
-            // Ordinary polls leave the watchdog feed untouched. A matching
-            // silence poll changes the real next deadline, so refresh its group.
-            changes::notify_id(engine, dog.org_id, vec![Change::Watchdogs]);
-        }
+    if let Some(row)=updated {
+        dog.silence_since=row.get(0);dog.next_check_at=row.get(1);
+        dog.next_silence_at=row.get(2);dog.last_check=row.get(3);
+        // The countdown now consumes durable evidence, not a browser forecast.
+        if changed {changes::notify_id(engine,dog.org_id,vec![Change::Watchdogs]);}
     }
     Ok(())
 }
@@ -942,6 +964,7 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
                 if d.silence() {
                     matched_at = Some(Utc::now());
                     d.silence_since = matched_at;
+                    d.next_silence_at=matched_at.map(|at|at+chrono::Duration::seconds(d.quiet_s.unwrap_or(600).max(1)));
                 } else if pending.len() < 200 {
                     pending.push(gist(&line, 300));
                 }
@@ -950,7 +973,7 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
         if !pending.is_empty() && last_fire.map(|t| t.elapsed() >= gap).unwrap_or(true) {
             let ev = std::mem::take(&mut pending);
             last_fire = Some(Instant::now());
-            if fire(engine, &d, &ev, "").await? {
+            if fire(engine, &mut d, &ev, "").await? {
                 let _ = child.start_kill();
                 return Ok(());
             }
@@ -979,11 +1002,10 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
             }
         }
         if d.due_in().map(|s| s <= 0).unwrap_or(false) {
-            if fire(engine, &d, &[silence_line(&d)], " WENT QUIET —").await? {
+            if fire_quiet(engine, &mut d).await? {
                 let _ = child.start_kill();
                 return Ok(());
             }
-            d.silence_since = Some(Utc::now());
         }
     }
     // the stream ended
@@ -1019,7 +1041,8 @@ async fn save_stream(engine: &Engine, row: i64, run: &Value, matched_at: Option<
     client
         .execute(
             "UPDATE ot.watchdogs SET last_check = now(), memo = jsonb_set(memo, '{run}', $2),
-                    silence_since = coalesce($3, silence_since)
+                    silence_since = CASE WHEN $3::timestamptz > coalesce(silence_since,created_at) THEN $3 ELSE silence_since END,
+                    next_silence_at = CASE WHEN $3::timestamptz > coalesce(silence_since,created_at) THEN $3+greatest(coalesce(quiet_period_s,600),1)*interval '1 second' ELSE next_silence_at END
               WHERE id = $1 AND state = 'armed'",
             &[&row, run, &matched_at],
         )
@@ -1031,13 +1054,13 @@ async fn save_stream(engine: &Engine, row: i64, run: &Value, matched_at: Option<
 #[logged]
 async fn silence_clock(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken) -> Result<()> {
     loop {
-        let Some(d) = load(engine, row).await? else { return Ok(()) };
+        let Some(mut d) = load(engine, row).await? else { return Ok(()) };
         if d.state != "armed" || !d.silence() {
             return Ok(());
         }
         let due = d.due_in().unwrap_or(60);
         if due <= 0 {
-            if fire(engine, &d, &[silence_line(&d)], " WENT QUIET —").await? {
+            if fire_quiet(engine, &mut d).await? {
                 return Ok(());
             }
             continue;
@@ -1081,7 +1104,7 @@ async fn activity_loop(
     let mut last_fire: Option<Instant> = None;
     loop {
         let wait = match d.due_in() {
-            Some(s) => Duration::from_secs(s.max(1) as u64),
+            Some(s) => Duration::from_secs(s.max(0) as u64),
             None if !pending.is_empty() => last_fire.map(|t| gap.saturating_sub(t.elapsed())).unwrap_or_default(),
             None => Duration::from_secs(3600),
         };
@@ -1119,11 +1142,10 @@ async fn activity_loop(
                     pause(engine, &d, NOT_BELOW).await?;
                     return Ok(());
                 }
-                if fire(engine, &d, &[silence_line(&d)], " WENT QUIET —").await? {
+                if fire_quiet(engine, &mut d).await? {
                     return Ok(());
                 }
-                d.silence_since = Some(Utc::now());
-            }
+                }
             continue;
         }
         for h in hits {
@@ -1138,7 +1160,7 @@ async fn activity_loop(
             }
             let ev = std::mem::take(&mut pending);
             last_fire = Some(Instant::now());
-            if fire(engine, &d, &ev, "").await? {
+            if fire(engine, &mut d, &ev, "").await? {
                 return Ok(());
             }
         }
@@ -1166,30 +1188,39 @@ async fn below(engine: &Engine, owner: i64, node: i64) -> Result<bool> {
 /// Record the fire and mail the owner. Returns whether the dog is done
 /// (a one-shot dog is spent by its fire; a dog changed underneath is left be).
 #[logged]
-async fn fire(engine: &Arc<Engine>, dog: &Dog, events: &[String], prefix: &str) -> Result<bool> {
+async fn fire_quiet(engine:&Arc<Engine>,dog:&mut Dog)->Result<bool> {
+    let line=silence_line(dog);
+    fire(engine,dog,&[line]," WENT QUIET —").await
+}
+
+#[logged]
+async fn fire(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefix: &str) -> Result<bool> {
     let clean:Vec<String>=events.iter().map(|s|s.replace('\0',"" )).collect();
     let events=clean.as_slice();
     let now = Utc::now();
+    let next_quiet=dog.silence().then(||schedule::next_slot(dog.quiet_deadline(),dog.quiet_s.unwrap_or(600),now));
     let ring: Vec<Value> = events.iter().take(20).map(|e| json!({ "at": iso(now), "gist": gist(e, 200) })).collect();
     let client = engine.db.get().await?;
     let row = client
         .query_opt(
             "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = now(),
                     silence_since = CASE WHEN fire_mode = 'silence' THEN now() ELSE silence_since END,
+                    next_silence_at = CASE WHEN fire_mode = 'silence' THEN $4 ELSE next_silence_at END,
                     events = (SELECT coalesce(jsonb_agg(x ORDER BY n), '[]'::jsonb) FROM (
                         SELECT x, n FROM jsonb_array_elements(events || $2) WITH ORDINALITY AS e(x, n)
                          ORDER BY n DESC LIMIT $3) s),
                     spent_at = CASE WHEN once THEN now() ELSE spent_at END,
                     state = CASE WHEN once THEN 'spent' ELSE state END
               WHERE id = $1 AND state = 'armed'
-              RETURNING once, fired",
-            &[&dog.row, &json!(ring), &EVENTS_KEEP],
+              RETURNING once, fired, last_fired, silence_since, next_silence_at",
+            &[&dog.row, &json!(ring), &EVENTS_KEEP, &next_quiet],
         )
         .await?;
     drop(client);
     let Some(row) = row else { return Ok(true) };
     let once: bool = row.get(0);
     let fired: i32 = row.get(1);
+    dog.last_fired=row.get(2);dog.silence_since=row.get(3);dog.next_silence_at=row.get(4);
     let body = fire_body(dog, events, prefix, once, fired);
     let lines: Vec<String> = events.iter().take(40).cloned().collect();
     let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, prefix.trim(), &lines, once));
@@ -1737,8 +1768,8 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         let inserted = client
             .query_one(
                 "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s, fire_mode,
-                                           quiet_period_s, once, state, memo, silence_since)
-                 VALUES ($1, $2, $3, $1, $4, $5, $6, $7, $8, $9, $10, $11, 'armed', $12, CASE WHEN $9 = 'silence' THEN now() END)
+                                           quiet_period_s, once, state, memo, silence_since,next_check_at,next_silence_at)
+                 VALUES ($1, $2, $3, $1, $4, $5, $6, $7, $8, $9, $10, $11, 'armed', $12, CASE WHEN $9 = 'silence' THEN now() END, CASE WHEN $4 IN ('file','command','process') THEN now() END, CASE WHEN $9 = 'silence' THEN now()+greatest(coalesce($10,600),1)*interval '1 second' END)
                  RETURNING id",
                 &[&id, &org_id, &owner, &kind, &target, &pattern, &shell_col, &interval, &fire_mode, &quiet, &once, &memo],
             )
@@ -1880,6 +1911,8 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
                 .execute(
                     "UPDATE ot.watchdogs SET state = 'armed', exit = NULL,
                             silence_since = CASE WHEN fire_mode = 'silence' THEN now() ELSE silence_since END,
+                            next_check_at = CASE WHEN kind IN ('file','command','process') THEN now() END,
+                            next_silence_at = CASE WHEN fire_mode='silence' THEN now()+greatest(coalesce(quiet_period_s,600),1)*interval '1 second' END,
                             memo = (memo - 'paused_why' - 'paused_by') #- '{run,alerted}' #- '{run,broken}'
                       WHERE id = $1",
                     &[&dog.row],
@@ -1957,6 +1990,8 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
             put("event_scope",d.memo["event_scope"].clone());
             put("last_fired", json!(d.last_fired.map(iso)));
             put("last_check", json!(last_check.map(iso)));
+            put("next_check_at",json!(d.next_check_at.map(iso)));
+            put("next_silence_at",json!(d.next_silence_at.map(iso)));
             put("last_output", d.run["last_output"].clone());
             put("last_exit", d.run["last_exit"].clone());
             put("paused_why", d.memo["paused_why"].clone());
@@ -2033,7 +2068,9 @@ pub async fn resume_owned(tx: &tokio_postgres::Transaction<'_>, owner: i64) -> R
     let rows = tx
         .query(
             "UPDATE ot.watchdogs SET state = 'armed', memo = memo - 'paused_why',
-                    silence_since = CASE WHEN fire_mode = 'silence' THEN now() ELSE silence_since END
+                    silence_since = CASE WHEN fire_mode = 'silence' THEN now() ELSE silence_since END,
+                    next_check_at = CASE WHEN kind IN ('file','command','process') THEN now() END,
+                    next_silence_at = CASE WHEN fire_mode='silence' THEN now()+greatest(coalesce(quiet_period_s,600),1)*interval '1 second' END
               WHERE owner_agent_id = $1 AND state = 'paused' AND memo->>'paused_why' = $2 RETURNING id, name",
             &[&owner, &ARCHIVE_PAUSE],
         )
