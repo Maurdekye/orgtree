@@ -1,5 +1,10 @@
 # AGENTS.md — working on Orgtree
 
+- Committees canonically live in a dedicated project under their supervisor,
+  with every member directly under it and Project Settings > Subordinates may
+  message each other OFF. The complete workflow remains in `orgtree-committee-mode`
+  (orgtree-workflows > collaboration-patterns). [decided: user 2026-10-17 22:00Z]
+
 - Markdown links to local Windows files may use `file:///C:/...` or another
   drive letter; normalize only this empty-authority form before sanitization and
   keep it reveal-only. Unsupported file URLs stay plain text after sanitization
