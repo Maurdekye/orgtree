@@ -86,6 +86,8 @@ pub fn normalize_tools(t: &Value) -> Value {
 
 #[logged]
 pub(crate) fn norm_path(p: &str) -> String {
+    #[cfg(test)]
+    normalization_measurement::record();
     // Match 3.x normpath before containment: work/../outside is not inside work.
     // Case folds only on Windows; other filesystems are case-sensitive.
     let s = p.replace('/', "\\");
@@ -103,6 +105,14 @@ pub(crate) fn norm_path(p: &str) -> String {
     let mut out = format!("{prefix}{}", parts.join("\\"));
     if rooted && out.ends_with(':') { out.push('\\'); }
     out
+}
+
+#[cfg(test)]
+pub(crate) mod normalization_measurement {
+    std::thread_local! { static CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    pub fn reset() { CALLS.set(0); }
+    pub fn count() -> usize { CALLS.get() }
+    pub fn record() { CALLS.set(CALLS.get()+1); }
 }
 
 /// Is `child` the same as or inside `parent` (case-insensitive on Windows)?

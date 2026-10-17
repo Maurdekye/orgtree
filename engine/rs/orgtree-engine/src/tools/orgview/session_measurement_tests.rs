@@ -18,7 +18,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for NormCalls {
 }
 
 #[test]
-fn session_blip_scope_baseline_measurement() {
+fn session_scope_baseline_measurement() {
     let mut rows=HashMap::new();
     let dirs:Vec<Value>=(0..24).map(|n|json!({"path":format!("D:/synthetic/folder-{n}"),"mode":"rw"})).collect();
     let ceiling=crate::domain::scope::org_ceiling(&json!(dirs));
@@ -28,12 +28,14 @@ fn session_blip_scope_baseline_measurement() {
     }
     let calls=Arc::new(AtomicUsize::new(0));
     let subscriber=tracing_subscriber::registry().with(NormCalls(calls.clone()));
+    crate::domain::scope::normalization_measurement::reset();
     let start=std::time::Instant::now();
     let scopes=tracing::subscriber::with_default(subscriber,||{
         (1..=35).map(|id|inspection_scope(id,&rows,&ceiling).unwrap()).collect::<Vec<_>>()
     });
     let elapsed=start.elapsed().as_secs_f64()*1000.0;
     for scope in scopes {assert_eq!(scope["add_dirs"],json!(dirs));}
-    println!("SESSION_SCOPE_MEASURE {}",json!({"fixture":"35 agents, shared depth3 +32 reports,24dirs each","norm_calls":calls.load(Ordering::Relaxed),"elapsed_ms":elapsed,"tracing":"span counter only, no file logger; timing is not the live stall"}));
-    assert!(calls.load(Ordering::Relaxed)>0,"counter must observe real product normalization");
+    let normalizations=crate::domain::scope::normalization_measurement::count();
+    println!("SESSION_SCOPE_MEASURE {}",json!({"fixture":"35 agents, shared depth3 +32 reports,24dirs each","norm_calls":normalizations,"logged_norm_calls":calls.load(Ordering::Relaxed),"elapsed_ms":elapsed,"tracing":"span counter only, no file logger; timing is not the live stall"}));
+    assert!(normalizations>0,"counter must observe real product normalization");
 }
