@@ -163,6 +163,10 @@ co-owns the item with full owner rights.
 - **Neighbour lines** [user 2026-10-17 21:23Z]: `peerLinkPairs` joins consecutive AGENT siblings
   only, so a project at a row's end has no neighbour segment and agents on either side of a project
   are joined by one line running past it; message sparks follow the same lines.
+- **Hires around a project** [user 2026-10-17 21:24:34Z]: a project card has an agent card's four
+  strips: under it, a coworker to either side (a sibling, then the side hire's reorder) and a parent
+  above it (a superior spliced in with `above`, holding the project). The token tooltips say
+  "(free, structural)" (21:24:27Z).
 - **The project token** [user 2026-10-17 21:23:44Z] wears the project card's theme colours
   (background, dashed border, accent folder) instead of the earlier light grey.
 - **The project desk** [user 2026-10-17 19:38Z–20:10Z]: a click, or zooming in, walks the
