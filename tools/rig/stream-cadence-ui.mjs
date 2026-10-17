@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const repo = process.env.ORGTREE_STREAM_SOURCE || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const deps = process.env.ORGTREE_TEST_DEPS || 'E:/Libraries/Desktop/orgtree/node_modules'
 const require = createRequire(path.join(deps, '_resolve.cjs'))
 const esbuild = require('esbuild')
