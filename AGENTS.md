@@ -5,6 +5,11 @@
   keep it reveal-only. Unsupported file URLs stay plain text after sanitization
   removes their href. [verified: `apps/desktop/renderer/src/canvas/shared.ts`,
   `apps/desktop/renderer/tests/windowslinks.test.ts`; 2026-10-17]
+- Idle ages on the desk, card and tray use the completed turn's `ended_at`;
+  open/legacy rows without it retain the `started_at` fallback. Active time
+  remains on `inflight_at`, including ordinary Antigravity hook mail delivery.
+  All harnesses share this projection. See [turn clocks](docs/rust-engine/turn-completion-clock.md).
+  [decided: coordinator 2026-10-17; verified: `domain/tree.rs`, `runtime/actor.rs`, `canvas/desk.tsx`]
 
 - State inspection memoizes effective ancestry only within its immutable
   request snapshot, retaining the total 1024-node ancestry cap and visibility

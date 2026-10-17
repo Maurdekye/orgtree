@@ -3164,7 +3164,8 @@
    ],
    "purpose": "The agent card: tier, name, context wheel, state badges, credit bar, chips and zoom variants.",
    "must_cover": [
-    "every badge and chip and what it means"
+    "every badge and chip and what it means",
+    "idle completion age and active admission clock references"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/cards.tsx:1413",
@@ -3407,7 +3408,8 @@
    "purpose": "The desk: opening it, header actions, banners (turn status, halted, queued, cache forecast) and the tab strip.",
    "must_cover": [
     "each banner",
-    "each header action"
+    "each header action",
+    "idle completion age, legacy fallback and Antigravity mid-turn active clock"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/desk.tsx:1907",

@@ -1,5 +1,11 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Idle turn clocks, coordinator 2026-10-17 17:33Z (user report 16:54Z):**
+completed turns use `ended_at` in the shared `TurnStat.at` projection for every
+harness, falling back to `started_at` only for open or legacy rows without an
+end. Active clocks stay on `inflight_at`; ordinary Antigravity hook mail does
+not start a new turn. See [turn clocks](turn-completion-clock.md).
+
 **Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
 quiet timers retain fixed next timestamps through restarts. Missed slots
 produce at most one immediate catch-up, then continue the original phase
