@@ -9,56 +9,59 @@ const change=(from:string|null='haiku',to='sol',extra:Partial<ToolData>={}):Tool
   id:'switch-call',name:'mcp__orgtree__orgtree_switch_model',arg:'worker sol',result:'{"node":"worker","tier":"sol"}',
   refs:[{kind:'agent',id:'worker',model_change:{from,to}}] as ToolData['refs'],...extra,
 })
-const transition=(el:Element)=>el.querySelector('.tool-model-transition')
+const dir=(tier:string,onFocus?:()=>void)=>({resolve:()=>({tier}),onFocus})
+const show=(tool:ToolData,tier='sol',onFocus?:()=>void)=><AgentDirectoryProvider value={dir(tier,onFocus)}>
+  <ToolChip t={tool} slug="org" nid="boss"/>
+</AgentDirectoryProvider>
+const row=(el:Element)=>el.querySelector('.tool-ref-agent')!
+const tiers=(el:Element)=>[...el.querySelectorAll('.tier')].map(e=>[...e.classList].find(c=>c.startsWith('t-')))
 
-test('a recorded model change shows shared old and new model cards inline',async t=>{
-  const view=await mountView(<ToolChip t={change()} slug="org" nid="boss"/>,h=>h)
-  t.after(()=>view.unmount())
-  const row=transition(view.el)
-  assert.ok(row,'old and new model cards must render in the tool header')
-  assert.ok(row.querySelector('.tier.t-haiku'))
-  assert.ok(row.querySelector('.tier.t-sol'))
-  assert.ok(row.textContent?.includes('→'))
-  assert.equal(row.getAttribute('aria-label'),'Model changed: haiku → sol')
-  assert.equal(row.querySelector('.tier.t-haiku')?.getAttribute('title'),'haiku')
-})
+for(const [name,from,current,expected,arrow] of [
+  ['known old, still on the recorded new model','haiku','sol',['t-haiku','t-sol'],true],
+  ['known old, changed model again later','haiku','astra',['t-haiku','t-sol','t-astra'],true],
+  ['unknown old, still on the recorded new model',null,'sol',['t-sol'],false],
+  ['unknown old, changed model again later',null,'astra',['t-sol','t-astra'],true],
+] as const){
+  test(name,async t=>{
+    const view=await mountView(show(change(from),current),h=>h)
+    t.after(()=>view.unmount())
+    assert.deepEqual(tiers(row(view.el)),[...expected],name)
+    assert.equal(row(view.el).textContent?.includes('→'),arrow,name)
+    assert.equal(row(view.el).querySelector('[data-copy-agent-name="worker"]')===null,false)
+  })
+}
 
-test('unknown historical old model shows only the recorded new card',async t=>{
-  const view=await mountView(<ToolChip t={change(null)} slug="org" nid="boss"/>,h=>h)
-  t.after(()=>view.unmount())
-  const row=transition(view.el)
-  assert.ok(row,'known new model is retained without guessing the old model')
-  assert.equal(row.querySelectorAll('.tier').length,1)
-  assert.ok(row.querySelector('.tier.t-sol'))
-  assert.equal(row.textContent?.includes('→'),false)
-})
-
-test('model metadata is historical and does not use the current agent model',async t=>{
+test('historical cards survive serialization and never take the current model tooltip',async t=>{
   const message:ChatMessage={role:'assistant',text:'',tools:[change()]}
-  const view=await mountView(<AgentDirectoryProvider value={{resolve:()=>({tier:'astra'})}}>
+  const view=await mountView(<AgentDirectoryProvider value={dir('astra')}>
     <Msg m={JSON.parse(JSON.stringify(message))} slug="org" nid="boss"/>
   </AgentDirectoryProvider>,h=>h)
   t.after(()=>view.unmount())
-  assert.equal(transition(view.el)?.getAttribute('aria-label'),'Model changed: haiku → sol')
-  assert.equal(transition(view.el)?.querySelector('.tier.t-astra')===null,true)
+  assert.deepEqual(tiers(row(view.el)),['t-haiku','t-sol','t-astra'])
+  assert.equal(row(view.el).querySelector('.t-haiku')?.getAttribute('title'),'haiku')
+  assert.equal(row(view.el).querySelector('.t-sol')?.getAttribute('title'),'sol')
 })
 
 test('failed, unchanged, incomplete and staffing calls get no model transition',async t=>{
-  const view=await mountView(<ToolChip t={change()} slug="org" nid="boss"/>,h=>h)
+  const view=await mountView(show(change()),h=>h)
   t.after(()=>view.unmount())
   for(const tool of [change('sol','sol'),change('haiku',''),change('haiku','sol',{error:'refused'}),
     {id:'legacy',name:'orgtree_switch_model',arg:'worker sol'},change('haiku','sol',{name:'orgtree_hire'}),
-    change('haiku','sol',{name:'orgtree_staff'})]){
-    await view.render(<ToolChip t={tool} slug="org" nid="boss"/>)
-    assert.equal(transition(view.el)===null,true)
+    change('haiku','sol',{name:'orgtree_staff'}),change('haiku','sol',{result:undefined})]){
+    await view.render(show(tool))
+    assert.equal(view.el.querySelector('.tool-model-transition')===null,true)
   }
 })
 
-test('the model transition does not fold the tool when clicked',async t=>{
-  const view=await mountView(<ToolChip t={change()} slug="org" nid="boss"/>,h=>h)
+test('historical cards do not fold the call and the agent link still navigates',async t=>{
+  let focused=0
+  const view=await mountView(show(change(),'sol',()=>{focused++}),h=>h)
   t.after(()=>view.unmount())
-  const row=transition(view.el) as HTMLElement
-  assert.ok(row,'transition has its own click boundary')
-  await inAct(()=>row.click())
+  const transition=view.el.querySelector<HTMLElement>('.tool-model-transition')
+  assert.ok(transition,'transition has its own click boundary')
+  await inAct(()=>transition.click())
+  assert.equal(view.el.querySelector('.respre-json')===null,true)
+  await inAct(()=>row(view.el).querySelector<HTMLButtonElement>('[data-agent-nav]')!.click())
+  assert.equal(focused,1)
   assert.equal(view.el.querySelector('.respre-json')===null,true)
 })
