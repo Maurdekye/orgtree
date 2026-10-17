@@ -9,6 +9,11 @@
   [decided: user/coordinator 2026-10-17; verified from source:
   `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `providers/catalog.rs`]
 
+- A halted agent's status duration is measured from `halt.at` (falling back to
+  `requested_at` for legacy state), not its last turn; the desk header says
+  “Halted for” and the card/list clocks tick from that halt timestamp. Usage
+  freeze remains a separate state. [verified from source: `canvas/desk.tsx`]
+
 - Fresh-session recovery leads with current docket scope/blockers/dependencies,
   recorded shell directory and recent superior mail before older context. Shell
   inputs in saved history/digest retain 8,192 UTF-8 bytes with explicit clipping;
