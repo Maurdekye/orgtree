@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useWorkItems } from './useworkitems'
 import type { ToastFn, TreePayload } from '../types'
 import { DocketIcon } from '../icons'
-import { AgentDocketView, agentItems, itemActorIds, useNodeFacts } from './docket'
+import { AgentDocketView, agentItems, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { PinFrame, closeIfCentred } from './modalpin'
 import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
@@ -19,7 +19,10 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
   const [pageFilter, setPageFilter] = useState<import('../workpages').WorkPageOptions>({})
   const workFeed = useWorkItems(slug, showArchived, showBacklog, 15000, bump, { ...pageFilter, agent: nid })
   const work = workFeed.value
-  const mine = useMemo(() => agentItems(work, nid, showArchived), [work, nid, showArchived])
+  // a project's docket: the items owned by agents under it (user 2026-10-17 22:21Z)
+  const isProject = useMemo(() => flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.kind === 'project', [tree, nid])
+  const mine = useMemo(() => isProject ? teamItems(work, nid, tree.roots, showArchived)
+    : agentItems(work, nid, showArchived), [isProject, work, nid, tree.roots, showArchived])
   const actorIds = useMemo(() => itemActorIds(mine), [mine])
   const facts = useNodeFacts(slug, tree, actorIds)
   const routes: RefRoutes = { world: refs.world, onOpen: r => {

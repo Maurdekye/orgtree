@@ -1634,9 +1634,7 @@ export function agentItems(data: {
   if (!data) return null
   return [...(data.items ?? []), ...(data.backlogged ?? []),
           ...(includeArchived ? (data.archived ?? []) : [])]
-    .filter((it) => it.owner?.node === nid || it.reviewer?.node === nid
-      // a project node's docket: the items attached to it (4.4.0 project nodes)
-      || it.project?.node === nid)
+    .filter((it) => it.owner?.node === nid || it.reviewer?.node === nid)
 }
 
 /** ONE AGENT'S WHOLE TEAM — that agent and every descendant of it, at any
@@ -2847,17 +2845,6 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
           </>
         )}
       </div>
-      {item.project?.node && (
-        <div className="docket-participants docket-project" title={item.project.co_owners
-          ?? `every agent under project ${item.project.node} co-owns this item`}>
-          <span className="dim">Project</span>
-          <span className="docket-participant">
-            <ActorName actor={{ node: item.project.node, generation: 0 }} facts={facts}
-              onFocusAgent={onFocusAgent} close={close} />
-            <span className="dim">· co-owned by its agents</span>
-          </span>
-        </div>
-      )}
       {participants.length > 0 && (
         <div className="docket-participants">
           <span className="dim">Participants</span>

@@ -20,7 +20,7 @@ import { md, USER } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
 import { useWorkItems } from './useworkitems'
-import { AgentDocketView, agentItems, itemActorIds, useNodeFacts } from './docket'
+import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
 import type { RefRoutes } from './reflinks'
@@ -131,7 +131,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const workFeed = useWorkItems(slug, view === 'docket' && showArchived, view === 'docket' && showBacklog,
     15000, bump, { ...pageFilter, agent: node.id })
   const work = workFeed.value
-  const mine = useMemo(() => agentItems(work, node.id, showArchived), [work, node.id, showArchived])
+  // every item owned by an agent under the project, through nested projects
+  // (user 2026-10-17 22:21Z; items no longer attach to projects)
+  const mine = useMemo(() => teamItems(work, node.id, tree.roots, showArchived),
+    [work, node.id, tree.roots, showArchived])
   const facts = useNodeFacts(slug, tree, useMemo(() => itemActorIds(mine), [mine]))
   const live = node.state === 'live'
   const { agents } = projectCounts(node)

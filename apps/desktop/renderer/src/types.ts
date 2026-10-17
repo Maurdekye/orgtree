@@ -2803,9 +2803,6 @@ export interface WorkItem {
    *  it, because a reviewer nobody chose is not a reviewer. */
   reviewer: WorkActor | null
   participants: string[]
-  /** the project node the item is attached to: every agent under it co-owns
-   *  the item (docs/rust-engine/PROJECT-NODES.md, Docket) */
-  project?: { node: string; co_owners?: string } | null
   /** Server-derived destinations; tree roots omit some archived predecessors. */
   reply_recipients?: { node: string; role: 'owner' | 'participant' | 'attention_raiser';
     state: 'live' | 'retired' | 'missing' }[]
