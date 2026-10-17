@@ -1,10 +1,5 @@
 # AGENTS.md — working on Orgtree
 
-- Codex subscription seats use a private home under the engine data root.
-  Source profiles remain read only; keep hosted launches, catalog probes,
-  usage fallbacks and rollout migration on the same isolation contract.
-  See `docs/rust-engine/codex-home-isolation.md`.
-
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;
@@ -1805,6 +1800,10 @@ verified from source: `shell/treeinfo.tsx`,
 
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
+- Codex subscription seats use a private home under the engine data root.
+  Source profiles remain read only; keep hosted launches, catalog probes,
+  usage fallbacks and rollout migration on the same isolation contract.
+  See `docs/rust-engine/codex-home-isolation.md`.
 - **Tree/scope parity (2026-10-07):** remove host `CLAUDE_CODE_*` before selected-account
   environment injection. Omitted hire account uses a compatible org default, otherwise primary,
   never the parent's binding. Superior insertion authorizes the target (self allowed below top
