@@ -63,9 +63,11 @@ Mail to an archived recipient waits for rehire; nothing schedules that rehire. M
 ## User-mail tags
 
 For example, send `{"metadata":{"to":"user","tags":["alpha build"]},"body":"The alpha is ready."}`.
-The user can select a tag suggestion, type a tag or click its chip in the Inbox,
-and combine that filter with the existing text search. Clearing it shows all
-mail again. Chips use a stable hue hashed from the trimmed lowercase tag key,
+The user can search a dropdown of actually used tag cards and toggle several
+on/off; mail must carry all selected tags (AND). Clicking an Inbox chip adds
+its tag. This filter combines with text search; clearing it shows all mail.
+The used-tag list updates on arrivals and deletions and has no fixed first-page
+cutoff. Chips use a stable hue hashed from the trimmed lowercase tag key,
 with fixed dark/light contrast values.
 
 The org-wide tag dictionary preserves the spelling of its first committed use;

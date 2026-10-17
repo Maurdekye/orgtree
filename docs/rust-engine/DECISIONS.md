@@ -49,8 +49,13 @@ come from complete world layout, so camera virtualization never resamples
 temperatures. 4.4.0 only. See [EPIC heat](epic-activity-sound.md#heat-equation).
 
 **Custom user-mail tags, user 2026-10-17 12:39Z/12:40Z/12:45Z:** agents may
-attach up to eight custom tags to user mail; the inbox filters by one tag,
-intersecting search. Labels keep the first committed org-wide spelling,
+attach up to eight custom tags to user mail. Feedback 19:15-19:54Z replaces
+the single filter with a searchable dropdown of wrapping coloured toggle cards,
+ALL selected tags (AND), and a live list of actually used tags. All tags stay
+reachable across cursor pages. The filter intersects search. Pills are10px,
+nowrap/ellipsis; row tags occupy the preview line as one plus +N, preserving
+the identity header. User-inbox reply.mail omits only its kind label/icon,
+retaining the quote and other kinds. Labels keep the first committed org-wide spelling,
 matching ignores case, and chips use a stable normalized-name hue. Non-user
 routes refuse tags before attachments/transport; fan-out remains per recipient.
 No hub tags or legacy backfill. 4.4.0 only. See [mail tags](mail-tags.md).

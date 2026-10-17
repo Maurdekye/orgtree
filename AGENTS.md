@@ -146,7 +146,9 @@
   normalized by lowercase key in an org dictionary with first committed spelling.
   User mail and normalized memberships commit atomically; tagged non-user routes
   refuse before attachments/transport, including mixed fan-out. Tag filtering
-  precedes bounded cursor windows, not just the currently loaded mail; chips hash
+  precedes bounded cursor windows: all selected toggles must match (AND). Used
+  tags cursor-page indexed memberships; a dedicated UserMail revision refreshes
+  filtered mail/catalogs even after deletion outside the visible windows. Chips hash
   the normalized name to a stable hue with fixed dark/light contrast values.
   See [mail tags](docs/rust-engine/mail-tags.md). [decided: user/coordinator
   2026-10-17; verified: `domain/mail_tags.rs`, `usemailtags.ts`, `canvas/mailtags.ts`]

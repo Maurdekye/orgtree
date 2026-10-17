@@ -2,15 +2,19 @@
 
 The user can find related mail without scrolling through every announcement.
 Agents attach `metadata.tags` to `orgtree_message` addressed to `user`; the
-user's Inbox offers a typed tag filter with suggestions and clickable chips.
+user's Inbox offers a searchable dropdown of wrapping coloured tag toggles.
 The feature is 4.4.0 only (user 2026-10-17 12:39Z).
 
 ## Contract and rulings
 
 User-approved defaults at 12:40Z: at most **8** input tags, each 1-32 Unicode
-characters after trimming, case-insensitive matching and deduplication, one
-active filter, no legacy backfill and no tags over the mail hub. Blank,
+characters after trimming, case-insensitive matching and deduplication, no legacy backfill and no tags over the mail hub. Blank,
 non-string or control-character tags are refused. An empty list is untagged.
+User feedback at 19:15-19:54Z replaces the single filter with multiple selected
+tags, requiring ALL of them (AND). The list contains only tags actually used by
+retained user mail and updates on arrivals/deletions. Selected cards toggle on
+and off, search narrows choices, and the closed control shows selections.
+
 The coordinator confirmed an org-wide dictionary keyed by trimmed lowercase
 form at 12:41Z: the first committed use supplies the shared display spelling.
 
@@ -35,16 +39,31 @@ memberships; removing an org cascades its dictionary.
 The default user feed and exact-id reads project at most eight labels per
 message. Untagged and legacy rows omit the field. `GET /inbox?tag=...` matches
 indexed normalized membership **before** a newest-first 200-row cursor window,
-across incoming pending/read mail. `before` is exclusive. Tag suggestions are
-bounded to 200 keys and may use a prefix; the editable filter still accepts an
-exact tag beyond those suggestions. No count/full-history materialization is
-needed for paging. `tags_only=true` requests just suggestions.
+across incoming pending/read mail. `before` is exclusive. The multi-select
+POST `/inbox/filter` accepts `{tags,before}` and applies every normalized selected
+key before the same bounded window; duplicates cannot duplicate mail. Selecting
+more than eight distinct tags is valid and returns no matches, because a mail
+can carry at most eight tags. Legacy GET single-tag reads remain supported.
+
+`tags_only=true&prefix=...&after=...` returns `tag_choices` and
+`next_tag_cursor`. Distinct used keys are cursor-paged by bounded indexed seeks
+through memberships; unused dictionary labels never become choices. Search is
+case-insensitive substring matching. Its cursor follows scanned keys, including
+zero-match pages, so later matches stay reachable. The client continues empty
+search pages and offers scroll/Load more for remaining pages. No fixed catalog
+cutoff or full-history materialization is needed.
+
+A constant-size `org/user_mail_revision` feed record changes only when a
+UserMail invalidation is applied, including successful Inbox Delete. Its opaque
+incarnation/revision marker forces a filtered-mail/catalog refresh even when a
+deleted older message was outside both visible windows. Unrelated turn/cost
+records do not cause tag reads. The renderer projects it as `mail_revision`.
 
 ## User inbox
 
 The filter intersects the existing sender/body search. Clearing it restores the
 ordinary feed, including untagged mail and asks. The user can click a chip in a
-row or its reading pane. Ordinary neighbour views, Sent and Record keep their
+row or its reading pane to add that selection. Ordinary neighbour views, Sent and Record keep their
 existing behavior. A new mail reference clears the active tag filter so it can
 open its target. The ordinary unread badge keeps the whole inbox count.
 
@@ -58,7 +77,10 @@ User 12:45Z requested chip colours. `canvas/mailtags.ts` hashes the normalized
 key with 32-bit FNV-1a over Unicode code points and maps it to a fractional hue.
 Every chip uses that same helper, independent of order/session. Saturation and
 lightness are fixed by the dark/light contrast palette in `styles.css`; only
-hue comes from the hash. Hashes are deterministic, not a guarantee that all
+hue comes from the hash. All surfaces use the same 10px nowrap pill with an
+ellipsis for long labels. Rows put one tag plus a +N pill at the start of the
+existing preview line, keeping sender/kind/time space. The user inbox omits only
+the reply.mail kind label/icon, retaining its quote and other kinds. Hashes are deterministic, not a guarantee that all
 possible names can have distinct colours.
 
 ## Verification
@@ -84,3 +106,14 @@ longer have memberships and publishes `Change::UserMail`. That refreshes inbox,
 unread and tag/search views. Sender transcript rows, other recipients' copies
 and attachment files are left intact. A non-user mailbox id is not deletable
 through this route.
+
+## Feedback verification (prepared)
+
+The rebased engine red de4b832 executes ten cases (three intended failures and
+seven controls). Its renderer executes eleven cases: eight intended failures,
+one passing control and two invalid reply fixtures, corrected in f5df1f2.
+Those reply fixtures require a separate valid UI red before label removal.
+`tools/rig/proofs/mail-tags-multi.mjs` covers actual AND ordering/cursors, >200
+used tags, orphan exclusion, substring search and Delete-to-revision with an
+unchanged visible window. Prepared checks are not passes; the docket records
+exact author green/SQL/native-renderer evidence after execution.

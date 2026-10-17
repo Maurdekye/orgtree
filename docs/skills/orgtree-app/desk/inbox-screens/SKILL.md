@@ -22,10 +22,15 @@ Mail links can switch to the folder containing the referenced message and perfor
 
 ## User-mail tags
 
-The user's Inbox shows custom tags as chips. Type a tag, pick a suggestion or
-click a chip to filter by that tag; matching ignores case. It intersects the
-existing sender/body search, and clearing it restores untagged mail and asks.
-Older matching mail is queried before the bounded window and pages on scroll.
+The user's Inbox has one tag dropdown: search narrows a wrapping list of
+coloured cards, and clicking cards toggles them on/off. Mail must carry ALL
+selected tags (AND); matching ignores case. The list auto-populates only from
+tags used by retained user mail and updates as mail arrives or is deleted,
+including older mail outside the visible window. All used tags remain reachable
+through cursor pages; search does not limit the list to a fixed first page.
+Selections show on the closed control; clicking a row/read-pane chip adds it.
+The filter intersects existing sender/body search; clear restores untagged mail
+and asks. Older matching mail is queried before windowing and pages on scroll.
 Sent and Record retain their own views. Opening a new mail reference clears
 the tag filter so its target remains reachable. Unread counts still describe
 the whole inbox. Failures offer Retry rather than an empty-result claim.
@@ -35,6 +40,11 @@ saturation/lightness for the light/dark contrast palette. The first committed
 spelling in the org supplies every chip's label. Agents use `orgtree_message`
 with `tags:["alpha build"]`; see `orgtree-tool-message` (orgtree-working, mail).
 The tool accepts up to eight tags for user-bound mail only; tags stay local.
+
+Tag pills are 10px, never wrap, and ellipsize long labels. A list row puts one
+pill plus +N at the start of the message preview, preserving sender/kind/time.
+The reading pane and filter use the same pill. User-inbox reply.mail omits the
+Mail reply kind label/icon; its In reply to quote and other kind labels remain.
 
 The user's Inbox row context menu also offers **Delete** for a received message.
 It asks for confirmation, then permanently removes only the user's copy; other
