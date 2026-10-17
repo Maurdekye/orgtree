@@ -2366,7 +2366,7 @@ mod freeze_cache_tests {
     #[test]
     fn registered_agy_freeze_uses_only_its_own_cached_reset() {
         let usage=Usage::default();
-        let now=Utc::now();
+        let now=crate::util::parse_ts(&iso(Utc::now())).unwrap();
         let reading=|hours| json!({"available":true,"observed_at":iso(now),"limits":[
             {"kind":"weekly_all","group":"3p-weekly","percent":100,"resets_at":iso(now+chrono::Duration::hours(hours))}]});
         usage.put("agy",&reading(24));
