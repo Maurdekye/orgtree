@@ -3,12 +3,14 @@
 // the backend's provider_hire_gate enforces.
 
 import {
-  FakeServer, installFetch, mountView, realClock, useFakeClock,
+  advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock,
 } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { ActiveAgentSummary } from '../src/App'
+import { agentTooltipInfo } from '../src/canvas/OrgCanvas'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { NodeConfig } from '../src/canvas/modals'
 import { CODEX_TIER_SEAT, setOpenRouterTiers, TIER_SEAT, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -84,6 +86,14 @@ const options = (el: HTMLElement) =>
   [...el.querySelectorAll<HTMLOptionElement>('.model-switch option')]
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
+
+function TooltipRegistryFixture({ node, providers }: {
+  node: CanvasNode; providers: ProviderInfo[]
+}) {
+  const map = new Map([[node.id, node]])
+  useProvideAgentNav(null, id => agentTooltipInfo(map.get(id), providers, null, 'high'))
+  return null
+}
 
 for (const [tier, seat, latest, older] of [
   ['sol', 2, '6.1', ['6', '5.6']], ['luna', 0.1, '6', ['5.6']]] as const) {
@@ -196,35 +206,55 @@ test('the header summary counts every provider family', async (t: TestContext) =
   )
 })
 
-configTest('an OpenRouter tier is named by its model, never by its or- slug (user ask 2026-09-03)',
-  async (mount) => {
+test('an OpenRouter tier is named by its model, never by its or- slug on the real settings path',
+  async (t: TestContext) => {
     const TIER = 'or-anthropic-claude-sonnet-5'
-    setOpenRouterTiers([{ tier: TIER, provider: 'openrouter', seat: 2,
-      model: 'anthropic/claude-sonnet-5', letter: 'C', color: '#f9907f',
-      name: 'Claude Sonnet 5', label: 'claude-sonnet-5', vendor: 'anthropic' }])
-    try {
-      const { el } = await mount({
-        node: { ...node(), tier: TIER } as CanvasNode,
-        tree: tree({ tiers: { haiku: 1, sonnet: 2, opus: 5, fable: 10, [TIER]: 2 } }),
-      })
-      // ⚠ THE HEADER, NOT THE H3. The tier label moved one line out of the
-      // heading when this panel became pinnable: a pinned window hides the
-      // panel's own title h3 (its title bar already says it), and a live tier
-      // is not part of a title. The subject of this check has not changed —
-      // the header still has to name the model and never the or- slug — so it
-      // reads the whole header block and would still fail if either half went
-      // missing or reverted to the slug.
-      const header = (el.querySelector('h3')?.textContent ?? '')
-        + ' ' + (el.querySelector('.modalpin-subtitle')?.textContent ?? '')
-      // 4.2: the header shows the agent's name and a tier badge; the model's name is the badge's tooltip
-      const icon = el.querySelector<HTMLElement>('.agent-model-icon')
-      assert.match(icon?.title ?? '', /claude-sonnet-5/, 'the header badge names the model')
-      assert.doesNotMatch(header + (icon?.title ?? ''), /or-anthropic/, 'and never the or- slug')
-      const own = option(el, TIER)
-      assert.ok(own, 'listed under its tier id — the value the op sends is untouched')
-      assert.match(own.textContent?.trim() ?? '', /^claude-sonnet-5 · seat 2/, 'the option reads the label')
-      assert.equal((el.textContent ?? '').includes('or-anthropic'), false, 'the slug never shows')
-    } finally { setOpenRouterTiers([]) }
+    useFakeClock()
+    let view: Awaited<ReturnType<typeof mountView>> | null = null
+    installFetch(new FakeServer())
+    const openrouter = provider({
+      id: 'openrouter', label: 'OpenRouter', cli: 'OpenRouter',
+      tiers: [{ tier: TIER, provider: 'openrouter', seat: 2,
+        model: 'anthropic/claude-sonnet-5', letter: 'C', color: '#f9907f',
+        name: 'Claude Sonnet 5', label: 'claude-sonnet-5', vendor: 'anthropic' }],
+    })
+    setOpenRouterTiers(openrouter.tiers)
+    t.after(async () => {
+      await view?.unmount()
+      setOpenRouterTiers([])
+      realClock()
+    })
+
+    const agent = node(TIER)
+    const fixture = tree({
+      tiers: { haiku: 1, sonnet: 2, opus: 5, fable: 10, [TIER]: 2 },
+      roots: [agent], effort_default: 'high',
+    })
+    const map = new Map([[agent.id, agent]])
+    view = await mountView(<AgentNavProvider>
+      <TooltipRegistryFixture node={agent} providers={[openrouter]} />
+      <NodeConfig node={agent} map={map} tree={fixture} slug="org"
+        op={() => Promise.resolve({} as OpResult)} toast={noop}
+        openrouterProvider={openrouter} close={noop} />
+    </AgentNavProvider>, el => el)
+    await flush(8)
+
+    // Mirror OrgCanvas's production registration: the settings surface shares
+    // its AgentNavProvider with a registry backed by agentTooltipInfo/catalog.
+    // The native title is populated on hover, not at mount time.
+    const icon = view.el.querySelector<HTMLElement>('.agent-model-icon')
+    assert.ok(icon, 'the settings header has its agent model badge')
+    await inAct(() => {
+      icon.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))
+    })
+    assert.match(icon.title, /Claude Sonnet 5/, 'the hovered header badge names the catalog model')
+    const header = (view.el.querySelector('h3')?.textContent ?? '')
+      + ' ' + (view.el.querySelector('.modalpin-subtitle')?.textContent ?? '')
+    assert.doesNotMatch(header + icon.title, /or-anthropic/, 'the header and tooltip never show the or- slug')
+    const own = option(view.el, TIER)
+    assert.ok(own, 'listed under its tier id — the value the op sends is untouched')
+    assert.match(own.textContent?.trim() ?? '', /^claude-sonnet-5 · seat 2/, 'the option reads the label')
+    assert.equal((view.el.textContent ?? '').includes('or-anthropic'), false, 'the slug never shows')
   })
 
 configTest('gpt-reserve is REMOVED from the switch whatever the grant says '
