@@ -7,11 +7,18 @@
 // §2 the real panel: an empty install says so (no graph at 0), a sparse
 //    series says it has too few readings, and filters hide series.
 //
+// §3 the header (user 2026-10-17): title, period and the four filters sit in one
+//    sticky `.uh-header` above the graphs, compacted into two named groups;
+//    the sticky/compact rules are checked in the real styles.css (jsdom does no
+//    layout, so the pinned look itself is a screenshot, not a test).
+//
 // Run:  cd apps/desktop/renderer && node tests/run.mjs usagehistory
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { modelSeries, seriesTitle, UsageHistoryModal } from '../src/usagehistory'
 import type { UsageHistory, UsageHistoryBucket, UsageHistorySeries } from '../src/api'
 
@@ -154,4 +161,88 @@ test('§2.3 the Orgtree menu lists "Usage history…" right under "Usage…" and
   })
   assert.equal(opened, 1)
   await view.unmount()
+})
+
+// ----------------------------------------------------------------- §3 header
+declare const __SRC_DIR__: string
+const CSS = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\r\n/g, '\n')
+const rule = (selector: string): string => {
+  const esc = selector.replace(/[.*+?^${}()|[\]\]/g, '\$&')
+  const m = new RegExp('(?:^|\n)' + esc + '\s*\{([^}]*)\}').exec(CSS)
+  assert.ok(m, `no "${selector}" rule in styles.css`)
+  return m[1]!
+}
+
+const mountPanel = async () => {
+  const f = stubFetch(payload({
+    oldest: iso(NOW - 3 * 24 * H),
+    series: [series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 20)])],
+  }))
+  const view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+  await inAct(async () => { await flush(8) })
+  return { f, view }
+}
+
+test('§3.1 title, period and filters share one header that the graphs are not part of', async () => {
+  const { f, view } = await mountPanel()
+  try {
+    const header = view.el.querySelector('.uh-header')
+    assert.ok(header, 'the page has a .uh-header')
+    assert.match(header!.querySelector('h3')?.textContent ?? '', /Usage history/)
+    const period = header!.querySelector('[role="group"][aria-label="period"]')
+    assert.ok(period, 'the period buttons are one named group in the header')
+    assert.deepEqual([...period!.querySelectorAll('button')].map((b) => b.textContent),
+      ['24 hours', '7 days', '30 days', '90 days'])
+    assert.equal(period!.querySelectorAll('button[aria-pressed="true"]').length, 1)
+    const filters = header!.querySelector('[role="group"][aria-label="filters"]')
+    assert.ok(filters, 'the four filters are one named group in the header')
+    assert.deepEqual([...filters!.querySelectorAll('select')].map((s) => s.getAttribute('aria-label')),
+      ['Provider', 'Account', 'Window', 'Model scope'], 'every filter keeps its accessible name, in order')
+    assert.equal(header!.querySelectorAll('select').length, 4)
+    assert.equal(header!.querySelector('.uh-card') === null, true, 'graphs scroll beneath, not inside')
+    assert.equal(view.el.querySelectorAll('.uh-card').length, 1)
+    await view.unmount()
+  } finally { f.restore() }
+})
+
+test('§3.2 each compact filter says what it filters while nothing is chosen', async () => {
+  const { f, view } = await mountPanel()
+  try {
+    const selects = [...view.el.querySelectorAll('.uh-header select')] as HTMLSelectElement[]
+    assert.deepEqual(selects.map((s) => s.options[0]!.textContent),
+      ['All providers', 'All accounts', 'All windows', 'All models'])
+    assert.equal(selects.every((s) => s.getAttribute('title') === s.getAttribute('aria-label')), true,
+      'the name is also the tooltip, as the visible label used to be')
+    await view.unmount()
+  } finally { f.restore() }
+})
+
+test('§3.3 choosing a period still re-reads the history', async () => {
+  const { f, view } = await mountPanel()
+  try {
+    const day = [...view.el.querySelectorAll('.uh-header [aria-label="period"] button')][0] as HTMLButtonElement
+    await inAct(async () => { day.click(); await flush(8) })
+    assert.ok(f.seen.some((u) => u.includes('/api/usage/history?range=24h')), f.seen.join(','))
+    assert.equal(day.getAttribute('aria-pressed'), 'true')
+    await view.unmount()
+  } finally { f.restore() }
+})
+
+test('§3.4 styles: the header is sticky at the panel edge on an opaque background', () => {
+  const r = rule('.uh-header')
+  assert.match(r, /position:\s*sticky/)
+  assert.match(r, /top:\s*calc\(-1 \* var\(--panel-pad-y/, 'offset from the scroll container content box, like the pinned title bar')
+  assert.match(r, /background:\s*var\(--panel\)/, 'opaque: the graphs must not show through')
+  assert.match(r, /z-index:\s*[1-9]/)
+  assert.ok(CSS.includes(':is(.modalpin-win, .modalpin-detached) > .uh-header > h3 { display: none; }'),
+    'a window names itself in its title bar, so the header drops its own title')
+})
+
+test('§3.5 styles: the controls are compact and out-rank the roomy .settings sizes', () => {
+  const size = (selector: string) => Number(/font-size:\s*([\d.]+)px/.exec(rule(selector))?.[1])
+  assert.ok(size('.uh-ranges .uh-range') <= 13, 'period buttons <= 13px (was the 14px .settings button)')
+  assert.ok(size('.uh-filters .uh-filter') <= 13, 'filter selects <= 13px (was the 14.5px .settings select)')
+  assert.match(rule('.uh-ranges .uh-range'), /padding:\s*3px 9px/)
+  assert.match(rule('.uh-filters .uh-filter'), /padding:\s*3px 6px/)
+  assert.match(rule('.uh-filters'), /grid-template-columns:\s*repeat\(auto-fit/, 'the filters wrap as a block when the window is narrow')
 })
