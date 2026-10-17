@@ -71,7 +71,7 @@ test('tooltip formats Muse, Antigravity, OpenRouter and llama.cpp model names wi
   const catalog = [
     { id: 'muse', tiers: [{ tier: 'wonder-full', display_name: 'Muse Wonder Full 1.0' }] },
     { id: 'google', tiers: [
-      { tier: 'agy-opus', display_name: 'Opus 5.5 (Antigravity)' },
+      { tier: 'agy-opus', display_name: 'Opus 5.5' },
       { tier: 'argon', display_name: 'Gemini Argon 4' },
     ] },
     { id: 'openrouter', tiers: [{ tier: 'or-xiaomi-mimo-v2-6-pro', name: 'Xiaomi MiMo V2.6 Pro' }] },
@@ -88,6 +88,18 @@ test('tooltip formats Muse, Antigravity, OpenRouter and llama.cpp model names wi
     'OpenRouter Xiaomi MiMo V2.6 Pro · high')
   assert.equal(format('ls-llamacpp-qwen3-8-27b-iq3xxs', 'qwen3.8-27b-iq3xxs'),
     'llama.cpp Qwen3.8 27B IQ3_XXS · high')
+})
+
+test('OpenRouter account labels never masquerade as effort or model name', () => {
+  const providerRows = [{ id: 'openrouter', tiers: [{
+    tier: 'or-xiaomi-mimo-v2-6-pro', name: 'Xiaomi MiMo V2.6 Pro',
+  }] }]
+  const registry = { accounts: [{ id: 'openrouter-1', provider: 'openrouter', ambient: false }] }
+  assert.deepEqual(agentTooltipInfo(node({ tier: 'or-xiaomi-mimo-v2-6-pro',
+    model_id: 'mimo-v2.6-pro', effort_effective: 'Daily', account: 'openrouter-1',
+    account_label: 'Daily', scope: {} }), providerRows as never, registry as never, 'high'), {
+    title: 'OpenRouter Xiaomi MiMo V2.6 Pro · high',
+  })
 })
 
 test('tooltip shows the resolved org default when the agent has no effort setting', () => {

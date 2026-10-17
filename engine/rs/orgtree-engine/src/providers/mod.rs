@@ -1223,6 +1223,17 @@ mod conditional_tests {
             .find(|row| row["tier"] == "sol").unwrap();
         assert_eq!(sol["display_name"], "ChatGPT Sol 6.1");
         assert_eq!(sol["display_versions"]["6"], "ChatGPT Sol 6");
+
+        let muse = super::tier_rows(super::catalog::MUSE, false).into_iter()
+            .find(|row| row["tier"] == "wonder-full").unwrap();
+        assert_eq!(muse["display_name"], "Muse Wonder Full 1.0");
+
+        let google = super::tier_rows(super::catalog::GOOGLE, false);
+        let agy_opus = google.iter().find(|row| row["tier"] == "agy-opus").unwrap();
+        assert_eq!(agy_opus["display_name"], "Opus 5.5");
+        assert_eq!(agy_opus["display_versions"]["5.5"], "Opus 5.5");
+        let argon = google.iter().find(|row| row["tier"] == "argon").unwrap();
+        assert_eq!(argon["display_name"], "Gemini Argon 4");
     }
 
     #[test]
