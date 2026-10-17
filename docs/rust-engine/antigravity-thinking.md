@@ -96,3 +96,25 @@ signal, one failure, 45.69s compilation and 0.21s test time. The captured log
 contains the positive control and leaked canary. Green verification of the
 correction is queued; this closes the first review's only substantiated
 blocker and is submitted for the single allowed re-check after that passes.
+
+The stamp-only correction at `ee13b79` passed all 12 focused tests, including
+the real receipt write and verbose canary capture: raw Cargo exit 0, no signal,
+45.46s compilation and 0.15s test time. The positive control was present and
+both canaries were absent. This did not yet cover transcript retrieval.
+
+The author then found that `convo::read` logged its serializable `Page`,
+`restore_mail_notices` logged its mutable row slice, and HTTP `chat` logged
+its JSON response. The coordinator and reviewer approved including these
+paths in the same privacy correction. On `a28b74f`, with stamp already fixed,
+the expanded real PostgreSQL canary test read the complete page and an
+incremental update, verified their contents/cursor, then failed at the expected
+thinking-canary assertion: raw Cargo exit 101, no signal, one failure,
+45.56s compilation and 1.36s test time.
+
+Those three content-bearing methods now use `#[nolog]` as well. This closes
+their older ordinary transcript-text leak too. Querying, notice restoration,
+page contents/cursors and HTTP response construction are unchanged; ordinary
+HTTP request/response metadata logging remains. The canary runs the real
+write, read and notice-restoration paths; the HTTP handler's change is the
+logging annotation only, not an end-to-end HTTP execution claim. Final green
+verification of the complete chain is queued before the single re-check.

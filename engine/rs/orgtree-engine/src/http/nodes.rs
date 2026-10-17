@@ -68,7 +68,9 @@ pub struct ChatQuery {
     after: Option<String>,
 }
 
-#[logged]
+// The JSON response includes private transcript text and thinking. HTTP
+// middleware still records request/response metadata without this body.
+#[nolog]
 pub async fn chat(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,

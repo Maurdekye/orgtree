@@ -120,8 +120,8 @@ mod agy_thinking_pg_tests {
             std::fs::write(path, &log).unwrap();
         }
         assert!(log.contains("runtime.convo.parse_after("), "verbose log positive control did not run");
-        assert!(!log.contains(THOUGHT), "thinking canary leaked through the real receipt/append/update write chain");
-        assert!(!log.contains(RESPONSE), "response canary leaked through the real receipt/append/update write chain");
+        assert!(!log.contains(THOUGHT), "thinking canary leaked through the real transcript write/read chain");
+        assert!(!log.contains(RESPONSE), "response canary leaked through the real transcript write/read chain");
     }
 }
 
@@ -368,7 +368,8 @@ pub struct Page {
 }
 
 /// The newest `last` rows (or older than `before`), or what changed after a cursor.
-#[logged]
+// The returned Page contains private transcript text and thinking.
+#[nolog]
 pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>, after: Option<(i64, i64)>) -> Result<Page> {
     let top = client
         .query_one("SELECT coalesce(max(seq), 0), coalesce(max(ver), 0) FROM ot.convo WHERE agent_id = $1", &[&agent_id])
@@ -439,7 +440,8 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
 /// Older transcript rows dropped `notice`. Recover only missing flags from
 /// their original mail, scoped to this recipient and this already bounded page.
 /// No transcript rewrite, event-kind inference, or query per message.
-#[logged]
+// The mutable rows can contain thoughts even when no mail notice needs repair.
+#[nolog]
 async fn restore_mail_notices(client: &Client, agent_id: i64, messages: &mut [Value]) -> Result<()> {
     let mut ids = std::collections::BTreeSet::new();
     for message in messages.iter() {
