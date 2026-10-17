@@ -60,6 +60,17 @@ matching ignores case, and chips use a stable normalized-name hue. Non-user
 routes refuse tags before attachments/transport; fan-out remains per recipient.
 No hub tags or legacy backfill. 4.4.0 only. See [mail tags](mail-tags.md).
 
+**Transcript tokens and live occupancy, user 2026-10-17 13:00–13:05Z;
+coordinator 13:28Z:** show small-icon text-output estimates beside tool clocks,
+live where the harness streams, and provider thinking counts beside finished
+thoughts only with unambiguous attribution. Use one generic BPE (approved:
+lazy gzip o200k_base), one correction per harness learned from attributed real
+receipts, and retain `~` on every current tool count because exact model
+encoding is unproven. Current input/context occupancy updates mid-turn from
+provider snapshots only, coalesced per agent with turn-end persistence.
+No prompt deltas, child totals or hidden-reasoning estimates. 4.4.0 only.
+See [contract and benchmark limits](transcript-token-counts.md).
+
 **Direct-child peer mail, user 2026-10-17 11:24Z/11:27Z:** a manager or project
 may turn OFF **Subordinates may message each other** (default ON). Direct
 siblings then need a directional audience; neighbour connector lines disappear

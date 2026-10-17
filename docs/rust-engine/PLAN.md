@@ -355,6 +355,13 @@ model step, read that exact session/step's native history thinking read-only and
 display it collapsed before the response. No live-thinking claim, backfill,
 duplicate rows or thought text in logs. See [AGY thinking](antigravity-thinking.md).
 
+Transcript addition (user/coordinator 2026-10-17,4.4.0): small-icon tool-output
+estimates update live where reported output streams and retain `~`; attributed
+provider thinking counts appear on finished thoughts. The single generic BPE
+loads lazily and corrects per harness from real receipts. Context occupancy
+updates from reported input/context snapshots mid-turn through a coalesced,
+agent-only runtime overlay. See [transcript tokens](transcript-token-counts.md).
+
 Helper transcript addition (user 2026-10-16 20:23Z): expanding a helper call
 shows live first-level activity. Initial 4.4.0 alpha slice captures new Claude
 Agent/Task calls only; nested helper tools retain ordinary details. Other

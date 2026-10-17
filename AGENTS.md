@@ -173,6 +173,17 @@
   active filters. See [inbox screens](docs/skills/orgtree-app/desk/inbox-screens/SKILL.md).
   [decided: user 2026-10-17; verified: `App.tsx`, `canvas/mail.tsx`]
 
+- Transcript tool counts (4.4.0) are always `~` estimates from one lazy
+  gzip o200k_base plus one process-local correction per harness. Count observed
+  output before display clipping; do not tokenize in React or use status/input
+  summaries as output. Calibrate only complete attributed text receipts; child
+  totals and prompt deltas are not result receipts. Provider thinking totals
+  require one completed thought in the response scope; Claude fragments share
+  `message.id`. Live occupancy is provider-only, coalesced in an agent runtime
+  overlay, without mid-turn DB/tree writes. Contract and measured limits:
+  [transcript tokens](docs/rust-engine/transcript-token-counts.md).
+  [decided: user/coordinator 2026-10-17; verified: `runtime/{token_counts,live_usage,actor,next_turn}.rs`, `canvas/{tokencount,toolclock,desk}.tsx`]
+
 - Per-node **Subordinates may message each other** defaults ON. OFF gates
   all agent mail between the same actual parent's direct children unless the
   sender holds an active directional audience. Projects remain transparent for
