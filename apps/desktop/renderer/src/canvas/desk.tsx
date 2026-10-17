@@ -4807,8 +4807,8 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
       {open && (writing
         ? t.preview_input !== null && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
           ? <div className="toolinput"><StructuredJson value={t.preview_input} /></div> : null
-        : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />)}
-      {open && !writing && hasHelperTranscript(t) && <HelperTranscript slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
+        : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} retained={t.retained_input} />)}
+      {open && !writing && !t.retained_input && hasHelperTranscript(t) && <HelperTranscript slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
       {open && shellError && <ToolOutputDetails slug={slug} nid={nid} seq={t.output_seq} tool={t.id}
         fallback={t.result || t.error || ''} clipped={t.truncated}
         renderOutput={output => <CopyablePre><pre className="filepre respre"

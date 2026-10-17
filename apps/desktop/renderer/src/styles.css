@@ -8838,14 +8838,10 @@ option.harness-absent, option.harness-sep { color: var(--dim); }
 
 /* A bounded one-level view inside the parent tool disclosure. */
 .helper-transcript { margin: 8px 0 8px 12px; padding: 10px 12px; border-left: 2px solid var(--accent);
-  background: var(--panel-2); max-height: 420px; overflow: auto; min-width: 0; }
+  background: var(--panel-2); max-height: 420px; overflow: auto; min-width: 0;
+  font: 13px/1.5 var(--sans); color: var(--ink); white-space: normal; }
 .helper-transcript-heading { font-weight: 600; margin-bottom: 8px; }
 .helper-transcript-message + .helper-transcript-message { margin-top: 12px; }
-.helper-prose { white-space: pre-wrap; overflow-wrap: anywhere; }
-.helper-tool, .helper-thought { margin: 6px 0; }
-.helper-transcript summary { cursor: pointer; overflow-wrap: anywhere; }
-.helper-thought { color: var(--dim); }
-.helper-transcript pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* User-mail tag hue is immutable by name; contrast changes only fixed S/L. */
 :root { --mail-tag-bg-l:18%; --mail-tag-ink-l:80%; --mail-tag-border-l:38%; }

@@ -25,9 +25,9 @@ test('expanding a helper call reads its transcript live, one level only, and sto
   text = 'The helper is still working'
   await advance(1500)
   assert.match(view.last(), /The helper is still working/)
-  const nested = view.el.querySelector<HTMLDetailsElement>('.helper-transcript details')
+  const nested = view.el.querySelector<HTMLElement>('.helper-transcript .tline')
   assert.ok(nested, 'helper tools keep ordinary expandable details')
-  await inAct(() => { nested.open = true; nested.dispatchEvent(new Event('toggle')) })
+  await inAct(() => nested.click())
   assert.match(view.last(), /Nested task/)
   assert.equal(view.el.querySelectorAll('.helper-transcript').length, 1, 'no recursive helper transcript')
   assert.equal(calls.some(url => url.includes('/nested')), false, 'no nested transcript request')

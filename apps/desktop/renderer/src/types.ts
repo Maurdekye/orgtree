@@ -935,6 +935,8 @@ export interface ToolChip {
   input_seq?: number
   /** Explicit root helper call; transcript is fetched only while expanded. */
   helper_transcript?: boolean
+  /** Private helper snapshot input. Render locally; never read a parent row or recurse. */
+  retained_input?: { input: unknown; note?: string }
   /** Failed shell output retained separately, fetched only when expanded. */
   output_seq?: number
   /** when the engine saw the call start, and when its result arrived (ISO); the
