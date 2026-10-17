@@ -306,13 +306,15 @@ export default async function (rig) {
   const outsideItem = await rig.tool('alice', 'orgtree_work', { action: 'create', title: 'Alice chores', kind: 'non-code',
     objective: 'Alice has chores. Do them.' })
   const page = await rig.api('GET', `/api/orgs/${rig.org}/work-items-page?agent=site`)
-  const pageTitles = (page.items ?? []).map(i => i.title)
+  // the page's items come as `rows` (orgtree.work-page/v1)
+  const pageTitles = (page.rows ?? []).map(i => i.title)
   p.check('the project docket lists items owned under it, nested included, and nothing from outside',
     nestedItem.ok && outsideItem.ok && pageTitles.includes('Site launch checklist') && pageTitles.includes('UI review')
     && !pageTitles.includes('Alice chores'), { titles: pageTitles, nested: said(nestedItem), outside: said(outsideItem) })
   const agentPage = await rig.api('GET', `/api/orgs/${rig.org}/work-items-page?agent=dev1`)
-  p.check('an agent\'s docket is unchanged: its own items only', (agentPage.items ?? []).every(i => i.owner?.node === 'dev1')
-    && (agentPage.items ?? []).some(i => i.title === 'Site launch checklist'), (agentPage.items ?? []).map(i => [i.owner?.node, i.title]))
+  p.check('an agent\'s docket is unchanged: its own items only', (agentPage.rows ?? []).length > 0
+    && (agentPage.rows ?? []).every(i => i.owner?.node === 'dev1')
+    && (agentPage.rows ?? []).some(i => i.title === 'Site launch checklist'), (agentPage.rows ?? []).map(i => [i.owner?.node, i.title]))
   // migration 0028 on a row that still carries the old attachment: nothing is lost
   rig.exec(`UPDATE ot.work_items SET extra = extra || jsonb_build_object('project_id', ${web.id}) WHERE slug = '${slug}'`)
   const before0028 = rig.one(`SELECT title, owner, objective, done_so_far FROM ot.work_items WHERE slug = '${slug}'`)
