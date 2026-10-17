@@ -30,6 +30,15 @@
   [tool-card stack safety](docs/rust-engine/tool-cards.md#stack-safety).
   [verified: `tools/defs.rs`, `main.rs`; 2026-10-17]
 
+- Model-change tool chips retain the locked applied before/after tiers in
+  `refs.model_change`; legacy results leave the old model unknown. Historical
+  `TierChip`s omit agent-bound tooltips, while the agent link keeps its current
+  model. Omit a redundant new card only when that current model is known to
+  match; queued/no-op/refused/staffing calls gain no transition. See
+  [model tool chips](docs/rust-engine/tool-model-changes.md).
+  [decided: user 2026-10-17 22:59Z/23:01Z; verified: `domain/ops.rs`,
+  `runtime/convo.rs`, `canvas/{modelchange,toolrefs}.tsx`]
+
 - Committees without a dedicated manager use a project under their supervisor;
   large/complex committees may instead put members directly under a dedicated
   non-voting manager, with no committee project. Set the actual host's Subordinates

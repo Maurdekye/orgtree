@@ -362,6 +362,11 @@ loads lazily and corrects per harness from real receipts. Context occupancy
 updates from reported input/context snapshots mid-turn through a coalesced,
 agent-only runtime overlay. See [transcript tokens](transcript-token-counts.md).
 
+Model changes from tools (user 2026-10-17 22:59Z/23:01Z) show recorded historical
+model cards around the current agent link. A redundant new card disappears
+when the agent still uses that model; an unknown old model is never guessed.
+See [model tool chips](tool-model-changes.md) for the four layouts.
+
 Helper transcript addition (user 2026-10-16 20:23Z): expanding a helper call
 shows live first-level activity. Initial 4.4.0 alpha slice captures new Claude
 Agent/Task calls only; nested helper tools retain ordinary details. Other
