@@ -148,23 +148,24 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     list_page(&client, &o, &node, members.as_deref(), offset, limit, located).await
 }
 
-/// The nodes whose documents a gallery lists, or `None` for the plain
-/// `node_name` filter. A PROJECT's gallery always holds the documents presented
-/// under it and those of every node below it (user 2026-10-17 20:07:52Z, docket
-/// point 8); `team` asks the same of any node: an agent and everyone under it,
-/// passing through projects (point 25, user 22:47Z), as the team docket does.
-/// Nested projects included, whatever their state. One recursive read per
-/// request; the page query itself stays bounded by LIMIT.
+/// The nodes whose documents a TEAM gallery lists, or `None` for the plain
+/// `node_name` filter. `team` asks for a node and everyone under it, passing
+/// through projects (point 25, user 22:47Z), as the team docket does; nested
+/// projects included, whatever their state. Without it every node's gallery,
+/// a project's too, is its own: a project's presentations are the documents
+/// attributed to it, and the subtree's are its team presentations (point 27,
+/// user 2026-10-17 23:28Z, replacing point 8's subtree-wide project gallery).
+/// One recursive read per request; the page query itself stays bounded by LIMIT.
 #[logged]
 async fn subtree_members(client: &tokio_postgres::Client, o: &crate::orgs::OrgHandle, node: &str, team: bool) -> ApiResult<Option<Vec<i64>>> {
-    if node.is_empty() {
+    if node.is_empty() || !team {
         return Ok(None);
     }
     let root: Option<i64> = client
         .query_opt(
-            "SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' AND ($3 OR kind = 'project')
+            "SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'
               ORDER BY (state = 'live') DESC, id DESC LIMIT 1",
-            &[&o.id, &node, &team],
+            &[&o.id, &node],
         )
         .await?
         .map(|r| r.get(0));
