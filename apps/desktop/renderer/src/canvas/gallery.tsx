@@ -715,6 +715,9 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
   collapsible }: AgentGalleryViewProps) {
   const w = useDocWindow(slug, nid)
+  // a project's list holds its subtree's cards too (review P2): the engine
+  // scoped it, so the rows are not narrowed to `nid` here
+  const wide = (node as { kind?: string } | undefined)?.kind === 'project'
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
     return (node?.documents ?? []).map((d) => ({
@@ -731,15 +734,15 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   }, [node, nid])
 
   const rows = useMemo(() => {
-    const polled = w.rows?.filter((r) => r.node === nid && !r.evicted)
+    const polled = w.rows?.filter((r) => (wide || r.node === nid) && !r.evicted)
     // A response is authoritative even when its filtered result is empty:
     // falling back then resurrects dismissed, evicted, or stale node rows.
     // Node payloads are only a bootstrap fallback while the list is absent.
     const source = w.rows ? (polled ?? []) : fallbackRows
-    const includeSelected = selectedRow?.node === nid && !source.some(r => r.id === selectedRow.id)
+    const includeSelected = selectedRow && (wide || selectedRow.node === nid) && !source.some(r => r.id === selectedRow.id)
       ? [selectedRow, ...source] : source
     return includeSelected.filter((r) => !dismissed.includes(r.id))
-  }, [w.rows, nid, fallbackRows, dismissed, selectedRow])
+  }, [w.rows, nid, fallbackRows, dismissed, selectedRow, wide])
 
   const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
   useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
