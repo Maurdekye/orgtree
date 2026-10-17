@@ -1066,13 +1066,14 @@ fn changed(engine: &Engine, org: &OrgHandle) {
 
 /// Notifications are stored with the mutation; only runtime wakes escape after commit.
 #[derive(Debug, Default)]
-pub(crate) struct AfterCommit { recipients: Vec<(i64, bool)>, events: Vec<crate::runtime::watchdogs::events::Event> }
+pub(crate) struct AfterCommit { recipients: Vec<(i64, bool)>, events: Vec<crate::runtime::watchdogs::events::Event>, sounds: Vec<String> }
 
 #[logged]
 impl AfterCommit {
     pub(crate) fn publish(self, engine: &Arc<Engine>, org: &Arc<OrgHandle>) {
         changed(engine, org);
         for e in self.events {crate::runtime::watchdogs::events::emit(engine,e);}
+        for id in self.sounds { engine.app.sound(crate::appfeed::SoundKind::Task, org.id, id); }
         for (id, wake) in self.recipients {
             changes::notify(engine, org, vec![Change::Mailbox(id)]);
             if wake { crate::runtime::wake(engine, org.id, id); }
@@ -1206,6 +1207,7 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         )
         .await?;
     let it = item_of(&row);
+    if it.status == "done" { post.sounds.push(format!("docket:{}:{}", it.id, it.rev)); }
     post.events.push(crate::runtime::watchdogs::events::event("docket.created",crate::runtime::watchdogs::events::Scope::Docket(org.id,it.slug.clone()),json!({"slug":it.slug,"status":it.status})));
     history(tx, &it, who, "create", json!({ "title": title, "status": status, "owner": owner_name })).await?;
     let mut notified = Value::Null;
@@ -1590,6 +1592,9 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         it.docket_at = Some(now);
     }
     if it.status != from_status {
+        if it.status == "done" {
+            post.sounds.push(format!("docket:{}:{}", it.id, it.rev));
+        }
         post.events.push(crate::runtime::watchdogs::events::event("docket.status.changed",crate::runtime::watchdogs::events::Scope::Docket(org.id,it.slug.clone()),json!({"slug":it.slug,"status":it.status})));
         it.status_at = Some(now);
     }
