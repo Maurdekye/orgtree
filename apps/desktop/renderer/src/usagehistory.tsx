@@ -222,6 +222,9 @@ export function timeTicks(from: number, to: number): { t: number; label: string 
   const start = new Date(from)
   start.setMinutes(0, 0, 0)
   if (step >= 24 * H) start.setHours(0)
+  // a shorter step starts on its own boundary: from an hour that is not a
+  // multiple of it every later tick is skipped below, and the axis has no labels
+  else while (start.getHours() % (step / H)) start.setHours(start.getHours() + 1)
   const out: { t: number; label: string }[] = []
   for (let t = start.getTime(); t <= to; t += step) {
     // re-align on local midnight/hour after a DST change
