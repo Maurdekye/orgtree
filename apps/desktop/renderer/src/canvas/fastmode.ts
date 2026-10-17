@@ -15,11 +15,11 @@ export function syncFastModes(providers: { tiers?: ProviderTier[] }[]): void {
   signature = next; tiers = new Map(rows.map(t => [t.tier, t])); revision++
   listeners.forEach(fn => fn())
 }
-export function fastModeSupported(tier?: string, version?: string | null, catalog?: ProviderTier): boolean {
+export function fastModeSupported(tier?: string | null, version?: string | null, catalog?: ProviderTier): boolean {
   const row = catalog ?? tiers.get(tier ?? '')
   return version ? row?.fast_mode_versions?.[version] === true : row?.fast_mode === true
 }
-export function useFastMode(tier?: string, version?: string | null): boolean {
+export function useFastMode(tier?: string | null, version?: string | null): boolean {
   useSyncExternalStore(subscribe, () => revision)
   return fastModeSupported(tier, version)
 }

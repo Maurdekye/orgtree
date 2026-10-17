@@ -5567,9 +5567,6 @@
    ],
    "writer": "epic-combo-sol",
    "status": "fixed",
-   "components": [
-    "apps/desktop/renderer/src/canvas/fastmodebutton.tsx#FastModeButton"
-   ],
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
