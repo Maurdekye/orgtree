@@ -13,26 +13,27 @@ function TaggedBox(){
   return <MailList delivered={rows} tagFilter={{value:tag,choices:['Alpha Build','Progress'],onChange:setTag}}/>
 }
 const count=(el:HTMLElement)=>el.querySelectorAll('.mailrow').length
+const change=(input:HTMLInputElement,value:string)=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}))}
 test('user mail shows tag chips and a selector; untagged mail remains visible',async()=>{
   const v=await mountView(<TaggedBox/>,el=>el)
   try {
     assert.equal(count(v.el),6,'positive control: all mail is mounted')
     assert.equal(v.el.querySelectorAll('.mail-tag').length>=3,true,'sender tags must be visible')
-    assert.equal(v.el.querySelector('select[aria-label="Filter mail by tag"]')!==null,true)
+    assert.equal(v.el.querySelector('input[aria-label="Filter mail by tag"]')!==null,true)
   }finally{await v.unmount()}
 })
 test('tag selection is case-insensitive, composes with text search, and clearing restores mail',async()=>{
   const v=await mountView(<TaggedBox/>,el=>el)
   try{
-    const pick=v.el.querySelector<HTMLSelectElement>('select[aria-label="Filter mail by tag"]')
+    const pick=v.el.querySelector<HTMLInputElement>('input[aria-label="Filter mail by tag"]')
     assert.equal(pick!==null,true,'user inbox needs its tag selector')
-    await inAct(()=>{pick!.value='Alpha Build';pick!.dispatchEvent(new Event('change',{bubbles:true}))})
+    await inAct(()=>{change(pick!,'Alpha Build')})
     assert.equal(count(v.el),2)
     const q=v.el.querySelector<HTMLInputElement>('input.mail-filter')!
-    await inAct(()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(q,'message1');q.dispatchEvent(new Event('input',{bubbles:true}))})
+    await inAct(()=>{change(q,'message1')})
     await inAct(async()=>{await flush(3)})
     assert.equal(count(v.el),1,'text and tag filters must intersect')
-    await inAct(()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(q,'');q.dispatchEvent(new Event('input',{bubbles:true}));pick!.value='';pick!.dispatchEvent(new Event('change',{bubbles:true}))})
+    await inAct(()=>{change(q,'');change(pick!,'')})
     assert.equal(count(v.el),6)
   }finally{await v.unmount()}
 })
@@ -44,6 +45,6 @@ test('a tag chip selects its filter; agent mail has no user-tag filter control',
     await inAct(()=>{chip!.click()})
     assert.equal(count(v.el),1,'first chronological tag is Progress')
     await v.render(<MailList delivered={rows}/>)
-    assert.equal(v.el.querySelector('select[aria-label="Filter mail by tag"]')===null,true)
+    assert.equal(v.el.querySelector('input[aria-label="Filter mail by tag"]')===null,true)
   }finally{await v.unmount()}
 })
