@@ -1370,8 +1370,8 @@ button.badge.audience-fold.alert {
 .project-desk .cc-head-left { display: inline-flex; align-items: center; gap: 6px; }
 .project-desk .cc-head-left .project-mark { color: var(--accent); display: inline-flex; }
 .project-desk .cc-head-left .name { font-weight: 600; }
-.project-desk .project-counts { font: 600 11px/1 var(--mono); }
-.project-desk .working-ct { display: inline-flex; color: var(--accent); }
+.chip.agents.project-activity { padding: 0 5px; }
+.sq.project .project-meta .project-activity { font-size: 10px; }
 /* the description editor: Markdown until focused, monospace while edited (user 2026-10-17 20:06Z) */
 .project-desk .project-description-md, .project-desk .project-description-edit {
   flex: 1; min-height: 240px; overflow: auto; box-sizing: border-box; width: 100%;
@@ -1382,8 +1382,11 @@ button.badge.audience-fold.alert {
 .project-desk .project-description-edit:focus { outline: none; border-color: var(--accent); }
 /* the draft project card (newproject.tsx): the folder mark takes the tier token's 20px slot */
 .sq.draft.project .df-head .project-mark { width: 20px; height: 20px; justify-content: center; align-items: center; }
+/* zoomed out a project is its folder (user 2026-10-17 21:20Z): no tier/provider
+   stripe on the left edge, and the folder fills the card */
+.sq.project.mini::before { display: none; }
 .sq.project .project-mini { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
-  color: var(--accent); font-size: 28px; }
+  color: var(--accent); font-size: 84px; line-height: 1; }
 .new-project .field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
 .new-project .field input, .new-project .field textarea { width: 100%; box-sizing: border-box; }
 .sq-title { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 19px; }

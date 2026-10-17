@@ -56,6 +56,24 @@ export function projectCounts(node: CanvasNode): { active: number; hired: number
   return { active: agents.filter((a) => a.busy).length, hired: agents.length, agents }
 }
 
+/** The project's agents as the app header's activity chip shows an org's
+ *  (shell/treeinfo.tsx ActiveAgentSummary): the spinner while any is active,
+ *  then active/hired. On the project desk's header and the project card at
+ *  middle zoom (user 2026-10-17 20:08Z, 21:21Z). */
+export function ProjectActivity({ node }: { node: CanvasNode }) {
+  const { active, hired } = projectCounts(node)
+  return (
+    <span className="chip agents project-activity" title="active / hired agents under this project">
+      <span className="org-activity">
+        {active > 0 && <span className="working-ct"
+          title={`${active} agent${active === 1 ? '' : 's'} under this project active — a turn executing now`}>
+          <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
+      </span>
+      <span className="project-counts org-counts dim">{active}/{hired}</span>
+    </span>
+  )
+}
+
 /** The description editor (user 2026-10-17 20:06Z): Markdown while it is not
  *  focused, raw monospace text while it is. Leaving the editor saves a change
  *  with `set_description`; Escape drops the edit. */
@@ -108,7 +126,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const mine = useMemo(() => agentItems(work, node.id, showArchived), [work, node.id, showArchived])
   const facts = useNodeFacts(slug, tree, useMemo(() => itemActorIds(mine), [mine]))
   const live = node.state === 'live'
-  const { active, hired, agents } = projectCounts(node)
+  const { agents } = projectCounts(node)
   const allHalted = agents.length > 0 && agents.every((a) => a.halt?.phase === 'halted')
   const parent = node.parent && map.has(node.parent) && !(bare && node.parent === USER) ? map.get(node.parent)! : null
   const members = node.children.filter((c) => c.state === 'live')
@@ -124,12 +142,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               <FolderIcon fontSize="inherit" />
             </span>
             <span className="name">{node.id}</span>
-            <span className="project-counts org-counts dim" title="active / hired agents under this project">
-              {active}/{hired}
-            </span>
-            {active > 0 && <span className="working-ct"
-              title={`${active} agent${active === 1 ? '' : 's'} under this project active — a turn executing now`}>
-              <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
+            <ProjectActivity node={node} />
             {!live && <span className="badge dim">{node.state}</span>}
           </span>
           <span className="spacer" aria-hidden="true" />

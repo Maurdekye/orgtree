@@ -48,7 +48,8 @@ const tierName = (tier: string): string => isOpenRouterTier(tier) || isLangServe
 /** The live agents of one tree, counted the way the chip shows them: `busy`
  *  is a turn running now. The letters are MODEL TIERS, not organizations. */
 export function liveCounts(tree: TreePayload) {
-  const nodes = [...flatNodes(tree).values()].filter((n) => n.state === 'live')
+  // project nodes run no turns and hold no seat: they are not hired agents
+  const nodes = [...flatNodes(tree).values()].filter((n) => n.state === 'live' && n.kind !== 'project')
   const byTier: Record<string, number> = {}
   for (const node of nodes) byTier[node.tier] = (byTier[node.tier] ?? 0) + 1
   // the OpenRouter and language-server tiers are runtime-minted, so the
