@@ -32,7 +32,8 @@ import { detectHarnesses, harnessSetupMenu, type HarnessSetup } from './harnesse
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
-import { nativeAppFeed } from './appfeed'
+import { nativeAppFeed, taskbarPicture } from './appfeed'
+import { JumpListIcons } from './jumplist-icons'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
@@ -500,17 +501,32 @@ else {
     if (taskbarReady) void drainTaskbar()
     return true
   }
+  const taskbarIcons = new JumpListIcons(path.join(app.getPath('userData'), 'jump-list-icons'),
+    org => taskbarPicture(engine,org.slug), png => {
+      const original = nativeImage.createFromBuffer(png)
+      if (original.isEmpty()) throw new Error('Invalid organization logo')
+      const image = original.getSize().width > 256 ? original.resize({ width: 256, height: 256, quality: 'best' }) : original
+      return { png: image.toPNG(), ...image.getSize() }
+    })
   let taskbarContents = ''
+  let taskbarLatest: readonly TaskbarOrg[] = []
   const refreshTaskbar = (orgs: readonly TaskbarOrg[]) => {
     if (process.platform !== 'win32') return
-    const categories = taskbarTasks(orgs, process.execPath, app.isPackaged ? undefined : app.getAppPath())
+    taskbarLatest = orgs
+    void taskbarIcons.prepare(orgs).then(changed => {
+      if (changed && !quitting && !installerUpgradeShutdown) refreshTaskbar(taskbarLatest)
+    })
+    const categories = taskbarTasks(orgs, process.execPath, app.isPackaged ? undefined : app.getAppPath(), taskbarIcons.paths(orgs))
     const next = JSON.stringify(categories)
     if (next === taskbarContents) return
     // Do not rewrite the shell menu on agent activity/attention changes, or
     // flood warnings if the shell refuses this exact list. Retry a new list.
     taskbarContents = next
     try {
-      const result = app.setJumpList(categories)
+      let result = app.setJumpList(categories)
+      // Windows can forbid custom categories through its privacy setting.
+      // Keep the fixed actions usable without changing that system preference.
+      if (result === 'customCategoryAccessDeniedError') result = app.setJumpList(categories.filter(category => category.type === 'tasks'))
       if (result !== 'ok') console.warn('The taskbar menu could not be updated:', result)
     } catch (error) { console.warn('The taskbar menu could not be updated', error) }
   }

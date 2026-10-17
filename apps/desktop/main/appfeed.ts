@@ -7,12 +7,36 @@ import { TOKEN_HEADER } from './policy'
 type EngineEndpoint = { readonly origin: string; readonly token: string }
 type NativeSocket = new (url: string, options: { headers: Record<string, string> }) => WebSocket
 
+function localEndpoint(origin: string, route: string): URL {
+  const url = new URL(origin)
+  if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)
+      || url.username || url.password) throw new Error('Invalid local engine origin')
+  return new URL(route,url)
+}
+
+/** A bounded, authenticated on-change read; no image bytes enter app feed frames. */
+export async function taskbarPicture(engine: EngineEndpoint, slug: string): Promise<unknown> {
+  const response = await fetch(localEndpoint(engine.origin,`/api/orgs/${encodeURIComponent(slug)}/profile-picture`), {
+    headers: { [TOKEN_HEADER]: engine.token }, redirect: 'error', signal: AbortSignal.timeout(10000),
+  })
+  if (!response.ok || !response.body) throw new Error('Organization logo unavailable')
+  const reader = response.body.getReader(), chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      length += value.length
+      if (length > 384 * 1024) { await reader.cancel(); throw new Error('Organization logo exceeds limit') }
+      chunks.push(value)
+    }
+  } finally { reader.releaseLock() }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')).picture
+}
+
 export function nativeAppFeed(engine: EngineEndpoint, changed: () => void) {
   const endpoint = (route: string) => {
-    const url = new URL(engine.origin)
-    if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)
-        || url.username || url.password) throw new Error('Invalid local engine origin')
-    return new URL(route, url)
+    return localEndpoint(engine.origin,route)
   }
   return new AppFeedConnection({
     async copy(): Promise<AppSnapshot> {

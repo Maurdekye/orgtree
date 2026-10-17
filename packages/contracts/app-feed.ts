@@ -9,6 +9,8 @@ export type RegistryOrg = {
 export type RegistryFrame = { type: 'registry_snapshot'; epoch: string; cursor: AppCursor
   records: { entity: 'registry_org'; id: string; body: RegistryOrg }[] }
 export type SummaryBody = { name: string; created: string | null; net_slug: string | null
+  /** Content hash only; image bytes stay behind the authenticated picture endpoint. */
+  logo_sha256?: string | null
   nodes: number; live: number; cost_usd_total: number
   /** things waiting on the user: open questions + unread urgent mail + attention-flagged tickets */
   attention?: number }
