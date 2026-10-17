@@ -59,7 +59,7 @@ test('§1a the project token is an icon alone on the outermost row, says it '
   assert.equal(tok.textContent?.trim(), '', 'an icon in place of a tier letter: no text at all')
   assert.ok(tok.querySelector('svg'), 'the icon itself (a folder)')
   const title = tok.getAttribute('title') ?? ''
-  assert.equal(title, 'create a project under this node (free)',
+  assert.equal(title, 'create a project under this node (free, structural)',
     'the tooltip names a project, where it lands and that it is free')
   assert.equal(/\(-/.test(title), false, `no seat price on a free project, got "${title}"`)
   assert.equal(tok.getAttribute('aria-label'), 'create a project')
@@ -75,9 +75,9 @@ test('§1a the project token is an icon alone on the outermost row, says it '
 
 test('§1b on the side and top strips it names its place and stays outermost', async (t) => {
   const cases: { side: Side; title: string; at: number }[] = [
-    { side: 'left', title: 'create a project beside (free)', at: 0 },
-    { side: 'right', title: 'create a project beside (free)', at: -1 },
-    { side: 'top', title: 'create a project above, holding this node (free)', at: 0 },
+    { side: 'left', title: 'create a project beside (free, structural)', at: 0 },
+    { side: 'right', title: 'create a project beside (free, structural)', at: -1 },
+    { side: 'top', title: 'create a project above, holding this node (free, structural)', at: 0 },
   ]
   for (const c of cases) {
     const view = await strip(c.side, noop)
