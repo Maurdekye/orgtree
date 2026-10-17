@@ -283,6 +283,23 @@ export default async function (rig) {
   p.check('an agent\'s gallery is still its own documents only', (agentGallery.documents ?? []).every(d => d.node === 'dev5')
     && (agentGallery.documents ?? []).some(d => d.title === 'UI sketch'), (agentGallery.documents ?? []).map(d => [d.node, d.title]))
 
+  // ------------------------------------------------------------ team presentations (point 25, user 2026-10-17 22:47Z)
+  // like the team docket: the agent's own presentations and everyone's under it, passing through projects
+  const teamBoss = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=boss&team=1&limit=50`)
+  const teamTitles = (teamBoss.documents ?? []).map(d => d.title)
+  const ownBoss = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=boss&limit=50`)
+  p.check('team=1 on an agent lists its own and its subtree\'s presentations, through projects',
+    ['Boss notes', 'Website plan', 'UI sketch'].every(x => teamTitles.includes(x)) && teamBoss.total === teamTitles.length
+    && !(ownBoss.documents ?? []).some(d => d.title === 'UI sketch'), { team: teamTitles, own: (ownBoss.documents ?? []).map(d => d.title) })
+  const teamDev5 = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5&team=1&limit=50`)
+  p.check('a leaf agent\'s team gallery is its own', (teamDev5.documents ?? []).length > 0
+    && (teamDev5.documents ?? []).every(d => d.node === 'dev5'), (teamDev5.documents ?? []).map(d => [d.node, d.title]))
+  // USER 22:47:51Z: every card links back to the agent that presented it
+  const plan = (teamBoss.documents ?? []).find(d => d.title === 'Website plan')
+  const sketch = (teamBoss.documents ?? []).find(d => d.title === 'UI sketch')
+  p.check('each card names its presenting agent, even one presented under a project', plan?.presented_by === 'boss'
+    && sketch?.presented_by === 'dev5' && plan?.presenter_tier && sketch?.presenter_tier, { plan, sketch })
+
   // ------------------------------------------------------------ the project docket (point 23)
   const nestedItem = await rig.tool('dev5', 'orgtree_work', { action: 'create', title: 'UI review', kind: 'non-code',
     objective: 'The UI needs a review. Do one.' })
