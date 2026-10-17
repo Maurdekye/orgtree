@@ -89,6 +89,7 @@ mod agy_thinking_pg_tests {
         // private, while identity stamping and persisted updates stay intact.
         let mut ordinary = rows().remove(0);
         let seq = writer.append(&client, ordinary.clone()).await.unwrap();
+        let before_update = (writer.ver, writer.seq);
         ordinary["text"] = json!(RESPONSE);
         writer.update(&client, seq, ordinary).await.unwrap();
         let body: Value = client.query_one("SELECT body FROM ot.convo WHERE agent_id=1 AND seq=$1", &[&seq])
@@ -98,6 +99,18 @@ mod agy_thinking_pg_tests {
         assert_eq!(body["seq"], seq);
         assert_eq!(body["row_id"], format!("r{seq}"));
         assert_eq!(body["event_id"], format!("e{seq}"));
+        // Opening and refreshing a desk must not re-serialize the persisted
+        // thought into verbose logs via read/restore helper arguments/returns.
+        let page = read(&client, 1, 300, None, None).await.unwrap();
+        assert_eq!(page.messages.len(), 7);
+        assert!(page.messages.iter().any(|row| row["thinking"] == THOUGHT));
+        assert!(page.messages.iter().any(|row| row["text"] == RESPONSE));
+        assert_eq!(page.after, format!("{}:{}", writer.ver, writer.seq));
+        let updates = read(&client, 1, 300, None, Some(before_update)).await.unwrap();
+        assert!(updates.incremental && updates.messages.is_empty());
+        assert_eq!(updates.updates.len(), 1);
+        assert_eq!(updates.updates[0]["thinking"], THOUGHT);
+        assert_eq!(updates.updates[0]["text"], RESPONSE);
         drop(client); connection.await.unwrap();
         drop(subscriber);
         drop(dispatch);
