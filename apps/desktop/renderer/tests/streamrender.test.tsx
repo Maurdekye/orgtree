@@ -99,3 +99,25 @@ test('settled mail replies refresh availability and use the latest locate handle
   await inAct(() => jump!.click())
   assert.equal(located, 1)
 })
+
+test('mail reply availability changes invalidate only when the rendered outcome changes', async t => {
+  let update!: () => void, reads=0
+  const locate=()=>{}
+  const wire=replyWire({org:'org',agent:'agent',generation:0,eventId:'original',quote:'quoted'})
+  const row:ChatMessage={role:'user',text:'reply',segments:[{kind:'mail',rows:[{
+    id:'mail',from:'peer',kind:'message',at:'2026-10-17T12:00:00Z',reply_to:wire,
+    get body(){reads++;return 'reply'},
+  }]}]}
+  function Probe(){
+    const [revision,setRevision]=useState(0)
+    update=()=>setRevision(n=>n+1)
+    return <Msg m={row} slug="org" nid="agent" replyAvailable={()=>revision>=2} onLocateReply={locate}/>
+  }
+  const view=await mountView(<Probe/>,h=>h)
+  t.after(()=>view.unmount())
+  const before=reads
+  await inAct(update)
+  assert.equal(reads,before)
+  await inAct(update)
+  assert.equal(view.el.querySelector<HTMLButtonElement>('.reply-preview-jump')?.disabled,false)
+})

@@ -13,9 +13,12 @@ The avoidable work was in settled transcript rows: the same user row rendered
 row identity unless it removes a duplicate card. The desk reuses its durable
 message-list projection until that list changes, then rebuilds all duplicate
 claims before drawing live rows. TranscriptFlow retains segmented projections
-for the same list. Msg ignores changing reply callbacks only for rows without
-mail segments; mail replies retain fresh availability and navigation handlers.
-Content, routes and identity changes still invalidate the memo.
+for unchanged source rows even while another row grows. Its per-surface weak
+cache retains original source indexes and anonymous-row keys when paging moves
+rows. Msg ignores reply callbacks when there are no chat replies. Actual mail
+reply controls compare their rendered availability; navigation uses the desk's
+latest handler through a stable callback. Content, routes, availability and
+external handler changes still invalidate the memo.
 
 Token transport, ordering, frame/timer publication, durable handoff and HTTP
 recovery remain on their existing paths. No synthetic text is generated and no

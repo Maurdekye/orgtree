@@ -103,8 +103,9 @@
   [decided: user 2026-10-17; verified: `http/mailbox.rs`, `canvas/mail.tsx`, `App.tsx`]
 - Live token updates retain unchanged settled transcript row identities and
   segmented projections. Rebuild duplicate claims for live rows every render;
-  changed content/routes still invalidate Msg, and mail segments always retain
-  fresh reply callbacks. File-card dedup must clone only rows it changes.
+  changed content/routes invalidate Msg, mail replies compare current availability,
+  and stable navigation calls the latest desk handler. Retain segmented source-row
+  projections when a different row grows. File-card dedup clones only changed rows.
   [verified: `assistantMessages.ts`, `canvas/{desk,transcriptflow}.tsx`;
   2026-10-17; diagnostics: `docs/rust-engine/stream-cadence.md`]
 
