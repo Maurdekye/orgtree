@@ -65,7 +65,8 @@ export default async function(rig){
     for(const name of ['recover','fallback']){
       const row=rig.agentRow(name)
       p.check(`${name}: no terminal launch failure or hard-failure counter`,!row?.last_error&&!(row?.extra?.hard_fail_run>0))
-      p.check(`${name}: original waking mail was delivered exactly once`,rig.rows(`SELECT state FROM ot.mail m JOIN ot.agents a ON a.id=m.recipient_agent_id WHERE a.name='${name}' AND m.body='${token(name)}'`).every(m=>m.state==='delivered')&&prompts(name).filter(s=>s.includes(token(name))).length===1)
+      const mail=rig.sql(`SELECT m.state FROM ot.mail m JOIN ot.agents a ON a.id=m.recipient_agent_id WHERE a.name='${name}' AND m.body='${token(name)}'`)
+      p.check(`${name}: original waking mail was delivered exactly once`,mail.length===1&&mail[0].state==='delivered'&&prompts(name).filter(s=>s.includes(token(name))).length===1)
     }
   }finally{
     for(const entry of children)await stop(entry)
