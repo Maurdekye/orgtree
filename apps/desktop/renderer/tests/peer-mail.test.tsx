@@ -5,7 +5,7 @@ import { NodeConfig } from '../src/canvas/modals'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { __setGlWiresFactory } from '../src/canvas/glwires'
 import type { Wire } from '../src/canvas/glwires'
-import { saveView, setChartLayout, layout, withDraftTree, USER } from '../src/canvas/shared'
+import { saveView, setChartLayout, setStartView, layout, withDraftTree, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -49,7 +49,7 @@ for(const project of [false,true]) for(const saved of [undefined,false]) {
 
 for(const renderer of ['svg','gl'] as const) for(const chart of ['row','circular'] as const) for(const zoom of [0.2,1.2]) {
  test(`${renderer} ${chart} at zoom${zoom}: off removes only sibling connectors; on restores them`,async()=>{
-  localStorage.clear();setChartLayout(chart);fetches()
+  localStorage.clear();setChartLayout(chart);setStartView('remember');fetches()
   let wires:Wire[]=[];let draws=0
   const real=globalThis.getComputedStyle
   const oldBox=HTMLElement.prototype.getBoundingClientRect
@@ -69,6 +69,9 @@ for(const renderer of ['svg','gl'] as const) for(const chart of ['row','circular
     v.el.querySelectorAll(peer?'svg.edges path.edge.peer:not([data-glprobe])':'svg.edges path.edge:not(.peer):not(.aud-line):not([data-glprobe])').length
   try {
     await inAct(async()=>{await flush(12)})
+    // The first canvas otherwise ignores a saved camera and starts its intro glide.
+    assert.ok(v.el.querySelector<HTMLElement>('.space')!.style.transform.endsWith(`scale(${zoom})`),
+      'positive control: the requested zoom is actually mounted')
     if(renderer==='gl')assert.ok(draws>0,'fake GL path really receives committed wires')
     assert.ok(count(true)>0,'positive control: on draws peer lines')
     const vertical=count(false);assert.ok(vertical>0,'superior/subordinate links exist')
