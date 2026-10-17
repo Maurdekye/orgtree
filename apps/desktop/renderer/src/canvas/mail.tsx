@@ -49,6 +49,7 @@ import { MailReplyPreview, recordedMailReply } from './mailreply'
 // selected message opened in the reading pane on the right. Unread mail is
 // HIGHLIGHTED but never moved.
 export interface MailListProps {
+  tagFilter?: { value: string; choices: string[]; onChange: (tag: string) => void }
   org?: string
   pending?: MailRow[]
   delivered?: MailRow[]

@@ -71,3 +71,5 @@ macro_rules! refuse {
 pub fn user_err(kind: fn(String) -> UserError, msg: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(kind(msg.into()))
 }
+
+pub mod mail_tags;
