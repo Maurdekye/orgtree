@@ -1526,6 +1526,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   the bus. [recorded-decision and verified-from-source: 2026-10-07;
   `docs/rust-engine/event-watchdogs.md` contains exact names and semantics]
 
+- Periodic watchdog countdowns roll forward from the last persisted check and
+  effective interval in the renderer, using one shared clock. Ordinary polls
+  do not refresh the watchdog feed; a matching silence-mode poll does when it
+  resets the real silence deadline. [verified: 2026-10-17;
+  `engine/rs/orgtree-engine/src/runtime/watchdogs.rs`,
+  `apps/desktop/renderer/src/canvas/watchdogcountdown.tsx`]
+
 - The Windows credential bridge serves git HTTPS and PATH-resolved gh from
   signed-in Electron main. Only isolated engines inject adapters; native helper
   chains and gh remain usable without a broker. Token-group/PID/SID proof binds the broker;

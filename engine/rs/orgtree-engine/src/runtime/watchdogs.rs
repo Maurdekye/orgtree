@@ -576,16 +576,22 @@ fn note_life(run: &mut Value, alive: bool) {
 async fn save_run(engine: &Engine, dog: &mut Dog, matched: bool) -> Result<()> {
     let reset = matched && dog.silence();
     let client = engine.db.get().await?;
-    client
-        .execute(
+    let updated = client
+        .query_opt(
             "UPDATE ot.watchdogs SET last_check = now(), memo = jsonb_set(memo, '{run}', $2),
                     silence_since = CASE WHEN $3 THEN now() ELSE silence_since END
-              WHERE id = $1 AND state = 'armed'",
+              WHERE id = $1 AND state = 'armed' RETURNING silence_since",
             &[&dog.row, &dog.run, &reset],
         )
         .await?;
+    drop(client);
     if reset {
-        dog.silence_since = Some(Utc::now());
+        if let Some(reset_at) = updated.and_then(|row| row.get::<_, Option<DateTime<Utc>>>(0)) {
+            dog.silence_since = Some(reset_at);
+            // Ordinary polls leave the watchdog feed untouched. A matching
+            // silence poll changes the real next deadline, so refresh its group.
+            changes::notify_id(engine, dog.org_id, vec![Change::Watchdogs]);
+        }
     }
     Ok(())
 }
