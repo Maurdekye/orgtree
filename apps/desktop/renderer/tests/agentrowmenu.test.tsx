@@ -637,6 +637,24 @@ uiTest('§6 Hire a subordinate ▸ <model> from a row walks to the agent and ope
     assert.notEqual(camera(), before, 'and the camera walked there')
   })
 
+uiTest('§6c a click on a project card walks to its project desk and opens no modal', async (t) => {
+  // USER 2026-10-17 20:04Z: "clicking a project focuses its desk, not opening its modal panel"
+  const c = await mountCanvas(t, [mkNode('boss', { children: [
+    mkNode('site', { parent: 'boss', kind: 'project', tier: 'project', seat: 0, charter: 'The site.' })] })])
+  const camera = () => (c.el.querySelector('.space') as HTMLElement).style.transform
+  const before = camera()
+  const card = cardFor(c.el, 'site')
+  assert.ok(card, 'the project card')
+  const at = (type: string) => new W.PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1,
+    pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: 200, clientY: 200 })
+  await inAct(() => { card!.dispatchEvent(at('pointerdown')) }); await flush()
+  await inAct(() => { card!.dispatchEvent(at('pointerup')) }); await flush()
+  await advance(1600, 40); await flush(4)
+  assert.equal(document.querySelector('.overlay') === null, true, 'no modal opened')
+  assert.notEqual(camera(), before, 'the camera walked to it')
+  assert.ok(cardFor(c.el, 'site')?.classList.contains('desk'), 'and its project desk is open')
+})
+
 uiTest('§6b New project here… from a row opens a draft project card, like a hire, and create makes it',
   async (t) => {
     // USER 2026-10-17 19:14Z: manual project creation has the manual hire's UX
