@@ -859,8 +859,10 @@ mod mail_shape_tests {
             let flat_meta: Vec<(&String, &Value)> = fp.iter().filter(|(k, _)| *k != "body").collect();
             assert_eq!(meta.iter().collect::<Vec<_>>(), flat_meta);
             assert_eq!(sp["metadata"]["required"], json!(["to"]));
-            let desc = split["description"].as_str().unwrap();
-            assert!(desc.starts_with(flat["description"].as_str().unwrap()) && desc.ends_with("metadata first, body last."), "{desc}");
+            let guide = format!("\nGuide: orgtree-tool-{}.", flat["name"].as_str().unwrap().strip_prefix("orgtree_").unwrap().replace('_', "-"));
+            let desc = split["description"].as_str().unwrap().strip_suffix(&guide).expect("split guide pointer");
+            let flat_desc = flat["description"].as_str().unwrap().strip_suffix(&guide).expect("flat guide pointer");
+            assert!(desc.starts_with(flat_desc) && desc.ends_with("metadata first, body last."), "{desc}");
         }
         assert_eq!(fm["inputSchema"]["properties"]["kind"]["enum"], json!(["message", "question", "request"]));
         assert!(fm["description"].as_str().unwrap().contains("Attachments to local agents are shared as authorized path references"));

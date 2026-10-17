@@ -29,8 +29,20 @@ Before implementation, exact `d53ddd5` produced ten canonical JSON measurements
 bytes, including 21,598 description bytes. Flat mail: 45 cards, 54,658 bytes,
 including 21,417 description bytes. All groups off: four cards, 3,074 bytes.
 The description/pointer and rare-card tests failed at their intended assertions;
-the measurement test passed. Final measurements and focused checks accompany
-the exact-SHA hand-in.
+the measurement test passed.
+
+The compact candidate measured these canonical byte counts; final focused checks
+and full per-harness receipts accompany the exact-SHA hand-in:
+
+| Shape/profile | Before | Compact | Compact descriptions | Eligible eager cards/bytes |
+| --- | ---: | ---: | ---: | ---: |
+| Split, all groups (Claude/Codex/Muse/OpenCode) | 55,285 | 44,468 | 10,733 | 22 / 32,661 |
+| Flat, all groups (Antigravity) | 54,658 | 43,841 | 10,552 | 22 / 32,034 |
+| Either, all groups off | 3,074 | 2,218 | 1,058 | 4 / 2,218 |
+
+Split-card bytes fall by 10,817 (19.6%); descriptions fall by 10,865 (50.3%).
+The four always-available cards remain when every optional group is denied.
+Eligible eager totals are conditional hint budgets, not measured native input.
 
 The unit guard caps each description at 900 UTF-8 bytes and the combined set at
 12,000, verifies every guide exists, and checks common/rare metadata plus denied
