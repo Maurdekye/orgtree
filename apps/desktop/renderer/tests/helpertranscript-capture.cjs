@@ -14,7 +14,12 @@ app.whenReady().then(async () => {
       if(document.body.dataset.ready==='true'){clearInterval(timer);resolve(true)}else if(performance.now()>deadline){clearInterval(timer);reject(new Error('fixture timeout'))}},20)})`)
     const receipts = []
     for (const theme of ['dark', 'light']) {
-      const state = await win.webContents.executeJavaScript(`new Promise(resolve=>{
+      let state, image, actualBackground
+      for (let attempt = 0; attempt < 5; attempt++) {
+        // Offscreen capture can return its cached frame even after DOM/theme
+        // checks pass. Request paint and verify actual pixels before saving.
+        win.webContents.invalidate()
+        state = await win.webContents.executeJavaScript(`new Promise(resolve=>{
         document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
         requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>resolve({text:document.body.innerText,
           helpers:document.querySelectorAll('.helper-transcript').length,
@@ -22,13 +27,20 @@ app.whenReady().then(async () => {
           thoughts:document.querySelectorAll('.helper-transcript .thoughtbody.md').length,
           chips:document.querySelectorAll('.helper-transcript .tline').length,
           inputs:document.querySelectorAll('.helper-transcript .toolinput').length,
-          font: getComputedStyle(document.querySelector('.helper-transcript .msgtext')).fontFamily}),100)))})`)
+          font: getComputedStyle(document.querySelector('.helper-transcript .msgtext')).fontFamily,
+          background: getComputedStyle(document.body).backgroundColor}),250)))})`)
+        image = await win.webContents.capturePage()
+        if (image.isEmpty()) throw new Error('Empty screenshot')
+        const bitmap = image.toBitmap()
+        actualBackground = `rgb(${bitmap[2]}, ${bitmap[1]}, ${bitmap[0]})`
+        if (actualBackground === state.background) break
+      }
+      if (actualBackground !== state.background) throw new Error('Capture pixels never reached ' + theme + ': ' + JSON.stringify({actualBackground, expected:state.background}))
+      if (theme === 'light' && state.background === receipts[0].background) throw new Error('Light theme did not change the computed background')
       if (state.helpers !== 1 || state.markdown < 1 || state.thoughts !== 1 || state.chips !== 2 || state.inputs !== 1)
         throw new Error('Helper visual fixture did not reach the expected normal transcript state: ' + JSON.stringify(state))
-      const image = await win.webContents.capturePage()
-      if (image.isEmpty()) throw new Error('Empty screenshot')
       fs.writeFileSync(path.join(root, theme + '.png'), image.toPNG())
-      receipts.push({ theme, ...state })
+      receipts.push({ theme, ...state, actualBackground })
     }
     fs.writeFileSync(path.join(root, 'capture.json'), JSON.stringify(receipts, null, 2))
   } finally { win.destroy() }
