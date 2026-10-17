@@ -698,7 +698,7 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'fair_queue'
   threshold?: string
   event_scope?: 'org' | 'subtree'
   last_output?: string

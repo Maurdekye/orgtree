@@ -21,6 +21,8 @@
   --canvas-dot: #343434;
   --peer-edge: #3e3e42;
   --tether-edge: #5a5a5c;
+  --fq-line: #ff7aa2;       /* a fair-queue watcher's line to its project (rose:
+                               no tier, status or relationship hue) */
   --bearer-panel: #262628;
   --bearer-line: #3a3a3c;
   --bearer-top: #4a4a4c;
@@ -199,6 +201,7 @@
   --deploy-ready: #3f4ba6;
   --approved: #7a4fa8;
   --ice: #326b82;
+  --fq-line: #b4235a;
   --tip-fill: #176377;
   --tip-seat: #155e75;
   --danger-ink: #af3320;
@@ -671,6 +674,10 @@ main {
   stroke: var(--aud-user); stroke-width: 2.2px; opacity: .7;
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--aud-user) 65%, transparent));
 }
+/* a fair-queue watcher's line to the project whose mailbox it serves; paused:
+   dashed and dimmed (user 2026-10-17 22:48Z) */
+.edge.fq-line { stroke: var(--fq-line); stroke-width: 1.8px; opacity: .85; }
+.edge.fq-line.off { stroke-dasharray: 5 4; opacity: .4; }
 /* a message in flight */
 .spark {
   fill: #ffd9a8; pointer-events: none;

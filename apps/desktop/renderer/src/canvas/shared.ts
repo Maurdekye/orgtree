@@ -27,7 +27,7 @@ import type { DependencyList } from 'react'
 import type {
   ActivityInfo, AskInfo, CacheForecast, CodexRouteInfo, DirGrant, MailEntry, NodeState,
   MuseLoginDoc, MuseModelLevels, NodeStatus, OpRequest, OpResult, PendingSwitch, ProviderInfo, ProviderTier, ReserveInfo,
-  ServingAccount, ToolGrant, TreeNode, TreePayload,
+  ServingAccount, ToolGrant, TreeNode, TreePayload, Watchdog,
 } from '../types'
 
 // DOMPurify exports an already-bound instance in the browser, but exports its
@@ -2073,6 +2073,24 @@ export function peerLinkPairs(ordered: string[], isProject: (id: string) => bool
   const agents = ordered.filter((id) => !isProject(id))
   const out: [string, string][] = []
   for (let i = 0; i + 1 < agents.length; i++) out.push([agents[i]!, agents[i + 1]!])
+  return out
+}
+
+/** A fair-queue watcher's line: from the dog's owner to the project whose
+ *  mailbox it serves (user 2026-10-17 22:48Z). */
+export interface FairQueueLink { key: string; owner: string; project: string; paused: boolean }
+
+/** One line per armed or paused fair_queue dog whose project is on the canvas
+ *  (its target is the project's name; a rename moves it). Exited and spent
+ *  dogs serve nobody and draw nothing. */
+export function fairQueueLinks(dogs: Watchdog[], isProject: (name: string) => boolean): FairQueueLink[] {
+  const out: FairQueueLink[] = []
+  for (const w of dogs) {
+    if (w.kind !== 'fair_queue' || w.spent || (w.state !== 'armed' && w.state !== 'paused')) continue
+    const project = w.target.replace(/^@/, '')
+    if (!isProject(project)) continue
+    out.push({ key: 'fq:' + w.id, owner: w.owner, project, paused: w.state === 'paused' })
+  }
   return out
 }
 

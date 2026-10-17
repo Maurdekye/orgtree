@@ -43,7 +43,7 @@ import {
 import {
   ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
-  peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
+  fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
@@ -3696,6 +3696,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         + (w.state !== 'armed' && !w.spent ? ' off' : '')
         + (w.once ? ' oneshot' : '')
         + (w.spent ? ' spent' : '') })
+  }
+  // a fair-queue watcher's line to its project, in its own colour; a paused
+  // one dashed and dimmed (user 2026-10-17 22:48Z). It bows out of the owner's
+  // right side into the project's, so it never lies on a tree edge.
+  for (const l of fairQueueLinks(tree.watchdogs ?? [], (p) => map.get(p)?.kind === 'project')) {
+    const a = posOf(l.owner), b = posOf(l.project)
+    if (!a || !b || l.owner === l.project) continue
+    const ga = sizeOf(l.owner), gb = sizeOf(l.project)
+    const x1 = a.x + ga.w, y1 = a.y + ga.h / 2
+    const x2 = b.x + gb.w, y2 = b.y + gb.h / 2
+    const bulge = 48 + Math.abs(y2 - y1) * 0.15
+    const far = Math.max(x1, x2) + bulge
+    wires.push({ key: l.key, cls: 'edge fq-line' + (l.paused ? ' off' : ''), seg: { kind: 'c', pts: [
+      { x: x1, y: y1 }, { x: far, y: y1 }, { x: far, y: y2 }, { x: x2, y: y2 }] } })
   }
   if ((tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX)) {
     // no box↔eye tether (user revision) — the panel stands alone; only
