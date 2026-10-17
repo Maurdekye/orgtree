@@ -2729,18 +2729,18 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
     const openedKey = `orgtree-user-inbox-last-opened:${slug}`
     const ids = [...rawBox.pending, ...rawBox.delivered].map(m => m.id).filter(Boolean)
     try {
-      const stored = JSON.parse(sessionStorage.getItem(arrivalKey) ?? 'null')
+      const stored = JSON.parse(window.sessionStorage.getItem(arrivalKey) ?? 'null')
       const previous = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : null
-      const lastOpened = sessionStorage.getItem(openedKey)
+      const lastOpened = window.sessionStorage.getItem(openedKey)
       const newMail = previous !== null && ids.some(id => !previous.includes(id))
       setRestoreMail({ slug, id: lastOpened && !newMail ? lastOpened : null })
-      sessionStorage.setItem(arrivalKey, JSON.stringify(ids))
+      window.sessionStorage.setItem(arrivalKey, JSON.stringify(ids))
     } catch {
       setRestoreMail({ slug, id: null })
     }
   }, [rawBox, slug])
   const rememberOpenedMail = useCallback((id: string) => {
-    try { sessionStorage.setItem(`orgtree-user-inbox-last-opened:${slug}`, id) }
+    try { window.sessionStorage.setItem(`orgtree-user-inbox-last-opened:${slug}`, id) }
     catch { /* inbox reading still works when session storage is unavailable */ }
   }, [slug])
   useOpenCommit('mail',slug,box !== null && box !== undefined)
