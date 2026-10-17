@@ -227,7 +227,7 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       // USER 2026-10-17 21:18Z: "New project…" directly under "Hire a subordinate"
       'Copy agent name', 'Focus', 'Hire a subordinate ▸', 'New project…',
       'Open ▸', '· Open desk', '· Open desk in a new window', '· Pin desk as a window',
-      '· Open inbox', '· Open docket', '· Open team docket',
+      '· Open inbox', '· Open docket', '· Open team docket', '· Open team presentations',
       'Settings', 'Acquire audience', 'Compact…', 'Halt', 'Retire…',
     ], 'the agent menu, in order')
   })
