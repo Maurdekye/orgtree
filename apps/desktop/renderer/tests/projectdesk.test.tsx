@@ -21,6 +21,8 @@
 //      only where a pin handler is given.
 //   §6 project settings carry the agent settings' items that apply (name,
 //      description, peer mail, actions) and none of the turn-only ones.
+//   §8 last activity: active now, or quiet for the newest turn's age under
+//      the project, on the desk header and the middle-zoom card;
 //   §7 the middle-zoom card shows the header chip (spinner, active/hired);
 //      the app header counts agents, not project nodes; zoomed out the card
 //      is its folder (the stripe and size are measured by projectnode-visual).
@@ -318,4 +320,47 @@ test('§7c zoomed out, a project is its folder: no tier stripe class hook, the l
   assert.equal(sq.querySelector('.project-activity') === null, true, 'no count at far zoom')
   // jsdom applies no stylesheet: the stripe and size are held by the capture
   // (projectnode-visual.mjs), which measures ::before and the icon's size
+})
+
+/* ─── §8 last activity ──────────────────────────────────────────────────── */
+// USER 2026-10-17 22:21Z: "active / quiet time makes sense, add that". From
+// the newest turn activity of any agent under the project; on the desk header
+// and on the middle-zoom card beside the active/hired chip.
+
+const quiet = (secondsAgo: number) => project({ children: [
+  { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', busy: false,
+    turns: [{ at: new Date(Date.now() - 3600_000).toISOString(), cost: 0, denials: 0 }], children: [] },
+  { id: 'ui', title: 'ui', tier: 'project', kind: 'project', state: 'live', children: [
+    { id: 'dev2', title: 'dev2', tier: 'sonnet', state: 'live', busy: false,
+      turns: [{ at: new Date(Date.now() - secondsAgo * 1000).toISOString(), cost: 0, denials: 0 }], children: [] },
+  ] },
+] } as never)
+
+test('§8a the desk header says active now while any agent under the project works', async (t) => {
+  const el = await desk(t)
+  assert.equal(el.querySelector('.cc-head .project-last-activity')?.textContent, 'active now')
+})
+
+test('§8b otherwise quiet for the age of the newest turn under it, nested included', async (t) => {
+  const el = await desk(t, { node: quiet(300) })
+  assert.equal(el.querySelector('.cc-head .project-last-activity')?.textContent, 'quiet for 5m',
+    'dev2 (in nested ui) ended 5m ago, newer than dev1\'s hour')
+})
+
+test('§8c the middle-zoom card carries it beside the active/hired chip', async (t) => {
+  serve(t)
+  const view = await mountView(<ProjectSquare node={quiet(300)} pos={{ x: 0, y: 0 }} lod="norm"
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
+    toast={noop} zoom={1.2} hire={{}} seats={{}}
+    onHire={noop} onNewProject={noop} onInbox={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const meta = view.el.querySelector('.sq.project .project-meta')!
+  assert.ok(meta.querySelector('.project-activity'), 'the chip')
+  assert.equal(meta.querySelector('.project-last-activity')?.textContent, 'quiet for 5m')
+})
+
+test('§8d a project whose agents never ran a turn shows no activity card', async (t) => {
+  const el = await desk(t, { node: project({ children: [] }) })
+  assert.equal(el.querySelector('.project-last-activity') === null, true)
 })
