@@ -386,6 +386,29 @@ pub async fn unhalt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Strin
     Ok(Json(ask(&e, org.id, a.id, AgentMsg::Unhalt).await?))
 }
 
+/// Read the same effective harness the actor uses without starting a process.
+/// The POST still rechecks turn/session/admission state when the user acts.
+#[logged]
+pub async fn compact_capability(State(e): State<Arc<Engine>>, Path((slug,nid)):Path<(String,String)>) -> ApiResult<Json<Value>> {
+    let org=org(&e,&slug)?;
+    let a=agent(&e,&org,&nid).await?;
+    let client=e.db.get().await?;
+    let row=client.query_one("SELECT tier,account,extra FROM ot.agents WHERE id=$1",&[&a.id]).await?;
+    drop(client);
+    let tier:String=row.get(0);
+    let account:Option<String>=row.get(1);
+    let extra:Value=row.get(2);
+    let provider=crate::providers::catalog::provider_of(&tier);
+    let harness=if crate::providers::catalog::is_openrouter(&tier) {
+        let stamp=extra["harness"].as_str();
+        stamp.map(str::to_string).or_else(||Some(crate::openrouter::seat_harness(
+            &e,account.as_deref(),stamp,extra["harness_pin"].as_bool().unwrap_or(false))))
+    } else if crate::providers::catalog::is_langserver(&tier) {
+        crate::langserver::route_of(&e,&tier).and_then(|(server,_)|server["harness"].as_str().map(str::to_string))
+    } else {None};
+    Ok(Json(crate::domain::compaction::normal_compact_capability(provider,harness.as_deref())))
+}
+
 #[logged]
 pub async fn compact(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;

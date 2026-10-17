@@ -7291,8 +7291,10 @@ impl Actor {
         }
         let claude_code = crate::domain::compaction::normal_compact_supported(&ctx.provider,ctx.harness.as_deref());
         if !claude_code {
-            return Ok(json!({ "started": false,
-                              "reason": "slash commands are Claude Code's; compact this agent with cheap compact instead" }));
+            let reason=if compact {
+                crate::domain::compaction::normal_compact_capability(&ctx.provider,ctx.harness.as_deref())["reason"].clone()
+            } else {json!("slash commands are Claude Code's; compact this agent with cheap compact instead")};
+            return Ok(json!({ "started": false, "reason": reason }));
         }
         if ctx.state != "live" || ctx.halted || ctx.killswitch {
             return Ok(json!({ "started": false, "reason": "this agent is not running (retired, halted or stopped)" }));
