@@ -263,7 +263,7 @@ test('§2e with "Show agent card shortcuts" on, the project card has the agent\'
   setAgentShortcutsOn(true)
   t.after(() => setAgentShortcutsOn(false))
   const opened: string[] = []
-  const nd = project({ documents_count: 0, children: [
+  const nd = project({ documents_count: 1, children: [
     { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] }] } as never)
   const view = await mountView(<ProjectSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" dragging={false} isDrop={false}
     op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={2} hire={{ claudeHire: offer }} seats={seats}
@@ -276,8 +276,11 @@ test('§2e with "Show agent card shortcuts" on, the project card has the agent\'
   const mail = row.querySelector<HTMLButtonElement>('button.mailbtn:not(.docketbtn)')!
   assert.equal(mail.querySelector('.count')?.textContent, '3', 'the waiting mail, annotated as on an agent card')
   const presented = row.querySelector<HTMLButtonElement>('button.presentedbtn')!
-  assert.ok(presented, 'presented: the subtree holds documents')
-  assert.match(presented.getAttribute('title') ?? '', /2/, 'annotated with the subtree\'s document count')
+  assert.ok(presented, 'presented: the project holds documents')
+  // point 27 (user 23:28Z): a project's presentations are its own; the
+  // subtree's are its team presentations, which open from the menu
+  assert.match(presented.getAttribute('title') ?? '', /the 1 presented document of project website$/,
+    'annotated with the project\'s own document count')
   for (const b of [row.querySelector<HTMLButtonElement>('button.docketbtn')!, mail, presented]) await inAct(() => { b.click() })
   assert.deepEqual(opened, ['docket', 'inbox', 'presented:website'])
 })
@@ -324,6 +327,40 @@ test('§3a2 the agent and switchboard entries a project can take: focus, pin, su
   const halted = project({ children: [{ id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', children: [],
     halt: { phase: 'halted' } }] as never })
   assert.ok(labels(projectMenuEntries(halted, h, {})).includes('Unhalt all agents under it…'))
+})
+
+test('§3d point 27 + review: Open desk, Pop out, team presentations, and hires beside and above (user 23:28Z, 23:29:47Z)', () => {
+  const did: string[] = []
+  const nd = project({ documents_count: 1, children: [
+    { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] }] } as never)
+  const h = handlers({
+    onOpenTemporary: () => { did.push('temp') }, onPopout: () => { did.push('popout') },
+    onPresentations: () => { did.push('own') }, onTeamPresentations: () => { did.push('team') },
+    onDocket: () => { did.push('docket') },
+    onHireBeside: () => { did.push('beside') }, onHireAbove: () => { did.push('above') },
+  })
+  const entries = projectMenuEntries(nd, h, { claudeHire: offer })
+  assert.deepEqual(labels(entries), ['Focus', 'Open', 'Hire under this project', 'Hire beside this project',
+    'Hire above this project', 'New project…', 'Settings', 'sep', 'Cheap-compact all agents under it…',
+    'Halt all agents under it…', 'Retire project…'])
+  const open = entryNamed(entries, 'Open').children!
+  assert.deepEqual(open.map((c) => c === 'sep' ? 'sep' : c.label), ['Open desk', 'Pop out to new window', 'sep',
+    'Open project mailbox', 'Open project folder', 'Open presentations', 'Open team presentations', 'Open project docket'])
+  for (const l of ['Open desk', 'Pop out to new window', 'Open presentations', 'Open team presentations']) {
+    const e = open.find((c) => c !== 'sep' && c.label === l)
+    assert.ok(e && e !== 'sep'); e.onSelect()
+  }
+  for (const l of ['Hire beside this project', 'Hire above this project']) {
+    const tier = entryNamed(entries, l).children!.find((c) => c !== 'sep' && !c.disabled)
+    assert.ok(tier && tier !== 'sep', `${l} offers a tier`); tier.onSelect()
+  }
+  assert.deepEqual(did, ['temp', 'popout', 'own', 'team', 'beside', 'above'])
+  // own presentations only when the project holds some; team when anyone under it does
+  const subtreeOnly = project({ documents_count: 0, children: [
+    { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] }] } as never)
+  const got = entryNamed(projectMenuEntries(subtreeOnly, h, {}), 'Open').children!.map((c) => c === 'sep' ? 'sep' : c.label)
+  assert.equal(got.includes('Open presentations'), false, 'no own presentations')
+  assert.ok(got.includes('Open team presentations'))
 })
 
 test('§3b agentMenuEntries gives a project the project menu, never an agent\'s', () => {

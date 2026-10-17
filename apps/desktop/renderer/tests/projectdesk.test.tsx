@@ -108,7 +108,7 @@ test('§1a the project desk: the agent desk frame, the project\'s name, the agen
   assert.equal(el.querySelector('.cc-tabs button[data-tab="chat"]') === null, true, 'no chat tab')
 })
 
-test('§1c the presented tab counts the project\'s documents and its subtree\'s (review P2, docket point 8)', async (t) => {
+test('§1c the presented tab counts the project\'s OWN documents (point 27, replacing point 8\'s subtree count)', async (t) => {
   const nd = project({ documents_count: 1, children: [
     { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] },
     { id: 'ui', title: 'ui', tier: 'project', kind: 'project', state: 'live', children: [
@@ -116,10 +116,10 @@ test('§1c the presented tab counts the project\'s documents and its subtree\'s 
     ] },
   ] } as never)
   const el = await desk(t, { node: nd })
-  assert.equal(el.querySelector('.cc-tabs button[data-tab="presented"] .tab-count')?.textContent, '7')
+  assert.equal(el.querySelector('.cc-tabs button[data-tab="presented"] .tab-count')?.textContent, '1')
 })
 
-test('§1d the presented tab SHOWS the subtree\'s documents the engine returns, not only the project\'s (review P2)', async (t) => {
+test('§1d point 27: the project\'s own gallery lists its own cards; its TEAM gallery the subtree\'s too', async (t) => {
   const had = globalThis.fetch
   const at = new Date().toISOString()
   const docs = [
@@ -133,11 +133,15 @@ test('§1d the presented tab SHOWS the subtree\'s documents the engine returns, 
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }) as typeof fetch
   t.after(() => { globalThis.fetch = had })
-  const view = await mountView(<AgentGalleryView slug="org" nid="website" node={project()} toast={noop} />, (el) => el)
-  t.after(() => view.unmount())
+  const names = (el: Element) => [...el.querySelectorAll('.doc-gallery-row .l2')].map((r) => r.getAttribute('data-copy-agent-name'))
+  const own = await mountView(<AgentGalleryView slug="org" nid="website" node={project()} toast={noop} />, (el) => el)
+  t.after(() => own.unmount())
   await inAct(async () => { await flush(6) })
-  const names = [...view.el.querySelectorAll('.doc-gallery-row .l2')].map((r) => r.getAttribute('data-copy-agent-name'))
-  assert.deepEqual(names.sort(), ['dev1', 'dev2', 'website'], 'the project\'s card and both members\' cards are listed')
+  assert.deepEqual(names(own.el), ['website'], 'only the project\'s own card')
+  const team = await mountView(<AgentGalleryView slug="org" nid="website" node={project()} toast={noop} team />, (el) => el)
+  t.after(() => team.unmount())
+  await inAct(async () => { await flush(6) })
+  assert.deepEqual(names(team.el).sort(), ['dev1', 'dev2', 'website'], 'the project\'s card and both members\' cards')
 })
 
 const square = (focused: boolean) => mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
