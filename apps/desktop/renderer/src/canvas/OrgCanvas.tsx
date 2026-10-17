@@ -28,8 +28,8 @@ import { DeskHosts, useDeskActionsNow } from './deskhosts'
 import { Fragment, useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AudienceGrant, OpResult, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
-import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
+import type { AccountRegistryPayload, AudienceGrant, OpResult, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
+import { audienceAction, getAccountRegistry, getProviders, orgInboxRead, reorderNode } from '../api'
 import { useAgyModelsRefresh } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
@@ -367,33 +367,40 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
  *  `contextmenu.tsx` now hoists that entry out of the guard, so both arms are
  *  structurally parallel and this paragraph is true for every shape;
  *  agentnavmenu.test.tsx §12/§12.1 hold the two arms to the same answer. */
-export function agentTooltipInfo(n: CanvasNode | undefined): AgentTooltipInfo | null {
+export function agentTooltipInfo(n: CanvasNode | undefined,
+  providers: ProviderInfo[] = [], accounts?: AccountRegistryPayload | null): AgentTooltipInfo | null {
   if (!n || n.state === 'user') return null
   const draftTier = n.state === 'draft' && !!n.tier
   const provider = n.tier ? providerOf(n.tier) : null
   const retired = n.state !== 'live' && n.state !== 'draft'
-  const model = n.tier
-    ? tierLabel(n.tier) + (retired ? ' (retired)' : '')
-    : 'Unknown'
+  const providerInfo = provider ? providers.find(p => p.id === provider) : undefined
+  const catalogTier = providerInfo?.tiers?.find(t => t.tier === n.tier)
+  const version = n.scope?.model_version
+  const model = version
+    ? catalogTier?.display_versions?.[version] || n.model_id
+    : catalogTier?.display_name || catalogTier?.name || catalogTier?.label || n.model_id
   const effort = draftTier ? '(not started)'
-    : n.effort_effective !== undefined
-      ? n.effort_effective || 'Default'
-      : n.scope?.effort || 'Unknown'
-  return {
-    name: n.id,
-    provider: provider ? PROVIDER_LABEL[provider] ?? provider : 'Unknown',
-    model,
-    effort,
-    account: n.account_label?.trim() || n.account || 'Unknown',
-  }
+    : n.effort_effective || n.scope?.effort || undefined
+  const accountRows = accounts?.accounts?.filter(row => row.provider === provider) ?? []
+  const hasDefault = !!providerInfo?.status?.installed
+    || accountRows.some(row => row.ambient)
+  const accountCount = accountRows.filter(row => !row.ambient).length + (hasDefault ? 1 : 0)
+  const account = accountCount > 1
+    ? n.account_label?.trim() || n.account || 'default'
+    : undefined
+  const values = [model ? model + (retired ? ' (retired)' : '') : undefined, effort, account]
+    .filter((value): value is string => !!value?.trim())
+  return values.length ? { title: values.join(' · ') } : null
 }
 
-function AgentNavHost({ map, op, slug, toast, goTo, build }: {
+function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts }: {
   map: Map<string, CanvasNode>
   op: OpFn
   slug: string
   toast: ToastFn
   goTo: (id: string) => void
+  providers: ProviderInfo[]
+  accounts?: AccountRegistryPayload | null
   build: (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,
     deskNow: ReturnType<typeof useDeskActionsNow>) => MenuEntry[]
@@ -407,7 +414,8 @@ function AgentNavHost({ map, op, slug, toast, goTo, build }: {
   useProvideAgentNav((id: string) => {
     const n = map.get(id)
     return n ? build(n, () => goTo(id), setAsking, deskNow) : []
-  }, (id: string): AgentTooltipInfo | null => agentTooltipInfo(map.get(id)))
+  }, (id: string): AgentTooltipInfo | null => agentTooltipInfo(
+    map.get(id), providers, accounts))
   // the CARD's confirm — same wording, same op, same undo toast — portaled
   // into this document, exactly as the tray's menu host does it
   return node && asking
@@ -626,6 +634,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // fetch-once effect made a correctly persisted toggle look inert until a
   // reload or org change.
   const providerPayload = useAppRead('providers', getProviders)
+  const accountPayload = useAppRead('accounts', getAccountRegistry)
   const providerEntries = providerPayload?.providers ?? []
   const codexProvider = providerEntries.find(
     (v) => v.id === 'openai') ?? null
@@ -3724,7 +3733,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onJump: centerOn, onConfig: () => toggleConfig(node.id),
       onLineage: () => toggleNodeSurface('lineage', node.id, setLineageId),
     })}><AgentNavHost
-      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport'
+      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu}
+      providers={providerEntries} accounts={accountPayload} /><div style={freeAnchor ?? undefined} className={'viewport'
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       /* ⚠ THE PAN HANDLERS IGNORE THE HIDDEN CANVAS. `visibility: hidden`

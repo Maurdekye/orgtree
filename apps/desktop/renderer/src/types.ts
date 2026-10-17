@@ -1364,6 +1364,10 @@ export interface ProviderTier {
   seat: number
   model: string
   letter: string
+  /** Static model catalog display name, including the model version. */
+  display_name?: string
+  /** Catalog display names indexed by the selected model version. */
+  display_versions?: Record<string, string>
   /** the OpenRouter lane (2026-09-02): its tiers are minted at runtime from
    *  the user's favorites, so the payload carries what a static CSS class
    *  would otherwise hold — the canonical chip color — plus the catalog
