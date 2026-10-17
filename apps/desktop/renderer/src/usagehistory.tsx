@@ -24,10 +24,16 @@
 // - a reset: the line breaks at the recorded reset, which is marked with a
 //   solid hairline, and "change" is measured from the last reset on.
 //
-// THE FUTURE PANE (user 2026-10-09 22:39Z): every chart's time axis runs a
-// quarter of the period past now. The projected trend (a least-squares line
-// through the current window's readings) is drawn there dashed and labelled
-// "projected", and each window's next reset time is a vertical dotted line.
+// THE FUTURE PANE (user 2026-10-09 22:39Z, slider user 2026-10-17): every chart's
+// plot spans exactly the chosen period at a FIXED time scale, and the "projected
+// ahead" slider sets how much of its width is the future: the now-line sits
+// that share in from the RIGHT edge. More share slides the now-line left and
+// pushes the oldest history off the left edge (cropped, never squeezed): 0 %
+// is the whole period of history, 100 % is all projection. The slider's thumb
+// mirrors the now-line (rightmost = 0 %); the default is 20 %. The projected
+// trend (a least-squares line through the current window's readings) is drawn
+// in the pane dashed and labelled "projected", reaching as far as the pane
+// does, and each window's next reset time is a vertical dotted line.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { getUsageHistory } from './api'
@@ -46,11 +52,13 @@ const RANGES: { id: UsageHistoryRange; label: string }[] = [
 /** the panel re-reads this often while it is open (the engine records every
  *  few minutes at most, so faster would only re-draw the same buckets) */
 const REFRESH_MS = 60_000
-/** the future pane: this share of the period past now */
+/** the projection's reach past now, as a share of the period, when the caller
+ *  gives no horizon (the slider always does; this is the pre-slider layout) */
 const FUTURE_SHARE = 0.25
-/** the projected-ahead share of the graph's WIDTH, in percent: the slider's
- *  default is the share the fixed layout always had (a quarter of the period
- *  past now beside the whole period behind it = 20 %) */
+/** the projected-ahead share of the graph's WIDTH, in percent, the slider's
+ *  default: the share the pre-slider layout had (a quarter of the period past
+ *  now beside the whole period behind it = 20 %). The slider's thumb is
+ *  mirrored (its value is 100 − this), so the rightmost thumb is 0 % */
 export const AHEAD_DEFAULT = 20
 export const AHEAD_KEY = 'orgtree-usage-history-ahead-pct'
 /** a projection needs a current window at least this long */
