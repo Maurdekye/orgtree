@@ -252,6 +252,9 @@ pub async fn chart_as_user(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, a
 }
 
 /// Read-only scope evaluation over one coherent, paged structural snapshot.
+#[cfg(test)]
+mod session_measurement_tests;
+
 #[logged]
 fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value) -> Result<Value> {
     let mut chain = Vec::new();
