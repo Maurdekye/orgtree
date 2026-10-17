@@ -160,6 +160,9 @@ export default async function (rig) {
   p.check('dev1\'s superior is boss, the agent above the project', /Your superior: boss\./.test(dev1Prompt), (dev1Prompt.match(/Your superior: [^.]*\./) ?? [])[0])
   p.check('dev1 holds the project folder, labelled as the project it works on', dev1Prompt.includes('the folder of project website'), dev1Prompt.length)
   p.check('dev1 gets the project\'s AGENTS.md at session start', dev1Prompt.includes('WEBSITE-NOTES-SENTINEL'), dev1Prompt.length)
+  // USER 2026-10-17 19:14Z: a project's description reaches every agent under it, like a team charter
+  p.check('dev1 gets the project\'s description as a standing charter', dev1Prompt.includes('Standing charter from project website: The company website.\nShip it.'),
+    (dev1Prompt.match(/Standing charter from [^\n]*/g) ?? []))
   const st = await rig.tool('dev1', 'orgtree_status', { status: 'done', summary: 'website status for boss' })
   const notice = rig.one(`SELECT recipient_name FROM ot.mail WHERE sender = 'dev1' AND body LIKE 'Status: done%' ORDER BY id DESC LIMIT 1`)
   p.check('dev1\'s status notice goes to boss, not to the project', st.ok && notice?.recipient_name === 'boss', { said: said(st), notice })
@@ -169,6 +172,7 @@ export default async function (rig) {
   const bossTurns = rig.turns('boss').filter(t => t.ended_at).length
   await rig.waitTurns('boss', bossTurns + 1).catch(() => {})
   const bossPrompt = identity('boss')
+  p.check('boss, above the project, does not get its description', !bossPrompt.includes('Standing charter from project website'), bossPrompt.length)
   p.check('boss is told of the projects below it, with their folders', bossPrompt.includes('PROJECTS BELOW YOU') && bossPrompt.includes(`${web.id} (project website)`),
     bossPrompt.length)
 
@@ -219,6 +223,19 @@ export default async function (rig) {
   const lost = await rig.tool('dev2', 'orgtree_work', { action: 'update', slug, owner: 'dev1',
     done_so_far: ['x'], working_on_next: ['y'] })
   p.check('once detached, dev2 is no longer a co-owner', !lost.ok, said(lost))
+
+  // ------------------------------------------------------------ nested project descriptions
+  const ui = await opTry({ op: 'create_project', name: 'ui', parent: 'site', description: 'The UI part of the site.' })
+  const h5 = await opTry({ op: 'hire', name: 'dev5', parent: 'ui', tier: 'haiku', grant: 0, title: 'UI dev' })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'dev5 hire turn', timeout: 60000 }).catch(() => {})
+  const dev5Turns = rig.turns('dev5').filter(t => t.ended_at).length
+  await rig.userMail('dev5', 'Hello dev5.')
+  await rig.waitTurns('dev5', dev5Turns + 1).catch(() => {})
+  const dev5Prompt = identity('dev5')
+  const outer = dev5Prompt.indexOf('Standing charter from project site: The company website.')
+  const inner = dev5Prompt.indexOf('Standing charter from project ui: The UI part of the site.')
+  p.check('an agent in a nested project gets both descriptions, outer first', ui.ok && h5.ok && outer >= 0 && inner > outer,
+    { ui: ui.ok || ui.error, dev5: h5.ok || h5.error, charters: dev5Prompt.match(/Standing charter from [^\n]*/g) ?? [] })
 
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))

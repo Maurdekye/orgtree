@@ -6,10 +6,11 @@
 // there).
 //
 // WHAT THIS FILE HOLDS THE CODE TO:
-//   §1 the "New project" form sends create_project for its place: under a
-//      node, at the top level, above a node holding it, or beside a node,
-//      where a side token's project then takes its side with the same
-//      follow-up reorder a side hire uses; a refusal keeps the form open;
+//   §1 making a project by hand opens a DRAFT project card, like a manual
+//      hire (user 2026-10-17 19:14Z): a name and a description, then one
+//      create_project for its place (under a node, at the top level, above a
+//      node holding it, or beside a node with the side hire's reorder); the
+//      preview tree holds it where it will go; the old form is gone;
 //   §2 a project node draws as a project card: a folder mark, its name and
 //      description, no model, credit bar or desk, its waiting mail on the
 //      mailbox button (which opens the mailbox), and its own project token;
@@ -23,93 +24,108 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { flush, inAct, mountView } from './harness'
-import { NewProjectModal } from '../src/canvas/newproject'
+import * as newproject from '../src/canvas/newproject'
+import { ProjectDraftNode, projectDraftSteps } from '../src/canvas/newproject'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeSquare } from '../src/canvas/cards'
 import { agentMenuEntries, projectMenuEntries } from '../src/canvas/agentmenu'
 import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
 import { agentItems } from '../src/canvas/docket'
 import type { WorkItem } from '../src/types'
-import { USER } from '../src/canvas/shared'
-import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
+import { DRAFT, withDraftTree } from '../src/canvas/shared'
+import type { CanvasNode, DraftState, OpResult } from '../src/canvas/shared'
+import type { TreePayload } from '../src/types'
 
 const noop = () => {}
 const offer = { enabled: true, installed: true, reason: null }
 const seats = { haiku: 1, sonnet: 2, opus: 5 }
 
-/* ─── §1 the form ───────────────────────────────────────────────────────── */
+/* ─── §1 the draft project card ─────────────────────────────────────────── */
+// USER 2026-10-17 19:14Z: making a project by hand works like a manual hire:
+// a draft card on the canvas that the camera walks to, with a name and a
+// description. The old "New project" form is gone.
 
-interface Place { parent: string; above?: string; beside?: { anchor: string; side: 'left' | 'right' } }
+const steps = (draft: DraftState, name = 'website', description = 'The company website.') =>
+  projectDraftSteps(draft, name, description)
 
-async function submit(place: Place, refuse?: string) {
-  const sent: OpRequest[] = []
-  const toasts: string[] = []
-  let closed = 0
-  const op = (body: OpRequest) => {
-    sent.push(body)
-    return body.op === refuse ? Promise.reject(new Error('refused')) : Promise.resolve({} as OpResult)
-  }
-  const view = await mountView(<NewProjectModal {...place} op={op}
-    toast={(lines) => toasts.push(...(lines ?? []))} close={() => { closed++ }} />, () => null)
-  const dialog = document.querySelector<HTMLElement>('.new-project')
-  assert.ok(dialog, 'the form opens')
-  const heading = dialog.querySelector('h3')?.textContent ?? ''
-  const name = dialog.querySelector<HTMLInputElement>('input')!
-  const description = dialog.querySelector<HTMLTextAreaElement>('textarea')!
+test('§1a under a node: one create_project with the name, the description and the parent', () => {
+  assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true }),
+    [{ op: 'create_project', name: 'website', description: 'The company website.', parent: 'boss' }])
+  assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true }, 'website', ''),
+    [{ op: 'create_project', name: 'website', parent: 'boss' }], 'no description, no key')
+})
+
+test('§1b at the top level the parent is the user', () => {
+  assert.equal(steps({ parent: null, tier: 'project', project: true })[0]!.parent, 'user')
+})
+
+test('§1c above a node: the anchor rides the op and no parent is sent', () => {
+  assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true, above: { anchor: 'dev1' } }),
+    [{ op: 'create_project', name: 'website', description: 'The company website.', above: 'dev1' }])
+})
+
+test('§1d beside a node: created among its siblings, then the side hire\'s reorder', () => {
+  assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true, beside: { anchor: 'dev1', side: 'left' } }), [
+    { op: 'create_project', name: 'website', description: 'The company website.', parent: 'boss' },
+    { op: 'reorder', node: 'website', before: 'dev1' },
+  ])
+  assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true, beside: { anchor: 'dev1', side: 'right' } })[1],
+    { op: 'reorder', node: 'website', after: 'dev1' })
+})
+
+test('§1e the preview tree holds a draft PROJECT card where the project will go', () => {
+  const tree = { slug: 'org', roots: [{ id: 'boss', title: 'boss', tier: 'haiku', state: 'live', children: [] }] } as unknown as TreePayload
+  const root = withDraftTree(tree, { parent: 'boss', tier: 'project', project: true })
+  const d = root.children[0]!.children[0]!
+  assert.equal(d.id, DRAFT)
+  assert.equal(d.kind, 'project')
+  assert.equal(d.state, 'draft')
+})
+
+async function draftCard() {
+  const confirmed: [string, string][] = []
+  let cancelled = 0
+  const view = await mountView(<ProjectDraftNode pos={{ x: 0, y: 0 }}
+    onConfirm={(n, d) => { confirmed.push([n, d]) }} onCancel={() => { cancelled++ }} />, (el) => el)
+  return { view, confirmed, cancelled: () => cancelled }
+}
+
+test('§1f the draft card: a dashed project square with a focused name, a description and create', async (t) => {
+  const c = await draftCard()
+  t.after(() => c.view.unmount())
+  const sq = c.view.el.querySelector<HTMLElement>('.sq.draft.project')
+  assert.ok(sq, 'a draft project card')
+  assert.ok(sq.querySelector('.project-mark svg'), 'the folder mark in place of a tier token')
+  assert.equal(sq.querySelector('.cbar') === null, true, 'no credit bar: projects are free')
+  const name = sq.querySelector<HTMLInputElement>('input.df-name')!
+  assert.equal(document.activeElement, name, 'the name takes the keyboard')
+  const description = sq.querySelector<HTMLTextAreaElement>('textarea.df-charter')!
+  assert.match(description.placeholder, /description/)
+  const create = [...sq.querySelectorAll('button')].find((b) => /create/.test(b.textContent ?? ''))!
+  assert.equal(create.disabled, true, 'nothing to create without a name')
   await inAct(() => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(name, ' website ')
     name.dispatchEvent(new Event('input', { bubbles: true }))
     Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!
-      .call(description, 'The company website.')
+      .call(description, ' The company website. ')
     description.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const create = [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'create')!
-  await inAct(async () => { create.click(); await flush() })
-  const open = document.querySelector('.new-project') !== null
-  await view.unmount()
-  return { sent, toasts, closed, heading, open }
-}
-
-test('§1a under a node: one create_project with the trimmed name and the description', async () => {
-  const r = await submit({ parent: 'boss' })
-  assert.equal(r.heading, 'New project under boss')
-  assert.deepEqual(r.sent, [{ op: 'create_project', name: 'website', description: 'The company website.',
-    parent: 'boss' }])
-  assert.equal(r.closed, 1, 'the form closes once the project exists')
-  assert.deepEqual(r.toasts, ['project website created under boss'])
+  await inAct(() => { create.click() })
+  assert.deepEqual(c.confirmed, [['website', 'The company website.']])
 })
 
-test('§1b at the top level the parent is the user', async () => {
-  const r = await submit({ parent: USER })
-  assert.equal(r.heading, 'New project at the top level')
-  assert.equal(r.sent[0]!.parent, 'user')
+test('§1g cancel and Escape drop the draft', async (t) => {
+  const c = await draftCard()
+  t.after(() => c.view.unmount())
+  const cancel = [...c.view.el.querySelectorAll('button')].find((b) => /cancel/.test(b.textContent ?? ''))!
+  await inAct(() => { cancel.click() })
+  await inAct(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+  assert.equal(c.cancelled(), 2)
+  assert.deepEqual(c.confirmed, [])
 })
 
-test('§1c above a node: the project takes its place and holds it (the anchor rides the op)', async () => {
-  const r = await submit({ parent: 'boss', above: 'dev1' })
-  assert.equal(r.heading, 'New project above dev1, holding it')
-  assert.deepEqual(r.sent, [{ op: 'create_project', name: 'website', description: 'The company website.',
-    above: 'dev1' }], 'the engine places it from the anchor: no parent is sent')
-})
-
-test('§1d beside a node: created among its siblings, then moved to that side by the side hire\'s reorder', async () => {
-  const left = await submit({ parent: 'boss', beside: { anchor: 'dev1', side: 'left' } })
-  assert.equal(left.heading, 'New project beside dev1')
-  assert.deepEqual(left.sent, [
-    { op: 'create_project', name: 'website', description: 'The company website.', parent: 'boss' },
-    { op: 'reorder', node: 'website', before: 'dev1' },
-  ])
-  const right = await submit({ parent: 'boss', beside: { anchor: 'dev1', side: 'right' } })
-  assert.deepEqual(right.sent[1], { op: 'reorder', node: 'website', after: 'dev1' })
-  assert.equal(right.closed, 1)
-})
-
-test('§1e a refused create keeps the form open and sends nothing more', async () => {
-  const r = await submit({ parent: 'boss', beside: { anchor: 'dev1', side: 'left' } }, 'create_project')
-  assert.equal(r.sent.length, 1, 'no reorder after a refused create')
-  assert.equal(r.closed, 0)
-  assert.equal(r.open, true, 'the form stays for a corrected name (op itself toasts the refusal)')
-  assert.deepEqual(r.toasts, [])
+test('§1h the "New project" form is gone', () => {
+  assert.equal('NewProjectModal' in newproject, false)
 })
 
 /* ─── §2 the project card ───────────────────────────────────────────────── */
@@ -136,10 +152,11 @@ const agentNode = {
   proc_relaunch: false, proc_relaunch_reason: null, isBearerOf: undefined,
 } as unknown as CanvasNode
 
-const square = (nd: CanvasNode, h: { inbox?: () => void; hire?: (t: string) => void } = {}) =>
+const square = (nd: CanvasNode, h: { inbox?: () => void; hire?: (t: string) => void; project?: () => void } = {}) =>
   mountView(<ProjectSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" dragging={false} isDrop={false}
     op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={2}
     hire={{ claudeHire: offer }} seats={seats} onHire={h.hire ?? noop} onInbox={h.inbox ?? noop}
+    onNewProject={h.project ?? noop}
     onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
 
 test('§2a a project draws as a project card: no model, credit bar, desk or turn state', async (t) => {
@@ -183,7 +200,8 @@ test('§2b its waiting mail shows on the mailbox button, which opens the mailbox
 test('§2c a live project has its hire strip with its own project token (a nested project); '
   + 'a retired one has neither', async (t) => {
   const hired: string[] = []
-  const live = await square(project(), { hire: (tier) => hired.push(tier) })
+  let drafts = 0
+  const live = await square(project(), { hire: (tier) => hired.push(tier), project: () => { drafts++ } })
   t.after(() => live.unmount())
   assert.ok(live.el.querySelector('.hsof'), 'the hire strip under the project')
   const opus = live.el.querySelector<HTMLButtonElement>('.hsof button.t-opus')!
@@ -191,10 +209,8 @@ test('§2c a live project has its hire strip with its own project token (a neste
   assert.deepEqual(hired, ['opus'], 'a tier token hires under the project')
   const tok = live.el.querySelector<HTMLButtonElement>('.hsof button.project-token')!
   await inAct(() => { tok.click() })
-  const dialog = document.querySelector('.new-project')
-  assert.ok(dialog, 'the project token opens the form')
-  assert.equal(dialog.querySelector('h3')?.textContent, 'New project under website')
-  await inAct(() => { [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'cancel')!.click() })
+  assert.equal(drafts, 1, 'the project token asks the canvas for a draft project under it')
+  assert.equal(document.querySelector('.new-project') === null, true, 'no form opens')
   const retired = await square(project({ state: 'archived', mail_pending: 0 }))
   t.after(() => retired.unmount())
   assert.equal(retired.el.querySelector('.hsof') === null, true, 'no hires under a retired project')

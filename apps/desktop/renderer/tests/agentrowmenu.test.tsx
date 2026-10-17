@@ -636,3 +636,33 @@ uiTest('§6 Hire a subordinate ▸ <model> from a row walks to the agent and ope
     assert.ok(c.el.querySelector('.sq.draft'), 'a hire draft opened')
     assert.notEqual(camera(), before, 'and the camera walked there')
   })
+
+uiTest('§6b New project here… from a row opens a draft project card, like a hire, and create makes it',
+  async (t) => {
+    // USER 2026-10-17 19:14Z: manual project creation has the manual hire's UX
+    const c = await mountCanvas(t, [mkNode('worker'), mkNode('other')])
+    await openTray(c.el)
+    const camera = () => (c.el.querySelector('.space') as HTMLElement).style.transform
+    const before = camera()
+    await rightClick(rowFor(c.el, 'other')!)
+    await pick('New project here…')
+    await advance(600, 30); await flush(4)
+    const card = c.el.querySelector<HTMLElement>('.sq.draft.project')
+    assert.ok(card, 'a draft project card opened on the canvas')
+    assert.equal(document.querySelector('.new-project') === null, true, 'and no form')
+    assert.notEqual(camera(), before, 'the camera walked to it')
+    const name = card!.querySelector<HTMLInputElement>('input.df-name')!
+    const description = card!.querySelector<HTMLTextAreaElement>('textarea.df-charter')!
+    await inAct(() => {
+      Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value')!.set!.call(name, 'website')
+      name.dispatchEvent(new W.Event('input', { bubbles: true }))
+      Object.getOwnPropertyDescriptor(W.HTMLTextAreaElement.prototype, 'value')!.set!.call(description, 'The site.')
+      description.dispatchEvent(new W.Event('input', { bubbles: true }))
+    })
+    const create = [...card!.querySelectorAll('button')].find((b) => /create/.test(b.textContent ?? ''))!
+    await inAct(async () => { create.click(); await flush(4) })
+    assert.deepEqual(c.ops.filter((o) => o.op === 'create_project'),
+      [{ op: 'create_project', name: 'website', description: 'The site.', parent: 'other' }])
+    await flush(4)
+    assert.equal(c.el.querySelector('.sq.draft') === null, true, 'the draft gives way to the real card')
+  })
