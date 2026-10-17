@@ -11,6 +11,9 @@
 //   jumps   — two real desks: dev2 (in project ui, in project site, under
 //             boss) and boss, showing the up and down jump card rows
 //             passing through projects (user 2026-10-17 22:13Z).
+//   fairqueue — the REAL canvas: dev1 holds an armed fair_queue dog on project
+//             site, boss a paused one; &theme=light draws the light theme
+//             (point 26, user 2026-10-17 22:48Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -67,8 +70,9 @@ function Cards() {
   )
 }
 
-function tree(children: unknown[]): TreePayload {
+function tree(children: unknown[], watchdogs: unknown[] = []): TreePayload {
   return {
+    watchdogs,
     slug: 'org', name: 'org', workspace: null, dirs: [], max_top_grant: 1000, default_top_grant: 50,
     compact_at: 0, default_tools: null, default_visibility: 'team', default_effort: '', credit_requests: [],
     tiers: { haiku: 1, sonnet: 3, opus: 5 }, audiences: [], cost_usd_total: 0,
@@ -120,16 +124,23 @@ function Activity() {
 }
 
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
+if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.add('contrast-light')
+const fqDog = (id: string, owner: string, state: string) => ({ id, owner, name: id, kind: 'fair_queue', target: 'site',
+  interval_s: 5, state, at: new Date().toISOString(), fired: 0, once: false })
+const dogs: Record<string, unknown[]> = {
+  fairqueue: [fqDog('q1', 'dev1', 'armed'), fqDog('q2', 'boss', 'paused')],
+}
 if (scene === 'activity') { try { localStorage.setItem('orgtree-agent-shortcuts', '1') } catch { /* private mode */ } }
 const rows: Record<string, unknown[]> = {
   'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
+  fairqueue: [agent('lead', 'boss'), projectNode('site', 'boss', [agent('dev1', 'site'), agent('dev2', 'site')])],
 }
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
   : scene === 'activity' ? <Activity /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
-    <OrgCanvas tree={tree(rows[scene]!)} slug="org" op={() => Promise.resolve({} as OpResult)}
+    <OrgCanvas tree={tree(rows[scene]!, dogs[scene])} slug="org" op={() => Promise.resolve({} as OpResult)}
       toast={noop} mailEvt={null} onOpenAgentGallery={noop} />
   </div>
 ))

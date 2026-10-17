@@ -31,7 +31,7 @@ module.exports = async (page) => {
   })
   screenshots.push(await page.screenshot(`${prefix}-cards-1000x700`))
 
-  for (const scene of ['row-end', 'between']) {
+  for (const scene of ['row-end', 'between', 'fairqueue', 'fairqueue&theme=light']) {
     await page.goto(`/?scene=${scene}`)
     await page.waitFor('.sq.project', { timeout: 15000 })
     await page.eval(async () => {
@@ -44,13 +44,18 @@ module.exports = async (page) => {
     await settle()
     details[scene] = await page.eval(() => ({
       peerWires: [...document.querySelectorAll('path.peer, .edge.peer')].length,
+      // the fair-queue lines (SVG paths, or the GL layer's style probes)
+      fqLines: [...document.querySelectorAll('.edge.fq-line')].map((e) => ({
+        cls: e.getAttribute('class'), probe: e.hasAttribute('data-glprobe'),
+        stroke: getComputedStyle(e).stroke, dash: getComputedStyle(e).strokeDasharray,
+        opacity: getComputedStyle(e).opacity })),
       cards: [...document.querySelectorAll('.sq')].map((el) => {
         const r = el.getBoundingClientRect()
         return [el.getAttribute('data-copy-agent-name') || el.className.split(' ').slice(0, 3).join('.'), Math.round(r.x), Math.round(r.y), Math.round(r.width)]
       }),
       viewport: (() => { const v = document.querySelector('.viewport'); const r = v && v.getBoundingClientRect(); return r ? [r.width, r.height] : null })(),
     }))
-    screenshots.push(await page.screenshot(`${prefix}-${scene}-1000x700`))
+    screenshots.push(await page.screenshot(`${prefix}-${scene.replace('&theme=', '-')}-1000x700`))
   }
   await page.goto('/?scene=jumps')
   await page.waitFor('.desk-nav', { timeout: 15000 })
