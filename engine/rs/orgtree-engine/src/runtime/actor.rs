@@ -4322,6 +4322,7 @@ impl Actor {
                 f.insert(k.clone(), v.clone());
             }
         }
+        crate::rig::stream_probe("actor", &self.name, &frame);
         self.org.emit_agent(self.id, frame);
     }
 

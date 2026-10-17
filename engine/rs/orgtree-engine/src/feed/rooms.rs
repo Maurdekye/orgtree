@@ -102,6 +102,7 @@ impl Rooms {
 
     #[nolog]
     pub fn emit_agent(&self, agent: i64, frame: &serde_json::Value) {
+        crate::rig::stream_probe("room", frame["node"].as_str().unwrap_or(""), frame);
         let Some(room) = self.agents.pin().get(&agent).cloned() else { return };
         let members = room.load();
         if members.is_empty() {

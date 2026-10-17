@@ -194,6 +194,7 @@ impl AgyProc {
             async move {
                 guarded_lines(stdout, &auth, |line| {
                     let Ok(v) = serde_json::from_slice::<Value>(line) else { return true };
+                    crate::rig::stream_probe("stdout", "agy", &v);
                     !v.is_object() || actor.post(AgentMsg::Agy(process, v))
                 }).await;
                 let _ = actor.post(AgentMsg::ProcExited { process, reason: "stdout closed".into() });

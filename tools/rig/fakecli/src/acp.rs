@@ -113,6 +113,19 @@ pub fn run()->i32 {
                     let delay=fixture["delayMs"].as_u64().unwrap_or(0).min(30_000);
                     for _ in 0..delay.div_ceil(10) {if p.cancelled.load(Ordering::SeqCst){break;}std::thread::sleep(Duration::from_millis(10));}
                     if p.cancelled.load(Ordering::SeqCst){p.result(&id,json!({"stopReason":"cancelled"}));return;}
+                    // Timed synthetic token replay; bounded and opt-in, leaving
+                    // the ordinary ACP permission/bridge fixture unchanged.
+                    if let Some(chunks) = fixture["stream"].as_array() {
+                        for chunk in chunks.iter().take(512) {
+                            if p.cancelled.load(Ordering::SeqCst) { break; }
+                            let thought = chunk["kind"] == "thinking";
+                            p.update(&sid,json!({"sessionUpdate":if thought {"agent_thought_chunk"} else {"agent_message_chunk"},
+                                "messageId":if thought {"thought"} else {"answer"},"content":{"type":"text","text":chunk["text"]}}));
+                            std::thread::sleep(Duration::from_millis(chunk["delayMs"].as_u64().unwrap_or(0).min(1000)));
+                        }
+                        p.result(&id,json!({"stopReason":if p.cancelled.load(Ordering::SeqCst) {"cancelled"} else {"end_turn"}}));
+                        return;
+                    }
                     p.update(&sid,json!({"sessionUpdate":"agent_thought_chunk","messageId":"thought","content":{"type":"text","text":"ACP fixture reasoning"}}));
                     let mut decisions=Vec::new();
                     for tool in fixture["permissions"].as_array().into_iter().flatten() {decisions.push(p.permission(&sid,tool.clone()));}

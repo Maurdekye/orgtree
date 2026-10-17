@@ -381,6 +381,7 @@ async fn read_stdout(
             tracing::debug!(agent = %caller.name, "non-JSON claude output: {}", crate::util::gist(&line, 200));
             continue;
         };
+        crate::rig::stream_probe("stdout", &caller.name, &v);
         match v["type"].as_str() {
             Some("control_response") => {
                 let resp = &v["response"];

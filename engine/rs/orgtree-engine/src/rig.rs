@@ -86,6 +86,44 @@ pub fn active() -> bool {
     RIG.get().map(Option::is_some).unwrap_or(false)
 }
 
+/// Opt-in timing only on synthetic roots. Never log model prose or credentials.
+#[nolog]
+pub fn stream_probe(stage: &str, agent: &str, value: &serde_json::Value) {
+    #[cfg(debug_assertions)]
+    {
+        static ENABLED: OnceLock<bool> = OnceLock::new();
+        if !active() || !*ENABLED.get_or_init(|| std::env::var("ORGTREE_RIG_STREAM_PROBE").as_deref() == Ok("1")) { return; }
+        let event = value.get("event").filter(|v| v.is_object()).unwrap_or(value);
+        let params = value.get("params").unwrap_or(value);
+        let candidate = if value["type"] == "node_stream" && matches!(value["kind"].as_str(), Some("delta" | "thinking")) {
+            Some((value["kind"].as_str().unwrap_or(""), &value["text"]))
+        } else if event["type"] == "content_block_delta" {
+            match event["delta"]["type"].as_str() {
+                Some("text_delta") => Some(("delta", &event["delta"]["text"])),
+                Some("thinking_delta") => Some(("thinking", &event["delta"]["thinking"])),
+                _ => None,
+            }
+        } else { match value["method"].as_str() {
+            Some("item/agentMessage/delta") => Some(("delta", &params["delta"])),
+            Some("item/reasoning/summaryTextDelta" | "item/reasoning/textDelta") => Some(("thinking", &params["delta"])),
+            Some("item/delta") => Some((if params["field"] == "text" { "delta" } else { "thinking" }, &params["delta"])),
+            Some("session/update") => match params["update"]["sessionUpdate"].as_str() {
+                Some("agent_message_chunk") => Some(("delta", &params["update"]["content"]["text"])),
+                Some("agent_thought_chunk") => Some(("thinking", &params["update"]["content"]["text"])),
+                _ => None,
+            },
+            _ => value.get("step").filter(|s| s["step_type"] == "agent_response")
+                .map(|s| ("delta", &s["text_delta"])),
+        }};
+        if let Some((kind, text)) = candidate.filter(|(_, t)| t.as_str().is_some_and(|s| !s.is_empty())) {
+            let at_us = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_micros() as u64;
+            tracing::info!(stage, agent, kind, at_us, bytes = text.as_str().unwrap().len(), "rig stream cadence");
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    let _ = (stage, agent, value);
+}
+
 /// Engine-level hub parity proof. Transport remains offline in rig mode.
 #[cfg(debug_assertions)]
 #[logged]

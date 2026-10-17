@@ -41,6 +41,11 @@ async fn run(engine: Arc<Engine>, org: Arc<OrgHandle>, socket: WebSocket) {
         tokio::select! {
             out = out_rx.recv() => {
                 let Some(text) = out else { break };
+                if crate::rig::active() && std::env::var("ORGTREE_RIG_STREAM_PROBE").as_deref() == Ok("1") {
+                    if let Ok(frame) = serde_json::from_str::<Value>(&text) {
+                        crate::rig::stream_probe("socket", frame["node"].as_str().unwrap_or(""), &frame);
+                    }
+                }
                 if sink.send(Message::Text(text.to_string().into())).await.is_err() {
                     break;
                 }

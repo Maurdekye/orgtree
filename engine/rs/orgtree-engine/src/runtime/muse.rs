@@ -863,6 +863,7 @@ async fn read_stdout(
         let parsed = serde_json::from_slice::<Value>(&buf);
         buf.clear();
         let Ok(v) = parsed else { continue };
+        crate::rig::stream_probe("stdout", "muse", &v);
         let has_id = v.get("id").map(|i| !i.is_null()).unwrap_or(false);
         match (has_id, v.get("method").and_then(Value::as_str)) {
             (true, None) => {

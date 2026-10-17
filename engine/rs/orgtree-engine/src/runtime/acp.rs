@@ -257,6 +257,7 @@ async fn pump<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     Ok(v) => v, Err(_) => return "ACP malformed JSON".into(),
                 };
                 if value["jsonrpc"] != "2.0" || !value.is_object() { return "ACP invalid JSON-RPC frame".into(); }
+                crate::rig::stream_probe("stdout", "opencode", &value);
                 if let Some(method) = value["method"].as_str() {
                     if let Some(id) = value.get("id") {
                         if !(id.is_string() || id.is_number()) { return "ACP invalid request id".into(); }
