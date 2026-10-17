@@ -93,8 +93,14 @@ fn window_kind(window: &str) -> &str {
 #[nolog]
 pub fn window(info: Option<&Value>) -> Option<&str> {
     let r = info?;
-    r["rateLimitType"].as_str().or(r["rateLimitReachedType"].as_str()).or_else(|| {
-        ["secondary", "primary"].into_iter().find(|w| r[*w]["usedPercent"].as_f64().is_some_and(|p| p >= 100.0))
+    r["rateLimitType"].as_str().or_else(|| {
+        r["rateLimitReachedType"].as_str().filter(|w|
+            matches!(window_kind(w), "session" | "weekly_all" | "weekly_scoped"))
+    }).or_else(|| {
+        let mut full = ["primary", "secondary"].into_iter()
+            .filter(|w| r[*w]["usedPercent"].as_f64().is_some_and(|p| p >= 100.0));
+        let first = full.next()?;
+        full.next().is_none().then_some(first)
     })
 }
 
@@ -236,6 +242,14 @@ mod usage_reset_tests {
         assert_eq!(cached_reset("claude","sol",None,&r,n,n),None);
         let mut r=base;r["limits"][0]["kind"]=json!("weekly_scoped");r["limits"][0]["model"]=json!("fable");
         assert_eq!(cached_reset("claude","sol",None,&r,n,n),None);
+    }
+
+    #[test]
+    fn generic_codex_rejection_does_not_hide_the_exhausted_window() {
+        assert_eq!(window(Some(&json!({"rateLimitReachedType":"rate_limit",
+            "secondary":{"usedPercent":100}}))),Some("secondary"));
+        assert_eq!(window(Some(&json!({"primary":{"usedPercent":100},
+            "secondary":{"usedPercent":100}}))),None);
     }
 
 }
