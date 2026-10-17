@@ -6993,7 +6993,9 @@
    "level": 3,
    "kind": "concept",
    "registered": false,
-   "covers": [],
+   "covers": [
+    "node:peer_mail"
+   ],
    "purpose": "Per-node default-on peer-mail setting, actual direct-child boundary, audience routes and hidden neighbour connectors.",
    "must_cover": [
     "default ON and noninheritance",
@@ -7027,10 +7029,11 @@
    ],
    "key_sources": [
     {
-     "key": "scope.peer_mail",
-     "sources": [
-      "engine/rs/orgtree-engine/src/http/nodes.rs",
-      "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
+     "key": "node:peer_mail",
+     "file": "engine/rs/orgtree-engine/src/http/nodes.rs",
+     "needles": [
+      "\"peer_mail\"",
+      "peer_mail::with_setting"
      ]
     }
    ]
