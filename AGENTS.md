@@ -23,6 +23,15 @@
   12:58Z; verified: `epic/heatmap.ts`; contract:
   [EPIC heat](docs/rust-engine/epic-activity-sound.md#heat-equation)]
 
+- User-mail custom tags (4.4.0): at most eight trimmed 1-32-character tags,
+  normalized by lowercase key in an org dictionary with first committed spelling.
+  User mail and normalized memberships commit atomically; tagged non-user routes
+  refuse before attachments/transport, including mixed fan-out. Tag filtering
+  precedes bounded cursor windows, not just the currently loaded mail; chips hash
+  the normalized name to a stable hue with fixed dark/light contrast values.
+  See [mail tags](docs/rust-engine/mail-tags.md). [decided: user/coordinator
+  2026-10-17; verified: `domain/mail_tags.rs`, `usemailtags.ts`, `canvas/mailtags.ts`]
+
 - Per-node **Subordinates may message each other** defaults ON. OFF gates
   all agent mail between the same actual parent's direct children unless the
   sender holds an active directional audience. Projects remain transparent for

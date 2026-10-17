@@ -6,6 +6,13 @@ in canvas coordinates; the shared `.space` transform moves both. Grid bounds
 come from complete world layout, so camera virtualization never resamples
 temperatures. 4.4.0 only. See [EPIC heat](epic-activity-sound.md#heat-equation).
 
+**Custom user-mail tags, user 2026-10-17 12:39Z/12:40Z/12:45Z:** agents may
+attach up to eight custom tags to user mail; the inbox filters by one tag,
+intersecting search. Labels keep the first committed org-wide spelling,
+matching ignores case, and chips use a stable normalized-name hue. Non-user
+routes refuse tags before attachments/transport; fan-out remains per recipient.
+No hub tags or legacy backfill. 4.4.0 only. See [mail tags](mail-tags.md).
+
 **Direct-child peer mail, user 2026-10-17 11:24Z/11:27Z:** a manager or project
 may turn OFF **Subordinates may message each other** (default ON). Direct
 siblings then need a directional audience; neighbour connector lines disappear

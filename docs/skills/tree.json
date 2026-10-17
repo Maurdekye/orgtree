@@ -1018,13 +1018,19 @@
     "refusals and error texts agents hit",
     "top-level vs. non-top-level differences",
     "a minimal correct example call",
-    "direct-child peer-mail setting and directional audience exception"
+    "direct-child peer-mail setting and directional audience exception",
+    "tags",
+    "alpha build",
+    "eight",
+    "first committed",
+    "non-user"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs:170",
     "engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,false)",
     "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()",
-    "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs",
+    "engine/rs/orgtree-engine/src/domain/mail_tags.rs"
    ],
    "writer": "comms-sol",
    "status": "fixed",
@@ -3505,7 +3511,12 @@
     "list, read pane, reply box",
     "responsive list width and popout resizing",
     "org record search",
-    "transfers"
+    "transfers",
+    "tag",
+    "chip",
+    "hue",
+    "bounded",
+    "Retry"
    ],
    "sources": [
     "apps/desktop/renderer/src/App.tsx:2631",
@@ -3513,7 +3524,9 @@
     "apps/desktop/renderer/src/canvas/narrowlist.tsx",
     "apps/desktop/renderer/src/canvas/mail.tsx:1376",
     "apps/desktop/renderer/src/canvas/mail.tsx:1424",
-    "apps/desktop/renderer/src/canvas/transfers.tsx:29"
+    "apps/desktop/renderer/src/canvas/transfers.tsx:29",
+    "apps/desktop/renderer/src/usemailtags.ts",
+    "apps/desktop/renderer/src/canvas/mailtags.ts"
    ],
    "see_also": [
     "mail-basics",

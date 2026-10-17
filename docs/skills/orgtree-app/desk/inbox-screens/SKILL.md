@@ -18,6 +18,22 @@ User contextual replies target the original sender(s), can include attachments a
 
 Mail links can switch to the folder containing the referenced message and perform an exact lookup outside the loaded window. A missing row in the current slice is not proof it never existed; failed lookup offers retry.
 
+## User-mail tags
+
+The user's Inbox shows custom tags as chips. Type a tag, pick a suggestion or
+click a chip to filter by that tag; matching ignores case. It intersects the
+existing sender/body search, and clearing it restores untagged mail and asks.
+Older matching mail is queried before the bounded window and pages on scroll.
+Sent and Record retain their own views. Opening a new mail reference clears
+the tag filter so its target remains reachable. Unread counts still describe
+the whole inbox. Failures offer Retry rather than an empty-result claim.
+
+Each chip has a stable hue hashed from the normalized tag name, with fixed
+saturation/lightness for the light/dark contrast palette. The first committed
+spelling in the org supplies every chip's label. Agents use `orgtree_message`
+with `tags:["alpha build"]`; see `orgtree-tool-message` (orgtree-working, mail).
+The tool accepts up to eight tags for user-bound mail only; tags stay local.
+
 ## Record
 
 The user's Record view shows org operations/events. Search can request the wider record, while the plain view uses a recent window. Event kind, actor and detail are not a conversation transcript. Navigation to an object does not rewrite the recorded operation.

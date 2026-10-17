@@ -20,6 +20,7 @@ Use the schema exposed by your harness. Claude Code, Codex and Muse use `{metada
 | `metadata` | Required object on the split schema, containing `to` and any options below. Never mix a metadata field at the top level with this object. |
 | `body` | Required text on both schemas. A blank body is refused unless attachments are present. |
 | `to` | Required recipient string or array of up to ten distinct recipients. Agent name, `user`, `@org:<slug>`, or `@net:<address>`. Duplicate list entries collapse; empty entries are ignored, but an empty result refuses. |
+| `tags` | Optional list of up to eight custom tags, each 1-32 characters after trimming. Only user-bound mail accepts nonempty tags; matching/deduplication ignore case. See User-mail tags below. |
 | `kind` | `message` by default, `question`, or `request`. A request is displayed as a request and otherwise behaves like a message. `notice` is not a kind. |
 | `notice` | False by default. Passive delivery to a same-org agent; see the notice tool for the outside-mail boundary. |
 | `attachments` | Optional array of at most ten file paths, relative to your scratch folder or absolute. Local agents receive authorized path references; `user` and `@net:` recipients receive uploaded copies; `@org:` attachments are unsupported. See the attachment section. |
@@ -58,6 +59,24 @@ Prefer explicit prefixes. Bare names resolve to an internal agent first, includi
 A recipient list makes independent deliveries. Inspect every result: some can be refused while the rest are sent. Retrying the whole list can duplicate successful copies. For example, `["user","@net:<linked-address>"]` can reach desktop and hub in one call only when each route is authorized. It is not a combined receipt.
 
 Mail to an archived recipient waits for rehire; nothing schedules that rehire. Mail to a halted agent waits for unhalt. A frozen agent can remain unable to run even though its mailbox holds the mail. An unrecoverable session refuses delivery. Read the result's explanation before treating a handoff as actionable.
+
+## User-mail tags
+
+For example, send `{"metadata":{"to":"user","tags":["alpha build"]},"body":"The alpha is ready."}`.
+The user can select a tag suggestion, type a tag or click its chip in the Inbox,
+and combine that filter with the existing text search. Clearing it shows all
+mail again. Chips use a stable hue hashed from the trimmed lowercase tag key,
+with fixed dark/light contrast values.
+
+The org-wide tag dictionary preserves the spelling of its first committed use;
+`Alpha Build` and `alpha build` are the same tag. Blank, non-string,
+control-character or oversized tags refuse. An empty list is untagged. Existing
+mail stays untagged. Tags are stored inside Orgtree and never sent to Hubchat.
+
+A tagged delivery to an agent, `@org:` or `@net:` refuses before file/transport
+work. With mixed recipients, the user copy can succeed while the other routes
+refuse: inspect each result before retrying. Use `orgtree_message notice:true`
+for tagged passive mail; the small `orgtree_send_notice` schema is unchanged.
 
 ## Replies
 
