@@ -10,6 +10,7 @@ import { ToolInputDetails } from './toolinput'
 import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
+import { TokenCount } from './tokencount'
 import { CompactingLine, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
@@ -4880,6 +4881,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       const thought = block.sealed ? '' : (m.thinking ?? '').slice(block.start, block.end)
       return <div key={index} className="reply-event"
         data-reply-quote={thought}><ThoughtLine text={thought} secs={m.think_secs}
+          tokens={m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.thinking_tokens : undefined}
           sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>
     }
     const chip = m.tools?.find(tool => tool.id === block.id)
@@ -4892,6 +4894,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       {orderedBlocks ?? <>
       {(m.thinking || m.thinking_sealed) &&
         <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
+          tokens={m.thinking_tokens}
           sealed={m.thinking_sealed} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>}
       {/* (the string branch guards legacy live rows; the payload's tools
           rows are null-swept server-side, so no null case exists) */}
@@ -4944,17 +4947,18 @@ function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {
     dangerouslySetInnerHTML={md(text, undefined, false, live)} />
 }
 
-function ThoughtLine({ text, secs, sealed, foldKey }:
-{ text?: string; secs?: number; sealed?: boolean; foldKey?: string }) {
+function ThoughtLine({ text, secs, sealed, foldKey, tokens }:
+{ text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number }) {
   const [open, toggleOpen] = useFold(foldKey)
   const dur = secs ? `${secs}s` : 'a moment'
   if (sealed || !text) {
     return (
       <div className="thoughtwrap">
         <span className="thoughtline sealed"
-          title="the model's reasoning was not included in the response — only its duration is known">
+          title="the model's reasoning was not included in the response">
           <PsychologyIcon fontSize="inherit" />{' '}thought for {dur}
         </span>
+        <TokenCount count={tokens} thinking />
       </div>
     )
   }
@@ -4965,6 +4969,7 @@ function ThoughtLine({ text, secs, sealed, foldKey }:
         <PsychologyIcon fontSize="inherit" />
         {' '}thought for {dur} {open ? '▾' : '▸'}
       </button>
+      <TokenCount count={tokens} thinking />
       {open && <ThoughtBody text={text} />}
     </div>
   )

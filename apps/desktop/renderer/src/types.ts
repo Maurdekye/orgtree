@@ -947,6 +947,10 @@ export interface ToolChip {
   ended_at?: string
   /** Observed stream generation duration; absent for unsupported/history calls. */
   writing_secs?: number
+  /** Engine-supplied text-output count; missing is unknown, never zero. */
+  output_tokens?: number
+  output_tokens_estimated?: boolean
+  output_tokens_sampled?: boolean
   /** Live generation only; never an execution start or a fabricated duration. */
   writing_started_at?: string
   /** Bounded ephemeral input already observed while generating the call. */
@@ -1042,6 +1046,8 @@ export interface ChatMessage {
   thinking?: string
   /** "thought for Xs" — gap-derived seconds (supervisor.py:2941-2943) */
   think_secs?: number
+  /** Provider-reported count attributed to one completed thought response. */
+  thinking_tokens?: number
   /** the block came signature-only: it thought, the plaintext was withheld */
   thinking_sealed?: boolean
   /** preserving-oracle exchange rows (supervisor.py:2969-2973) */
