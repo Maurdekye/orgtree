@@ -4037,13 +4037,39 @@ main.solo { width: 100%; }
    account could not be read = hatched band, and the line breaks there. */
 .usage-history-modal { width: 900px; max-width: 96vw; --uh-series: #3987e5; --uh-future: rgba(255, 255, 255, .035); }
 :root:is(.contrast-light, .contrast-solarized-light) .usage-history-modal { --uh-series: #2a78d6; --uh-future: rgba(0, 0, 0, .035); }
-.uh-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin-bottom: 8px; }
-.uh-ranges { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.uh-range { background: transparent; border: 0; color: var(--ink); padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
-.uh-range + .uh-range { border-left: 1px solid var(--line); }
-.uh-range.on { background: var(--panel-2); color: var(--ink-strong); font-weight: 600; }
-.uh-filter { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; }
-.uh-filter select { font-size: 12.5px; max-width: 220px; }
+/* THE HEADER IS STICKY (user 2026-10-17): title, period and the four filters stay
+   at the top of the panel, which is the scroll container, while the graphs scroll
+   under them. ⚠ `top` is the NEGATIVE panel padding, like `.modalpin-bar.on`: a
+   sticky offset is measured from the scroll container's content box, so 0 would
+   park the header a padding below the panel's edge. The negative margin and the
+   matching padding cancel at rest, so nothing moves when it pins; the background
+   is opaque so no graph shows through. Centred, the pin/close bar sits in the top
+   padding and is lifted above the header; in a window the bar is itself sticky
+   (26px), so the header stops just below it and starts flush. */
+.uh-header {
+  position: sticky; top: calc(-1 * var(--panel-pad-y, 22px)); z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  margin: calc(-1 * var(--panel-pad-y, 22px)) calc(-1 * var(--panel-pad-x, 26px)) -6px;
+  padding: var(--panel-pad-y, 22px) var(--panel-pad-x, 26px) 8px;
+  background: var(--panel); border-bottom: 1px solid var(--line-soft);
+}
+.usage-history-modal:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar { position: relative; z-index: 6; }
+:is(.modalpin-win, .modalpin-detached) > .uh-header {
+  top: calc(26px - var(--panel-pad-y, 8px)); margin-top: 0; padding-top: 6px;
+}
+/* a window names itself in its title bar: the header's own title stands down
+   (the shared rule only reaches a direct child h3) */
+:is(.modalpin-win, .modalpin-detached) > .uh-header > h3 { display: none; }
+.uh-header h3 { margin: 0; flex: 0 0 auto; }
+/* ⚠ TWO CLASSES: `.settings button` / `.settings select` (0,1,1) set 14px and
+   roomy padding and would beat a bare `.uh-range` / `.uh-filter` */
+.uh-ranges { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.uh-ranges .uh-range { background: transparent; border: 0; border-radius: 0; color: var(--ink); padding: 3px 9px;
+  font-size: 12.5px; line-height: 1.4; cursor: pointer; }
+.uh-ranges .uh-range + .uh-range { border-left: 1px solid var(--line); }
+.uh-ranges .uh-range.on { background: var(--panel-2); color: var(--ink-strong); font-weight: 600; }
+.uh-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 6px; flex: 1 1 380px; min-width: 0; }
+.uh-filters .uh-filter { width: 100%; font-size: 12.5px; line-height: 1.4; padding: 3px 6px; text-overflow: ellipsis; }
 .uh-period { font-size: 12px; margin-bottom: 10px; }
 .uh-empty { padding: 18px 12px; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .uh-error { color: var(--danger-ink); font-size: 13px; margin-bottom: 8px; }

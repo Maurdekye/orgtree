@@ -411,17 +411,17 @@ function SeriesCard({ m, from, to, now }: { m: SeriesModel; from: number; to: nu
   )
 }
 
-function Select({ label, value, set, options }: {
-  label: string; value: string; set: (v: string) => void; options: { id: string; label: string }[]
+/** A filter is one compact select; its name is its aria-label and tooltip, and
+ *  its "all" entry says what it filters while nothing is chosen. */
+function Select({ label, all, value, set, options }: {
+  label: string; all: string; value: string; set: (v: string) => void; options: { id: string; label: string }[]
 }) {
   return (
-    <label className="uh-filter">
-      <span className="dim">{label}</span>
-      <select value={value} onChange={(e) => set(e.target.value)}>
-        <option value="">All</option>
-        {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-      </select>
-    </label>
+    <select className="uh-filter" aria-label={label} title={label} value={value}
+      onChange={(e) => set(e.target.value)}>
+      <option value="">{all}</option>
+      {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
   )
 }
 
@@ -482,24 +482,26 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
 
   return (
     <PinFrame kind="usage-history" title="Usage history" panel="settings usage-history-modal" close={close}>
-      <h3><ShowChartIcon fontSize="inherit" /> Usage history</h3>
-      <div className="uh-controls">
+      <div className="uh-header">
+        <h3><ShowChartIcon fontSize="inherit" /> Usage history</h3>
         <div className="uh-ranges" role="group" aria-label="period">
           {RANGES.map((r) => (
             <button key={r.id} type="button" className={'uh-range' + (r.id === range ? ' on' : '')}
               aria-pressed={r.id === range} onClick={() => setRange(r.id)}>{r.label}</button>
           ))}
         </div>
-        <Select label="Provider" value={provider} set={setProvider}
-          options={uniq(series.filter((s) => lanes.used(s.account))
-            .map((s) => ({ id: s.provider, label: providerName(s.provider) })))} />
-        <Select label="Account" value={account} set={setAccount}
-          options={uniq(series.filter((s) => lanes.used(s.account))
-            .map((s) => ({ id: s.account, label: s.account_label })))} />
-        <Select label="Window" value={win} set={setWin}
-          options={uniq(series.map((s) => ({ id: s.window, label: WINDOW_NAMES[s.window] ?? s.window })))} />
-        <Select label="Model scope" value={model} set={setModel}
-          options={uniq(series.map((s) => (s.model ? { id: s.model, label: s.model } : { id: '-', label: 'every model' })))} />
+        <div className="uh-filters" role="group" aria-label="filters">
+          <Select label="Provider" all="All providers" value={provider} set={setProvider}
+            options={uniq(series.filter((s) => lanes.used(s.account))
+              .map((s) => ({ id: s.provider, label: providerName(s.provider) })))} />
+          <Select label="Account" all="All accounts" value={account} set={setAccount}
+            options={uniq(series.filter((s) => lanes.used(s.account))
+              .map((s) => ({ id: s.account, label: s.account_label })))} />
+          <Select label="Window" all="All windows" value={win} set={setWin}
+            options={uniq(series.map((s) => ({ id: s.window, label: WINDOW_NAMES[s.window] ?? s.window })))} />
+          <Select label="Model scope" all="All models" value={model} set={setModel}
+            options={uniq(series.map((s) => (s.model ? { id: s.model, label: s.model } : { id: '-', label: 'every model' })))} />
+        </div>
       </div>
       {error && <div className="uh-error">usage history unavailable: {error}</div>}
       {!data && !error && <div className="dim">loading…</div>}
