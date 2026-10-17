@@ -3,7 +3,9 @@
 - Session-placement loss requires three two-second misses; recovery is immediate.
   Overdue ticks are skipped and each recovered blip logs once. A per-engine
   placement hint keeps turn selection stable during debounce without extending
-  authenticated leases; unreachable retained hosts defer an unsent launch.
+  authenticated leases; unreachable retained hosts hold an unsent launch on the
+  actor's bounded admission-retry timer, retaining any on-demand session choice.
+  A typed pending-placement error must never enter terminal launch failure.
   See [session blips](docs/rust-engine/session-placement-blips.md).
   [decided: user/coordinator 2026-10-17; verified: `runtime/session_watch.rs`,
   `runtime/session_host.rs`, `credential_bridge.rs`]
