@@ -1,15 +1,81 @@
 //! Custom tags for mail addressed to the user; policy is separate from routing.
 use anyhow::Result;
-use serde_json::Value;
+use serde_json::{json, Value};
+
+pub const MAX_TAGS: usize = 8;
+
+#[nolog]
+pub fn key(label: &str) -> String { label.trim().to_lowercase() }
 
 #[nolog]
 pub fn normalize(value: Option<&Value>) -> Result<Vec<String>> {
-    Ok(value.and_then(Value::as_array).into_iter().flatten()
-        .filter_map(Value::as_str).map(str::to_string).collect())
+    let Some(value) = value.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let Some(values) = value.as_array() else { crate::refuse!(BadRequest,"tags must be a list of strings"); };
+    if values.len() > MAX_TAGS { crate::refuse!(BadRequest,"at most 8 tags per mail"); }
+    let mut labels=Vec::new(); let mut keys=std::collections::HashSet::new();
+    for value in values {
+        let Some(label)=value.as_str() else { crate::refuse!(BadRequest,"tags must be strings"); };
+        let label=label.trim(); let len=label.chars().count();
+        if len==0 || len>32 || label.chars().any(char::is_control) {
+            crate::refuse!(BadRequest,"each tag needs 1-32 characters after trimming, without control characters");
+        }
+        if keys.insert(key(label)) { labels.push(label.to_string()); }
+    }
+    Ok(labels)
 }
 
 #[nolog]
-pub fn recipient(_to: &str, _tags: &[String]) -> Result<()> { Ok(()) }
+pub fn recipient(to: &str, tags: &[String]) -> Result<()> {
+    if !tags.is_empty() && to.trim().trim_start_matches('@')!="user" {
+        crate::refuse!(BadRequest,"tags are only for mail to the user; send this recipient an untagged message");
+    }
+    Ok(())
+}
+
+/// Runs inside the mail insert transaction. Sort catalog keys to avoid
+/// opposite-order tag sets deadlocking; membership retains sender order.
+#[nolog]
+pub async fn attach(tx: &tokio_postgres::Transaction<'_>, org: i64, mail: i64, tags: &[String]) -> Result<()> {
+    let mut catalog:Vec<_>=tags.iter().map(|label|(key(label),label)).collect();
+    catalog.sort_by(|a,b|a.0.cmp(&b.0));
+    for (key,label) in catalog {
+        tx.execute("INSERT INTO ot.mail_tags(org_id,key,label) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO NOTHING",&[&org,&key,label]).await?;
+    }
+    for (ordinal,label) in tags.iter().enumerate() {
+        tx.execute("INSERT INTO ot.mail_tag_links(mail_id,org_id,tag_key,ordinal) VALUES($1,$2,$3,$4)",
+            &[&mail,&org,&key(label),&(ordinal as i16)]).await?;
+    }
+    Ok(())
+}
+
+/// Exact tag matching happens before the indexed cursor window, not after
+/// the user's ordinary 200-message archive window has already discarded it.
+#[nolog]
+pub async fn window(client: &tokio_postgres::Client, org:i64, tag:&str, before:Option<i64>) -> Result<Value> {
+    let labels=normalize(Some(&json!([tag])))?;
+    let key=key(&labels[0]); let before=before.unwrap_or(i64::MAX);
+    if before<1 { crate::refuse!(BadRequest,"mail cursor must be a positive id"); }
+    let rows=client.query("SELECT m.id,to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id))
+        FROM ot.mail_tag_links l JOIN ot.mail m ON m.id=l.mail_id AND m.org_id=l.org_id
+        WHERE l.org_id=$1 AND l.tag_key=$2 AND l.mail_id<$3 AND m.recipient_kind='user' AND m.state IN ('pending','read')
+        ORDER BY l.mail_id DESC LIMIT 201",&[&org,&key,&before]).await?;
+    let more=rows.len()>200;let mut pending=Vec::new();let mut delivered=Vec::new();let mut cursor=None;
+    for row in rows.into_iter().take(200) {
+        cursor=Some(row.get::<_,i64>(0).to_string());let raw:Value=row.get(1);
+        let entry=crate::feed::compute::mail_entry(&raw);
+        if raw["state"]=="pending" { pending.push(entry); } else { delivered.push(entry); }
+    }
+    Ok(json!({"pending":pending,"delivered":delivered,"sent":[],"next_cursor":if more {cursor} else {None}}))
+}
+
+/// Bounded suggestions; the editable filter can still name any exact tag.
+#[nolog]
+pub async fn choices(client:&tokio_postgres::Client,org:i64,prefix:&str) -> Result<Vec<String>> {
+    if prefix.chars().any(char::is_control) { return Ok(Vec::new()); }
+    let prefix=key(prefix).replace('\\',"\\\\").replace('%',"\\%").replace('_',"\\_")+"%";
+    Ok(client.query("SELECT label FROM ot.mail_tags WHERE org_id=$1 AND key LIKE $2 ORDER BY key LIMIT 200",&[&org,&prefix])
+        .await?.into_iter().map(|r|r.get(0)).collect())
+}
 
 #[cfg(test)]
 mod tests {

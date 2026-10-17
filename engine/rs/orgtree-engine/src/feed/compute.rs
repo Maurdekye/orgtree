@@ -116,6 +116,7 @@ pub async fn audiences_held(client: &Client, org_id: i64) -> Result<HashMap<Stri
 
 pub fn mail_entry(m: &Value) -> Value {
     let mut o = serde_json::Map::new();
+    if let Some(tags)=m.get("tags").filter(|t|t.as_array().is_some_and(|a|!a.is_empty())) { o.insert("tags".into(),tags.clone()); }
     o.insert("id".into(), m["uid"].clone());
     o.insert("from".into(), m["sender"].clone());
     o.insert("kind".into(), m["kind"].clone());
@@ -169,21 +170,21 @@ pub fn mail_entry(m: &Value) -> Value {
 pub async fn user_mail(client: &Client, org_id: i64) -> Result<(Vec<(i64, Value)>, Vec<(i64, Value)>, Vec<(i64, Value)>)> {
     let pending = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending'
+            "SELECT id, to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id)) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending'
              ORDER BY id DESC LIMIT $2",
             &[&org_id, &USER_PENDING_WINDOW],
         )
         .await?;
     let read = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'read'
+            "SELECT id, to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id)) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'read'
              ORDER BY id DESC LIMIT $2",
             &[&org_id, &USER_LOG_WINDOW],
         )
         .await?;
     let sent = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND sender = '@user'
+            "SELECT id, to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id)) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND sender = '@user'
              ORDER BY id DESC LIMIT $2",
             &[&org_id, &USER_SENT_WINDOW],
         )

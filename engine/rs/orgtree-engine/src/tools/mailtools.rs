@@ -47,6 +47,7 @@ const MAX_RECIPIENTS: usize = 10;
 
 /// What a send carries to every recipient alike.
 struct Letter {
+    tags: Vec<String>,
     me: super::Me,
     body: String,
     kind: String,
@@ -71,6 +72,7 @@ struct Delivered {
 pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_notice: bool) -> Result<Done> {
     // the split shape {metadata, body} reads as the flat one from here on
     let args = &flat_args(args)?;
+    let tags=crate::domain::mail_tags::normalize(args.get("tags"))?;
     let list = match args.get("to") {
         Some(Value::Array(a)) => Some(recipients(a)?),
         _ => None,
@@ -123,7 +125,7 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     let attachments = args["attachments"].as_array().cloned().unwrap_or_default();
     if attachments.len() > 10 { crate::refuse!(BadRequest, "at most 10 attachments"); }
     let mut letter = Letter {
-        me, body, kind: kind.to_string(), urgent_reason, attachments, reply: None, replies: Vec::new(),
+        tags, me, body, kind: kind.to_string(), urgent_reason, attachments, reply: None, replies: Vec::new(),
         notice: force_notice || args["notice"].as_bool().unwrap_or(false),
     };
     if args.get("replies").is_some_and(|v| !v.is_null()) {
@@ -200,7 +202,7 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
 }
 
 /// What a message tool's `metadata` may hold: every argument but `body`.
-const META_KEYS: &[&str] = &["to", "kind", "notice", "attachments", "urgent", "urgent_reason", "reply_to", "replies", "options", "multiple"];
+const META_KEYS: &[&str] = &["to", "kind", "notice", "attachments", "urgent", "urgent_reason", "reply_to", "replies", "options", "multiple", "tags"];
 
 /// The message tools' arguments as the handler reads them (user and
 /// coordinator 2026-10-13, docket show-agent-typing-in-hubchat-using-ordered-messa).
@@ -242,6 +244,7 @@ pub(crate) fn flat_args(args: &Value) -> Result<Value> {
 #[logged]
 pub(crate) fn typing_peers(meta: &Value) -> Option<Vec<String>> {
     let obj = meta.as_object()?;
+    if !crate::domain::mail_tags::normalize(obj.get("tags")).ok()?.is_empty() { return None; }
     if obj.keys().any(|k| !META_KEYS.contains(&k.as_str())) {
         return None;
     }
@@ -351,11 +354,13 @@ fn append_path_references(body: &str, paths: &[String]) -> String {
 /// in a list the shared reply quote rides only where it belongs.
 #[logged]
 async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool, reply_to: Option<&str>) -> Result<Delivered> {
+    crate::domain::mail_tags::recipient(to,&letter.tags)?;
     if single && letter.replies.iter().any(|q| !plural_quote_belongs(q,to)) {
         crate::refuse!(BadRequest,"the replies targets are outside your conversation with {to}; nothing was sent");
     }
     let me = &letter.me;
     let mut out = Outgoing::new(From::Agent { id: me.id, name: me.name.clone(), generation: me.generation }, to, &letter.body);
+    out.tags = letter.tags.clone();
     out.kind = letter.kind.clone();
     out.notice = letter.notice;
     let to_user = is_user(to);

@@ -200,6 +200,7 @@ fn message_meta() -> Value {
         "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
                      "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
         "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
+        "tags": { "type":"array", "maxItems":8, "items":{"type":"string","minLength":1,"maxLength":32}, "description":"Optional custom tags, only on mail to the user; up to 8, case-insensitive. Example: alpha build." },
     })
 }
 
@@ -893,6 +894,7 @@ mod mail_shape_tests {
                 "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
                              "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
                 "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
+                "tags": { "type":"array", "maxItems":8, "items":{"type":"string","minLength":1,"maxLength":32}, "description":"Optional custom tags, only on mail to the user; up to 8, case-insensitive. Example: alpha build." },
             }, "required": ["to", "body"] },
             "_meta": { "anthropic/alwaysLoad": true },
         });

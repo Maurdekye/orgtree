@@ -18,12 +18,23 @@ use crate::http::nodes::agent;
 use crate::http::orgs::org;
 
 #[logged]
-pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
+pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q):Query<InboxQuery>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
+    if q.tags_only.unwrap_or(false) {
+        return Ok(Json(json!({"tag_choices":crate::domain::mail_tags::choices(&client,o.id,q.prefix.as_deref().unwrap_or("")).await?})));
+    }
+    if let Some(tag)=q.tag.as_deref().filter(|t|!t.trim().is_empty()) {
+        return Ok(Json(crate::domain::mail_tags::window(&client,o.id,tag,q.before).await?));
+    }
     let (pending, read, sent) = compute::user_mail(&client, o.id).await?;
     let pick = |v: Vec<(i64, Value)>| -> Vec<Value> { v.into_iter().map(|(_, m)| m).collect() };
     Ok(Json(json!({ "pending": pick(pending), "delivered": pick(read), "sent": pick(sent) })))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct InboxQuery {
+    tag:Option<String>, before:Option<i64>, tags_only:Option<bool>, prefix:Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -85,7 +96,7 @@ pub async fn mail_by_id(
             .map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))),
         "user" => client
             .query_opt(
-                "SELECT to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND uid = $2 AND (recipient_kind = 'user' OR sender = '@user')",
+                "SELECT to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id)) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND uid = $2 AND (recipient_kind = 'user' OR sender = '@user')",
                 &[&o.id, &id],
             )
             .await?

@@ -205,6 +205,8 @@ async fn message(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value, force
         Value::Array(_) => crate::refuse!(BadRequest, "the user's mail names one recipient agent at a time"),
         _ => crate::refuse!(BadRequest, "`to` (in metadata) is required: an agent's name"),
     };
+    let tags=crate::domain::mail_tags::normalize(meta.get("tags"))?;
+    crate::domain::mail_tags::recipient(&to,&tags)?;
     if to.is_empty() || to == "user" {
         crate::refuse!(BadRequest, "`to` must name an agent in this organization");
     }

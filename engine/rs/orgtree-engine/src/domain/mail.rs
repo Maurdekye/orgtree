@@ -136,6 +136,7 @@ impl From {
 
 #[derive(Debug, serde::Serialize)]
 pub struct Outgoing {
+    pub tags: Vec<String>,
     pub from: From,
     pub to: String,
     pub body: String,
@@ -162,6 +163,7 @@ pub struct Outgoing {
 impl Outgoing {
     pub fn new(from: From, to: &str, body: &str) -> Self {
         Outgoing {
+            tags: Vec::new(),
             from,
             to: to.to_string(),
             body: body.to_string(),
@@ -207,6 +209,8 @@ pub struct Sent {
 /// Store one message and wake its recipient.
 #[logged]
 pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Result<Sent> {
+    out.tags=super::mail_tags::normalize(Some(&json!(out.tags)))?;
+    super::mail_tags::recipient(&out.to,&out.tags)?;
     if matches!(out.from, From::Extern(_)) {
         crate::refuse!(Forbidden, "outside mail must publish through the org inbox");
     }
@@ -268,11 +272,12 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
                 }
             }
         }
-        client
-            .execute(
+        let tx=client.transaction().await?;
+        let inserted=tx
+            .query_one(
                 "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_name,
                                       kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)
-                 VALUES ($1, $2, $3, $4, $5, 'user', '@user', $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15)",
+                 VALUES ($1, $2, $3, $4, $5, 'user', '@user', $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15) RETURNING id",
                 &[
                     &mail_uid, &org_id, &sender_name, &sender_agent, &sender_gen, &out.kind, &out.notice, &out.body,
                     &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent, &out.urgent_reason,
@@ -280,6 +285,8 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
                 ],
             )
             .await?;
+        super::mail_tags::attach(&tx,org_id,inserted.get(0),&out.tags).await?;
+        tx.commit().await?;
         let mut ch = vec![Change::UserMail, Change::Spark { from: sender_name.clone(), to: "@user".into() }];
         if let Some(a) = sender_agent {
             ch.push(Change::Mailbox(a));
