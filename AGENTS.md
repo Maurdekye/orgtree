@@ -1559,8 +1559,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   `docs/rust-engine/event-watchdogs.md` contains exact names and semantics]
 
 - Periodic watchdog countdowns roll forward from the last persisted check and
-  effective interval in the renderer, using one shared clock. Ordinary polls
-  do not refresh the watchdog feed; a matching silence-mode poll does when it
+  effective interval in the renderer, using one shared clock. Under one hour
+  they show m:ss, then h/m below a day and d/h from a day; subscribers update
+  only when their displayed value changes. Ordinary polls do not refresh the
+  watchdog feed; a matching silence-mode poll does when it
   resets the real silence deadline. [verified: 2026-10-17;
   `engine/rs/orgtree-engine/src/runtime/watchdogs.rs`,
   `apps/desktop/renderer/src/canvas/watchdogcountdown.tsx`]

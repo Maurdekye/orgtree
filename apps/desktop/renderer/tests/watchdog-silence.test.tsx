@@ -84,3 +84,25 @@ test('silence deadline may shorten the next periodic check', () => {
     last_check: '2026-10-17T12:00:00.000Z' }
   assert.equal(watchdogCountdownText(dog, Date.parse('2026-10-17T12:00:17.000Z')), 'next check in 0:33')
 })
+
+test('watchdog countdown keeps seconds below an hour and uses hours below a day', () => {
+  const checkedAt = '2026-10-17T12:00:00.000Z'
+  const now = Date.parse(checkedAt)
+  const dog: Watchdog = { ...base, kind: 'file', last_check: checkedAt }
+
+  assert.equal(watchdogCountdownText({ ...dog, interval_s: 3_599 }, now), 'next check in 59:59')
+  assert.equal(watchdogCountdownText({ ...dog, interval_s: 3_600 }, now), 'next check in 1h 0m')
+  assert.equal(watchdogCountdownText({ ...dog, interval_s: 86_399 }, now), 'next check in 23h 59m')
+  assert.equal(watchdogCountdownText({ ...dog, interval_s: 18_030 }, now + 1_000),
+    watchdogCountdownText({ ...dog, interval_s: 18_030 }, now),
+    'an hourly countdown display does not change every second')
+})
+
+test('watchdog countdown uses days and hours at one day and longer', () => {
+  const checkedAt = '2026-10-17T12:00:00.000Z'
+  const now = Date.parse(checkedAt)
+  const dog: Watchdog = { ...base, kind: 'process', last_check: checkedAt }
+
+  assert.equal(watchdogCountdownText({ ...dog, interval_s: 86_400 }, now), 'next check in 1d 0h')
+  assert.equal(watchdogCountdownText({ ...dog, interval_s: 183_600 }, now), 'next check in 2d 3h')
+})
