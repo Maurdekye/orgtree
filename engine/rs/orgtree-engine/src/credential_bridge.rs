@@ -136,6 +136,9 @@ pub struct Bridge {
     /// Independent leases, one per Windows session of the engine's user: the
     /// desktop can serve credentials while helpers host agents' CLIs.
     hosts: HostLeases,
+    /// Watcher's debounced placement only. Never authorizes a credential or
+    /// host operation: those still require a live authenticated lease.
+    placement_hosts: ArcSwapOption<Vec<(u32, u32)>>,
     grants: papaya::HashMap<i64, Arc<Grant>>,
     slots: tokio::sync::Semaphore,
     reported_ready: AtomicBool,
@@ -147,6 +150,7 @@ impl Bridge {
         Self {
             broker: ArcSwapOption::empty(),
             hosts: HostLeases::default(),
+            placement_hosts: ArcSwapOption::empty(),
             grants: papaya::HashMap::new(),
             slots: tokio::sync::Semaphore::new(16),
             reported_ready: AtomicBool::new(false),
@@ -207,6 +211,15 @@ impl Bridge {
     /// The live helpers: (Windows session, helper pid), by session.
     pub fn hosting(&self) -> Vec<(u32, u32)> {
         self.hosts.hosting()
+    }
+    pub(crate) fn set_placement_hosts(&self, hosts: Vec<(u32, u32)>) {
+        self.placement_hosts.store(Some(Arc::new(hosts)));
+    }
+    pub(crate) fn placement_hosting(&self) -> Vec<(u32, u32)> {
+        self.placement_hosts.load_full().map(|h| (*h).clone()).unwrap_or_else(|| self.hosting())
+    }
+    pub(crate) fn placement_pending(&self, session: u32) -> bool {
+        self.placement_hosting().iter().any(|(id,_)| *id==session) && !self.hosting().iter().any(|(id,_)| *id==session)
     }
     /// The live helpers with their process creation stamps: (Windows
     /// session, (helper pid, stamp)), by session. The stamp tells a helper
@@ -1375,6 +1388,22 @@ mod host_slot_tests {
         bridge.hosts.release("test-pipe", "test-only", std::process::id());
         assert!(bridge.ready());
         assert!(!bridge.can_host());
+    }
+
+    #[test]
+    #[nolog]
+    fn session_blip_placement_does_not_extend_authenticated_leases() {
+        let bridge=Bridge::new();
+        assert!(bridge.hosts.admit(1,lease(false,false)).is_ok());
+        bridge.set_placement_hosts(bridge.hosting());
+        assert!(!bridge.placement_pending(1));
+        assert!(bridge.hosts.admit(1,lease(true,false)).is_ok());
+        assert!(!bridge.can_host() && !bridge.ready());
+        assert_eq!(bridge.placement_hosting(),vec![(1,std::process::id())]);
+        assert!(bridge.placement_pending(1));
+        assert_eq!(bridge.host_pid_in(1),None,"cached placement cannot authorize spawning");
+        bridge.set_placement_hosts(Vec::new());
+        assert!(bridge.placement_hosting().is_empty() && !bridge.placement_pending(1));
     }
 }
 

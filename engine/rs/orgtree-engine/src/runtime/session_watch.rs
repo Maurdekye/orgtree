@@ -3,8 +3,8 @@
 //! 12:07Z: at sign-in and at sign-out every running turn is told, at its next
 //! tool boundary, where its next turn will run; idle agents are told without
 //! being woken). An engine in Session 0 watches whether the sign-in helper
-//! hosts, which is where new turns run. A change that holds for `STEADY`
-//! readings, from what agents were last told (kept in `FILE`, so an engine
+//! hosts, which is where new turns run. A loss that holds for `MISSING_CHECKS`
+//! two-second checks (recovery is immediate), from what agents were last told (kept in `FILE`, so an engine
 //! restart while the user stays signed in tells nobody anything), sends every
 //! live agent one passive line. `mail::send` wakes an agent whose actor runs,
 //! so a running turn takes the line at its next tool boundary (Claude's hook,
@@ -30,26 +30,39 @@ const SIGNED_IN: &str = "signed-in";
 const SESSION0: &str = "session0";
 /// What agents were last told, in the data folder.
 const FILE: &str = "session-placement.json";
-/// Readings, a second apart, that must agree before a change counts.
-const STEADY: u32 = 2;
+const CHECK_EVERY: Duration = Duration::from_secs(2);
+/// One transient lease/desktop miss must not move turns or notify agents.
+const MISSING_CHECKS: u32 = 3;
 
 /// Placement decisions shared by the watcher and its focused regression tests.
 struct Placement {
     told: bool,
-    seen: Option<bool>,
-    count: u32,
+    misses: u32,
+    last_miss: Option<std::time::Instant>,
 }
 
 #[logged]
 impl Placement {
-    fn new(signed_in: bool) -> Self { Self { told: signed_in, seen: None, count: 0 } }
+    fn new(signed_in: bool) -> Self { Self { told: signed_in, misses: 0, last_miss: None } }
 
-    fn observe(&mut self, hosting: bool, _at: std::time::Instant) -> Option<bool> {
-        if self.seen == Some(hosting) { self.count += 1; }
-        else { self.seen = Some(hosting); self.count = 1; }
-        if self.count < STEADY || self.told == hosting { return None; }
-        self.told = hosting;
-        Some(hosting)
+    fn observe(&mut self, hosting: bool, at: std::time::Instant) -> Option<bool> {
+        if hosting {
+            if self.told && self.misses > 0 {
+                tracing::info!(missed_checks=self.misses,"suppressed transient session-placement blip");
+            }
+            self.misses = 0;
+            self.last_miss = None;
+            return if self.told { None } else { self.told = true; Some(true) };
+        }
+        if !self.told { return None; }
+        // Skip overdue ticks in the watcher; this independent guard also
+        // rejects burst replays without rejecting normal timer jitter.
+        if self.last_miss.is_some_and(|last| at.saturating_duration_since(last) < CHECK_EVERY / 2) { return None; }
+        self.last_miss = Some(at);
+        self.misses += 1;
+        if self.misses < MISSING_CHECKS { return None; }
+        self.told = false;
+        Some(false)
     }
 }
 
@@ -92,25 +105,32 @@ async fn watch(engine: Arc<Engine>) {
     let mut keep = Keepalive::default();
     #[cfg(windows)]
     let mut sessions = crate::core_process::Sessions::new();
-    let mut ticks = 0u64;
-    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    let mut tick = tokio::time::interval(CHECK_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             _ = engine.shutdown.cancelled() => break,
             _ = tick.tick() => {}
         }
-        ticks += 1;
-        let hosting = engine.credential_bridge.can_host();
+        let hosts = engine.credential_bridge.hosting();
+        let hosting = !hosts.is_empty();
         // the user is signed in (read as the core monitor reads it) and no helper
         #[cfg(windows)]
-        if ticks.is_multiple_of(5) {
+        let hosting = {
             let signed_in = crate::core_state::sessions(&engine.cfg.data_root, &mut sessions).map(|s| !s.is_empty());
             keepalive(&engine, &mut keep, signed_in == Some(true) && !hosting).await;
-        }
+            hosting && signed_in != Some(false)
+        };
         #[cfg(not(windows))]
-        let _ = (&mut keep, ticks);
+        let _ = &mut keep;
         let now = if hosting { SIGNED_IN } else { SESSION0 };
-        let Some(up) = placement.observe(hosting, std::time::Instant::now()) else { continue };
+        let changed = placement.observe(hosting, std::time::Instant::now());
+        if hosting {
+            engine.credential_bridge.set_placement_hosts(hosts);
+        } else if !placement.told {
+            engine.credential_bridge.set_placement_hosts(Vec::new());
+        }
+        let Some(up) = changed else { continue };
         told = now.to_string();
         write(&path, &told);
         tracing::info!(to = now, "where new turns run changed; every agent is told");
@@ -343,6 +363,33 @@ mod tests {
         let mut p = Placement::new(true);
         for _ in 0..10 { assert_eq!(p.observe(false,at),None); }
         assert!(p.told);
+    }
+
+    #[test]
+    fn session_blip_logging_is_once_per_recovered_sequence() {
+        use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
+        use tracing_subscriber::prelude::*;
+        struct Blips(Arc<AtomicUsize>);
+        impl<S:tracing::Subscriber> tracing_subscriber::Layer<S> for Blips {
+            fn on_event(&self,event:&tracing::Event<'_>,_:tracing_subscriber::layer::Context<'_,S>) {
+                struct Message(bool);
+                impl tracing::field::Visit for Message {
+                    fn record_debug(&mut self,f:&tracing::field::Field,v:&dyn std::fmt::Debug) {
+                        if f.name()=="message"&&format!("{v:?}").contains("suppressed transient session-placement blip") {self.0=true;}
+                    }
+                }
+                let mut m=Message(false);event.record(&mut m);
+                if m.0 {self.0.fetch_add(1,Ordering::Relaxed);}
+            }
+        }
+        let logs=Arc::new(AtomicUsize::new(0));
+        tracing::subscriber::with_default(tracing_subscriber::registry().with(Blips(logs.clone())),||{
+            let at=std::time::Instant::now();let mut p=Placement::new(true);
+            for (sec,good) in [(0,false),(2,true),(4,true),(6,false),(8,false),(10,true),(12,true)] {
+                assert_eq!(p.observe(good,at+Duration::from_secs(sec)),None);
+            }
+        });
+        assert_eq!(logs.load(Ordering::Relaxed),2);
     }
 
     #[test]

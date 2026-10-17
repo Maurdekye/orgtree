@@ -67,7 +67,7 @@ pub fn host_sessions(engine: &Engine) -> Vec<HostSession> {
     let stand_in = rig_sessions(engine);
     engine
         .credential_bridge
-        .hosting()
+        .placement_hosting()
         .into_iter()
         .map(|(id, _)| {
             let (kind, active, _) = stand_in.get(&id).cloned().unwrap_or_else(|| session_info(id));
@@ -286,8 +286,17 @@ pub async fn spawn(
                     tracing::info!(agent, pid, session, cli = what, "CLI started by the sign-in helper in the user's session");
                     return Ok((Started { io, launched: Launched { kind: Kind::Hosted(h) }, job, pid }, true));
                 }
-                Err(code) => tracing::warn!(agent, cli = what, reason = %code,
-                    "the sign-in helper could not start the CLI; starting it in Session 0"),
+                Err(code) => {
+                    if engine.credential_bridge.placement_pending(session) {
+                        // Keep the signed-in choice during the bounded loss
+                        // debounce. The actor requeues this unsent turn; never
+                        // silently launch it in Session 0 on a transient miss.
+                        tracing::info!(agent,session,"host lease temporarily missing; deferring CLI start during placement debounce");
+                        anyhow::bail!("signed-in helper is temporarily unavailable during placement debounce");
+                    }
+                    tracing::warn!(agent, cli = what, reason = %code,
+                        "the sign-in helper could not start the CLI; starting it in Session 0");
+                },
             },
             Err(code) => tracing::warn!(agent, cli = what, reason = %code,
                 "the CLI cannot be started by the sign-in helper; starting it in Session 0"),
