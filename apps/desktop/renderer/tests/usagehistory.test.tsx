@@ -485,8 +485,8 @@ test('§5.2 every account in the filter is prefixed with its provider; "All acco
 })
 
 test('§4.7 the projection runs as far as the pane ahead reaches', () => {
-  const s7 = series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 12), bucket(NOW, 14)],
-    { latest: { observed_at: iso(NOW), used_pct: 14, amount: null, resets_at: null } })
+  const s7 = series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 10.1), bucket(NOW, 10.2)],
+    { latest: { observed_at: iso(NOW), used_pct: 10.2, amount: null, resets_at: null } })
   const base = { now: NOW, since: SINCE, until: NOW, gapMs: 75 * 60_000 }
   assert.equal(modelSeries(s7, [], base).projection!.to.t, NOW + D * 0.25, 'no horizon given: a quarter of the period')
   const wide = modelSeries(s7, [], { ...base, horizonMs: UH.aheadAxis(SINCE, NOW, 1).right - NOW })
