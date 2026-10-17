@@ -9,7 +9,7 @@ Up: [orgtree-workflows](../SKILL.md)
 
 | Workflow | Use it for |
 | --- | --- |
-| [orgtree-committee-mode](committee-mode/SKILL.md) | A question, design or plan requested by committee: host members directly under one project with peer mail OFF; different models propose independently, then revise through the supervisor until consensus or the round limit. |
+| [orgtree-committee-mode](committee-mode/SKILL.md) | A question, design or plan requested by committee: host members under a project, or directly under a dedicated manager for large/complex decisions, with the host's peer mail OFF; different models propose independently, then revise through the supervisor until consensus or the round limit. |
 | [orgtree-dev-team](dev-team/SKILL.md) | Building a deliverable with a coordinator, implementer, redteam reviewer and curator, following the bundled development-team templates. |
 | [orgtree-iterative-development](iterative-development/SKILL.md) | Alternating rapid specification feedback and explicit hardening, with release lines, feature freeze and build delivery. |
 

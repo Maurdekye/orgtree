@@ -20,7 +20,7 @@ The agents under a project **report to the nearest agent above it**: that is "yo
 
 Project Settings has [Subordinates may message each other](../peer-mail/SKILL.md), ON by default. OFF requires an active directional audience between agents directly under this project and hides their ordinary neighbour connector lines. It does not change the project's mailbox or fair queue, the reporting superior, deeper teams, chart visibility or docket access.
 
-The canonical committee host is a dedicated project with every member directly under it and this setting OFF. Members send committee proposals and questions only to their supervisor, the nearest agent above the project; do not grant or use an audience for member-to-member contact. Follow `orgtree-committee-mode` (orgtree-workflows › collaboration-patterns) for independent rounds and consensus.
+A committee without a dedicated manager uses a project with every member directly under it and this setting OFF. A large or complex committee may instead hire a dedicated manager and place members directly under that manager, with no committee project; apply the manager's peer-mail setting OFF to preserve independence. Members send proposals and questions only to the committee supervisor; do not grant or use an audience for member-to-member contact. Follow `orgtree-committee-mode` (orgtree-workflows › collaboration-patterns) for both hosting forms, independent rounds and consensus.
 
 ## Folder and AGENTS.md
 

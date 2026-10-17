@@ -1,9 +1,12 @@
 # AGENTS.md — working on Orgtree
 
-- Committees canonically live in a dedicated project under their supervisor,
-  with every member directly under it and Project Settings > Subordinates may
-  message each other OFF. The complete workflow remains in `orgtree-committee-mode`
-  (orgtree-workflows > collaboration-patterns). [decided: user 2026-10-17 22:00Z]
+- Committees without a dedicated manager use a project under their supervisor;
+  large/complex committees may instead put members directly under a dedicated
+  non-voting manager, with no committee project. Set the actual host's Subordinates
+  may message each other OFF to preserve independence. The full workflow lives
+  in `orgtree-committee-mode` (orgtree-workflows > collaboration-patterns).
+  [decided: user 2026-10-17 22:00Z/22:10Z/22:12Z; coordinator 22:12Z applies
+  the existing peer-mail rule to the manager]
 
 - Markdown links to local Windows files may use `file:///C:/...` or another
   drive letter; normalize only this empty-authority form before sanitization and
