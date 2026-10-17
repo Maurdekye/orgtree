@@ -178,6 +178,39 @@ fn text_content(value: &Value) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn completed_helper_preserves_native_block_order_and_utf16_offsets() {
+        let mut t = Transcript::default();
+        t.observe(&json!({"type":"assistant","message":{"id":"ordered","content":[
+            {"type":"text","text":"Hi 😀"},
+            {"type":"tool_use","id":"read","name":"Read","input":{}},
+            {"type":"thinking","thinking":"Check"},
+            {"type":"text","text":"Done"}]}}));
+        let snapshot = t.snapshot();
+        assert_eq!(snapshot["messages"][0]["content_blocks"], json!([
+            {"kind":"text","start":0,"end":5}, {"kind":"tool","id":"read"},
+            {"kind":"thinking","start":0,"end":5}, {"kind":"text","start":5,"end":9}]));
+    }
+    #[test]
+    fn live_helper_order_matches_completed_message_without_duplicate_prose() {
+        let mut t = Transcript::default();
+        let stream = |event| json!({"type":"stream_event","event":event});
+        t.observe(&stream(json!({"type":"message_start","message":{"id":"ordered"}})));
+        t.observe(&stream(json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})));
+        t.observe(&stream(json!({"type":"content_block_delta","index":0,"delta":{"text":"Before"}})));
+        t.observe(&stream(json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"read","name":"Read","input":{}}})));
+        t.observe(&stream(json!({"type":"content_block_start","index":2,"content_block":{"type":"text","text":"After"}})));
+        let before = t.snapshot();
+        assert_eq!(before["messages"][0]["content_blocks"], json!([
+            {"kind":"text","start":0,"end":6}, {"kind":"tool","id":"read"},
+            {"kind":"text","start":6,"end":11}]));
+        t.observe(&json!({"type":"assistant","message":{"id":"ordered","content":[
+            {"type":"text","text":"Before"}, {"type":"tool_use","id":"read","name":"Read","input":{}},
+            {"type":"text","text":"After"}]}}));
+        let after = t.snapshot();
+        assert_eq!(before["messages"], after["messages"]);
+        assert_eq!(after["messages"][0]["text"], "BeforeAfter");
+    }
+    #[test]
     fn streams_then_replaces_draft_and_keeps_nested_tools_as_data() {
         let mut t = Transcript::default();
         let stream = |event| json!({"type":"stream_event","event":event});
