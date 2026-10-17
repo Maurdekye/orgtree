@@ -156,6 +156,10 @@ co-owns the item with full owner rights.
   mailbox button with the waiting-mail count shows only with Show agent card shortcuts on, like
   an agent card's hover row [user 2026-10-17 19:37Z]). It has
   no model, credit bar or turn controls.
+- **Card look** [user 2026-10-17 21:20Z, 21:21Z]: zoomed out, the card is its large folder, with no
+  tier/provider stripe; at middle zoom its meta row carries `ProjectActivity`, the app header's
+  activity chip (spinner while any agent under it works, then active/hired). The app header's own
+  count (`liveCounts`) skips project nodes.
 - **The project desk** [user 2026-10-17 19:38Z–20:10Z]: a click, or zooming in, walks the
   camera to the project and opens its desk (`canvas/projectdesk.tsx`) in the agent desk's frame
   and header; a click never opens a modal (20:04Z). No chat: a project takes no turns. It pins as
