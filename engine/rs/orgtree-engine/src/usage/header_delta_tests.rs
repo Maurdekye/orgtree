@@ -93,3 +93,27 @@ async fn header_usage_delta_isolated_window_retry_and_fresh_session() {
     engine.usage.put(&key, &reading);
     assert!(take("session", &prior).text.contains("DELTA"), "known-to-unknown is material");
 }
+
+#[tokio::test]
+async fn header_usage_secondary_weekly_stop_and_turn_account_are_explicit() {
+    let mut engine = synthetic_engine();
+    Arc::get_mut(&mut engine).unwrap().accounts = crate::accounts::Accounts::for_tests(vec![crate::accounts::AccountInfo {
+        id: "openai-1".into(), provider: "openai".into(), kind: "oauth".into(), label: "Synthetic secondary".into(),
+        email: None, tint_ordinal: 0, auth: "ready".into(), config_dir: Some("synthetic-secondary".into()), enabled: true,
+        origin_org: None, marks: Default::default(), ord: 0, ambient: false, credential: 0, harness: None,
+    }]);
+    let key = codex_key(Some("synthetic-secondary"));
+    let mut data = json!({"available":true,"limits":[{"kind":"weekly_all","percent":79}]});
+    engine.usage.put(&key,&data);
+    let first = turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",&Value::Null);
+    data["limits"][0]["percent"] = json!(80);
+    engine.usage.put(&key,&data);
+    let changed = turn_snapshot(&engine,"openai",Some("openai-1"),"sol","synthetic-header-fixture","s",first.record.as_ref().unwrap());
+    assert!(changed.text.contains("openai-1 weekly >=80%: ineligible by policy"));
+    assert!(changed.text.contains("turn account openai-1") && changed.text.contains("DELTA"));
+    assert!(!changed.text.contains("claude/primary"));
+    data["limits"][0]["resets_at"] = json!(iso(Utc::now()-chrono::Duration::minutes(1)));
+    engine.usage.put(&key,&data);
+    let reset = turn_snapshot(&engine,"openai",Some("openai-1"),"sol","synthetic-header-fixture","s",changed.record.as_ref().unwrap());
+    assert!(reset.text.contains("reset passed, awaiting reading"));
+}

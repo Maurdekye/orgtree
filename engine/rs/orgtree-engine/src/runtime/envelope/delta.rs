@@ -49,5 +49,5 @@ pub(crate) fn snapshot(block: &str, sid: &str, prior: &Value, entries: BTreeMap<
         format!("[{block} #{seq} DELTA — since #{pseq}; last full #{full_seq}{suffix}]\n{}\n[END {block}]", changes.join("\n"))
     };
     let keys: serde_json::Map<String, Value> = entries.into_iter().map(|(id, e)| (id, json!({"key":e.key,"label":e.label}))).collect();
-    OrgState { text, record: Some(json!({"sid":sid,"seq":seq,"full_seq":full_seq,"entries":keys})) }
+    OrgState { text, record: Some(json!({"sid":sid,"seq":seq,"full_seq":full_seq,"entries":keys})), prior_usage: None }
 }

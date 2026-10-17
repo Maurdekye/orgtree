@@ -2123,7 +2123,7 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
         if !c.data["available"].as_bool().unwrap_or(false) {
             let why = c.data["error"].as_str().map(|e| gist(e, 60)).unwrap_or_else(|| "no reading".into());
             lines.push(format!("{lane}{star} | usage | - | - | - | {observed} | unavailable ({why})"));
-            key_lines.push(format!("{lane}|unavailable|{why}"));
+            key_lines.push(format!("{lane}|unavailable|{why}|{}", age < BOARD_FRESH));
             row_ids.push(format!("{lane}|usage"));
             continue;
         }

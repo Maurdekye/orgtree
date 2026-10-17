@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Turn-body ORG STATE and PROVIDER USAGE headers use a full snapshot for a new
+  session, then semantic row deltas or one-line references (including small
+  reports). Ages never trigger refreshes; usage freshness/reset/limit transitions
+  do. Both baselines advance only after accepted delivery and persist under
+  `extra.envelope`; identity/tools stay unchanged. See [header deltas](docs/rust-engine/turn-header-deltas.md).
+  [decided: user/coordinator 2026-10-17; verified: `runtime/envelope.rs`,
+  `runtime/envelope/delta.rs`, `runtime/actor.rs`, `usage.rs`]
+
 - Claude shared-skill exports account for native discovery: exact launch-profile
   org metadata selects the personal synced bucket; enabled installed plugins
   use that profile's settings plus cwd overrides. Identical native bundles omit

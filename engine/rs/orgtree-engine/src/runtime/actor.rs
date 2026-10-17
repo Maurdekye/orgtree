@@ -4134,10 +4134,13 @@ impl Actor {
             return Err(anyhow!("the {} process did not accept the turn{why}", catalog::provider_label(&ctx.provider)));
         }
         // A rejected turn must not advance either envelope baseline.
-        self.board_sent = board_record;
-        if let Some(r) = envelope_record {
+        self.board_sent = board_record.clone();
+        let mut accepted = serde_json::Map::new();
+        if let Some(r) = envelope_record { accepted.insert("org_state".into(), r); }
+        if let Some(r) = board_record { accepted.insert("usage".into(), r); }
+        if !accepted.is_empty() {
             // D-223: the agent now holds this snapshot; later turns may point at it
-            if let Err(e) = crate::runtime::envelope::commit(&self.engine, self.id, &r).await {
+            if let Err(e) = crate::runtime::envelope::commit(&self.engine, self.id, &Value::Object(accepted)).await {
                 tracing::info!(agent = %self.name, error = %format!("{e:#}"), "envelope record not stored");
             }
         }
@@ -4177,9 +4180,9 @@ impl Actor {
     }
 
     /// Prepare, but do not install, a usage snapshot until send succeeds.
-    fn usage_block(&self, ctx: &Ctx) -> crate::runtime::envelope::OrgState {
+    fn usage_block(&self, ctx: &Ctx, sid: &str, persisted: Option<&Value>) -> crate::runtime::envelope::OrgState {
         crate::usage::turn_snapshot(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.tier, &ctx.org_slug,
-            ctx.session_id.as_deref().unwrap_or(""), self.board_sent.as_ref().unwrap_or(&Value::Null))
+            sid, self.board_sent.as_ref().or(persisted).unwrap_or(&Value::Null))
     }
 
     /// The per-turn envelope before the mail (3.x layout, D-181): the
@@ -4188,14 +4191,15 @@ impl Actor {
     /// and status changes. Returns the text and the D-223 record to store once
     /// the turn was sent.
     async fn turn_context(&self, ctx: &Ctx) -> (String, Option<Value>, Option<Value>) {
-        let (mut s, record) = match crate::runtime::envelope::org_state(&self.engine, self.id).await {
-            Ok(st) => (st.text, st.record),
+        let (mut s, record, persisted) = match crate::runtime::envelope::org_state(&self.engine, self.id).await {
+            Ok(st) => (st.text, st.record, st.prior_usage),
             Err(e) => {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "org state block failed");
-                (format!("[Orgtree] {} · you are {}", now_iso(), ctx.name), None)
+                (format!("[Orgtree] {} · you are {}", now_iso(), ctx.name), None, None)
             }
         };
-        let usage = self.usage_block(ctx);
+        let sid = record.as_ref().and_then(|r| r["sid"].as_str()).or(ctx.session_id.as_deref()).unwrap_or("");
+        let usage = self.usage_block(ctx, sid, persisted.as_ref());
         if !usage.text.is_empty() {
             s.push_str("\n\n");
             s.push_str(&usage.text);

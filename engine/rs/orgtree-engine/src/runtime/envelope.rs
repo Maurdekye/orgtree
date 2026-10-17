@@ -18,7 +18,7 @@
 //! so while it is unchanged it is replaced by a pointer at the numbered
 //! snapshot that carried it (the record lives in `agents.extra.envelope`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -84,6 +84,8 @@ struct Row {
 pub struct OrgState {
     pub text: String,
     pub record: Option<Value>,
+    /// Loaded with the org facts; restores the usage baseline after actor restart.
+    pub prior_usage: Option<Value>,
 }
 
 /// What the actor knows about one agent's live runtime (busy, waiting for a slot).
@@ -178,7 +180,7 @@ struct Tree<'a> {
     now: DateTime<Utc>,
     me: i64,
     hidden: usize,
-    shown: Vec<i64>,
+    shown: HashSet<i64>,
 }
 
 impl<'a> Tree<'a> {
@@ -207,7 +209,7 @@ impl<'a> Tree<'a> {
                 }
             }
             let mut tags: Vec<String> = Vec::new();
-            self.shown.push(r.id);
+            self.shown.insert(r.id);
             if r.state != "live" {
                 tags.push(r.state.clone());
             }
@@ -259,7 +261,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
                     (SELECT p.name FROM ot.agents p WHERE p.id = a.parent_id),
                     EXISTS (SELECT 1 FROM ot.audiences u WHERE u.org_id = a.org_id AND u.grantee = a.name AND u.grantor = '@user'
                              AND u.revoked_at IS NULL AND NOT u.paused),
-                    (SELECT p.scope FROM ot.agents p WHERE p.id=a.parent_id)
+                    (SELECT p.scope FROM ot.agents p WHERE p.id=a.parent_id), a.extra->'envelope'->'usage'
                FROM ot.agents a WHERE a.id = $1",
             &[&agent_id],
         )
@@ -276,6 +278,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let superior: Option<String> = me.get(10);
     let user_audience: bool = me.get(11);
     let parent_scope: Option<Value> = me.get(12);
+    let prior_usage: Option<Value> = me.get(13);
     let peer_policy = crate::domain::peer_mail::describe(superior.as_deref(),
         crate::domain::peer_mail::enabled(parent_scope.as_ref().unwrap_or(&Value::Null)));
     let rows: Vec<Row> = client
@@ -315,7 +318,9 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
         agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy,
     };
     let _ = occ; // occupancy no longer forces periodic full snapshots
-    Ok(render(&facts, &live, Utc::now()))
+    let mut result = render(&facts, &live, Utc::now());
+    result.prior_usage = prior_usage;
+    Ok(result)
 }
 
 /// Everything `render` reads, loaded in one go.
@@ -361,7 +366,7 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         format!("Your reports: {reports}. Your peers: {peers}.")
     };
 
-    let mut tree = Tree { by_id, kids, live, now, me: agent_id, hidden: 0, shown: Vec::new() };
+    let mut tree = Tree { by_id, kids, live, now, me: agent_id, hidden: 0, shown: HashSet::new() };
     let mut chart = String::new();
     let mut lines: Vec<String> = Vec::new();
     if vis == "subtree" {
@@ -431,10 +436,18 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         crate::util::round2(*grant - *hold)
     );
     let mut entries = std::collections::BTreeMap::new();
-    for (id, label, text) in [("roster", "Reports/peers", roster.clone()), ("credits", "Credits", credits.clone()),
+    for (id, label, text) in [("visibility", "Visibility", format!("Visibility: {vis}")), ("credits", "Credits", credits.clone()),
         ("guidance", "User audience guidance", guidance.clone()), ("ask", "Open request", ask_line.trim().to_string()),
         ("peer_policy", "Peer mail policy", peer_policy.clone())] {
         entries.insert(id.into(), delta::Entry::new(label, &json!(text), if text.is_empty() { format!("{label}: none") } else { text }));
+    }
+    for r in rows.iter().filter(|r| r.state == "live") {
+        let role = if r.parent == Some(agent_id) { Some("report") }
+            else if vis != "self" && r.parent == parent && r.id != agent_id { Some("peer") } else { None };
+        if let Some(role) = role {
+            let label = format!("{role} {}", r.name);
+            entries.insert(format!("{role}:{}", r.id), delta::Entry::new(&label, &json!(r.name), format!("Current {role}: {}",r.name)));
+        }
     }
     // Match chart visibility exactly. Self-only readers still need their own
     // frozen/halted state; peer names remain visible through the roster only.
@@ -446,7 +459,7 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
             if r.halted { ", halted — explicit unhalt required" } else { "" },
             if r.frozen { ", frozen (usage limit)" } else { "" }, status_note(r, live, now));
         let before_last = matches!((r.status.as_ref().and_then(|v| ts(v,"at")), r.last_turn), (Some(a),Some(t)) if t>a);
-        let semantic = json!([r.name,r.parent,r.tier,r.state,r.halted,r.frozen,r.status,live.busy,live.waiting,r.inflight_at,before_last]);
+        let semantic = json!([r.name,r.parent,parent_name,r.tier,r.state,r.halted,r.frozen,r.status,live.busy,live.waiting,r.inflight_at,before_last]);
         entries.insert(format!("agent:{}",r.id), delta::Entry::new(&r.name, &semantic, text.clone()));
         if vis == "self" && r.id == agent_id { own_state = format!("\nYour state: {text}"); }
     }
@@ -458,14 +471,13 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
     delta::snapshot("ORG STATE", sid.as_deref().unwrap_or(""), prior.as_ref().unwrap_or(&Value::Null), entries, full, "")
 }
 
-/// Store the D-223 record once the turn's text reached the CLI.
+/// Merge accepted org/usage records once the turn's text reached the CLI.
 #[logged]
 pub async fn commit(engine: &Engine, agent_id: i64, record: &Value) -> Result<()> {
     let client = engine.db.get().await?;
     client
         .execute(
-            "UPDATE ot.agents SET extra = jsonb_set(jsonb_set(extra, '{envelope}', coalesce(extra->'envelope', '{}'::jsonb)),
-                                                    '{envelope,org_state}', $2)
+            "UPDATE ot.agents SET extra = jsonb_set(extra, '{envelope}', coalesce(extra->'envelope', '{}'::jsonb) || $2)
               WHERE id = $1",
             &[&agent_id, record],
         )
