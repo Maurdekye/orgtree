@@ -40,7 +40,9 @@
   atomically, preventing replay/restart duplicates. WAL/journal visibility
   limits and synthetic checks: [AGY thinking](docs/rust-engine/antigravity-thinking.md).
   [decided: user 2026-10-17 17:10Z; verified: `runtime/agy_thinking.rs`,
-  `runtime/actor.rs`, `runtime/convo.rs`; author checks pending]
+  `runtime/actor.rs`, `runtime/convo.rs`; 2026-10-17 author checks: 11 focused
+  tests and isolated PostgreSQL replay/reload/rollback proof pass; installed
+  history visibility remains an alpha check]
 
 - State inspection memoizes effective ancestry only within its immutable
   request snapshot, retaining the total 1024-node ancestry cap and visibility
