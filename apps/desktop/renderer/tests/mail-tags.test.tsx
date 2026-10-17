@@ -30,7 +30,7 @@ test('tag selection is case-insensitive, composes with text search, and clearing
     const pick=v.el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
     assert.equal(pick!==null,true,'user inbox needs its tag selector')
     await inAct(()=>pick!.click())
-    await inAct(()=>[...v.el.querySelectorAll<HTMLButtonElement>('button.mail-tag-choice')].find(b=>b.textContent==='Alpha Build')!.click())
+    await inAct(()=>[...v.el.ownerDocument.querySelectorAll<HTMLButtonElement>('button.mail-tag-choice')].find(b=>b.textContent==='Alpha Build')!.click())
     assert.equal(count(v.el),2)
     const q=v.el.querySelector<HTMLInputElement>('input.mail-filter')!
     await inAct(()=>{change(q,'message1')})

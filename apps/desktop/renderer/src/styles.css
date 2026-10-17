@@ -8867,7 +8867,7 @@ option.harness-absent, option.harness-sep { color: var(--dim); }
 .mail-preview-text {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .mail-tag-picker {position:relative;display:flex;align-items:center;gap:4px;min-width:0;}
 .mail-tag-trigger {display:flex;gap:4px;flex-wrap:wrap;align-items:center;min-width:0;}
-.mail-tag-popover {position:absolute;top:100%;left:0;width:320px;max-width:calc(100vw - 48px);z-index:60;
+.mail-tag-popover.settings {position:fixed;box-sizing:border-box;margin:0;min-width:0;min-height:0;max-height:310px;overflow:auto;max-width:calc(100vw - 48px);z-index:60;
   padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 5px 16px #0005;}
 .mail-tag-popover input {width:100%;box-sizing:border-box;}
 .mail-tag-options {display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;max-height:220px;overflow:auto;padding:8px 0;}

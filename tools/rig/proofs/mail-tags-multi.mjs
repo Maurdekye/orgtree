@@ -55,7 +55,7 @@ export default async function(rig){
   const snapshot=async()=>rig.api('GET',`/api/orgs/${rig.org}/records`)
   const marker=s=>s.records?.find(r=>r.entity==='org'&&r.id==='user_mail_revision')?.body?.revision
   const visible=s=>s.records.filter(r=>r.entity==='user_inbox'||r.entity==='user_mail_log:shared').map(r=>r.id).sort().join()
-  const before=await rig.waitFor(async()=>{const s=await snapshot();return marker(s)?s:null},{timeout:10000,what:'initial mail-change revision'})
+  const before=await rig.waitFor(async()=>{const s=await snapshot();return marker(s)&&s.records.some(r=>r.body?.body==='publish seeded mail')?s:null},{timeout:10000,what:'initial mail-change revision'})
   p.check('delete target is outside the bounded feed window',!before.records.some(r=>r.body?.id===deleted))
   const removed=await rig.api('DELETE',`/api/orgs/${rig.org}/inbox/${encodeURIComponent(deleted)}`)
   const afterDelete=await rig.waitFor(async()=>{const s=await snapshot();return marker(s)&&marker(s)!==marker(before)?s:null},{timeout:10000,what:'Delete to UserMail to revision'})

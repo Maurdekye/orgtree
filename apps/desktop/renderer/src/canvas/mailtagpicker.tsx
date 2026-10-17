@@ -1,4 +1,5 @@
-import { useEffect,useId,useRef,useState } from 'react'
+import { useEffect,useId,useLayoutEffect,useRef,useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { CSSProperties } from 'react'
 import { useSurfaceDocument } from '../popout'
 import { mailTagKey,mailTagHue } from './mailtags'
@@ -19,11 +20,19 @@ export interface MailTagPickerProps {
 export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,hasMore,loading,error,onRetry}:MailTagPickerProps) {
   const [open,setOpen]=useState(false),[query,setQuery]=useState('')
   const root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),search=useRef<HTMLInputElement>(null)
-  const ownerDocument=useSurfaceDocument(),id=useId()
+  const ownerDocument=useSurfaceDocument(),id=useId(),popover=useRef<HTMLDivElement>(null)
+  const [position,setPosition]=useState({left:8,top:8,width:320})
+  useLayoutEffect(()=>{
+    if(!open)return
+    const place=()=>{const r=trigger.current?.getBoundingClientRect(),w=ownerDocument.defaultView;if(!r||!w)return
+      const width=Math.min(320,w.innerWidth-24);setPosition({left:Math.max(8,Math.min(r.left,w.innerWidth-width-12)),top:r.bottom+310>w.innerHeight?Math.max(8,r.top-310):r.bottom+4,width})}
+    place();ownerDocument.addEventListener('scroll',place,true);ownerDocument.defaultView?.addEventListener('resize',place)
+    return ()=>{ownerDocument.removeEventListener('scroll',place,true);ownerDocument.defaultView?.removeEventListener('resize',place)}
+  },[open,ownerDocument])
   useEffect(()=>{
     if(!open)return
     search.current?.focus()
-    const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node))setOpen(false)}
+    const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node)&&!popover.current?.contains(e.target as Node))setOpen(false)}
     const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setOpen(false);trigger.current?.focus()}}
     ownerDocument.addEventListener('pointerdown',outside,true)
     ownerDocument.addEventListener('keydown',escape,true)
@@ -39,7 +48,7 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
       {selected.length?selected.map(tag=><span className="mail-tag" style={pill(tag)} key={mailTagKey(tag)} title={tag}>{tag}</span>):'all tags'}
     </button>
     {selected.length>0&&<button type="button" aria-label="Clear tag filter" onClick={()=>onChange([])}>clear</button>}
-    {open&&<div className="mail-tag-popover" id={id}>
+    {open&&createPortal(<div className="mail-tag-popover settings" id={id} ref={popover} style={position}>
       <input ref={search} aria-label="Search tags" placeholder="Search tags" value={query}
         onChange={e=>{setQuery(e.target.value);onSearch?.(e.target.value)}}/>
       <div className="mail-tag-options" role="group" aria-label="Tag choices" onScroll={e=>{
@@ -52,6 +61,6 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
       {loading&&<div role="status" className="dim">loading tags...</div>}
       {error&&<div role="alert">Could not load tags. <button type="button" onClick={onRetry}>Retry</button></div>}
       {hasMore&&<button type="button" disabled={loading} onClick={onLoadMore}>Load more tags</button>}
-    </div>}
+    </div>,ownerDocument.body)}
   </div>
 }

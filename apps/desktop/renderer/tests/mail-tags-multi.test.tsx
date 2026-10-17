@@ -16,7 +16,7 @@ function Picker({initial=[]}:{initial?:string[]}){
   return <MailTagPicker choices={choices} selected={selected} onChange={setSelected}/>
 }
 const trigger=(el:HTMLElement)=>el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
-const card=(el:HTMLElement,label:string)=>[...el.querySelectorAll<HTMLButtonElement>('button.mail-tag-choice')].find(e=>e.textContent?.trim()===label)
+const card=(el:HTMLElement,label:string)=>[...el.ownerDocument.querySelectorAll<HTMLButtonElement>('button.mail-tag-choice')].find(e=>e.textContent?.trim()===label)
 const input=(el:HTMLInputElement,value:string)=>{
   Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(el,value)
   el.dispatchEvent(new Event('input',{bubbles:true}))
@@ -27,7 +27,7 @@ test('tag dropdown lists every supplied tag as coloured toggle cards',async()=>{
     const button=trigger(v.el);assert.ok(button,'tag filter must be one dropdown control')
     assert.equal(button.getAttribute('aria-expanded'),'false')
     await inAct(()=>button.click())
-    assert.equal(v.el.querySelectorAll('button.mail-tag-choice').length,3)
+    assert.equal(v.el.ownerDocument.querySelectorAll('button.mail-tag-choice').length,3)
     for(const label of choices){
       const c=card(v.el,label);assert.ok(c,label)
       assert.equal(c.getAttribute('aria-pressed'),'false')
@@ -57,10 +57,10 @@ test('typing narrows tag choices without changing selected tags',async()=>{
   try{
     const button=trigger(v.el);assert.ok(button)
     await inAct(()=>button.click())
-    const search=v.el.querySelector<HTMLInputElement>('input[aria-label="Search tags"]')
+    const search=v.el.ownerDocument.querySelector<HTMLInputElement>('input[aria-label="Search tags"]')
     assert.ok(search)
     await inAct(()=>input(search,'ogre'))
-    assert.equal(v.el.querySelectorAll('button.mail-tag-choice').length,1)
+    assert.equal(v.el.ownerDocument.querySelectorAll('button.mail-tag-choice').length,1)
     assert.ok(card(v.el,'Progress'))
     await inAct(()=>input(search,''))
     assert.equal(card(v.el,'Alpha Build')!.getAttribute('aria-pressed'),'true')
@@ -71,7 +71,7 @@ test('Escape closes the tag dropdown and restores its trigger focus',async()=>{
   try{
     const button=trigger(v.el);assert.ok(button)
     await inAct(()=>button.click())
-    const search=v.el.querySelector<HTMLInputElement>('input[aria-label="Search tags"]')
+    const search=v.el.ownerDocument.querySelector<HTMLInputElement>('input[aria-label="Search tags"]')
     assert.ok(search)
     assert.equal(document.activeElement===search,true)
     await inAct(()=>{search.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}))})
@@ -86,7 +86,7 @@ test('tag options request another cursor page on scroll instead of stopping at a
   try{
     const button=trigger(v.el);assert.ok(button)
     await inAct(()=>button.click())
-    const list=v.el.querySelector<HTMLElement>('[role=group][aria-label="Tag choices"]');assert.ok(list)
+    const list=v.el.ownerDocument.querySelector<HTMLElement>('[role=group][aria-label="Tag choices"]');assert.ok(list)
     Object.defineProperties(list,{scrollHeight:{value:1000},clientHeight:{value:200},scrollTop:{value:850,writable:true}})
     await inAct(()=>{list.dispatchEvent(new Event('scroll',{bubbles:true}))})
     assert.equal(pages,1)
