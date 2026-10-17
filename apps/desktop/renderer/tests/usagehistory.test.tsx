@@ -12,6 +12,10 @@
 //    the sticky/compact rules are checked in the real styles.css (jsdom does no
 //    layout, so the pinned look itself is a screenshot, not a test).
 //
+// §4 the projected-ahead slider (user 2026-10-17): 0-100 % of the graph's width,
+//    default = the old fixed layout (20 %), live (no refetch), remembered, and the
+//    axis stays right at both ends.
+//
 // Run:  cd apps/desktop/renderer && node tests/run.mjs usagehistory
 
 import { flush, inAct, mountView } from './harness'
@@ -20,6 +24,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { modelSeries, seriesTitle, UsageHistoryModal } from '../src/usagehistory'
+import * as UH from '../src/usagehistory'
 import type { UsageHistory, UsageHistoryBucket, UsageHistorySeries } from '../src/api'
 
 const H = 3_600_000
@@ -247,4 +252,136 @@ test('§3.5 styles: the controls are compact and out-rank the roomy .settings si
   assert.match(rule('.uh-ranges .uh-range'), /padding:\s*2px 9px/)
   assert.match(rule('.uh-filters .uh-filter'), /padding:\s*3px 6px/)
   assert.match(rule('.uh-filters'), /grid-template-columns:\s*repeat\(auto-fit/, 'the filters wrap as a block when the window is narrow')
+})
+
+// ------------------------------------------------------- §4 projected-ahead slider
+const D = 7 * 24 * H
+const SINCE = NOW - D
+const TO = NOW + D * 0.25
+
+test('§4.1 the axis: the default share is the old linear axis, and the ends are history-only / ahead-only', () => {
+  const ax = (share: number) => UH.aheadAxis(SINCE, NOW, TO, share)
+  const lin = (t: number) => (t - SINCE) / (TO - SINCE)
+  const d = ax(0.2)
+  for (const t of [SINCE, SINCE + D / 3, NOW, NOW + D / 8, TO]) assert.ok(Math.abs(d.at(t) - lin(t)) < 1e-9, `default is linear at ${t}`)
+  assert.equal(UH.AHEAD_DEFAULT, 20)
+  const none = ax(0)
+  assert.equal(none.nowAt, 1, '0 %: the now divider is the right edge')
+  assert.equal(none.at(TO), 1, 'nothing is drawn past now')
+  assert.equal(none.at(SINCE), 0)
+  const all = ax(1)
+  assert.equal(all.nowAt, 0, '100 %: the now divider is the left edge')
+  assert.equal(all.at(SINCE), 0, 'history collapses onto it')
+  assert.equal(all.at(TO), 1)
+  const half = ax(0.5)
+  assert.equal(half.at(NOW), 0.5)
+  assert.ok(Math.abs(half.at(SINCE + D / 2) - 0.25) < 1e-9 && Math.abs(half.at(NOW + (TO - NOW) / 2) - 0.75) < 1e-9)
+})
+
+test('§4.2 the axis inverts: a pointer position reads back the time it was drawn at', () => {
+  for (const share of [0, 0.05, 0.2, 0.5, 0.95, 1]) {
+    const ax = UH.aheadAxis(SINCE, NOW, TO, share)
+    for (const t of [SINCE, SINCE + D / 5, NOW, NOW + D / 10, TO]) {
+      const inPane = share === 0 ? t <= NOW : share === 1 ? t >= NOW : true
+      if (inPane) assert.ok(Math.abs(ax.time(ax.at(t)) - t) < 1000, `share ${share} t ${t}`)
+    }
+  }
+})
+
+const withWidth = async <T,>(fn: () => Promise<T>): Promise<T> => {
+  // jsdom does no layout: give the charts a width so their svg is drawn
+  const proto = (globalThis as unknown as { HTMLElement: { prototype: object } }).HTMLElement.prototype
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get: () => 800 })
+  try { return await fn() } finally { delete (proto as Record<string, unknown>).clientWidth }
+}
+const chartPanel = async () => {
+  const f = stubFetch(payload({
+    oldest: iso(NOW - 3 * 24 * H),
+    series: [series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 20)])],
+  }))
+  const view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+  await inAct(async () => { await flush(8) })
+  return { f, view }
+}
+const slide = async (view: { el: HTMLElement }, pct: number) => {
+  const input = view.el.querySelector('.uh-header input[type="range"]') as HTMLInputElement
+  await inAct(async () => {
+    const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!
+    set.call(input, String(pct))
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush(4)
+  })
+}
+const has = (el: HTMLElement, sel: string) => el.querySelector(sel) !== null
+
+test('§4.3 a 0-100 slider in the header defaults to 20 % and re-lays out live without refetching', async () => {
+  globalThis.localStorage.removeItem(UH.AHEAD_KEY)
+  await withWidth(async () => {
+    const { f, view } = await chartPanel()
+    try {
+      const input = view.el.querySelector('.uh-header input[type="range"]') as HTMLInputElement
+      assert.ok(input, 'the slider is in the sticky header')
+      assert.equal(input.getAttribute('aria-label'), 'Projected-ahead share of the graph')
+      assert.deepEqual([input.min, input.max, input.value], ['0', '100', '20'])
+      const nowX = () => Number(view.el.querySelector('rect.uh-future')!.getAttribute('x'))
+      const widthX = () => Number(view.el.querySelector('rect.uh-future')!.getAttribute('width'))
+      const plot = 800 - 44 - 12
+      assert.ok(Math.abs(widthX() - plot * 0.2) < 0.5, `future pane is 20 % of the plot (${widthX()} of ${plot})`)
+      assert.ok(has(view.el, '.uh-proj') && has(view.el, '.uh-line'))
+      const fetches = f.seen.length
+      await slide(view, 50)
+      assert.ok(Math.abs(widthX() - plot * 0.5) < 0.5, `50 % (${widthX()})`)
+      assert.ok(Math.abs(nowX() - (44 + plot * 0.5)) < 0.5, 'the now divider moved with it')
+      assert.equal(f.seen.length, fetches, 'no refetch while dragging')
+      assert.match(view.el.querySelector('.uh-ahead output')?.textContent ?? '', /50%/)
+      await view.unmount()
+    } finally { f.restore() }
+  })
+})
+
+test('§4.4 0 % is history only (no future pane, no projection) and 100 % is the projection only', async () => {
+  await withWidth(async () => {
+    const { f, view } = await chartPanel()
+    try {
+      await slide(view, 0)
+      assert.equal(has(view.el, 'rect.uh-future'), false, 'no future pane')
+      assert.equal(has(view.el, '.uh-proj'), false, 'no projection line')
+      assert.equal(has(view.el, '.uh-line'), true, 'the measured line is still there')
+      assert.equal(/projected/.test(view.el.querySelector('.uh-foot')?.textContent ?? ''), false, 'no projection caption')
+      await slide(view, 100)
+      assert.equal(has(view.el, '.uh-line'), false, 'no measured line: the history pane has no width')
+      assert.equal(has(view.el, '.uh-end'), false)
+      assert.equal(has(view.el, '.uh-proj'), true, 'the projection fills the graph')
+      const r = view.el.querySelector('rect.uh-future')!
+      assert.equal(Number(r.getAttribute('x')), 44)
+      await view.unmount()
+    } finally { f.restore() }
+  })
+})
+
+test('§4.5 the chosen share is remembered across a reopen and survives bad stored values', async () => {
+  globalThis.localStorage.removeItem(UH.AHEAD_KEY)
+  const f = stubFetch(payload({}))
+  try {
+    let view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+    await inAct(async () => { await flush(8) })
+    await slide(view, 65)
+    assert.equal(globalThis.localStorage.getItem(UH.AHEAD_KEY), '65')
+    await view.unmount()
+    view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+    await inAct(async () => { await flush(8) })
+    const value = () => (view.el.querySelector('.uh-header input[type="range"]') as HTMLInputElement).value
+    assert.equal(value(), '65')
+    // a stored value that is out of range or not a number reads as the nearest legal value / the default
+    for (const [stored, expect] of [['999', '100'], ['-4', '0'], ['abc', '20'], ['', '20']] as const) {
+      await inAct(async () => {
+        globalThis.localStorage.setItem(UH.AHEAD_KEY, stored)
+        window.dispatchEvent(new window.StorageEvent('storage', { key: UH.AHEAD_KEY }))
+        await flush(2)
+      })
+      assert.equal(value(), expect, `stored "${stored}"`)
+    }
+    await view.unmount()
+    UH.setAheadShare(20)
+  } finally { f.restore() }
 })
