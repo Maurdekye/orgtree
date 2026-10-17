@@ -27,6 +27,13 @@ export interface EpicTaps {
 
 export let epic: EpicTaps | null = null
 let latestTree: TreePayload | null = null
+export interface EpicWire { key: string; seg: { kind: 'l' | 'c'; pts: readonly { x: number; y: number }[] }; frac?: number }
+let canvas: { wires: readonly EpicWire[]; positions: ReadonlyMap<string, { x: number; y: number }> } | null = null
+/** Borrow geometry for both SVG and WebGL links. No additional reader. */
+export function publishEpicCanvas(wires: readonly EpicWire[], positions: ReadonlyMap<string, { x: number; y: number }>): void {
+  canvas = { wires, positions }
+}
+export function epicCanvasNow() { return canvas }
 
 /** Borrow the App's existing snapshot, without copying it or adding readers. */
 export function epicTreeNow(): TreePayload | null { return latestTree }
@@ -34,6 +41,6 @@ export function publishEpicTree(tree: TreePayload): void {
   latestTree = tree
   epic?.tree(tree.slug, tree)
 }
-export function clearEpicTree(): void { latestTree = null; epic?.clear?.() }
+export function clearEpicTree(): void { latestTree = null; canvas = null; epic?.clear?.() }
 
 export function setEpicTaps(taps: EpicTaps | null): void { epic = taps }

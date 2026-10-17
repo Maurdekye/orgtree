@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { HeatField, HEAT_IMPULSE } from '../src/epic/heatfield'
 import { SoundHeatmap } from '../src/epic/heatmap'
 import { clockwork } from './epicmode-fakes'
+import { publishEpicCanvas, clearEpicTree } from '../src/epic/tap'
 
 test('delta impulses diffuse to neighbours, accumulate with actions, and lose heat to ambient', () => {
   const f = new HeatField(0, 0, 1024, 1024), p = { x: 512, y: 512 }
@@ -79,4 +80,36 @@ test('the field lives beneath cards in world space; motion preference yields a s
     assert.equal(canvas.parentElement, space, 'camera transforms the field with its original world cells')
   } finally { heat.stop(); host.remove(); window.matchMedia = had; clock.restore() }
   assert.equal(document.querySelector('.epic-heatmap') === null, true)
+})
+
+test('factory motion follows working state, preserves layout transforms and stops under reduced motion', () => {
+  const clock = clockwork(), host = document.createElement('div')
+  host.className = 'viewport'
+  host.innerHTML = '<div class="space" style="width:1024px;height:1024px"><div data-first-use-agent="a" style="transform:translate(400px,400px);width:200px;height:100px"></div></div>'
+  document.body.append(host)
+  const card = host.querySelector<HTMLElement>('[data-first-use-agent]')!
+  let starts = 0, cancels = 0, frames: Keyframe[] = []
+  card.animate = ((keys: Keyframe[]) => { starts++; frames = keys; return { cancel() { cancels++ } } }) as typeof card.animate
+  const had = window.matchMedia
+  let reduced = false, changed = () => {}
+  window.matchMedia = (() => ({ get matches() { return reduced }, addEventListener(_event: string, fn: () => void) { changed = fn }, removeEventListener() {} })) as unknown as typeof window.matchMedia
+  publishEpicCanvas([{ key: 'a', seg: { kind: 'l', pts: [{ x: 200, y: 400 }, { x: 400, y: 400 }] } }],
+    new Map([['a', { x: 400, y: 400 }], ['offscreen', { x: 900, y: 900 }]]))
+  const heat = new SoundHeatmap(document)
+  try {
+    heat.update([{ id: 'a', layer: 'tool' }, { id: 'offscreen', layer: 'thinking' }]); clock.run(100)
+    assert.equal(starts, 1)
+    assert.equal(frames[1]!.translate, '0 -1px')
+    assert.equal(card.style.transform, 'translate(400px,400px)', 'animation never overwrites layout/drag transform')
+    const state = heat as unknown as { positions: Map<string, unknown>; pulses: unknown[] }
+    assert.equal(state.positions.has('offscreen'), true, 'virtualization does not remove physical heat sources')
+    heat.pulse('a'); assert.equal(state.pulses.length, 1)
+    heat.update([]); clock.run(100)
+    assert.equal(cancels, 1, 'idle cards stop immediately on the next shared tick')
+    reduced = true; changed(); heat.update([{ id: 'a', layer: 'tool' }]); clock.run(100)
+    heat.pulse('a')
+    assert.equal(starts, 1)
+    assert.equal(state.pulses.length, 0)
+  } finally { heat.stop(); host.remove(); clearEpicTree(); window.matchMedia = had; clock.restore() }
+  assert.equal(document.querySelector('.epic-transport') === null, true)
 })

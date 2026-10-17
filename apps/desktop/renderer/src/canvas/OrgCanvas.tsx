@@ -1,5 +1,6 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
 import { CanvasBackground } from './canvasbackground'
+import { publishEpicCanvas } from '../epic/tap'
 import { MoveGhost, moveGhostPosition } from './moveghost'
 import { QueuedModelBadge } from './nextturn'
 import { userGesture } from '../historyapi'
@@ -3688,6 +3689,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // instead, with no commit at all.
   useLayoutEffect(() => {
     committedViewRef.current = view
+    publishEpicCanvas(wiresRef.current, targetRef.current)
     const layer = glWires.layerRef.current
     if (!glWires.active || !layer) { glDrawRef.current = null; return }
     const svg = edgesSvgRef.current

@@ -1,5 +1,6 @@
 import type { ActivitySource } from './activity'
 import { HeatField, HEAT_FLUX, type HeatPoint } from './heatfield'
+import { epicCanvasNow, type EpicWire } from './tap'
 
 /** One low-resolution world-space field beneath the existing card DOM.
  * Its parent owns the camera transform, so camera motion never moves heat
@@ -16,12 +17,20 @@ export class SoundHeatmap {
   private dead = false
   private reduced: MediaQueryList | null = null
   private observer: MutationObserver
+  private machines = new Map<HTMLElement, { layer: string | null; animation: Animation }>()
+  private pulses: { wire: EpicWire; start: number; reverse: boolean }[] = []
+  private transport: SVGSVGElement
+  private dots: SVGCircleElement[] = []
   constructor(private doc: Document) {
     this.canvas = doc.createElement('canvas')
     this.canvas.className = 'epic-heatmap'
     this.canvas.setAttribute('aria-hidden', 'true')
     this.canvas.style.cssText = 'position:absolute;pointer-events:none;z-index:0;opacity:0.22;image-rendering:auto'
     this.texture = doc.createElement('canvas')
+    this.transport = doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    this.transport.classList.add('epic-transport')
+    this.transport.setAttribute('aria-hidden', 'true')
+    this.transport.style.cssText = 'position:absolute;pointer-events:none;z-index:0;opacity:0.45;overflow:visible'
     try { this.reduced = doc.defaultView?.matchMedia('(prefers-reduced-motion: reduce)') ?? null } catch { /* older host */ }
     this.reduced?.addEventListener?.('change', this.motion)
     // Finds a newly mounted/replaced canvas without installing anything off.
@@ -37,6 +46,9 @@ export class SoundHeatmap {
   }
   clear(): void {
     this.sources = []; this.positions.clear(); this.field = null
+    this.pulses = []
+    this.dots.forEach(dot => dot.setAttribute('visibility', 'hidden'))
+    this.still()
     this.canvas.getContext('2d')?.clearRect(0, 0, this.canvas.width, this.canvas.height)
     this.last = 0
   }
@@ -45,20 +57,36 @@ export class SoundHeatmap {
     this.doc.defaultView?.clearTimeout(this.timer)
     this.observer.disconnect()
     this.reduced?.removeEventListener?.('change', this.motion)
-    this.canvas.remove(); this.clear()
+    this.canvas.remove(); this.transport.remove(); this.clear()
   }
-  private motion = () => { this.field = null; this.wake() }
+  private still(): void {
+    for (const m of this.machines.values()) m.animation.cancel()
+    this.machines.clear()
+  }
+  private motion = () => { this.still(); this.pulses = []; this.field = null; this.wake() }
+  /** Short transport pulse along an actual rendered link, never a guessed line. */
+  pulse(id: string, other?: string): void {
+    if (this.dead || this.reduced?.matches || this.pulses.length >= 24) return
+    const wire = epicCanvasNow()?.wires.find(w => w.key === id || (other && w.key === other))
+    if (!wire || (wire.frac !== undefined && wire.frac < 1)) return
+    this.pulses.push({ wire, start: performance.now(), reverse: wire.key !== id })
+    this.wake()
+  }
   private wake(): void {
     if (this.dead || this.timer) return
     this.timer = this.doc.defaultView!.setTimeout(this.tick, 1000 / 15)
   }
   private layout(): void {
     const space = this.doc.querySelector<HTMLElement>('.viewport .space')
-    if (!space || space.closest('.canvas-world-hidden')) { this.canvas.remove(); this.space = null; return }
+    if (!space || space.closest('.canvas-world-hidden')) { this.still(); this.canvas.remove(); this.transport.remove(); this.space = null; return }
     if (space !== this.space) {
-      this.space = space; this.field = null; space.prepend(this.canvas)
+      this.space = space; this.field = null; space.prepend(this.canvas, this.transport)
     }
     this.positions.clear()
+    // Virtualized cards still heat their source cells, using existing layout.
+    for (const [id, p] of epicCanvasNow()?.positions ?? []) this.positions.set(id, { x: p.x + 100, y: p.y + 50 })
+    const active = new Map(this.sources.map(s => [s.id, s.layer]))
+    const seen = new Set<HTMLElement>()
     let minX = 0, minY = 0, maxX = Math.max(512, parseFloat(space.style.width) || 0), maxY = Math.max(512, parseFloat(space.style.height) || 0)
     for (const card of space.querySelectorAll<HTMLElement>('[data-first-use-agent], .sq[data-copy-agent-name]')) {
       const match = /translate\(\s*([-\d.]+)px,\s*([-\d.]+)px\)/.exec(card.style.transform)
@@ -66,9 +94,24 @@ export class SoundHeatmap {
       const x = Number(match[1]), y = Number(match[2])
       const w = parseFloat(card.style.width) || 200, h = parseFloat(card.style.height) || 100
       this.positions.set((card.dataset.firstUseAgent ?? card.dataset.copyAgentName)!, { x: x + w / 2, y: y + h / 2 })
+      const id = (card.dataset.firstUseAgent ?? card.dataset.copyAgentName)!
+      seen.add(card)
+      const moving = this.machines.get(card)
+      if (moving && (!active.has(id) || this.reduced?.matches || moving.layer !== active.get(id))) {
+        moving.animation.cancel(); this.machines.delete(card)
+      }
+      if (!this.reduced?.matches && active.has(id) && !this.machines.has(card) && typeof card.animate === 'function') {
+        const layer = active.get(id)!
+        const durations: Record<string, number> = { thinking: 1100, writing: 720, toolWriting: 470, tool: 900, waiting: 1800, compacting: 380 }
+        const animation = card.animate([{ translate: '0 0' }, { translate: '0 -1px', offset: 0.12 },
+          { translate: '0 0', offset: 0.28 }, { translate: '0 0' }],
+        { duration: durations[layer ?? ''] ?? 1400, iterations: Infinity })
+        this.machines.set(card, { layer, animation })
+      }
       minX = Math.min(minX, x - 64); minY = Math.min(minY, y - 64)
       maxX = Math.max(maxX, x + w + 64); maxY = Math.max(maxY, y + h + 64)
     }
+    for (const [card, m] of this.machines) if (!seen.has(card)) { m.animation.cancel(); this.machines.delete(card) }
     // Quantise the domain so small drag/spring movements do not regrid it.
     minX = Math.floor(minX / 512) * 512; minY = Math.floor(minY / 512) * 512
     maxX = Math.ceil(maxX / 512) * 512; maxY = Math.ceil(maxY / 512) * 512
@@ -80,6 +123,8 @@ export class SoundHeatmap {
       this.canvas.width = this.texture.width = field.cols
       this.canvas.height = this.texture.height = field.rows
       Object.assign(this.canvas.style, { left: `${minX}px`, top: `${minY}px`, width: `${w}px`, height: `${h}px` })
+      Object.assign(this.transport.style, { left: `${minX}px`, top: `${minY}px`, width: `${w}px`, height: `${h}px` })
+      this.transport.setAttribute('viewBox', `${minX} ${minY} ${w} ${h}`)
     }
   }
   private tick = (): void => {
@@ -98,7 +143,7 @@ export class SoundHeatmap {
     this.last = now
     if (!points.length && this.field.peak <= 0.001) this.field.values.fill(0)
     this.paint()
-    if (!this.reduced?.matches && (points.length || this.field.peak > 0.001)) this.wake()
+    if (!this.reduced?.matches && (points.length || this.field.peak > 0.001 || this.pulses.length)) this.wake()
   }
   private paint(): void {
     const field = this.field!, g = this.texture.getContext('2d'), output = this.canvas.getContext('2d')
@@ -112,5 +157,23 @@ export class SoundHeatmap {
     g.putImageData(pixels, 0, 0)
     output.clearRect(0, 0, field.cols, field.rows)
     output.drawImage(this.texture, 0, 0)
+    const now = performance.now()
+    this.pulses = this.pulses.filter(p => now - p.start < 500)
+    this.dots.forEach(dot => dot.setAttribute('visibility', 'hidden'))
+    for (const [i, pulse] of this.pulses.entries()) {
+      const t = Math.max(0, Math.min(1, (now - pulse.start) / 500)), u = pulse.reverse ? 1 - t : t
+      const pts = pulse.wire.seg.pts, a = pts[0]!, b = pts[pts.length - 1]!
+      const v = 1 - u
+      const x = pts.length === 2 ? a.x + (b.x - a.x) * u : v ** 3 * a.x + 3 * v * v * u * pts[1]!.x + 3 * v * u * u * pts[2]!.x + u ** 3 * b.x
+      const y = pts.length === 2 ? a.y + (b.y - a.y) * u : v ** 3 * a.y + 3 * v * v * u * pts[1]!.y + 3 * v * u * u * pts[2]!.y + u ** 3 * b.y
+      let dot = this.dots[i]
+      if (!dot) {
+        dot = this.doc.createElementNS('http://www.w3.org/2000/svg', 'circle')
+        dot.setAttribute('fill', '#ffd79b'); dot.setAttribute('r', '5')
+        this.transport.append(dot); this.dots.push(dot)
+      }
+      dot.setAttribute('cx', String(x)); dot.setAttribute('cy', String(y))
+      dot.setAttribute('opacity', String(Math.sin(Math.PI * t))); dot.setAttribute('visibility', 'visible')
+    }
   }
 }

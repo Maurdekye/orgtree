@@ -100,7 +100,9 @@ test('normalised tool names determine all signature parameters across harness pr
   const voices = names.map(toolVoice)
   assert.equal(new Set(voices.map(v => JSON.stringify(v))).size, names.length)
   for (const v of voices) {
-    assert.equal(v.hz >= 100 && v.hz <= 900, true)
+    assert.equal(v.hz >= 72 && v.hz <= 300, true)
+    assert.equal(['thunk', 'clunk', 'clank', 'stamp'].includes(v.family), true)
+    assert.equal(v.resonance > 1 && v.resonance < 3, true)
     assert.equal(v.duration >= 0.14 && v.duration <= 0.36, true)
     assert.equal(v.attack > 0 && v.attack < v.duration, true)
   }

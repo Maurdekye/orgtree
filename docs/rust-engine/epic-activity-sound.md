@@ -1,12 +1,16 @@
 # EPIC activity sound and heat (4.4.0)
 
-User rulings 2026-10-17 09:18–09:25Z add continuous sound, audible activity
-counts, a physical heat field, and deterministic tool-name signatures.
+User rulings 2026-10-17 09:18–09:41Z add continuous sound, audible activity
+counts, a physical heat field, deterministic tool-name signatures, and a
+working-factory direction: machinery, moving parts and material impacts.
 
 `activity.ts` reads the existing live tree's `busy`, `activity.phase`,
 `mcp_readiness_waiting`, and `phase`. Mid-turn live agents feed one shared hum;
 thinking, response writing, tool argument writing, tool execution, waiting,
-and compaction each have a distinct shared oscillator layer. Project nodes,
+and compaction each have a distinct shared machinery layer. A transformer/motor
+bed underlies geared whirring, conveyor chatter, ratchets, piston strokes,
+idling flywheels and grinding. Filtered friction noise and amplitude-modulated
+carriers provide mechanical texture. Project nodes,
 idle status reports, archived, frozen and halted agents contribute none.
 The seven layer gains rise fourfold from one to fifteen agents, then cap.
 Oscillators are shared rather than allocated per agent. Transitions and final
@@ -30,7 +34,9 @@ an agent injects an instantaneous `0.18` delta. Nearby heat adds through the
 diffusion equation; temperatures cap at 1. More work and more actions therefore
 build heat, which spreads and cools after sources stop.
 
-The CPU grid is at most 96×96 with cells at least about 32 world px. Steps
+Virtualized cards retain heat sources through a borrowed reference to the
+canvas's existing layout map. Mounted cards refine those positions to their
+actual displayed centers. The CPU grid is at most 96×96 with cells at least about 32 world px. Steps
 split at 0.25 s, with up to 24 Jacobi iterations and a `1e-6` residual-change
 threshold; steady fields use up to 256 iterations. After gaps over 60 s the
 remaining homogeneous transient is bounded by `exp(-0.35*60)`, so the steady
@@ -50,11 +56,25 @@ the canvas, observer, timer and media-query listener.
 ## Tool signatures
 
 `toolvoice.ts` normalises case and harness/MCP prefixes, then uses FNV-1a of
-the name to choose a pentatonic pitch, consonant interval, waveform, envelope
-and low-pass colour. No family table or random signature remains. The same
+the name to choose thunk, clunk, clank or stamp, material/body pitch,
+inharmonic resonance, interval, waveform, envelope and low-pass colour.
+There is no mapping from tool categories to sounds: every name is hashed.
+All action sounds now use material impacts; alarms remain mechanical buzzers.
+No musical phrases or random tool signature remains. The same
 normalised tool sounds the same across harnesses; the existing burst pitch
 climb still transposes it with activity. Tool-call sounds feed the same heat
 impulse path as other agent action sounds.
+
+## Factory motion
+
+Coordinator-approved 09:42Z motion uses a 1px piston bump on working cards,
+timed by activity, through the individual CSS `translate` property. It never
+changes the canvas/drag `transform`. Browser animations stop when idle,
+hidden, removed, EPIC off or reduced motion. Existing SVG/GL wire geometry is
+borrowed at its existing commit point; tool and message events send short
+directional transport pulses along those actual curves. At most 24 pulses
+share an SVG dot pool and the heatmap's 15 Hz timer; there is no per-agent
+DOM overlay or new frame loop. Reduced motion disables both kinds of motion.
 
 ## Verification
 

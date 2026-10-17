@@ -7,14 +7,13 @@ export function normalizeToolName(name: string): string {
 export function toolVoice(name: string) {
   let hash = 2166136261
   for (const ch of normalizeToolName(name)) hash = Math.imul(hash ^ ch.charCodeAt(0), 16777619) >>> 0
-  const scale = [0, 2, 4, 7, 9]
-  const degree = hash % 20
-  const midi = 48 + 12 * Math.floor(degree / 5) + scale[degree % 5]!
   return {
-    hz: 440 * 2 ** ((midi - 69) / 12),
-    interval: [3, 4, 5, 7, 9, 12][(hash >>> 5) % 6]!,
+    family: (['thunk', 'clunk', 'clank', 'stamp'] as const)[hash % 4]!,
+    hz: 72 + ((hash >>> 2) & 255) / 255 * 228,
+    interval: [5, 7, 12][(hash >>> 5) % 3]!,
+    resonance: [1.42, 1.73, 2.08, 2.71][(hash >>> 7) % 4]!,
     type: (['sine', 'triangle', 'square'] as const)[(hash >>> 9) % 3]!,
-    attack: 0.004 + ((hash >>> 12) & 255) / 255 * 0.035,
+    attack: 0.001 + ((hash >>> 12) & 255) / 255 * 0.005,
     duration: 0.14 + ((hash >>> 20) & 255) / 255 * 0.22,
     filter: 650 + ((hash >>> 16) & 255) / 255 * 1800,
   }

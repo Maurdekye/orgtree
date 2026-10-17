@@ -601,6 +601,7 @@ class Show implements EpicShow {
     if (!play) return
     this.count++
     const gain = this.grow(c)
+    if (c.ev.node && (c.ev.kind === 'tool' || c.ev.kind === 'zap' || c.ev.kind === 'send')) this.heat.pulse(c.ev.node, c.ev.other)
     if (gain.unlock?.extra === 'afterimages') for (const t of this.theaters()) t.stage.afterimages = true
     const stage = c.t.stage
     stage.intensity = 1 + (gain.lift - 1) / 2
