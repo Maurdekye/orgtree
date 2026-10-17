@@ -215,7 +215,7 @@ export function seriesTitle(s: UsageHistorySeries): string {
 }
 
 /** Time ticks for [from, to]: about five, on round local hours or days. */
-function timeTicks(from: number, to: number): { t: number; label: string }[] {
+export function timeTicks(from: number, to: number): { t: number; label: string }[] {
   const H = 3_600_000
   const steps = [H, 2 * H, 3 * H, 6 * H, 12 * H, 24 * H, 48 * H, 7 * 24 * H, 14 * 24 * H]
   const step = steps.find((s) => (to - from) / s <= 6) ?? steps.at(-1)!
