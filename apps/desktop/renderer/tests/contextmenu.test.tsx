@@ -673,6 +673,31 @@ const docketTree = (): TreePayload => ({
   user_inbox_urgent_count: 0, asks: [], asks_open: 0,
 } as unknown as TreePayload)
 
+uiTest('Owner context-menu entry resolves the assigned agent tooltip', async (t) => {
+  window.localStorage.removeItem('orgtree.docket.group')
+  const had = (globalThis as { fetch?: typeof fetch }).fetch
+  t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
+  mockWork([mkItem({ slug: 'tooltip-owner' })])
+  function OwnerRegistry() {
+    useProvideAgentNav(() => [], id => id === 'agent1' ? { title: 'Claude Haiku 5.5 · high' } : null)
+    return null
+  }
+  const v = await mountView(
+    <AgentNavProvider><OwnerRegistry /><DocketModal slug="org1" toast={noop} close={noop} jumpTo={null}
+      tree={docketTree()} onFocusAgent={noop} /></AgentNavProvider>, (h) => h)
+  t.after(() => v.unmount())
+  await flush(); await advance(200, 16); await flush()
+  const row = [...v.el.querySelectorAll('.docket-row')]
+    .find((r) => r.querySelector('.docket-rowname')?.textContent === 'Fix the thing') as HTMLElement
+  assert.ok(row, 'ticket row rendered')
+  assert.equal(await rightClick(row), true)
+  const ownerItem = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')]
+    .find(button => button.textContent?.trim() === 'Owner… ▸')!
+  assert.equal(ownerItem.getAttribute('data-agent-tooltip'), 'agent1')
+  await inAct(() => ownerItem.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(ownerItem.title, 'Claude Haiku 5.5 · high')
+})
+
 uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action', async (t) => {
   const clip = stubClipboard(); t.after(clip.restore)
   window.localStorage.removeItem('orgtree.docket.group')
