@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Renderer document-level event handlers (native agent tooltip, Markdown image
+  fallback, copyCode/revealFile/lightbox) must be registered on EVERY owning
+  document, including adopted pop-out panels, with cleanup on redock/close;
+  binding only the global `document` silently breaks pop-outs. [verified:
+  `popout.tsx`, `agentnav.tsx`, `shared.ts`; coordinator 2026-10-17]
+
 - Claude shared-skill exports account for native discovery: exact launch-profile
   org metadata selects the personal synced bucket; enabled installed plugins
   use that profile's settings plus cwd overrides. Identical native bundles omit
