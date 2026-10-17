@@ -2195,6 +2195,9 @@ Your turns run on {selected_lane} (tier {tier}): the user's own model server. It
 }
 
 #[cfg(test)]
+mod header_delta_tests;
+
+#[cfg(test)]
 mod wham_tests {
     use super::{codex_limits, wham_rate_limits};
     use serde_json::json;

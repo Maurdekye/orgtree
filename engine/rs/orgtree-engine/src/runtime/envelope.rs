@@ -30,6 +30,9 @@ use crate::engine::Engine;
 use crate::runtime::prompt::Mail;
 use crate::util::iso;
 
+#[cfg(test)]
+mod header_delta_tests;
+
 pub const ORG_STATE_OPEN: &str = "[ORG STATE";
 pub const ORG_STATE_CLOSE: &str = "[END ORG STATE]";
 /// The line a turn's mail ends with (3.x's wake text for mail).
