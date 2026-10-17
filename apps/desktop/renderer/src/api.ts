@@ -553,7 +553,7 @@ export const getInbox = (slug: string): Promise<InboxPayload> =>
 export const getTaggedInbox = (slug:string,tag:string,before?:string):Promise<InboxPayload> =>
   req(`/api/orgs/${slug}/inbox?tag=${encodeURIComponent(tag)}${before?`&before=${encodeURIComponent(before)}`:''}`)
 export const getMailTagChoices = (slug:string,prefix=''):Promise<string[]> =>
-  req<{tag_choices:string[]}>(`/api/orgs/${slug}/inbox?tags_only=true&prefix=${encodeURIComponent(prefix)}`).then(r=>r.tag_choices)
+  req<{tag_choices:string[]}>(`/api/orgs/${slug}/inbox?tags_only=true&prefix=${encodeURIComponent(prefix)}`).then(r=>r.tag_choices??[])
 export const getNodeInbox = (slug: string, nid: string): Promise<InboxPayload> =>
   req(`/api/orgs/${slug}/nodes/${nid}/inbox`)
 /** ONE message, by id, from the box that holds it.
