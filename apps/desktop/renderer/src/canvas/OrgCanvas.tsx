@@ -3443,7 +3443,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const [create, reorder] = projectDraftSteps(draft, name, description)
     op(create!)
       .then((r) => {
-        const born = typeof r?.node === 'string' && r.node ? r.node : name
+        const born = typeof r?.node === 'string' && r.node ? r.node : String(create!.name)
         // the real card replaces the draft in place, as a hire's does
         const ds = springs.current.get(DRAFT)
         if (ds) seedRef.current.set(born, { x: ds.x, y: ds.y, at: performance.now() })

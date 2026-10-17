@@ -10,6 +10,7 @@ import { CheckIcon, CloseIcon, FolderIcon } from '../icons'
 import { NODE_H, NODE_W } from './shared'
 import type { DraftState, Pt } from './shared'
 import type { OpRequest } from '../types'
+import { normalizeUserEnteredName } from './nameinput'
 
 /** a project draft's `tier`: projects have no model */
 export const PROJECT_DRAFT = 'project'
@@ -17,7 +18,9 @@ export const PROJECT_DRAFT = 'project'
 /** The ops that create the drafted project in its place: one create_project
  *  (under the draft's parent, at the top level, or above its anchor holding
  *  it), then for a side token the same reorder a side hire pins. */
-export function projectDraftSteps(draft: DraftState, name: string, description: string): OpRequest[] {
+export function projectDraftSteps(draft: DraftState, typed: string, description: string): OpRequest[] {
+  // spaces become hyphens, as in a hire's name (user 2026-10-17 19:22:46Z)
+  const name = normalizeUserEnteredName(typed)
   const create: OpRequest = { op: 'create_project', name,
     ...(description.trim() ? { description: description.trim() } : {}),
     ...(draft.above ? { above: draft.above.anchor } : { parent: draft.parent ?? 'user' }) }

@@ -192,7 +192,8 @@ co-owns the item with full owner rights.
   will go and walks the camera to it [user 2026-10-17 19:14Z]: a dashed square with the folder
   mark, a name and a description, create and cancel (Escape and a click away cancel too). Create
   places the project the way a hire is placed: under the card, beside it (create, then the side
-  hire's reorder) or above it, holding it (`above`). There is no separate form.
+  hire's reorder) or above it, holding it (`above`). Spaces in the typed name become hyphens,
+  as in a hire (`normalizeUserEnteredName`). There is no separate form.
 - Menus: agents get "New project here…" on the card and the Agents List row alike, and the eye
   card gets "New project…". Each opens the same draft project card. A project's own menu offers Open (mailbox, folder, presentations),
   Hire under this project, New project here… and Retire project….
