@@ -3104,6 +3104,15 @@ Cold archived docket projections covered by the existing policy spec use its typ
 
 ### Shared skills and installed plugin imports (2026-10-15)
 
+- Shared snapshot cleanup keeps the current global digest, the newest other
+  complete snapshot (timestamp ties too), and managed session/launch/grant paths.
+  A bounded owner task registers process tokens before materialization; tokens
+  live through warm CLIs and cache keepalives. Current-session metadata persists
+  across restart; unknown legacy bindings or unreadable references defer cleanup.
+  Only owned, link-free direct children of `shared-skills` are removed; abandoned
+  owned stages need an age over one hour. No live profile/OS-process scan.
+  [verified: `providers/skills/retention.rs`, `runtime/actor.rs`; decided:
+  coordinator 2026-10-17; details: `docs/rust-engine/shared-skills.md`]
 - Skill discovery reads installed native roots and recorded Claude plugin installs,
   never marketplace listings or generated copies. Whole bundles deduplicate by
   content; differing names receive suffixes, with built-in names taking priority.

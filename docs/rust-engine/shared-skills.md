@@ -88,8 +88,31 @@ The engine caches global discovery at startup and on explicit refresh. Launch
 planning combines it with applicable per-agent sources and includes the content
 digest in the existing startup fingerprint. Identical inputs produce identical
 snapshot paths and exported bytes. Content-addressed snapshots are staged and
-published by rename, never rewritten underneath active agents. Old snapshots are
-retained so existing sessions' paths remain valid.
+published by rename, never rewritten underneath active agents. A background
+retention worker runs at startup, explicit refresh, after a successful launch and
+on the provider maintenance tick. It keeps the current global snapshot and the
+newest other complete snapshot (including timestamp ties), plus every snapshot
+referenced by a live agent's current session, working folder or explicit grant,
+or by an Orgtree-managed CLI/keepalive's original launch folders.
+
+The worker owns cleanup and registers reference tokens through a bounded channel;
+there is no cross-agent mutex or file lock. Registration completes before a launch
+materializes files. A token stays alive through the process's warm and background
+work lifetime. Session/generation bindings store snapshot paths, never skill text,
+in the agent's internal metadata, so idle eviction and engine restart do not lose
+the reference. A resumed legacy session without a binding conservatively adopts
+the existing snapshot paths on its next launch. Until then, unknown managed use
+defers cleanup. A new session does not inherit that legacy set. Read errors or
+reference/inventory limits also defer cleanup rather than assume disuse.
+
+Cleanup only removes owned, complete direct children of `shared-skills`; the
+current materialization must be complete first. Owned `.stage-*` directories need
+an age over one hour and no active materializer reference. Paths are canonicalized,
+and junctions, symlinks and linked descendants are refused. Unowned/incomplete
+folders remain untouched. Removal logs contain path, digest and byte count only.
+Arbitrary OS processes are outside this managed-use contract (coordinator ruling,
+2026-10-17). Workspace resource copies under each agent's `.agents` folder are a
+different namespace and are not pruned by this sweep.
 
 Launch planning, the 20-second idle recheck and the forecast's remembered startup
 value all use `shared_startup_digest`: instruction-file digest plus skill digest.

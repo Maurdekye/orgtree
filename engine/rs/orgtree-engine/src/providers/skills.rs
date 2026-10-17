@@ -56,7 +56,7 @@ impl Registry {
         std::fs::create_dir(&stage)?;
         std::fs::write(
             stage.join(".orgtree-skill.json"),
-            br#"{"owner":"orgtree-skills-v1"}"#,
+            serde_json::to_vec(&json!({"owner":"orgtree-skills-v1", "digest":self.digest}))?,
         )?;
         let result = (|| -> anyhow::Result<()> {
             std::fs::create_dir_all(stage.join("skills"))?;

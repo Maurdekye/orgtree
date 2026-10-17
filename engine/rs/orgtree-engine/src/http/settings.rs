@@ -764,7 +764,9 @@ pub async fn skills(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
 
 #[logged]
 pub async fn skills_refresh(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
-    Ok(Json(e.providers.refresh_skills_registry().public()))
+    let registry = e.providers.refresh_skills_registry();
+    crate::providers::skills::retention::schedule(&e);
+    Ok(Json(registry.public()))
 }
 
 // ------------------------------------------------------------ charters

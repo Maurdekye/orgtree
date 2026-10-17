@@ -72,6 +72,7 @@ pub struct Providers {
     /// Installed harness user MCP definitions, re-read when sources change
     mcp: ArcSwap<McpRegistry>,
     skills: ArcSwap<skills::Registry>,
+    pub(crate) skill_retention: skills::retention::Retention,
     /// each registered Muse login's last own metadata read (account id →
     /// read): what it offers, as the login itself said (the user's own login
     /// is `State::muse_probe`)
@@ -1203,10 +1204,12 @@ pub fn publish(engine: &Engine) {
 
 #[logged]
 pub fn start(engine: &Arc<Engine>) {
+    skills::retention::schedule(engine);
     let engine = engine.clone();
     tokio::spawn(async move {
         loop {
             discover(&engine).await;
+            skills::retention::schedule(&engine);
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(300)) => {}
                 _ = engine.shutdown.cancelled() => break,
