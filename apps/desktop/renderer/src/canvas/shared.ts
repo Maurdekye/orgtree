@@ -1,4 +1,5 @@
 import { useSurfaceDocument } from '../popout'
+import { syncFastModes } from './fastmode'
 import { isNoticeRow } from '../events/decode'
 // canvas/shared.ts — the split Canvas's leaf module: the canvas view types,
 // world-space geometry constants and helpers (layout/flatten/springs math),
@@ -453,6 +454,7 @@ export const setLangServerTiers = (tiers: ProviderTier[] | null | undefined): vo
 export const syncProviderRegistries = (payload: unknown): void => {
   const providers = (payload as { providers?: { id?: string; tiers?: ProviderTier[] }[] } | null)?.providers
   if (!Array.isArray(providers)) return
+  syncFastModes(providers)
   setOpenRouterTiers(providers.find((p) => p.id === 'openrouter')?.tiers)
   setLangServerTiers(providers.find((p) => p.id === 'langserver')?.tiers)
 }
@@ -1235,6 +1237,7 @@ export interface CanvasNode {
  *  so the canvas-side scope is NodeScope with everything but the two
  *  always-present lists optional */
 export interface CanvasScope {
+  fast_mode?: boolean
   peer_mail?: boolean
   add_dirs: DirGrant[]
   tools: Partial<ToolGrant>

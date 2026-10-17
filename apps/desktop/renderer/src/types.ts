@@ -83,6 +83,8 @@ export interface ToolGrant {
 // schema.py NodeScope — permission_mode / org_visibility are `str` there, so
 // they stay `string` here (old docs may carry values outside today's literals)
 export interface NodeScope {
+  /** Per-agent faster inference; ignored when this model has no support. */
+  fast_mode?: boolean
   /** Node-local subordinate mail policy; absent=ON, never inherited. */
   peer_mail?: boolean
   permission_mode: string
@@ -1357,6 +1359,8 @@ export interface HostPayload {
  *  vendors this install knows, each with its tier family and this machine's
  *  install/connect state for its CLI. `reason` is the UI's tooltip/why. */
 export interface ProviderTier {
+  fast_mode?: boolean
+  fast_mode_versions?: Record<string, boolean>
   tier: string
   provider: string
   seat: number
@@ -2307,6 +2311,7 @@ export interface OpRequest {
 
 // api.py Scope (POST .../nodes/{nid}/scope)
 export interface ScopeRequest {
+  fast_mode?: boolean
   peer_mail?: boolean
   add_dirs?: DirGrant[] | null
   tools?: Partial<ToolGrant> | null

@@ -17,6 +17,7 @@ import { lineageCount } from '../archived'
 // below; moving it out would have had to export all three.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { FAST_MODE_HELP, useFastMode } from './fastmode'
 import type { ReactNode } from 'react'
 import type {
   ChatInit, DirGrant, McpServerInfo, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
@@ -1187,6 +1188,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
   // against the node's current tier on every read anyway.
   const modelVersion = val('modelVersion', scope.model_version ?? '')
   const setModelVersion = set<string>('modelVersion', modelVersion)
+  const supportsFastMode = useFastMode(model, modelVersion)
+  const fastMode = val('fastMode', scope.fast_mode === true)
+  const setFastMode = set<boolean>('fastMode', fastMode)
   const versions = MODEL_VERSIONS[model] ?? []
   // a Muse seat's levels and model are the login it runs on, the pinned
   // version's row there (the engine checks the same at the door)
@@ -1254,6 +1258,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
   // node's whole subtree — re-sending untouched folders and tools made an
   // effort-only save on a large manager take about 2 s (agent-settings-save)
   const scopeBody = Object.keys(edit).length === 1 && 'peerMail' in edit ? {peer_mail:peerMail} : {
+    ...('fastMode' in edit && supportsFastMode ? { fast_mode: fastMode } : {}),
     ...('peerMail' in edit ? {peer_mail:peerMail} : {}),
     ...('dirs' in edit ? { add_dirs: dirs } : {}),
     ...('tools' in edit ? { tools } : {}),
@@ -1543,6 +1548,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
         <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
           levels={museModel ? museEffortLevels(model, museVersion, levelsAcct) : tierEffortLevels(tree.slug, model)}
           inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
+        {supportsFastMode && <SetToggle label="Fast mode" checked={fastMode}
+          hint={FAST_MODE_HELP} onChange={setFastMode} />}
 
         {/* Primary is selectable even if no registry row exists. */}
         {['claude', 'openai', 'google', 'muse'].includes(providerOf(model)) && (

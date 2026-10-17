@@ -35,6 +35,7 @@ import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useF
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import { firstUseSent } from './firstuse'
+import { FastModeButton } from './fastmode'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { readAttachments, storeAttachments } from '../draftstore'
 import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'
@@ -4229,6 +4230,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             payload's responding (refreshed every pulse + 5 s poll): the tree
             copy goes stale during a turn and the STOP never appeared while a
             long command ran (user bug 2026-07-31). Enter still queues. */}
+        <div className="cc-btnstack">
+        <FastModeButton node={node} slug={slug} toast={toast} />
         {(chat?.responding ?? node.responding)
           ? <button className="cc-send stop" title="interrupt the current response — Enter still queues your message"
               onClick={() => interruptNode(slug, node.id)
@@ -4236,6 +4239,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 .catch((e: Error) => toast([`error: ${e.message}`]))}><StopIcon fontSize="inherit" /></button>
           : <button className="cc-send" title={enterKey.hint} disabled={!canMail || !text.trim()}
               onClick={send}><ArrowUpIcon fontSize="inherit" /></button>}
+        </div>
       </div>
     </ReplySourceProvider>
     </FoldProvider>

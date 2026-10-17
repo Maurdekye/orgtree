@@ -1,6 +1,7 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
 import { CanvasBackground } from './canvasbackground'
 import { publishEpicCanvas } from '../epic/tap'
+import { fastModeSupported } from './fastmode'
 import { MoveGhost, moveGhostPosition } from './moveghost'
 import { QueuedModelBadge } from './nextturn'
 import { userGesture } from '../historyapi'
@@ -402,7 +403,8 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   const account = accountCount > 1
     ? n.account_label?.trim() || n.account || 'default'
     : undefined
-  const values = [model ? model + (retired ? ' (retired)' : '') : undefined, effort, account]
+  const fast = n.scope?.fast_mode && fastModeSupported(n.tier, version, catalogTier) ? 'fast mode' : undefined
+  const values = [model ? model + (retired ? ' (retired)' : '') : undefined, effort, account, fast]
     .filter((value): value is string => !!value?.trim())
   return values.length ? { title: values.join(' · ') } : null
 }
