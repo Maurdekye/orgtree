@@ -77,7 +77,7 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
-import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
+import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
@@ -90,7 +90,7 @@ import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './cont
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { isProject, ProjectSquare } from './projectcard'
-import { ProjectDesk } from './projectdesk'
+import { ProjectDesk, ProjectDeskModal } from './projectdesk'
 import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
@@ -478,6 +478,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // focused node — which is what makes "closing puts the view back" true by
   // construction rather than by restoring anything.
   const [tempDeskId, setTempDeskId] = useState<string | null>(null)
+  // a PROJECT's desk as a modal: "Open desk", or popped out to its own window
+  // (point 27, user 2026-10-17 23:28Z, 23:29:47Z)
+  const [projectDeskId, setProjectDeskId] = useState<string | null>(null)
+  const openProjectDesk = (id: string, popout = false) => {
+    setProjectDeskId(id)
+    if (popout) requestSurfaceAction('project-desk', slug, 'popout')
+  }
   const [configId, setConfigId] = useState<string | null>(null)
   // A pinned node-config remains mounted as a window; clicking its same
   // opener toggles visibility, while another agent's gear selects that agent.
@@ -3183,7 +3190,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       // `desk.valid` gate either: the modal renders the canonical desk, which
       // handles an archived or unavailable seat with its own semantics rather
       // than this menu second-guessing them.
-      onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
+      onOpenTemporary: !isMobile ? () => (n.kind === 'project' ? openProjectDesk(n.id) : setTempDeskId(n.id)) : undefined,
+      // a project's row: its desk modal pops out, and it hires beside and
+      // above as its card's strips do (point 27; review of a590555)
+      ...(n.kind === 'project' ? {
+        onPopout: !isMobile ? () => openProjectDesk(n.id, true) : undefined,
+        onHireBeside: (tier: string) => spawnBeside(n, tier, 'right'),
+        onHireAbove: (tier: string) => spawnAbove(n, tier),
+      } : {}),
       onHalt: () => { void toggleAgentHalt(slug, n.id, n.halt?.phase, toast) },
       onHire: (tier) => spawn(n.id, tier),
       // the card's "New project…" too: the row and the card are one menu
@@ -4026,6 +4040,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
               onOpenDoc={openDocView}
               onOpenGallery={onOpenAgentGallery}
+              onOpenTemporary={!isMobile ? () => openProjectDesk(n.id) : undefined}
+              onPopout={!isMobile ? () => openProjectDesk(n.id, true) : undefined}
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag} />
           }
@@ -4598,6 +4614,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         canonical desk and have the registry give it back. Outside the viewport
         for the same reason as the org slot: it must not inherit the pan/zoom
         transform, and it must survive the canvas being hidden. */}
+    {projectDeskId && map.get(projectDeskId)?.kind === 'project' && (
+      <ProjectDeskModal node={map.get(projectDeskId)!} slug={slug} tree={tree} map={map} op={op} toast={toast}
+        refs={canvasRefs} close={() => setProjectDeskId(null)}
+        onJump={(id) => { setProjectDeskId(null); centerOn(id) }}
+        onConfig={() => toggleConfig(projectDeskId)} onOpenDoc={openDocView} />
+    )}
     {tempDeskId && map.get(tempDeskId) && (
       <TempDeskModal node={map.get(tempDeskId)!} close={() => setTempDeskId(null)}
         // Measure the modal before ending its borrow. Pins store canvas-local

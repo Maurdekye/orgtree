@@ -20,7 +20,7 @@ import { NODE_H, NODE_W, subtreeDocs, useAgentShortcuts, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
-import { ProjectActivity, ProjectDesk, ProjectLastActivity, subtreeDocCount } from './projectdesk'
+import { ProjectActivity, ProjectDesk, ProjectLastActivity } from './projectdesk'
 import { PinnedPlaceholder } from './pins'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -75,7 +75,11 @@ interface ProjectSquareProps {
   /** the project's docket: its attached items */
   onDocket?: () => void
   onOpenDoc?: (id: string) => void
-  onOpenGallery?: (id: string) => void
+  /** the project's presentations; `team` its team presentations (point 27) */
+  onOpenGallery?: (id: string, opts?: { team?: boolean }) => void
+  /** its desk as a temporary modal, or popped out to a window (point 27) */
+  onOpenTemporary?: () => void
+  onPopout?: () => void
   onDragStart: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
   onDragMove: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
   onDragEnd: (e: React.PointerEvent<HTMLDivElement>, id: string, node: CanvasNode, focused: boolean) => void
@@ -83,7 +87,8 @@ interface ProjectSquareProps {
 }
 
 export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
-  onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery,
+  onOpenTemporary, onPopout, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
   // agent card's hover row (user 2026-10-17 19:37Z)
@@ -102,7 +107,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   }
   const toggle = (which: 'b' | 'l' | 'r' | 't') => setExpandedHire((v) => v === which ? null : which)
   const waiting = node.mail_pending ?? 0
-  const docs = subtreeDocCount(node)
+  // its OWN presentations (point 27): the subtree's are its team presentations
+  const docs = node.documents_count ?? node.documents?.length ?? 0
   const description = (node.charter ?? '').trim().split('\n')[0] ?? ''
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
@@ -120,8 +126,13 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onDocket,
     onScratchFolder: scratchFolderAction(slug, node.id, toast),
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id) : undefined,
+    onTeamPresentations: onOpenGallery ? () => onOpenGallery(node.id, { team: true }) : undefined,
+    onOpenTemporary,
+    onPopout,
     onSettings: () => onSettings?.(),
     onHire,
+    onHireBeside: onSpawnSide ? (t) => onSpawnSide(t, 'right') : undefined,
+    onHireAbove: onSpawnTop,
     onNewProject,
     onRetireAsk: setAsking,
     onOpenDesk: onFocus,
@@ -176,7 +187,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
             </button>
             {onOpenGallery && docs > 0 &&
               <button className="presentedbtn" aria-label={`presented documents for project ${node.id}`}
-                title={`open the ${docs} presented document${docs === 1 ? '' : 's'} of project ${node.id} and the agents under it`}
+                title={`open the ${docs} presented document${docs === 1 ? '' : 's'} of project ${node.id}`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onOpenGallery(node.id) }}>
                 <DocIcon fontSize="inherit" />

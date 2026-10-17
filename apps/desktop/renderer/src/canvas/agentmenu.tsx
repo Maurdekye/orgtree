@@ -112,6 +112,10 @@ export interface AgentMenuHandlers {
   onContinueOn?: (account: string) => void
   /** create a project node under this node (docs/rust-engine/PROJECT-NODES.md) */
   onNewProject?: () => void
+  /** a PROJECT's coworker and parent hires (point 19's strips, offered in its
+   *  menu too: review of a590555, coordinator ruling 2026-10-17 23:29Z) */
+  onHireBeside?: (tier: string) => void
+  onHireAbove?: (tier: string) => void
 }
 
 export interface AgentMenuState extends HireProviders {
@@ -347,13 +351,28 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const live = node.state === 'live'
   const agents = subtreeAgents(node).filter((a) => a.id !== node.id)
   const entries: MenuEntry[] = [{ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk }]
-  const open: MenuEntry[] = [{ label: 'Open project mailbox', onSelect: () => h.onInbox() }]
+  // its desk as a temporary modal, or in a window of its own (user 2026-10-17
+  // 23:28Z, 23:29:47Z), first as on the agent menu
+  const desk: MenuEntry[] = []
+  const temp = h.onOpenTemporary, popout = h.onPopout
+  if (temp) desk.push({ label: 'Open desk', title: `glance at ${node.id}'s desk without moving the camera`, onSelect: () => temp() })
+  if (popout) desk.push({ label: 'Pop out to new window', title: `${node.id}'s desk in a window of its own`, onSelect: () => popout() })
+  const open: MenuEntry[] = [...desk, ...(desk.length ? ['sep' as const] : []),
+    { label: 'Open project mailbox', onSelect: () => h.onInbox() }]
   if (h.onScratchFolder && (live || node.state === 'archived')) {
     open.push({ label: 'Open project folder', onSelect: h.onScratchFolder })
   }
+  // point 27: its presentations are the documents attributed to the project;
+  // its team presentations add every one by the agents under it
   const presentations = h.onPresentations
-  if (presentations && subtreeDocCount(node) > 0) {
+  if (presentations && (node.documents_count ?? node.documents?.length ?? 0) > 0) {
     open.push({ label: 'Open presentations', onSelect: () => presentations() })
+  }
+  const teamPresentations = h.onTeamPresentations
+  if (teamPresentations && subtreeDocCount(node) > 0) {
+    open.push({ label: 'Open team presentations',
+      title: `documents attributed to ${node.id} and those presented by the agents under it`,
+      onSelect: () => teamPresentations() })
   }
   // the project's docket: the items owned by the agents under it
   const docket = h.onDocket
@@ -379,6 +398,23 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
         onSelect: () => hire(tier),
       })),
     })
+    // a coworker beside it and a superior above it, as its side and top hire
+    // strips offer (point 19)
+    for (const [label, act, where] of [
+      ['Hire beside this project', h.onHireBeside, 'beside'],
+      ['Hire above this project', h.onHireAbove, 'above'],
+    ] as const) {
+      if (!act) continue
+      entries.push({
+        label, submenuOnly: true, disabled: choices.length === 0, onSelect: () => {},
+        children: choices.map(({ tier, offer, reason }) => ({
+          label: tierLabel(tier),
+          disabled: offer !== 'offer',
+          title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire ${where} project ${node.id}` : reason,
+          onSelect: () => act(tier),
+        })),
+      })
+    }
   }
   if (live && h.onNewProject) {
     entries.push({ label: 'New project…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })

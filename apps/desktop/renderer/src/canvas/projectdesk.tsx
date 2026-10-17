@@ -30,6 +30,7 @@ import { PresentationCard, recentDocumentChips } from './docs'
 import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
+import { PinFrame } from './modalpin'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented'] as const
 type Tab = typeof PROJECT_DESK_TABS[number]
@@ -167,7 +168,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const members = node.children.filter((c) => c.state === 'live')
   const count = (tab: Tab) => tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? mine?.length ?? 0
-      : tab === 'presented' ? subtreeDocCount(node) : 0
+      // its own presentations (point 27, user 2026-10-17 23:28Z)
+      : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0) : 0
   const content = (
     <>
       <div className="cc-head">
@@ -276,5 +278,19 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         <AgentRetireConfirm kind={members.length > 0 ? 'dissolve' : 'retire'} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
     </div>
+  )
+}
+
+/** The project desk as a MODAL (user 2026-10-17 23:28Z, 23:29:47Z): the menu's
+ *  "Open desk" glances at it without moving the camera, as the agent menu's
+ *  temporary desk does, and "Pop out to new window" asks this same surface to
+ *  pop itself out (`requestSurfaceAction('project-desk', …, 'popout')`). One
+ *  surface per org: a second project's desk replaces the first. */
+export function ProjectDeskModal({ close, ...props }: ProjectDeskProps & { close: () => void }) {
+  return (
+    <PinFrame kind="project-desk" title={`Project ${props.node.id}`}
+      panel="settings wide project-desk-modal" close={close}>
+      <ProjectDesk {...props} bare />
+    </PinFrame>
   )
 }
