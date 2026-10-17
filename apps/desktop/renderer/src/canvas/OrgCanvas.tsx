@@ -89,6 +89,7 @@ import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './cont
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { isProject, ProjectSquare } from './projectcard'
+import { ProjectDesk } from './projectdesk'
 import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
@@ -2761,8 +2762,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const drop = dropTargetAt(toWorld(e), id)
     setDropId(null)
     if (!d.moved) {                       // a plain click → walk to the desk
-      // a project node runs no turns and has no desk: its mailbox opens
-      if (isProject(node)) { toggleNodeSurface('node-inbox', id, setInboxId); return }
+      // a project walks to its project desk like an agent (user 2026-10-17 19:38Z)
       if (!focused && id !== USER && node.state !== 'draft') centerOn(id)
       return
     }
@@ -3985,6 +3985,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           if (isProject(n)) {
             return <ProjectSquare key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
               zoom={view.z}
+              focused={n.id === focusId && !worldHidden}
+              pinnedFocus={n.id === pinnedFocusId}
+              onShowPin={() => showPin(slug, n.id, vpSizeNow())}
+              tree={tree} map={map} refs={canvasRefs} onJump={centerOn}
+              onPin={!isMobile ? () => { pinDesk(n.id) } : undefined}
               dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
               isDrop={dropId === n.id}
               hire={{ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire }}
@@ -4188,6 +4193,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
           onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
           onShowOnCanvas={showOnCanvas}
+          projectDesk={(n) => <ProjectDesk bare node={n} slug={slug} tree={tree} map={map} toast={toast}
+            refs={canvasRefs} onJump={centerOn} onSettings={() => toggleConfig(n.id)} />}
           onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
             && shownRetired.has(id) ? dismissRetiredAgent(id) : undefined} />
       )}

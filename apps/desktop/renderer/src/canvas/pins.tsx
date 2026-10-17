@@ -40,7 +40,7 @@
 // composer key (desk.tsx) and silently fight over it.
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
 import { agentNavProps } from './agentnav'
@@ -348,6 +348,8 @@ export interface PinLayerProps {
   onShowOnCanvas: (id: string) => void
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: (id: string) => void
+  /** a pinned PROJECT's body: its project desk, bare (projectdesk.tsx) */
+  projectDesk?: (node: CanvasNode) => ReactNode
 }
 
 /** The viewport's PADDING box, in px. Pinned windows are absolutely positioned
@@ -452,7 +454,8 @@ type Gesture = GestureShape & { pointerId: number; moved: boolean; capture: HTML
 const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
 function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
-  compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, onShowOnCanvas, map, viewportRef, onDismiss }:
+  compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, onShowOnCanvas, map, viewportRef, onDismiss,
+  projectDesk }:
   PinLayerProps & { pin: Pin; node: CanvasNode; vp: { w: number; h: number } | null
     onUnpin: (id: string, from: PinRect) => void }) {
   // the in-flight gesture's rect lives in component state (one render per
@@ -684,12 +687,12 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
         </button>
       </div>
       <div className="pinwin-body">
-        <DeskChat bare node={node} map={map} op={op} slug={slug} toast={toast}
+        {node.kind === 'project' && projectDesk ? projectDesk(node) : <DeskChat bare node={node} map={map} op={op} slug={slug} toast={toast}
           compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onLineage={() => onLineage(pin.id)} onConfig={() => onConfig(pin.id)}
           onJump={onJump}
-          onDismiss={onDismiss ? () => onDismiss(pin.id) : undefined} />
+          onDismiss={onDismiss ? () => onDismiss(pin.id) : undefined} />}
       </div>
     </div>
     {/* ⚠ OUTSIDE `.pinwin`, so the capture handler above never sees these:

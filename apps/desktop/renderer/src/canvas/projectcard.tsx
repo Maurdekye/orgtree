@@ -10,11 +10,14 @@
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ToastFn } from '../types'
+import type { ToastFn, TreePayload } from '../types'
 import { FolderIcon, MailIcon } from '../icons'
 import { NODE_H, NODE_W, useAgentShortcuts, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
+import type { RefRoutes } from './reflinks'
+import { ProjectDesk } from './projectdesk'
+import { PinnedPlaceholder } from './pins'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import { scratchFolderAction } from '../scratch-folder'
@@ -29,6 +32,18 @@ interface ProjectSquareProps {
   node: CanvasNode
   pos: Pt
   lod: 'mini' | 'norm'
+  /** the camera is on it: the card is its project desk (user 2026-10-17 19:38Z) */
+  focused?: boolean
+  /** its desk is a pinned window: the card holds the placeholder */
+  pinnedFocus?: boolean
+  onShowPin?: () => void
+  /** what the desk reads: the tree (watchdogs, facts), the node map and the
+   *  canvas's reference routes; without them a focused card stays a card */
+  tree?: TreePayload
+  map?: Map<string, CanvasNode>
+  refs?: RefRoutes
+  onJump?: (id: string) => void
+  onPin?: () => void
   dragging: boolean
   isDrop: boolean
   op: OpFn
@@ -53,7 +68,7 @@ interface ProjectSquareProps {
   onDragCancel: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
 }
 
-export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toast, zoom, hire, seats,
+export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
   onHire, onNewProject, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
@@ -64,7 +79,8 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
   const waiting = node.mail_pending ?? 0
   const description = (node.charter ?? '').trim().split('\n')[0] ?? ''
   // the bottom edge's hire tokens only: agents and nested projects go under it
-  const cls = ['sq', 'project', node.state, lod, 'edge-b']
+  const deskOpen = !!(focused && tree && refs && lod !== 'mini')
+  const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-b']
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
   const style: React.CSSProperties = {
@@ -86,7 +102,8 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
   return (
     <div data-copy-agent-name={node.id} className={cls.join(' ')} style={style}
       aria-label={`project ${node.id}`}
-      onPointerDown={(e) => onDragStart(e, node.id)}
+      // a desk's own presses pan the canvas or work its controls, as an agent desk's do
+      onPointerDown={(e) => { if (!deskOpen) onDragStart(e, node.id) }}
       onPointerMove={(e) => onDragMove(e, node.id)}
       onPointerUp={(e) => onDragEnd(e, node.id, node, false)}
       onPointerCancel={(e) => onDragCancel(e, node.id)}
@@ -126,6 +143,13 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
           openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
           zoom={zoom} expanded={expandedHire} onToggleExpanded={() => setExpandedHire((v) => !v)}
           onProject={onNewProject} />
+      )}
+      {deskOpen && (
+        <ProjectDesk node={node} slug={slug} tree={tree!} map={map ?? new Map()} toast={toast} refs={refs!}
+          onJump={onJump} onSettings={onSettings} onPin={onPin} />
+      )}
+      {pinnedFocus && !deskOpen && onShowPin && (
+        <div className="pin-holder"><PinnedPlaceholder id={node.id} onShow={onShowPin} /></div>
       )}
       {lod !== 'mini' && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
         <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc} />
