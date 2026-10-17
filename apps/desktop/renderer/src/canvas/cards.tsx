@@ -838,7 +838,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
         <button key="project" className="project-token" aria-label="create a project"
           title={'create a project'
             + (soleHire ? '' : side === 'top' ? ' above, holding this node' : side ? ' beside' : ' under this node')
-            + ' (free)'}
+            + ' (free, structural)'}
           onClick={(e) => { e.stopPropagation(); onProject() }}>
           <FolderIcon fontSize="inherit" />
         </button>
