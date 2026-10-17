@@ -1,15 +1,20 @@
-//! Polling-clock policy, extracted before changing the restart behavior.
+//! Durable clock policy: catch up once, then keep the original phase.
 use chrono::{DateTime, Utc};
 use std::time::Duration;
 
-// Baseline: every newly started runner checks immediately.
 #[nolog]
-pub(super) fn wait_until(_deadline:DateTime<Utc>,_now:DateTime<Utc>) -> Duration { Duration::ZERO }
+pub(super) fn wait_until(deadline:DateTime<Utc>,now:DateTime<Utc>) -> Duration {
+    (deadline-now).to_std().unwrap_or_default()
+}
 
-// Baseline: sleeping starts a fresh interval after the last completed check.
+/// Early checks (a shorter quiet deadline) do not consume a future poll slot.
+/// Missed slots are skipped in constant time, including the exact boundary.
 #[nolog]
-pub(super) fn next_slot(_deadline:DateTime<Utc>,period_s:i64,now:DateTime<Utc>) -> DateTime<Utc> {
-    now+chrono::Duration::seconds(period_s.max(1))
+pub(super) fn next_slot(deadline:DateTime<Utc>,period_s:i64,now:DateTime<Utc>) -> DateTime<Utc> {
+    if deadline>now { return deadline; }
+    let period_s=period_s.max(1);
+    let slots=(now-deadline).num_seconds()/period_s+1;
+    deadline+chrono::Duration::seconds(period_s*slots)
 }
 
 #[cfg(test)]

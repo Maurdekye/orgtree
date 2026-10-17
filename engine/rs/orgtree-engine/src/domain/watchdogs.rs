@@ -43,6 +43,9 @@ pub fn view(w: &Value, owner: &str) -> Value {
     if let Some(v) = w.get("last_check").filter(|v| !v.is_null()) {
         o.insert("last_check".into(), ts(v));
     }
+    for key in ["next_check_at","next_silence_at"] {
+        if let Some(v)=w.get(key).filter(|v|!v.is_null()){o.insert(key.into(),ts(v));}
+    }
     if let Some(v) = w.get("last_fired").filter(|v| !v.is_null()) {
         o.insert("last_fired".into(), ts(v));
     }
