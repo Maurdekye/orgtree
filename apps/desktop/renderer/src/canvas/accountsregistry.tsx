@@ -163,6 +163,21 @@ const LABELS: Record<AccountProvider, string> = { claude: 'Claude', openai: 'Cod
   muse: 'Muse' }
 const ANTIGRAVITY_ACCOUNT_PROFILE_ISSUE =
   'https://github.com/google-antigravity/antigravity-cli/issues/381'
+/** The measured limit (docket antigravity-multi-account-support-via-isolated-p,
+ *  two user-approved probes on Antigravity CLI 1.3.5, 2026-10-16): AGY keeps
+ *  its sign-in in the Windows Credential Manager under one fixed entry, so a
+ *  separate profile folder still reads the default sign-in. No second
+ *  subscription sign-in is offered: signing in again would REPLACE the
+ *  default one. The engine refuses any such row whose sign-in is not its own. */
+const ANTIGRAVITY_ONE_SIGNIN = [
+  'Antigravity keeps one Google sign-in per Windows user, in the Windows Credential Manager. '
+    + 'A separate profile folder still uses that same sign-in (measured on Antigravity CLI 1.3.5), '
+    + 'so a second Google account cannot run beside your default one.',
+  'Signing in to Antigravity again would replace your default Antigravity sign-in for every agent. '
+    + 'For a second Antigravity account, use an API key below.',
+]
+const ANTIGRAVITY_ONE_SIGNIN_ROW = 'Antigravity keeps one Google sign-in per Windows user: this account runs '
+  + 'only when Antigravity confirms it is signed in separately from your default account.'
 const COLORS: Record<AccountProvider, string> = {
   claude: THEMES.claude.accent, openai: THEMES.codex.accent, google: THEMES.antigravity.accent,
   // Muse's provider color (styles.css --prov-muse): no visual theme of its own
@@ -334,7 +349,8 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
         </div>
         <AccountMarks row={row} toast={toast} />
         {row.origin_org && <div className="dim">Available only to {row.origin_org}</div>}
-        {provider === 'google' && <div className="dim account-note">Secondary Antigravity sign-in is not supported yet.</div>}
+        {provider === 'google' && row.mode !== 'apikey' && !row.ambient &&
+          <div className="dim account-note agy-one-signin">{ANTIGRAVITY_ONE_SIGNIN_ROW}</div>}
       </div>
     })}
   </div>
@@ -380,8 +396,8 @@ export function AddAccountDialog({ provider, onAdded, close }: {
     <h3>Add secondary {LABELS[provider]} account</h3>
     {provider === 'google' ? (
       <section className="account-add-option account-upstream-note">
-        <h4>Secondary subscription accounts unavailable</h4>
-        <p className="dim">Native secondary subscription-account setup is waiting on upstream Antigravity CLI support.</p>
+        <h4>A second Antigravity subscription is not possible yet</h4>
+        {ANTIGRAVITY_ONE_SIGNIN.map(text => <p key={text} className="dim">{text}</p>)}
         <a className="account-upstream-link" href={ANTIGRAVITY_ACCOUNT_PROFILE_ISSUE}
           target="_blank" rel="noopener noreferrer">
           Track Antigravity CLI account-profile support (issue #381)
@@ -422,7 +438,6 @@ export function AddAccountDialog({ provider, onAdded, close }: {
       <button disabled={busy || !key.trim()}
         onClick={() => { void create('apikey') }}>Add API-key account</button>
     </section>
-    {provider === 'google' && <p className="dim">Secondary Antigravity sign-in is not supported yet. Importing a folder does not verify its sign-in.</p>}
     {error && <p className="ask-warn" role="alert">{error}</p>}
     <button disabled={busy} onClick={dismiss}>Cancel</button>
   </PinFrame>
