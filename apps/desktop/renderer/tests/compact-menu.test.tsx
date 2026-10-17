@@ -147,3 +147,15 @@ test('an admitted normal compact reports started and never sends a cheap op',asy
     assert.deepEqual(notes,['compaction of worker started'])
   }finally{await v.unmount()}
 })
+
+test('a node becoming busy while the modal is open disables both choices',async()=>{
+  const v=await mountView(compact(),el=>el)
+  try{
+    assert.equal(button(v.el,'Normal compact')?.disabled,false)
+    assert.equal(button(v.el,'Cheap compact')?.disabled,false)
+    await v.render(compact(agent({busy:true})))
+    assert.equal(button(v.el,'Normal compact')?.disabled,true)
+    assert.equal(button(v.el,'Cheap compact')?.disabled,true)
+    assert.match(dialog(v.el)?.textContent??'',/finishes its turn/)
+  }finally{await v.unmount()}
+})

@@ -12,6 +12,13 @@ the existing collapsed thinking rendering. Live thinking requires upstream AGY
 support. Read-only exact session/step matching, duplicate-safe persistence and
 no thinking text in logs are required. 4.4.0 only. See [AGY thinking](antigravity-thinking.md).
 
+**Compact choice, user 2026-10-17 17:15Z; coordinator 17:18Z:** direct
+Halt/Unhalt lose the ellipsis; an actual team submenu retains it. Compact…
+opens Normal compact / Cheap compact / Cancel, with one explanation each.
+Unsupported normal compaction is disabled with the actual harness reason;
+started:false reports refusal. Bulk stays explicitly cheap-only, with no new
+harness support. See [compact choice](compact-choice.md). 4.4.0 only.
+
 **Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
 quiet timers retain fixed next timestamps through restarts. Missed slots
 produce at most one immediate catch-up, then continue the original phase

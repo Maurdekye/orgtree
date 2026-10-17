@@ -48,6 +48,14 @@
   canaries through write/full/incremental reads pass after red controls; installed
   history visibility remains an alpha check]
 
+- Agent Compact… opens one normal/cheap choice shared with the desk context
+  wheel. Normal capability comes from the actual harness route; unsupported or
+  unreadable capability disables normal with a reason. A POST started:false is
+  a refusal, never a success toast. Direct Halt/Unhalt have no ellipsis; team
+  compaction stays explicitly cheap-only. See [compact choice](docs/rust-engine/compact-choice.md).
+  [decided: user/coordinator 2026-10-17; verified: `canvas/agentcompact.tsx`,
+  `http/nodes.rs`, `domain/compaction.rs`]
+
 - State inspection memoizes effective ancestry only within its immutable
   request snapshot, retaining the total 1024-node ancestry cap and visibility
   refusals. Folder clamps normalize each list entry once; pure path helpers

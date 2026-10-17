@@ -15,7 +15,7 @@ Provider compaction summarizes within the provider session. The org's `compact_a
 
 A [cheap compact](../tool-cheap-compact/SKILL.md) replaces the conversation context with a fresh session and a runtime-built handoff on the same agent record. Its tool page owns the idle/session/authority gates, export bounds and summary contents. It is useful when recent decisions and durable files are enough to resume, but the entire old conversational context is no longer worth carrying. Prepare [breadcrumbs](../../workspace/breadcrumbs/SKILL.md) and docket progress first.
 
-Older UI prose about forking into a successor, a knowledge bearer or a newly hired replacement does not describe the current Rust cheap-compact operation. Read the operation's result and the fresh-session handoff rather than inferring a topology change from that prose.
+The agent menu Compact… and the desk context wheel open the same Normal compact / Cheap compact / Cancel choice. Normal support comes from the actual harness route: Claude Code and Muse are supported; Codex, Antigravity, OpenCode and unknown routes show it disabled with a reason. Loading or failed capability reads keep normal disabled while cheap remains available if eligible. A compact request starts only when its response says started:true; started:false carries a refusal reason and must not be presented as a started compaction. Bulk menu scopes remain explicitly cheap-only.
 
 ## Automatic fresh starts
 

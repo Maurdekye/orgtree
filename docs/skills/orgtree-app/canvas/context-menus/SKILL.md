@@ -26,8 +26,8 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Dismiss | Hide an explicitly revealed retired card again, where the surface supports that action. |
 | Settings | Open the agent settings surface. |
 | Acquire audience / Drop audience | Grant or revoke the agent's **user** audience. The label reflects whether `@user` is currently held; the action is offered on live agents where the surface supplies the handler. Acquire also approves a pending user-audience request. Revocation leaves already queued mail queued. |
-| Cheap compact… | Single-agent action disabled while busy or without a session; eligible managers also offer subtree/all subordinates scopes. Busy seats are skipped by bulk processing. |
-| Halt… / Unhalt… | Single-agent stop/release plus subtree/all subordinates variants when a team exists; read counts and partial outcome messages. |
+| Compact… | Opens Normal compact (harness compaction), Cheap compact (fresh session with a summary handoff) and Cancel. Unsupported normal compact is disabled with its reason. Single-agent action remains disabled while busy or without a session. Managers offer Cheap compact subtree… / Cheap compact all subordinates…; busy seats are skipped by bulk processing. |
+| Halt / Unhalt | Direct stop/release has no ellipsis. Halt… / Unhalt… means an actual team submenu offers subtree/all subordinates; read counts and partial outcome messages. |
 | Retire… / Dissolve… | Retire a leaf or explicitly dissolve a manager's subtree; submenu can leave the manager live while retiring all subordinates. Confirmation states the selected scope. |
 
 Some rows are submenu roots with distinct click and expansion behavior; read their visible effect and count. Do not infer a new management power from the same menu being reachable on a second surface. Tool-side authority and parameters live in `orgtree-team` (orgtree-working › team) and `orgtree-runtime` (orgtree-working › runtime).

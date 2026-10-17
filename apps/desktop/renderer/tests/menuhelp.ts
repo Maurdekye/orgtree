@@ -51,7 +51,7 @@ export async function openBranchOf(label: string): Promise<void> {
 export const MOVED: Record<string, [string, string]> = {
   'Dissolve suborganization…': ['Dissolve…', 'subtree'],
   'Retire all subordinates…': ['Dissolve…', 'all subordinates'],
-  'Cheap-compact subtree…': ['Cheap compact…', 'subtree'],
+  'Cheap-compact subtree…': ['Compact…', 'Cheap compact subtree…'],
 }
 
 /** click `child` inside the open `branch` submenu */

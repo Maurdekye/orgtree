@@ -13,7 +13,7 @@ Open an agent's desk from its name/card or desk navigation. A focused desk, a pi
 | Control/indicator | Meaning |
 | --- | --- |
 | Agent name | Identity/navigation target; available menus can copy the name. |
-| Context wheel | Context occupancy/window and compact threshold; where available it opens compaction confirmation. |
+| Context wheel | Context occupancy/window and compact threshold; where available it opens Normal compact / Cheap compact / Cancel. Normal uses the harness; cheap starts a fresh session with a summary handoff on the same agent. Unsupported normal compaction is disabled with a reason. |
 | Process indicator | Current process lifecycle, warming/relaunch/pause information and an enabled process action when the engine provides one. |
 | Turn status | Engine turn activity/result and reported status summary; a self-reported status is not proof a process runs. |
 | Halt / Finish halt / Unhalt | Distinguishes blocking admission, a turn still ending, and explicit release; use the shown state rather than repeatedly clicking. |

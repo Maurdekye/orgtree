@@ -284,7 +284,7 @@ test('§3b agentMenuEntries gives a project the project menu, never an agent\'s'
   const got = labels(agentMenuEntries(nd, handlers(), { claudeHire: offer }))
   assert.deepEqual(got, labels(projectMenuEntries(nd, handlers(), { claudeHire: offer })))
   assert.ok(got.includes('Settings'), 'project settings expose peer-mail policy')
-  for (const agentOnly of ['Halt', 'Cheap compact…', 'Change model', 'Desk']) {
+  for (const agentOnly of ['Halt', 'Compact…', 'Change model', 'Desk']) {
     assert.equal(got.includes(agentOnly), false, `no "${agentOnly}" on a project`)
   }
 })
