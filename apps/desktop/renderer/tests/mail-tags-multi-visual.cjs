@@ -21,11 +21,11 @@ module.exports=async page=>{
     await page.eval(()=>document.querySelector('button[aria-label="Filter mail by tags"]').click())
     await page.waitFor('.mail-tag-choice')
     const options=await page.eval(()=>{
-      const popup=document.querySelector('.mail-tag-popover'),r=popup.getBoundingClientRect()
+      const popup=document.querySelector('.mail-tag-popover'),r=popup.getBoundingClientRect(),anchor=document.querySelector('button[aria-label="Filter mail by tags"]').getBoundingClientRect()
       const cards=[...popup.querySelectorAll('.mail-tag-choice')].map(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return {font:s.fontSize,whiteSpace:s.whiteSpace,height:r.height,top:r.top,selected:e.getAttribute('aria-pressed')}})
-      return {cards,rows:new Set(cards.map(c=>c.top)).size,inViewport:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}
+      return {cards,anchorGap:Math.min(Math.abs(r.top-anchor.bottom),Math.abs(anchor.top-r.bottom)),rows:new Set(cards.map(c=>c.top)).size,inViewport:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}
     })
-    if(!options.inViewport||options.cards.length!==8||options.rows<2||options.cards.filter(c=>c.selected==='true').length!==2||options.cards.some(c=>c.font!=='10px'||c.whiteSpace!=='nowrap'||c.height>18))throw new Error('tag toggle layout '+JSON.stringify(options))
+    if(!options.inViewport||options.anchorGap>8||options.cards.length!==8||options.rows<2||options.cards.filter(c=>c.selected==='true').length!==2||options.cards.some(c=>c.font!=='10px'||c.whiteSpace!=='nowrap'||c.height>18))throw new Error('tag toggle layout '+JSON.stringify(options))
     await paint();await page.screenshot(`mail-tags-filter-${contrast}`)
     results.push({contrast,...measure,options})
   }
