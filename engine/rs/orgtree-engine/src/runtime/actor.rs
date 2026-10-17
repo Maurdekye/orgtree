@@ -6063,6 +6063,24 @@ impl Actor {
     #[nolog]
     fn on_stream_event(&mut self, ev: &Value) {
         match ev["type"].as_str() {
+            Some("message_start") => {
+                if let Some(t)=self.turn.as_mut() {
+                    if let (Some(id),Some(usage))=(ev["message"]["id"].as_str(),ev["message"].get("usage").filter(|v|v.is_object())) {
+                        t.usage=usage.clone();
+                        t.token_metrics.claude_stream=Some((id.into(),usage.clone()));
+                    }
+                }
+            }
+            Some("message_delta") => {
+                if let Some(t)=self.turn.as_mut() {
+                    if let Some((_,usage))=t.token_metrics.claude_stream.as_mut() {
+                        for key in ["input_tokens","cache_read_input_tokens","cache_creation_input_tokens","output_tokens","output_tokens_details"] {
+                            if let Some(value)=ev["usage"].get(key) {usage[key]=value.clone();}
+                        }
+                        t.usage=usage.clone();
+                    }
+                }
+            }
             Some("content_block_start") => {
                 let block = &ev["content_block"];
                 match block["type"].as_str() {
@@ -6304,10 +6322,15 @@ impl Actor {
                 turn.model = Some(m.to_string());
             }
             if !mid.is_empty() && !turn.token_metrics.claude_seen.contains(&mid) {
+                let stream_usage=turn.token_metrics.claude_stream.as_ref().filter(|(id,_)|id==&mid).map(|(_,u)|u);
+                let reported_output=msg.pointer("/usage/output_tokens").and_then(Value::as_u64)
+                    .or_else(||stream_usage.and_then(|u|u["output_tokens"].as_u64()));
+                let reported_thinking=msg.pointer("/usage/output_tokens_details/thinking_tokens").and_then(Value::as_u64)
+                    .or_else(||stream_usage.and_then(|u|u.pointer("/output_tokens_details/thinking_tokens")).and_then(Value::as_u64));
                 let receipt=turn.token_metrics.claude.get_or_insert_with(||token_counts::ClaudeReceipt {
                     id:mid.clone(),thoughts:0,texts:0,calls:false,output:None,thinking:None });
-                if let Some(n)=msg.pointer("/usage/output_tokens").and_then(Value::as_u64) {receipt.output=Some(n);}
-                if let Some(n)=msg.pointer("/usage/output_tokens_details/thinking_tokens").and_then(Value::as_u64) {receipt.thinking=Some(n);}
+                if let Some(n)=reported_output {receipt.output=Some(n);}
+                if let Some(n)=reported_thinking {receipt.thinking=Some(n);}
                 for block in msg["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str() {
                         Some("thinking"|"redacted_thinking")=>receipt.thoughts+=1,

@@ -58,6 +58,7 @@ pub struct State {
     pub due: Option<Instant>,
     pub receipt: Receipt,
     pub claude: Option<ClaudeReceipt>,
+    pub claude_stream: Option<(String,Value)>,
     pub claude_seen: HashSet<String>,
 }
 pub struct ClaudeReceipt {
