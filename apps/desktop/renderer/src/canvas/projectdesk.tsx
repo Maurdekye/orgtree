@@ -113,7 +113,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const parent = node.parent && map.has(node.parent) && !(bare && node.parent === USER) ? map.get(node.parent)! : null
   const members = node.children.filter((c) => c.state === 'live')
   const count = (tab: Tab) => tab === 'inbox' ? node.mail_pending ?? 0
-    : tab === 'docket' ? mine.length
+    : tab === 'docket' ? mine?.length ?? 0
       : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0 : 0
   const content = (
     <>
