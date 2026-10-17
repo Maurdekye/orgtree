@@ -2039,8 +2039,8 @@ impl Actor {
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let disallowed = super::tool_policy::claude_disallowed(tools);
         let mut servers = Map::new();
-        // the agent's own tools are never deferred behind tool search
-        servers.insert("orgtree".into(), json!({ "type": "sdk", "name": "orgtree", "alwaysLoad": true }));
+        // Per-card hints keep common tools eager and permit rare native tool search.
+        servers.insert("orgtree".into(), crate::tools::defs::sdk_server());
         let granted: Vec<String> = tools["mcp"]
             .as_array()
             .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())

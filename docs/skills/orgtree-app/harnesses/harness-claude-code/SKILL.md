@@ -50,6 +50,14 @@ Common discovery, collision rules and loading limits are owned by [skills and in
 
 ## Tools, permissions and sandbox
 
+Orgtree cards carry a short contract and a glossary guide name. Common cards stay
+eager; 23 less frequent tools permit native tool search through per-card loading
+hints. Actual deferral depends on the installed Claude client and its search
+configuration; the hint alone is not proof of smaller provider input. A deferred
+tool keeps its permissions and call contract. Scope-denied groups are omitted
+entirely. Other harnesses receive the compact contracts without a native-deferral
+claim. Read the named guide before acting in a tool's area for the first time.
+
 The launch applies permission mode, allowed/disallowed tools and read-only-folder write denials. Sensitive-path writes can have a separate CLI gate; a folder grant alone does not override it. Terminal, web, edit and subagent capability switches also narrow the launch. Do not claim these controls are a separate OS filesystem sandbox or infer extra Session 0 containment from the folder list.
 
 Headless approvals and tool capability checks remain distinct from account/model availability. A missing tool is not permission to change credentials or loosen the seat's mode.

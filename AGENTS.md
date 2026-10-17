@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Orgtree tool cards keep call contracts and glossary pointers; procedures live
+  in the named guides. Input schemas and mail shapes are unchanged. Twenty-three
+  rare cards permit native Claude search, 22 common cards stay eager; the SDK
+  server must not override that policy. Scope denial still omits groups. Native
+  deferral and provider-token savings require client evidence, not metadata alone.
+  See [tool cards](docs/rust-engine/tool-cards.md). [decided: user/coordinator
+  2026-10-17; verified: `tools/defs.rs`, `runtime/actor.rs`]
+
 - Turn-body ORG STATE and PROVIDER USAGE headers use a full snapshot for a new
   session, then semantic row deltas or one-line references (including small
   reports). Ages never trigger refreshes; usage freshness/reset/limit transitions

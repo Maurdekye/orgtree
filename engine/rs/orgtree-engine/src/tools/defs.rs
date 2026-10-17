@@ -85,6 +85,22 @@ pub fn scoped_as(tools: &Value, shape: MailShape) -> Vec<Value> {
         .collect()
 }
 
+/// Server-wide eager loading would override rare per-card hints.
+#[nolog]
+pub fn sdk_server() -> Value { json!({ "type": "sdk", "name": "orgtree" }) }
+
+#[nolog]
+fn deferred(name: &str) -> bool {
+    matches!(name,
+        "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
+        "orgtree_halt" | "orgtree_unhalt" | "orgtree_unstick" | "orgtree_continue_on" |
+        "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" |
+        "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
+        "orgtree_move" | "orgtree_rename" | "orgtree_reorder" | "orgtree_reallocate" |
+        "orgtree_cheap_compact" | "orgtree_request_credits" | "orgtree_request_scope" |
+        "orgtree_swap" | "orgtree_self_subjugate")
+}
+
 #[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     let requirements = match name {
@@ -96,10 +112,10 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
     let description = if requirements.is_empty() { description.to_owned() } else { format!("{description}\n{requirements}") };
     let mut out = json!({
         "name": name,
-        "description": description,
+        "description": format!("{description}\nGuide: orgtree-tool-{}.", name.strip_prefix("orgtree_").unwrap_or(name).replace('_', "-")),
         "inputSchema": { "type": "object", "properties": properties, "required": required },
-        // an agent's own hands are never deferred behind tool search
-        "_meta": { "anthropic/alwaysLoad": true },
+        // Common cards stay eager; explicit rare cards permit native tool search.
+        "_meta": { "anthropic/alwaysLoad": !deferred(name) },
     });
     match name {
         "orgtree_hire" => out["inputSchema"]["allOf"] = json!([hire_scope_schema()]),
@@ -153,22 +169,10 @@ const KINDS: &[&str] = &["message", "question"];
 /// and still the flat shape (`tools::mailtools::flat_args`).
 const META_FIRST: &str = "Write this FIRST, before body: who the message is for and how it is sent";
 const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
-const MESSAGE_DESC: &str = "Send mail. You may write to your superior, your reports and their reports (writing to a non-child \
-     descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
-     (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
-     '@net:<slug>'. Peers sharing an actual parent need a directional audience when that parent's Subordinates may message each other setting is OFF. Audience requests remain allowed. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
-     later turns; never wait for them. `to` may be a LIST (up to 10) to send the same message to several \
-     recipients in one call, e.g. [\"user\", \"@net:<their hub address>\"] to reach the user in their inbox \
-     and over the hub at once: each recipient gets its own delivery, reach is checked per recipient, and the \
-     result lists every recipient's outcome (refused ones are named with the reason; the rest still get it). \
-     `kind` accepts `message`, `question`, or `request` (a request is displayed as a request and otherwise \
-     behaves like a message). Attachments to local agents are shared as authorized path references; attachments \
-     to `user` and `@net:` recipients keep the upload behavior; `@org:` recipients cannot receive attachments. \
-     `reply_to` and `replies` may be used with \
-     several recipients; each recipient receives only reply references from its conversation.";
+const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-inbox audience. Same-actual-parent peers need a directional audience when peer mail is OFF. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user/@net receive uploaded copies; @org attachments unsupported. Reply references are filtered per conversation.";
 const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
      body last.";
-const NOTICE_DESC: &str = "Same passive delivery as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody. This tool accepts only routing and body. For kind, attachments, reply references or other message fields, use orgtree_message with notice: true.";
+const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wakes nobody. Only routing and body are accepted; use orgtree_message with notice=true for attachments, kind or reply references.";
 const NOTICE_ORDER: &str = "Always write metadata (`to`) before body: metadata first, body last.";
 
 /// How a harness is given the two mail tools (coordinator 2026-10-13 21:36Z):
@@ -320,7 +324,7 @@ fn all() -> Vec<Value> {
         notice,
         tool(
             "orgtree_org_logo",
-            "Set or remove your organization's Logo immediately. Any agent with the Logo tool group may use it; no user or org-inbox audience is required. Set reads path from your working folder or folders you hold (relative paths start in your working folder). Static PNG/JPEG/WebP only, at most 5 MiB and 16 megapixels. The existing native editor normalizes it to a stripped square PNG at most 512px/256 KiB. Default: largest centred square; optional crop x/y are fractions of available top-left travel (0..1), size is a fraction of the shorter side (0.1..1). Remove restores the orange org-colour letter. Changes are logged with your identity and can be undone/redone in the user's existing history. Publication uses the existing hub path and isolation policy; disconnected hubs converge later. No image bytes are returned.",
+            "Set/remove your org's Logo immediately; requires logo tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
             json!({
                 "action": {"type":"string", "enum":["set","remove"]},
                 "path": {"type":"string", "description":"set: local image file in your folders"},
@@ -334,9 +338,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_status",
-            "Report your status. Required when you finish ('done') or get stuck ('blocked'): your superior gets \
-             your summary as a notice. 'done' leaves you idle (no separate 'idle' needed). A status wakes nobody; \
-             to make your superior act, send a message.",
+            "Report working/done/blocked/idle with a short summary. Required on finishing or blocking; done/blocked sends your superior a passive notice. done leaves you idle. To wake someone, send mail.",
             json!({
                 "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
                 "summary": { "type": "string", "description": "one or two sentences" },
@@ -345,19 +347,13 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_next_turn",
-            "Read your own next-turn prefix/namespace changes and compaction forecast. No arguments, no tool-group permission, no writes or provider calls. Reports each delivered instruction file against its session-start copy and when changes take effect (next session start); older sessions without a file baseline stay unknown. Dirty means prefix or namespace change only. Compaction includes observed occupancy and known thresholds, with explicit uncertainty. Never promises a cache hit; the rest of this turn can change the forecast.",
+            "Read your own next-turn prefix/namespace changes and compaction forecast. No writes, provider calls or permission needed. Baselines and thresholds can be unknown; the rest of the turn can change the result. No cache-hit guarantee.",
             json!({}),
             &[],
         ),
         tool(
             "orgtree_session",
-            "Where your turns run on this computer. With Run on boot, Orgtree's engine runs in Windows Session 0, \
-             which has no desktop: there you cannot see or use the user's desktop and apps. While the user is signed in, each \
-             agent's CLI moves into their session at its next turn. Returns signed_in, this_turn and next_turn \
-             (\"session0\" or \"signed-in\") with their session ids, next_turn_moves, sign_in_helper, your preference, and \
-             sessions: Session 0 and each of the user's sessions where a sign-in helper runs (id, kind console or remote, \
-             state, user). prefer sets your preference; use picks a session id for your next turn only (0: Session 0); \
-             orgtree_interrupt on yourself with restart applies either at once. Without arguments it only reads.",
+            "Read sign-in state and current/next turn placement. Session 0 has no desktop. prefer changes placement preference; use selects one next-turn session id (0=Session 0). Self interrupt with restart applies it now when allowed. No args only reads.",
             json!({
                 "prefer": { "type": "string", "description": "signed-in (default: any of the user's sessions), session0, console, remote, or an ordered list such as \"remote,console\"; Session 0 is always the fallback" },
                 "use": { "type": "integer", "description": "a session id from sessions for your next turn only; 0 for Session 0" },
@@ -366,20 +362,13 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_transfers",
-            "Inspect attachment transfers for mail you sent, and incoming mail if you hold the org inbox audience. list returns up to 100, unfinished first, then newest history; pass next_cursor as cursor for the next page. get takes id. Byte counts distinguish processed from confirmed bytes. retry resumes a failed or cancelled transfer; cancel stops its network request and holds the message. remove explicitly omits a failed/cancelled outgoing file and releases the message when all remaining files are ready. Messages wait until every file is ready. Success sends no notification.",
+            "Inspect mail attachment transfers: list pages≤100, get by id. retry resumes failed/cancelled transfers; cancel stops the request and holds mail; remove omits a failed/cancelled outgoing file. Mail releases once every remaining file is ready. Success sends no notice.",
             json!({"action":{"type":"string","enum":["list","get","retry","cancel","remove"]},"id":{"type":"string"},"cursor":{"type":"string"}}),
             &["action"],
         ),
         tool(
             "orgtree_inbox",
-            "Your own mail. list: messages waiting for you (ids, senders, previews). fetch: the full text of up to \
-             20 ids (mail you received or sent), with bodies above 64 KB served in chunks. chunk: read the remaining \
-             content using its delivery_id. conversation: the mail you and one correspondent exchanged (peer = an \
-             agent's name, 'user', '@org:<slug>' or '@net:<address>'), both directions, oldest to newest, the newest \
-             page first (20 by default, at most 100, previews only: fetch gives the full text; next_cursor pages back \
-             to older mail). AFTER A FRESH SESSION OR A COMPACTION, recall your conversation with someone this way \
-             before you reply to them. Manual reads leave automatic delivery unchanged. With `project` (a project \
-             you are above or below), list and fetch show that project's waiting mail instead, without claiming it.",
+            "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Reads do not change automatic delivery. project list/fetch reads reachable project mail without claiming it.",
             json!({
                 "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
                 "project": { "type": "string", "description": "list/fetch: a project's name: its waiting (unread) mail, read-only" },
@@ -395,9 +384,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_chart",
-            "The org as you may see it (your visibility), with each agent's tier, credits, last reported status and \
-             its age. Retired agents are counted unless include_archived is set (check them before hiring: \
-             rehiring restores their context).",
+            "Read the org within your visibility: tiers, credits, status and age. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.",
             json!({
                 "include_archived": { "type": "boolean" },
                 "include_standing_charter": { "type": "boolean", "description": "include team charters (default true)" },
@@ -406,8 +393,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_state_inspect",
-            "Structured state of agents within your visibility, including the folders, tools and permission mode each \
-             one runs with (no prompts, transcripts or mail).",
+            "Inspect visible agents' structured folders, tools and permission mode, optionally archived. Excludes prompts, transcripts and mail.",
             json!({
                 "node": { "type": "string" },
                 "nodes": { "type": "array", "items": { "type": "string" } },
@@ -417,7 +403,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_usage",
-            "Read provider usage during a turn. Default: saved cache only; no probes. Exact accounts/providers/windows filters, OR within each list and AND across lists. Account IDs match the usage board; windows match kind or group, not display label. Missing/stale/unsupported readings remain explicit, never zero. inspection permission is required. refresh=true attempts one explicit active account, additionally requiring inherited runtime permission; it may reuse a recent reading or report cooldown/in_progress. Manual floors are 60 seconds (Google 300), longer provider cooldowns remain. No inference or account switching. Accounts page by ID (20, at most 100); next_cursor continues. At most 64 matching windows per account, with explicit truncation.",
+            "Read cached provider usage with exact account/provider/window filters; missing/stale stays explicit. refresh needs inspection+runtime, one explicit active account; floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Account pages≤100, windows/account≤64; truncation explicit.",
             json!({
                 "accounts":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
                 "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","muse","openrouter","langserver"]},"minItems":1,"maxItems":32},
@@ -427,11 +413,11 @@ fn all() -> Vec<Value> {
                 "cursor":{"type":"string","description":"next_cursor from a previous cached account page"}
             }), &[],
         ),
-        tool("orgtree_list_tiers", "Model tiers you can hire on, with seat prices in credits.", json!({}), &[]),
-        tool("orgtree_list_orgs", "Other organizations: on this machine ('@org:<slug>' mail) and on the mail hubs this organization uses ('@net:<address>' mail, under \"remote\").", json!({}), &[]),
+        tool("orgtree_list_tiers", "List hireable model tiers and seat prices in credits.", json!({}), &[]),
+        tool("orgtree_list_orgs", "List other local organizations (@org mail) and this org's connected hub peers (@net mail).", json!({}), &[]),
         tool(
             "orgtree_read_transcript",
-            "Read the recent conversation of yourself or an agent below you.",
+            "Read recent conversation rows of yourself or an agent below you; last defaults 30, maximum 80.",
             json!({
                 "node": { "type": "string" },
                 "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 30)" },
@@ -440,16 +426,13 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_read_scratch",
-            "Browse or read the working folder of yourself or an agent below you (omit path to list it).",
+            "Browse/read your own or a descendant's working folder. Omit path to list it.",
             json!({ "node": { "type": "string" }, "path": { "type": "string" } }),
             &["node"],
         ),
         tool(
             "orgtree_interrupt",
-            "Stop a current turn without retiring anyone. node = a report (or their reports): needs the runtime tool \
-             group; waiting mail starts their next turn. node = yourself: ends your own turn, whatever your tool groups; \
-             with restart: true one new turn starts at once, wherever a turn's start places it (in the user's \
-             signed-in session when available; see orgtree_session). Refused while your CLI still runs background work.",
+            "Stop a descendant's turn with runtime permission, or your own turn without it. Self restart=true starts exactly one new turn using placement rules. Self-interrupt is refused while your CLI runs background work. Waiting mail can start a later turn; this does not retire anyone.",
             json!({
                 "node": { "type": "string" },
                 "restart": { "type": "boolean", "description": "yourself only: start one new turn at once" },
@@ -458,19 +441,19 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_halt",
-            "Halt agents below you until orgtree_unhalt: the process is stopped and nothing wakes them; their mail waits.",
+            "Halt agents below you until unhalt: stop their processes, preserve waiting mail and suppress wakes.",
             json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
             &[],
         ),
         tool(
             "orgtree_unhalt",
-            "Release halted agents below you; waiting mail starts their next turn.",
+            "Unhalt agents below you; waiting mail starts their next turn.",
             json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
             &[],
         ),
         tool(
             "orgtree_unstick",
-            "Release a frozen agent below you (usage-limit freeze) and let it continue.",
+            "Release a usage-limit freeze on an agent below you and let it continue.",
             json!({ "node": { "type": "string" } }),
             &["node"],
         ),
@@ -482,12 +465,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_account_mark",
-            "Read or clear an account's capacity mark (the record that its usage limit is used up until a reset \
-             time). `inspect` lists every stored mark with its pool, reset time, age, provenance and the `expected` \
-             values a clear must send back. `clear` removes one mark only if it still matches `expected`; otherwise \
-             it answers `changed` or `missing` and writes nothing (an expired mark is removed too). Clearing the pooled/default mark also \
-             removes an inferred `fable` mark with the same reset time. Each clear is audited. It adds no capacity and \
-             resumes nobody: `frozen_here` names agents that still need orgtree_unstick. Works on any account your org can see.",
+            "Inspect capacity marks or clear one using its exact expected values. A changed/missing mark writes nothing. Clearing is audited, adds no capacity and resumes nobody; frozen_here still needs unstick. Only org-visible accounts. reason required for clear.",
             json!({
                 "action": { "type": "string", "enum": ["inspect", "clear"] },
                 "account": { "type": "string", "description": "inspect: account id or name. clear: the exact `account` of the mark entry" },
@@ -502,10 +480,7 @@ fn all() -> Vec<Value> {
         // ---- arriving with build step 5
         tool(
             "orgtree_ask",
-            "Ask the user a question (or up to 4 as `questions` tabs) on a card; give 2-4 options or none for a \
-             free answer. You have ONE open request: asking again adds or amends tabs. End your turn after asking; \
-             the answer arrives as mail. Withdraw it when it becomes moot. Without a user audience (and not \
-             top-level) it goes to your superior as mail.",
+            "Ask up to 4 user questions with2-4 options or free text. One open request; later calls add/amend tabs. End your turn; answers arrive as mail. Without user audience/top-level authority, routes to your superior. Withdraw moot questions.",
             json!({
                 "question": { "type": "string", "description": "the complete question (or use `questions`)" },
                 "header": { "type": "string", "description": "very short label chip (max ~12 chars)" },
@@ -524,12 +499,7 @@ fn all() -> Vec<Value> {
         tool("orgtree_withdraw_ask", "Withdraw your open question card.", json!({}), &[]),
         tool(
             "orgtree_present",
-            "Present anything the user is meant to read themselves (report, plan, proposal, write-up, summary, any \
-             .md): ALWAYS this, never a download card. A card beside your seat opens it. `body` is markdown (64 KB \
-             max), or `path` a .md file (read as the markdown, 64 KB max) or a self-contained .html mockup (4 MB \
-             max, shown sandboxed with no network). `replaces` updates an earlier card in place. Needs a user \
-             audience (top-level agents hold one); without one, send the document to your superior. `project` \
-             presents it under a project you are above or below instead of beside your own seat.",
+            "Present documents the user should READ (reports, plans, Markdown); requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. project places it under a reachable project. Otherwise send to your superior.",
             json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
                     "replaces": { "type": "string" },
                     "project": { "type": "string", "description": "a project's name: present under that project" } }),
@@ -537,22 +507,14 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_send_file",
-            "Deliver a file the user wants AS A FILE (installer, log, export, image, archive) as a download card in \
-             your chat; images show as the picture. Never for a document they are meant to read (report, plan, any \
-             .md): that goes through orgtree_present. Relative paths start in your working folder.",
+            "Deliver a wanted FILE (installer, log, export, image, archive), with relative paths from your working folder. Documents to READ, including Markdown, use orgtree_present. Reuse delivery_id for the same delivery after a lost response.",
             json!({ "path": { "type": "string" }, "note": { "type": "string" },
                 "delivery_id": { "type": "string", "description": "Reuse for the same delivery after a lost response; new ID for a new delivery" } }),
             &["path"],
         ),
         tool(
             "orgtree_hire",
-            "Hire a report under you or under `target` in your team (or, with hire_type 'superior', insert a \
-             superior above `target`, default yourself, even at top level). Above yourself, seat + grant come from \
-             your free credits: grant is the new parent's free allocation; your external budget stays fixed. \
-             Superior insertion inherits target scope: omit scope fields only then. Write its charter in full. Other hires' seat + grant must fit (with \
-             credit cascade on, your chain is raised as needed). `index` is REQUIRED: zero-based among live siblings, \
-             0..existing_count (last appends). Superior insertion excludes its target, which becomes its child. \
-             Use orgtree_state_inspect for sibling_index/live_sibling_count. `kickoff` sends it a first message.",
+            "Hire a report (target in your team) or insert a superior. index is zero-based among live siblings, 0..count, excluding a superior's target. Seat+grant must fit; above yourself spends your free credits with fixed external budget. Ordinary hire needs explicit scope; superior insertion inherits its target's scope. kickoff sends first mail.",
             merge(
                 json!({
                     "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
@@ -570,16 +532,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_project",
-            "Create a PROJECT NODE: a node in the tree that stands for one project and is not an agent. It runs no \
-             turns and costs nothing; the agents under it work on it and report to the nearest agent above it, which \
-             also pays their credits. It has a folder (its AGENTS.md reaches every agent below it at session start), \
-             a mailbox (orgtree_message to its name; orgtree_inbox project=<name> shows what waits there) and \
-             presentations (orgtree_present project=<name>). Its mail goes to the agents that watch it with \
-             orgtree_watchdog kind=fair_queue: each mail to exactly one of them, the least recently woken. Agents \
-             above or below a project reach and control it; others cannot. Hire under it, move, rename, reorder, \
-             retire, dissolve and rehire it with the usual tools. action=create: `name`, `parent` (default: you; a \
-             report of yours or a project you are inside), `index` REQUIRED (zero-based among live siblings), \
-             `description` (its charter).",
+            "Create a project node: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you; description is its charter.",
             json!({
                 "action": { "type": "string", "enum": ["create"] },
                 "name": { "type": "string" }, "parent": { "type": "string" },
@@ -590,7 +543,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_rehire",
-            "Bring a retired agent back with its context.",
+            "Restore a retired agent with its context. Supplied folder list replaces the old list; omitted fields retain saved values. kickoff sends first mail. Credit and placement limits still apply.",
             merge(
                 json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
                         "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
@@ -600,12 +553,11 @@ fn all() -> Vec<Value> {
             ),
             &["node"],
         ),
-        tool("orgtree_retire", "Retire an agent below you (it can be rehired later).", json!({ "node": { "type": "string" } }), &["node"]),
-        tool("orgtree_dissolve", "Retire an agent below you together with its whole team.", json!({ "node": { "type": "string" } }), &["node"]),
+        tool("orgtree_retire", "Retire an agent below you; it can be rehired with its context.", json!({ "node": { "type": "string" } }), &["node"]),
+        tool("orgtree_dissolve", "Retire an agent below you and its whole team.", json!({ "node": { "type": "string" } }), &["node"]),
         tool(
             "orgtree_retool",
-            "Change an agent's scope (folders, tools, visibility, permission mode, effort, account) or charter. Only the \
-             fields you pass change; removing a folder or making it read-only does the same to the agents beneath.",
+            "Change a descendant's supplied scope/charter fields. Folder additions preserve others; removing/restricting folders also restricts descendants. Unspecified fields stay unchanged.",
             merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" },
                           "remove_dirs": { "type": "array", "items": { "type": "string" },
                                            "description": "folders it holds to remove" } }),
@@ -614,13 +566,13 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_switch_model",
-            "Move an agent below you to another tier (applied at its next turn boundary).",
+            "Move an agent below you to another tier at its next turn boundary.",
             json!({ "node": { "type": "string" }, "tier": { "type": "string" } }),
             &["node", "tier"],
         ),
         tool(
             "orgtree_move",
-            "Move an agent below you under another parent within your subtree.",
+            "Move descendants within your subtree. Use node/new_parent or moves[{node,new_parent}]; a batch is all-or-nothing.",
             json!({ "node": { "type": "string" }, "new_parent": { "type": "string" },
                     "moves": { "type": "array", "items": { "type": "object" },
                                "description": "several {node, new_parent} moves as one all-or-nothing act" } }),
@@ -629,28 +581,26 @@ fn all() -> Vec<Value> {
         tool("orgtree_rename", "Rename an agent below you.", json!({ "node": { "type": "string" }, "name": { "type": "string" } }), &["node", "name"]),
         tool(
             "orgtree_reorder",
-            "Place a live descendant at a zero-based final index among its current live siblings. Remove it first, \
-             then insert at index 0..remaining_count. Parent, scope and credits stay unchanged. Self, superior, peers \
-             and unrelated agents are refused. orgtree_state_inspect exposes sibling_index/live_sibling_count.",
+            "Move a live descendant to a zero-based final sibling index (remove first, then 0..remaining_count). Parent/scope/credits unchanged; self, superior, peers and unrelated agents refused. state_inspect returns sibling counts.",
             json!({ "node": { "type": "string" }, "index": { "type": "integer", "minimum": 0 } }),
             &["node", "index"],
         ),
         tool(
             "orgtree_reallocate",
-            "Give credits to (positive delta) or take unused credits from (negative) a report.",
+            "Adjust a report's credits: positive delta grants; negative takes unused credits back.",
             json!({ "node": { "type": "string" }, "delta": { "type": "integer" } }),
             &["node", "delta"],
         ),
         tool("orgtree_cheap_compact", "Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"]),
         tool(
             "orgtree_request_credits",
-            "Ask the user for a larger credit grant.",
+            "Ask the user for a larger credit grant with a reason.",
             json!({ "new_limit": { "type": "integer" }, "reason": { "type": "string" } }),
             &["new_limit", "reason"],
         ),
         tool(
             "orgtree_request_scope",
-            "Ask the user for more folders, tools or permissions.",
+            "Request more folders, tools or permissions (1-8 items) with a reason. A request grants nothing until approved.",
             json!({ "items": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "object", "properties": {
                         "kind": { "type": "string", "enum": ["dir", "tool", "mcp", "permission_mode"] },
                         "path": { "type": "string", "description": "dir: the absolute folder path" },
@@ -662,14 +612,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_audience",
-            "Audiences let an agent write outside its chain of command. request: ask `target` (an agent, 'user', or \
-             'extern' = the org inbox) for an audience; the request goes straight to that agent (or the user; an \
-             org-inbox request to your top-level agent) for a yes or no, and the answer arrives as mail. grant: give \
-             `from` an audience with you (a report, or anyone whose request waits on you), or via `target` with a \
-             live peer, your direct superior, or between two direct tree siblings whose nearest agent superior is you; also 'user' (if you are top-level) or 'extern' (outside @org:/@net: mail \
-             reaches holders only; a top-level agent may grant it to itself). deny: decline a request waiting on \
-             you (`from` = requester). revoke: rescind one you granted (`grantee`); an org-inbox holder may revoke \
-             itself and a top-level agent any user or org-inbox grant in its subtree.",
+            "Manage permission to write outside your chain: request target, grant from, deny requester, revoke grantee. Grants/revokes are limited by your authority; target can name another permitted grantor. Answers arrive as mail; requests do not grant access. External mail reaches org-inbox holders only.",
             json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
                     "target": { "type": "string", "description": "request: whom you seek; grant/revoke: the grantor when not you" },
                     "from": { "type": "string", "description": "grant: who receives it; deny: the requester" },
@@ -679,41 +622,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_watchdog",
-            "Keep a WATCHDOG: a free, persistent watcher that mails you (waking you) when its target produces a \
-             matching event. It survives orgtree restarts, so use it instead of polling for 'tell me when X happens'. \
-             Kinds: file (poll a path; new matching content fires; downtime events recovered), command (run each \
-             interval; matching output fires), process (pid:N or port:N; fires when it goes DOWN), stream (a \
-             persistent command such as a tail; each matching line fires at once; downtime output lost), activity \
-             (target = your name or any descendant's; events: turn_started, turn_done, tool_call NAME), fair_queue \
-             (target = a project you are above or below: each mail entering its mailbox goes to exactly ONE of its \
-             fair_queue watchers, the least recently woken first, as ordinary mail from its sender; busy, halted or \
-             frozen watchers keep their turn; no pattern or silence). \
-             fire_mode='event' is the default. fire_mode='silence' requires quiet_period_s: fires after that many \
-             seconds without a matching event; every match and every fire resets the timer. command/stream dogs run \
-             with your authority (need bash) but NOT IN YOUR SHELL: on Windows the target runs in cmd.exe with the \
-             engine's PATH (grep, sed, awk, $(...), $VAR and /tmp do not work; `find` is FIND.EXE) — write cmd \
-             (findstr, dir /b, %VAR%, %TEMP%) or pass shell:\"bash\" (`bash -lc`, refused if bash is missing). \
-             Create SMOKE-RUNS the target once and returns its output in `smoke` — read it. `list` shows checks_run, \
-             last_check, last_output and health. A dog also mails you when its target goes quiet (a file stops \
-             growing, a command cannot run, a pid already fired). notice:true fires passively (no turn). once:true \
-             fires exactly once and removes itself — use it whenever the condition can happen only once and ALWAYS \
-             when the pattern is a DEADLINE rather than an EDGE. Free; max 8 per agent. Actions: create, list, pause, \
-             resume, remove (reason optional). Superiors may manage their subtree's dogs. \
-             A dog's ID IS THE SLUG OF ITS NAME (lowercase letters, digits and dashes, e.g. build-watch): its mail \
-             and `list` show it, and pause/resume/remove take it. A second dog of yours with the same name gets \
-             build-watch-2, and a dog created without a name gets one from its kind and target. Dogs made before \
-             keep their older ids. Two agents may each keep a build-watch: name a team member's dog as owner/id. \
-             kind=event is pushed by the engine (no polling): target is a dotted name or prefix ending .*; \
-             pattern matches only safe JSON payload. Current-state smoke does not fire. No offline replay; \
-             recovered dogs see engine.started. Catalog: credentials.bridge.available/unavailable, \
-             credentials.isolated/ready, engine.started; agent.hired/retired/rehired/halted/unhalted/frozen/unfrozen/moved/renamed/changed, \
-             agent.settings.changed (field names only); turn.started/finished/failed/stalled/limited; \
-             mail.waiting/delivered/changed; docket.created/status.changed/attention/question.answered; \
-             account.signed_in/signed_out/limit.reached/limit.reset; hub.up/down/changed; credits.changed; \
-             documents.created/updated/changed; audience.requested/granted/denied/revoked; cli.started/ready/cold/evicted; \
-             agents.active/live. Agent/item/account events respect visibility. Count threshold is below N or at least N \
-             (false-to-true crossing); counts exclude the watcher. event_scope subtree is default, org requires full visibility. \
-             interval_s is a minimum fire gap (5s floor); bursts coalesce into bounded summaries. Storage failures retry with health diagnostics. Resume/restart refresh count baselines. Watchdog mail and its owner turn events never feed that owner's event dogs. Own cli.* events are excluded to prevent idle-eviction wake loops.",
+            "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher. Event/count/silence semantics and catalog are in the guide. No added authority.",
             json!({
                 "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
                 "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
@@ -735,37 +644,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_work",
-            "THE DOCKET: the org's durable record of substantive work, read by the user. Items survive retirement, \
-             compaction and reassignment. An item is identified ONLY by its readable `slug` (fixed at creation). Access: \
-             owner, creator, their superiors, the user, listed participants and the reviewer; an item attached to a \
-             PROJECT node (`project`) is co-owned, with full owner rights, by every agent above or below that project.\n\n\
-             ACTIONS: `list` — items you may read; include_archived / include_backlogged return those in their own keys, \
-             never inside `items` (`groups` gives every group's size). `get` — one item (compact by default; \
-             projection=full adds history and attachments). `create` — title, REQUIRED objective, kind code|non-code, owner \
-             (you or a subordinate), participants, dependencies, parent, optional first progress lists. `update` — THE \
-             status update: carries done_so_far AND working_on_next (either may be empty, not both) plus optional status, \
-             blocked_reason, dropped_reason, reviewer, attention, reopen. YOUR OWN UPDATE CLAIMS THE ITEM: on someone \
-             else's item pass `owner` = its current holder. To avoid re-sending lists pass expected_rev with \
-             keep_done/keep_next or done_append/next_append. `assign` — changes ownership ONLY, never status. `handoff` — \
-             the owner asks its superior to take the item (ownership unchanged). `participants` — add/remove \
-             collaborators; participants control state and evidence; retitling, re-scoping and assigning stay \
-             owner-level. `evidence` (kind note|link|file|commit|log, ref, note; `items` for a batch; max 50, refused not \
-             truncated). `accept` or status done — complete the item. `archive` (close early), `supersede` (by another \
-             item: `by`), `move` (nest under `parent`), `delete` — permanently removes the record (its name is never \
-             reused); only the user, a superior of the owner or a top-level owner, and refused while it has sub-items or \
-             an open attached question. Prefer archive or dropped.\n\n\
-             DESCRIPTION (`objective`): the FIRST PARAGRAPH states the PROBLEM, then briefly the solution; every later \
-             paragraph carries the specifications, requirements, edge cases and rulings. It is the item's authoritative \
-             standalone scope. Markdown, never truncated; `objective_append` adds to it.\n\n\
-             STATUSES: backlogged (not yet approached or approved; not counted as active), open, in_progress, blocked \
-             (needs blocked_reason; say how you will hear it is unblocked), review (checked by the agent named in \
-             `reviewer`), approved, deploy_ready (complete, awaiting deployment), done, dropped (terminal non-success; \
-             needs dropped_reason; archives at once). Done items archive an hour after their last update.\n\n\
-             USER ATTENTION: `review` is never how you ask the user. A question goes through orgtree_ask with work_item; \
-             attention:true + attention_reason is for something the user must see that is not a question. Omitting \
-             `attention` leaves a standing flag in place: retract your own with attention:false, refine it with \
-             attention_amend. A user dismissal keeps done/review and blocks other statuses; an exact repeat of a dismissed \
-             flag is refused. The user's replies on an item go to its owner; question answers go to the asker.",
+            "Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. Project items are co-owned by agents above/below. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.",
             json!({
                 "action": { "type": "string", "enum": ["list", "get", "create", "update", "accept", "assign", "handoff",
                                                       "participants", "evidence", "archive", "supersede", "move", "delete"] },
@@ -810,13 +689,7 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_staff",
-            "STAFF WORK IN ONE CALL: orgtree_work create (or update) + orgtree_hire (or rehire) + orgtree_work assign. \
-             The seat is created first and the item is written with that agent as owner (assignment is ownership: it \
-             holds the item and gets the user's replies). The assignment mail starts the agent; `kickoff` is optional. \
-             Pass `node` to rehire an archived agent or omit it to hire. ⚠ `parent` here is the parent WORK ITEM; place \
-             the seat with `target`/`hire_type`. For an already-live agent use orgtree_work assign; to give an existing \
-             item to a new hire use orgtree_hire `work_item` (staffed backlog opens). Progress is optional here: \
-             omit done_so_far and working_on_next to keep the stored lists (a 'staffed' line is written on a new item).",
+            "Create/update a docket item and hire/rehire its owner atomically; assignment mail starts work. parent is the WORK ITEM; target/hire_type place the seat. Live agent: use work assign. Requires docket+team permissions; credit/scope limits match hire/rehire. Omitted progress keeps stored lists. Read guide before assigning.",
             merge(
                 json!({ "action": { "type": "string", "enum": ["create", "update"] }, "slug": { "type": "string" },
                         "title": { "type": "string" }, "objective": { "type": "string" },
@@ -845,8 +718,7 @@ fn all() -> Vec<Value> {
         tool("orgtree_swap", "Swap the seats of two agents below you.", json!({ "a": { "type": "string" }, "b": { "type": "string" } }), &["a", "b"]),
         tool(
             "orgtree_self_subjugate",
-            "Step down: one of your live descendants (target) takes your seat under your superior, keeping its own \
-             team, and you become its report with the rest of yours.",
+            "Step down under one live descendant: target takes your seat under your superior, keeps its team, and you become its report with the rest of yours.",
             json!({ "target": { "type": "string" } }),
             &["target"],
         ),
@@ -914,6 +786,7 @@ mod startup_card_tests {
 
     #[test]
     fn startup_card_rare_hints_preserve_scope_and_common_tools() {
+        assert_eq!(sdk_server(), json!({"type":"sdk","name":"orgtree"}), "no server override of per-card load policy");
         let off = json!({"orgtree": crate::domain::tool_groups::GROUPS.iter().map(|g| ((*g).to_owned(), json!(false))).collect::<serde_json::Map<_,_>>()});
         assert_eq!(scoped(&off).len(),4,"scope must still omit denied groups");
         let cards = scoped(&json!({}));
@@ -940,7 +813,7 @@ mod mail_shape_tests {
         ], "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'; or a list of up to 10 of them" });
         let message = json!({
             "name": "orgtree_message",
-            "description": MESSAGE_DESC,
+            "description": format!("{MESSAGE_DESC}\nGuide: orgtree-tool-message."),
             "inputSchema": { "type": "object", "properties": {
                 "to": to.clone(),
                 "body": { "type": "string" },
@@ -961,7 +834,7 @@ mod mail_shape_tests {
         });
         let notice = json!({
             "name": "orgtree_send_notice",
-            "description": NOTICE_DESC,
+            "description": format!("{NOTICE_DESC}\nGuide: orgtree-tool-send-notice."),
             "inputSchema": { "type": "object", "properties": { "to": to, "body": { "type": "string" } }, "required": ["to", "body"] },
             "_meta": { "anthropic/alwaysLoad": true },
         });
