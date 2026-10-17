@@ -3,11 +3,11 @@
 
 use std::io::Cursor;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use axum::extract::Query;
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures::StreamExt;
 use serde::Deserialize;
@@ -39,14 +39,18 @@ async fn local_image(path: String) -> Result<Vec<u8>, StatusCode> {
     if path.len() > 32_768 {
         return Err(StatusCode::URI_TOO_LONG);
     }
-    let path = PathBuf::from(path);
-    if !path.is_absolute() {
-        return Err(StatusCode::BAD_REQUEST);
+    let path = local_image_path(&path)?;
+    let metadata = local_image_metadata(&path).await?;
+    if metadata.len() > MAX_BYTES as u64 {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
     let file = tokio::fs::File::open(path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
     let metadata = file.metadata().await.map_err(|_| StatusCode::NOT_FOUND)?;
+    if !metadata.is_file() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     if metadata.len() > MAX_BYTES as u64 {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -61,6 +65,59 @@ async fn local_image(path: String) -> Result<Vec<u8>, StatusCode> {
     }
     validate_image(&bytes)?;
     Ok(bytes)
+}
+
+fn local_image_path(raw: &str) -> Result<PathBuf, StatusCode> {
+    let bytes = raw.as_bytes();
+    if bytes.len() < 3
+        || !bytes[0].is_ascii_alphabetic()
+        || bytes[1] != b':'
+        || !matches!(bytes[2], b'\\' | b'/')
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let path = PathBuf::from(raw);
+    if !path.is_absolute() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(path)
+}
+
+/// Inspect each component without following a symlink or reparse point before
+/// opening the image. Besides rejecting non-files, this prevents a local path
+/// from redirecting a later component lookup to a remote share.
+async fn local_image_metadata(path: &Path) -> Result<std::fs::Metadata, StatusCode> {
+    let raw = path.to_str().ok_or(StatusCode::BAD_REQUEST)?;
+    let mut current = PathBuf::from(&raw[..3]);
+    let mut metadata = tokio::fs::symlink_metadata(&current)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let components = path.components().skip(2).collect::<Vec<_>>();
+    if components.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    for (index, component) in components.iter().enumerate() {
+        current.push(component.as_os_str());
+        metadata = tokio::fs::symlink_metadata(&current)
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?;
+        if metadata.file_type().is_symlink() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        let final_component = index + 1 == components.len();
+        if final_component {
+            if !metadata.is_file() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        } else if !metadata.is_dir() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+    Ok(metadata)
 }
 
 async fn remote_image(raw: String) -> Result<Vec<u8>, StatusCode> {
@@ -322,5 +379,39 @@ mod tests {
         assert!(!is_public_ip("169.254.169.254".parse().unwrap()));
         assert!(!is_public_ip("::1".parse().unwrap()));
         assert!(!is_public_ip("fd00::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn local_image_path_accepts_only_absolute_drive_paths() {
+        for path in [r"C:\images\chart.png", "D:/images/chart.png"] {
+            assert!(
+                local_image_path(path).is_ok(),
+                "drive path should pass: {path}"
+            );
+        }
+
+        for path in [
+            r"\\server\share\chart.png",
+            "//server/share/chart.png",
+            r"\\?\C:\images\chart.png",
+            r"\\?\UNC\server\share\chart.png",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\chart.png",
+            r"\\.\C:\images\chart.png",
+            r"\\.\pipe\orgtree-image",
+            r"\\.\PhysicalDrive0",
+            r"\??\C:\images\chart.png",
+            r"\Device\HarddiskVolume1\chart.png",
+            r"C:images\chart.png",
+            r"\images\chart.png",
+            "/images/chart.png",
+            "relative/chart.png",
+            "",
+        ] {
+            assert_eq!(
+                local_image_path(path).unwrap_err(),
+                StatusCode::BAD_REQUEST,
+                "non-drive path must be rejected without opening it: {path}"
+            );
+        }
     }
 }
