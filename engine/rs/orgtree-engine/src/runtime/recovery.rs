@@ -116,19 +116,17 @@ pub fn reset_in_seconds(text: &str) -> Option<i64> {
     (total > 0).then_some(total)
 }
 
-/// 3.x `classify_countdown` (anchor once): a countdown that differs from the
-/// last wall's (`prior`: `{secs, until}`) is this turn's evidence; the same
-/// countdown keeps the deadline it set while that is still ahead, and once
-/// it has passed the sentence describes no present wall (the CLI was measured
-/// repeating one for 13 hours), so only the probe floor is honest.
+/// A newly refused request is current reset evidence even when the CLI repeats
+/// the duration of an earlier wall. Never replace it with the probe floor.
 #[logged]
 pub fn countdown_until(secs: i64, prior: &Value, now: chrono::DateTime<Utc>) -> (&'static str, chrono::DateTime<Utc>) {
-    if prior["secs"].as_i64() != Some(secs) {
-        return ("fresh", now + chrono::Duration::seconds(secs));
-    }
-    match prior["until"].as_str().and_then(crate::util::parse_ts) {
-        Some(until) if until > now => ("repeat", until),
-        _ => ("stale", now + chrono::Duration::seconds(PROBE_FLOOR_S)),
+    let current = chrono::Duration::try_seconds(secs).and_then(|d| now.checked_add_signed(d))
+        .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC);
+    let previous = (prior["secs"].as_i64() == Some(secs))
+        .then(|| prior["until"].as_str().and_then(crate::util::parse_ts)).flatten();
+    match previous {
+        Some(until) if until > current => ("repeat", until),
+        _ => ("fresh", current),
     }
 }
 

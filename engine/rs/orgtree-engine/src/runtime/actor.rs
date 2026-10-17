@@ -407,6 +407,8 @@ struct Turn {
     muse_error: Option<(String, bool)>,
     /// Muse: a typed quota refusal's reset (`error.quota.resetsAtMs`)
     muse_quota: Option<DateTime<Utc>>,
+    /// Structured reset evidence belongs only to the turn that received it.
+    rate_limit: Option<Value>,
     /// Muse: the kind of each open item, by item id (deltas name only the id)
     muse_items: HashMap<String, String>,
     /// Muse: the turn's tool calls in flight, by item id (MSP: a tool
@@ -473,6 +475,7 @@ impl Turn {
             codex_error: None,
             muse_error: None,
             muse_quota: None,
+            rate_limit: None,
             muse_items: HashMap::new(),
             muse_tools: HashMap::new(),
             acp_items: HashMap::new(),
@@ -811,7 +814,6 @@ struct Actor {
     /// sign-in helper), chosen once per launch so its prompt matches its mode
     codex_seat: Option<(bool, String, codexrt::Sandbox, Option<u32>)>,
     activity: Option<(String, Option<String>)>,
-    rate_limit: Option<Value>,
     /// the CLI's running session cost at the last result (its counter is cumulative)
     cost_seen: f64,
     /// Antigravity: the private folder its steer hook reads mid-turn mail from
@@ -952,7 +954,6 @@ impl Actor {
             use_session: None,
             codex_seat: None,
             activity: None,
-            rate_limit: None,
             cost_seen: row.get(1),
             agy_steer_dir: None,
             board_sent: None,
@@ -4307,8 +4308,8 @@ impl Actor {
                 _ => {}
             },
             Some("rate_limit_event") => {
-                self.rate_limit = v.get("rate_limit_info").cloned();
                 if let Some(turn) = self.turn.as_mut() {
+                    turn.rate_limit = v.get("rate_limit_info").cloned();
                     turn.limit_signal |= crate::account_marks::limit_signal(&v["rate_limit_info"]);
                 }
             }
@@ -4347,8 +4348,8 @@ impl Actor {
                 }
             }
             "account/rateLimits/updated" => {
-                self.rate_limit = Some(p["rateLimits"].clone());
                 if let Some(turn) = self.turn.as_mut() {
+                    turn.rate_limit = Some(p["rateLimits"].clone());
                     turn.limit_signal |= crate::account_marks::limit_signal(&p["rateLimits"]);
                 }
             },
@@ -6436,58 +6437,9 @@ impl Actor {
         }
     }
 
-    /// The usage limit this failure reports, if it is one: when it lifts, and
-    /// the wall to remember when its own countdown said so (`prior`: the last
-    /// one, for 3.x's anchor-once rule).
-    fn limit_of(&self, error: &str, prior: &Value) -> Option<(DateTime<Utc>, Option<Value>)> {
-        let lower = error.to_lowercase();
-        let rejected = self
-            .rate_limit
-            .as_ref()
-            .map(|r| r["status"] == "rejected" || !r["rateLimitReachedType"].is_null())
-            .unwrap_or(false);
-        let worded = lower.contains("usage limit")
-            || lower.contains("hit your limit")
-            || lower.contains("limit reached")
-            || lower.contains("rate limit")
-            || lower.contains("resets")
-            || recovery::worded_limit(error);
-        if !rejected && !worded {
-            return None;
-        }
-        let from_info = self
-            .rate_limit
-            .as_ref()
-            .and_then(|r| {
-                r["resetsAt"].as_i64().or_else(|| {
-                    ["primary", "secondary"]
-                        .iter()
-                        .filter(|w| r[**w]["usedPercent"].as_i64().unwrap_or(0) >= 100)
-                        .filter_map(|w| r[*w]["resetsAt"].as_i64())
-                        .max()
-                })
-            })
-            .and_then(|t| DateTime::from_timestamp(t, 0))
-            .filter(|t| *t > Utc::now());
-        if let Some(t) = from_info {
-            return Some((t, None));
-        }
-        // the wall's own "Resets in 2h53m47s", anchored once (3.x)
-        if let Some(secs) = recovery::reset_in_seconds(error) {
-            let (kind, until) = recovery::countdown_until(secs, prior, Utc::now());
-            tracing::info!(agent = %self.name, countdown = kind, secs, until = %iso(until), "usage limit countdown");
-            return Some((until, Some(json!({ "secs": secs, "until": iso(until) }))));
-        }
-        let from_text = error
-            .split('|')
-            .nth(1)
-            .and_then(|s| s.trim().parse::<i64>().ok())
-            .and_then(|t| DateTime::from_timestamp(t, 0));
-        Some((from_text.unwrap_or_else(|| Utc::now() + chrono::Duration::hours(1)), None))
-    }
-
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
+        let refusal_at = Utc::now();
         // Process exits and interrupts do not necessarily carry an `agy`
         // result. Settle the outstanding hook handoff on every exit path.
         if let Err(e) = self.settle_agy_steer().await {
@@ -6633,15 +6585,26 @@ impl Actor {
             Some(_) => self.last_wall().await,
             None => Value::Null,
         };
-        // Muse types its quota refusal (kind and reset); its words are never parsed
-        let (limit, wall) = if muse {
-            (turn.muse_quota.filter(|_| error.is_some()), None)
-        } else {
-            match error.as_deref().and_then(|e| self.limit_of(e, &prior_wall)) {
-                Some((until, wall)) => (Some(until), wall),
-                None => (None, None),
+        let mut reset = error.as_deref().and_then(|e| super::usage_reset::reported(e, turn.rate_limit.as_ref(), &prior_wall, refusal_at));
+        if muse {
+            // Typed Muse quota resets remain authoritative. Its generic errors
+            // keep their previous recovery path when no reset was reported.
+            reset = match (turn.muse_quota.filter(|_| error.is_some()), reset) {
+                (Some(until), parsed) => Some(super::usage_reset::Reset {
+                    until: parsed.filter(|r| r.parsed).map(|r| r.until.max(until)).unwrap_or(until), wall: None, parsed: true }),
+                (None, parsed) => parsed.filter(|r| r.parsed),
+            };
+        }
+        if let Some(r) = reset.as_mut() {
+            if let Some(reading) = crate::usage::freeze_reading(&self.engine, &turn.serving_provider, turn.serving_account.as_deref()) {
+                if let Some(cached) = super::usage_reset::cached_reset(&turn.serving_provider, &turn.serving_tier,
+                    super::usage_reset::window(turn.rate_limit.as_ref()), &reading, refusal_at, Utc::now()) {
+                    r.until = r.until.max(cached);
+                }
             }
-        };
+            tracing::info!(agent = %self.name, until = %iso(r.until), parsed = r.parsed, "usage limit reset");
+        }
+        let (limit, wall) = reset.map(|r| (Some(r.until), r.wall)).unwrap_or((None, None));
         let mut freeze_rec: Option<Value> = None;
         // an opted-in agent may move to another account; that search reads
         // usage and runs after this turn is settled, off the actor (3.x: the
@@ -6826,7 +6789,7 @@ impl Actor {
                     .await;
             }
             if let Some(until) = limit {
-                let win = self.rate_limit.as_ref().and_then(|r| r["rateLimitType"].as_str().map(str::to_string));
+                let win = super::usage_reset::window(turn.rate_limit.as_ref()).map(str::to_string);
                 let pool = if agy {
                     format!("agy:{}", catalog::antigravity_pool(&turn.serving_tier))
                 } else if muse {
