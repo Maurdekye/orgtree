@@ -66,3 +66,33 @@ test('an unrecognized pinned version falls back to the tree model id, not the ca
     title: 'gpt-5.6-sol · max',
   })
 })
+
+test('tooltip formats Muse, Antigravity, OpenRouter and llama.cpp model names with their provider', () => {
+  const catalog = [
+    { id: 'muse', tiers: [{ tier: 'wonder-full', display_name: 'Muse Wonder Full 1.0' }] },
+    { id: 'google', tiers: [
+      { tier: 'agy-opus', display_name: 'Opus 5.5 (Antigravity)' },
+      { tier: 'argon', display_name: 'Gemini Argon 4' },
+    ] },
+    { id: 'openrouter', tiers: [{ tier: 'or-xiaomi-mimo-v2-6-pro', name: 'Xiaomi MiMo V2.6 Pro' }] },
+    { id: 'langserver', tiers: [{ tier: 'ls-llamacpp-qwen3-8-27b-iq3xxs', name: 'Qwen3.8 27B IQ3_XXS' }] },
+  ]
+  const format = (tier: string, model: string) => agentTooltipInfo(node({
+    tier, model_id: model, effort_effective: 'high', scope: {},
+  }), catalog as never)?.title
+
+  assert.equal(format('wonder-full', 'muse-wonder-full-1.0'), 'Muse Wonder Full 1.0 · high')
+  assert.equal(format('agy-opus', 'claude-opus-5-5-high'), 'Opus 5.5 (Antigravity) · high')
+  assert.equal(format('argon', 'gemini-4-argon'), 'Gemini Argon 4 · high')
+  assert.equal(format('or-xiaomi-mimo-v2-6-pro', 'mimo-v2.6-pro'),
+    'OpenRouter Xiaomi MiMo V2.6 Pro · high')
+  assert.equal(format('ls-llamacpp-qwen3-8-27b-iq3xxs', 'qwen3.8-27b-iq3xxs'),
+    'llama.cpp Qwen3.8 27B IQ3_XXS · high')
+})
+
+test('tooltip shows the resolved org default when the agent has no effort setting', () => {
+  assert.deepEqual(agentTooltipInfo(node({ effort_effective: undefined, scope: {} }),
+    providers(), accounts(['claude/primary']) as never, 'medium'), {
+    title: 'Claude Opus 5.5 · medium',
+  })
+})
