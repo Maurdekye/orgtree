@@ -26,7 +26,8 @@ All content-bearing helpers and the step handler are unlogged. A future native
 
 Migration 0028 adds an indexed receipt for each agent/conversation/step. The
 receipt, thinking row and response row commit in one short transaction. A replay
-or restarted actor sees the receipt and inserts nothing; a failed transaction
+or restarted actor sees the receipt and inserts nothing; its response-present
+flag also suppresses result fallback when old text deltas were not replayed. A failed transaction
 leaves no receipt or partial thinking row. Receipt rows contain no content.
 
 ## Limits and author verification
@@ -43,5 +44,8 @@ invalid identities, bounded UTF-8 payloads, signatures/redaction, an exclusive
 writer without read locks/waits, malformed protobuf, WAL/schema skips, native
 stream preference and thinking-before-response rows. A disposable PostgreSQL
 fixture exercises real receipt SQL across replay, writer reload and rollback.
-The red controls are committed at 603f621; red and green runs are queued and
-have not yet been measured. No real history content is used in author tests.
+The red controls at 603f621 executed on 2026-10-17 19:31Z: eight tests,
+one pass and seven predicted assertion failures, raw Cargo exit101. The
+independent red harness compiled in12.75s; the test run took0.11s. Implementation
+compilation, green tests and the PostgreSQL fixture remain queued. No real
+history content is used in author tests.
