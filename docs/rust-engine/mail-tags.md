@@ -112,7 +112,9 @@ through this route.
 The rebased engine red de4b832 executes ten cases (three intended failures and
 seven controls). Its renderer executes eleven cases: eight intended failures,
 one passing control and two invalid reply fixtures, corrected in f5df1f2.
-Those reply fixtures require a separate valid UI red before label removal.
+Corrected UI red at3f2cae4 executes eleven cases: ten pass, with one intended
+user-inbox reply-label failure after the quote/header/other-kind positive
+controls pass. The scoped removal follows that valid red.
 `tools/rig/proofs/mail-tags-multi.mjs` covers actual AND ordering/cursors, >200
 used tags, orphan exclusion, substring search and Delete-to-revision with an
 unchanged visible window. Prepared checks are not passes; the docket records
