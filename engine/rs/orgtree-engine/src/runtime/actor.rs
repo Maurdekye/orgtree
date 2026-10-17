@@ -838,7 +838,7 @@ struct Actor {
     /// Antigravity: the private folder its steer hook reads mid-turn mail from
     agy_steer_dir: Option<PathBuf>,
     /// the usage board last sent in full: (session, material key, its number)
-    board_sent: Option<(Option<String>, String, u32)>,
+    board_sent: Option<Value>,
     provider: String,
     /// Codex: the thread's latest cumulative token counts
     codex_total: Option<Value>,
@@ -4061,7 +4061,7 @@ impl Actor {
                 None
             }
         };
-        let (context, envelope_record) = self.turn_context(&ctx).await;
+        let (context, envelope_record, board_record) = self.turn_context(&ctx).await;
         let budget = self.mail_input_budget();
         let composed = async {
             // Only generated org state + usage can be persisted here; not the
@@ -4133,6 +4133,8 @@ impl Actor {
             }).unwrap_or_default();
             return Err(anyhow!("the {} process did not accept the turn{why}", catalog::provider_label(&ctx.provider)));
         }
+        // A rejected turn must not advance either envelope baseline.
+        self.board_sent = board_record;
         if let Some(r) = envelope_record {
             // D-223: the agent now holds this snapshot; later turns may point at it
             if let Err(e) = crate::runtime::envelope::commit(&self.engine, self.id, &r).await {
@@ -4174,18 +4176,10 @@ impl Actor {
         Ok(true)
     }
 
-    /// The PROVIDER USAGE block for this turn: in full (numbered) when it
-    /// changed or the session is new, else one line pointing at the last one.
-    fn usage_block(&mut self, ctx: &Ctx) -> String {
-        let (text, key) = crate::usage::turn_board(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.tier, &ctx.org_slug);
-        if let Some((session, last, seq)) = &self.board_sent {
-            if *session == ctx.session_id && *last == key {
-                return format!("[PROVIDER USAGE #{seq} — unchanged since #{seq} earlier in this conversation; read the numbers there]");
-            }
-        }
-        let seq = self.board_sent.as_ref().map(|(_, _, n)| n + 1).unwrap_or(1);
-        self.board_sent = Some((ctx.session_id.clone(), key, seq));
-        text.replacen("[PROVIDER USAGE", &format!("[PROVIDER USAGE #{seq}"), 1)
+    /// Prepare, but do not install, a usage snapshot until send succeeds.
+    fn usage_block(&self, ctx: &Ctx) -> crate::runtime::envelope::OrgState {
+        crate::usage::turn_snapshot(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.tier, &ctx.org_slug,
+            ctx.session_id.as_deref().unwrap_or(""), self.board_sent.as_ref().unwrap_or(&Value::Null))
     }
 
     /// The per-turn envelope before the mail (3.x layout, D-181): the
@@ -4193,7 +4187,7 @@ impl Actor {
     /// stay out of the system prompt so the provider's cache survives hires
     /// and status changes. Returns the text and the D-223 record to store once
     /// the turn was sent.
-    async fn turn_context(&mut self, ctx: &Ctx) -> (String, Option<Value>) {
+    async fn turn_context(&self, ctx: &Ctx) -> (String, Option<Value>, Option<Value>) {
         let (mut s, record) = match crate::runtime::envelope::org_state(&self.engine, self.id).await {
             Ok(st) => (st.text, st.record),
             Err(e) => {
@@ -4202,11 +4196,11 @@ impl Actor {
             }
         };
         let usage = self.usage_block(ctx);
-        if !usage.is_empty() {
+        if !usage.text.is_empty() {
             s.push_str("\n\n");
-            s.push_str(&usage);
+            s.push_str(&usage.text);
         }
-        (s, record)
+        (s, record, usage.record)
     }
 
     /// How each sender stands to this agent, for the `[MAIL]` headers.

@@ -2026,6 +2026,26 @@ fn countdown(secs: i64) -> String {
 /// unchanged board can be sent as one line.
 #[nolog]
 pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: &str, org_slug: &str) -> (String, String) {
+    let board = turn_board_parts(engine, provider, account, tier, org_slug);
+    (board.text, board.key)
+}
+
+struct TurnBoard {
+    text: String,
+    key: String,
+    entries: std::collections::BTreeMap<String, crate::runtime::envelope::delta::Entry>,
+    own: String,
+}
+
+/// Pure cache projection. A failed send must discard the proposed record.
+#[nolog]
+pub(crate) fn turn_snapshot(engine: &Engine, provider: &str, account: Option<&str>, tier: &str, org_slug: &str, sid: &str, prior: &Value) -> crate::runtime::envelope::OrgState {
+    let board = turn_board_parts(engine, provider, account, tier, org_slug);
+    crate::runtime::envelope::delta::snapshot("PROVIDER USAGE", sid, prior, board.entries, board.text, &board.own)
+}
+
+#[nolog]
+fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier: &str, org_slug: &str) -> TurnBoard {
     let now = Utc::now();
     let view = engine.accounts.view();
     let pin = engine.usage.cache.pin();
@@ -2069,6 +2089,7 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     lanes.retain(|(lane, _, _)| crate::org_accounts::allowed(Some(org_slug), lane));
     let mut lines: Vec<String> = Vec::new();
     let mut key_lines: Vec<String> = Vec::new();
+    let mut row_ids: Vec<String> = Vec::new();
     let mut roster: Vec<String> = Vec::new();
     for (lane, key, email) in &lanes {
         let star = if *lane == selected_lane { "*" } else { "" };
@@ -2076,6 +2097,7 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
             if star == "*" {
                 lines.push(format!("{lane}{star} | usage | - | - | - | - | not read yet"));
                 key_lines.push(format!("{lane}|none"));
+                row_ids.push(format!("{lane}|usage"));
             }
             continue;
         };
@@ -2101,10 +2123,17 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         if !c.data["available"].as_bool().unwrap_or(false) {
             let why = c.data["error"].as_str().map(|e| gist(e, 60)).unwrap_or_else(|| "no reading".into());
             lines.push(format!("{lane}{star} | usage | - | - | - | {observed} | unavailable ({why})"));
-            key_lines.push(format!("{lane}|unavailable"));
+            key_lines.push(format!("{lane}|unavailable|{why}"));
+            row_ids.push(format!("{lane}|usage"));
             continue;
         }
-        for l in current_reading(key, &c.data, now)["limits"].as_array().cloned().unwrap_or_default() {
+        let limits = current_reading(key, &c.data, now)["limits"].as_array().cloned().unwrap_or_default();
+        if limits.is_empty() {
+            lines.push(format!("{lane}{star} | usage | - | - | - | {observed} | unknown; no windows reported"));
+            key_lines.push(format!("{lane}|empty|{}", age < BOARD_FRESH));
+            row_ids.push(format!("{lane}|usage"));
+        }
+        for l in limits {
             let marked = lane_account.and_then(|a| {
                 match (a.provider.as_str(), l["group"].as_str().unwrap_or("")) {
                     ("google", "3p-5h" | "3p-weekly") => a.limited_for("agy-sonnet", now),
@@ -2143,10 +2172,17 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
                 "ok"
             };
             lines.push(format!("{lane}{star} | {window} | {used} | {amount} | {reset} | {observed} | {state}"));
-            // the material part: a 5% band and the reset hour, never the reading's age
+            // A 5% band plus exact reset boundary and freshness class. No age
+            // ticks; a stale/unknown/limited transition is always material.
             let band = pct.map(|p| ((p / 5.0).floor() * 5.0) as i64).map(|b| b.to_string()).unwrap_or_else(|| "-".into());
-            let hour = l["resets_at"].as_str().map(|r| r.chars().take(13).collect::<String>()).unwrap_or_default();
-            key_lines.push(format!("{lane}|{window}|{band}|{hour}|{state}"));
+            let reset_at = l["resets_at"].as_str().unwrap_or("");
+            let reset_passed = l["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t <= now);
+            let secondary_stop = lane == "openai-1" && l["kind"].as_str().is_some_and(|k| k.starts_with("weekly")) && pct.is_some_and(|p| p >= 80.0);
+            let freshness = if age < BOARD_FRESH { "fresh" } else { "stale" };
+            if secondary_stop { if let Some(line) = lines.last_mut() { line.push_str("; openai-1 weekly >=80%: ineligible by policy"); } }
+            if reset_passed && !key.starts_with("muse:") { if let Some(line) = lines.last_mut() { line.push_str("; reset passed, awaiting reading"); } }
+            key_lines.push(format!("{lane}|{window}|{band}|{reset_at}|{state}|{freshness}|{reset_passed}|{secondary_stop}|{amount}"));
+            row_ids.push(format!("{lane}|{}|{}|{}|{window}", l["kind"], l["group"], l["model"]));
         }
     }
     // an OpenRouter key is listed above under its lane, not again here
@@ -2164,6 +2200,7 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         roster.push(format!("{lane} ({}, local)", gist(srv["label"].as_str().unwrap_or(""), 40)));
         lines.push(format!("{lane}{star} | local | - | - | - | - | no limit; {cap} agent(s) at once"));
         key_lines.push(format!("{lane}|local|{cap}"));
+        row_ids.push(format!("{lane}|local"));
     }
     let header = format!("[PROVIDER USAGE — current as of {}; dynamic/cache-only]", iso(now));
     let mut text = header;
@@ -2191,7 +2228,15 @@ Your turns run on {selected_lane} (tier {tier}): the user's own model server. It
     }
     text.push_str("\n[END PROVIDER USAGE]");
     let key = format!("{selected_lane}\n{tier}\n{}\n{}", roster.join("|"), key_lines.join("\n"));
-    (text, key)
+    let mut entries = std::collections::BTreeMap::new();
+    for ((id, semantic), line) in row_ids.into_iter().zip(key_lines).zip(lines) {
+        entries.insert(format!("window:{id}"), crate::runtime::envelope::delta::Entry::new(&id, &json!(semantic), line));
+    }
+    let accounts = format!("[ACCOUNTS] {}", roster.join(" · "));
+    entries.insert("accounts".into(), crate::runtime::envelope::delta::Entry::new("Visible accounts", &json!(roster), accounts));
+    let route = text.lines().rev().nth(1).unwrap_or("").to_string();
+    entries.insert("route".into(), crate::runtime::envelope::delta::Entry::new("Turn account", &json!([selected_lane,tier,provider]), route));
+    TurnBoard { text, key, entries, own: format!("turn account {selected_lane}, tier {tier}") }
 }
 
 #[cfg(test)]

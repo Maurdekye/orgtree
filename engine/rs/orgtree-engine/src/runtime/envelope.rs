@@ -30,6 +30,8 @@ use crate::engine::Engine;
 use crate::runtime::prompt::Mail;
 use crate::util::iso;
 
+pub(crate) mod delta;
+
 #[cfg(test)]
 mod header_delta_tests;
 
@@ -55,12 +57,6 @@ pub fn ping_for(mail: &[Mail]) -> &'static str {
 const CHART_LEGEND: &str = "\n(After \"·\": what each agent last SAID about itself via orgtree_status, and in brackets HOW OLD \
 that claim is — it is self-reported, so an old one may simply be wrong. \"▶ mid-turn\" is not self-reported: the system knows a \
 turn is executing right now.)";
-/// 3.x `_CHART_SUPPRESS_MIN`: a smaller chart is always sent whole.
-const CHART_SUPPRESS_MIN: usize = 280;
-/// 3.x envelope.py: a suppressed chart is re-sent at least this often.
-const FULL_REFRESH_TURNS: i64 = 10;
-const FULL_REFRESH_AGE_S: i64 = 900;
-const FULL_REFRESH_TOKENS: i64 = 60_000;
 /// 3.x WORKING_CHECKUP_AFTER_S: a "working" claim this old is flagged.
 const WORKING_STALE_S: i64 = 20 * 60;
 const STATUS_GIST_MAX: usize = 80;
@@ -77,6 +73,7 @@ struct Row {
     tier: String,
     state: String,
     halted: bool,
+    frozen: bool,
     status: Option<Value>,
     inflight_at: Option<DateTime<Utc>>,
     last_turn: Option<DateTime<Utc>>,
@@ -181,6 +178,7 @@ struct Tree<'a> {
     now: DateTime<Utc>,
     me: i64,
     hidden: usize,
+    shown: Vec<i64>,
 }
 
 impl<'a> Tree<'a> {
@@ -209,12 +207,14 @@ impl<'a> Tree<'a> {
                 }
             }
             let mut tags: Vec<String> = Vec::new();
+            self.shown.push(r.id);
             if r.state != "live" {
                 tags.push(r.state.clone());
             }
             if r.halted {
                 tags.push("halted — explicit unhalt required".into());
             }
+            if r.frozen { tags.push("frozen (usage limit)".into()); }
             let state = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
             let note = status_note(r, self.live.get(&r.id).copied().unwrap_or_default(), self.now);
             let note = if note.is_empty() { String::new() } else { format!(" · {note}") };
@@ -243,29 +243,6 @@ fn digest(text: &str) -> String {
         h = h.wrapping_mul(0x100000001b3);
     }
     format!("{h:016x}")
-}
-
-/// 3.x envelope.py `decide`: send the chart whole, or point at the last one.
-#[nolog]
-fn decide(prior: &Value, sid: &str, dig: &str, occ: i64, now: DateTime<Utc>) -> bool {
-    let Some(p) = prior.as_object() else { return true };
-    if sid.is_empty() || p.get("sid").and_then(Value::as_str) != Some(sid) {
-        return true;
-    }
-    if p.get("dig").and_then(Value::as_str) != Some(dig) {
-        return true;
-    }
-    let pocc = p.get("occ").and_then(Value::as_i64).unwrap_or(0);
-    if occ > 0 && pocc > 0 && (occ < pocc || occ - pocc >= FULL_REFRESH_TOKENS) {
-        return true;
-    }
-    if p.get("turns").and_then(Value::as_i64).unwrap_or(0) + 1 > FULL_REFRESH_TURNS {
-        return true;
-    }
-    match p.get("at").and_then(Value::as_str).and_then(crate::util::parse_ts) {
-        Some(at) if now >= at => (now - at).num_seconds() >= FULL_REFRESH_AGE_S,
-        _ => true,
-    }
 }
 
 /// The `[ORG STATE …]` block for one agent (3.x `org_state_block` with the
@@ -304,7 +281,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let rows: Vec<Row> = client
         .query(
             "SELECT a.id, a.name, a.parent_id, a.tier, a.state, a.halt IS NOT NULL, a.last_status, a.inflight_at,
-                    (SELECT t.started_at FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1)
+                    (SELECT t.started_at FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1), a.frozen IS NOT NULL
                FROM ot.agents a
               WHERE a.org_id = $1 AND a.state IN ('live', 'archived', 'unrecoverable')
               ORDER BY a.sibling_order, a.id LIMIT $2",
@@ -322,6 +299,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
             status: r.get(6),
             inflight_at: r.get(7),
             last_turn: r.get(8),
+            frozen: r.get(9),
         })
         .collect();
     let ask = client
@@ -334,11 +312,10 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     drop(client);
     let live: HashMap<i64, Live> = rows.iter().filter(|r| r.state == "live").map(|r| (r.id, live_of(engine, r.id))).collect();
     let facts = Facts {
-        agent_id, my_name, parent, vis, seat, grant, hold, sid, occ: occ as i64, prior, superior, user_audience, rows, ask,
+        agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy,
     };
-    let mut state = render(&facts, &live, Utc::now());
-    state.text = state.text.replacen("\nCredits:", &format!("\n{peer_policy}\nCredits:"), 1);
-    Ok(state)
+    let _ = occ; // occupancy no longer forces periodic full snapshots
+    Ok(render(&facts, &live, Utc::now()))
 }
 
 /// Everything `render` reads, loaded in one go.
@@ -352,10 +329,10 @@ struct Facts {
     grant: f64,
     hold: f64,
     sid: Option<String>,
-    occ: i64,
     prior: Option<Value>,
     superior: Option<String>,
     user_audience: bool,
+    peer_policy: String,
     rows: Vec<Row>,
     /// the agent's open request: (kind, body, posed at)
     ask: Option<(String, Value, DateTime<Utc>)>,
@@ -364,8 +341,8 @@ struct Facts {
 /// The block from loaded facts (no IO).
 #[nolog]
 fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState {
-    let Facts { agent_id, my_name, parent, vis, seat, grant, hold, sid, occ, prior, superior, user_audience, rows, ask } = f;
-    let (agent_id, parent, occ, vis) = (*agent_id, *parent, *occ, vis.as_str());
+    let Facts { agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy } = f;
+    let (agent_id, parent, vis) = (*agent_id, *parent, vis.as_str());
     let mut kids: HashMap<Option<i64>, Vec<&Row>> = HashMap::new();
     for r in rows {
         kids.entry(r.parent).or_default().push(r);
@@ -384,7 +361,7 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         format!("Your reports: {reports}. Your peers: {peers}.")
     };
 
-    let mut tree = Tree { by_id, kids, live, now, me: agent_id, hidden: 0 };
+    let mut tree = Tree { by_id, kids, live, now, me: agent_id, hidden: 0, shown: Vec::new() };
     let mut chart = String::new();
     let mut lines: Vec<String> = Vec::new();
     if vis == "subtree" {
@@ -449,42 +426,36 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         );
     }
     let guidance_line = if guidance.is_empty() { String::new() } else { format!("\n{guidance}") };
-    let tail = format!(
-        "Credits: seat {seat}, grant {grant}, free {} — credits bound concurrent agent capacity, not tokens.{guidance_line}{ask_line}",
+    let credits = format!(
+        "Credits: seat {seat}, grant {grant}, free {} — credits bound concurrent agent capacity, not tokens.",
         crate::util::round2(*grant - *hold)
     );
-
-    // D-223: number the snapshot; point at the last chart while it holds
-    let sid = sid.clone().unwrap_or_default();
-    let mut seq: Option<i64> = None;
-    let mut record = None;
-    let mut chart_text = chart.clone();
-    if chart.len() >= CHART_SUPPRESS_MIN {
-        let dig = digest(&chart);
-        let prior = prior.clone().unwrap_or(Value::Null);
-        let full = decide(&prior, &sid, &dig, occ, now);
-        let pseq = prior.get("seq").and_then(Value::as_i64);
-        let n = if full || pseq.is_none() { pseq.unwrap_or(0) + 1 } else { pseq.unwrap_or(1) };
-        seq = Some(n);
-        if full || pseq.is_none() {
-            record = Some(json!({ "seq": n, "dig": dig, "sid": sid, "at": iso(now), "occ": occ, "turns": 0 }));
-        } else {
-            let turns = prior.get("turns").and_then(Value::as_i64).unwrap_or(0) + 1;
-            let mut p = prior.clone();
-            p["turns"] = json!(turns);
-            record = Some(p);
-            chart_text = format!(
-                "\n(Chart unchanged since #{n}: {} rows, read it there — or call orgtree_chart for a fresh one.)",
-                chart.matches('\n').count()
-            );
-        }
+    let mut entries = std::collections::BTreeMap::new();
+    for (id, label, text) in [("roster", "Reports/peers", roster.clone()), ("credits", "Credits", credits.clone()),
+        ("guidance", "User audience guidance", guidance.clone()), ("ask", "Open request", ask_line.trim().to_string()),
+        ("peer_policy", "Peer mail policy", peer_policy.clone())] {
+        entries.insert(id.into(), delta::Entry::new(label, &json!(text), if text.is_empty() { format!("{label}: none") } else { text }));
+    }
+    // Match chart visibility exactly. Self-only readers still need their own
+    // frozen/halted state; peer names remain visible through the roster only.
+    let mut own_state = String::new();
+    for r in rows.iter().filter(|r| tree.shown.contains(&r.id) || r.id == agent_id) {
+        let live = live.get(&r.id).copied().unwrap_or_default();
+        let parent_name = r.parent.and_then(|id| tree.by_id.get(&id)).map(|p| p.name.as_str()).unwrap_or("user");
+        let text = format!("- {} [{}], parent {parent_name}, state {}{}{} · {}", r.name, r.tier, r.state,
+            if r.halted { ", halted — explicit unhalt required" } else { "" },
+            if r.frozen { ", frozen (usage limit)" } else { "" }, status_note(r, live, now));
+        let before_last = matches!((r.status.as_ref().and_then(|v| ts(v,"at")), r.last_turn), (Some(a),Some(t)) if t>a);
+        let semantic = json!([r.name,r.parent,r.tier,r.state,r.halted,r.frozen,r.status,live.busy,live.waiting,r.inflight_at,before_last]);
+        entries.insert(format!("agent:{}",r.id), delta::Entry::new(&r.name, &semantic, text.clone()));
+        if vis == "self" && r.id == agent_id { own_state = format!("\nYour state: {text}"); }
     }
     let header = format!(
-        "{ORG_STATE_OPEN}{} — current as of {}. Newest wins; EARLIER COPIES IN THIS CONVERSATION ARE STALE.]",
-        seq.map(|n| format!(" #{n}")).unwrap_or_default(),
+        "{ORG_STATE_OPEN} — current as of {}. Later deltas replace only named facts; call orgtree_chart for a current full view.]",
         iso(now)
     );
-    OrgState { text: format!("{header}\n{roster}{chart_text}\n{tail}\n{ORG_STATE_CLOSE}"), record }
+    let full = format!("{header}\n{roster}{chart}{own_state}\n{peer_policy}\n{credits}{guidance_line}{ask_line}\n{ORG_STATE_CLOSE}");
+    delta::snapshot("ORG STATE", sid.as_deref().unwrap_or(""), prior.as_ref().unwrap_or(&Value::Null), entries, full, "")
 }
 
 /// Store the D-223 record once the turn's text reached the CLI.
