@@ -420,6 +420,32 @@ uiTest('§8 manual attention box renders reason and clickable author', async (mo
   assert.equal(focused, 'codex-checklist')
 })
 
+uiTest('an attention ticket opens at the bottom of the detail pane', async (mount) => {
+  const ordinary = mkItem({ slug: 'ordinary', title: 'Ordinary ticket' })
+  const attention = mkItem({
+    slug: 'needs-attention',
+    title: 'Needs attention',
+    effective_attention: true,
+    attention_sources: ['manual'],
+    manual_attention: {
+      reason: 'Please review the rollout plan',
+      at: '2026-09-05T09:40:00.000Z',
+      by: { node: 'codex-checklist', generation: 1 },
+      set_rev: 2,
+    },
+  })
+  mockWorkItems([ordinary, attention])
+  const { el } = await mount(docketModal())
+  const detail = pane(el) as HTMLElement
+  Object.defineProperty(detail, 'scrollHeight', { configurable: true, value: 900 })
+  await flush()
+  assert.equal(detail.scrollTop, 0, 'an ordinary ticket still opens at the top')
+
+  await inAct(() => rowFor(el, 'Needs attention').click())
+  await flush()
+  assert.equal(detail.scrollTop, 900, 'the attention reason and reply are in view')
+})
+
 uiTest('§9 question box renders attached AskCard and clickable asker', async (mount) => {
   let focused: string | null = null
   let closed = false
