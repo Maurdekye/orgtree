@@ -33,7 +33,12 @@ await esbuild.build({ entryPoints: [path.join(repo, 'apps/desktop/renderer/src/m
       const body = contents.indexOf('}) {', msg)
       if (!contents.includes(desk) || msg < 0 || body < 0) throw Error('desk observation anchors changed')
       contents = contents.slice(0,body+4) + `
-        (globalThis as any).__streamProbe?.msgRenders.push({at:Date.now(),role:m.role,id:m.row_id});
+        const renderInstance = useRef<number | null>(null);
+        const renderProbe = (globalThis as any).__streamProbe;
+        if (renderProbe) {
+          if (renderInstance.current === null) renderInstance.current = renderProbe.nextMsgId = (renderProbe.nextMsgId ?? 0) + 1;
+          renderProbe.msgRenders.push({at:Date.now(),role:m.role,id:m.row_id,instance:renderInstance.current});
+        }
 ` + contents.slice(body+4)
       contents = contents.replace(desk, `  if ((globalThis as any).__streamProbe) (globalThis as any).__streamProbe.deskRenders++;
 ` + desk)
