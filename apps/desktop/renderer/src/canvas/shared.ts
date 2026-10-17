@@ -2010,6 +2010,17 @@ export function peerOrder(ids: string[], target: Map<string, Pt>, circular: bool
   return circular ? ids : [...ids].sort((p, q) => (target.get(p)?.x ?? 0) - (target.get(q)?.x ?? 0))
 }
 
+/** The neighbour lines along siblings already in peer order: consecutive
+ *  AGENTS only. A project node gets no line of its own; agents on either side
+ *  of one (or of a run of them) are joined straight past it (user 2026-10-17
+ *  21:23Z). */
+export function peerLinkPairs(ordered: string[], isProject: (id: string) => boolean): [string, string][] {
+  const agents = ordered.filter((id) => !isProject(id))
+  const out: [string, string][] = []
+  for (let i = 0; i + 1 < agents.length; i++) out.push([agents[i]!, agents[i + 1]!])
+  return out
+}
+
 // Ring view hire-coworker rule (coordinator ruling 2026-09-30): a button means
 // "put the new agent in the gap between this agent and its ring neighbour on the
 // side the arrow points to", judged on screen BEFORE the hire. `sibs` are the

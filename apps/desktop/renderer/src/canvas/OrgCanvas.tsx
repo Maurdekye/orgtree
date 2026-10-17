@@ -42,7 +42,7 @@ import {
 import {
   ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
-  peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
+  peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
@@ -1364,8 +1364,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       const [g, e] = aud.has(a + '→' + b) ? [a, b] : [b, a]
       segs.push({ ...audSeg(g, e), rev: g !== a })
     } else if (a !== USER && b !== USER && m.get(a)?.parent === m.get(b)?.parent) {
+      // the spark runs along the drawn neighbour lines, which pass project nodes by
       const sibs = peerOrder((m.get(m.get(a)!.parent!)?.children ?? []).map((c) => c.id)
-        .filter((k) => m.has(k) && k !== DRAFT && placed(k)), targetRef.current, wireRef.current.circular)
+        .filter((k) => m.has(k) && k !== DRAFT && placed(k) && (k === a || k === b || m.get(k)?.kind !== 'project')),
+        targetRef.current, wireRef.current.circular)
       const ia = sibs.indexOf(a), ib = sibs.indexOf(b)
       if (ia < 0 || ib < 0) return
       const step = ia < ib ? 1 : -1
@@ -3282,7 +3284,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (!n.children || n.children.length < 2 || n.isBearerOf || n.peer_mail === false) continue
       const live = n.children.map((c) => c.id).filter((k) => map.get(k)?.state === 'live')
       const sibs = peerOrder(live, target, chartLayout === 'circular')
-      for (let i = 0; i + 1 < sibs.length; i++) links.push([sibs[i]!, sibs[i + 1]!])
+      links.push(...peerLinkPairs(sibs, (k) => map.get(k)?.kind === 'project'))
     }
     return links
   }, [map, target, chartLayout])
