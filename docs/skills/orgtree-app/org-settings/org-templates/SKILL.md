@@ -52,3 +52,5 @@ leave machine-specific groups off for portable layouts.
 
 - [orgtree-app-charters-and-templates](../../app-settings/app-charters-and-templates/SKILL.md).
 - [orgtree-create-organization](../../app-shell/create-organization/SKILL.md).
+
+For the roles and workflow behind the bundled layouts, see `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).

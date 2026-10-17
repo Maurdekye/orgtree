@@ -21,4 +21,4 @@ Seeing the org: the chart, agent state, transcripts and scratch folders, within 
 - [orgtree-tool-read-transcript](tool-read-transcript/SKILL.md): Read the recent conversation of yourself or a descendant.
 - [orgtree-tool-read-scratch](tool-read-scratch/SKILL.md): Browse or read the working folder of yourself or a descendant.
 
-For another topic, return to the category above. References to the other category use its skill name and breadcrumb; open that category to locate them.
+For another topic, return to the category above. References to another category use its skill name and breadcrumb; open that category to locate them.

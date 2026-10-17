@@ -52,4 +52,6 @@ Open a section below, then the specific tool or workflow leaf it lists. The tool
 
 For screens, panels, providers and settings, open `orgtree-app`. Its section list leads to the relevant UI reference.
 
-A page may point to the other category using its skill name and breadcrumb. Open that category and follow the named section; relative links stay inside their own category bundle.
+For suggested ways to organise a committee or development team, open `orgtree-workflows`. Its section list leads to the workflow guides.
+
+A page may point to another category using its skill name and breadcrumb. Open that category and follow the named section; relative links stay inside their own category bundle.

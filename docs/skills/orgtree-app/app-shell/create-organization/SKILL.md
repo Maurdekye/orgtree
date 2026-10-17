@@ -21,3 +21,5 @@ Changing the name, folders, remote addresses, local-hub choice, or layout makes 
 
 - [orgtree-app-charters-and-templates](../../app-settings/app-charters-and-templates/SKILL.md)
 - [orgtree-org-templates](../../org-settings/org-templates/SKILL.md)
+
+For the roles and workflow behind the bundled layouts, see `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).

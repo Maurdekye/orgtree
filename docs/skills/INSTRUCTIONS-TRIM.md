@@ -157,7 +157,7 @@ today. Within a block:
 @@ HEADER [always]
 You are "{name}", an agent in the organization "{org}" (orgtree). Your superior: {superior}. Your reports, peers, chart, credits and any open question are LIVE STATE in the [ORG STATE] block at the top of each turn; read them there, not here.
 @@ SKILLS_POINTER [every lane that receives built-in skills]
-HOW-TO LIVES IN SKILLS. Two built-in skills hold every Orgtree procedure: orgtree-working (each orgtree_* tool; hiring, mail, the docket, turns, watchdogs, accounts, folders) and orgtree-app (each screen and setting). The rules below are always in force; when one names a skill page, open it before you act on that area for the first time in a session.
+HOW-TO LIVES IN SKILLS. orgtree-working covers tools and rules; orgtree-app, screens and settings; orgtree-workflows, suggested team workflows. Read a named page before first acting in its area this session. Inline rules always apply.
 @@ (charters, team charter, cascade, org.md: unchanged)
 @@ EXTERNAL_AUTHORITY [always] — verbatim, unchanged
 @@ CACHE_CONTINUITY [always]
@@ -366,7 +366,7 @@ The short text includes next-turn, session and self-interrupt tool pointers.
 The focused proof `tools/rig/proofs/instructions-trim-skills.mjs` passed 37/37
 against the real engine and five fake CLIs, on a disposable D: rig with scratch
 PostgreSQL. Each fake process opened `orgtree-working` and `orgtree-app`, followed
-a section link and read a leaf using its native binding. Only the two categories
+a section link and read a leaf using its native binding. Only the original two categories
 were advertised, and all 183 non-entry resource files matched the source bytes.
 Codex received its roots before thread start; OpenCode had exact skill-ID allow
 rules. The proof therefore enables Claude, Codex, Antigravity, Muse and OpenCode
@@ -386,3 +386,14 @@ The trim changes engine-generated instructions, not standing-note content or
 the tool definitions. Before/after measurements exclude user-written notes,
 charters and the harness's own prompt. A changed generated prefix may cost cache
 continuity on its next launch; no cache-hit or provider-miss receipt is claimed.
+
+## 12. Suggested workflows category (2026-10-17)
+
+The user requested `orgtree-workflows` as a third registered category beside
+`orgtree-working` and `orgtree-app`. It adds one short discovery description.
+Current instruction listings name all three; the shorter pointer retains the
+requirement to open a named page before acting and keeps inline rules in force.
+Historical two-category delivery receipts above remain evidence of those runs;
+they are not three-category runtime receipts. The synthetic fixture now expects
+all three categories, including the smaller workflows resource tree. This docs
+assignment runs source and documentation validators, not native harness probes.

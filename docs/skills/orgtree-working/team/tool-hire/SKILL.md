@@ -64,3 +64,5 @@ The result names the admitted node, final parent/index/order, live sibling count
 - [orgtree-credits](../credits/SKILL.md)
 - [orgtree-charters](../charters/SKILL.md)
 - [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)
+
+For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).

@@ -52,4 +52,6 @@ Open a section below, then the screen or setting leaf it lists. Settings leaves 
 
 For agent tools and work rules, open `orgtree-working`. Its section list leads to the tool or workflow reference.
 
-A page may point to the other category using its skill name and breadcrumb. Open that category and follow the named section; relative links stay inside their own category bundle.
+For the committee procedure or the team behind the bundled templates, open `orgtree-workflows`. Its section list leads to the workflow guides.
+
+A page may point to another category using its skill name and breadcrumb. Open that category and follow the named section; relative links stay inside their own category bundle.

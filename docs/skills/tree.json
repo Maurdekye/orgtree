@@ -1,29 +1,30 @@
 {
  "schema": 1,
  "source_commit": "de6d356193c6c839b0813ec4d95303fbc8b87237",
- "registered_description_bytes": 380,
+ "registered_description_bytes": 548,
  "counts": {
-  "categories": 2,
-  "sections": 18,
-  "leaves": 169,
+  "categories": 3,
+  "sections": 19,
+  "leaves": 171,
   "tools": 45,
-  "concepts": 47,
-  "total": 189
+  "concepts": 49,
+  "total": 193
  },
  "leaves_per_writer": {
   "org-sol": 33,
+  "hubchat-dm-sol": 1,
+  "project-nodes-opus": 2,
   "comms-sol": 28,
   "runtime-sol": 33,
-  "providers-sol": 33,
-  "skills-docs-sol": 13,
-  "orgsettings-sol": 13,
-  "agentsettings-sol": 9,
-  "hubchat-dm-sol": 1,
   "usage-query-sol": 1,
   "rig-opus": 1,
   "session0-docs-luna": 1,
+  "providers-sol": 33,
   "machine-traps-sol": 1,
-  "project-nodes-opus": 2
+  "skills-docs-sol": 13,
+  "orgsettings-sol": 13,
+  "agentsettings-sol": 9,
+  "skilltree-opus": 2
  },
  "nodes": [
   {
@@ -46,7 +47,10 @@
     "workspace"
    ],
    "writer": "skilltree-opus",
-   "status": "fixed"
+   "status": "fixed",
+   "see_also": [
+    "orgtree-workflows"
+   ]
   },
   {
    "path": "orgtree-app",
@@ -68,7 +72,10 @@
     "mailhub"
    ],
    "writer": "skilltree-opus",
-   "status": "fixed"
+   "status": "fixed",
+   "see_also": [
+    "orgtree-workflows"
+   ]
   },
   {
    "path": "orgtree-working/team",
@@ -135,7 +142,9 @@
     "team-shape",
     "credits",
     "charters",
-    "scope-and-permissions"
+    "scope-and-permissions",
+    "committee-mode",
+    "dev-team"
    ]
   },
   {
@@ -850,7 +859,9 @@
    "see_also": [
     "docket-items",
     "docket-statuses",
-    "docket-review-and-attention"
+    "docket-review-and-attention",
+    "committee-mode",
+    "dev-team"
    ]
   },
   {
@@ -1014,7 +1025,9 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox"
+    "org-inbox",
+    "committee-mode",
+    "dev-team"
    ]
   },
   {
@@ -1110,7 +1123,9 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox"
+    "org-inbox",
+    "committee-mode",
+    "dev-team"
    ]
   },
   {
@@ -1995,7 +2010,9 @@
    "registered": false,
    "see_also": [
     "waiting-for-events",
-    "machine-traps"
+    "machine-traps",
+    "committee-mode",
+    "dev-team"
    ]
   },
   {
@@ -2736,7 +2753,8 @@
    ],
    "see_also": [
     "app-charters-and-templates",
-    "org-templates"
+    "org-templates",
+    "dev-team"
    ],
    "writer": "runtime-sol",
    "status": "fixed",
@@ -4840,7 +4858,8 @@
    ],
    "see_also": [
     "app-charters-and-templates",
-    "create-organization"
+    "create-organization",
+    "dev-team"
    ],
    "writer": "orgsettings-sol",
    "status": "fixed",
@@ -6831,6 +6850,127 @@
     "phone-link"
    ],
    "writer": "comms-sol",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows",
+   "name": "orgtree-workflows",
+   "level": 1,
+   "kind": "category",
+   "registered": true,
+   "description": "Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): suggested workflows for committees and development teams.",
+   "purpose": "Suggested workflow entry point: organise independent committee decisions and development teams.",
+   "children": [
+    "collaboration-patterns"
+   ],
+   "see_also": [
+    "orgtree-working",
+    "orgtree-app"
+   ],
+   "writer": "skilltree-opus",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns",
+   "name": "orgtree-collaboration-patterns",
+   "level": 2,
+   "kind": "section",
+   "registered": false,
+   "purpose": "Choose an independent committee decision or a development team with an accountable implementer.",
+   "children": [
+    "committee-mode",
+    "dev-team"
+   ],
+   "writer": "skilltree-opus",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/committee-mode",
+   "name": "orgtree-committee-mode",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:committee-mode"
+   ],
+   "purpose": "Different-model proposals, supervisor-only communication, consensus rounds and an undetermined result at the limit.",
+   "must_cover": [
+    "when requested by committee",
+    "different models and eligible accounts",
+    "reuse or hire with identical materials",
+    "no member contact in any round",
+    "written adoption/rejection reasons",
+    "identical supervisor clarifications",
+    "10 rounds by default",
+    "undetermined at limit, never pick a winner",
+    "durable round records"
+   ],
+   "sources": [
+    "User committee rulings 2026-10-16 23:03Z, 23:10Z and 23:12:59Z; publication request 2026-10-17 11:28Z",
+    "engine/rs/orgtree-engine/src/tools/defs.rs",
+    "engine/rs/orgtree-engine/src/domain/mail.rs"
+   ],
+   "see_also": [
+    "dev-team",
+    "tool-hire",
+    "tool-rehire",
+    "tool-list-tiers",
+    "credits",
+    "tool-message",
+    "tool-audience",
+    "tool-work",
+    "tool-watchdog"
+   ],
+   "writer": "skilltree-opus",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/dev-team",
+   "name": "orgtree-dev-team",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:dev-team"
+   ],
+   "purpose": "The bundled flat coordinator/implementer/redteam/curator layout, accountable ownership, review, evidence and adaptations.",
+   "must_cover": [
+    "roles and flat reporting shape",
+    "source template tiers and spare credits",
+    "coordinator/owner/author responsibility",
+    "current review phases and waivers win",
+    "docket, build queue and evidence references",
+    "no automatic build/review authorization",
+    "kickoff and template portability",
+    "adapt with one owner per piece"
+   ],
+   "sources": [
+    "engine/docs/templates/devteam-claude.json",
+    "engine/docs/templates/devteam-codex.json",
+    "engine/docs/templates/devteam-antigravity.json",
+    "engine/docs/templates/devteam-muse.json",
+    "engine/docs/charters/coordinator.md",
+    "engine/docs/charters/implementer.md",
+    "engine/docs/charters/redteam.md",
+    "engine/docs/charters/curator.md",
+    "engine/rs/orgtree-engine/src/domain/templates.rs",
+    "docs/skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md",
+    "docs/skills/orgtree-working/workspace/reviews-and-landing/SKILL.md"
+   ],
+   "see_also": [
+    "committee-mode",
+    "tool-hire",
+    "delegating",
+    "tool-message",
+    "tool-audience",
+    "tool-work",
+    "tool-watchdog",
+    "builds-under-the-lock",
+    "reviews-and-landing",
+    "org-templates",
+    "create-organization"
+   ],
+   "writer": "skilltree-opus",
    "status": "fixed"
   }
  ],

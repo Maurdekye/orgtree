@@ -39,4 +39,4 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-tool-list-tiers](tool-list-tiers/SKILL.md): Model tiers you can hire on and their seat prices.
 - [orgtree-tool-project](tool-project/SKILL.md): Create a project node under you, one of your reports, or a project you are inside.
 
-Tool calls and workflows are in orgtree-working; desktop screens and user settings are in orgtree-app. Cross-category references name the page and breadcrumb instead of linking outside the bundle.
+Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.

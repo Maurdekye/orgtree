@@ -26,7 +26,7 @@ function skill(node) {
   const front = content.match(/^---\r?\nname: ([^\r\n]+)\r?\ndescription: ([^\r\n]+)\r?\n---(?:\r?\n|$)/)
   assert.ok(front, `${node.path}: name and description must be the only frontmatter fields`)
   assert.equal(front[1], node.name, `${node.path}: wrong name`)
-  return { content, name: front[1], description: front[2], body: content.slice(front[0].length).trim() }
+  return { content, name: front[1], description: front[2].startsWith('"') ? JSON.parse(front[2]) : front[2], body: content.slice(front[0].length).trim() }
 }
 function links(text) {
   return [...text.matchAll(/\[[^\]\n]*\]\(([^)\n]+)\)/g)].map(match => match[1])
@@ -103,13 +103,13 @@ test('each storage key retains explicit source evidence', () => {
   }
 })
 
-test('manifest remains a two-category tree with unique identities and covers', () => {
+test('manifest remains a three-category tree with unique identities and covers', () => {
   assert.equal(manifest.schema, 1)
   assert.equal(bySlug.size, nodes.length, 'folder slug collision')
   assert.equal(new Set(nodes.map(node => node.name)).size, nodes.length, 'skill name collision')
   const covers = nodes.flatMap(node => node.covers ?? [])
   assert.equal(new Set(covers).size, covers.length, 'a fact has more than one home')
-  assert.deepEqual(nodes.filter(node => node.registered).map(node => node.path).sort(), ['orgtree-app', 'orgtree-working'])
+  assert.deepEqual(nodes.filter(node => node.registered).map(node => node.path).sort(), ['orgtree-app', 'orgtree-workflows', 'orgtree-working'])
   for (const node of nodes) {
     assert.match(node.path, /^[a-z0-9-]+(?:\/[a-z0-9-]+){0,2}$/)
     assert.equal(node.path.split('/').length, node.level, `${node.path}: depth mismatch`)
@@ -162,6 +162,7 @@ test('the complete library has every page and only its category descriptions are
     assert.equal(page.description, node.description, `${node.path}: registered description differs from approved text`)
     bytes += Buffer.byteLength(`name: ${page.name}\ndescription: ${page.description}\n`, 'utf8')
   }
+  assert.equal(bytes, manifest.registered_description_bytes, 'registered byte metadata differs from pages')
   assert.ok(bytes <= 600, `registered name/description lines cost ${bytes} bytes (cap 600)`)
 })
 

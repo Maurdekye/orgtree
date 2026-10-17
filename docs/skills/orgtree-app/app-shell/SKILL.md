@@ -26,4 +26,4 @@ The app's frame: windows, homepage, header and menus, status bar, quick chat, tr
 - [orgtree-mobile-layout](mobile-layout/SKILL.md): Narrow-width layout: the mobile agent sheet, its hire sheet, and the legacy drawer.
 - [orgtree-tray-and-windows](tray-and-windows/SKILL.md): Main-process surfaces: the tray icon and menu, popout windows, mockup viewer, data-conversion window and native dialogs.
 
-For another topic, return to the category above. References to the other category use its skill name and breadcrumb; open that category to locate them.
+For another topic, return to the category above. References to another category use its skill name and breadcrumb; open that category to locate them.

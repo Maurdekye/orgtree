@@ -58,12 +58,12 @@ native paths and plugin definitions never appear in the public registry or logs.
 
 The built-in Orgtree skill library is also called the **glossary** or
 **Orgtree Encyclopaedia** (also spelled **encyclopedia**). All these names refer
-to the same library; the two category skill names stay unchanged.
+to the same library; the existing category skill names stay unchanged; suggested workflows add `orgtree-workflows`.
 
 `build.rs` embeds every file under `docs/skills` into the engine; no runtime source
 checkout or separately provisioned docs directory is needed. Guide writers own
-that source tree. The guide-library catalog has two category skills,
-`orgtree-working` and `orgtree-app`. Section and leaf pages have their
+that source tree. The guide-library catalog has three category skills:
+`orgtree-working`, `orgtree-app` and `orgtree-workflows`. Section and leaf pages have their
 own nested folders and `SKILL.md` files, loaded only on demand.
 
 Release cut revised by the coordinator, 2026-10-15 14:38Z: the 183-page guide
