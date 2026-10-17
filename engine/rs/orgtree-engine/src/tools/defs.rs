@@ -87,6 +87,13 @@ pub fn scoped_as(tools: &Value, shape: MailShape) -> Vec<Value> {
 
 #[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
+    let requirements = match name {
+        "orgtree_hire" => "Required: name, tier, grant, charter, index; ordinary hire also add_dirs, org_visibility, tools{bash,web,edit,subagents,mcp}. Superior insertion omits scope fields.",
+        "orgtree_rehire" => "Required: node. Other fields retain saved values when omitted; index is forbidden; superior insertion omits scope fields.",
+        "orgtree_staff" => "Required: create title+objective, update slug; new seat name,tier,grant,charter,index plus ordinary add_dirs,org_visibility,tools{bash,web,edit,subagents,mcp}; restored seat node, no index. Superior insertion omits scope fields.",
+        _ => "",
+    };
+    let description = if requirements.is_empty() { description.to_owned() } else { format!("{description}\n{requirements}") };
     let mut out = json!({
         "name": name,
         "description": description,
@@ -94,18 +101,44 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
         // an agent's own hands are never deferred behind tool search
         "_meta": { "anthropic/alwaysLoad": true },
     });
-    if name == "orgtree_staff" {
-        // New hires require placement; archived-seat restoration retains its
-        // existing optional fields. Staff may select rehire with either form.
-        out["inputSchema"]["allOf"] = json!([{
-            "if": { "not": { "anyOf": [
-                { "required": ["node"] },
-                { "required": ["staff_mode"], "properties": { "staff_mode": { "const": "rehire" } } }
-            ] } },
-            "then": { "required": ["name", "tier", "grant", "charter", "index"] }
-        }]);
+    match name {
+        "orgtree_hire" => out["inputSchema"]["allOf"] = json!([hire_scope_schema()]),
+        "orgtree_rehire" => out["inputSchema"]["allOf"] = json!([
+            {"not":{"required":["index"]}},
+            {"if":{"required":["hire_type"],"properties":{"hire_type":{"const":"superior"}}},"then":no_inherited_scope_schema()}
+        ]),
+        "orgtree_staff" => {
+            out["inputSchema"]["allOf"] = json!([
+                {"if":{"anyOf":[
+                    {"required":["node"]},
+                    {"required":["staff_mode"],"properties":{"staff_mode":{"const":"rehire"}}}
+                ]},"then":{"required":["node"],"not":{"required":["index"]},"allOf":[
+                    {"if":{"required":["hire_type"],"properties":{"hire_type":{"const":"superior"}}},"then":no_inherited_scope_schema()}
+                ]},"else":{"required":crate::domain::hire_requirements::BASE,"allOf":[hire_scope_schema()]}},
+                {"if":{"anyOf":[
+                    {"required":["action"],"properties":{"action":{"const":"create"}}},
+                    {"not":{"anyOf":[{"required":["action"]},{"required":["slug"]}]}}
+                ]},"then":{"required":["title","objective"]},"else":{"required":["slug"]}}
+            ]);
+            out["inputSchema"]["properties"]["node"]["minLength"] = json!(1);
+        },
+        _ => {}
     }
     out
+}
+
+#[nolog]
+fn no_inherited_scope_schema() -> Value {
+    json!({"not":{"anyOf":[{"required":["add_dirs"]},{"required":["tools"]},
+        {"required":["org_visibility"]},{"required":["permission_mode"]}]}})
+}
+
+#[nolog]
+fn hire_scope_schema() -> Value {
+    json!({"if":{"required":["hire_type"],"properties":{"hire_type":{"const":"superior"}}},
+        "then":no_inherited_scope_schema(),
+        "else":{"required":crate::domain::hire_requirements::SCOPE,
+            "properties":{"tools":{"required":crate::domain::hire_requirements::TOOLS}}}})
 }
 
 const KINDS: &[&str] = &["message", "question"];
@@ -515,7 +548,7 @@ fn all() -> Vec<Value> {
             "Hire a report under you or under `target` in your team (or, with hire_type 'superior', insert a \
              superior above `target`, default yourself, even at top level). Above yourself, seat + grant come from \
              your free credits: grant is the new parent's free allocation; your external budget stays fixed. \
-             Scope is inherited: omit scope fields. Write its charter in full. Other hires' seat + grant must fit (with \
+             Superior insertion inherits target scope: omit scope fields only then. Write its charter in full. Other hires' seat + grant must fit (with \
              credit cascade on, your chain is raised as needed). `index` is REQUIRED: zero-based among live siblings, \
              0..existing_count (last appends). Superior insertion excludes its target, which becomes its child. \
              Use orgtree_state_inspect for sibling_index/live_sibling_count. `kickoff` sends it a first message.",
