@@ -29,6 +29,7 @@ use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
 use crate::runtime::startup;
+use super::token_counts::{self, Harness, Sample};
 use crate::runtime::{freeze, keepalive, recovery, tasks, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
 use crate::util::{gist, iso, now_iso};
 
@@ -47,6 +48,8 @@ pub struct LiveView {
     pub mcp_waiting: bool,
     pub mcp_state: Option<String>,
     pub mcp_reason: Option<String>,
+    pub context: Option<super::live_usage::Snapshot>,
+    pub tool_tokens: Vec<Value>,
 }
 
 const KEEP_ALIVE: Duration = Duration::from_secs(600);
@@ -391,6 +394,8 @@ struct Turn {
     input_shape: Option<(usize, usize, usize)>,
     alert_turn: Option<crate::runtime::watchdogs::events::AlertTurn>,
     usage: Value,
+    context_live: super::live_usage::Coalesced,
+    token_metrics: token_counts::State,
     model: Option<String>,
     draft: String,
     thinking: String,
@@ -470,6 +475,8 @@ impl Turn {
             input_shape: None,
             alert_turn: None,
             usage: Value::Null,
+            context_live: Default::default(),
+            token_metrics: Default::default(),
             model: None,
             draft: String::new(),
             thinking: String::new(),
@@ -1073,6 +1080,7 @@ impl Actor {
             if let Err(e) = self.acknowledge_opening().await {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "opening mail acknowledgement will retry");
             }
+            self.observe_live_context();
             if self.stopping {
                 break;
             }
@@ -1115,6 +1123,7 @@ impl Actor {
             d = d.min(k);
         }
         if let Some(t) = &self.turn {
+            for at in [t.context_live.due, t.token_metrics.due].into_iter().flatten() { d = d.min(at); }
             let idle_limit = self.engine.settings.turn_idle_s().min(86_400 * 365);
             if idle_limit > 0 {
                 d = d.min(t.last_event + Duration::from_secs(idle_limit));
@@ -1149,6 +1158,10 @@ impl Actor {
 
     #[nolog]
     async fn on_timer(&mut self) -> Result<()> {
+        if self.turn.as_mut().is_some_and(|t| t.context_live.flush(Instant::now())) { self.publish(); }
+        if self.turn.as_ref().is_some_and(|t| t.token_metrics.due.is_some_and(|at| at <= Instant::now())) {
+            self.flush_output_counts().await;
+        }
         if self.helper_due.is_some_and(|at| Instant::now() >= at) {
             self.flush_helpers().await;
         }
@@ -3365,6 +3378,14 @@ impl Actor {
                 if turn.acp_items.len()>=512 && !turn.acp_items.contains_key(id) {return Err(anyhow!("ACP turn tool count exceeds limit"));}
                 let item=turn.acp_items.entry(id.into()).or_insert_with(|| json!({}));
                 if let Some(fields)=update.as_object() { for (k,v) in fields {item[k]=v.clone();} }
+                // Count the original snapshot before transcript preview clipping.
+                if update["content"].is_array() {
+                    let content=item["content"].as_array().expect("array update");
+                    let texts:Vec<_>=content.iter().filter_map(|v|v.pointer("/content/text").and_then(Value::as_str)).collect();
+                    if !texts.is_empty() || content.is_empty() {
+                        turn.token_metrics.output(id,&texts.join("\n"),false,Instant::now());
+                    }
+                }
                 // Transcript previews must not retain frame-sized inputs for
                 // hundreds of tools. This affects display only; approvals saw
                 // the original complete payload on the transport task.
@@ -4441,12 +4462,12 @@ impl Actor {
             Some("stream_event" | "assistant" | "user") if self.claude_own => {}
             Some("stream_event") if !sub => self.on_stream_event(&v["event"]),
             Some("assistant") if !sub => self.on_assistant(&v).await?,
-            Some("user") if !sub => self.on_tool_results(&v).await?,
+            Some("user") if !sub => { self.finish_claude_metrics().await?; self.on_tool_results(&v).await?; },
             Some("result") if self.claude_own => {
                 self.claude_own = false;
                 tracing::info!(agent = %self.name, subtype = ?v["subtype"], "the turn the CLI started by itself ended");
             }
-            Some("result") if self.turn.is_some() => self.on_result(&v).await?,
+            Some("result") if self.turn.is_some() => { self.finish_claude_metrics().await?; self.on_result(&v).await?; },
             Some("result") => {
                 tracing::info!(agent = %self.name, subtype = ?v["subtype"], "a result outside any turn; ignored");
             }
@@ -4465,11 +4486,19 @@ impl Actor {
         let p = &v["params"];
         match method.as_str() {
             "thread/tokenUsage/updated" => {
+                if self.turn.as_ref().is_some_and(|t| p["turnId"].as_str().zip(t.codex_turn.as_deref()).is_some_and(|(a,b)| a!=b)) { return Ok(()); }
                 let tu = p["tokenUsage"].clone();
                 self.codex_total = Some(tu["total"].clone());
                 if let Some(t) = self.turn.as_mut() {
                     t.usage = tu;
                 }
+                if p["turnId"].as_str().is_some_and(|id| self.turn.as_ref().and_then(|t|t.codex_turn.as_deref())==Some(id)) {
+                    self.finish_usage_receipt(p.pointer("/tokenUsage/last/reasoningOutputTokens").and_then(Value::as_u64),
+                        p.pointer("/tokenUsage/last/outputTokens").and_then(Value::as_u64)).await?;
+                }
+            }
+            "item/commandExecution/outputDelta" => {
+                if let (Some(id),Some(text))=(p["itemId"].as_str(),p["delta"].as_str()) { self.observe_output(id,text,true); }
             }
             "account/rateLimits/updated" => {
                 if let Some(turn) = self.turn.as_mut() {
@@ -4622,6 +4651,7 @@ impl Actor {
                         }
                         self.stream("thinking", json!({ "text": text }));
                     }
+                    ("toolCall", "visibleOutput" | "output") => self.observe_output(id,text,true),
                     _ => {}
                 }
             }
@@ -4642,15 +4672,19 @@ impl Actor {
                     acc["cache_read"] = json!(n(acc, "cache_read") + cached);
                     acc["cache_write"] = json!(n(acc, "cache_write") + n(u, "cacheWriteTokens"));
                     acc["output"] = json!(n(acc, "output") + n(u, "outputTokens"));
-                    acc["last_prompt"] = json!(prompt);
+                    if let Some(prompt)=p["promptTokens"].as_i64().or_else(||u["inputTokens"].as_i64()).filter(|n|*n>=0) {
+                        acc["last_prompt"] = json!(prompt);
+                    }
                     acc["requests"] = json!(n(acc, "requests") + 1);
                     if let Some(m) = p["modelId"].as_str() {
                         t.model = Some(m.to_string());
                     }
                 }
+                self.finish_usage_receipt(u["reasoningTokens"].as_u64(),u["outputTokens"].as_u64()).await?;
             }
             "session/contextUsage" => {
-                if let Some(t) = self.turn.as_mut().filter(|t| t.usage.is_object()) {
+                if let Some(t) = self.turn.as_mut() {
+                    if !t.usage.is_object() {t.usage=json!({});}
                     t.usage["context_used"] = p["usedTokens"].clone();
                     t.usage["context_window"] = p["windowTokens"].clone();
                 }
@@ -4770,6 +4804,9 @@ impl Actor {
             if kind == "toolCall" {
                 stopped_after = muse_track_tool(&mut t.muse_tools, &id, item, done).and_then(|c| c.stop_asked).map(|(_, limit)| limit);
             }
+            if kind=="reasoning" {t.token_metrics.receipt.thought(&id,done);}
+            if kind=="agentMessage" && done {t.token_metrics.receipt.text(item["text"].as_str().unwrap_or(""));}
+            if !done && kind=="toolCall" && !t.tools.contains_key(&id) {t.token_metrics.receipt.calls=true;}
         }
         if let Some(limit) = stopped_after {
             tracing::info!(agent = %self.name, item = %id, tool = ?item["tool"], status = ?item["status"], limit_s = limit,
@@ -4867,6 +4904,7 @@ impl Actor {
                     self.convo.update(&client, update.0, update.1).await?;
                     if !done {
                         drop(client);
+                        if let Some(output)=item["visibleOutput"].as_str() {self.observe_output(&id,output,false);}
                         self.follow_muse_background(&id, &name, &input);
                         self.set_activity("tool", Some(name));
                         self.stream("tool", json!({ "id": id }));
@@ -4875,6 +4913,7 @@ impl Actor {
                 }
                 if !done {
                     self.update_active_input(&client, &id, &name, &input).await?;
+                    if let Some(output)=item["visibleOutput"].as_str() {self.observe_output(&id,output,false);}
                     self.follow_muse_background(&id, &name, &input);
                     return Ok(());
                 }
@@ -4887,6 +4926,8 @@ impl Actor {
                     self.publish();
                 }
                 let (text, failed) = muse_result(item);
+                let raw_output=token_counts::muse_output(item);
+                let output_tokens=self.output_estimate(&id,raw_output.as_deref()).await;
                 let update = {
                     let Some(t) = self.turn.as_mut() else { return Ok(()) };
                     if let Some(u) = item.get("usage").filter(|u| u.is_object()) {
@@ -4909,6 +4950,7 @@ impl Actor {
                     if let Some(chips) = row["tools"].as_array_mut() {
                         for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
                             muse_settle_chip(chip, item, &input, &text, failed);
+                            token_counts::apply(chip,output_tokens.as_ref());
                             if let Some(limit) = stopped_after {
                                 chip["error"] = json!(format!("stopped by Orgtree: no output for {} (the silence limit)", span_text(limit)));
                             }
@@ -5551,12 +5593,18 @@ impl Actor {
                         if !catalog::antigravity_claude(&t.serving_tier) {
                             acc["cost"] = json!(acc["cost"].as_f64().unwrap_or(0.0) + agyrt::request_cost(&model, inp, cached, out));
                         }
-                        acc["last_prompt"] = json!(inp + cached);
+                        if let Some(input)=u["input_tokens"].as_i64().filter(|n|*n>=0) {
+                            let cache=u.get("cache_read_tokens").map(Value::as_i64).unwrap_or(Some(0)).filter(|n|*n>=0);
+                            if let Some(prompt)=cache.and_then(|cache|input.checked_add(cache)) {acc["last_prompt"]=json!(prompt);}
+                        }
                     }
                     t.draft.clear();
                     t.draft_order = None;
                     t.agy_text.remove(&idx).unwrap_or_default()
                 };
+                if u["thinking_tokens"].as_u64()==Some(0) {
+                    if let Some(output)=u["output_tokens"].as_u64() {token_counts::calibrate(Harness::Agy,text.clone(),output).await;}
+                }
                 if completed.is_some() {
                     if !text.trim().is_empty() { self.text_landed(); }
                     return Ok(());
@@ -5609,6 +5657,8 @@ impl Actor {
                         .map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))
                         .or_else(|| err.clone())
                         .unwrap_or_else(|| state.to_lowercase());
+                    let actual=["result","output","response"].iter().any(|k|info.get(*k).is_some_and(|v|!v.is_null())) || err.is_some();
+                    let output_tokens=self.output_estimate(&id,actual.then_some(result.as_str())).await;
                     let update = {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         if let Some(e) = &err {
@@ -5625,6 +5675,7 @@ impl Actor {
                                     chip["input"] = input.clone();
                                 }
                                 chip["result"] = json!(clipped);
+                                token_counts::apply(chip,output_tokens.as_ref());
                                 chip["result_lines"] = json!(result.lines().count());
                                 chip["ended_at"] = json!(now_iso());
                                 let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(&result));
@@ -5712,6 +5763,10 @@ impl Actor {
         if let Err(e) = self.hint_codex_runner(item, completed).await {
             tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "Codex runner diagnostic could not be persisted");
         }
+        if let Some(t)=self.turn.as_mut() {
+            if typ=="reasoning" {t.token_metrics.receipt.thought(&id,completed);}
+            if completed && matches!(typ,"agentMessage"|"plan") {t.token_metrics.receipt.text(item["text"].as_str().unwrap_or(""));}
+        }
         match typ {
             "userMessage" | "hookPrompt" | "contextCompaction" | "enteredReviewMode" | "exitedReviewMode" | "functionCallOutput" => {}
             "agentMessage" | "plan" => {
@@ -5774,6 +5829,7 @@ impl Actor {
             }
             _ => {
                 let Some((name, input)) = codex_tool(item) else { return Ok(()) };
+                if !completed {if let Some(t)=self.turn.as_mut() {t.token_metrics.receipt.calls=true;}}
                 // Dynamic and MCP events already contain the full arguments.
                 // Only normalized built-ins need the native call as a fallback.
                 let input_source = if matches!(item["type"].as_str(), Some("dynamicToolCall" | "mcpToolCall")) {
@@ -5807,6 +5863,8 @@ impl Actor {
                     return Ok(());
                 }
                 let (text, failed) = codex_result(item);
+                let raw_output=token_counts::codex_output(item);
+                let output_tokens=self.output_estimate(&id,raw_output.as_deref()).await;
                 let update = {
                     let Some(t) = self.turn.as_mut() else { return Ok(()) };
                     let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
@@ -5818,6 +5876,7 @@ impl Actor {
                             chip["input"] = input.clone();
                             chip["input_source"] = json!(input_source);
                             chip["result"] = json!(clipped);
+                            token_counts::apply(chip,output_tokens.as_ref());
                             chip["result_lines"] = json!(text.lines().count());
                             chip["ended_at"] = json!(now_iso());
                                 let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(&text));
@@ -6126,9 +6185,112 @@ impl Actor {
         }
     }
 
+    #[nolog]
+    fn metrics_harness(&self) -> Harness {
+        match self.proc { Some(Proc::Codex(_))=>Harness::Codex, Some(Proc::Agy(_))=>Harness::Agy,
+            Some(Proc::Muse(_))=>Harness::Muse, Some(Proc::Acp(_))=>Harness::Acp, _=>Harness::Claude }
+    }
+
+    #[nolog]
+    fn observe_live_context(&mut self) {
+        let codex=matches!(self.proc,Some(Proc::Codex(_)));
+        if let Some(t)=self.turn.as_mut().filter(|t|!t.compact) {
+            let snapshot=super::next_turn::live_context(&t.usage,&t.serving_provider,codex,t.acp)
+                .filter(|(used,_)| *used<=i64::from(i32::MAX))
+                .map(|(used,window)|super::live_usage::Snapshot {used,window});
+            t.context_live.observe(snapshot,Instant::now());
+        }
+    }
+
+    #[nolog]
+    fn observe_output(&mut self, id: &str, text: &str, append: bool) {
+        if let Some(t)=self.turn.as_mut().filter(|t|t.tools.contains_key(id)) {
+            t.token_metrics.output(id,text,append,Instant::now());
+        }
+    }
+
+    #[nolog]
+    async fn output_estimate(&mut self, id: &str, text: Option<&str>) -> Option<Value> {
+        let harness=self.metrics_harness();
+        let observed=self.turn.as_mut().and_then(|t|t.token_metrics.finish(id));
+        let sample=if self.turn.as_ref().is_some_and(|t|t.acp) { observed? }
+            else {text.map(|text| {let mut sample=Sample::default();sample.replace(text);sample}).or(observed)?};
+        token_counts::estimate(sample,harness).await
+    }
+
+    #[nolog]
+    async fn flush_output_counts(&mut self) {
+        let harness=self.metrics_harness();
+        let work=self.turn.as_mut().map(|t|t.token_metrics.work()).unwrap_or_default();
+        let mut changed=Vec::new();
+        for (id,sample) in work {
+            if let Some(mut count)=token_counts::estimate(sample,harness).await {
+                count["id"]=json!(id);
+                if let Some(t)=self.turn.as_mut() {
+                    if t.token_metrics.counts.get(&id)!=Some(&count) {
+                        t.token_metrics.counts.insert(id,count.clone()); changed.push(count);
+                    }
+                }
+            }
+        }
+        if !changed.is_empty() {
+            self.org.emit_agent(self.id,json!({"type":"node_stream","node":self.name,"kind":"tool_tokens","text":"",
+                "tool_tokens":changed,"turn_started_at":self.turn.as_ref().map(|t|iso(t.admitted_at))}));
+        }
+    }
+
+    /// Only one completed reasoning item may own a response-level receipt.
+    #[nolog]
+    async fn finish_usage_receipt(&mut self, reasoning: Option<u64>, output: Option<u64>) -> Result<()> {
+        let harness=self.metrics_harness();
+        let receipt=match self.turn.as_mut() {Some(t)=>std::mem::take(&mut t.token_metrics.receipt),None=>return Ok(())};
+        if let (Some(text),Some(output))=(receipt.complete_text(reasoning),output) {
+            token_counts::calibrate(harness,text.into(),output).await;
+        }
+        let update=receipt.unique_thought().zip(reasoning).and_then(|(id,count)| {
+            let t=self.turn.as_mut()?;
+            let (seq,row)=t.rows.get_mut(id)?;
+            row["thinking_tokens"]=json!(count);
+            Some((*seq,row.clone()))
+        });
+        if let Some((seq,row))=update {
+            let client=self.engine.db.get().await?; self.convo.update(&client,seq,row).await?; drop(client);
+            self.stream("token_counts",json!({}));
+        }
+        Ok(())
+    }
+
+    /// Claude splits one response across records; finalize only at a later boundary.
+    #[nolog]
+    async fn finish_claude_metrics(&mut self) -> Result<()> {
+        let receipt=match self.turn.as_mut().and_then(|t|t.token_metrics.claude.take()) {Some(r)=>r,None=>return Ok(())};
+        let update=if let Some(t)=self.turn.as_mut() {
+            if t.token_metrics.claude_seen.len()>=1024 || !t.token_metrics.claude_seen.insert(receipt.id.clone()) { return Ok(()); }
+            t.rows.get_mut(&receipt.id).map(|(seq,row)| {
+                if receipt.thoughts==1 { if let Some(count)=receipt.thinking { row["thinking_tokens"]=json!(count); } }
+                (*seq,row.clone())
+            })
+        } else {None};
+        if let Some((seq,row))=update {
+            if receipt.thoughts==0 && receipt.texts==1 && !receipt.calls && receipt.thinking==Some(0) {
+                if let (Some(text),Some(output))=(row["text"].as_str(),receipt.output) {
+                    token_counts::calibrate(Harness::Claude,text.into(),output).await;
+                }
+            }
+            if row.get("thinking_tokens").is_some() {
+                let client=self.engine.db.get().await?;self.convo.update(&client,seq,row).await?;drop(client);
+                self.stream("token_counts",json!({}));
+            }
+        }
+        Ok(())
+    }
+
     async fn on_assistant(&mut self, v: &Value) -> Result<()> {
         let msg = &v["message"];
         let mid = msg["id"].as_str().unwrap_or("").to_string();
+        if self.turn.as_ref().and_then(|t|t.token_metrics.claude.as_ref()).is_some_and(|r|r.id!=mid) {
+            self.finish_claude_metrics().await?;
+        }
         let mut wrote_text = false;
         let mut wrote_tool = None;
         let mut wrote_thought = false;
@@ -6140,6 +6302,19 @@ impl Actor {
             }
             if let Some(m) = msg["model"].as_str() {
                 turn.model = Some(m.to_string());
+            }
+            if !mid.is_empty() && !turn.token_metrics.claude_seen.contains(&mid) {
+                let receipt=turn.token_metrics.claude.get_or_insert_with(||token_counts::ClaudeReceipt {
+                    id:mid.clone(),thoughts:0,texts:0,calls:false,output:None,thinking:None });
+                if let Some(n)=msg.pointer("/usage/output_tokens").and_then(Value::as_u64) {receipt.output=Some(n);}
+                if let Some(n)=msg.pointer("/usage/output_tokens_details/thinking_tokens").and_then(Value::as_u64) {receipt.thinking=Some(n);}
+                for block in msg["content"].as_array().into_iter().flatten() {
+                    match block["type"].as_str() {
+                        Some("thinking"|"redacted_thinking")=>receipt.thoughts+=1,
+                        Some("text")=>receipt.texts+=1,
+                        _=>receipt.calls=true,
+                    }
+                }
             }
             let (seq, mut row) = turn.rows.get(&mid).cloned().unwrap_or((
                 0,
@@ -6254,6 +6429,14 @@ impl Actor {
         // Publish the last helper deltas before its parent call can become
         // terminal (and expanded readers stop their live refresh).
         self.flush_helpers().await;
+        let mut output_counts=HashMap::new();
+        for b in v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten().filter(|b|b["type"]=="tool_result") {
+            let Some(id)=b["tool_use_id"].as_str() else {continue};
+            if !self.turn.as_ref().is_some_and(|t|t.tools.contains_key(id)) {continue;}
+            let (text,images)=convo::tool_result_text(&b["content"]);
+            if text.is_empty() && images>0 {continue;}
+            if let Some(count)=self.output_estimate(id,Some(&text)).await {output_counts.insert(id.to_string(),count);}
+        }
         let mut images: Vec<(String, Vec<(String, Vec<u8>)>)> = Vec::new();
         let updates: Vec<(i64, Value)> = {
             let Some(turn) = self.turn.as_mut() else { return Ok(()) };
@@ -6276,6 +6459,7 @@ impl Actor {
                 if let Some(chips) = row["tools"].as_array_mut() {
                     for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(tid.as_str())) {
                         chip["result"] = json!(clipped);
+                        token_counts::apply(chip,output_counts.get(&tid));
                         chip["result_lines"] = json!(text.lines().count());
                             chip["ended_at"] = json!(now_iso());
                                 let refs = convo::tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(&text));
@@ -7408,6 +7592,8 @@ impl Actor {
             mcp_waiting: self.mcp.waiting,
             mcp_state: self.mcp.state.clone(),
             mcp_reason: self.mcp.reason.clone(),
+            context: self.turn.as_ref().and_then(|t|t.context_live.published),
+            tool_tokens: self.turn.as_ref().map(|t|t.token_metrics.counts.values().cloned().collect()).unwrap_or_default(),
         }
     }
 
@@ -7433,7 +7619,7 @@ impl Actor {
                     "waiting": self.engine.sched.waiting.load(std::sync::atomic::Ordering::SeqCst) })
         });
         let live = self.proc.is_some();
-        json!({
+        let mut value = json!({
             "busy": busy,
             // the running turn's admission: a tool call that started before it
             // belongs to an earlier turn and is never timed live again
@@ -7472,7 +7658,14 @@ impl Actor {
             "last_error": self.last_error,
             "activity": activity,
             "cache_forecast": self.forecast,
-        })
+        });
+        if let Some(context)=self.turn.as_ref().and_then(|t|t.context_live.published) {
+            value["occupancy"]=json!(context.used);
+            value["occupancy_est"]=json!(false);
+            value["context_live"]=json!(true);
+            if let Some(window)=context.window { value["context_window"]=json!(window); }
+        }
+        value
     }
 
     #[nolog]

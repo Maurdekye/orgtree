@@ -1,7 +1,8 @@
 //! One lazy, immutable public BPE and one lock-free correction per harness.
 //! Text stays in bounded actor-owned samples; only counts reach the UI.
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::time::{Duration, Instant};
 use std::io::Read;
 use std::sync::{OnceLock, atomic::{AtomicU64, Ordering}};
 use base64::Engine as _;
@@ -18,6 +19,113 @@ const HALF: usize = 32 * 1024;
 
 #[derive(Clone, Copy)]
 pub enum Harness { Claude, Codex, Agy, Muse, Acp }
+
+/// Response-level metadata only. Parent tool output never consumes child usage.
+#[derive(Default)]
+pub struct Receipt {
+    pub thoughts: Vec<(String, bool)>,
+    pub text: Option<String>,
+    pub ambiguous: bool,
+    pub calls: bool,
+}
+impl Receipt {
+    #[nolog]
+    pub fn thought(&mut self, id: &str, done: bool) {
+        if let Some((_, complete)) = self.thoughts.iter_mut().find(|(key,_)| key==id) { *complete |= done; }
+        else if self.thoughts.len()<32 { self.thoughts.push((id.into(),done)); }
+        else { self.ambiguous=true; }
+    }
+    #[nolog]
+    pub fn text(&mut self, text: &str) {
+        if self.text.is_some() || text.len()>HALF*2 { self.ambiguous=true; }
+        else { self.text=Some(text.into()); }
+    }
+    #[nolog]
+    pub fn unique_thought(&self) -> Option<&str> {
+        (!self.ambiguous && self.thoughts.len()==1 && self.thoughts[0].1).then(||self.thoughts[0].0.as_str())
+    }
+    #[nolog]
+    pub fn complete_text(&self, reasoning: Option<u64>) -> Option<&str> {
+        (!self.ambiguous && !self.calls && self.thoughts.is_empty() && reasoning==Some(0)).then_some(self.text.as_deref()).flatten()
+    }
+}
+
+#[derive(Default)]
+pub struct State {
+    samples: HashMap<String,Sample>,
+    dirty: HashSet<String>,
+    pub counts: HashMap<String,Value>,
+    pub due: Option<Instant>,
+    pub receipt: Receipt,
+    pub claude: Option<ClaudeReceipt>,
+    pub claude_seen: HashSet<String>,
+}
+pub struct ClaudeReceipt {
+    pub id: String,
+    pub thoughts: usize,
+    pub texts: usize,
+    pub calls: bool,
+    pub output: Option<u64>,
+    pub thinking: Option<u64>,
+}
+impl State {
+    #[nolog]
+    pub fn output(&mut self, id: &str, text: &str, append: bool, now: Instant) {
+        if self.samples.len()>=64 && !self.samples.contains_key(id) { return; }
+        let sample=self.samples.entry(id.into()).or_default();
+        if append { sample.append(text); } else { sample.replace(text); }
+        self.dirty.insert(id.into());
+        self.due.get_or_insert(now+Duration::from_secs(1));
+    }
+    #[nolog]
+    pub fn work(&mut self) -> Vec<(String,Sample)> {
+        self.due=None;
+        self.dirty.drain().filter_map(|id|self.samples.get(&id).cloned().map(|s|(id,s))).collect()
+    }
+    #[nolog]
+    pub fn finish(&mut self, id: &str) -> Option<Sample> {
+        self.dirty.remove(id); self.counts.remove(id);
+        if self.dirty.is_empty() { self.due=None; }
+        self.samples.remove(id)
+    }
+}
+
+#[nolog]
+pub fn apply(chip: &mut Value, count: Option<&Value>) {
+    if let Some(fields)=count.and_then(Value::as_object) {
+        for (key,value) in fields { chip[key]=value.clone(); }
+    }
+}
+
+/// Read provider output before any display clipping. Status/arguments are not output.
+#[nolog]
+pub fn codex_output(item: &Value) -> Option<String> {
+    let texts=|items:&Value| items.as_array().and_then(|a| {
+        let text:Vec<_>=a.iter().filter_map(|c|c["text"].as_str()).collect();
+        (!text.is_empty() || a.is_empty()).then(||text.join("\n"))
+    });
+    match item["type"].as_str()? {
+        "commandExecution"=>item["aggregatedOutput"].as_str().map(str::to_string),
+        "dynamicToolCall"=>texts(&item["contentItems"]),
+        "webSearch"=>item.get("results").filter(|v|!v.is_null()).map(Value::to_string),
+        "mcpToolCall"=> {
+            let r=item.get("result").filter(|v|!v.is_null()).or_else(||item.get("error").filter(|v|!v.is_null()))?;
+            texts(&r["content"]).or_else(||r.as_str().map(str::to_string))
+                .or_else(||r.get("structuredContent").map(Value::to_string))
+        },
+        _=>None,
+    }
+}
+
+#[nolog]
+pub fn muse_output(item: &Value) -> Option<String> {
+    match item["kind"].as_str()? {
+        "toolCall"|"userShell"=>item["visibleOutput"].as_str(),
+        "subagent"=>item.pointer("/result/summary").or(item.pointer("/result/text")).and_then(Value::as_str),
+        "workflow"=>item["finalSummary"].as_str().or(item["message"].as_str()),
+        _=>None,
+    }.map(str::to_string)
+}
 
 pub struct Calibration(AtomicU64);
 impl Calibration {
@@ -188,5 +296,27 @@ mod tests {
         assert_eq!(c.factor(),1.0);
         c.observe(100,150);
         assert!((c.factor()-1.05).abs()<1e-10);
+    }
+    #[test]
+    fn receipt_scope_never_assigns_request_or_child_totals_to_multiple_thoughts() {
+        let mut r=Receipt::default();
+        r.thought("one",false); assert_eq!(r.unique_thought(),None);
+        r.thought("one",true); assert_eq!(r.unique_thought(),Some("one"));
+        r.thought("two",true); assert_eq!(r.unique_thought(),None);
+        r.text("visible"); assert_eq!(r.complete_text(Some(0)),None);
+        let mut plain=Receipt::default(); plain.text("visible");
+        assert_eq!(plain.complete_text(None),None);
+        assert_eq!(plain.complete_text(Some(0)),Some("visible"));
+        plain.calls=true; assert_eq!(plain.complete_text(Some(0)),None);
+    }
+    #[test]
+    fn output_projection_keeps_full_provider_text_and_omits_metadata_and_images() {
+        let text="synthetic output ".repeat(1000);
+        assert_eq!(codex_output(&json!({"type":"mcpToolCall","result":{"content":[{"text":text}]}})),Some(text));
+        assert_eq!(codex_output(&json!({"type":"fileChange","status":"completed","changes":[{"path":"x"}]})),None);
+        assert_eq!(codex_output(&json!({"type":"webSearch","query":"input-only"})),None);
+        assert_eq!(codex_output(&json!({"type":"dynamicToolCall","contentItems":[{"type":"image","data":"synthetic"}]})),None);
+        assert_eq!(muse_output(&json!({"kind":"toolCall","status":"completed","usage":{"outputTokens":9999}})),None);
+        assert_eq!(muse_output(&json!({"kind":"toolCall","visibleOutput":""})),Some(String::new()));
     }
 }
