@@ -115,6 +115,10 @@ fingerprints. See [recovery commands](recovery-commands.md).
 Home and New org. Every entry opens the right view in the running app through
 single-instance handoff; additions, removals and renames update the list.
 Existing switcher slug order and canonical org-window focus are retained.
+User feedback 2026-10-17 19:11–19:12Z replaces the single tasks list: Recent
+orgs at top, then fixed Tasks with Home and New org, matching Hubchat's sections.
+Use org logos when set and matching HomeOutlined/Add glyphs for fixed actions,
+cached as content-addressed app-owned ICOs. Missing logos use the app icon.
 Contract and verification limits: [`taskbar-jumplist.md`](taskbar-jumplist.md).
 
 **Independent active-agent filters, user 2026-10-16 13:35Z:** the canvas Agents

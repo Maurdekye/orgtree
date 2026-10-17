@@ -267,12 +267,16 @@
   [recovery commands](docs/rust-engine/recovery-commands.md).
   [decided: coordinator 2026-10-16; verified: `runtime/convo.rs`]
 
-- Windows taskbar user tasks list Home, New org and active orgs in switcher
-  slug order. The native app feed updates names/membership; unchanged contents
+- Windows taskbar lists active orgs in a custom Recent category above fixed
+  Tasks (Home, New org). Org logos and matching HomeOutlined/Add action glyphs
+  use content-addressed app-owned ICOs; the app feed carries logo hashes only.
+  Windows privacy refusal of custom categories keeps fixed Tasks available.
+  The native app feed updates names/membership/logos; unchanged contents
   never rewrite the shell list. Strict `--orgtree-taskbar=` navigation queues
   until window routing is ready, including single-instance handoffs; orgs use
   their canonical window and relaunches drop the one-shot navigation argument.
-  [decided: user 2026-10-16; verified: `main/jumplist.ts`, `main/index.ts`;
+  [decided: user 2026-10-16 and 2026-10-17 19:11–19:12Z;
+  verified: `main/{jumplist,jumplist-icons,index}.ts`, `appfeed.rs`, `profile_pictures/mod.rs`;
   contract and verification limits: `docs/rust-engine/taskbar-jumplist.md`]
 
 - An uninitialized manual hire's model icon opens the same `SpawnChips` token

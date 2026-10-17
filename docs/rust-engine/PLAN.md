@@ -315,8 +315,9 @@ audiences and their lateral canvas connectors disappear; hierarchy reach/links
 stay. Default ON, node-local and durable. See [peer mail](peer-mail.md).
 
 Windows taskbar addition (user 2026-10-16, 4.4.0): the icon's right-click
-jump list has Home, New org and current organizations. Org entries use the
-existing per-org window route; the native app feed updates names and membership.
+jump list has Recent orgs above fixed Home/New org Tasks (user 2026-10-17),
+org logo icons and matching HomeOutlined/Add action icons. Org entries use the
+existing per-org window route; the native app feed updates names, membership and logo hashes.
 See [`taskbar-jumplist.md`](taskbar-jumplist.md).
 
 Uninitialized manual hires let the user change the proposed model by clicking
