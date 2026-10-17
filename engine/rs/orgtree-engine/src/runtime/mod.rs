@@ -20,6 +20,7 @@ pub mod history;
 pub mod helper_transcript;
 pub mod identity;
 pub mod keepalive;
+pub mod live_usage;
 pub mod muse;
 pub mod next_turn;
 pub mod opencode;
@@ -33,6 +34,7 @@ pub mod startup;
 pub mod tasks;
 pub mod tool_policy;
 pub mod toolwriting;
+pub mod token_counts;
 pub mod usage_reset;
 pub mod watchdogs;
 
