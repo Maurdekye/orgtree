@@ -10,6 +10,7 @@ pub mod acp_scope;
 pub mod agy;
 pub mod claude;
 pub mod codex;
+pub mod codexhome;
 pub mod convo;
 pub mod envelope;
 pub mod event_text;

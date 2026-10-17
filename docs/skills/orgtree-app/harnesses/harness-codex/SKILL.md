@@ -1,6 +1,6 @@
 ---
 name: orgtree-harness-codex
-description: Explain Codex app-server events, session continuity, sandbox posture and limits of reported timings.
+description: Explain Codex private state, app-server events, session continuity, sandbox posture and reported timings.
 ---
 Up: [orgtree-harnesses](../SKILL.md)
 
@@ -10,7 +10,9 @@ Codex drives OpenAI seats and selectable [OpenRouter](../route-openrouter/SKILL.
 
 ## How it runs
 
-One `codex app-server` process speaks JSON-RPC over stdio. Orgtree initializes it and starts or resumes a thread with model, sandbox, developer instructions and dynamic Orgtree tools. `turn/start` supplies text/images and effort; the matching `turn/completed` ends the turn. A failed thread resume can start a fresh thread; Orgtree retains predecessor history/handoff rather than claiming the old context resumed. A matching rollout can be copied to the selected account home to make resume possible.
+One `codex app-server` process speaks JSON-RPC over stdio. Orgtree initializes it and starts or resumes a thread with model, sandbox, developer instructions and dynamic Orgtree tools. `turn/start` supplies text/images and effort; the matching `turn/completed` ends the turn. A failed thread resume can start a fresh thread; Orgtree retains predecessor history/handoff rather than claiming the old context resumed. A matching rollout can be copied to the selected private home to make resume possible.
+
+Subscription seats use `<data>/codex-home/<source-path-sha256>`, separate from the ordinary Codex desktop's state. API-key and routed seats retain their separate homes under `<data>/profiles`. The source profile is read only: configuration and global instructions are copied once, and a changed source sign-in is adopted at the next launch or probe. Refreshed private credentials survive while the source is unchanged. Child-local home variables and SQLite/log overrides also apply to hosted launches and probes; no machine-wide environment is changed. On resume, the newest private rollout wins; source histories are migration fallbacks only. Details: `docs/rust-engine/codex-home-isolation.md`.
 
 Mail uses native `turn/steer` with `expectedTurnId`. Failed steering leaves mail pending for a later turn; a successful acknowledgement establishes custody, not obedience. `turn/interrupt` requests cancellation of the named turn. Close first closes stdin and allows five seconds; the explicit termination path still allows three seconds before forced termination. Graceful/forced outcomes go to the durable kill record, including the hosted process path.
 

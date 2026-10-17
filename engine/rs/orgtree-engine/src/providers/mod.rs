@@ -326,7 +326,14 @@ pub async fn discover(engine: &Engine) {
     if let Some((p, src)) = locate_codex() {
         let (connected, email, kind) = codex_identity(None);
         if connected {
-            match codex_models::probe(&p).await {
+            let root = engine.cfg.data_root.clone();
+            let prepared = tokio::task::spawn_blocking(move || crate::runtime::codexhome::prepare(&root, None)).await;
+            let discovered = match prepared {
+                Ok(Ok(home)) => codex_models::probe(&p, &home).await,
+                Ok(Err(e)) => Err(e),
+                Err(e) => Err(anyhow::Error::from(e)),
+            };
+            match discovered {
                 Ok(efforts) => st.codex_efforts = efforts,
                 Err(e) => st.codex_efforts_error = Some(format!("Codex model capabilities unavailable: {e}")),
             }

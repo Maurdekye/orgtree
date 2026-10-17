@@ -6191,8 +6191,9 @@
    "covers": [
     "harness:codex-cli"
    ],
-   "purpose": "Codex seats: sandbox modes, read-only seats, limits.",
+   "purpose": "Codex seats: private state, sandbox modes, read-only seats, limits.",
    "must_cover": [
+    "private home bootstrap, source sign-in changes and rollout migration",
     "capabilities and limits",
     "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
     "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",
@@ -6205,6 +6206,8 @@
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/runtime/codex.rs",
+    "engine/rs/orgtree-engine/src/runtime/codexhome.rs",
+    "docs/rust-engine/codex-home-isolation.md",
     "docs/rust-engine/codex-sandbox-runner.md"
    ],
    "see_also": [

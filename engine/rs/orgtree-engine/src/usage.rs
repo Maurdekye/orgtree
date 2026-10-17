@@ -894,7 +894,7 @@ async fn codex_read(engine: &Engine, account: &str, home: Option<&str>, force: b
             // the rare fallback: an app-server (ended gracefully), then none
             // for this login again until APPSERVER_EVERY has passed
             engine.usage.cooldown.pin().insert(appserver_key(&key), Instant::now() + APPSERVER_EVERY);
-            appserver_reading(&exe, home).await
+            appserver_reading(&exe, home, &engine.cfg.data_root).await
         }
     };
     out["account"] = json!(account);
@@ -921,8 +921,8 @@ async fn codex_read(engine: &Engine, account: &str, home: Option<&str>, force: b
 /// The fallback read: a short-lived app-server (`runtime::codex::probe`,
 /// which ends it gracefully).
 #[nolog]
-async fn appserver_reading(exe: &Path, home: Option<&str>) -> Value {
-    match crate::runtime::codex::probe(exe, home).await {
+async fn appserver_reading(exe: &Path, home: Option<&str>, data_root: &Path) -> Value {
+    match crate::runtime::codex::probe(exe, home, data_root).await {
         Ok((account_doc, limits)) => {
             let mut v = codex_limits(&limits);
             if account_doc.is_null() {

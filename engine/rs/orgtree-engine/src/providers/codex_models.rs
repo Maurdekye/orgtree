@@ -46,9 +46,9 @@ async fn request(
 /// Same model/list source as 3.x, including hidden rows and pagination. This
 /// reads capabilities only: no thread, agent turn or inference is started.
 #[logged]
-pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
+pub async fn probe(exe: &Path, home: &Path) -> Result<BTreeMap<String, Vec<String>>> {
     let mut cmd = Command::new(exe);
-    cmd.arg("app-server")
+    cmd.args(crate::runtime::codexhome::overrides(home)).arg("app-server")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -59,7 +59,10 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
             || [
                 "CLAUDECODE",
                 "OPENAI_API_KEY",
+                "CODEX_API_KEY",
+                "CODEX_ACCESS_TOKEN",
                 "CODEX_HOME",
+                "CODEX_SQLITE_HOME",
                 "ORGTREE_V2_TOKEN",
                 "ORGTREE_DATA",
                 "ELECTRON_RUN_AS_NODE",
@@ -69,6 +72,7 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
             cmd.env_remove(&k);
         }
     }
+    cmd.env("CODEX_HOME", home).env("CODEX_SQLITE_HOME", home);
     crate::winproc::no_window(&mut cmd);
     crate::winproc::own_group(&mut cmd);
     let mut child = cmd.spawn().context("start Codex capability discovery")?;

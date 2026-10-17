@@ -27,7 +27,7 @@ pub struct CodexSpec {
     pub skills_root: PathBuf,
     pub exe: PathBuf,
     pub cwd: PathBuf,
-    pub codex_home: Option<String>,
+    pub codex_home: PathBuf,
     pub api_key: Option<String>,
     pub model: String,
     pub effort: Option<String>,
@@ -187,18 +187,22 @@ impl CodexProc {
             .filter(|(k, _)| {
                 !(k.starts_with("ANTHROPIC_")
                     || k.starts_with("CLAUDE_CODE_")
-                    || ["CLAUDECODE", "OPENAI_API_KEY", "CODEX_HOME", "ORGTREE_ACCOUNT_ID", "ORGTREE_V2_TOKEN", "ORGTREE_DATA",
+                    || ["CLAUDECODE", "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CODEX_HOME", "CODEX_SQLITE_HOME", "ORGTREE_ACCOUNT_ID", "ORGTREE_V2_TOKEN", "ORGTREE_DATA",
                         "ELECTRON_RUN_AS_NODE"]
                         .contains(&k.as_str()))
             })
             .collect();
-        if let Some(h) = &spec.codex_home {
-            env.push(("CODEX_HOME".into(), h.clone()));
-        }
         if let Some(k) = &spec.api_key {
             env.push(("OPENAI_API_KEY".into(), k.clone()));
         }
         env.extend(spec.env.iter().cloned());
+        // Both local and hosted launches, including the scoped catalog probe,
+        // keep all Codex state inside this Orgtree profile.
+        env.retain(|(k, _)| k != "CODEX_HOME" && k != "CODEX_SQLITE_HOME");
+        let home = spec.codex_home.to_string_lossy().into_owned();
+        env.push(("CODEX_HOME".into(), home.clone()));
+        env.push(("CODEX_SQLITE_HOME".into(), home));
+        spec.config.extend(super::codexhome::overrides(&spec.codex_home));
         if !spec.may_write || !spec.may_subagents {
             let scoped_config = super::tool_policy::codex_scoped_catalog(
                 &spec.exe, &spec.cwd, &spec.config, &env, spec.may_write, spec.may_subagents,
@@ -311,7 +315,7 @@ impl CodexProc {
             model: spec.model.clone(),
             effort: spec.effort.clone(),
             cwd: spec.cwd.to_string_lossy().to_string(),
-            home: spec.codex_home.as_ref().map(PathBuf::from).unwrap_or_else(default_home),
+            home: spec.codex_home.clone(),
             rollout_path: None,
         };
         // a Codex that fails to open still ends gracefully, not by drop
@@ -736,34 +740,43 @@ pub fn original_tool_input(source: &Value) -> Option<Value> {
     None
 }
 
-/// Make sure `thread/resume` under `home` finds the thread: when its rollout
-/// lives under another Codex home (the agent moved to another account),
-/// copy it over. False when it exists nowhere.
+/// The newest matching rollout in the supplied homes. Only path metadata is
+/// compared; prompts and credentials never enter logs.
 #[logged]
-pub fn ensure_rollout(thread: &str, home: Option<&str>, others: &[std::path::PathBuf]) -> bool {
+fn newest_rollout(homes: &[PathBuf], thread: &str) -> Option<(PathBuf, PathBuf)> {
+    homes.iter().filter_map(|home| find_rollout(home, thread)).max_by_key(|(path, _)| {
+        std::fs::metadata(path).and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH)
+    })
+}
+
+/// Carry the newest private history across account changes. Source profiles
+/// are consulted only when no private copy exists (initial migration), so
+/// the desktop's old copy cannot overwrite subsequent Orgtree conversation.
+#[logged]
+pub fn ensure_rollout(thread: &str, home: Option<&str>, others: &[PathBuf], sources: &[PathBuf]) -> bool {
     let target = home.map(std::path::PathBuf::from).unwrap_or_else(default_home);
-    if find_rollout(&target, thread).is_some() {
-        return true;
-    }
-    let mut homes = vec![default_home()];
+    let mut homes = vec![target.clone()];
     for o in others {
         if !homes.contains(o) {
             homes.push(o.clone());
         }
     }
-    for h in homes.iter().filter(|h| **h != target) {
-        if let Some((from, rel)) = find_rollout(h, thread) {
-            let to = target.join("sessions").join(rel);
-            if let Some(parent) = to.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if std::fs::copy(&from, &to).is_ok() {
-                tracing::info!(from = %from.display(), to = %to.display(), "carried a Codex thread to another account");
-                return true;
-            }
-        }
+    let mut fallback = sources.to_vec();
+    fallback.push(default_home());
+    let Some((from, rel)) = newest_rollout(&homes, thread).or_else(|| newest_rollout(&fallback, thread)) else {
+        return false;
+    };
+    let to = find_rollout(&target, thread).map(|(path, _)| path)
+        .unwrap_or_else(|| target.join("sessions").join(rel));
+    if from == to {
+        return true;
     }
-    false
+    if let Some(parent) = to.parent() {
+        if std::fs::create_dir_all(parent).is_err() { return false; }
+    }
+    if std::fs::copy(&from, &to).is_err() { return false; }
+    tracing::info!(from = %from.display(), to = %to.display(), "carried a Codex thread to a private home");
+    true
 }
 
 /// `-c` overrides attaching granted MCP servers (quoted TOML names when needed).
@@ -816,9 +829,12 @@ pub const PROBE_GRACE: Duration = Duration::from_secs(5);
 /// A short-lived app-server's read of one login: (account, rate limits).
 /// Only the fallback now: `usage::codex` reads the same limits over HTTPS.
 #[nolog]
-pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, Value)> {
+pub async fn probe(exe: &std::path::Path, source: Option<&str>, data_root: &std::path::Path) -> Result<(Value, Value)> {
+    let root = data_root.to_path_buf();
+    let source = source.map(str::to_string);
+    let home = tokio::task::spawn_blocking(move || super::codexhome::prepare(&root, source.as_deref())).await??;
     let mut cmd = Command::new(exe);
-    cmd.arg("app-server")
+    cmd.args(super::codexhome::overrides(&home)).arg("app-server")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -826,14 +842,12 @@ pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, 
     for (k, _) in std::env::vars() {
         if k.starts_with("ANTHROPIC_")
             || k.starts_with("CLAUDE_CODE_")
-            || ["CLAUDECODE", "OPENAI_API_KEY", "CODEX_HOME", "ORGTREE_V2_TOKEN", "ORGTREE_DATA", "ELECTRON_RUN_AS_NODE"].contains(&k.as_str())
+            || ["CLAUDECODE", "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CODEX_HOME", "CODEX_SQLITE_HOME", "ORGTREE_V2_TOKEN", "ORGTREE_DATA", "ELECTRON_RUN_AS_NODE"].contains(&k.as_str())
         {
             cmd.env_remove(&k);
         }
     }
-    if let Some(h) = home {
-        cmd.env("CODEX_HOME", h);
-    }
+    cmd.env("CODEX_HOME", &home).env("CODEX_SQLITE_HOME", &home);
     winproc::no_window(&mut cmd);
     winproc::own_group(&mut cmd);
     let mut child = cmd.spawn().with_context(|| format!("could not start {}", exe.display()))?;
@@ -882,7 +896,7 @@ pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, 
         Ok(Err(_)) => "probe failed",
         Err(_) => "probe timed out",
     };
-    let who = format!("usage probe ({})", home.unwrap_or("default login"));
+    let who = format!("usage probe ({})", home.display());
     crate::runtime::stop_gracefully(&mut child, job.as_ref(), &who, reason, PROBE_GRACE).await;
     drop(job);
     let (account, limits) = got.unwrap_or_else(|_| Err(anyhow!("the Codex app-server did not answer in time")))?;

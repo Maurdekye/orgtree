@@ -2135,7 +2135,7 @@ impl Actor {
             } else if apikey {
                 self.engine.cfg.path("profiles").join(format!("openai-key-{}", ctx.account.clone().unwrap_or_default()))
             } else {
-                self.config_dir_of(ctx.account.as_deref()).map(PathBuf::from).unwrap_or_else(codexrt::default_home)
+                crate::runtime::codexhome::path(&self.engine.cfg.data_root, self.config_dir_of(ctx.account.as_deref()).as_deref())
             };
             return startup::Inputs::Codex { cwd: ctx.scratch.clone(), home };
         }
@@ -2893,7 +2893,7 @@ impl Actor {
             self.codex_seat = Some((may_write, pm.to_string(), sb, hosted));
             self.bypass_seat = codexrt::sandbox(may_write, pm, false).mode == "danger-full-access";
         }
-        let plan = self.plan(ctx);
+        let mut plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
             Some(p) => p.is_codex() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive(),
             None => false,
@@ -2923,16 +2923,21 @@ impl Actor {
             // language-server) threads, and no login is ever sent to a server
             let home = self.engine.cfg.path("profiles").join(if local.is_some() { LANGSERVER_CODEX_HOME } else { "openrouter-codex" });
             std::fs::create_dir_all(&home)?;
-            (Some(home.to_string_lossy().to_string()), None)
+            (home, None)
         } else if apikey {
             let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
             let id = ctx.account.clone().unwrap_or_default();
             let home = self.engine.cfg.path("profiles").join(format!("openai-key-{id}"));
             std::fs::create_dir_all(&home)?;
-            (Some(home.to_string_lossy().to_string()), Some(key))
+            (home, Some(key))
         } else {
-            (self.config_dir_of(ctx.account.as_deref()), None)
+            let root = self.engine.cfg.data_root.clone();
+            let source = self.config_dir_of(ctx.account.as_deref());
+            let home = tokio::task::spawn_blocking(move || crate::runtime::codexhome::prepare(&root, source.as_deref())).await??;
+            (home, None)
         };
+        // Bootstrap may have copied startup notes: fingerprint the actual home.
+        plan = self.plan(ctx);
         let tools = &ctx.effective["tools"];
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
@@ -2946,9 +2951,9 @@ impl Actor {
         if let Some(l) = local {
             // the server's model catalog (checked against this Codex), its
             // window and the org's compaction threshold come with it
-            let catalog = match (crate::langserver::server(&self.engine, &l.server), codex_home.as_deref()) {
-                (Some(s), Some(home)) => crate::langserver::codex_catalog_file(&exe, std::path::Path::new(home), &s).await,
-                _ => None,
+            let catalog = match crate::langserver::server(&self.engine, &l.server) {
+                Some(s) => crate::langserver::codex_catalog_file(&exe, &codex_home, &s).await,
+                None => None,
             };
             let mut gateway = crate::langserver::codex_overrides(l, ctx.compact_at, catalog.as_deref());
             gateway.append(&mut config);
@@ -2972,14 +2977,22 @@ impl Actor {
             .filter(|_| ctx.session_provider.as_deref() == Some(ctx.provider.as_str()));
         // the thread may live under another account's Codex home
         if let Some(tid) = &resume {
-            let mut others: Vec<std::path::PathBuf> =
+            let mut sources: Vec<std::path::PathBuf> =
                 view.all().into_iter().filter(|a| a.provider == catalog::OPENAI).filter_map(|a| a.config_dir.clone()).map(Into::into).collect();
+            let mut others = Vec::new();
             if let Ok(entries) = std::fs::read_dir(self.engine.cfg.path("profiles")) {
+                for path in entries.flatten().map(|e| e.path()).filter(|p| p.join("sessions").is_dir()) {
+                    let private = path.file_name().and_then(|s| s.to_str())
+                        .map(|s| s.starts_with("openai-key-") || s == "openrouter-codex" || s == LANGSERVER_CODEX_HOME).unwrap_or(false);
+                    if private { others.push(path); } else { sources.push(path); }
+                }
+            }
+            if let Ok(entries) = std::fs::read_dir(self.engine.cfg.path("codex-home")) {
                 others.extend(entries.flatten().map(|e| e.path()).filter(|p| p.join("sessions").is_dir()));
             }
-            let home = codex_home.clone();
+            let home = codex_home.to_string_lossy().to_string();
             let tid = tid.clone();
-            let _ = tokio::task::spawn_blocking(move || codexrt::ensure_rollout(&tid, home.as_deref(), &others)).await;
+            let _ = tokio::task::spawn_blocking(move || codexrt::ensure_rollout(&tid, Some(&home), &others, &sources)).await;
         }
         let bridge_env=self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation);
         config.extend(crate::credential_bridge::codex_overrides(&bridge_env));
