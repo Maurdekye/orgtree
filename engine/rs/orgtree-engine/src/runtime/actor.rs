@@ -6684,7 +6684,7 @@ impl Actor {
         denials.extend(turn.denials.iter().cloned());
         let session = res.get("session_id").and_then(Value::as_str).map(str::to_string);
         // a usage limit freezes the agent (or moves it to another account)
-        // the last wall this agent hit, for the anchor-once countdown rule
+        // The prior wall may lengthen, but never shorten, this new refusal.
         let prior_wall = match &error {
             Some(_) => self.last_wall().await,
             None => Value::Null,
@@ -6721,7 +6721,7 @@ impl Actor {
             }
             let mut rec = json!({
                 "at": now_iso(), "until": iso(until), "error": gist(error.as_deref().unwrap_or(""), 300),
-                "limit": true, "provenance": "observed", "account": ctx.account,
+                "limit": true, "provenance": "observed", "account": turn.serving_account,
             });
             // Codex/Antigravity: the refused request goes out again at the wake
             if !turn.replay.is_empty() {
