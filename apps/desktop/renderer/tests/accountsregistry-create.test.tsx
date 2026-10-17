@@ -83,7 +83,7 @@ test('Antigravity replaces unsupported profile setup with an accessible upstream
   await open('google')
   const current = dialog()
   assert.deepEqual([...current.querySelectorAll('section.account-add-option h4')].map(h => h.textContent), [
-    'Secondary subscription accounts unavailable', 'Use an API key',
+    'A second Antigravity subscription is not possible yet', 'Use an API key',
   ])
   assert.equal(current.querySelector('button')?.textContent, 'Add API-key account',
     'the supported API-key account control remains available')
@@ -105,6 +105,33 @@ test('Antigravity replaces unsupported profile setup with an accessible upstream
   assert.equal(link?.tabIndex, 0, 'the link is keyboard reachable')
   assert.equal(current.getAttribute('role'), 'dialog', 'the modal remains a dialog')
   assert.equal(current.getAttribute('aria-label'), 'Add secondary Antigravity account')
+})
+
+// docket antigravity-multi-account-support-via-isolated-p: two user-approved
+// probes (Antigravity CLI 1.3.5, 2026-10-16) measured that a separate profile
+// folder still reads the one Windows Credential Manager sign-in
+test('Antigravity states the measured one-sign-in-per-Windows-user limit before any second sign-in', async t => {
+  await setup(t)
+  await open('google')
+  const text = dialog().textContent!
+  assert.match(text, /one Google sign-in per Windows user/)
+  assert.match(text, /Windows Credential Manager/)
+  assert.match(text, /would replace your default Antigravity sign-in/)
+  assert.doesNotMatch(text, /waiting on upstream/, 'the old wording that blamed only missing upstream support is gone')
+  assert.doesNotMatch(text, /Importing a folder/, 'no folder import is offered, so none is described')
+  assert.equal(button(dialog(), 'Sign in'), undefined, 'no second Antigravity sign-in is offered')
+})
+
+test('an Antigravity subscription row says it runs only when its sign-in is its own; an API-key row does not', async t => {
+  const keyRow = { ...account('google-4', 'google'), mode: 'apikey', credential: { kind: 'apikey', token_ref: 'google-4' } }
+  await setup(t, [account('google-2', 'google'), keyRow])
+  const rows = [...lane('google').querySelectorAll('.account-row')]
+  const sub = rows.find(r => r.textContent?.includes('google-2'))!
+  const key = rows.find(r => r.textContent?.includes('google-4'))!
+  assert.match(sub.textContent!, /one Google sign-in per Windows user/)
+  assert.match(sub.textContent!, /signed in separately from your default account/)
+  assert.doesNotMatch(key.textContent!, /one Google sign-in per Windows user/)
+  assert.doesNotMatch(lane('google').textContent!, /not supported yet/)
 })
 
 test('folder import retains input on failure and creates its row in the selected provider on retry', async t => {

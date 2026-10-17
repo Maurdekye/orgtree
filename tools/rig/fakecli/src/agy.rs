@@ -44,7 +44,10 @@ fn auth_log(kind: &str) {
     let (dir, _) = auth_fixture();
     if let Some(dir) = dir {
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("agy-auth-calls.jsonl")) {
-            let _ = writeln!(f, "{}", json!({"kind":kind,"pid":std::process::id()}));
+            // `home`: the USERPROFILE the process ran with (a registered
+            // account's AGY runs on its own folder)
+            let _ = writeln!(f, "{}", json!({"kind":kind,"pid":std::process::id(),
+                "home":std::env::var("USERPROFILE").unwrap_or_default()}));
         }
     }
 }
@@ -59,7 +62,17 @@ pub fn auth_check() -> i32 {
         "unsupported" => { println!("unknown environment action"); 0 }
         "silent" => 0,
         // Real AGY 1.3.5 signed in (measured 2026-10-14): exit 0 and this line.
-        _ => { println!("Already authenticated as rig-user@example.invalid"); 0 }
+        // Like real AGY 1.3.5 (measured 2026-10-16), the sign-in does not
+        // follow USERPROFILE: every home names the same account, unless a
+        // proof writes `<USERPROFILE>\.gemini\rig-agy-identity` to model an
+        // AGY that keeps a home's own sign-in.
+        _ => {
+            let own = std::env::var("USERPROFILE").ok()
+                .and_then(|h| std::fs::read_to_string(Path::new(&h).join(".gemini").join("rig-agy-identity")).ok())
+                .map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            println!("Already authenticated as {}", own.as_deref().unwrap_or("rig-user@example.invalid"));
+            0
+        }
     }
 }
 
