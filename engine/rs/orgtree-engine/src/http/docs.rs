@@ -109,6 +109,9 @@ pub struct ListQuery {
     limit: i64,
     #[serde(default)]
     locate: String,
+    /// the TEAM gallery (user 2026-10-17 22:47Z): the node and everyone under it
+    #[serde(default)]
+    team: Option<String>,
 }
 
 /// The gallery: every card, newest first, metadata only.
@@ -117,7 +120,8 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     let node = q.node.trim().to_string();
-    let members = project_members(&client, &o, &node).await?;
+    let team = matches!(q.team.as_deref(), Some("1" | "true"));
+    let members = subtree_members(&client, &o, &node, team).await?;
     let limit = if q.limit > 0 { q.limit.min(1000) } else { 60 };
     let mut offset = q.offset.max(0);
     let mut located = None;
@@ -144,25 +148,27 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     list_page(&client, &o, &node, members.as_deref(), offset, limit, located).await
 }
 
-/// A PROJECT's gallery holds the documents presented under it and those of
-/// every node below it, nested projects included, whatever their state (user
-/// 2026-10-17 20:07:52Z, docket point 8). `None` for an agent or the whole
-/// org: those keep the plain `node_name` filter. One recursive read per
+/// The nodes whose documents a gallery lists, or `None` for the plain
+/// `node_name` filter. A PROJECT's gallery always holds the documents presented
+/// under it and those of every node below it (user 2026-10-17 20:07:52Z, docket
+/// point 8); `team` asks the same of any node: an agent and everyone under it,
+/// passing through projects (point 25, user 22:47Z), as the team docket does.
+/// Nested projects included, whatever their state. One recursive read per
 /// request; the page query itself stays bounded by LIMIT.
 #[logged]
-async fn project_members(client: &tokio_postgres::Client, o: &crate::orgs::OrgHandle, node: &str) -> ApiResult<Option<Vec<i64>>> {
+async fn subtree_members(client: &tokio_postgres::Client, o: &crate::orgs::OrgHandle, node: &str, team: bool) -> ApiResult<Option<Vec<i64>>> {
     if node.is_empty() {
         return Ok(None);
     }
-    let project: Option<i64> = client
+    let root: Option<i64> = client
         .query_opt(
-            "SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND kind = 'project' AND state <> 'deleted'
+            "SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' AND ($3 OR kind = 'project')
               ORDER BY (state = 'live') DESC, id DESC LIMIT 1",
-            &[&o.id, &node],
+            &[&o.id, &node, &team],
         )
         .await?
         .map(|r| r.get(0));
-    let Some(root) = project else { return Ok(None) };
+    let Some(root) = root else { return Ok(None) };
     let rows = client
         .query(
             "WITH RECURSIVE below(id, depth) AS (
@@ -188,7 +194,10 @@ async fn list_page(
     let members: Option<Vec<i64>> = members.map(<[i64]>::to_vec);
     let rows = client
         .query(
-            "SELECT d.uid, d.node_name, d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at
+            "SELECT d.uid, d.node_name, d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at,
+                    coalesce(d.presented_by, d.node_name),
+                    (SELECT p.tier FROM ot.agents p WHERE p.org_id = d.org_id AND p.name = coalesce(d.presented_by, d.node_name)
+                      AND p.state <> 'deleted' ORDER BY (p.state = 'live') DESC, p.id DESC LIMIT 1)
                FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
               WHERE d.org_id = $1
                 AND CASE WHEN $5::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2) ELSE d.agent_id = ANY($5) END
@@ -210,7 +219,10 @@ async fn list_page(
             json!({ "id": r.get::<_, String>(0), "node": r.get::<_, String>(1), "title": r.get::<_, String>(2),
                     "at": iso(r.get(3)), "format": r.get::<_, String>(4), "bytes": r.get::<_, i32>(5), "evicted": false,
                     "node_state": r.get::<_, String>(6), "tier": r.get::<_, Option<String>>(7),
-                    "viewed_at": iso_opt(r.get(8)) })
+                    "viewed_at": iso_opt(r.get(8)),
+                    // the agent that presented it, also for a document presented
+                    // under a project (whose `node` is the project)
+                    "presented_by": r.get::<_, String>(9), "presenter_tier": r.get::<_, Option<String>>(10) })
         })
         .collect();
     let next = if offset + (docs.len() as i64) < total { Some(offset + docs.len() as i64) } else { None };
