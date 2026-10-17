@@ -4078,7 +4078,7 @@ main.solo { width: 100%; }
 .uh-ahead { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; font-size: 12.5px; }
 .uh-ahead > span { color: var(--dim); }
 /* ⚠ THREE-PART SELECTOR: `.settings input` (0,1,1) pads and sizes every input like a text field */
-.uh-header .uh-ahead input { width: 104px; padding: 0; margin: 0; accent-color: var(--accent); }
+.uh-header .uh-ahead input { width: 220px; padding: 0; margin: 0; accent-color: var(--accent); }
 .uh-ahead output { min-width: 2.7em; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
 .uh-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; flex: 1 1 100%; min-width: 0; }
 .uh-filters .uh-filter { width: 100%; font-size: 12.5px; line-height: 1.4; padding: 3px 6px; text-overflow: ellipsis; }

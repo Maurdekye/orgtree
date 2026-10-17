@@ -17,8 +17,9 @@
 //    account filter names every account with its provider.
 
 // §4 the projected-ahead slider (user 2026-10-17): 0-100 % of the graph's width,
-//    default = the old fixed layout (20 %), live (no refetch), remembered, and the
-//    axis stays right at both ends.
+//    default = the old fixed layout (20 %), live (no refetch), remembered, the time
+//    SCALE fixed (history slides off the left edge, never squeezed) and the thumb
+//    mirroring the now-line (rightmost = 0 % ahead).
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs usagehistory
 
@@ -263,32 +264,32 @@ const D = 7 * 24 * H
 const SINCE = NOW - D
 const TO = NOW + D * 0.25
 
-test('§4.1 the axis: the default share is the old linear axis, and the ends are history-only / ahead-only', () => {
-  const ax = (share: number) => UH.aheadAxis(SINCE, NOW, TO, share)
-  const lin = (t: number) => (t - SINCE) / (TO - SINCE)
+test('§4.1 the axis: a fixed time scale, the now-line sits `share` in from the right edge', () => {
+  const ax = (share: number) => UH.aheadAxis(SINCE, NOW, share)
+  const span = TO - SINCE
+  const lin = (t: number) => (t - SINCE) / span
   const d = ax(0.2)
-  for (const t of [SINCE, SINCE + D / 3, NOW, NOW + D / 8, TO]) assert.ok(Math.abs(d.at(t) - lin(t)) < 1e-9, `default is linear at ${t}`)
+  for (const t of [SINCE, SINCE + D / 3, NOW, NOW + D / 8, TO]) assert.ok(Math.abs(d.at(t) - lin(t)) < 1e-9, `default is the old linear axis at ${t}`)
   assert.equal(UH.AHEAD_DEFAULT, 20)
-  const none = ax(0)
-  assert.equal(none.nowAt, 1, '0 %: the now divider is the right edge')
-  assert.equal(none.at(TO), 1, 'nothing is drawn past now')
-  assert.equal(none.at(SINCE), 0)
-  const all = ax(1)
-  assert.equal(all.nowAt, 0, '100 %: the now divider is the left edge')
-  assert.equal(all.at(SINCE), 0, 'history collapses onto it')
-  assert.equal(all.at(TO), 1)
+  for (const share of [0, 0.05, 0.2, 0.5, 0.95, 1]) {
+    const a = ax(share)
+    assert.ok(Math.abs(a.nowAt - (1 - share)) < 1e-9 && Math.abs(a.at(NOW) - (1 - share)) < 1e-9, `now at ${1 - share}`)
+    assert.ok(Math.abs((a.at(NOW + D) - a.at(NOW)) - D / span) < 1e-9, `a week is the same width at share ${share}: no squeezing`)
+  }
+  assert.equal(ax(0).at(NOW), 1, '0 %: the now line is the right edge')
+  assert.ok(ax(0).at(SINCE) > 0, '0 %: the history no longer fills the plot, a blank strip is left of it')
   const half = ax(0.5)
-  assert.equal(half.at(NOW), 0.5)
-  assert.ok(Math.abs(half.at(SINCE + D / 2) - 0.25) < 1e-9 && Math.abs(half.at(NOW + (TO - NOW) / 2) - 0.75) < 1e-9)
+  assert.ok(half.at(SINCE) < 0, '50 %: the oldest history has slid off the left edge')
+  assert.equal(half.left, NOW - 0.5 * span)
+  const all = ax(1)
+  assert.equal(all.at(NOW), 0, '100 %: the now line is the left edge')
+  assert.equal(all.right, NOW + span, '100 %: the pane ahead is a whole plot of time')
 })
 
 test('§4.2 the axis inverts: a pointer position reads back the time it was drawn at', () => {
   for (const share of [0, 0.05, 0.2, 0.5, 0.95, 1]) {
-    const ax = UH.aheadAxis(SINCE, NOW, TO, share)
-    for (const t of [SINCE, SINCE + D / 5, NOW, NOW + D / 10, TO]) {
-      const inPane = share === 0 ? t <= NOW : share === 1 ? t >= NOW : true
-      if (inPane) assert.ok(Math.abs(ax.time(ax.at(t)) - t) < 1000, `share ${share} t ${t}`)
-    }
+    const ax = UH.aheadAxis(SINCE, NOW, share)
+    for (const t of [SINCE, SINCE + D / 5, NOW, NOW + D / 10, TO]) assert.ok(Math.abs(ax.time(ax.at(t)) - t) < 1000, `share ${share} t ${t}`)
   }
 })
 
@@ -326,38 +327,60 @@ test('§4.3 a 0-100 slider in the header defaults to 20 % and re-lays out live w
       const input = view.el.querySelector('.uh-header input[type="range"]') as HTMLInputElement
       assert.ok(input, 'the slider is in the sticky header')
       assert.equal(input.getAttribute('aria-label'), 'Projected-ahead share of the graph')
-      assert.deepEqual([input.min, input.max, input.value], ['0', '100', '20'])
+      // mirrored: the thumb sits where the now-line sits, so 20 % ahead reads 80 and 0 % ahead is the rightmost 100
+      assert.deepEqual([input.min, input.max, input.value], ['0', '100', '80'])
+      assert.equal(input.getAttribute('aria-valuetext'), '20% of the graph')
       const nowX = () => Number(view.el.querySelector('rect.uh-future')!.getAttribute('x'))
       const widthX = () => Number(view.el.querySelector('rect.uh-future')!.getAttribute('width'))
+      const endX = () => Number(view.el.querySelector('.uh-end')!.getAttribute('cx'))
       const plot = 800 - 44 - 12
       assert.ok(Math.abs(widthX() - plot * 0.2) < 0.5, `future pane is 20 % of the plot (${widthX()} of ${plot})`)
       assert.ok(has(view.el, '.uh-proj') && has(view.el, '.uh-line'))
+      const gap = nowX() - endX()
       const fetches = f.seen.length
-      await slide(view, 50)
+      await slide(view, 50)  // the thumb halfway: the now-line halfway
       assert.ok(Math.abs(widthX() - plot * 0.5) < 0.5, `50 % (${widthX()})`)
-      assert.ok(Math.abs(nowX() - (44 + plot * 0.5)) < 0.5, 'the now divider moved with it')
+      assert.ok(Math.abs(nowX() - (44 + plot * 0.5)) < 0.5, 'the now divider moved left with the thumb')
+      assert.ok(Math.abs((nowX() - endX()) - gap) < 1e-6, 'the history keeps its scale: it slid, it was not squeezed')
       assert.equal(f.seen.length, fetches, 'no refetch while dragging')
       assert.match(view.el.querySelector('.uh-ahead output')?.textContent ?? '', /50%/)
+      await slide(view, 90)  // thumb right: only 10 % ahead
+      assert.ok(Math.abs(widthX() - plot * 0.1) < 0.5, `10 % (${widthX()})`)
       await view.unmount()
     } finally { f.restore() }
   })
 })
 
-test('§4.4 0 % is history only (no future pane, no projection) and 100 % is the projection only', async () => {
+test('§4.4 the rightmost thumb is 0 % ahead (no future pane, no projection); the leftmost is all projection', async () => {
   await withWidth(async () => {
     const { f, view } = await chartPanel()
     try {
-      await slide(view, 0)
+      await slide(view, 100)
       assert.equal(has(view.el, 'rect.uh-future'), false, 'no future pane')
       assert.equal(has(view.el, '.uh-proj'), false, 'no projection line')
       assert.equal(has(view.el, '.uh-line'), true, 'the measured line is still there')
       assert.equal(/projected/.test(view.el.querySelector('.uh-foot')?.textContent ?? ''), false, 'no projection caption')
-      await slide(view, 100)
-      assert.equal(has(view.el, '.uh-line'), false, 'no measured line: the history pane has no width')
+      await slide(view, 0)
+      assert.equal(has(view.el, '.uh-line'), false, 'no measured line: the history is entirely off the left edge')
       assert.equal(has(view.el, '.uh-end'), false)
       assert.equal(has(view.el, '.uh-proj'), true, 'the projection fills the graph')
       const r = view.el.querySelector('rect.uh-future')!
       assert.equal(Number(r.getAttribute('x')), 44)
+      await view.unmount()
+    } finally { f.restore() }
+  })
+})
+
+test('§4.4b the history that slides off the left edge is clipped to the plot, not drawn over the axis', async () => {
+  await withWidth(async () => {
+    const { f, view } = await chartPanel()
+    try {
+      await slide(view, 40)
+      const svg = view.el.querySelector('.uh-plot svg')!
+      const clip = svg.querySelector('clipPath rect')!
+      assert.deepEqual([clip.getAttribute('x'), clip.getAttribute('width')], ['44', String(800 - 44 - 12)])
+      const g = svg.querySelector('g[clip-path]')!
+      assert.ok(g.querySelector('.uh-line') && g.querySelector('rect.uh-future'), 'lines and the future pane are inside the clip')
       await view.unmount()
     } finally { f.restore() }
   })
@@ -369,15 +392,15 @@ test('§4.5 the chosen share is remembered across a reopen and survives bad stor
   try {
     let view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })
-    await slide(view, 65)
-    assert.equal(globalThis.localStorage.getItem(UH.AHEAD_KEY), '65')
+    await slide(view, 35)  // the thumb at 35: 65 % ahead
+    assert.equal(globalThis.localStorage.getItem(UH.AHEAD_KEY), '65', 'the stored value is the ahead share, not the thumb')
     await view.unmount()
     view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })
     const value = () => (view.el.querySelector('.uh-header input[type="range"]') as HTMLInputElement).value
-    assert.equal(value(), '65')
+    assert.equal(value(), '35')
     // a stored value that is out of range or not a number reads as the nearest legal value / the default
-    for (const [stored, expect] of [['999', '100'], ['-4', '0'], ['abc', '20'], ['', '20']] as const) {
+    for (const [stored, expect] of [['999', '0'], ['-4', '100'], ['abc', '80'], ['', '80']] as const) {
       await inAct(async () => {
         globalThis.localStorage.setItem(UH.AHEAD_KEY, stored)
         window.dispatchEvent(new window.StorageEvent('storage', { key: UH.AHEAD_KEY }))
@@ -461,4 +484,13 @@ test('§5.2 every account in the filter is prefixed with its provider; "All acco
     assert.equal(select.selectedOptions[0]!.textContent, 'Codex · a@example.test', 'the closed dropdown carries the prefix too')
     await view.unmount()
   } finally { f.restore() }
+})
+
+test('§4.7 the projection runs as far as the pane ahead reaches', () => {
+  const s7 = series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 12), bucket(NOW, 14)],
+    { latest: { observed_at: iso(NOW), used_pct: 14, amount: null, resets_at: null } })
+  const base = { now: NOW, since: SINCE, until: NOW, gapMs: 75 * 60_000 }
+  assert.equal(modelSeries(s7, [], base).projection!.to.t, NOW + D * 0.25, 'default horizon: a quarter of the period')
+  const wide = modelSeries(s7, [], { ...base, horizonMs: UH.aheadAxis(SINCE, NOW, 1).right - NOW })
+  assert.equal(wide.projection!.to.t, NOW + D * 1.25, 'at 100 % it runs the whole plot')
 })

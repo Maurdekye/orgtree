@@ -28,7 +28,7 @@
 // quarter of the period past now. The projected trend (a least-squares line
 // through the current window's readings) is drawn there dashed and labelled
 // "projected", and each window's next reset time is a vertical dotted line.
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { getUsageHistory } from './api'
 import type { UsageHistory, UsageHistoryRange, UsageHistoryReset, UsageHistorySeries } from './api'
@@ -110,7 +110,7 @@ export function slope(pts: Pt[]): number | null {
 /** Turn one series' buckets and resets into what the chart draws and the
  *  statistics it shows. Pure, so it is tested alone. */
 export function modelSeries(series: UsageHistorySeries, resets: UsageHistoryReset[],
-  opts: { now: number; since: number; until: number; gapMs: number }): SeriesModel {
+  opts: { now: number; since: number; until: number; gapMs: number; horizonMs?: number }): SeriesModel {
   const key = seriesKey(series)
   const pts: Pt[] = []
   for (const b of series.points) {
@@ -170,7 +170,7 @@ export function modelSeries(series: UsageHistorySeries, resets: UsageHistoryRese
     let k = slope(live) ?? 0
     // a used share only grows inside a window; a fall without a reset is noise
     if (series.kind === 'percent') k = Math.max(0, k)
-    const horizon = opts.until + (opts.until - opts.since) * FUTURE_SHARE
+    const horizon = opts.until + (opts.horizonMs ?? (opts.until - opts.since) * FUTURE_SHARE)
     const end = Math.min(nextReset ?? horizon, horizon)
     const startPt = { t: opts.now, v: tail.v + k * (opts.now - tail.t) }
     let to: Pt = { t: end, v: startPt.v + k * (end - opts.now) }
@@ -261,24 +261,26 @@ function useWidth(): [(el: HTMLDivElement | null) => void, number] {
   return [ref, w]
 }
 
-/** The time axis of one chart as fractions of its plot width. History
- *  ([since, until]) fills the left (1 − share) of it and the future pane
- *  ([until, to]) the right `share`, each linear in its own pane; at the default
- *  share that is the one linear axis the chart always had. 0 = history only,
- *  1 = the future pane only. Pure, so it is tested alone. */
-export function aheadAxis(since: number, until: number, to: number, share: number) {
+/** The time axis of one chart as fractions of its plot width. The SCALE is
+ *  fixed: the plot always spans the period plus a quarter of it (the layout at
+ *  the default share), so dragging the share only slides the "now" line, which
+ *  sits `share` of the way in from the RIGHT edge. More share moves it left and
+ *  pushes the history off the left edge (cropped, not squeezed); less share
+ *  pulls it right (the oldest end of the history leaves a blank strip at the
+ *  left once it no longer fills the plot). 0 = nothing ahead, 1 = the plot is
+ *  all ahead. Pure, so it is tested alone. */
+export function aheadAxis(since: number, until: number, share: number) {
   const k = Math.min(1, Math.max(0, share))
-  const nowAt = 1 - k
+  const span = Math.max(1, (until - since) * (1 + FUTURE_SHARE))
+  const left = until - (1 - k) * span
   return {
-    nowAt,
-    /** time → fraction of the plot width (a time off either end is clamped to its pane's edge) */
-    at: (t: number): number => t <= until
-      ? (until > since ? nowAt * Math.max(0, (t - since) / (until - since)) : nowAt)
-      : nowAt + (to > until ? k * Math.min(1, (t - until) / (to - until)) : 0),
+    nowAt: 1 - k,
+    /** the time at the plot's left and right edges */
+    left, right: left + span,
+    /** time → fraction of the plot width (not clamped: what falls off an edge is clipped, not squeezed) */
+    at: (t: number): number => (t - left) / span,
     /** fraction of the plot width → time */
-    time: (f: number): number => f <= nowAt
-      ? (nowAt > 0 ? since + (f / nowAt) * (until - since) : until)
-      : (k > 0 ? until + ((f - nowAt) / k) * (to - until) : until),
+    time: (f: number): number => left + f * span,
   }
 }
 
@@ -320,23 +322,23 @@ function Chart({ m, from, to, now, ahead }: { m: SeriesModel; from: number; to: 
     ? Math.max(100, ...all.map((p) => p.v))
     : niceMax(Math.max(...all.map((p) => p.v), m.projection?.to.v ?? 0, 0) * 1.1)
   const W = Math.max(width, 200)
-  const axis = aheadAxis(from, now, to, ahead / 100)
+  const axis = aheadAxis(from, now, ahead / 100)
+  const clipId = useId()
   const plotW = W - PAD.l - PAD.r
   const x = (t: number) => PAD.l + axis.at(t) * plotW
   const hasPast = axis.nowAt > 0
   const hasAhead = axis.nowAt < 1
   const y = (v: number) => PAD.t + (1 - v / top) * (H_CHART - PAD.t - PAD.b)
   const yTicks = s.kind === 'percent' ? [0, 50, 100] : [0, top / 2, top]
-  // one tick set over the whole axis (the unchanged default), thinned where a
-  // pane has been squeezed; a pane alone gets its own ticks
-  let ticks = !hasPast ? timeTicks(now, to) : !hasAhead ? timeTicks(from, now) : timeTicks(from, to)
+  // one tick set over the whole fixed-scale axis, thinned where they crowd
+  let ticks = timeTicks(axis.left, axis.right)
   let lastTick = -Infinity
-  ticks = ticks.filter((k) => { const px = x(k.t); if (px - lastTick < 38) return false; lastTick = px; return true })
+  ticks = ticks.filter((k) => { const px = x(k.t); if (px < PAD.l || px > W - PAD.r || px - lastTick < 38) return false; lastTick = px; return true })
   const path = (seg: Pt[]) => seg.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('')
   // every recorded reset gets its hairline, but only resets far enough
   // apart get a word: 5-hour windows on a week's axis would print a smear
   let lastLabel = -Infinity
-  const resetMarks = m.resets.filter((r) => r.t >= from).map((r) => {
+  const resetMarks = m.resets.filter((r) => r.t >= axis.left).map((r) => {
     const label = x(r.t) - lastLabel >= 40 && x(r.t) <= x(now) - 30
     if (label) lastLabel = x(r.t)
     return { t: r.t, label }
@@ -381,7 +383,9 @@ function Chart({ m, from, to, now, ahead }: { m: SeriesModel; from: number; to: 
           {ticks.map((k) => (
             <text key={k.t} className="uh-axis" x={x(k.t)} y={H_CHART - 6} textAnchor="middle">{k.label}</text>
           ))}
-          {hasAhead && <rect className="uh-future" x={x(now)} y={PAD.t} width={Math.max(0, x(to) - x(now))}
+          <clipPath id={clipId}><rect x={PAD.l} y={0} width={plotW} height={H_CHART} /></clipPath>
+          <g clipPath={`url(#${clipId})`}>
+          {hasAhead && <rect className="uh-future" x={x(now)} y={PAD.t} width={Math.max(0, PAD.l + plotW - x(now))}
             height={H_CHART - PAD.t - PAD.b} />}
           {hasPast && resetMarks.map((r) => (
             <g key={r.t}>
@@ -406,6 +410,7 @@ function Chart({ m, from, to, now, ahead }: { m: SeriesModel; from: number; to: 
             </g>
           )}
           {hasPast && m.stats.current && <circle className="uh-end" cx={x(m.stats.current.t)} cy={y(m.stats.current.v)} r={3.5} />}
+          </g>
           {hover != null && <line className="uh-cross" x1={hover} x2={hover} y1={PAD.t} y2={H_CHART - PAD.b} />}
         </svg>
       )}
@@ -525,9 +530,11 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
     // a series re-records hourly when nothing changes; longer than that
     // (plus a probe's cadence) without a row means nothing was read
     const gapMs = Math.max((data.keepalive_min + 15) * 60_000, 2 * data.bucket_s * 1000)
-    const models = data.series.map((s) => modelSeries(s, data.resets, { now, since, until, gapMs }))
-    return { since, until, now, models, to: until + (until - since) * FUTURE_SHARE }
-  }, [data])
+    // the projection runs as far as the pane ahead reaches at the chosen share
+    const horizonMs = aheadAxis(since, until, ahead / 100).right - until
+    const models = data.series.map((s) => modelSeries(s, data.resets, { now, since, until, gapMs, horizonMs }))
+    return { since, until, now, models, to: until + horizonMs }
+  }, [data, ahead])
 
   const series = data?.series ?? []
   // the chosen period's answer has not arrived yet: the previous period stays shown, dimmed
@@ -561,8 +568,9 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
         </div>
         <label className="uh-ahead" title="How much of each graph's width is the projected-ahead view">
           <span>Projected ahead</span>
-          <input type="range" min={0} max={100} step={1} value={ahead} aria-label="Projected-ahead share of the graph"
-            aria-valuetext={`${ahead}% of the graph`} onChange={(e) => setAheadShare(Number(e.target.value))} />
+          {/* the thumb mirrors the "now" line: dragged left it moves the line left (more ahead), rightmost = 0 % */}
+          <input type="range" min={0} max={100} step={1} value={100 - ahead} aria-label="Projected-ahead share of the graph"
+            aria-valuetext={`${ahead}% of the graph`} onChange={(e) => setAheadShare(100 - Number(e.target.value))} />
           <output>{ahead}%</output>
         </label>
         <div className="uh-filters" role="group" aria-label="filters">
