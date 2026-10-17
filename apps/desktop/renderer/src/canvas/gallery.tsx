@@ -515,8 +515,11 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           <span className="mtime">{ago(r.at)}</span>
                         </div>
                         <div className="l2" data-copy-agent-name={r.presented_by || r.node || undefined}>
-                          <TierChip tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier} />
-                          {r.presented_by || r.node || '?'}
+                          {/* the presenter is a link to its agent (review of a590555) */}
+                          <AgentName id={r.presented_by || r.node || '?'}
+                            tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier}
+                            onFocus={onFocusAgent && (r.presented_by || r.node)
+                              ? (id) => { close(); onFocusAgent(id) } : undefined} />
                           {r.format === 'html' && <MockupBadge />}
                           {r.evicted && <span className="badge evicted">content evicted</span>}
                         </div>
@@ -834,9 +837,12 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                 </div>
                 <div className="l2" data-copy-agent-name={r.presented_by || r.node || undefined}>
                   {/* the agent that presented it, also for a card presented
-                      under a project (user 2026-10-17 22:47:51Z) */}
-                  <TierChip tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier} />
-                  {r.presented_by || r.node || '?'}
+                      under a project (user 2026-10-17 22:47:51Z), as a link
+                      that focuses it and leaves the row unselected (review
+                      of a590555) */}
+                  <AgentName id={r.presented_by || r.node || '?'}
+                    tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier}
+                    onFocus={onFocusAgent && (r.presented_by || r.node) ? (id) => onFocusAgent(id) : undefined} />
                   {r.format === 'html' && <MockupBadge />}
                   {r.evicted && <span className="badge evicted">content evicted</span>}
                 </div>
