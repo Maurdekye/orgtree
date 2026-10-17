@@ -52,28 +52,47 @@ test('the current org list follows feed membership, names and order without inac
   assert.deepEqual(plain(taskbarOrgs(feed)), [{ slug: 'alpha', name: 'alpha' }, { slug: 'new-org', name: 'new-org' }])
 })
 
-test('Windows user tasks include Home, New org and every org, with literal names and safe arguments', () => {
+test('Recent orgs precede fixed Tasks, with literal names and safe arguments', () => {
   const tasks = taskbarTasks([{ slug: 'a', name: 'One & Two "quoted" Ω' }], 'C:\\Program Files\\Orgtree\\Orgtree.exe')
-  assert.equal(tasks.length, 1)
-  assert.equal(tasks[0].type, 'tasks', 'user tasks work with Windows recent-document tracking disabled')
-  const items = tasks[0].items.filter(item => item.type === 'task')
-  assert.deepEqual(plain(items.map(item => item.title)), ['Home', 'New org', 'One & Two "quoted" Ω'])
+  assert.equal(tasks.length, 2)
+  assert.equal(tasks[0].type, 'custom')
+  assert.equal(tasks[0].name, 'Recent')
+  assert.equal(tasks[1].type, 'tasks')
+  const items = tasks.flatMap(category => category.items)
+  assert.ok(items.every(item => item.type === 'task'), 'no separators between fixed sections')
+  assert.deepEqual(plain(items.map(item => item.title)), ['One & Two "quoted" Ω', 'Home', 'New org'])
   for (const item of items) {
     assert.equal(item.program, 'C:\\Program Files\\Orgtree\\Orgtree.exe')
     assert.ok(item.description)
     assert.ok(taskbarTarget([item.args]), item.args)
     assert.equal(item.iconIndex, 0)
   }
-  assert.deepEqual(plain(taskbarTarget([items[2].args])), { kind: 'org', slug: 'a' })
+  assert.deepEqual(plain(taskbarTarget([items[0].args])), { kind: 'org', slug: 'a' })
   assert.deepEqual(plain(taskbarTasks([], 'app.exe')[0].items.filter(i => i.type === 'task').map(i => i.title)), ['Home', 'New org'])
 })
 
 test('development tasks quote the app path and reject unsafe org identifiers', () => {
   const tasks = taskbarTasks([{ slug: 'a --injected', name: 'Bad' }, { slug: 'ok', name: '' }], 'electron.exe', 'D:\\Source With Spaces\\orgtree')
-  const items = tasks[0].items.filter(item => item.type === 'task')
-  assert.deepEqual(plain(items.map(i => i.title)), ['Home', 'New org', 'ok'])
-  assert.equal(items[2].args, '"D:\\Source With Spaces\\orgtree" --orgtree-taskbar=org:ok')
+  const items = tasks.flatMap(category => category.items).filter(item => item.type === 'task')
+  assert.deepEqual(plain(items.map(i => i.title)), ['ok', 'Home', 'New org'])
+  assert.equal(items[0].args, '"D:\\Source With Spaces\\orgtree" --orgtree-taskbar=org:ok')
   assert.ok(taskbarTasks([{ slug: 'long', name: 'a'.repeat(500) }], 'app.exe')[0].items.at(-1).description.length <= 260)
+})
+
+test('org and fixed action entries use their distinct supplied icons with app fallback', () => {
+  const categories = taskbarTasks([{ slug: 'a', name: 'A' }, { slug: 'b', name: 'B' }], 'app.exe', undefined,
+    { home: 'home.ico', create: 'add.ico', orgs: { a: 'logo.ico' } })
+  const items = categories.flatMap(category => category.items).filter(item => item.type === 'task')
+  const paths = Object.fromEntries(items.map(item => [item.title, item.iconPath]))
+  assert.deepEqual(plain(paths), { A: 'logo.ico', B: 'app.exe', Home: 'home.ico', 'New org': 'add.ico' })
+})
+
+test('feed logo revisions enter the taskbar projection without carrying picture bytes', () => {
+  const feed = state(), hash = 'a'.repeat(64)
+  feed.apply({ type: 'org_summary', epoch: 'e', seq: 2, org_id: 1, org_uuid: 'u1', body: { name: 'Zeta', logo_sha256: hash } })
+  assert.equal(taskbarOrgs(feed)[1].logo, hash)
+  feed.apply({ type: 'org_summary', epoch: 'e', seq: 3, org_id: 1, org_uuid: 'u1', body: { name: 'Zeta', logo_sha256: null } })
+  assert.equal(taskbarOrgs(feed)[1].logo, undefined)
 })
 
 test('native shell updates only for changed contents and remains Windows-only', () => {
