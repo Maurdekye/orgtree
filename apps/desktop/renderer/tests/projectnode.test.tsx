@@ -292,14 +292,38 @@ const handlers = (extra: Partial<AgentMenuHandlers> = {}): AgentMenuHandlers => 
   onScratchFolder: noop, ...extra,
 })
 
-test('§3a a live project\'s menu: open its mailbox or folder, hire or nest a project under it, retire it', () => {
+const entryNamed = (entries: ReturnType<typeof projectMenuEntries>, label: string) => {
+  const e = entries.find((x) => x !== 'sep' && x.label === label)
+  assert.ok(e && e !== 'sep', `menu entry "${label}"`)
+  return e
+}
+
+test('§3a a live project\'s menu follows the agent menu\'s order, adapted (user 22:23Z)', () => {
   const nd = project()
   assert.deepEqual(labels(projectMenuEntries(nd, handlers(), { claudeHire: offer })),
-    ['Open', 'Settings', 'Hire under this project', 'New project…', 'sep', 'Retire project…'])
-  const open = projectMenuEntries(nd, handlers(), { claudeHire: offer })[0]
-  assert.ok(open !== 'sep')
-  assert.deepEqual(open.children?.map((c) => c === 'sep' ? 'sep' : c.label),
-    ['Open project mailbox', 'Open project folder'])
+    ['Focus', 'Open', 'Hire under this project', 'New project…', 'Settings', 'sep', 'Retire project…'])
+  assert.deepEqual(entryNamed(projectMenuEntries(nd, handlers(), { claudeHire: offer }), 'Open').children
+    ?.map((c) => c === 'sep' ? 'sep' : c.label), ['Open project mailbox', 'Open project folder'])
+})
+
+test('§3a2 the agent and switchboard entries a project can take: focus, pin, subtree compact and halt (user 22:23Z)', () => {
+  const asked: string[] = []
+  let focused = 0, pinned = 0
+  const nd = project({ children: [{ id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', children: [] }] as never })
+  const h = handlers({ onRetireAsk: (k) => { asked.push(k) }, onOpenDesk: () => { focused++ }, onPin: () => { pinned++ } })
+  const entries = projectMenuEntries(nd, h, { claudeHire: offer })
+  assert.deepEqual(labels(entries), ['Focus', 'Open', 'Hire under this project', 'New project…', 'Settings', 'sep',
+    'Cheap-compact all agents under it…', 'Halt all agents under it…', 'Retire project…'])
+  entryNamed(entries, 'Focus').onSelect()
+  entryNamed(entries, 'Cheap-compact all agents under it…').onSelect()
+  entryNamed(entries, 'Halt all agents under it…').onSelect()
+  const pin = entryNamed(entries, 'Open').children!.find((c) => c !== 'sep' && c.label === 'Pin desk as a window')
+  assert.ok(pin && pin !== 'sep', 'pin the project desk as a window')
+  pin.onSelect()
+  assert.deepEqual([focused, pinned, asked], [1, 1, ['cheap-compact-subtree', 'halt-subtree']])
+  const halted = project({ children: [{ id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', children: [],
+    halt: { phase: 'halted' } }] as never })
+  assert.ok(labels(projectMenuEntries(halted, h, {})).includes('Unhalt all agents under it…'))
 })
 
 test('§3b agentMenuEntries gives a project the project menu, never an agent\'s', () => {
@@ -329,8 +353,7 @@ test('§3c retiring a project with live agents under it asks for the team retire
 
 test("§4a a project's menu opens its docket when the surface offers one", () => {
   let opened = 0
-  const open = projectMenuEntries(project(), handlers({ onDocket: () => { opened++ } }), {})[0]
-  assert.ok(open !== 'sep')
+  const open = entryNamed(projectMenuEntries(project(), handlers({ onDocket: () => { opened++ } }), {}), 'Open')
   const entry = open.children?.find((c) => c !== 'sep' && c.label === 'Open project docket')
   assert.ok(entry && entry !== 'sep', 'the Open branch carries the project docket')
   entry.onSelect()
