@@ -7,7 +7,7 @@ Up: [orgtree-workspace](../SKILL.md)
 
 # Review a concrete result
 
-This is the development team's landing practice, separate from product-side docket permissions. Finish the scoped change, commit it, and give an independent reviewer the exact SHA, stated requirements, changed files, source anchors and relevant verification. Review of an earlier draft does not approve later edits automatically. Use the assigned reviewer and bounded review scope; do not invent extra review rounds after a user waiver or stop.
+This is the development team's landing practice, separate from product-side docket permissions. When the project's current phase calls for independent review, finish the scoped change, commit it, and give the assigned reviewer the exact SHA, stated requirements, changed files, source anchors and relevant verification. Review of an earlier draft does not approve later edits automatically. Follow the project's review phase and bounded scope; do not invent extra review rounds after a user waiver or stop.
 
 Keep engine, desktop and visual changes in separate commits as required by this repository. Include documentation/`AGENTS.md` maintenance for a new invariant or ruling in the landing it describes. Do not put private machine/account details into public repository notes.
 

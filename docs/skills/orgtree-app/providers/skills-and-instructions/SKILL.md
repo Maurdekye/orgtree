@@ -10,9 +10,9 @@ Shared skills and personal global instructions are implemented in the integrated
 
 ## Built-in guides and user skills
 
-The built-in Orgtree skill library is also called the glossary or Orgtree Encyclopaedia (encyclopedia). These are aliases for the same guides, with the same `orgtree-working` and `orgtree-app` entry points; imported user skills are separate bundles.
+The built-in Orgtree skill library is also called the glossary or Orgtree Encyclopaedia (encyclopedia). These are aliases for the same guides, with `orgtree-working`, `orgtree-app` and `orgtree-workflows` entry points; imported user skills are separate bundles.
 
-In the sharing pipeline, the engine build embeds every file under `docs/skills`; an installed engine does not need a source checkout to supply those resources. This large guide library registers only two category entries, `orgtree-working` and `orgtree-app`. Each section and leaf remains a nested directory with its own `SKILL.md`, read by following the parent page's links on demand.
+In the sharing pipeline, the engine build embeds every file under `docs/skills`; an installed engine does not need a source checkout to supply those resources. This large guide library registers only three category entries: `orgtree-working` for tools and operating rules, `orgtree-app` for screens and settings, and `orgtree-workflows` for suggested team workflows. Each section and leaf remains a nested directory with its own `SKILL.md`, read by following the parent page's links on demand.
 
 Only category entry files enter native discovery roots. Their complete resource trees, including nested `SKILL.md` pages, live beside those roots; category entry links are retargeted and nested links keep their relative meaning. A recursive native loader therefore does not advertise every leaf description. Follow the delivered entry links rather than inventing paths from a developer checkout.
 
@@ -24,7 +24,7 @@ This trim does not shorten the user's standing notes, charters or personal globa
 
 The focused synthetic proof is `tools/rig/proofs/instructions-trim-skills.mjs`: fake agents open a category, follow a section link and read a leaf through their native bindings, while the proof compares every resource with the built-in source. This establishes synthetic delivery and access. It does not establish real-model guide selection, obedience or compatibility with every native CLI version.
 
-The importer accepts a top-level bundle from the source tree; it does not hard-code those two category names. The library is included in the 4.3.0 release scope. Its landing moves the standalone engine-start-mode guide into its category and removes the old copy. Use the catalog and resources supplied to the current session to establish availability.
+The importer accepts a top-level bundle from the source tree; it does not hard-code the category names. The library is included in the 4.3.0 release scope. Its landing moves the standalone engine-start-mode guide into its category and removes the old copy. Use the catalog and resources supplied to the current session to establish availability.
 
 Global imports require the corresponding harness to be installed. The pipeline reads:
 

@@ -22,4 +22,4 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-context-menus](context-menus/SKILL.md): Context menus, above all the agent menu and every item in it.
 - [orgtree-pinned-windows](pinned-windows/SKILL.md): Pinning desks and modals as canvas windows, popping them out, and the temporary desk.
 
-Tool calls and workflows are in orgtree-working; desktop screens and user settings are in orgtree-app. Cross-category references name the page and breadcrumb instead of linking outside the bundle.
+Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.

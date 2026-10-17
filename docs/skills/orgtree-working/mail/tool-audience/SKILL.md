@@ -57,3 +57,5 @@ Missing target/from/grantee fields are reported with the action that needs them.
 - [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
 - [orgtree-external-mail](../external-mail/SKILL.md)
 - [orgtree-org-inbox](../org-inbox/SKILL.md)
+
+For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).

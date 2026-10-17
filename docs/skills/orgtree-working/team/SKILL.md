@@ -37,4 +37,4 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-tool-self-subjugate](tool-self-subjugate/SKILL.md): Step down so a descendant takes your seat.
 - [orgtree-tool-list-tiers](tool-list-tiers/SKILL.md): Model tiers you can hire on and their seat prices.
 
-Tool calls and workflows are in orgtree-working; desktop screens and user settings are in orgtree-app. Cross-category references name the page and breadcrumb instead of linking outside the bundle.
+Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.

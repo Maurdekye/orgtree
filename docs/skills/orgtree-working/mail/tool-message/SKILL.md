@@ -88,3 +88,5 @@ Typical refusals identify the repair: `metadata must be an object`, `put <field>
 - [orgtree-chain-and-audiences](../chain-and-audiences/SKILL.md)
 - [orgtree-external-mail](../external-mail/SKILL.md)
 - [orgtree-org-inbox](../org-inbox/SKILL.md)
+
+For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).

@@ -29,4 +29,4 @@ Your turns and sessions: status, wakes, checkups, context, compaction, halts and
 - [orgtree-tool-unstick](tool-unstick/SKILL.md): Release a usage-limit freeze.
 - [orgtree-tool-cheap-compact](tool-cheap-compact/SKILL.md): Restart an agent on a fresh session with a summary; what carries over.
 
-For another topic, return to the category above. References to the other category use its skill name and breadcrumb; open that category to locate them.
+For another topic, return to the category above. References to another category use its skill name and breadcrumb; open that category to locate them.

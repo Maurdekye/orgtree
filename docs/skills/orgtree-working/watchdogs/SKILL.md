@@ -17,4 +17,4 @@ Watching for events without polling: watchdogs and how to wait.
 
 - [orgtree-tool-watchdog](tool-watchdog/SKILL.md): Persistent watchers (file/command/process/stream/activity/event) that mail you.
 
-For another topic, return to the category above. References to the other category use its skill name and breadcrumb; open that category to locate them.
+For another topic, return to the category above. References to another category use its skill name and breadcrumb; open that category to locate them.

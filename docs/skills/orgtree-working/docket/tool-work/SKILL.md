@@ -141,3 +141,5 @@ Legacy addendum, review/verdict/review-seat actions, receipts, artifacts, grants
 - [orgtree-docket-items](../docket-items/SKILL.md)
 - [orgtree-docket-statuses](../docket-statuses/SKILL.md)
 - [orgtree-docket-review-and-attention](../docket-review-and-attention/SKILL.md)
+
+For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).

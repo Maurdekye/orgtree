@@ -21,4 +21,4 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-tool-work](tool-work/SKILL.md): The docket tool: every action, its arguments, refusals and retired actions.
 - [orgtree-tool-staff](tool-staff/SKILL.md): Create/update a docket item and hire or rehire its owner in one call.
 
-Tool calls and workflows are in orgtree-working; desktop screens and user settings are in orgtree-app. Cross-category references name the page and breadcrumb instead of linking outside the bundle.
+Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.

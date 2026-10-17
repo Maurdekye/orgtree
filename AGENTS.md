@@ -31,7 +31,8 @@
 
 - The built-in Orgtree skill library is also called the glossary or Orgtree
   Encyclopaedia (encyclopedia). These are equivalent terms; keep the library
-  name and `orgtree-working`/`orgtree-app` category IDs. Root descriptions,
+  name and `orgtree-working`/`orgtree-app` category IDs; `orgtree-workflows`
+  adds suggested workflows (user 2026-10-17). Root descriptions,
   the tree manifest, agent introduction and Refresh tooltip carry the aliases.
   [decided: user 2026-10-16; verified: `runtime/identity.rs`, `docs/skills/tree.json`,
   `canvas/modals.tsx`]
@@ -136,7 +137,7 @@
   plus pointers to built-in skill pages); every other seat keeps the full text byte for
   byte. The five current lanes are enabled after the synthetic native-binding/read
   proof `tools/rig/proofs/instructions-trim-skills.mjs` passed 37/37 (2026-10-16):
-  each fake agent opens both categories, a section and a leaf, and all resources
+  each fake agent opened the original two categories, a section and a leaf, and all resources
   match source. This is not real-model skill-choice or native-version evidence.
   Add future lanes only with delivery evidence and with the library shipped, since
   `trim_tests::every_skill_pointer_names_a_page_in_the_library` reads

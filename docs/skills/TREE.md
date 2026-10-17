@@ -9,7 +9,7 @@ registered skill names remain unchanged.
 coverage guard reads it. The tables at the end of this file are generated from
 `tree.json`. If the two ever disagree, `tree.json` is right and this file gets fixed.
 
-Revision **v1.2**: complete. v1.2 added the section `orgtree-app › harnesses` (docket item `skill-pages-exact-differences-between-all-suppor`): the five harness pages and `harnesses-tab` moved there from `providers`, plus `harness-comparison`, `route-openrouter` and `route-local-server`. v1.1 added `mcp-servers` and `skills-and-instructions` (app › providers), fixed source paths and corrected the `desk-history` and `hubchat` purposes. Everything was enumerated from source at `296deb0`
+Revision **v1.3**: a third category, `orgtree-workflows`, adds suggested committee and dev-team workflows (user 2026-10-17). v1.2 was complete. v1.2 added the section `orgtree-app › harnesses` (docket item `skill-pages-exact-differences-between-all-suppor`): the five harness pages and `harnesses-tab` moved there from `providers`, plus `harness-comparison`, `route-openrouter` and `route-local-server`. v1.1 added `mcp-servers` and `skills-and-instructions` (app › providers), fixed source paths and corrected the `desk-history` and `hubchat` purposes. Everything was enumerated from source at `296deb0`
 (rust-engine local tip): tools from `engine/rs/orgtree-engine/src/tools/defs.rs`
 `implemented()`, screens from `apps/desktop/renderer/src` and `apps/desktop/main`, and
 settings from the App settings, Org settings and Agent settings sources. The release
@@ -18,25 +18,28 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 
 | | Count |
 |---|---|
-| Categories (level 1, registered) | 2 |
-| Sections (level 2) | 18 |
-| Leaves (level 3) | 167: 44 tool, 46 concept, 33 screen, 44 setting |
-| SKILL.md files in total | 187 |
-| Bytes of the two registered `name` + `description` lines | 403 |
+| Categories (level 1, registered) | 3 |
+| Sections (level 2) | 19 |
+| Leaves (level 3) | 169: 44 tool, 48 concept, 33 screen, 44 setting |
+| SKILL.md files in total | 191 |
+| Bytes of registered `name` + `description` lines | 548 |
 
 ## 1. Shape and conventions
 
 - **Three levels.** A category (level 1) holds sections (level 2), and a section holds
   leaves (level 3). There is no level 4. Every node is its own folder with one `SKILL.md`:
   `docs/skills/<category>/<section>/<leaf>/SKILL.md`.
-- **Only the two categories are registered** for automatic discovery:
+- **Only the three categories are registered** for automatic discovery:
   - `orgtree-working`: how to work inside an org, meaning every orgtree_* tool and every
     rule and workflow.
   - `orgtree-app`: the desktop app, meaning every screen, every setting, providers,
     accounts and the mail hub.
+  - `orgtree-workflows`: suggested team patterns, including committee decisions and the
+    development-team system used by the bundled templates.
 
   The split is by question. "How do I do X as an agent?" goes to working. "What is this
-  screen or setting, and what should the user change?" goes to app.
+  screen or setting, and what should the user change?" goes to app. "How should we
+  organise this team or decision?" goes to workflows.
 - **Folder names.** A category folder is named after the skill (`orgtree-working`).
   Section and leaf folders use short kebab-case slugs that are unique across the whole
   tree (`team`, `tool-hire`). The `name` of a section or leaf skill is `orgtree-<slug>`.
@@ -72,14 +75,14 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 
 ## 2. Navigation: any fact in at most 3 hops
 
-1. **Hop 1, the category page.** The agent picks a category from the two registered
+1. **Hop 1, the category page.** The agent picks a category from the three registered
    descriptions. The category page has:
    - a table of its sections, one line each;
    - a short question index ("I need to wait for a build" → `watchdogs`, "the user asks
      what a badge means" → `canvas`) with about 15 to 25 entries, each pointing to a
      section;
-   - the cross-category rule: tools and workflows are in working, screens and settings
-     in app.
+   - the cross-category rule: tools and operating rules are in working, screens and
+     settings in app, suggested team workflows in workflows.
 2. **Hop 2, the section page.** It lists every child, one line each, grouped as
    "Workflows and rules" (concept leaves) first, then "Tools", "Screens" or "Settings".
    Each line is `[orgtree-<slug>](<slug>/SKILL.md): <purpose>`, using the purpose from
@@ -101,6 +104,12 @@ remove from them):
   that home. It never restates the fact.
 
 ## 3. Placement rulings
+
+- **Suggested workflows** are a third top-level category, `orgtree-workflows` (user
+  2026-10-17 11:29Z), replacing the initial proposal for a section under working.
+  `collaboration-patterns` holds the committee and dev-team leaves; tool mechanics
+  and template UI keep their existing homes. The publication request supersedes
+  the committee procedure's earlier org-notes-only restriction.
 
 These rulings explain choices a reader might otherwise question.
 
@@ -182,11 +191,12 @@ leaf in it.
 | hubchat-dm-sol | working › team, `tool-org-logo` (4.3.1) | 1 |
 | rig-opus | working › runtime, `tool-session` (4.3.1) | 1 |
 | machine-traps-sol | working › workspace, `machine-traps` (4.3.2) | 1 |
+| skilltree-opus | workflows › collaboration-patterns | 2 |
 | session0-docs-luna | working › runtime, `session-0-ui-testing` | 1 |
 
 - **Section pages** (`<section>/SKILL.md`) are written by the section's writer, using
   the child order and purposes in `tree.json`.
-- **The two category pages** are written by skills-docs-sol, using the descriptions
+- **The category pages** are written by skills-docs-sol, using the descriptions
   fixed below.
 - **Order of work:** tool leaves first (fixed in v0), then concept leaves, then screens
   and settings.
@@ -199,10 +209,13 @@ description: Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclope
 
 name: orgtree-app
 description: Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): desktop screens and settings, providers, harnesses, accounts and the mail hub.
+
+name: orgtree-workflows
+description: Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclopedia): suggested workflows for committees and development teams.
 ```
 
-Measured size: 312 UTF-8 description-value bytes; 380 bytes for both `name` and
-`description` lines together (below the 600-byte coverage-guard cap).
+Measured size: 442 UTF-8 description-value bytes; 548 bytes for registered
+`name` and `description` lines together (below the 600-byte coverage-guard cap).
 
 ## 6. Coverage guard
 
@@ -259,7 +272,7 @@ it land before the content.
     name,          // skill name: category name, or "orgtree-<slug>"
     level,         // 1 | 2 | 3
     kind,          // category | section | tool | concept | screen | setting
-    registered,    // true only for the two categories
+    registered,    // true only for the three categories
     description?,  // categories only (the fixed registered text)
     purpose,       // the one line the parent's child list shows
     children?,     // level 1-2: slugs in display order
@@ -289,7 +302,7 @@ Building and shaping your team: hiring, tiers, credits, charters, scope, and eve
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
-| `tool-hire` | tool | `orgtree_hire` | Hire a subordinate or insert a superior: tiers, harnesses, scope, charter, credits. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:460`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("hire")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
+| `tool-hire` | tool | `orgtree_hire` | Hire a subordinate or insert a superior: tiers, harnesses, scope, charter, credits. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:460`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("hire")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions, committee-mode, dev-team |
 | `tool-rehire` | tool | `orgtree_rehire` | Bring back a retired agent with its context. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:484`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("rehire")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
 | `tool-retire` | tool | `orgtree_retire` | Retire an agent below you; what survives retirement. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:495`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("retire")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
 | `tool-dissolve` | tool | `orgtree_dissolve` | Retire an agent together with its whole team. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:496`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("dissolve")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | hiring, delegating, team-shape, credits, charters, scope-and-permissions |
@@ -316,7 +329,7 @@ The docket, the org's durable record of work: items, statuses, review and attent
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
-| `tool-work` | tool | `orgtree_work` | The docket tool: every action, its arguments, refusals and retired actions. Group `docket`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:626`<br>`engine/rs/orgtree-engine/src/tools/mod.rs work_tool -> domain/docket.rs`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | docket-items, docket-statuses, docket-review-and-attention |
+| `tool-work` | tool | `orgtree_work` | The docket tool: every action, its arguments, refusals and retired actions. Group `docket`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:626`<br>`engine/rs/orgtree-engine/src/tools/mod.rs work_tool -> domain/docket.rs`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | docket-items, docket-statuses, docket-review-and-attention, committee-mode, dev-team |
 | `tool-staff` | tool | `orgtree_staff` | Create/update a docket item and hire or rehire its owner in one call. Group `docket+team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:699`<br>`engine/rs/orgtree-engine/src/tools/mod.rs dispatch -> domain/staffing.rs staff`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | docket-items, docket-statuses, docket-review-and-attention |
 | `docket-items` | concept | — | Writing docket items: slugs, the problem-first description, progress lists, evidence, and recording rulings. Must cover: one item per piece of work; continue, never duplicate; description structure and authority; done_so_far/working_on_next and keep/append with expected_rev; evidence kinds; rulings go in the description. | `engine/rs/orgtree-engine/src/runtime/identity.rs DOCKET`<br>`engine/rs/orgtree-engine/src/domain/docket.rs`<br>`docs/rust-engine/docket-opening.md` | tool-work, docket-statuses |
 | `docket-statuses` | concept | — | Statuses and their rules: backlogged, open, in_progress, blocked, review, approved, deploy_ready, done, dropped; archive and reopen. Must cover: what each status means and who may set it; blocked_reason and dropped_reason; auto-archive timing; reopen; delete vs archive vs drop. | `engine/rs/orgtree-engine/src/domain/docket.rs`<br>`docs/rust-engine/tool-work-status-transitions.md` | tool-work, docket-review-and-attention |
@@ -328,10 +341,10 @@ Mail inside and outside the org: messages, notices, audiences, other orgs and th
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
-| `tool-message` | tool | `orgtree_message` | Send mail: recipients, kinds, questions/options, attachments, urgent, replies; flat Antigravity variant. Group `messaging`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:170`<br>`engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,false)`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox |
+| `tool-message` | tool | `orgtree_message` | Send mail: recipients, kinds, questions/options, attachments, urgent, replies; flat Antigravity variant. Group `messaging`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:170`<br>`engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,false)`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox, committee-mode, dev-team |
 | `tool-send-notice` | tool | `orgtree_send_notice` | Passive mail that wakes nobody. Group `messaging`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:179`<br>`engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,true)`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox |
 | `tool-inbox` | tool | `orgtree_inbox` | Read your own mail: list, fetch, chunk, conversation. Group `messaging`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:296`<br>`engine/rs/orgtree-engine/src/tools/mailtools.rs inbox`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox |
-| `tool-audience` | tool | `orgtree_audience` | Request, grant, deny, revoke audiences outside the chain of command. Group `messaging`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:556`<br>`engine/rs/orgtree-engine/src/tools/mod.rs audience_tool -> domain/audiences.rs`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox |
+| `tool-audience` | tool | `orgtree_audience` | Request, grant, deny, revoke audiences outside the chain of command. Group `messaging`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:556`<br>`engine/rs/orgtree-engine/src/tools/mod.rs audience_tool -> domain/audiences.rs`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox, committee-mode, dev-team |
 | `tool-transfers` | tool | `orgtree_transfers` | Inspect and control attachment transfers. Group `messaging`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:290`<br>`engine/rs/orgtree-engine/src/tools/mailtools.rs transfers`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox |
 | `tool-list-orgs` | tool | `orgtree_list_orgs` | Other organizations reachable as @org: and @net: addresses. Group `inspection`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:351`<br>`engine/rs/orgtree-engine/src/tools/orgview.rs list_orgs`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | mail-basics, chain-and-audiences, external-mail, org-inbox |
 | `mail-basics` | concept | — | How mail works: messages vs notices, kinds, wakes, replies, mid-task delivery and the authentic-channel marker. Must cover: message wakes, notice does not; question kind and options; reply_to/replies threading; mail delivered mid-task and its marker; never wait for replies inside a turn. | `engine/rs/orgtree-engine/src/runtime/identity.rs TOOLS_SENTENCE, AUTHENTIC_CHANNEL`<br>`engine/rs/orgtree-engine/src/domain/mail.rs`<br>`engine/rs/orgtree-engine/src/domain/notices.rs`<br>`engine/rs/orgtree-engine/src/domain/replies.rs`<br>`docs/mail-delivery-boundaries.md`<br>`docs/rust-engine/multi-replies.md` | tool-message, tool-send-notice, tool-inbox |
@@ -367,7 +380,7 @@ Your turns and sessions: status, wakes, checkups, context, compaction, halts and
 | `tool-halt` | tool | `orgtree_halt` | Halt agents below you. Group `runtime`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:374`<br>`engine/rs/orgtree-engine/src/tools/control.rs halt(..,true)`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
 | `tool-unhalt` | tool | `orgtree_unhalt` | Release halted agents. Group `runtime`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:380`<br>`engine/rs/orgtree-engine/src/tools/control.rs halt(..,false)`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
 | `tool-unstick` | tool | `orgtree_unstick` | Release a usage-limit freeze. Group `runtime`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:386`<br>`engine/rs/orgtree-engine/src/tools/control.rs unstick`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
-| `tool-cheap-compact` | tool | `orgtree_cheap_compact` | Restart an agent on a fresh session with a summary; what carries over. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:536`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("cheap_compact")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
+| `tool-cheap-compact` | tool | `orgtree_cheap_compact` | Restart an agent on a fresh session with a summary; what carries over. Group `team`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:536`<br>`engine/rs/orgtree-engine/src/tools/treetools.rs run("cheap_compact")`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()`<br>`docs/rust-engine/recovery-commands.md` | turns-and-wakes, turn-envelope, checkups-and-reminders, context-and-compaction, halts-and-restarts |
 | `turns-and-wakes` | concept | — | What a turn is, what wakes you, and the rule never to end a turn with background work running. Must cover: wakes: mail, checkups, watchdogs, restarts; the background-work rule and idle watchdog; turn time and silence limits; ending at milestones so mail can arrive. | `engine/rs/orgtree-engine/src/runtime/identity.rs BACKGROUND`<br>`engine/rs/orgtree-engine/src/runtime/prompt.rs`<br>`docs/rust-engine/background-work.md` | turn-envelope, checkups-and-reminders, waiting-for-events, app-turn-limits |
 | `turn-envelope` | concept | — | Reading the blocks at the top of each turn: ORG STATE, PROVIDER USAGE, MAIL, notices. Must cover: each block's fields and freshness; newest copy wins; dynamic facts vs prefix. | `engine/rs/orgtree-engine/src/runtime/envelope.rs`<br>`engine/rs/orgtree-engine/src/runtime/event_text.rs` | usage-windows, mail-basics |
 | `checkups-and-reminders` | concept | — | Automatic checkups for working agents and idle/blocked docket reminders. Must cover: the 20-minute working checkup; idle and blocked docket reminders and their switches; what they never do. | `engine/rs/orgtree-engine/src/runtime/identity.rs CHECKUPS`<br>`engine/rs/orgtree-engine/src/runtime/reminders.rs`<br>`engine/rs/orgtree-engine/src/events.rs:235-242` | app-concurrency-and-checkups, tool-status |
@@ -380,7 +393,7 @@ Watching for events without polling: watchdogs and how to wait.
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
-| `tool-watchdog` | tool | `orgtree_watchdog` | Persistent watchers (file/command/process/stream/activity/event) that mail you. Group `watchdogs`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:573`<br>`engine/rs/orgtree-engine/src/tools/mod.rs dog_tool -> domain/watchdogs.rs`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | waiting-for-events, machine-traps |
+| `tool-watchdog` | tool | `orgtree_watchdog` | Persistent watchers (file/command/process/stream/activity/event) that mail you. Group `watchdogs`. Must cover: when to use it and when not; every parameter/action with defaults and limits from the definition; refusals and error texts agents hit; top-level vs. non-top-level differences; a minimal correct example call. | `engine/rs/orgtree-engine/src/tools/defs.rs:573`<br>`engine/rs/orgtree-engine/src/tools/mod.rs dog_tool -> domain/watchdogs.rs`<br>`engine/rs/orgtree-engine/src/domain/tool_groups.rs required()` | waiting-for-events, machine-traps, committee-mode, dev-team |
 | `waiting-for-events` | concept | — | How to wait for a build, file, process or event: a watchdog, never a polling loop or a sleeping turn. Must cover: choose the watchdog kind; foreground long jobs vs watchdog; cleaning up watchdogs. | `engine/rs/orgtree-engine/src/runtime/identity.rs WATCHDOGS`<br>`engine/rs/orgtree-engine/src/domain/watchdogs.rs`<br>`docs/rust-engine/event-watchdogs.md` | tool-watchdog, turns-and-wakes, builds-under-the-lock |
 
 #### Section `inspection` — `orgtree-working/inspection/` — writer runtime-sol
@@ -418,7 +431,7 @@ Your folders and working practices: scratch, notes, breadcrumbs, shared folders,
 |---|---|---|---|---|---|
 | `scratch-folder` | concept | — | Your scratch folder and its AGENTS.md standing notes. Must cover: what the folder is and who can read it; standing notes delivered each session; identity files not to edit; native personal/team/shared folder actions and distinct creation rules. | `engine/rs/orgtree-engine/src/runtime/identity.rs l.283-292, own_notes()`<br>`docs/rust-engine/scratch-folder.md`<br>`docs/rust-engine/standing-notes.md` | breadcrumbs, shared-folders, tool-read-scratch |
 | `shared-folders` | concept | — | The org shared folder and team workspaces: what goes where and their AGENTS.md notes. Must cover: _shared and _teams/<id>; narrowest folder its readers share; no secrets; re-read before editing. | `engine/rs/orgtree-engine/src/runtime/identity.rs org_notes_rule, team_rule`<br>`docs/rust-engine/org-shared-notes.md`<br>`docs/rust-engine/team-workspaces.md`<br>`engine/rs/orgtree-engine/src/domain/teams.rs` | scratch-folder |
-| `breadcrumbs` | concept | — | breadcrumbs.md: the realtime compaction log a fresh session resumes from. Must cover: what to write and when; writing for a stranger; where it lives. | `engine/rs/orgtree-engine/src/runtime/identity.rs BREADCRUMBS` | context-and-compaction, scratch-folder |
+| `breadcrumbs` | concept | — | breadcrumbs.md: the realtime compaction log a fresh session resumes from. Must cover: what to write and when; writing for a stranger; where it lives; record reusable commands on their first run. | `engine/rs/orgtree-engine/src/runtime/identity.rs BREADCRUMBS` | context-and-compaction, scratch-folder |
 | `suggestion-box` | concept | — | suggestion-box.md: notes on how Orgtree should better inform agents about its own functions. Must cover: the standing rule and its origin; what makes a useful note. | `team notes rule (coordinator-opus, user 2026-10-15); not in engine source` | breadcrumbs |
 | `machine-traps` | concept | `concept:machine-traps` | Windows shell escaping, CRLF, encodings, Git Bash paths and file-edit pitfalls on the development machine. Must cover: shell transport escaping and saved scripts; CRLF and byte checks; Git Bash versus WSL and watchdog shell selection; Windows and MSYS argument paths; PowerShell and Python encodings; Edit tool Unicode escapes; rerere and mojibake; legacy machine traps and current workflow boundaries. | `.gitattributes`<br>`AGENTS.md (Machine traps)`<br>`engine/rs/orgtree-engine/src/runtime/watchdogs.rs:707-762`<br>`docs/machine-traps.md (compatibility pointer)`<br>`user/coordinator 2026-10-16 machine-traps docket scope and feedback section 6` | worktrees-and-git, builds-under-the-lock, tool-watchdog |
 | `worktrees-and-git` | concept | — | Working on a git repository from an org: your own worktree, never another's, never a bare stash, commit before probing. Must cover: create and remove a worktree; shared stash hazard; branch from the right base. | `docs/worktree-operations.md`<br>`engine/rs/orgtree-engine/src/runtime/identity.rs GATE_GATED` | builds-under-the-lock, reviews-and-landing, machine-traps |
@@ -436,7 +449,7 @@ The app's frame: windows, homepage, header and menus, status bar, quick chat, tr
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
 | `homepage` | screen | `screen:homepage` | The homepage window: the org list, phone card and create button. Must cover: opening orgs; org rows and badges. | `apps/desktop/renderer/src/shell/homepage.tsx:38`<br>`apps/desktop/renderer/src/shell/orgrows.tsx:20`<br>`apps/desktop/main/index.ts:2254` | create-organization, onboarding |
-| `create-organization` | screen | `screen:create-organization`, `screen:template-picker` | Creating an organization: name, folders, layout and template. Must cover: fields; templates; discarding a creation. | `apps/desktop/renderer/src/shell/createorg.tsx:80`<br>`apps/desktop/renderer/src/shell/templatepicker.tsx:61` | app-charters-and-templates, org-templates |
+| `create-organization` | screen | `screen:create-organization`, `screen:template-picker` | Creating an organization: name, folders, layout and template. Must cover: fields; templates; discarding a creation. | `apps/desktop/renderer/src/shell/createorg.tsx:80`<br>`apps/desktop/renderer/src/shell/templatepicker.tsx:61` | app-charters-and-templates, org-templates, dev-team |
 | `org-header-and-menu` | screen | `screen:org-header`, `screen:app-menu` | The org window header and the Orgtree app menu: view toggle, Inbox, Work, Presentations, Org settings, and the menu items. Must cover: every header button and where it leads; every app-menu item. | `apps/desktop/renderer/src/shell/header.tsx:58`<br>`apps/desktop/renderer/src/shell/menu.tsx:84`<br>`apps/desktop/renderer/src/shell/modetoggle.tsx:18` | attention-view, inbox-screens, docket-screens |
 | `kill-switch` | screen | `screen:kill-switch` | STOP ALL: arming, latching an org-wide halt, and releasing it. Must cover: arm/press/release; what it halts. | `apps/desktop/renderer/src/KillSwitch.tsx:56` | halts-and-restarts |
 | `status-bar` | screen | `screen:status-bar` | The bottom status bar chips: active agents, hub, audit, connectivity. Must cover: each chip. | `apps/desktop/renderer/src/shell/statusbar.tsx:58`<br>`apps/desktop/renderer/src/shell/treeinfo.tsx:95` | quick-chat |
@@ -494,7 +507,7 @@ App settings (Orgtree menu > App settings…): Runtime, Display, Default org set
 | `app-turn-limits` | setting | `rt:turn_timeout_s`, `rt:turn_idle_s` | Runtime > Turn time limits: total and silence limits. Must cover: defaults and effect. | `apps/desktop/renderer/src/canvas/turnlimitssetting.tsx:84` | turns-and-wakes |
 | `app-concurrency-and-checkups` | setting | `rt:max_concurrent_turns`, `rt:working_checkups_enabled`, `rt:wait_for_mcp_tools_enabled`, `rt:idle_docket_reminders_enabled`, `rt:blocked_docket_reminders_enabled`, `rt:warming_enabled` | Runtime > Turns: concurrent turns, working checkups, MCP wait, docket reminders, process warming. Must cover: each switch and default. | `apps/desktop/renderer/src/canvas/accounts.tsx:636`<br>`apps/desktop/renderer/src/canvas/accounts.tsx:871-890` | checkups-and-reminders |
 | `app-charters-and-templates` | setting | `rt:charter-template-dirs` | Runtime > Charter documents and Organization templates: template folders, populating documents, restoring default templates. Must cover: actions and folders. | `apps/desktop/renderer/src/canvas/chartersettings.tsx:46`<br>`apps/desktop/renderer/src/canvas/templates.tsx:41`<br>`engine/rs/orgtree-engine/src/domain/templates.rs` | create-organization, org-templates |
-| `app-display-appearance` | setting | `np:visualTheme`, `np:contrastTheme`, `np:agentColorSource`, `np:canvasBackground` | Display > Appearance and Canvas background: theme, custom color, contrast color, agent colors, canvas background and intensity. Must cover: each choice. | `apps/desktop/renderer/src/themes.tsx:234`<br>`apps/desktop/renderer/src/contrast.tsx:93`<br>`apps/desktop/renderer/src/agentcolors.tsx:142`<br>`apps/desktop/renderer/src/canvas/canvasbgsetting.tsx:15`<br>`apps/desktop/renderer/src/canvasbgpref.ts:19`<br>`packages/contracts/canvas-background.ts:27` |  |
+| `app-display-appearance` | setting | `np:visualTheme`, `np:contrastTheme`, `np:agentColorSource`, `np:canvasBackground` | Display > Appearance and Canvas background: theme, custom color, contrast color, agent colors, canvas background and intensity. Must cover: each choice. | `apps/desktop/renderer/src/themes.tsx:234`<br>`apps/desktop/renderer/src/contrast.tsx:93`<br>`apps/desktop/renderer/src/agentcolors.tsx:142`<br>`apps/desktop/renderer/src/canvas/canvasbgsetting.tsx:15`<br>`apps/desktop/renderer/src/canvasbgpref.ts:19`<br>`packages/contracts/canvas-background.ts:27` | — |
 | `app-display-desk-and-chart` | setting | `ls:orgtree-chart-layout`, `ls:orgtree-desk-dpi`, `ls:orgtree-crowd-piles`, `ls:orgtree-hide-retired`, `ls:orgtree-agent-shortcuts`, `ls:orgtree-modal-overlap-fade`, `ls:orgtree-pin-snap`, `ls:orgtree-jump-fold`, `ls:orgtree-canvas-anchor-bounded` | Display > Desk: chart layout, desk text size, piles, retired agents, card shortcuts, pinned-panel behavior. Must cover: each switch and default. | `apps/desktop/renderer/src/canvas/accounts.tsx:317-401`<br>`apps/desktop/renderer/src/canvas/pinoverlap.tsx:40`<br>`apps/desktop/renderer/src/canvas/canvasanchor.tsx:127` | org-canvas, pinned-windows, piles |
 | `app-display-input-and-startup` | setting | `ls:orgtree-quickchat-position`, `rt:enter_key_behavior`, `np:startupMode`, `ls:orgtree-start-view`, `ls:orgtree-start-zoom` | Display > quick chat position, Enter key, and Startup behavior. Must cover: each choice and default. | `apps/desktop/renderer/src/canvas/accounts.tsx:430-458`<br>`apps/desktop/renderer/src/canvas/accounts.tsx:903`<br>`apps/desktop/renderer/src/shell/general.tsx:107` | quick-chat |
 | `app-default-org-settings` | setting | `defaults:max_top_grant`, `defaults:default_top_grant`, `defaults:compact_at`, `defaults:default_effort`, `defaults:cascade_hire`, `defaults:cascade_alloc`, `defaults:auto_resume` | Default org settings: values new organizations start with (also the standalone form). Must cover: each field and default; applies only to new orgs. | `apps/desktop/renderer/src/shell/defaults.tsx:46-78`<br>`apps/desktop/renderer/src/App.tsx:2947` | org-basic |
@@ -510,7 +523,7 @@ Org settings (header > Org settings): Basic, Hire defaults, Policies, Connection
 |---|---|---|---|---|---|
 | `org-basic` | setting | `org:max_top_grant`, `org:default_top_grant`, `org:compact_at`, `org:default_effort`, `screen:org-logo` | Basic: org logo, credit caps and grants, compaction threshold, default effort; which tabs save together. Must cover: each field; one save vs immediate tabs; shared scratch folder button independent of Save. | `apps/desktop/renderer/src/App.tsx:3127-3155`<br>`apps/desktop/renderer/src/canvas/orgpicture.tsx:63` | credits, app-default-org-settings |
 | `org-charter-md` | setting | `org:org.md` | Basic > org.md: the org charter every agent receives; saving restarts agents. Must cover: restart effect; trusted notes like Connect your phone. | `apps/desktop/renderer/src/App.tsx:3170` | charters, external-mail |
-| `org-templates` | setting | `action:save-as-template` | Basic > save as template: what a template includes. Must cover: include options. | `apps/desktop/renderer/src/canvas/templates.tsx:66-184` | app-charters-and-templates, create-organization |
+| `org-templates` | setting | `action:save-as-template` | Basic > save as template: what a template includes. Must cover: include options. | `apps/desktop/renderer/src/canvas/templates.tsx:66-184` | app-charters-and-templates, create-organization, dev-team |
 | `org-hire-defaults-folders` | setting | `org:org_dirs`, `action:retire-all` | Hire defaults > Folders, and retire all agents. Must cover: folder defaults. | `apps/desktop/renderer/src/canvas/modals.tsx:416-426` | scope-and-permissions |
 | `org-hire-defaults-scope` | setting | `org:default_visibility`, `org:permission_mode`, `org:default_account` | Hire defaults > visibility, file and command access, provider and account. Must cover: each default; engine default vs UI fallback for visibility. | `apps/desktop/renderer/src/canvas/modals.tsx:472-500` | visibility, account-lanes |
 | `org-hire-defaults-tools` | setting | `org:default_tools`, `org:default_tools.orgtree`, `org:default_tools.mcp` | Hire defaults > native tools, Orgtree tool groups and MCP servers. Must cover: each group. | `apps/desktop/renderer/src/canvas/modals.tsx:509-518`<br>`apps/desktop/renderer/src/canvas/modals.tsx:898` | scope-and-permissions |
@@ -550,7 +563,7 @@ Providers and accounts (App settings > Providers): sign-in, accounts, API-key fa
 | `openrouter` | setting | `setting:openrouter-models`, `setting:openrouter-keys`, `screen:openrouter-dialogs` | OpenRouter: hireable models, keys, spend caps and the model browser. Must cover: keys and caps. | `apps/desktop/renderer/src/canvas/openrouter.tsx:224`<br>`apps/desktop/renderer/src/canvas/openrouterkeys.tsx:40-132`<br>`apps/desktop/renderer/src/canvas/providerdialog.tsx:7`<br>`docs/rust-engine/openrouter-keys.md` | harness-opencode |
 | `language-servers` | setting | `setting:language-servers`, `screen:langserver-dialogs` | Local language servers: adding, editing, agents at once, seat price. Must cover: every field. | `apps/desktop/renderer/src/canvas/langserver.tsx:354-418`<br>`apps/desktop/renderer/src/canvas/langserver.tsx:715-748` | harness-opencode |
 | `mcp-servers` | concept | `api:mcp-servers/refresh`, `screen:mcp-refresh` | MCP servers: read-only discovery and import from every supported source, the Refresh button, collisions and redaction, and how servers are granted to agents. Must cover: each discovery source and format; refresh and caching; aliases on collision, secret redaction; grants: link to the tools-tab and hire-defaults leaves, do not restate. | `engine/rs/orgtree-engine/src/providers/mcp.rs`<br>`engine/rs/orgtree-engine/src/providers/mod.rs:126`<br>`engine/rs/orgtree-engine/src/http/settings.rs:745`<br>`apps/desktop/renderer/src/canvas/modals.tsx:795`<br>`apps/desktop/renderer/src/api.ts:508` | agent-tools-tab, org-hire-defaults-tools, skills-and-instructions |
-| `skills-and-instructions` | concept | `concept:shared-skills`, `concept:global-instructions` | Skills and global instructions: built-in Orgtree skills, discovered user skills, global instruction files, how each harness receives them, and why edits change the startup prefix. Must cover: built-in vs discovered skills and name collisions; only categories registered; nested pages read by path; per-harness delivery (common contract once; harness leaves link here); global instructions; snapshot digest and prefix/cache effect. | `agy-astra/skills-share: engine/rs/orgtree-engine/src/providers/skills.rs`<br>`agy-astra/skills-share: engine/rs/orgtree-engine/build.rs`<br>`agy-astra/skills-share: docs/rust-engine/shared-skills.md`<br>`engine/rs/orgtree-engine/src/runtime/identity.rs:145` | mcp-servers, harness-claude-code, cache-continuity |
+| `skills-and-instructions` | concept | `concept:shared-skills`, `concept:global-instructions` | Skills and global instructions: built-in Orgtree skills, discovered user skills, global instruction files, how each harness receives them, and why edits change the startup prefix. Must cover: built-in vs discovered skills and name collisions; only categories registered; nested pages read by path; per-harness delivery (common contract once; harness leaves link here); global instructions; snapshot digest and prefix/cache effect; verified-lane instruction trim and separate Antigravity standing-note parts. | `agy-astra/skills-share: engine/rs/orgtree-engine/src/providers/skills.rs`<br>`agy-astra/skills-share: engine/rs/orgtree-engine/build.rs`<br>`agy-astra/skills-share: docs/rust-engine/shared-skills.md`<br>`engine/rs/orgtree-engine/src/runtime/identity.rs:145` | mcp-servers, harness-claude-code, cache-continuity |
 | `usage-screens` | screen | `screen:usage-modal`, `screen:usage-history` | The Usage and Usage history windows. Must cover: bars, charts, sign-in prompts. | `apps/desktop/renderer/src/App.tsx:2234`<br>`apps/desktop/renderer/src/usagehistory.tsx:431` | usage-windows, tool-usage |
 
 #### Section `harnesses` — `orgtree-app/harnesses/` — writer providers-sol
@@ -579,4 +592,17 @@ The mail hub, org connections, Hubchat and the phone link.
 | `org-connections` | setting | `org:net_autoconnect`, `org:net_hubs` | Org settings > Connections: the org's mail identity, hub connections and adding a hub. Must cover: identity and secret; adding a hub. | `apps/desktop/renderer/src/canvas/connections.tsx:103-160` | external-mail, tool-list-orgs |
 | `phone-link` | setting | `hub:keep_awake`, `screen:phone-panel` | Connecting a phone: the phone panel, its setup steps and keep-awake. Must cover: steps; authority note it adds to org.md. | `apps/desktop/renderer/src/canvas/phonelink.tsx:184-317` | external-mail, hubchat |
 | `hubchat` | concept | `surface:hubchat` | Hubchat, the human chat client for people and orgs on a mail hub (used from a phone or browser). Must cover: what the user sees and can do; how it maps to org mail and @net: addresses. | `docs/team-setup.md`<br>`docs/rust-engine/mailhub-v2-hosting.md` | phone-link |
+
+### Category `orgtree-workflows` — `docs/skills/orgtree-workflows/SKILL.md`
+
+Suggested workflow entry point: organise independent committee decisions and development teams.
+
+#### Section `collaboration-patterns` — `orgtree-workflows/collaboration-patterns/` — writer skilltree-opus
+
+Choose an independent committee decision or a development team with an accountable implementer.
+
+| Leaf | Kind | Covers | Purpose | Ground truth | See also |
+|---|---|---|---|---|---|
+| `committee-mode` | concept | `workflow:committee-mode` | Different-model proposals, supervisor-only communication, consensus rounds and an undetermined result at the limit. Must cover: when requested by committee; different models and eligible accounts; reuse or hire with identical materials; no member contact in any round; written adoption/rejection reasons; identical supervisor clarifications; 10 rounds by default; undetermined at limit, never pick a winner; durable round records. | `User committee rulings 2026-10-16 23:03Z, 23:10Z and 23:12:59Z; publication request 2026-10-17 11:28Z`<br>`engine/rs/orgtree-engine/src/tools/defs.rs`<br>`engine/rs/orgtree-engine/src/domain/mail.rs` | dev-team, tool-hire, tool-rehire, tool-list-tiers, credits, tool-message, tool-audience, tool-work, tool-watchdog |
+| `dev-team` | concept | `workflow:dev-team` | The bundled flat coordinator/implementer/redteam/curator layout, accountable ownership, review, evidence and adaptations. Must cover: roles and flat reporting shape; source template tiers and spare credits; coordinator/owner/author responsibility; current review phases and waivers win; docket, build queue and evidence references; no automatic build/review authorization; kickoff and template portability; adapt with one owner per piece. | `engine/docs/templates/devteam-claude.json`<br>`engine/docs/templates/devteam-codex.json`<br>`engine/docs/templates/devteam-antigravity.json`<br>`engine/docs/templates/devteam-muse.json`<br>`engine/docs/charters/coordinator.md`<br>`engine/docs/charters/implementer.md`<br>`engine/docs/charters/redteam.md`<br>`engine/docs/charters/curator.md`<br>`engine/rs/orgtree-engine/src/domain/templates.rs`<br>`docs/skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md`<br>`docs/skills/orgtree-working/workspace/reviews-and-landing/SKILL.md` | committee-mode, tool-hire, delegating, tool-message, tool-audience, tool-work, tool-watchdog, builds-under-the-lock, reviews-and-landing, org-templates, create-organization |
 

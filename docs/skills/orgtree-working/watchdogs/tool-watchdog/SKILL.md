@@ -180,3 +180,5 @@ Read and remove a kept dog:
 - [orgtree-machine-traps](../../workspace/machine-traps/SKILL.md)
 
 - [orgtree-waiting-for-events](../waiting-for-events/SKILL.md)
+
+For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).
