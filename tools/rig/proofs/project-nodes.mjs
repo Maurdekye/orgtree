@@ -289,7 +289,7 @@ export default async function (rig) {
   const uiSketch = rig.sql(`SELECT uid FROM ot.documents WHERE title = 'UI sketch'`)[0]?.uid
   const oldest = (gallery.documents ?? []).at(-1)
   const located = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1&locate=${oldest?.id}`)
-  p.check('locate finds a card down the project\'s list and widens the window to it', located.located === oldest?.id
+  p.check('locate finds a card down the project\'s list and widens the window to it', !!oldest && gallery.total > 1 && located.located === oldest.id
     && (located.documents ?? []).length === gallery.total && (located.documents ?? []).at(-1)?.id === oldest?.id,
     { located: located.located, n: (located.documents ?? []).length, total: gallery.total })
   const newest = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1&locate=${uiSketch}`)
