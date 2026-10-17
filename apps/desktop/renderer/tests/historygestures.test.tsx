@@ -112,6 +112,31 @@ test('agent settings exposes History and both scratch-folder actions in its head
   assert.deepEqual(calls, ['scratch', 'team'])
 })
 
+test('History stays hidden for agents without records and for project settings', async t => {
+  const old = globalThis.fetch
+  t.after(() => { globalThis.fetch = old })
+  globalThis.fetch = (async url => {
+    const path = new URL(String(url), 'http://localhost').pathname
+    return new Response(JSON.stringify(path.endsWith('/history')
+      ? { items: [] } : { accounts: [], servers: [], turns: [] }))
+  }) as typeof fetch
+  const alice = node('alice')
+  const agentView = await mountView(<NodeConfig node={alice} map={new Map([['alice', alice]])}
+    tree={tree([alice])} slug="gesture-org" op={async () => ({})} toast={() => {}} close={() => {}} />, el => el)
+  t.after(() => agentView.unmount())
+  await inAct(async () => { await flush(8) })
+  assert.ok(![...agentView.el.querySelectorAll<HTMLButtonElement>('button')]
+    .some(button => button.textContent?.trim() === 'History'))
+
+  const project = { ...alice, id: 'project', kind: 'project' as const }
+  const projectView = await mountView(<NodeConfig node={project} map={new Map([[project.id, project]])}
+    tree={tree([project])} slug="gesture-org" op={async () => ({})} toast={() => {}} close={() => {}} />, el => el)
+  t.after(() => projectView.unmount())
+  await inAct(async () => { await flush(4) })
+  assert.ok(![...projectView.el.querySelectorAll<HTMLButtonElement>('button')]
+    .some(button => button.textContent?.trim() === 'History'))
+})
+
 test('canvas hire gestures', { concurrency: 1 }, async t => {
   for (const placement of ['right', 'top'] as const) await t.test(`hire ${placement} is one transaction using the newborn reference or superior hire`, { timeout: 15000 }, async st => {
     useFakeClock(); resetConvos()
