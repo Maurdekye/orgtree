@@ -2168,6 +2168,8 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
                 "limited"
             } else if marked {
                 "limited (marked)"
+            } else if pct.is_none() && l["is_active"].as_bool().is_none() {
+                "unknown"
             } else {
                 "ok"
             };

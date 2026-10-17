@@ -91,7 +91,8 @@ async fn header_usage_delta_isolated_window_retry_and_fresh_session() {
     assert!(!fresh.text.contains("DELTA") && fresh.text.contains("claude/primary"));
     reading["limits"][0]["percent"] = Value::Null;
     engine.usage.put(&key, &reading);
-    assert!(take("session", &prior).text.contains("DELTA"), "known-to-unknown is material");
+    let unknown = take("session", &prior);
+    assert!(unknown.text.contains("DELTA") && unknown.text.contains("unknown"), "known-to-unknown is material");
 }
 
 #[tokio::test]
