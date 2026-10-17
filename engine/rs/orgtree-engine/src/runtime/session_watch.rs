@@ -33,6 +33,26 @@ const FILE: &str = "session-placement.json";
 /// Readings, a second apart, that must agree before a change counts.
 const STEADY: u32 = 2;
 
+/// Placement decisions shared by the watcher and its focused regression tests.
+struct Placement {
+    told: bool,
+    seen: Option<bool>,
+    count: u32,
+}
+
+#[logged]
+impl Placement {
+    fn new(signed_in: bool) -> Self { Self { told: signed_in, seen: None, count: 0 } }
+
+    fn observe(&mut self, hosting: bool, _at: std::time::Instant) -> Option<bool> {
+        if self.seen == Some(hosting) { self.count += 1; }
+        else { self.seen = Some(hosting); self.count = 1; }
+        if self.count < STEADY || self.told == hosting { return None; }
+        self.told = hosting;
+        Some(hosting)
+    }
+}
+
 pub const SIGNED_IN_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected: your next turn runs in their signed-in Windows session, with access to their desktop and apps. orgtree_session shows where you run.";
 pub const SIGNED_IN_KEPT_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but your session preference keeps your next turn in Windows Session 0. orgtree_session shows where you run and sets the preference.";
 pub const SIGNED_IN_HELD_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but your CLI still runs background work, so your next turn stays in Windows Session 0; a later turn moves once that work is done. orgtree_session shows where you run.";
@@ -68,7 +88,7 @@ async fn watch(engine: Arc<Engine>) {
         _ = engine.shutdown.cancelled() => return,
         _ = tokio::time::sleep(crate::runtime::actor::SESSION_SETTLE.saturating_sub(elapsed)) => {}
     }
-    let (mut seen, mut count) = (String::new(), 0u32);
+    let mut placement = Placement::new(told == SIGNED_IN);
     let mut keep = Keepalive::default();
     #[cfg(windows)]
     let mut sessions = crate::core_process::Sessions::new();
@@ -90,15 +110,7 @@ async fn watch(engine: Arc<Engine>) {
         #[cfg(not(windows))]
         let _ = (&mut keep, ticks);
         let now = if hosting { SIGNED_IN } else { SESSION0 };
-        if seen == now {
-            count += 1;
-        } else {
-            (seen, count) = (now.to_string(), 1);
-        }
-        if count < STEADY {
-            continue;
-        }
-        let Some(up) = announce(&told, now) else { continue };
+        let Some(up) = placement.observe(hosting, std::time::Instant::now()) else { continue };
         told = now.to_string();
         write(&path, &told);
         tracing::info!(to = now, "where new turns run changed; every agent is told");
@@ -292,6 +304,46 @@ fn write(path: &Path, placement: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_blip_one_miss_then_recovery_stays_signed_in() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::new(true);
+        assert_eq!(p.observe(false,at),None);
+        assert_eq!(p.observe(true,at+Duration::from_secs(2)),None);
+        assert!(p.told);
+    }
+
+    #[test]
+    fn session_blip_real_signout_needs_three_checks() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::new(true);
+        assert_eq!(p.observe(false,at),None);
+        assert_eq!(p.observe(false,at+Duration::from_secs(2)),None);
+        assert!(p.told,"placement must stay signed in during debounce");
+        assert_eq!(p.observe(false,at+Duration::from_secs(4)),Some(false));
+        assert_eq!(p.observe(false,at+Duration::from_secs(6)),None);
+    }
+
+    #[test]
+    fn session_blip_recovery_is_immediate_and_clears_misses() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::new(false);
+        assert_eq!(p.observe(true,at),Some(true));
+        assert_eq!(p.observe(false,at+Duration::from_secs(2)),None);
+        assert_eq!(p.observe(true,at+Duration::from_secs(4)),None);
+        assert_eq!(p.observe(false,at+Duration::from_secs(6)),None);
+        assert_eq!(p.observe(false,at+Duration::from_secs(8)),None);
+        assert_eq!(p.observe(false,at+Duration::from_secs(10)),Some(false));
+    }
+
+    #[test]
+    fn session_blip_overdue_timer_burst_cannot_confirm_signout() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::new(true);
+        for _ in 0..10 { assert_eq!(p.observe(false,at),None); }
+        assert!(p.told);
+    }
 
     #[test]
     fn only_a_change_from_what_agents_were_last_told_is_announced() {
