@@ -255,7 +255,7 @@ test('the stage runs one frame loop, however many effects spawn from inside a fr
   }
 })
 
-test('a direct show stages taps, survives unknown frames and stops cleanly', () => {
+test('a direct show stages taps, survives unknown frames and stops cleanly', t => {
   const audio = fakeAudio()
   const show = startEpic({ audio: audio.Ctor, greet: 'enable' })
   const tap = taps.epic
@@ -268,8 +268,11 @@ test('a direct show stages taps, survives unknown frames and stops cleanly', () 
   tap!.tree('acme', tree([node('boss', { busy: true })]))
   tap!.action('acme', 'interrupt', 'boss')
   assert.equal(show.staged >= before + 3, true, `staged ${show.staged - before}`)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   show.stop()
   assert.equal(taps.epic === null, true, 'and removes them')
+  assert.equal(audio.log.closed, 0, 'active machinery fades before closing its context')
+  t.mock.timers.tick(345)
   assert.equal(audio.log.closed, 1)
   assert.equal(document.querySelectorAll('canvas.epic-stage').length, 0)
 })

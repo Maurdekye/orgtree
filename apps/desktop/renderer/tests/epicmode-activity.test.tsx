@@ -117,7 +117,7 @@ test('tool names reach the synth and only accepted agent sounds inject heat', ()
   SoundHeatmap.prototype.impulse = id => { spikes.push(id) }
   const show = startEpic({ audio: base.Ctor })
   try {
-    show.cue('tool', { node: 'a', text: 'mcp__server__read_file' })
+    show.cue('tool', { node: 'rejected', text: 'mcp__server__read_file' })
     assert.deepEqual(spikes, [])
     accept = true
     show.cue('tool', { node: 'a', text: 'mcp__server__read_file' })
