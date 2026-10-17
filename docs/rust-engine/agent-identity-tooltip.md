@@ -20,6 +20,13 @@ settings.
   navigation/context menus. Surfaces with their own menu can use
   `agentTooltipProps(id)` to opt into the same tooltip without changing their
   menu handling.
+- The canonical context menu's `Owner…` entry carries the owner's tooltip id,
+  resolved by the same native tooltip host when hovered.
+- The docket reply recipient Select keeps its MUI menu inside its
+  `ObjectMenuBoundary` (`disablePortal`) so right-clicks reach the delegated
+  agent menu. The shared context menu uses z-index 1600, above MUI popovers,
+  dialogs and tooltips; the recipient regression checks it against the open
+  popover layer.
 - The renderer joins its existing `/api/providers` and `/api/accounts` reads;
   the tree projection does not grow. Static tier names and version names come
   from the Rust model catalog. Dynamic tiers retain their `name`/`label`; a

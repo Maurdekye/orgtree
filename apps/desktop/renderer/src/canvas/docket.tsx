@@ -2997,7 +2997,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
                   renderValue={(node) => node ? <span className="docket-reply-identity" {...agentNavProps(node)}>
                     {node}
                   </span> : 'Choose a recipient'}
-                  MenuProps={{ slotProps: {
+                  MenuProps={{ disablePortal: true, slotProps: {
                     paper: { className: 'docket-reply-menu' },
                     list: { onKeyDownCapture: (e: ReactKeyboardEvent<HTMLUListElement>) => {
                       // The badge has a letter too; typeahead must use the slug.
@@ -3021,6 +3021,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
                   )}
                   {recipients.map((r) => (
                     <MenuItem key={r.node} value={r.node} disabled={r.state === 'missing'}
+                      {...agentNavProps(r.node)}
                       title={`${r.role === 'owner' ? 'Assignee' : r.role === 'attention_raiser' ? 'Attention flag raiser' : 'Participant'}${r.state === 'retired'
                         ? ' — retired; waits for rehire' : r.state === 'missing' ? ' — unavailable' : ''}`}
                       aria-label={`${r.node}, ${r.role === 'owner' ? 'assignee' : r.role === 'attention_raiser' ? 'attention flag raiser' : 'participant'}${r.state === 'retired'

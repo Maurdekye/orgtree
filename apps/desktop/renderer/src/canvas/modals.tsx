@@ -28,7 +28,7 @@ import { pickFolder } from '../picker'
 import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
-import { agentNavProps } from './agentnav'
+import { agentNavProps, agentTooltipProps } from './agentnav'
 import { ago, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, orderAntigravityTiers, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
@@ -1299,9 +1299,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   return (
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
-    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
+    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
       panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
-        <h3 data-copy-agent-name={node.id}><span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span></h3>
+        <h3 data-copy-agent-name={node.id}><span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span></h3>
         {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
             working folder and session all move; history keeps the old name
             (the warning rides the toast). Refused while mid-turn. */}
@@ -1768,7 +1768,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }
           return (
             <button key={id} data-copy-agent-name={id} {...agentNavProps(id)} className={'pile-row' + (id === pile.front ? ' on' : '')}
               onClick={() => onPick(id)}>
-              <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+              <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               <span className="pile-name">{id}</span>
               {n.bearer_state && <span className="badge dim">{n.bearer_state}</span>}
               {n.busy && <span className="badge">{stateLabel('active')}</span>}

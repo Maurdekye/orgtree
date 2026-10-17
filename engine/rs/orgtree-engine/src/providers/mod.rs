@@ -40,8 +40,8 @@ pub struct State {
     pub claude: CliStatus,
     pub codex: CliStatus,
     pub agy: CliStatus,
-    /// OpenRouter favorites: (tier, seat, model id, label, color)
-    pub openrouter: Vec<(String, f64, String, String, String, String)>,
+    /// OpenRouter favorites: (tier, seat, model id, label, color, letter, display name)
+    pub openrouter: Vec<(String, f64, String, String, String, String, String)>,
     /// models the Antigravity account lists (conditional tiers)
     pub agy_models: Vec<String>,
     pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
@@ -103,7 +103,7 @@ pub enum MuseOffer {
 #[logged]
 impl Providers {
     pub fn openrouter_tiers(&self) -> Vec<(String, f64, String)> {
-        self.state.load().openrouter.iter().map(|(t, s, m, _, _, _)| (t.clone(), *s, m.clone())).collect()
+        self.state.load().openrouter.iter().map(|(t, s, m, _, _, _, _)| (t.clone(), *s, m.clone())).collect()
     }
     pub fn claude_path(&self) -> Option<PathBuf> {
         self.state.load().claude.path.clone()
@@ -739,7 +739,7 @@ pub fn set_agy_email(engine: &Engine, email: &str) {
 
 /// The OpenRouter favorites as offered tiers: (tier, seat, model, label, color).
 #[logged]
-fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, String, String)> {
+fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, String, String, String)> {
     engine
         .settings
         .get()
@@ -769,6 +769,10 @@ fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, St
                                     .map(|c| c.to_ascii_uppercase().to_string())
                             })
                             .unwrap_or_else(|| "R".to_string()),
+                        f.get("name").and_then(Value::as_str)
+                            .filter(|name| !name.trim().is_empty())
+                            .unwrap_or_else(|| f.get("label").and_then(Value::as_str).unwrap_or(""))
+                            .to_string(),
                     ))
                 })
                 .collect()
@@ -883,6 +887,9 @@ pub fn payload(engine: &Engine) -> Value {
                 Some(json!({ "tier": t.tier, "provider": t.provider, "seat": t.seat, "model": t.model, "letter": t.letter,
                         "efforts": row.as_ref().map(|r| r.variants.clone()), "default_effort": row.as_ref().and_then(|r| r.default_effort.clone()),
                         "context": row.as_ref().and_then(|r| r.context),
+                        "display_name": catalog::display_name(t, None),
+                        "display_versions": t.versions.iter().filter_map(|(version, _)| catalog::display_name(t, Some(version))
+                            .map(|name| ((*version).to_string(), name))).collect::<std::collections::HashMap<_, _>>(),
                         "own": own, "logins": on.iter().map(|a| a.id.clone()).collect::<Vec<_>>() }))
             })
             .collect();
@@ -914,9 +921,9 @@ pub fn payload(engine: &Engine) -> Value {
         let tiers: Vec<Value> = st
             .openrouter
             .iter()
-            .map(|(t, s, m, label, color, letter)| {
+            .map(|(t, s, m, label, color, letter, name)| {
                 json!({ "tier": t, "provider": catalog::OPENROUTER, "seat": s, "model": m, "letter": letter,
-                        "label": label, "color": color })
+                        "label": label, "name": name, "color": color })
             })
             .collect();
         let s = CliStatus { installed: key_set, connected: key_set, ..Default::default() };
@@ -934,7 +941,7 @@ pub fn payload(engine: &Engine) -> Value {
             .into_iter()
             .map(|(t, s, m, label, server)| {
                 json!({ "tier": t, "provider": catalog::LANGSERVER, "seat": s, "model": m, "letter": catalog::monogram(&label),
-                        "label": label, "name": format!("{label} · {server}") })
+                        "label": label, "server": server, "name": format!("{label} · {server}") })
             })
             .collect();
         let any = !tiers.is_empty();

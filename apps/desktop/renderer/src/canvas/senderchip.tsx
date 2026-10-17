@@ -3,7 +3,7 @@
 // the inbox (App.tsx) and the Attention view, which shows the same mail with
 // the same chip (user 2026-09-29: bodies identical to their own detail views).
 
-import { agentNavProps } from './agentnav'
+import { agentNavProps, agentTooltipProps } from './agentnav'
 import { SYSTEM, TIER_LETTER, tierLabel, USER } from './shared'
 import type { TreeNode } from '../types'
 
@@ -20,7 +20,7 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
   if (!n) return <b>{id}</b>
   const chip = (
     <span data-copy-agent-name={id} className={'sender ' + (n?.state ?? '')} title={n ? `${tierLabel(n.tier)} · ${n.state}` : id}>
-      {n && <span className={'tier t-' + n.tier} title={tierLabel(n.tier)}>{TIER_LETTER[n.tier] ?? '?'}</span>}
+      {n && <span className={'tier t-' + n.tier} {...agentTooltipProps(id)}>{TIER_LETTER[n.tier] ?? '?'}</span>}
       <b>{id}</b>
     </span>
   )

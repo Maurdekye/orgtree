@@ -7888,7 +7888,7 @@ html.mobile .popout-button { display: none; }
    and the picker (60), below the lightbox (95) and toasts (100): a menu is
    raised from whatever is on top and must paint over it. */
 .ctxmenu {
-  position: fixed; z-index: 90; min-width: 180px; max-width: 320px;
+  position: fixed; z-index: 1600; min-width: 180px; max-width: 320px;
   padding: 4px; margin: 0; box-sizing: border-box;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, .45);

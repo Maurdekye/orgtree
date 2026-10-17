@@ -50,6 +50,7 @@ import { DeskChat, DestinationBusy, OrgKillswitchContext, TrayStatus } from './d
 import type { DeskChatProps } from './desk'
 import { rememberHire } from '../quickchat'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
+import { EFFORT_LEVELS } from './effortlevels'
 import { TempDeskModal } from './tempdesk'
 import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired, useFirstUse } from './firstuse'
 import { PhoneCard, PhonePanelHost } from './phonelink'
@@ -86,7 +87,7 @@ import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './cont
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { scratchFolderAction } from '../scratch-folder'
-import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
+import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
 import type { AgentTooltipInfo } from './agentnav'
 import { ObjectNavProvider, objectNavProps } from './objectnav'
 import { ObjectNavHost } from './objectnavhost'
@@ -366,7 +367,8 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
  *  structurally parallel and this paragraph is true for every shape;
  *  agentnavmenu.test.tsx §12/§12.1 hold the two arms to the same answer. */
 export function agentTooltipInfo(n: CanvasNode | undefined,
-  providers: ProviderInfo[] = [], accounts?: AccountRegistryPayload | null): AgentTooltipInfo | null {
+  providers: ProviderInfo[] = [], accounts?: AccountRegistryPayload | null,
+  defaultEffort?: string): AgentTooltipInfo | null {
   if (!n || n.state === 'user') return null
   const draftTier = n.state === 'draft' && !!n.tier
   const provider = n.tier ? providerOf(n.tier) : null
@@ -374,14 +376,22 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   const providerInfo = provider ? providers.find(p => p.id === provider) : undefined
   const catalogTier = providerInfo?.tiers?.find(t => t.tier === n.tier)
   const version = n.scope?.model_version
-  const model = version
+  const catalogName = version
     ? catalogTier?.display_versions?.[version] || n.model_id
     : catalogTier?.display_name || catalogTier?.name || catalogTier?.label || n.model_id
+  const model = provider === 'openrouter'
+    ? `OpenRouter ${catalogTier?.name || catalogTier?.label || n.model_id || ''}`.trim()
+    : provider === 'langserver'
+      ? `${catalogTier?.server || (catalogTier?.name?.includes(' · ')
+        ? catalogTier.name.split(' · ').at(-1) : undefined) || 'llama.cpp'} ${catalogTier?.label || catalogName || ''}`.trim()
+      : catalogName && provider === 'google' && /^(claude|gpt)-/.test(n.model_id || '')
+        ? `${catalogName} (Antigravity)` : catalogName
   const effort = draftTier ? '(not started)'
-    : n.effort_effective || n.scope?.effort || undefined
+    : [n.effort_effective, n.scope?.effort, defaultEffort]
+      .find(value => typeof value === 'string' && EFFORT_LEVELS.includes(value))
   const accountRows = accounts?.accounts?.filter(row => row.provider === provider) ?? []
-  const hasDefault = !!providerInfo?.status?.installed
-    || accountRows.some(row => row.ambient)
+  const hasDefault = (provider !== 'openrouter' && provider !== 'langserver'
+    && !!providerInfo?.status?.installed) || accountRows.some(row => row.ambient)
   const accountCount = accountRows.filter(row => !row.ambient).length + (hasDefault ? 1 : 0)
   const account = accountCount > 1
     ? n.account_label?.trim() || n.account || 'default'
@@ -391,7 +401,7 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   return values.length ? { title: values.join(' · ') } : null
 }
 
-function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts }: {
+function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, defaultEffort }: {
   map: Map<string, CanvasNode>
   op: OpFn
   slug: string
@@ -399,6 +409,7 @@ function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts }
   goTo: (id: string) => void
   providers: ProviderInfo[]
   accounts?: AccountRegistryPayload | null
+  defaultEffort?: string
   build: (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,
     deskNow: ReturnType<typeof useDeskActionsNow>) => MenuEntry[]
@@ -413,7 +424,7 @@ function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts }
     const n = map.get(id)
     return n ? build(n, () => goTo(id), setAsking, deskNow) : []
   }, (id: string): AgentTooltipInfo | null => agentTooltipInfo(
-    map.get(id), providers, accounts))
+    map.get(id), providers, accounts, defaultEffort))
   // the CARD's confirm — same wording, same op, same undo toast — portaled
   // into this document, exactly as the tray's menu host does it
   return node && asking
@@ -3724,7 +3735,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onLineage: () => toggleNodeSurface('lineage', node.id, setLineageId),
     })}><AgentNavHost
       map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu}
-      providers={providerEntries} accounts={accountPayload} /><div style={freeAnchor ?? undefined} className={'viewport'
+      providers={providerEntries} accounts={accountPayload}
+      defaultEffort={resolveOrgDefault(tree.default_effort, tree.effort_default)} /><div style={freeAnchor ?? undefined} className={'viewport'
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       /* ⚠ THE PAN HANDLERS IGNORE THE HIDDEN CANVAS. `visibility: hidden`
@@ -4191,7 +4203,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={() => centerOn(e.n.id)}>
           {e.side === 'l' && <ChevronLeftIcon fontSize="inherit" />}
-          <span className={'tier t-' + e.n.tier} title={tierLabel(e.n.tier ?? '')}>{TIER_LETTER[e.n.tier!] ?? '?'}</span>
+          <span className={'tier t-' + e.n.tier} {...agentTooltipProps(e.n.id)}>{TIER_LETTER[e.n.tier!] ?? '?'}</span>
           <QueuedModelBadge node={e.n} />
           <span className="ej-name">{e.n.id}</span>
           {e.n.busy && <DestinationBusy tier={e.n.tier} />}
@@ -4377,7 +4389,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           <MaybePortal>
             <div className="mobsheet">
               <header className="mobsheet-head">
-                <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier ?? ''] ?? '?'}</span>
+                <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier ?? ''] ?? '?'}</span>
                 <b className="ms-name" data-copy-agent-name={n.id}>{n.id}</b>
                 <TrayStatus node={n} turn={sheetLastTurn} live={n.state === 'live'} />
                 <span className="spacer" />

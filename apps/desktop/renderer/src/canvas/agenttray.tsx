@@ -182,7 +182,7 @@ export function AgentTray({
               <button type="button" className="tray-main" title={`go to ${n.id}`}
                 {...agentTooltipProps(n.id)}
                 {...mainProps?.(n)}>
-                <span className={'tier t-' + n.tier} title={tierLabel(n.tier ?? '')}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+                <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
                 {showQueuedModelBadge && <QueuedModelBadge node={n} />}
                 <span className="tray-name"
                   title={charterLine(n) || n.id}>{n.id}</span>

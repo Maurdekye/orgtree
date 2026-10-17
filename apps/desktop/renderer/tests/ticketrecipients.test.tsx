@@ -29,7 +29,7 @@ const fixture = (slug = 'addressed-reply'): WorkItem => ({
   evidence: [], parent: null, superseded_by: null, history: [], delivery: null, accepted: null,
 })
 
-async function setup(t: TestContext, items: WorkItem[]) {
+async function setup(t: TestContext, items: WorkItem[], opts: { agentNav?: boolean; tree?: TreePayload } = {}) {
   useFakeClock()
   const sent: { body: string; to: string }[] = []
   const toasts: string[] = []
@@ -46,21 +46,20 @@ async function setup(t: TestContext, items: WorkItem[]) {
     } as Response
   }) as typeof fetch
   globalThis.fetch = compatibilityWorkFixture(globalThis.fetch)
-  function AgentMenu() {
-    useProvideAgentNav(id => [{ label: 'Focus', onSelect: () => { toasts.push(`focus:${id}`) } }],
-      id => id === 'collaborator' ? { title: 'ChatGPT Sol 6.1 · high · default' } : null)
-    return null
+  const tree = opts.tree ?? { roots: [], asks: [] } as unknown as TreePayload
+  const docket = <DocketModal slug="org" close={() => {}} tree={tree}
+    toast={(lines) => { toasts.push(...(lines ?? [])) }} />
+  let app = docket
+  if (opts.agentNav) {
+    function AgentMenu() {
+      useProvideAgentNav(id => [{ label: 'Focus', onSelect: () => { toasts.push(`focus:${id}`) } }],
+        id => id === 'collaborator' ? { title: 'ChatGPT Sol 6.1 · high · default' } : null)
+      return null
+    }
+    app = <AgentNavProvider><ObjectMenuBoundary><AgentMenu />{docket}</ObjectMenuBoundary></AgentNavProvider>
   }
-  const view = await mountView(<AgentNavProvider><ObjectMenuBoundary>
-    <AgentMenu />
-    <DocketModal slug="org" close={() => {}} tree={{ roots: [
-      { id: 'collaborator', tier: 'sol', state: 'live', children: [] },
-    ], asks: [] } as unknown as TreePayload}
-      toast={(lines) => { toasts.push(...(lines ?? [])) }} />
-  </ObjectMenuBoundary></AgentNavProvider>, (host) => host)
+  const view = await mountView(app, (host) => host)
   t.after(async () => { try { await view.unmount() } finally { realClock() } })
-  await flush()
-  await inAct(() => { (view.el.querySelector('.mailrow.docket-row') as HTMLElement).click() })
   await flush()
   return { el: view.el, sent, toasts, server }
 }
@@ -103,7 +102,9 @@ test('participant display and default owner; hidden retired predecessor selectab
 })
 
 test('reply recipient options share agent tooltip, badge hover and right-click menu above the dropdown', async (t) => {
-  const { el, toasts } = await setup(t, [fixture()])
+  const { el, toasts } = await setup(t, [fixture()], { agentNav: true, tree: {
+    roots: [{ id: 'collaborator', tier: 'sol', state: 'live', children: [] }], asks: [],
+  } as unknown as TreePayload })
   await openPicker(el)
   const option = document.querySelector<HTMLElement>('[role="option"][data-value="collaborator"]')!
   assert.ok(option, 'collaborator recipient option is open')
@@ -123,10 +124,11 @@ test('reply recipient options share agent tooltip, badge hover and right-click m
   await inAct(() => badge.dispatchEvent(contextEvent)); await flush()
   assert.equal(contextEvent.defaultPrevented, true, 'right-click opens the shared context menu')
   const contextMenu = document.querySelector<HTMLElement>('.ctxmenu:not(.ctxmenu-submenu)')!
-  assert.ok(contextMenu.querySelector('[role="menuitem"]')?.textContent?.includes('Focus'),
+  assert.ok([...contextMenu.querySelectorAll('[role="menuitem"]')]
+    .some(item => item.textContent?.includes('Focus')),
     'the menu contains the agent action')
-  const dropdownPaper = document.querySelector<HTMLElement>('.docket-reply-menu')!
-  assert.ok(Number(contextMenu.style.zIndex) > Number(getComputedStyle(dropdownPaper).zIndex),
+  const dropdown = document.querySelector<HTMLElement>('.docket-reply-menu')!.closest('.MuiPopover-root') as HTMLElement
+  assert.ok(Number(contextMenu.style.zIndex) > Number(getComputedStyle(dropdown).zIndex),
     'the agent context menu paints above the open dropdown/popover')
   assert.equal(picker(el).value, 'owner', 'right-click does not change the recipient')
 

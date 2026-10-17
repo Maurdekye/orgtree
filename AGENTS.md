@@ -7,7 +7,8 @@
   marks draft effort `(not started)` and archived models `(retired)`. See
   [agent identity hover tooltip](docs/rust-engine/agent-identity-tooltip.md).
   [decided: user/coordinator 2026-10-17; verified from source:
-  `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `providers/catalog.rs`]
+  `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `canvas/contextmenu.tsx`,
+  `canvas/docket.tsx`, `providers/catalog.rs`]
 
 - A halted agent's status duration is measured from `halt.at` (falling back to
   `requested_at` for legacy state), not its last turn; the desk header says

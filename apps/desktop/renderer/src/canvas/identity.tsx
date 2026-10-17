@@ -18,7 +18,7 @@
 
 import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { agentNavProps } from './agentnav'
+import { agentNavProps, agentTooltipProps } from './agentnav'
 import { TIER_LETTER, tierLabel } from './shared'
 
 /** The model card: the letter chip every surface uses for a tier.
@@ -30,7 +30,8 @@ import { TIER_LETTER, tierLabel } from './shared'
 export function TierChip({ tier, agentName }: { tier?: string | null; agentName?: string }) {
   if (!tier) return null
   return (
-    <span data-copy-agent-name={agentName} className={'tier t-' + tier} title={tierLabel(tier)}>
+    <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName)}
+      className={'tier t-' + tier} title={agentName ? undefined : tierLabel(tier)}>
       {TIER_LETTER[tier] ?? tier.slice(0, 1).toUpperCase()}
     </span>
   )
