@@ -259,6 +259,29 @@ test('§2d coworker and parent hires around a project, as around an agent (user 
   assert.deepEqual(at, ['t'], 'each strip keeps its project token')
 })
 
+test('§2e with "Show agent card shortcuts" on, the project card has the agent\'s inbox, docket and presented buttons (user 22:21Z)', async (t) => {
+  setAgentShortcutsOn(true)
+  t.after(() => setAgentShortcutsOn(false))
+  const opened: string[] = []
+  const nd = project({ documents_count: 0, children: [
+    { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] }] } as never)
+  const view = await mountView(<ProjectSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" dragging={false} isDrop={false}
+    op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={2} hire={{ claudeHire: offer }} seats={seats}
+    onHire={noop} onNewProject={noop} onInbox={() => opened.push('inbox')} onDocket={() => opened.push('docket')}
+    onOpenGallery={(id) => opened.push('presented:' + id)}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const row = view.el.querySelector('.sq.project .sq-actions')!
+  assert.ok(row, 'the hover row')
+  const mail = row.querySelector<HTMLButtonElement>('button.mailbtn:not(.docketbtn)')!
+  assert.equal(mail.querySelector('.count')?.textContent, '3', 'the waiting mail, annotated as on an agent card')
+  const presented = row.querySelector<HTMLButtonElement>('button.presentedbtn')!
+  assert.ok(presented, 'presented: the subtree holds documents')
+  assert.match(presented.getAttribute('title') ?? '', /2/, 'annotated with the subtree\'s document count')
+  for (const b of [row.querySelector<HTMLButtonElement>('button.docketbtn')!, mail, presented]) await inAct(() => { b.click() })
+  assert.deepEqual(opened, ['docket', 'inbox', 'presented:website'])
+})
+
 /* ─── §3 its menu ───────────────────────────────────────────────────────── */
 
 const labels = (entries: ReturnType<typeof projectMenuEntries>) =>
