@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Session-placement loss requires three two-second misses; recovery is immediate.
+  Overdue ticks are skipped and each recovered blip logs once. A per-engine
+  placement hint keeps turn selection stable during debounce without extending
+  authenticated leases; unreachable retained hosts defer an unsent launch.
+  See [session blips](docs/rust-engine/session-placement-blips.md).
+  [decided: user/coordinator 2026-10-17; verified: `runtime/session_watch.rs`,
+  `runtime/session_host.rs`, `credential_bridge.rs`]
+
 - Renderer document-level event handlers (native agent tooltip, Markdown image
   fallback, copyCode/revealFile/lightbox) must be registered on EVERY owning
   document, including adopted pop-out panels, with cleanup on redock/close;
