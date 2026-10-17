@@ -2142,7 +2142,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     }
     fx.reconfigure.push(n.id);
     fx.events = true;
-    Ok(json!({ "node": n.name, "tier": tier, "cascaded": raised, "warnings": warnings }))
+    Ok(json!({ "node": n.name, "previous_tier": n.tier, "tier": tier, "cascaded": raised, "warnings": warnings }))
 }
 
 /// Bring this org's live agents on language-server models to their

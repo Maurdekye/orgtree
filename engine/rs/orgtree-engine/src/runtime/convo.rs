@@ -1316,6 +1316,27 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
             }
         }
     }
+    // The result records the applied model under the mutation's lock. Older
+    // results know only the new tier; neither input nor today's tree proves
+    // their previous model. Keep this before result clipping for every lane.
+    if matches!(base, "orgtree_retool" | "orgtree_switch_model") {
+        if let Some(v) = result.and_then(|r| serde_json::from_str::<Value>(r.trim()).ok()) {
+            let node = v["node"].as_str().map(str::trim).filter(|s| !s.is_empty() && *s != "user" && !s.starts_with('@'));
+            let to = v["tier"].as_str().map(str::trim).filter(|s| !s.is_empty());
+            let from = v["previous_tier"].as_str().map(str::trim).filter(|s| !s.is_empty());
+            if let (Some(node), Some(to)) = (node, to) {
+                if v["isError"] != true && v["error"].is_null() && v["queued"] != true
+                    && v["unchanged"] != true && from != Some(to) {
+                    let change = json!({ "from": from, "to": to });
+                    if let Some(r) = refs.iter_mut().find(|r| r["kind"] == "agent" && r["id"] == node) {
+                        r["model_change"] = change;
+                    } else {
+                        refs.push(json!({ "kind": "agent", "id": node, "model_change": change }));
+                    }
+                }
+            }
+        }
+    }
     Value::Array(refs)
 }
 
