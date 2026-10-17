@@ -6,6 +6,8 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { DocketModal } from '../src/canvas/docket'
 import type { WorkItem, TreePayload } from '../src/types'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 // MUI's owner-document portal checks this browser constructor.
 Object.assign(globalThis, { DocumentFragment: window.DocumentFragment })
 
@@ -44,8 +46,18 @@ async function setup(t: TestContext, items: WorkItem[]) {
     } as Response
   }) as typeof fetch
   globalThis.fetch = compatibilityWorkFixture(globalThis.fetch)
-  const view = await mountView(<DocketModal slug="org" close={() => {}} tree={{ roots: [], asks: [] } as unknown as TreePayload}
-    toast={(lines) => { toasts.push(...(lines ?? [])) }} />, (host) => host)
+  function AgentMenu() {
+    useProvideAgentNav(id => [{ label: 'Focus', onSelect: () => { toasts.push(`focus:${id}`) } }],
+      id => id === 'collaborator' ? { title: 'ChatGPT Sol 6.1 · high · default' } : null)
+    return null
+  }
+  const view = await mountView(<AgentNavProvider><ObjectMenuBoundary>
+    <AgentMenu />
+    <DocketModal slug="org" close={() => {}} tree={{ roots: [
+      { id: 'collaborator', tier: 'sol', state: 'live', children: [] },
+    ], asks: [] } as unknown as TreePayload}
+      toast={(lines) => { toasts.push(...(lines ?? [])) }} />
+  </ObjectMenuBoundary></AgentNavProvider>, (host) => host)
   t.after(async () => { try { await view.unmount() } finally { realClock() } })
   await flush()
   await inAct(() => { (view.el.querySelector('.mailrow.docket-row') as HTMLElement).click() })
@@ -88,6 +100,39 @@ test('participant display and default owner; hidden retired predecessor selectab
   await choose(el, 'retired'); await type(el); await send(el)
   assert.match(toasts.at(-1)!, /retired is archived — the reply waits for rehire/)
   assert.equal(picker(el).value, 'owner')
+})
+
+test('reply recipient options share agent tooltip, badge hover and right-click menu above the dropdown', async (t) => {
+  const { el, toasts } = await setup(t, [fixture()])
+  await openPicker(el)
+  const option = document.querySelector<HTMLElement>('[role="option"][data-value="collaborator"]')!
+  assert.ok(option, 'collaborator recipient option is open')
+  assert.equal(option.getAttribute('data-agent-nav'), 'collaborator',
+    'the option delegates right-click to the shared agent menu')
+  assert.equal(option.getAttribute('data-agent-tooltip'), 'collaborator',
+    'the option participates in the shared identity tooltip lookup')
+  const badge = option.querySelector<HTMLElement>('.tier')!
+  assert.ok(badge, 'the recipient item includes its model badge')
+  await inAct(() => badge.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(badge.title, 'ChatGPT Sol 6.1 · high · default',
+    'hovering the badge shows the same tooltip as the agent link')
+
+  const contextEvent = new MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, button: 2, clientX: 12, clientY: 12,
+  })
+  await inAct(() => badge.dispatchEvent(contextEvent)); await flush()
+  assert.equal(contextEvent.defaultPrevented, true, 'right-click opens the shared context menu')
+  const contextMenu = document.querySelector<HTMLElement>('.ctxmenu:not(.ctxmenu-submenu)')!
+  assert.ok(contextMenu.querySelector('[role="menuitem"]')?.textContent?.includes('Focus'),
+    'the menu contains the agent action')
+  const dropdownPaper = document.querySelector<HTMLElement>('.docket-reply-menu')!
+  assert.ok(Number(contextMenu.style.zIndex) > Number(getComputedStyle(dropdownPaper).zIndex),
+    'the agent context menu paints above the open dropdown/popover')
+  assert.equal(picker(el).value, 'owner', 'right-click does not change the recipient')
+
+  await inAct(() => option.click()); await flush()
+  assert.equal(picker(el).value, 'collaborator', 'left-click still selects the recipient')
+  assert.equal(toasts.includes('focus:collaborator'), false, 'opening the context menu invokes no action')
 })
 
 test('rejection keeps selection and draft; retry sends exactly the chosen participant and resets owner', async (t) => {
