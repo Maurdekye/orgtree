@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub(crate) mod retention;
+mod native;
 include!(concat!(env!("OUT_DIR"), "/builtin_skills.rs"));
 
 const MAX_FILES: usize = 2048;
@@ -31,6 +32,12 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Account for native discovery separately from the shared export.
+    #[nolog]
+    pub fn for_startup(&self, lane: crate::runtime::identity::Lane, _inputs: &crate::runtime::startup::Inputs) -> Registry {
+        self.for_lane(lane)
+    }
+
     /// Select the receiving harness's variants without changing source bundles.
     #[nolog]
     pub fn for_lane(&self, lane: crate::runtime::identity::Lane) -> Registry {
