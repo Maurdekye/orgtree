@@ -1,5 +1,5 @@
 import './harness'
-import {FakeServer,flush,inAct,installFetch,mountView,realClock,useFakeClock} from './harness'
+import {flush,mountView,realClock,useFakeClock} from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
@@ -26,54 +26,15 @@ test('history renders typed status and preserves legacy and unsupported content'
   assert.match(view.el.querySelector('.event-fallback')!.textContent!,/Unknown format retained/)
 })
 
-test('history keeps ordinary messages and notices styled with navigable agent senders',async t=>{
-  useFakeClock(); const server=new FakeServer(); installFetch(server); const old=globalThis.fetch
-  const message=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/ordinary.message.json'),'utf8')).private
-  const notice=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/ordinary.notice.json'),'utf8')).private
-  const actor='peer-agent'
-  const items=[
-    {at:'2026-09-06T12:00:00Z',kind:'message',actor,detail:{text:'message fallback'},ev:{...message,actor:{kind:'agent',id:actor},body:'Normal message C'}},
-    {at:'2026-09-06T12:01:00Z',kind:'notice',actor,detail:{text:'notice fallback'},ev:{...notice,actor:{kind:'agent',id:actor},body:'Passive notice C'}},
-    {at:'2026-09-06T12:02:00Z',kind:'message',actor,detail:{text:'Legacy known sender'}},
-    {at:'2026-09-06T12:03:00Z',kind:'notice',actor:'missing-agent',detail:{text:'Legacy missing sender'}},
-    {at:'2026-09-06T12:04:00Z',kind:'notice',actor:'@org:outside',detail:{text:'Legacy external sender'}},
-  ]
-  globalThis.fetch=(async(url,init)=>String(url).endsWith('/history')
-    ? ({ok:true,status:200,headers:new Headers(),json:async()=>({items})} as Response)
-    : old(url,init)) as typeof fetch
-  const jumped:string[]=[]
+test('desk tab row no longer offers Files or History',async t=>{
+  useFakeClock()
   const worker:CanvasNode={id:'worker',generation:1,state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
-  const peer:CanvasNode={id:actor,generation:1,state:'live',tier:'sonnet',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
-  const view=await mountView(<DeskChat node={worker} map={new Map([[worker.id,worker],[peer.id,peer]])}
-    slug="fixture" op={async()=>({})} toast={()=>{}} bare onJump={id=>jumped.push(id)}/>,h=>h)
-  t.after(async()=>{await view.unmount();globalThis.fetch=old;realClock()})
+  const view=await mountView(<DeskChat node={worker} map={new Map([[worker.id,worker]])}
+    slug="fixture" op={async()=>({})} toast={()=>{}} bare/>,h=>h)
+  t.after(async()=>{await view.unmount();realClock()})
   await flush()
-  const history=[...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
-    .find(button=>button.textContent === 'history')!
-  await inAct(()=>history.click())
-  await flush()
-  assert.equal(view.el.querySelectorAll('.hist-event.event-ordinary').length,2)
-  assert.match(view.el.textContent!,/Message/)
-  assert.match(view.el.textContent!,/Notice/)
-  assert.equal(view.el.querySelectorAll('.hist-row').length,3)
-  const eventJumps=view.el.querySelectorAll<HTMLButtonElement>('.hist-event button.cc-name-jump')
-  assert.equal(eventJumps.length,2)
-  eventJumps.forEach(button=>button.click())
-  const legacyJump=view.el.querySelector<HTMLButtonElement>('.hist-row button.cc-name-jump')!
-  legacyJump.click()
-  assert.equal(view.el.querySelectorAll('.hist-row button.cc-name-jump').length,1)
-  assert.deepEqual(jumped,[actor,actor,actor])
-  // THE IDENTITY IS ONE GROUP. `AgentName` renders a FRAGMENT, so the chip and
-  // the name arrive as two boxes; `.tier` is `display: grid` and takes a whole
-  // line of its own unless something holds them together, which is what the
-  // user photographed (2026-09-11). This is the MARKUP half only — whether
-  // they end up on one LINE is geometry, which jsdom cannot answer and
-  // histident_probe.py measures in a real engine.
-  const group=view.el.querySelector('.hist-row .hist-actor')!
-  assert.ok(group.querySelector('.tier')&&group.querySelector('.cc-name'),
-    'the chip and the name are not inside one holder')
-  const plain=[...view.el.querySelectorAll('.hist-row .hist-actor')]
-    .find(el=>el.textContent==='missing-agent')!
-  assert.equal(plain.querySelector('.tier'),null,
-    'the control row grew a chip, so the check above compares nothing')
+  const deskTabs = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
+    .map(button => button.textContent?.trim())
+  assert.equal(deskTabs.includes('history'), false, 'History moved to agent settings')
+  assert.equal(deskTabs.includes('files'), false, 'scratch browsing moved to the OS file explorer')
 })

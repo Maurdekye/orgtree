@@ -79,6 +79,39 @@ test('retire from settings exposes the committed journal entry instead of a gues
   assert.deepEqual(ops, [{ op: 'retire', node: 'alice' }]); assert.equal(undo?.label, 'Undo')
 })
 
+test('agent settings exposes History and both scratch-folder actions in its header', async t => {
+  const old = globalThis.fetch
+  const calls: string[] = []
+  t.after(() => { globalThis.fetch = old })
+  globalThis.fetch = (async url => {
+    const path = new URL(String(url), 'http://localhost').pathname
+    return new Response(JSON.stringify(path.endsWith('/history')
+      ? { items: [{ at: '2026-10-17T18:00:00Z', kind: 'notice', actor: 'system', detail: { text: 'Recorded event' } }] }
+      : { accounts: [], servers: [], turns: [] }))
+  }) as typeof fetch
+  const alice = node('alice')
+  const props = {
+    node: alice, map: new Map([['alice', alice]]), tree: tree([alice]), slug: 'gesture-org',
+    op: async () => ({}), toast: () => {}, close: () => {},
+    onScratchFolder: () => calls.push('scratch'),
+    onTeamScratchFolder: () => calls.push('team'),
+  }
+  const view = await mountView(<NodeConfig {...(props as any)} />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(8) })
+  const buttons = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+  const history = buttons.find(button => button.textContent?.trim() === 'History')
+  assert.ok(history, 'initialized agents with records have a History settings tab')
+  const scratch = buttons.find(button => button.textContent?.trim() === 'Open scratch folder')
+  const team = buttons.find(button => button.textContent?.trim() === 'Open team scratch folder')
+  assert.ok(scratch, 'personal scratch action appears in the settings header')
+  assert.ok(team, 'team scratch action appears when the agent menu exposes it')
+  await inAct(async () => { history!.click(); await flush(5) })
+  assert.match(view.el.textContent ?? '', /Recorded event/)
+  await inAct(() => { scratch!.click(); team!.click() })
+  assert.deepEqual(calls, ['scratch', 'team'])
+})
+
 test('canvas hire gestures', { concurrency: 1 }, async t => {
   for (const placement of ['right', 'top'] as const) await t.test(`hire ${placement} is one transaction using the newborn reference or superior hire`, { timeout: 15000 }, async st => {
     useFakeClock(); resetConvos()
