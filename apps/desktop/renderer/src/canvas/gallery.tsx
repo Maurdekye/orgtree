@@ -701,7 +701,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
   const [shown, setShown] = useState<string | null>(initialDocument ?? null)
   return (
     <PinFrame kind={pinKind} title={team ? `Team presentations for ${nid}` : `Presented documents for ${nid}`}
-      restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}) }}
+      restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}), ...(team ? { team: true } : {}) }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}

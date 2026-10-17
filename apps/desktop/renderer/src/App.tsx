@@ -6,7 +6,7 @@ import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
 import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
 import { ownsNotifications, useWindowIdentity } from './shell/identity'
-import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
+import { restoredAgentGallery, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import { activeAgentsOnlyForOrg, activeAgentsPreferencePatch, mergeActiveAgentsPreference } from './activeagentprefs'
 import { scratchFolderAction } from './scratch-folder'
@@ -496,7 +496,8 @@ export default function App() {
   const [agentGalleryId, setAgentGalleryId] = useState<string | null>(null)
   // the agent gallery in TEAM scope (user 2026-10-17 22:47Z)
   const [agentGalleryTeam, setAgentGalleryTeam] = useState(false)
-  usePersistedModalOpen('agent-gallery', slug, Boolean(agentGalleryId), agentGalleryId ? {agent:agentGalleryId, generation: tree ? flatNodes(tree).get(agentGalleryId)?.generation : undefined} : undefined)
+  usePersistedModalOpen('agent-gallery', slug, Boolean(agentGalleryId), agentGalleryId ? {agent:agentGalleryId, generation: tree ? flatNodes(tree).get(agentGalleryId)?.generation : undefined,
+    ...(agentGalleryTeam ? { team: true } : {})} : undefined)
   // the native work docket (docket-final-spec.md) — its own list+pane modal,
   // same pattern as the gallery above.
   const [showDocket, setShowDocket] = useState(false)
@@ -677,9 +678,10 @@ export default function App() {
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
     setShowDocket(pinnedKind('docket') || restoreWindowKind('docket', slug))
     const pinnedGallery = pinnedKind('agent-gallery') ? pinned.find(r => r.kind === 'agent-gallery' && r.org === slug)?.restore : undefined
-    const galleryNode = pinnedGallery?.agent ? flatNodes(tree).get(pinnedGallery.agent) : undefined
-    setAgentGalleryId(galleryNode && galleryNode.generation === pinnedGallery?.generation ? galleryNode.id
-      : restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
+    // its agent AND its scope: a Team presentations window comes back as one
+    const gallery = restoredAgentGallery(pinnedGallery, restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree))
+    setAgentGalleryId(gallery?.id ?? null)
+    setAgentGalleryTeam(gallery?.team ?? false)
     // THE RENDERER'S HALF is COMPUTED here because this is the first moment
     // both facts exist: the saved open-set has just been read, and the tree
     // that resolves its targets has just arrived. It is ANNOUNCED lower down,
@@ -1872,8 +1874,11 @@ export default function App() {
                   // pop-out asking for a surface to act on. Those two must never
                   // close the very panel they are about to move, so they opt out
                   // of the toggle and keep the rest of the route.
+                  // the same agent in the OTHER scope switches the window over
+                  // rather than toggling it off (review of a590555)
+                  const sameScope = agentGalleryTeam === !!opts?.team
                   setAgentGalleryTeam(!!opts?.team)
-                  if (!opts?.keepOpen && agentGalleryId === id && isModalPinned('agent-gallery', slug)) {
+                  if (!opts?.keepOpen && sameScope && agentGalleryId === id && isModalPinned('agent-gallery', slug)) {
                     if (pinnedModalBehind('agent-gallery', slug)) raisePinnedModal('agent-gallery', slug)
                     else setAgentGalleryId(null)
                     return

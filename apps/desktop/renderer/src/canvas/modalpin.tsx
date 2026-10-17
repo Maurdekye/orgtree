@@ -159,6 +159,8 @@ const validRestore = (v: unknown): v is WindowRestore => {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
   return Object.entries(v).every(([key, value]) => key === 'generation'
     ? Number.isSafeInteger(value) && Number(value) >= 0
+    // a gallery's TEAM scope (point 25): only ever `true`, absent otherwise
+    : key === 'team' ? value === true
     : ['agent', 'document', 'watchdog'].includes(key) && typeof value === 'string' && value.length > 0 && value.length <= 512)
 }
 const validOpen = (v: unknown): v is ModalOpenState => {

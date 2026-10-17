@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 
 export const WINDOW_LAYOUT_KEY = 'orgtree-desktop-windows-v1'
 export interface WindowRect { x: number; y: number; width: number; height: number }
-export interface WindowRestore { agent?: string; generation?: number; document?: string; watchdog?: string }
+export interface WindowRestore { agent?: string; generation?: number; document?: string; watchdog?: string; team?: boolean }
 export interface SavedWindow { restore?: WindowRestore; key: string; kind: string; org: string | null; open: boolean; rect: WindowRect }
 let exiting = false
 export const windowExitStarted = () => exiting
@@ -33,12 +33,26 @@ const validRestore = (v: unknown): v is WindowRestore => {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
   return Object.entries(v).every(([key, value]) => key === 'generation'
     ? Number.isSafeInteger(value) && Number(value) >= 0
+    // a gallery's TEAM scope (point 25): only ever `true`, absent otherwise
+    : key === 'team' ? value === true
     : ['agent', 'document', 'watchdog'].includes(key) && typeof value === 'string' && value.length > 0 && value.length <= 512)
 }
 export function restoredAgent(row: SavedWindow | undefined, nodes: Map<string, { generation?: number }>): string | null {
   const target = row?.restore
   if (!target?.agent || !Number.isSafeInteger(target.generation)) return null
   return nodes.get(target.agent)?.generation === target.generation ? target.agent : null
+}
+/** An agent gallery window back from storage: its agent, while that agent is
+ *  still the same generation, and its scope, team or ordinary (review of
+ *  a590555: a restored Team presentations window had become own-only). A
+ *  pinned window's record wins over the saved layout's. */
+export function restoredAgentGallery(pinned: WindowRestore | undefined, row: SavedWindow | undefined,
+  nodes: Map<string, { generation?: number }>): { id: string; team: boolean } | null {
+  for (const r of [pinned, row?.restore]) {
+    if (!r?.agent || !Number.isSafeInteger(r.generation)) continue
+    if (nodes.get(r.agent)?.generation === r.generation) return { id: r.agent, team: r.team === true }
+  }
+  return null
 }
 const valid = (v: unknown): v is SavedWindow => {
   if (!v || typeof v !== 'object') return false
