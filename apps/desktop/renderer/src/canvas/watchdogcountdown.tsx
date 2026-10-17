@@ -45,21 +45,31 @@ function timestamp(value?: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
-/** The next scheduled poll based on the last real check, rolling past missed
- *  deadlines without pretending that a new engine timestamp arrived. */
+/** Current engines publish the persisted next check; overdue clocks stay
+ *  checking until new engine evidence arrives. Old snapshots retain fallback. */
 export function watchdogCountdownText(dog: Watchdog, nowMs: number): string | undefined {
   if (!PERIODIC.has(dog.kind) || dog.state !== 'armed' || dog.spent
       || !Number.isFinite(dog.interval_s) || dog.interval_s <= 0) return undefined
 
+  const persisted=timestamp(dog.next_check_at)
   const lastCheck = timestamp(dog.last_check)
-  if (lastCheck === undefined) return undefined
+  if (persisted===undefined && lastCheck===undefined) return undefined
+
+  let nextDue:number,checking:boolean
+  if(persisted!==undefined){
+    const quiet=dog.fire_mode==='silence'?timestamp(dog.next_silence_at):undefined
+    nextDue=quiet===undefined?persisted:Math.min(persisted,quiet)
+    checking=nowMs>=nextDue
+  }else{
+    // Compatibility for a legacy snapshot only. Current engines publish the
+    // durable deadline and must never roll an overdue clock forward locally.
 
   const intervalMs = Math.max(POLL_FLOOR_S, dog.interval_s) * 1_000
-  const elapsed = nowMs - lastCheck
+  const elapsed = nowMs - lastCheck!
   const completedPeriods = Math.max(0, Math.floor(elapsed / intervalMs))
-  const mostRecentIntervalDue = lastCheck + completedPeriods * intervalMs
-  let nextDue = lastCheck + (completedPeriods + 1) * intervalMs
-  let checking = completedPeriods > 0 && nowMs - mostRecentIntervalDue <= CHECKING_GRACE_MS
+  const mostRecentIntervalDue = lastCheck! + completedPeriods * intervalMs
+  nextDue = lastCheck! + (completedPeriods + 1) * intervalMs
+  checking = completedPeriods > 0 && nowMs - mostRecentIntervalDue <= CHECKING_GRACE_MS
 
   if (dog.fire_mode === 'silence' && Number.isFinite(dog.quiet_period_s)
       && (dog.quiet_period_s ?? -1) >= 0) {
@@ -69,13 +79,14 @@ export function watchdogCountdownText(dog: Watchdog, nowMs: number): string | un
       // A quiet deadline later than the last actual check can shorten the
       // engine's wait. Ignore an already-consumed deadline after its grace;
       // the next real feed update supplies the new silence baseline.
-      if (silenceDue > lastCheck && silenceDue < nextDue) {
+      if (silenceDue > lastCheck! && silenceDue < nextDue) {
         if (silenceDue > nowMs) nextDue = silenceDue
         else if (nowMs - silenceDue <= CHECKING_GRACE_MS) checking = true
       }
     }
   }
 
+  }
   if (checking) return 'checking…'
   const seconds = Math.max(1, Math.ceil((nextDue - nowMs) / 1_000))
   const remainingMs = Math.max(0, nextDue - nowMs)
@@ -95,7 +106,7 @@ export function watchdogCountdownText(dog: Watchdog, nowMs: number): string | un
 export function useWatchdogCountdown(dog: Watchdog): string | undefined {
   const shouldTick = PERIODIC.has(dog.kind) && dog.state === 'armed' && !dog.spent
     && Number.isFinite(dog.interval_s) && dog.interval_s > 0
-    && timestamp(dog.last_check) !== undefined
+    && (timestamp(dog.next_check_at) !== undefined || timestamp(dog.last_check) !== undefined)
   const read = () => watchdogCountdownText(dog, Date.now())
   const subscribeDog = (listener: () => void) => subscribe(listener, read)
   return useSyncExternalStore(shouldTick ? subscribeDog : noSubscribe, read, read)
