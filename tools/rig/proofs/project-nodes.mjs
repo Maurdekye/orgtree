@@ -255,28 +255,35 @@ export default async function (rig) {
   p.check('boss pays the new agents\' seats and nothing for the project', Math.abs((bossFree2 - free('boss')) - (node('peer1').seat + node('lead1').seat)) < 1e-6,
     { before: bossFree2, after: free('boss'), seats: node('peer1').seat + node('lead1').seat })
 
-  // ------------------------------------------------------------ a project's Presented gallery (review finding, docket point 8)
-  // USER 2026-10-17 20:07:52Z: the project's presentations plus those of the agents in its subtree
+  // ------------------------------------------------------------ a project's presentations and team presentations (point 27)
+  // USER 2026-10-17 23:28Z: a project's PRESENTATIONS are the documents attributed
+  // to the project itself; its TEAM presentations add every one by the agents in
+  // its subtree (this replaces point 8's subtree-wide Presented gallery)
   const nested = await rig.tool('dev5', 'orgtree_present', { title: 'UI sketch', body: '# UI\n\nnested', })
   // boss sits ABOVE the project, not in its subtree: its own presentation stays out
   const unrelated = await rig.tool('boss', 'orgtree_present', { title: 'Boss notes', body: '# Boss' })
-  const gallery = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=50`)
+  const own = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=50`)
+  const ownTitles = (own.documents ?? []).map(d => d.title)
+  p.check('the project\'s presentations are only those attributed to the project',
+    nested.ok && unrelated.ok && ownTitles.includes('Website plan') && !ownTitles.includes('UI sketch') && !ownTitles.includes('Boss notes')
+    && own.total === ownTitles.length, { titles: ownTitles, total: own.total })
+  const gallery = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&team=1&limit=50`)
   const titles = (gallery.documents ?? []).map(d => d.title)
-  p.check('the project gallery holds its own documents and a nested descendant\'s, not an unrelated agent\'s',
-    nested.ok && unrelated.ok && titles.includes('Website plan') && titles.includes('UI sketch') && !titles.includes('Boss notes')
+  p.check('the project\'s team presentations add a nested descendant\'s, not an unrelated agent\'s',
+    titles.includes('Website plan') && titles.includes('UI sketch') && !titles.includes('Boss notes')
     && gallery.total === titles.length, { titles, total: gallery.total, nested: said(nested), unrelated: said(unrelated) })
-  const paged = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1`)
+  const paged = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&team=1&limit=1`)
   p.check('it pages: one card, the full total, a next offset', (paged.documents ?? []).length === 1 && paged.total === gallery.total
     && paged.next_offset === 1, { n: (paged.documents ?? []).length, total: paged.total, next: paged.next_offset })
   // locate within the project's own list: the window grows to hold the card,
   // and its index counts the project's subtree, not the org
   const uiSketch = rig.sql(`SELECT uid FROM ot.documents WHERE title = 'UI sketch'`)[0]?.uid
   const oldest = (gallery.documents ?? []).at(-1)
-  const located = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1&locate=${oldest?.id}`)
+  const located = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&team=1&limit=1&locate=${oldest?.id}`)
   p.check('locate finds a card down the project\'s list and widens the window to it', !!oldest && gallery.total > 1 && located.located === oldest.id
     && (located.documents ?? []).length === gallery.total && (located.documents ?? []).at(-1)?.id === oldest?.id,
     { located: located.located, n: (located.documents ?? []).length, total: gallery.total })
-  const newest = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1&locate=${uiSketch}`)
+  const newest = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&team=1&limit=1&locate=${uiSketch}`)
   p.check('locate of the newest subtree card needs no wider window', newest.located === uiSketch
     && (newest.documents ?? []).length === 1 && newest.documents[0].id === uiSketch, { n: (newest.documents ?? []).length })
   const agentGallery = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5&limit=50`)
