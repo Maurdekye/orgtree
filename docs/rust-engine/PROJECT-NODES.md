@@ -152,7 +152,9 @@ co-owns the item with full owner rights.
 ## UI (first slice)
 
 - The canvas draws a project as its own dashed card in the tree like any node: a folder mark,
-  its name, the first line of its description, the waiting-mail count and its documents. It has
+  its name, the first line of its description and its documents (no "project" label; its
+  mailbox button with the waiting-mail count shows only with Show agent card shortcuts on, like
+  an agent card's hover row [user 2026-10-17 19:37Z]). It has
   no desk, model, credit bar or turn controls. A click opens its mailbox.
 - **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a light grey
   square with a folder icon, alone on the outermost row. That covers the eye card, all four
