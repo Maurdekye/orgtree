@@ -1,6 +1,6 @@
 ---
 name: orgtree-agent-settings
-description: Explain one agent's Charter, Model, Scope and Tools settings.
+description: Explain one agent's Charter, Model, Scope, Tools and History settings.
 ---
 
 Up: [orgtree-app](../SKILL.md)
@@ -22,6 +22,7 @@ The pages below distinguish the shared form from separate action buttons and the
 - [orgtree-agent-visibility-access](agent-visibility-access/SKILL.md): Scope tab > visible agents and file and command access.
 - [orgtree-agent-folders-tab](agent-folders-tab/SKILL.md): Scope tab > folders.
 - [orgtree-agent-tools-tab](agent-tools-tab/SKILL.md): Tools tab: native tools, Orgtree tool groups, MCP servers.
+- [orgtree-agent-history-tab](agent-history-tab/SKILL.md): History tab: retained agent event records, shown only when records exist.
 
 ## See also
 

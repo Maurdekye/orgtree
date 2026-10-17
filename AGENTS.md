@@ -2674,10 +2674,12 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   Failed panel name lookups expose Retry and recover on surface focus at the same revision.
   Chat uses
   identity-fenced `after` cursors on agent frames/focus, with assistant revisions separate
-  from new messages; scratch refreshes on turn end, completed file delivery and focus.
-  Direct file delivery emits its invalidation only after commit; attachment helpers do
-  not. [verified 2026-10-05: `record_host.py`, `chat_after.py`, `api.py`, renderer
-  `recordfeed.ts`, `recordscratch.ts`, `convo.ts`]
+  from new messages; direct file delivery emits its invalidation only after commit, while
+  attachment helpers do not. In 4.4.0, scratch folders open in the OS file explorer from
+  the agent menu or settings header; agent desks have no Files tab, and their History view
+  is in agent settings when records exist. The separate `read_scratch` agent tool remains.
+  [verified 2026-10-05: `record_host.py`, `chat_after.py`, `api.py`, renderer `recordfeed.ts`,
+  `convo.ts`; decided: user 2026-10-17]
 - **Every polling loop that reads org tables becomes a job row** in the org database, written
   by the transaction that creates the condition and claimed with `FOR UPDATE SKIP LOCKED`.
   Timers that read outside state (provider usage, update checks, the mail hub) stay timers

@@ -9,7 +9,7 @@ registered skill names remain unchanged.
 coverage guard reads it. The tables at the end of this file are generated from
 `tree.json`. If the two ever disagree, `tree.json` is right and this file gets fixed.
 
-Revision **v1.4** adds the generic two-phase iterative-development workflow (user 2026-10-17). Revision **v1.3**: a third category, `orgtree-workflows`, adds suggested committee and dev-team workflows (user 2026-10-17). v1.2 was complete. v1.2 added the section `orgtree-app › harnesses` (docket item `skill-pages-exact-differences-between-all-suppor`): the five harness pages and `harnesses-tab` moved there from `providers`, plus `harness-comparison`, `route-openrouter` and `route-local-server`. v1.1 added `mcp-servers` and `skills-and-instructions` (app › providers), fixed source paths and corrected the `desk-history` and `hubchat` purposes. Everything was enumerated from source at `296deb0`
+Revision **v1.5** moves agent event History to agent settings and removes the desk Files page in 4.4.0 (user 2026-10-17). Revision v1.4 added the two-phase iterative-development workflow; v1.3 added `orgtree-workflows`; v1.2 added the `orgtree-app › harnesses` section; v1.1 added `mcp-servers` and `skills-and-instructions` and fixed earlier tree entries. Everything was enumerated from source at `296deb0` and updated for the 4.4.0 agent-desk change.
 (rust-engine local tip): tools from `engine/rs/orgtree-engine/src/tools/defs.rs`
 `implemented()`, screens from `apps/desktop/renderer/src` and `apps/desktop/main`, and
 settings from the App settings, Org settings and Agent settings sources. The release
@@ -484,14 +484,12 @@ The org canvas: the agent tree, cards, the user node, piles, the agents list, me
 
 #### Section `desk` — `orgtree-app/desk/` — writer providers-sol
 
-An agent's desk and the work panels: chat, history, files, inboxes, ask cards, dockets, presentations and watchdogs.
+An agent's desk and the work panels: chat, inboxes, ask cards, dockets, presentations and watchdogs. Agent event history is in agent settings; scratch folders open in the OS file explorer.
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
 | `agent-desk` | screen | `screen:agent-desk` | The desk: opening it, header actions, banners (turn status, halted, queued, cache forecast) and the tab strip. Must cover: each banner; each header action. | `apps/desktop/renderer/src/canvas/desk.tsx:1907`<br>`apps/desktop/renderer/src/canvas/haltcontrol.tsx:13` | desk-chat, agent-config |
 | `desk-chat` | screen | `screen:desk-chat` | The Chat tab: transcript, tool chips, live one-level Claude helper activity, thoughts, event cards and the composer. Must cover: composer, effort switch, slash hints; event cards. | `apps/desktop/renderer/src/canvas/desk.tsx:3627` | agent-desk |
-| `desk-history` | screen | `screen:desk-history` | The History tab: the agent's event history records (event kind, actor, detail, time), not the conversation. Must cover: what kinds of records appear; difference from the Chat tab. | `apps/desktop/renderer/src/canvas/desk.tsx:4304` | desk-chat |
-| `desk-files` | screen | `screen:desk-files` | The Files tab: live scratch-folder browser. Must cover: what it shows. | `apps/desktop/renderer/src/canvas/desk.tsx:4334` | scratch-folder |
 | `inbox-screens` | screen | `screen:user-inbox`, `screen:agent-inbox`, `screen:org-inbox`, `screen:desk-inbox-tab`, `screen:transfers-panel` | The user inbox, an agent's inbox (modal and desk tab), the org inbox, and the transfers panel. Must cover: list, read pane, reply box; responsive list width and popout resizing; org record search; transfers; tag; chip; hue; bounded; Retry. | `apps/desktop/renderer/src/App.tsx:2631`<br>`apps/desktop/renderer/src/canvas/mail.tsx:1146`<br>`apps/desktop/renderer/src/canvas/narrowlist.tsx`<br>`apps/desktop/renderer/src/canvas/mail.tsx:1376`<br>`apps/desktop/renderer/src/canvas/mail.tsx:1424`<br>`apps/desktop/renderer/src/canvas/transfers.tsx:29`<br>`apps/desktop/renderer/src/usemailtags.ts`<br>`apps/desktop/renderer/src/canvas/mailtags.ts` | mail-basics, ask-cards |
 | `ask-cards` | screen | `screen:ask-card` | Ask cards: answering questions, credit requests and batch asks. Must cover: states. | `apps/desktop/renderer/src/canvas/asks.tsx:82` | tool-ask, tool-request-credits |
 | `docket-screens` | screen | `screen:org-work`, `screen:agent-docket`, `screen:team-docket`, `screen:desk-docket-tab` | The Work modal, agent and team dockets, the desk Docket tab and the item pane. Must cover: filters and grouping; item pane fields. | `apps/desktop/renderer/src/canvas/docket.tsx:942`<br>`apps/desktop/renderer/src/canvas/docket.tsx:1740`<br>`apps/desktop/renderer/src/canvas/agentdocket.tsx:12`<br>`apps/desktop/renderer/src/canvas/teamdocket.tsx:40` | docket-statuses, tool-work |
@@ -540,11 +538,12 @@ Org settings (header > Org settings): Basic, Hire defaults, Policies, Connection
 
 #### Section `agent-settings` — `orgtree-app/agent-settings/` — writer agentsettings-sol
 
-Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope and Tools tabs.
+Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope, Tools and conditional History tabs.
 
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
 | `agent-config` | setting | `node:rename`, `screen:agent-settings` | The agent settings window: name, agent actions, save and confirmations. Must cover: what save sends; provider-change confirmation. | `apps/desktop/renderer/src/canvas/modals.tsx:976`<br>`apps/desktop/renderer/src/canvas/modals.tsx:1286-1306` | team-shape |
+| `agent-history-tab` | setting | `screen:agent-history` | Agent settings History tab: retained event records, shown only when records exist. Must cover: what kinds of records appear; difference from Chat; eligibility. | `apps/desktop/renderer/src/canvas/modals.tsx#AgentConfig`<br>`apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView` | agent-config, desk-chat |
 | `agent-charter-tab` | setting | `node:charter`, `node:team_charter` | Charter tab: instructions and team instructions. Must cover: delivery to the agent; node-local default-on peer-mail setting. | `apps/desktop/renderer/src/canvas/modals.tsx:1337-1340` | charters, peer-mail |
 | `agent-model-tab` | setting | `node:tier`, `node:model_version`, `node:effort` | Model tab: tier, model version, thinking effort, pending model change. Must cover: pending changes. | `apps/desktop/renderer/src/canvas/modals.tsx:1343-1436` | tool-switch-model |
 | `agent-account-tab` | setting | `node:account`, `node:account_fallback` | Model tab > account and switch-when-limited. Must cover: org default vs on/off. | `apps/desktop/renderer/src/canvas/modals.tsx:1392-1399` | account-lanes |

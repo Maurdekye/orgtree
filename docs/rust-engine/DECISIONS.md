@@ -1158,3 +1158,5 @@ All entries are dated 2026-10-06 unless stated otherwise.
     ordinary input/result details. Other harness adapters, history recovery and
     helpers continuing after the parent turn are deferred in this alpha slice.
     Contract and verification limits: [helper transcripts](helper-transcripts.md).
+
+88. **Agent scratch is opened in the OS file explorer; event history lives in agent settings** (user 2026-10-17 19:16–19:18Z). Remove the Files browser from agent desks and its listing endpoint, but preserve the separate `read_scratch` tool, Quick chat attachments and uploads. Keep personal and team scratch-folder actions in the agent menu and settings header, following the same native capability and live/archive availability rules. Move the desk History view into an agent-settings History tab only when retained records exist; stale desk Files/History views fall back to Chat. Project settings without agent history have no History tab.

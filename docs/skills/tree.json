@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "source_commit": "de6d356193c6c839b0813ec4d95303fbc8b87237",
+ "source_commit": "6f5bb1a6835ce40423ca4eb37bc5af9e3cb246bd",
  "registered_description_bytes": 548,
  "counts": {
   "categories": 3,
@@ -3383,12 +3383,10 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "An agent's desk and the work panels: chat, history, files, inboxes, ask cards, dockets, presentations and watchdogs.",
+   "purpose": "An agent's desk and the work panels: chat, inboxes, ask cards, dockets, presentations and watchdogs. Agent event history is in agent settings; scratch folders open in the OS file explorer.",
    "children": [
     "agent-desk",
     "desk-chat",
-    "desk-history",
-    "desk-files",
     "inbox-screens",
     "ask-cards",
     "docket-screens",
@@ -3442,54 +3440,6 @@
    ],
    "see_also": [
     "agent-desk"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed"
-  },
-  {
-   "path": "orgtree-app/desk/desk-history",
-   "name": "orgtree-desk-history",
-   "level": 3,
-   "kind": "screen",
-   "registered": false,
-   "covers": [
-    "screen:desk-history"
-   ],
-   "purpose": "The History tab: the agent's event history records (event kind, actor, detail, time), not the conversation.",
-   "must_cover": [
-    "what kinds of records appear",
-    "difference from the Chat tab"
-   ],
-   "sources": [
-    "apps/desktop/renderer/src/canvas/desk.tsx:4304"
-   ],
-   "see_also": [
-    "desk-chat"
-   ],
-   "writer": "providers-sol",
-   "status": "fixed",
-   "components": [
-    "apps/desktop/renderer/src/canvas/desk.tsx#HistoryView"
-   ]
-  },
-  {
-   "path": "orgtree-app/desk/desk-files",
-   "name": "orgtree-desk-files",
-   "level": 3,
-   "kind": "screen",
-   "registered": false,
-   "covers": [
-    "screen:desk-files"
-   ],
-   "purpose": "The Files tab: live scratch-folder browser.",
-   "must_cover": [
-    "what it shows"
-   ],
-   "sources": [
-    "apps/desktop/renderer/src/canvas/desk.tsx:4334"
-   ],
-   "see_also": [
-    "scratch-folder"
    ],
    "writer": "providers-sol",
    "status": "fixed"
@@ -5370,9 +5320,10 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope and Tools tabs.",
+   "purpose": "Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope, Tools and conditional History tabs.",
    "children": [
     "agent-config",
+    "agent-history-tab",
     "agent-charter-tab",
     "agent-model-tab",
     "agent-account-tab",
@@ -5427,6 +5378,35 @@
       "rename"
      ]
     }
+   ]
+  },
+  {
+   "path": "orgtree-app/agent-settings/agent-history-tab",
+   "name": "orgtree-agent-history-tab",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "screen:agent-history"
+   ],
+   "purpose": "The History tab in agent settings: retained event records (kind, actor, detail and time), not the conversation. It appears only when records exist.",
+   "must_cover": [
+    "what kinds of records appear",
+    "difference from the Chat tab",
+    "availability only when history exists"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/modals.tsx#AgentConfig",
+    "apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView"
+   ],
+   "see_also": [
+    "agent-config",
+    "desk-chat"
+   ],
+   "writer": "agentsettings-sol",
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView"
    ]
   },
   {

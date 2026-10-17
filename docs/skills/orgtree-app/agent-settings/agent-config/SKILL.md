@@ -9,11 +9,13 @@ Up: [orgtree-agent-settings](../SKILL.md)
 
 This is `screen:agent-settings`; the Name action is `node:rename`. Agents explain these user controls and suggest changes; they do not operate settings themselves.
 
-The window starts on Charter and has Model, Scope and Tools tabs. Switching tabs preserves draft edits. Unedited fields follow updated agent data; a field already edited keeps its local draft. The form reads configured scope when available, which can differ from the effective scope the running agent receives.
+The window starts on Charter and has Model, Scope and Tools tabs. An agent with retained event records also has a History tab; projects and agents without records do not. Switching tabs preserves draft edits. Unedited fields follow updated agent data; a field already edited keeps its local draft. The form reads configured scope when available, which can differ from the effective scope the running agent receives.
+
+The header offers **Open scratch folder** and, when the desktop supports team scratch folders, **Open team scratch folder**. These actions open the folders in the OS file explorer and follow the same live-or-archived availability rule as the agent menu. They do not change the agent's folder grants. The desk has no Files tab; use the same native folder action there. Quick chat's attachment picker and agent `read_scratch` tool are separate features.
 
 ## Save and Cancel
 
-The shared **save** button submits edits from all four tabs. It sends a model switch if the tier changed, otherwise an account assignment if the account changed, followed by the scope/settings save. The scope body includes instructions, team instructions, effort, the fresh-start override and a valid selected model version. Folders, tools, visibility and file/command access are included only when edited; the fallback override is included only when edited.
+The shared **save** button submits edits from the configuration tabs. It sends a model switch if the tier changed, otherwise an account assignment if the account changed, followed by the scope/settings save. The scope body includes instructions, team instructions, effort, the fresh-start override and a valid selected model version. Folders, tools, visibility and file/command access are included only when edited; the fallback override is included only when edited. History is read-only and is not part of the save.
 
 With undo history available, these steps form one settings gesture. The compatibility path performs them sequentially, so an earlier step can have succeeded if a later step fails. Read the returned error and current state before recommending a retry. Warnings appear in a toast; success closes the window. Model/account changes may be queued; see their leaves for timing.
 
