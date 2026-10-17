@@ -47,10 +47,7 @@ async fn local_image(path: String) -> Result<Vec<u8>, StatusCode> {
     let file = tokio::fs::File::open(path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    let metadata = file.metadata().await.map_err(|_| StatusCode::NOT_FOUND)?;
-    if !metadata.is_file() {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+    let metadata = local_image_open_metadata(&file).await?;
     if metadata.len() > MAX_BYTES as u64 {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -73,6 +70,10 @@ fn local_image_path(raw: &str) -> Result<PathBuf, StatusCode> {
         || !bytes[0].is_ascii_alphabetic()
         || bytes[1] != b':'
         || !matches!(bytes[2], b'\\' | b'/')
+        || bytes[2..].contains(&b':')
+        || raw[3..]
+            .split(|character| character == '\\' || character == '/')
+            .any(is_reserved_device_component)
     {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -83,16 +84,58 @@ fn local_image_path(raw: &str) -> Result<PathBuf, StatusCode> {
     Ok(path)
 }
 
-/// Inspect each component without following a symlink or reparse point before
-/// opening the image. Besides rejecting non-files, this prevents a local path
-/// from redirecting a later component lookup to a remote share.
+fn is_reserved_device_component(component: &str) -> bool {
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(|character| character == ' ' || character == '.');
+    matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "CONIN$"
+            | "CONOUT$"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "COM¹"
+            | "COM²"
+            | "COM³"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+            | "LPT¹"
+            | "LPT²"
+            | "LPT³"
+    )
+}
+
+/// Check each component before opening, without following a symlink or reparse
+/// point. These lexical and component checks reject crafted paths; an attacker
+/// who can mutate the local disk can still race a path change between checking
+/// and opening it (documented limitation).
 async fn local_image_metadata(path: &Path) -> Result<std::fs::Metadata, StatusCode> {
     let raw = path.to_str().ok_or(StatusCode::BAD_REQUEST)?;
     let mut current = PathBuf::from(&raw[..3]);
     let mut metadata = tokio::fs::symlink_metadata(&current)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+    if metadata_is_reparse_point(&metadata) || !metadata.is_dir() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -105,7 +148,7 @@ async fn local_image_metadata(path: &Path) -> Result<std::fs::Metadata, StatusCo
         metadata = tokio::fs::symlink_metadata(&current)
             .await
             .map_err(|_| StatusCode::NOT_FOUND)?;
-        if metadata.file_type().is_symlink() {
+        if metadata_is_reparse_point(&metadata) {
             return Err(StatusCode::BAD_REQUEST);
         }
         let final_component = index + 1 == components.len();
@@ -118,6 +161,83 @@ async fn local_image_metadata(path: &Path) -> Result<std::fs::Metadata, StatusCo
         }
     }
     Ok(metadata)
+}
+
+fn metadata_is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+async fn local_image_open_metadata(
+    file: &tokio::fs::File,
+) -> Result<std::fs::Metadata, StatusCode> {
+    let metadata = file.metadata().await.map_err(|_| StatusCode::NOT_FOUND)?;
+    if !metadata.is_file() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    ensure_open_image_has_local_path(file)?;
+    Ok(metadata)
+}
+
+#[cfg(windows)]
+fn final_path_is_local_drive(raw: &str) -> bool {
+    let raw = raw.strip_prefix(r"\\?\").unwrap_or(raw);
+    local_image_path(raw).is_ok()
+}
+
+#[cfg(windows)]
+fn ensure_open_image_has_local_path(file: &tokio::fs::File) -> Result<(), StatusCode> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{GetFileType, FILE_TYPE_DISK};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFinalPathNameByHandleW, FILE_NAME_NORMALIZED, VOLUME_NAME_DOS,
+    };
+
+    let handle = file.as_raw_handle() as windows_sys::Win32::Foundation::HANDLE;
+    if unsafe { GetFileType(handle) } != FILE_TYPE_DISK {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut buffer = vec![0u16; 512];
+    loop {
+        let length = unsafe {
+            GetFinalPathNameByHandleW(
+                handle,
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
+            )
+        } as usize;
+        if length == 0 {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        if length >= buffer.len() {
+            if length >= 32_768 {
+                return Err(StatusCode::URI_TOO_LONG);
+            }
+            buffer.resize(length + 1, 0);
+            continue;
+        }
+        let final_path =
+            String::from_utf16(&buffer[..length]).map_err(|_| StatusCode::BAD_REQUEST)?;
+        return if final_path_is_local_drive(&final_path) {
+            Ok(())
+        } else {
+            Err(StatusCode::BAD_REQUEST)
+        };
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_open_image_has_local_path(_file: &tokio::fs::File) -> Result<(), StatusCode> {
+    Err(StatusCode::BAD_REQUEST)
 }
 
 async fn remote_image(raw: String) -> Result<Vec<u8>, StatusCode> {
@@ -381,6 +501,7 @@ mod tests {
         assert!(!is_public_ip("fd00::1".parse().unwrap()));
     }
 
+    #[cfg(windows)]
     #[test]
     fn local_image_path_accepts_only_absolute_drive_paths() {
         for path in [r"C:\images\chart.png", "D:/images/chart.png"] {
@@ -401,6 +522,10 @@ mod tests {
             r"\\.\PhysicalDrive0",
             r"\??\C:\images\chart.png",
             r"\Device\HarddiskVolume1\chart.png",
+            r"C:\images\chart.png:stream",
+            r"C:\NUL",
+            r"C:\images\CON.txt",
+            r"C:\images\COM1.png",
             r"C:images\chart.png",
             r"\images\chart.png",
             "/images/chart.png",
@@ -413,5 +538,113 @@ mod tests {
                 "non-drive path must be rejected without opening it: {path}"
             );
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn final_handle_paths_accept_only_drive_letter_paths() {
+        assert!(final_path_is_local_drive(r"\\?\C:\images\chart.png"));
+        assert!(final_path_is_local_drive(r"D:\images\chart.png"));
+        assert!(!final_path_is_local_drive(
+            r"\\?\UNC\server\share\chart.png"
+        ));
+        assert!(!final_path_is_local_drive(r"\\?\Volume{abc}\chart.png"));
+        assert!(!final_path_is_local_drive(r"\\.\pipe\orgtree-image"));
+        assert!(!final_path_is_local_drive(
+            r"\\?\C:\images\chart.png:stream"
+        ));
+    }
+
+    #[cfg(windows)]
+    struct ScratchDir(PathBuf);
+
+    #[cfg(windows)]
+    impl ScratchDir {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "orgtree-markdown-image-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).expect("create local image test scratch directory");
+            Self(path)
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(windows)]
+    fn create_local_junction(link: &Path, target: &Path) {
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .expect("create local test junction");
+        assert!(
+            output.status.success(),
+            "mklink /J failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn local_image_file_checks_reject_junctions_and_non_files() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let scratch = ScratchDir::new();
+        let target_dir = scratch.0.join("target");
+        std::fs::create_dir(&target_dir).unwrap();
+        let image = target_dir.join("chart.png");
+        std::fs::write(&image, PNG_1X1).unwrap();
+
+        let parent_junction = scratch.0.join("parent-junction");
+        create_local_junction(&parent_junction, &target_dir);
+        assert_eq!(
+            local_image_metadata(&parent_junction.join("chart.png"))
+                .await
+                .unwrap_err(),
+            StatusCode::BAD_REQUEST,
+            "a junction in a parent component is rejected before opening"
+        );
+
+        let leaf_junction = scratch.0.join("leaf-junction");
+        create_local_junction(&leaf_junction, &target_dir);
+        assert_eq!(
+            local_image_metadata(&leaf_junction).await.unwrap_err(),
+            StatusCode::BAD_REQUEST,
+            "a junction used as the leaf is rejected before opening"
+        );
+        assert_eq!(
+            local_image_metadata(&target_dir).await.unwrap_err(),
+            StatusCode::BAD_REQUEST,
+            "a directory is not a regular image file"
+        );
+        let directory_handle = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&target_dir)
+            .unwrap();
+        let directory_file = tokio::fs::File::from_std(directory_handle);
+        assert_eq!(
+            local_image_open_metadata(&directory_file)
+                .await
+                .unwrap_err(),
+            StatusCode::BAD_REQUEST,
+            "an opened directory handle is rejected before reading"
+        );
+
+        let metadata = local_image_metadata(&image).await.unwrap();
+        assert!(metadata.is_file());
+        let file = tokio::fs::File::open(&image).await.unwrap();
+        assert!(local_image_open_metadata(&file).await.unwrap().is_file());
     }
 }
