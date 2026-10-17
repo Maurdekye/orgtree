@@ -93,6 +93,7 @@ import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
 import type { AgentTooltipInfo } from './agentnav'
 import { ObjectNavProvider, objectNavProps } from './objectnav'
+import { WatchdogCountdown, WatchdogCountdownTitle } from './watchdogcountdown'
 import { ObjectNavHost } from './objectnavhost'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
@@ -4066,6 +4067,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         {!compact && lod !== 'mini' && (tree.watchdogs ?? []).map((w) => {
           const p = posOf('dog:' + w.id)
           if (!p || hidden.has(w.owner) || !intersectsViewport({ ...p, w: DOG_W, h: DOG_H }, visibleRect)) return null
+          const title = `${w.once ? 'one-shot dog' : 'watchdog'} "${w.name}" (${w.kind}) — `
+            + `${w.spent ? 'departing after its spark' : w.state}; click for detail`
           return (
             <button key={'dog' + w.id} {...(!w.spent ? objectNavProps('watchdog', w.id, slug) : {})}
               className={'wd-chip ' + w.state
@@ -4073,15 +4076,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 + (w.spent ? ' spent' : '')}
               style={{ transform: `translate(${p.x}px, ${p.y}px)`,
                        width: DOG_W, height: DOG_H }}
-              title={`${w.once ? 'one-shot dog' : 'watchdog'} "${w.name}" (${w.kind}) — `
-                + `${w.spent ? 'departing after its spark' : w.state}; `
-                + 'click for detail'}
+              title={title}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); toggleDog(w.id) }}>
               <span className="wd-glyph">{w.state === 'armed' ? '◉'
                 : w.state === 'paused' ? '◫' : w.spent ? '↗' : '✕'}</span>
               {w.once && <span className="wd-once" aria-label="one-shot dog">1×</span>}
-              <span className="wd-name">{w.name}</span>
+              <span className="wd-name"><WatchdogCountdownTitle dog={w} title={title}>{w.name}</WatchdogCountdownTitle></span>
             </button>
           )
         })}
@@ -4455,6 +4456,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                       {w.once && <span className="wd-once" aria-label="one-shot dog">1×</span>}
                       {w.name} · {w.once ? 'one-shot dog · ' : ''}
                       {w.spent ? 'departing' : w.state}
+                      <WatchdogCountdown dog={w} compact />
                     </button>
                   ))}
                 </div>

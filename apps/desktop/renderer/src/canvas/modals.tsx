@@ -1,4 +1,5 @@
 import { watchdogActions } from './objectactions'
+import { WatchdogCountdown } from './watchdogcountdown'
 import { objectNavProps } from './objectnav'
 import { useSurfaceDocument } from '../popout'
 import { userGesture } from '../historyapi'
@@ -226,6 +227,8 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
               ? dog.fire_mode === 'silence' ? 'realtime — silence checked every 5s'
                 : `realtime — fires at most every ${dog.interval_s}s (coalesced)`
               : `checked every ${dog.interval_s}s`}
+          {dog.kind === 'file' || dog.kind === 'command' || dog.kind === 'process'
+            ? <> · <WatchdogCountdown dog={dog} /></> : null}
           {' · '}{dog.fired} event{dog.fired === 1 ? '' : 's'} sent
           {dog.last_fired ? ` · last ${ago(dog.last_fired)} ago` : ''}
           {' · free (a pet, not a seat)'}

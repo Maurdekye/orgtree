@@ -12,6 +12,7 @@
 import { createContext, useContext } from 'react'
 import type { Watchdog } from '../types'
 import { objectNavProps } from './objectnav'
+import { WatchdogCountdown } from './watchdogcountdown'
 
 export interface DeskDogs {
   org?: string
@@ -54,6 +55,7 @@ export function DogChip({ dog, onOpen }: { dog: Watchdog; onOpen: (id: string) =
       <span className="wd-glyph" aria-hidden="true">{glyph(dog)}</span>
       {dog.once && <span className="wd-once" aria-hidden="true">1×</span>}
       {dog.name}
+      <WatchdogCountdown dog={dog} compact />
     </button>
   )
 }
