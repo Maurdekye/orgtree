@@ -28,7 +28,7 @@
 // quarter of the period past now. The projected trend (a least-squares line
 // through the current window's readings) is drawn there dashed and labelled
 // "projected", and each window's next reset time is a vertical dotted line.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { getUsageHistory } from './api'
 import type { UsageHistory, UsageHistoryRange, UsageHistoryReset, UsageHistorySeries } from './api'
@@ -48,6 +48,11 @@ const RANGES: { id: UsageHistoryRange; label: string }[] = [
 const REFRESH_MS = 60_000
 /** the future pane: this share of the period past now */
 const FUTURE_SHARE = 0.25
+/** the projected-ahead share of the graph's WIDTH, in percent: the slider's
+ *  default is the share the fixed layout always had (a quarter of the period
+ *  past now beside the whole period behind it = 20 %) */
+export const AHEAD_DEFAULT = 20
+export const AHEAD_KEY = 'orgtree-usage-history-ahead-pct'
 /** a projection needs a current window at least this long */
 const MIN_TREND_MS = 15 * 60_000
 
@@ -253,10 +258,57 @@ function useWidth(): [(el: HTMLDivElement | null) => void, number] {
   return [ref, w]
 }
 
+/** The time axis of one chart as fractions of its plot width. History
+ *  ([since, until]) fills the left (1 − share) of it and the future pane
+ *  ([until, to]) the right `share`, each linear in its own pane; at the default
+ *  share that is the one linear axis the chart always had. 0 = history only,
+ *  1 = the future pane only. Pure, so it is tested alone. */
+export function aheadAxis(since: number, until: number, to: number, share: number) {
+  const k = Math.min(1, Math.max(0, share))
+  const nowAt = 1 - k
+  return {
+    nowAt,
+    /** time → fraction of the plot width (a time off either end is clamped to its pane's edge) */
+    at: (t: number): number => t <= until
+      ? (until > since ? nowAt * Math.max(0, (t - since) / (until - since)) : nowAt)
+      : nowAt + (to > until ? k * Math.min(1, (t - until) / (to - until)) : 0),
+    /** fraction of the plot width → time */
+    time: (f: number): number => f <= nowAt
+      ? (nowAt > 0 ? since + (f / nowAt) * (until - since) : until)
+      : (k > 0 ? until + ((f - nowAt) / k) * (to - until) : until),
+  }
+}
+
+const clampAhead = (v: number): number => Number.isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : AHEAD_DEFAULT
+let aheadCache: number | null = null
+const aheadSubs = new Set<() => void>()
+const readAhead = (): number => {
+  if (aheadCache != null) return aheadCache
+  let v = AHEAD_DEFAULT
+  try {
+    const raw = localStorage.getItem(AHEAD_KEY)
+    if (raw != null && raw.trim() !== '') v = clampAhead(Number(raw))
+  } catch { /* private mode */ }
+  return (aheadCache = v)
+}
+export const setAheadShare = (pct: number): void => {
+  aheadCache = clampAhead(pct)
+  try { localStorage.setItem(AHEAD_KEY, String(aheadCache)) } catch { /* private mode */ }
+  for (const fn of [...aheadSubs]) fn()
+}
+const subscribeAhead = (fn: () => void): (() => void) => {
+  aheadSubs.add(fn)
+  const onStorage = (e: StorageEvent) => { if (e.key === null || e.key === AHEAD_KEY) { aheadCache = null; fn() } }
+  window.addEventListener('storage', onStorage)
+  return () => { aheadSubs.delete(fn); window.removeEventListener('storage', onStorage) }
+}
+/** the remembered projected-ahead share, in percent (a browser-local preference, like the pinned-modal fade) */
+export const useAheadShare = (): number => useSyncExternalStore(subscribeAhead, readAhead, () => AHEAD_DEFAULT)
+
 const H_CHART = 150
 const PAD = { l: 44, r: 12, t: 14, b: 22 }
 
-function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number; now: number }) {
+function Chart({ m, from, to, now, ahead }: { m: SeriesModel; from: number; to: number; now: number; ahead: number }) {
   const [ref, width] = useWidth()
   const [hover, setHover] = useState<number | null>(null)
   const s = m.series
@@ -265,10 +317,18 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
     ? Math.max(100, ...all.map((p) => p.v))
     : niceMax(Math.max(...all.map((p) => p.v), m.projection?.to.v ?? 0, 0) * 1.1)
   const W = Math.max(width, 200)
-  const x = (t: number) => PAD.l + ((t - from) / (to - from)) * (W - PAD.l - PAD.r)
+  const axis = aheadAxis(from, now, to, ahead / 100)
+  const plotW = W - PAD.l - PAD.r
+  const x = (t: number) => PAD.l + axis.at(t) * plotW
+  const hasPast = axis.nowAt > 0
+  const hasAhead = axis.nowAt < 1
   const y = (v: number) => PAD.t + (1 - v / top) * (H_CHART - PAD.t - PAD.b)
   const yTicks = s.kind === 'percent' ? [0, 50, 100] : [0, top / 2, top]
-  const ticks = timeTicks(from, to)
+  // one tick set over the whole axis (the unchanged default), thinned where a
+  // pane has been squeezed; a pane alone gets its own ticks
+  let ticks = !hasPast ? timeTicks(now, to) : !hasAhead ? timeTicks(from, now) : timeTicks(from, to)
+  let lastTick = -Infinity
+  ticks = ticks.filter((k) => { const px = x(k.t); if (px - lastTick < 38) return false; lastTick = px; return true })
   const path = (seg: Pt[]) => seg.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('')
   // every recorded reset gets its hairline, but only resets far enough
   // apart get a word: 5-hour windows on a week's axis would print a smear
@@ -283,15 +343,15 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
   // projection when the pointer is in the future pane
   let tip: ReactNode = null
   if (hover != null) {
-    const t = from + ((hover - PAD.l) / (W - PAD.l - PAD.r)) * (to - from)
+    const t = axis.time((hover - PAD.l) / plotW)
     const near = all.reduce<Pt | null>((b, p) => (!b || Math.abs(p.t - t) < Math.abs(b.t - t) ? p : b), null)
     let body: ReactNode
-    if (t > now && m.projection) {
+    if (t > now && m.projection && hasAhead) {
       const { from: a, to: b } = m.projection
       const at = Math.min(t, b.t)
       const v = a.v + ((b.v - a.v) * (at - a.t)) / Math.max(1, b.t - a.t)
       body = <><b>projected</b> {fmtValue(s, v)} · {fmtStamp(at)}</>
-    } else if (near) {
+    } else if (near && hasPast) {
       body = <><b>{fmtValue(s, near.v)}</b> · {fmtStamp(near.t)}</>
     }
     tip = body && <div className="uh-tip" style={{ left: Math.min(Math.max(hover, 80), W - 80) }}>{body}</div>
@@ -318,31 +378,31 @@ function Chart({ m, from, to, now }: { m: SeriesModel; from: number; to: number;
           {ticks.map((k) => (
             <text key={k.t} className="uh-axis" x={x(k.t)} y={H_CHART - 6} textAnchor="middle">{k.label}</text>
           ))}
-          <rect className="uh-future" x={x(now)} y={PAD.t} width={Math.max(0, x(to) - x(now))}
-            height={H_CHART - PAD.t - PAD.b} />
-          {resetMarks.map((r) => (
+          {hasAhead && <rect className="uh-future" x={x(now)} y={PAD.t} width={Math.max(0, x(to) - x(now))}
+            height={H_CHART - PAD.t - PAD.b} />}
+          {hasPast && resetMarks.map((r) => (
             <g key={r.t}>
               <line className="uh-reset" x1={x(r.t)} x2={x(r.t)} y1={PAD.t} y2={H_CHART - PAD.b} />
               {r.label && <text className="uh-axis" x={x(r.t) + 3} y={PAD.t + 8}>reset</text>}
             </g>
           ))}
-          {m.nextReset != null && m.nextReset <= to && (
+          {hasAhead && m.nextReset != null && m.nextReset <= to && (
             <g>
               <line className="uh-next-reset" x1={x(m.nextReset)} x2={x(m.nextReset)} y1={PAD.t} y2={H_CHART - PAD.b} />
               <text className="uh-axis" x={x(m.nextReset) - 3} y={H_CHART - PAD.b - 4} textAnchor="end">next reset</text>
             </g>
           )}
-          {m.segments.map((seg, i) => seg.length > 1
+          {hasPast && m.segments.map((seg, i) => seg.length > 1
             ? <path key={i} className="uh-line" d={path(seg)} />
             : <circle key={i} className="uh-dot" cx={x(seg[0]!.t)} cy={y(seg[0]!.v)} r={2.5} />)}
-          {m.projection && (
+          {hasAhead && m.projection && (
             <g>
               <path className="uh-proj" d={path([m.projection.from, m.projection.to])} />
               <text className="uh-proj-label" x={Math.min(x(m.projection.to.t), W - PAD.r) - 2}
                 y={Math.max(PAD.t + 18, y(m.projection.to.v) - 5)} textAnchor="end">projected</text>
             </g>
           )}
-          {m.stats.current && <circle className="uh-end" cx={x(m.stats.current.t)} cy={y(m.stats.current.v)} r={3.5} />}
+          {hasPast && m.stats.current && <circle className="uh-end" cx={x(m.stats.current.t)} cy={y(m.stats.current.v)} r={3.5} />}
           {hover != null && <line className="uh-cross" x1={hover} x2={hover} y1={PAD.t} y2={H_CHART - PAD.b} />}
         </svg>
       )}
@@ -355,7 +415,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   return <div className="uh-stat" title={hint}><span className="uh-stat-label">{label}</span><b>{value}</b></div>
 }
 
-function SeriesCard({ m, from, to, now }: { m: SeriesModel; from: number; to: number; now: number }) {
+function SeriesCard({ m, from, to, now, ahead }: { m: SeriesModel; from: number; to: number; now: number; ahead: number }) {
   const s = m.series
   const st = m.stats
   const [exportError, setExportError] = useState('')
@@ -365,8 +425,9 @@ function SeriesCard({ m, from, to, now }: { m: SeriesModel; from: number; to: nu
     catch (e) { setExportError(e instanceof Error ? e.message : 'Export failed. Try again.') }
   }
   const nextResetNote = m.nextReset != null && m.nextReset > to ? `next reset ${fmtWhen(new Date(m.nextReset).toISOString())} ›` : null
-  let proj = m.noProjection ? `projection: ${m.noProjection}` : null
-  if (m.projection) {
+  // with no projected-ahead pane (slider at 0 %) there is no projection to describe
+  let proj = m.noProjection && ahead > 0 ? `projection: ${m.noProjection}` : null
+  if (m.projection && ahead > 0) {
     const p = m.projection
     proj = p.hits === 'limit' ? `projected to reach 100% ≈ ${fmtStamp(p.to.t)}`
       : p.hits === 'empty' ? `projected to run out ≈ ${fmtStamp(p.to.t)}`
@@ -394,7 +455,7 @@ function SeriesCard({ m, from, to, now }: { m: SeriesModel; from: number; to: nu
             <Stat label="max" value={fmtValue(s, st.max)} />
             <Stat label="average" value={fmtValue(s, st.avg)} hint="time-weighted over the covered time" />
           </div>
-          <Chart m={m} from={from} to={to} now={now} />
+          <Chart m={m} from={from} to={to} now={now} ahead={ahead} />
           <div className="uh-foot dim">
             {proj && <span>{proj}</span>}
             {nextResetNote && <span>{nextResetNote}</span>}
@@ -439,6 +500,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
   const [account, setAccount] = useState('')
   const [win, setWin] = useState('')
   const [model, setModel] = useState('')
+  const ahead = useAheadShare()
 
   useEffect(() => {
     let live = true
@@ -490,6 +552,12 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
               aria-pressed={r.id === range} onClick={() => setRange(r.id)}>{r.label}</button>
           ))}
         </div>
+        <label className="uh-ahead" title="How much of each graph's width is the projected-ahead view">
+          <span>Projected ahead</span>
+          <input type="range" min={0} max={100} step={1} value={ahead} aria-label="Projected-ahead share of the graph"
+            aria-valuetext={`${ahead}% of the graph`} onChange={(e) => setAheadShare(Number(e.target.value))} />
+          <output>{ahead}%</output>
+        </label>
         <div className="uh-filters" role="group" aria-label="filters">
           <Select label="Provider" all="All providers" value={provider} set={setProvider}
             options={uniq(series.filter((s) => lanes.used(s.account))
@@ -507,7 +575,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
       {!data && !error && <div className="dim">loading…</div>}
       {view && data && (
         <div className="uh-period dim">
-          {fmtStamp(view.since)} – {fmtStamp(view.until)} (now) · the shaded pane on the right is the future ·
+          {fmtStamp(view.since)} – {fmtStamp(view.until)} (now) ·{ahead > 0 && ' the shaded pane on the right is the future ·'}
           {data.oldest ? ` history kept since ${fmtStamp(data.oldest)}` : ' nothing recorded yet'}
           {` (${data.retain_days} days at most)`}
           {data.truncated && ' · too many series: some are not shown'}
@@ -541,7 +609,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
             {!ms.length && <div className="dim uh-empty-series">No usage reading in this period
               {st && st.state !== 'ok' ? ` — the account was ${st.state}${st.detail ? ': ' + st.detail : ''}` : ''}.</div>}
             <div className="uh-grid">
-              {ms.map((m) => <SeriesCard key={m.key} m={m} from={view.since} to={view.to} now={view.now} />)}
+              {ms.map((m) => <SeriesCard key={m.key} m={m} from={view.since} to={view.to} now={view.now} ahead={ahead} />)}
             </div>
           </div>
         )
