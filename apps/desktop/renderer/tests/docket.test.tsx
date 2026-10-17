@@ -441,7 +441,7 @@ uiTest('an attention ticket opens at the bottom of the detail pane', async (moun
   await flush()
   assert.equal(detail.scrollTop, 0, 'an ordinary ticket still opens at the top')
 
-  await inAct(() => rowFor(el, 'Needs attention').click())
+  await inAct(() => rowFor(el, 'needs-attention').click())
   await flush()
   assert.equal(detail.scrollTop, 900, 'the attention reason and reply are in view')
 })
