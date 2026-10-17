@@ -1008,20 +1008,98 @@ export function NodeConfig(props: NodeConfigProps) {
   return props.node.kind === 'project' ? <ProjectConfig {...props} /> : <AgentConfig {...props} />
 }
 
-function ProjectConfig({node,slug,toast,close}:NodeConfigProps) {
+/** Project settings (user 2026-10-17 20:10Z: "the same items as agent
+ *  settings where relevant or parallels exist"). Kept from the agent panel:
+ *  the header with the folder button, Name (rename), the description in place
+ *  of Instructions + Team instructions (a project's description IS the team
+ *  charter of everyone under it), Subordinates may message each other, the
+ *  retire/dissolve/restore/delete actions and the History tab. Left out, as a
+ *  project takes no turns and holds no credits: model, effort, account,
+ *  rescind, credit grant, visible agents, file and command access, tools and
+ *  MCP, and turn limits. */
+function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocusAgent,close}:NodeConfigProps) {
   const [edit,setEdit] = useState<boolean | undefined>()
   const [busy,setBusy] = useState(false)
-  const on = edit ?? node.peer_mail ?? node.configured_scope?.peer_mail ?? true
+  const [tab,setTab] = useState<'project' | 'history'>('project')
+  const [name,setName] = useState(node.id)
+  const [description,setDescription] = useState(node.charter ?? '')
+  const [asking,setAsking] = useState<'retire' | 'dissolve' | 'delete' | null>(null)
+  const history = useRecordHistory(slug, node.id)
+  const hasHistory = (history.value?.length ?? 0) > 0
+  const tabId = useId()
+  const savedPeer = node.peer_mail ?? node.configured_scope?.peer_mail ?? true
+  const on = edit ?? savedPeer
+  const live = node.state === 'live'
+  const members = node.children.some((c) => c.state !== 'archived')
+  const save = async () => {
+    setBusy(true)
+    try {
+      if (description.trim() !== (node.charter ?? '').trim())
+        await op({ op: 'set_description', node: node.id, description })
+      if (on !== savedPeer)
+        await userGesture(slug,[{op:'scope',node:node.id,peer_mail:on}],`Settings: ${node.id}`)
+      close()
+    } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
+  }
   return <PinFrame kind="node-config" restore={{agent:node.id,generation:node.generation}}
     title={`${node.id}: project settings`} panel="settings cfg" close={close}>
-    <h3>{node.id}: project settings</h3>
-    <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
-      hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />
-    <div className="row"><button disabled={busy} onClick={()=>{
-      setBusy(true)
-      void userGesture(slug,[{op:'scope',node:node.id,peer_mail:on}],`Settings: ${node.id}`)
-        .then(()=>close()).catch((e:Error)=>toast([`error: ${e.message}`])).finally(()=>setBusy(false))
-    }}>save</button><button onClick={close}>cancel</button></div>
+    <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
+      <span className="agent-config-title"><FolderIcon fontSize="inherit" /> {node.id}: project settings</span>
+      {(live || node.state === 'archived') && onScratchFolder && <span className="agent-settings-header-actions">
+        <button type="button" onClick={onScratchFolder}>Open project folder</button>
+      </span>}
+    </h3>
+    <SetRow label="Name" hint="Renaming moves the project's mailbox and its fair_queue watchdogs with it.">
+      <span className="agent-identity-row">
+        <input type="text" aria-label="Project name" placeholder="Project name" value={name}
+          onChange={(e) => setName(e.target.value)} />
+        {name !== node.id && <button onClick={() => op({ op: 'rename', node: node.id, name })
+          .then((r) => { toast([`renamed ${node.id} → ${String(r?.node ?? name)}`]); close() })
+          .catch((e: Error) => toast([`error: ${e.message}`]))}>rename</button>}
+      </span>
+    </SetRow>
+    <SetRow label="Project actions" hint="Retire or restore the project; agents under it are retired with it and keep their context.">
+      <span className="agent-identity-row">
+        {live && !members && <button className="danger" onClick={() => setAsking('retire')}>retire project</button>}
+        {live && members && <button className="danger" onClick={() => setAsking('dissolve')}>dissolve project</button>}
+        {node.state === 'archived' && <button className="primary" onClick={() =>
+          op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>restore</button>}
+        <button className="danger delete" onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
+      </span>
+    </SetRow>
+    <SettingsTabs tabs={[{ id: 'project' as const, label: 'Project' }, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]}
+      tab={tab} setTab={setTab} idBase={tabId} label="Project settings" />
+    <SettingsTabPanel id="project" idBase={tabId} active={tab === 'project'}>
+      <SetBlock label="Description" hint="The standing charter of every agent under this project, nested projects included; it reaches a running agent at its next start.">
+        <textarea rows={10} className="charterbox" aria-label="Project description" value={description}
+          onChange={(e) => setDescription(e.target.value)} /></SetBlock>
+      <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
+        hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />
+    </SettingsTabPanel>
+    {hasHistory && <SettingsTabPanel id="history" idBase={tabId} active={tab === 'history'}
+      className="app-settings-panel agent-history-tab">
+      <AgentDirectoryProvider value={{
+        resolve: id => { const agent = map.get(id); return agent ? { tier: agent.tier } : undefined },
+        onFocus: onFocusAgent, destination: node.id,
+      }}>
+        <AgentHistoryView slug={slug} nid={node.id} refs={refs} history={history} />
+      </AgentDirectoryProvider>
+    </SettingsTabPanel>}
+    <div className="row"><button className="primary" disabled={busy} onClick={() => { void save() }}>save</button>
+      <button onClick={close}>cancel</button></div>
+    {asking && <ModalOverPins>
+      {asking === 'retire' && <ConfirmModal title={`retire project ${node.id}?`}
+        body="It leaves the tree with its folder, mailbox and presentations kept; restore brings it back where it was."
+        confirmLabel="retire" onConfirm={() => op({ op: 'retire', node: node.id }).then(close).catch(() => {})}
+        close={() => setAsking(null)} />}
+      {asking === 'dissolve' && <ConfirmModal title={`dissolve ${node.id}?`}
+        body="Every agent under it is retired with it. Context is kept; rehire brings each back."
+        confirmLabel="dissolve" onConfirm={() => op({ op: 'dissolve', node: node.id }).then(close).catch(() => {})}
+        close={() => setAsking(null)} />}
+      {asking === 'delete' && <DeleteNodeConfirm node={node} tree={tree} slug={slug}
+        onConfirm={() => op({ op: 'delete', node: node.id }).then(close).catch(() => {})}
+        close={() => setAsking(null)} />}
+    </ModalOverPins>}
   </PinFrame>
 }
 
