@@ -96,6 +96,18 @@ mod usage_reset_tests {
     }
 
     #[test]
+    fn claude_local_clock_that_passed_rolls_to_tomorrow() {
+        use chrono::{Local, TimeZone, Timelike};
+        let n = now();
+        let local = n.with_timezone(&Local);
+        let hour = (local.hour()+23)%24;
+        let next = (local.date_naive()+Duration::days(1)).and_hms_opt(hour, 0, 0).unwrap();
+        let expected = Local.from_local_datetime(&next).earliest().unwrap().with_timezone(&Utc);
+        let text = format!("You've hit your limit; resets {hour:02}:00");
+        assert_eq!(reported(&text, None, &Value::Null, n).unwrap().until, expected);
+    }
+
+    #[test]
     fn cached_reset_must_be_fresh_authoritative_and_in_the_same_window() {
         let n = now();
         let until = n+Duration::hours(8);
