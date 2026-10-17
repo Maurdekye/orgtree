@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { CSSProperties } from 'react'
 import { useSurfaceDocument } from '../popout'
 import { mailTagKey,mailTagHue } from './mailtags'
+import { useEsc } from './shared'
 
 export interface MailTagPickerProps {
   selected:string[]
@@ -22,6 +23,7 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
   const root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),search=useRef<HTMLInputElement>(null)
   const ownerDocument=useSurfaceDocument(),id=useId(),popover=useRef<HTMLDivElement>(null)
   const [position,setPosition]=useState({left:8,top:8,width:320})
+  useEsc(()=>{setOpen(false);trigger.current?.focus()},open,ownerDocument)
   useLayoutEffect(()=>{
     if(!open)return
     const place=()=>{const r=trigger.current?.getBoundingClientRect(),w=ownerDocument.defaultView;if(!r||!w)return
@@ -33,10 +35,8 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
     if(!open)return
     search.current?.focus()
     const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node)&&!popover.current?.contains(e.target as Node))setOpen(false)}
-    const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setOpen(false);trigger.current?.focus()}}
     ownerDocument.addEventListener('pointerdown',outside,true)
-    ownerDocument.addEventListener('keydown',escape,true)
-    return ()=>{ownerDocument.removeEventListener('pointerdown',outside,true);ownerDocument.removeEventListener('keydown',escape,true)}
+    return ()=>{ownerDocument.removeEventListener('pointerdown',outside,true)}
   },[open,ownerDocument])
   const chosen=new Set(selected.map(mailTagKey))
   const options=choices.filter(t=>mailTagKey(t).includes(mailTagKey(query)))

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { useState } from 'react'
 import { MailTagPicker } from '../src/canvas/mailtagpicker'
+import { useEsc } from '../src/canvas/shared'
 import { MailList } from '../src/canvas/mail'
 import { projectUserInbox } from '../src/recordpanels'
 import type { RecordTable } from '../src/recordfeed'
@@ -151,4 +152,20 @@ test('a pushed mail revision survives an unchanged bounded inbox window',()=>{
   assert.deepEqual(box.pending,[])
   assert.deepEqual(box.delivered,[])
   assert.equal((box as typeof box & {mail_revision?:string}).mail_revision,'boot:9')
+})
+
+test('Escape closes only the tag dropdown before the containing inbox modal',async()=>{
+  let outer=0
+  function Inbox(){useEsc(()=>{outer++});return <Picker/>}
+  const v=await mountView(<Inbox/>,el=>el)
+  try{
+    const button=trigger(v.el);assert.ok(button)
+    await inAct(()=>button.click())
+    const search=v.el.ownerDocument.querySelector<HTMLInputElement>('input[aria-label="Search tags"]');assert.ok(search)
+    await inAct(()=>search.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})))
+    assert.equal(outer,0,'the containing inbox stays open while the dropdown closes')
+    assert.equal(button.getAttribute('aria-expanded'),'false')
+    await inAct(()=>button.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})))
+    assert.equal(outer,1,'the next Escape reaches the containing inbox')
+  }finally{await v.unmount()}
 })
