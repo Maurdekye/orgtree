@@ -64,13 +64,16 @@ pub struct AgySpec {
     /// started by the sign-in helper in the operator's signed-in session
     /// (`session_host::wanted`), else here
     pub host: Option<u32>,
+    /// the Antigravity sign-in it runs on (`agy_auth::login_of`): the
+    /// user's own, or a registered account's folder
+    pub login: crate::providers::agy_auth::Login,
 }
 
 impl std::fmt::Debug for AgySpec {
     #[nolog]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgySpec").field("exe", &self.exe).field("cwd", &self.cwd)
-            .field("model", &self.model).field("effort", &self.effort)
+            .field("model", &self.model).field("effort", &self.effort).field("account", &self.login.account())
             .field("env", &"<redacted>").field("servers", &self.servers.len()).finish()
     }
 }
@@ -133,6 +136,8 @@ fn command(spec: &AgySpec) -> Command {
     for (k, v) in &spec.env {
         cmd.env(k, v);
     }
+    // a registered account's folder, after everything inherited or passed
+    spec.login.apply(&mut cmd);
     crate::providers::agy_auth::configure(&mut cmd);
     winproc::own_group(&mut cmd);
     cmd
@@ -142,13 +147,13 @@ fn command(spec: &AgySpec) -> Command {
 impl AgyProc {
     #[nolog]
     pub async fn spawn(engine: Arc<Engine>, spec: AgySpec, caller: Caller, actor: AgentTx) -> Result<AgyProc> {
-        let auth_stamp = crate::providers::agy_auth::preflight(&engine, &spec.exe).await?;
+        let auth_stamp = crate::providers::agy_auth::preflight_for(&engine, &spec.exe, &spec.login).await?;
         let pipe = CancellationToken::new();
         // the mail tools in their flat shape: the nested one is unchecked on
         // this CLI (coordinator 2026-10-13 21:36Z, tools::defs::MailShape)
         let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone(), crate::tools::defs::MailShape::Flat)?;
         write_workspace(&spec, &pipe_name, &engine.cfg.data_root)?;
-        if let Some(failure) = crate::providers::agy_auth::blocked(&engine) { return Err(failure.into()); }
+        if let Some(failure) = crate::providers::agy_auth::blocked_for(&engine, &spec.login) { return Err(failure.into()); }
         let (started, hosted) = session_host::spawn(&engine, spec.host, false, caller.agent_id, "Antigravity", |_| Ok(command(&spec)))
             .await
             .with_context(|| format!("could not start {}", spec.exe.display()))?;
@@ -170,7 +175,7 @@ impl AgyProc {
         });
         let client = crate::trace::agent_client(caller.agent_id, &caller.name);
         let proc_span = crate::trace::request(&client);
-        let auth = RuntimeAuth { engine, stamp: auth_stamp, job: job.clone(), actor: actor.clone(), process,
+        let auth = RuntimeAuth { engine, stamp: auth_stamp, login: spec.login.clone(), job: job.clone(), actor: actor.clone(), process,
             rejected: CancellationToken::new() };
         let stderr_auth = auth.clone();
         tokio::spawn(tracing::Instrument::instrument(
@@ -269,6 +274,7 @@ impl AgyProc {
 struct RuntimeAuth {
     engine: Arc<Engine>,
     stamp: crate::providers::agy_auth::Stamp,
+    login: crate::providers::agy_auth::Login,
     job: Option<Arc<winproc::ChildJob>>,
     actor: AgentTx,
     process: uuid::Uuid,
@@ -281,7 +287,7 @@ impl RuntimeAuth {
         if self.rejected.is_cancelled() { return false; }
         if !crate::providers::agy_auth::auth_prompt(bytes) { return true; }
         self.rejected.cancel();
-        crate::providers::agy_auth::refuse(&self.engine, self.stamp, crate::providers::agy_auth::Refusal::Untrusted);
+        crate::providers::agy_auth::refuse_for(&self.engine, &self.login, self.stamp, crate::providers::agy_auth::Refusal::Untrusted);
         let _ = self.actor.post(AgentMsg::Agy(self.process, json!({"event":"result","result":{
             "status":"ERROR","error":"Antigravity sign-in required; background authentication stopped"}})));
         // Queue the specific refusal before killing: otherwise the other pipe
@@ -704,7 +710,7 @@ mod workspace_notes_tests {
             exe: PathBuf::from("unused-fake-agy"), cwd: root.join("agent"), model: "fake".into(),
             effort: None, conversation: None, identity: "Synthetic generated identity".into(), notes_from: usize::MAX,
             servers: Map::new(), bash: true, edit: true, web: true, subagents: true,
-            env: vec![], turn_timeout_s: 60, host: None,
+            env: vec![], turn_timeout_s: 60, host: None, login: crate::providers::agy_auth::Login::Primary,
         };
         (root, spec)
     }

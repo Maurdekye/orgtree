@@ -2172,7 +2172,12 @@ impl Actor {
             return startup::Inputs::Codex { cwd: ctx.scratch.clone(), home };
         }
         if ctx.provider == catalog::GOOGLE {
-            return startup::Inputs::Agy { home: crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")), cwd: ctx.scratch.clone() };
+            // a registered account's AGY runs with its folder as its home
+            let home = match self.agy_login(ctx) {
+                crate::providers::agy_auth::Login::Profile { home, .. } => home,
+                crate::providers::agy_auth::Login::Primary => crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            };
+            return startup::Inputs::Agy { home, cwd: ctx.scratch.clone() };
         }
         if ctx.provider == catalog::MUSE {
             // Match muse_account_env without creating profile directories or
@@ -2206,15 +2211,24 @@ impl Actor {
     }
 
     /// Resolve only a login this launcher actually uses. OpenRouter routes bill
-    /// their own key; Antigravity currently uses only its ambient sign-in.
+    /// their own key; Antigravity uses its ambient sign-in or a registered
+    /// account's own folder (`agy_auth::login_of`; an API-key row is neither).
     fn serving_account_of(&self, ctx: &Ctx) -> Option<String> {
         if ctx.provider == catalog::OPENROUTER { return None; }
         let view = self.engine.accounts.view();
         let account = view.get(ctx.account.as_deref()?)?;
-        if account.provider != ctx.provider || (ctx.provider == catalog::GOOGLE && !account.ambient) {
+        let agy_own = ctx.provider == catalog::GOOGLE
+            && (account.ambient || crate::providers::agy_auth::login_of(&view, Some(&account.id)) != crate::providers::agy_auth::Login::Primary);
+        if account.provider != ctx.provider || (ctx.provider == catalog::GOOGLE && !agy_own) {
             return None;
         }
         Some(account.id.clone())
+    }
+
+    /// The Antigravity sign-in this seat's next process runs on: a registered
+    /// account's own folder, or the user's own sign-in.
+    fn agy_login(&self, ctx: &Ctx) -> crate::providers::agy_auth::Login {
+        crate::providers::agy_auth::login_of(&self.engine.accounts.view(), ctx.account.as_deref())
     }
 
     fn config_dir_of(&self, account: Option<&str>) -> Option<String> {
@@ -2238,13 +2252,17 @@ impl Actor {
         if catalog::antigravity_claude(&ctx.tier) && !self.engine.settings.antigravity_claude_enabled() {
             return Err(anyhow!("Claude models through Antigravity are turned off in App settings > Runtime"));
         }
-        if let Some(reason) = crate::usage::antigravity_limit(&self.engine, &ctx.tier) {
-            return Err(anyhow!(reason));
+        let agy_login = self.agy_login(ctx);
+        // the default sign-in's own readout; a registered account is judged by its marks below
+        if agy_login == crate::providers::agy_auth::Login::Primary {
+            if let Some(reason) = crate::usage::antigravity_limit(&self.engine, &ctx.tier) {
+                return Err(anyhow!(reason));
+            }
         }
         let view = self.engine.accounts.view();
         let acc = ctx.account.as_deref().and_then(|a| view.get(a));
         if ctx.provider == catalog::GOOGLE {
-            if let Some(failure) = crate::providers::agy_auth::blocked(&self.engine) {
+            if let Some(failure) = crate::providers::agy_auth::blocked_for(&self.engine, &agy_login) {
                 return Err(anyhow!(failure));
             }
             if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
@@ -3098,7 +3116,8 @@ impl Actor {
         if !self.engine.settings.provider_enabled(catalog::GOOGLE) {
             return Err(anyhow!("Antigravity is turned off in App settings"));
         }
-        if let Some(failure) = crate::providers::agy_auth::blocked(&self.engine) {
+        let login = self.agy_login(ctx);
+        if let Some(failure) = crate::providers::agy_auth::blocked_for(&self.engine, &login) {
             self.close_proc().await;
             return Err(anyhow!(failure));
         }
@@ -3107,7 +3126,7 @@ impl Actor {
             None => tokio::task::spawn_blocking(crate::providers::locate_agy).await.ok().flatten()
                 .map(|(p, _)| p).ok_or_else(|| anyhow!("the Antigravity CLI is not installed on this machine"))?,
         };
-        let stamp = match crate::providers::agy_auth::preflight(&self.engine, &exe).await {
+        let stamp = match crate::providers::agy_auth::preflight_for(&self.engine, &exe, &login).await {
             Ok(stamp) => stamp,
             Err(e) => { self.close_proc().await; return Err(e.into()); }
         };
@@ -3165,6 +3184,7 @@ impl Actor {
             ]); env },
             turn_timeout_s: self.engine.settings.turn_timeout_s(),
             host: want,
+            login,
         };
         self.agy_steer_dir = Some(agyrt::steer_dir(&ctx.scratch));
         plan.skills.workspace(&ctx.scratch)?;
@@ -3886,10 +3906,11 @@ impl Actor {
         // Check before opening the mail-claim transaction; external sign-in
         // wakes this pending mail through the usage loop.
         if ctx.provider == catalog::GOOGLE {
-            let failure = if let Some(e) = crate::providers::agy_auth::blocked(&self.engine) {
+            let login = self.agy_login(&ctx);
+            let failure = if let Some(e) = crate::providers::agy_auth::blocked_for(&self.engine, &login) {
                 Some(e)
             } else if let Some(exe) = self.engine.providers.agy_path() {
-                crate::providers::agy_auth::preflight(&self.engine, &exe).await.err()
+                crate::providers::agy_auth::preflight_for(&self.engine, &exe, &login).await.err()
             } else { None };
             if let Some(e) = failure {
                 self.last_error = Some(e.to_string());

@@ -1158,7 +1158,7 @@ async fn antigravity_read(engine: &Engine, force: bool) -> Value {
     let observed = Utc::now();
     let mut out = match exe {
         None => json!({ "available": false, "error": "the Antigravity CLI is not installed", "reauth_evidence": "not_connected" }),
-        Some(exe) => match agy_usage(engine, &exe).await {
+        Some(exe) => match agy_usage(engine, &exe, &crate::providers::agy_auth::Login::Primary).await {
             Ok(v) => v,
             Err(e) => json!({ "available": false, "error": NOT_YET, "detail": gist(&e, 300) }),
         },
@@ -1186,14 +1186,56 @@ pub fn record_agy_auth_failure(engine: &Engine, mut reading: Value) {
     publish(engine, "google", &reading);
 }
 
+/// A registered Antigravity account's own readout, cached as `agy:<id>`: the
+/// same zero-token /usage probe, run on the account's own folder through its
+/// own gate (`agy_auth::Login`). A row that is not its own login (the user's
+/// sign-in, or no folder) reads the default lane as before.
 #[nolog]
-async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
+pub async fn antigravity_account(engine: &Engine, a: &crate::accounts::AccountInfo, force: bool) -> Value {
+    let login = crate::providers::agy_auth::login_of(&engine.accounts.view(), Some(&a.id));
+    if login == crate::providers::agy_auth::Login::Primary {
+        return antigravity(engine, force).await;
+    }
+    let key = format!("agy:{}", a.id);
+    let Some(_guard) = engine.usage.reserve(&key) else { return engine.usage.busy_reading(&key) };
+    if force { crate::providers::agy_auth::user_recheck(engine); }
+    let observed = Utc::now();
+    let mut out = if let Some(failure) = crate::providers::agy_auth::blocked_for(engine, &login) {
+        failure.reading()
+    } else if let Some(v) = (!force).then(|| engine.usage.fresh(&key, TTL)).flatten() {
+        return v;
+    } else {
+        let exe = match engine.providers.agy_path() {
+            Some(p) => Some(p),
+            None => tokio::task::spawn_blocking(crate::providers::locate_agy).await.ok().flatten().map(|(p, _)| p),
+        };
+        match exe {
+            None => json!({ "available": false, "error": "the Antigravity CLI is not installed", "reauth_evidence": "not_connected" }),
+            Some(exe) => match agy_usage(engine, &exe, &login).await {
+                Ok(v) => v,
+                Err(e) => json!({ "available": false, "error": NOT_YET, "detail": gist(&e, 300) }),
+            },
+        }
+    };
+    out["account"] = json!(a.id);
+    out["provider"] = json!(AGY_NAME);
+    out["label"] = json!(out["email"].as_str().map(str::to_string).unwrap_or_else(|| a.display()));
+    out["observed_at"] = json!(iso(Utc::now()));
+    if out["available"] == true {
+        crate::account_marks::profile_usage(engine, "google", a.config_dir.as_deref(), observed, &out).await;
+    }
+    engine.usage.put(&key, &out);
+    out
+}
+
+#[nolog]
+async fn agy_usage(engine: &Engine, exe: &Path, login: &crate::providers::agy_auth::Login) -> Result<Value, String> {
     // only builds verified to answer /usage without a model turn
     let version = {
         let mut cmd = tokio::process::Command::new(exe);
         cmd.arg("--version").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
         crate::winproc::no_window(&mut cmd);
-        let o = match crate::providers::agy_auth::checked_output(engine, exe, cmd, Duration::from_secs(20)).await {
+        let o = match crate::providers::agy_auth::checked_output_for(engine, exe, cmd, Duration::from_secs(20), login).await {
             Ok(o) => o,
             Err(e) => return Ok(e.reading()),
         };
@@ -1211,7 +1253,10 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
     let dir = engine.cfg.path("diagnostics").join("agy-probe");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // a fresh log per probe: it names the account the CLI signed in as
-    let log = dir.join("usage-probe.log");
+    let log = match login.account() {
+        None => dir.join("usage-probe.log"),
+        Some(id) => dir.join(format!("usage-probe-{}.log", id.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_"))),
+    };
     let _ = std::fs::remove_file(&log);
     let mut cmd = tokio::process::Command::new(exe);
     cmd.arg("--log-file")
@@ -1229,7 +1274,7 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
         }
     }
     crate::winproc::no_window(&mut cmd);
-    let o = match crate::providers::agy_auth::checked_output(engine, exe, cmd, Duration::from_secs(30)).await {
+    let o = match crate::providers::agy_auth::checked_output_for(engine, exe, cmd, Duration::from_secs(30), login).await {
         Ok(o) => o,
         Err(e) => return Ok(e.reading()),
     };
@@ -1732,7 +1777,7 @@ pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force
         match a.provider.as_str() {
             "claude" => claude(engine, a.config_dir.as_deref(), force).await,
             "openai" => codex(engine, &a.id, a.config_dir.as_deref(), force).await,
-            "google" => antigravity(engine, force).await,
+            "google" => antigravity_account(engine, a, force).await,
             "muse" => muse(engine, &a.id, a.config_dir.as_deref(), force).await,
             _ => json!({ "available": false }),
         }

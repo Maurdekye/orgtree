@@ -239,7 +239,24 @@ pub async fn identity(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> A
     if a.is_apikey() {
         return Ok(Json(json!({ "auth": a.auth })));
     }
-    let (signed_in, email) = if a.provider == "muse" {
+    // a registered Antigravity account whose folder did not keep its own
+    // sign-in apart from the default one (`agy_auth::Failure::NotIsolated`)
+    let mut refused: Option<String> = None;
+    let agy_login = crate::providers::agy_auth::login_of(&e.accounts.view(), Some(&a.id));
+    let (signed_in, email) = if agy_login != crate::providers::agy_auth::Login::Primary {
+        // its own silent check, on its own folder, through its own gate
+        let exe = match e.providers.agy_path() {
+            Some(p) => Some(p),
+            None => tokio::task::spawn_blocking(crate::providers::locate_agy).await.ok().flatten().map(|(p, _)| p),
+        };
+        let Some(exe) = exe else { return Err(ApiError::unavailable("the Antigravity CLI is not installed on this machine")) };
+        crate::providers::agy_auth::user_recheck(&e);
+        match crate::providers::agy_auth::identity_for(&e, &exe, &agy_login).await {
+            Ok(who) => (true, who),
+            Err(f @ crate::providers::agy_auth::Failure::NotIsolated) => { refused = Some(f.to_string()); (false, None) }
+            Err(_) => (false, None),
+        }
+    } else if a.provider == "muse" {
         // Muse says who is signed in (`account/read` on a metadata host): its
         // auth file is never read here
         match crate::providers::muse_probe_login(&e, a.config_dir.as_deref()).await {
@@ -266,6 +283,9 @@ pub async fn identity(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> A
         .await?;
     drop(client);
     refreshed(&e).await;
+    if let Some(why) = refused {
+        return Err(ApiError::conflict(why).with(json!({ "auth": auth, "not_isolated": true })));
+    }
     Ok(Json(json!({ "auth": auth, "email": email })))
 }
 
