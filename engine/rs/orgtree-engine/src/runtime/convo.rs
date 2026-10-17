@@ -326,7 +326,9 @@ pub fn append_display_block(row: &mut Value, block: Value) {
     blocks.push(block);
 }
 
-#[logged]
+// All callers pass private transcript content (including recovered thoughts).
+// Identity stamping must never serialize its body into verbose engine logs.
+#[nolog]
 fn stamp(body: &mut Value, seq: i64) {
     if let Some(o) = body.as_object_mut() {
         o.insert("seq".into(), json!(seq));

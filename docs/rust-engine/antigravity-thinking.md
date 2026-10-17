@@ -70,3 +70,29 @@ The user switched the current 4.4.0 work to hardening on 2026-10-17 21:46Z:
 rig-sol-b reviews this exact hand-in once, with at most one re-check after
 fixes. The coordinator owns integration, the combined round and alpha.5.
 Installed CLI history visibility remains unmeasured by these synthetic tests.
+
+## Verbose logging correction
+
+The first static review found that the nested `stamp(&mut body, seq)` call
+still had `#[logged]`. Its argument serializer exposed private thoughts in
+verbose engine logs despite the unlogged reader and receipt writer. The
+correction makes this content-bearing identity helper `#[nolog]` too. Its
+other callers, ordinary transcript append and update, also stop logging their
+bodies through that helper. Sequence, row ID, event ID and persistence behavior
+are unchanged. The JSON sanitizer and pending-row retention helpers on these
+paths are already unlogged.
+
+The regression captures the real `EngineLayer` output with verbose logging
+enabled while writing actual PostgreSQL receipts, replaying/reloading them,
+rolling back a rejected row, and doing ordinary append/update. It checks
+thought and response canaries are absent and verifies the persisted content
+and identity fields. A logged `parse_after` call is the positive control;
+an empty or disabled capture cannot pass. Capture uses a test-local subscriber
+and synthetic content, without opening application diagnostics or live data.
+
+On red source `8fdabfc` rebased onto assigned `c89111b`, the test executed and
+failed at the expected thinking-canary assertion: raw Cargo exit 101, no
+signal, one failure, 45.69s compilation and 0.21s test time. The captured log
+contains the positive control and leaked canary. Green verification of the
+correction is queued; this closes the first review's only substantiated
+blocker and is submitted for the single allowed re-check after that passes.
