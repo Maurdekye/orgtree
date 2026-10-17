@@ -146,7 +146,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
       )}
       {deskOpen && (
         <ProjectDesk node={node} slug={slug} tree={tree!} map={map ?? new Map()} toast={toast} refs={refs!}
-          onJump={onJump} onSettings={onSettings} onPin={onPin} />
+          op={op} onJump={onJump} onConfig={onSettings} onPin={onPin} />
       )}
       {pinnedFocus && !deskOpen && onShowPin && (
         <div className="pin-holder"><PinnedPlaceholder id={node.id} onShow={onShowPin} /></div>

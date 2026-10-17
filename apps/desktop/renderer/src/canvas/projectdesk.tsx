@@ -1,28 +1,34 @@
 // canvas/projectdesk.tsx — the PROJECT DESK (docs/rust-engine/
-// PROJECT-NODES.md; user 2026-10-17 19:38Z: "give them a zoomed-in desk view,
-// similar to agents, with tabs for the various things you can view in them").
-// A focused project card, and a pinned project window, show this desk: the
-// agent desk's frame and header, with tabs for what a project holds — its
-// mail (and the fair-queue watchers it waits for), its docket, its
-// presentations, its members and its description. A project takes no turns,
-// so there is no chat, composer or turn state. The mail, docket and
-// presentation tabs are the agent desk's own views (InboxView,
-// AgentDocketView, AgentGalleryView), scoped to the project.
+// PROJECT-NODES.md; user 2026-10-17 19:38Z–20:10Z). A focused project card,
+// and a pinned project window, show this desk in the agent desk's frame and
+// header. A project takes no turns, so its main tab is not a chat: it holds
+// the chat desk's jump cards (up to its parent, down to its members) and a
+// large editor for its description, rendered as Markdown until it is focused
+// and edited as monospace text (user 20:06Z). Beside it are the agent desk's
+// three other tabs with the agent desk's own views, scoped to the project:
+// inbox, docket (the items attached to it) and presented (the documents
+// presented under it) (user 20:07Z). The header counts its agents, active out
+// of hired, with the spinner while any is active (20:08Z), and has halt all,
+// dissolve project (20:09Z) and the settings gear (20:09:45Z).
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload } from '../types'
-import { FolderIcon, SettingsIcon } from '../icons'
-import type { CanvasNode } from './shared'
+import { AutorenewIcon, FolderIcon, SettingsIcon } from '../icons'
+import { md, USER } from './shared'
+import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
 import { useWorkItems } from './useworkitems'
 import { AgentDocketView, agentItems, itemActorIds, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
 import type { RefRoutes } from './reflinks'
-import { scratchFolderAction } from '../scratch-folder'
+import { NavChip } from './desk'
+import { subtreeAgents } from './bulkcompact'
+import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 
-export const PROJECT_DESK_TABS = ['mail', 'docket', 'presented', 'members', 'about'] as const
+export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented'] as const
 type Tab = typeof PROJECT_DESK_TABS[number]
 
 export interface ProjectDeskProps {
@@ -30,20 +36,68 @@ export interface ProjectDeskProps {
   slug: string
   tree: TreePayload
   map: Map<string, CanvasNode>
+  op: OpFn
   toast: ToastFn
   refs: RefRoutes
   /** a pinned window's body: the desk unscaled, as DeskChat's `bare` */
   bare?: boolean
   onJump?: (id: string) => void
-  onSettings?: () => void
+  /** the gear: the project's settings (ProjectConfig) */
+  onConfig?: () => void
   /** pin this desk as a window (absent: no pin button) */
   onPin?: () => void
 }
 
-export function ProjectDesk({ node, slug, tree, map, toast, refs, bare, onJump, onSettings, onPin }: ProjectDeskProps) {
-  const [view, setView] = useState<Tab>('mail')
-  // the docket tab: the items attached to this project (slice 2), one poll
-  // while the tab is open, as the agent docket modal does
+/** The agents under a project, nested projects crossed but not counted:
+ *  hired = live agents, active = those with a turn executing — the org list's
+ *  n/m rule (shell/orgrows.tsx), for this subtree only. */
+export function projectCounts(node: CanvasNode): { active: number; hired: number; agents: CanvasNode[] } {
+  const agents = subtreeAgents(node)
+  return { active: agents.filter((a) => a.busy).length, hired: agents.length, agents }
+}
+
+/** The description editor (user 2026-10-17 20:06Z): Markdown while it is not
+ *  focused, raw monospace text while it is. Leaving the editor saves a change
+ *  with `set_description`; Escape drops the edit. */
+function DescriptionEditor({ node, op, toast, editable }: {
+  node: CanvasNode; op: OpFn; toast: ToastFn; editable: boolean
+}) {
+  const saved = node.charter ?? ''
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(saved)
+  const box = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => { if (!editing) setDraft(saved) }, [saved, editing])
+  useEffect(() => { if (editing) box.current?.focus({ preventScroll: true }) }, [editing])
+  const commit = () => {
+    setEditing(false)
+    if (draft.trim() === saved.trim()) return
+    op({ op: 'set_description', node: node.id, description: draft })
+      .then(() => toast([`description of ${node.id} saved`]))
+      .catch(() => setDraft(saved))   // `op` toasts the refusal
+  }
+  if (editing) {
+    return <textarea ref={box} className="project-description-edit" value={draft} spellCheck={false}
+      aria-label={`description of project ${node.id}`}
+      onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDraft(saved); setEditing(false) }
+      }} />
+  }
+  const empty = !saved.trim()
+  return <div className={'project-description-md' + (empty ? ' dim' : '')} tabIndex={editable ? 0 : -1}
+    role={editable ? 'textbox' : undefined} aria-label={`description of project ${node.id}`}
+    title={editable ? 'click to edit; it is the standing charter of every agent under this project' : undefined}
+    onFocus={() => { if (editable) setEditing(true) }}
+    onClick={() => { if (editable) setEditing(true) }}
+    {...(empty ? { children: editable ? 'Describe the project: every agent under it gets this as a standing charter.' : 'No description.' }
+      : { dangerouslySetInnerHTML: md(saved) })} />
+}
+
+export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin }: ProjectDeskProps) {
+  const [view, setView] = useState<Tab>('desk')
+  const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | null>(null)
+  // the docket tab: the items attached to this project (slice 2), one poll,
+  // as the agent docket modal does
   const [showArchived, setShowArchived] = useState(false)
   const [showBacklog, setShowBacklog] = useState(false)
   const [bump, setBump] = useState(0)
@@ -53,14 +107,14 @@ export function ProjectDesk({ node, slug, tree, map, toast, refs, bare, onJump, 
   const work = workFeed.value
   const mine = useMemo(() => agentItems(work, node.id, showArchived), [work, node.id, showArchived])
   const facts = useNodeFacts(slug, tree, useMemo(() => itemActorIds(mine), [mine]))
-  const watchers = (tree.watchdogs ?? []).filter((w) => (w.kind as string) === 'fair_queue' && w.target === node.id)
-  const members = node.children.filter((c) => c.state !== 'draft')
-  const count = (tab: Tab) => tab === 'mail' ? node.mail_pending ?? 0
-    : tab === 'docket' ? mine.length
-      : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0
-        : tab === 'members' ? members.length : 0
   const live = node.state === 'live'
-  const folder = scratchFolderAction(slug, node.id, toast)
+  const { active, hired, agents } = projectCounts(node)
+  const allHalted = agents.length > 0 && agents.every((a) => a.halt?.phase === 'halted')
+  const parent = node.parent && map.has(node.parent) && !(bare && node.parent === USER) ? map.get(node.parent)! : null
+  const members = node.children.filter((c) => c.state === 'live')
+  const count = (tab: Tab) => tab === 'inbox' ? node.mail_pending ?? 0
+    : tab === 'docket' ? mine.length
+      : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0 : 0
   const content = (
     <>
       <div className="cc-head">
@@ -70,10 +124,29 @@ export function ProjectDesk({ node, slug, tree, map, toast, refs, bare, onJump, 
               <FolderIcon fontSize="inherit" />
             </span>
             <span className="name">{node.id}</span>
+            <span className="project-counts org-counts dim" title="active / hired agents under this project">
+              {active}/{hired}
+            </span>
+            {active > 0 && <span className="working-ct"
+              title={`${active} agent${active === 1 ? '' : 's'} under this project active — a turn executing now`}>
+              <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
             {!live && <span className="badge dim">{node.state}</span>}
           </span>
           <span className="spacer" aria-hidden="true" />
           <span className="cc-head-right">
+            <span className="cc-actions">
+              {live && agents.length > 0 && (
+                <button className={allHalted ? '' : 'danger'} data-action="halt-all"
+                  title={`${allHalted ? 'release' : 'halt'} all ${agents.length} live agents under this project`}
+                  onClick={() => setAsking(allHalted ? 'unhalt' : 'halt')}>
+                  {allHalted ? 'unhalt all' : 'halt all'}</button>
+              )}
+              {live && <button className="danger" data-action="dissolve"
+                title="retire the project and every agent under it; context is kept and rehire brings each back"
+                onClick={() => setAsking('dissolve')}>dissolve project</button>}
+              {!live && node.state === 'archived' && <button data-action="restore"
+                onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
+            </span>
             <span className="cc-tabs">
               {PROJECT_DESK_TABS.map((v) => (
                 <button key={v} data-tab={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
@@ -87,19 +160,24 @@ export function ProjectDesk({ node, slug, tree, map, toast, refs, bare, onJump, 
                 <PushPinIcon fontSize="inherit" />
               </button>
             )}
+            {onConfig && (
+              <button className="cc-icon" aria-label={`settings for ${node.id}`}
+                title={`settings for ${node.id}`} onClick={onConfig}>
+                <SettingsIcon fontSize="inherit" />
+              </button>
+            )}
           </span>
         </div>
       </div>
-      {view === 'mail' && <div className="desk-tabpanel">
+      {view === 'desk' && <>
+        {onJump && parent && <div className="desk-nav"><NavChip n={parent} dir="up" onJump={onJump} /></div>}
+        <DescriptionEditor node={node} op={op} toast={toast} editable={live} />
+        {onJump && members.length > 0 && <div className="desk-nav">
+          {members.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+        </div>}
+      </>}
+      {view === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
-        <div className="project-fairqueue">
-          <b>{node.mail_pending ?? 0} waiting</b> in the project mailbox{' · '}
-          {watchers.length === 0
-            ? 'nobody watches it with a fair_queue watchdog yet: mail waits here until one arms'
-            : <>fair-queue watchers: {watchers.map((w, i) => (
-              <span key={w.id}>{i > 0 ? ', ' : ''}{w.owner}{w.state === 'armed' ? '' : ` (${w.state})`}</span>
-            ))}</>}
-        </div>
         <InboxView slug={slug} nid={node.id} tier={node.tier} unreadCount={node.mail_pending} toast={toast}
           tierOf={(id) => map.get(id)?.tier} hasAgent={(id) => map.has(id)}
           refs={refs} onFocusAgent={onJump} />
@@ -116,29 +194,6 @@ export function ProjectDesk({ node, slug, tree, map, toast, refs, bare, onJump, 
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
         <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs} />
       </div>}
-      {view === 'members' && <div className="desk-tabpanel project-members">
-        {members.length === 0 && <div className="dim">Nobody works on this project yet. Hire under it from its card.</div>}
-        {members.map((m) => (
-          <button key={m.id} className="member" data-member={m.id} disabled={!onJump}
-            title={onJump ? `go to ${m.id}` : undefined} onClick={() => onJump?.(m.id)}>
-            {m.kind === 'project' ? <FolderIcon fontSize="inherit" /> : <span className={'tier t-' + m.tier}>{m.tier?.[0]?.toUpperCase() ?? ''}</span>}
-            <span className="name">{m.id}</span>
-            {m.state !== 'live' && <span className="badge dim">{m.state}</span>}
-          </button>
-        ))}
-      </div>}
-      {view === 'about' && <div className="desk-tabpanel project-about">
-        <h4>Description</h4>
-        {(node.charter ?? '').trim()
-          ? <div className="project-description">{node.charter}</div>
-          : <div className="project-description dim">No description.</div>}
-        <p className="dim">The description is the standing charter of every agent under this project, nested
-          projects included. A running agent picks up a change at its next start.</p>
-        <div className="row">
-          {onSettings && <button onClick={onSettings}><SettingsIcon fontSize="inherit" /> settings</button>}
-          {folder && <button onClick={folder}><FolderIcon fontSize="inherit" /> open project folder</button>}
-        </div>
-      </div>}
     </>
   )
   return (
@@ -146,9 +201,18 @@ export function ProjectDesk({ node, slug, tree, map, toast, refs, bare, onJump, 
       onPointerDown={(e) => {
         // as the agent desk: only real controls claim the gesture, so a press
         // on the desk's own chrome still pans the canvas
-        if ((e.target as Element).closest('button, input, textarea, select, a, label, .mailrow')) e.stopPropagation()
+        if ((e.target as Element).closest('button, input, textarea, select, a, label, .mailrow, .project-description-md')) {
+          e.stopPropagation()
+        }
       }}>
       <div className={bare ? 'desk-body eye-chat' : 'desk-inner desk-body'}>{content}</div>
+      {(asking === 'halt' || asking === 'unhalt') && createPortal(
+        <AgentBatchHaltConfirm targets={agents} unhalt={asking === 'unhalt'}
+          scope={`all agents under project ${node.id}`} op={op} toast={toast}
+          close={() => setAsking(null)} />, document.body)}
+      {asking === 'dissolve' && createPortal(
+        <AgentRetireConfirm kind={members.length > 0 ? 'dissolve' : 'retire'} node={node} op={op} toast={toast}
+          close={() => setAsking(null)} />, document.body)}
     </div>
   )
 }
