@@ -31,6 +31,7 @@ pub mod startup;
 pub mod tasks;
 pub mod tool_policy;
 pub mod toolwriting;
+pub mod usage_reset;
 pub mod watchdogs;
 
 use std::collections::HashMap;
