@@ -9,7 +9,7 @@ import type { TreePayload } from '../src/types'
 const tree = {slug:'pyramid',roots:[],dirs:[],default_tools:{},default_visibility:'team'} as unknown as TreePayload
 const seats = {haiku:1,sonnet:2,sol:2,astra:6}
 const hires:HireProviders = {
-  claudeHire:{installed:true,enabled:true},
+  claudeHire:{installed:true,enabled:true,reason:null},
   codexHire:{installed:true,enabled:false,reason:'sign in first'},
   antigravityHire:{installed:false,enabled:false,reason:'not installed'},
 }
