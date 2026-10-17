@@ -69,3 +69,12 @@ test('Quick chat and Attention desk active-only preferences are independent and 
   assert.throws(() => preferencesPatch({ quickChatActiveAgentsOnly: 1 }), /Invalid preference/)
   assert.throws(() => preferencesPatch({ attentionDeskActiveAgentsOnly: 'yes' }), /Invalid preference/)
 })
+
+test('active-only state accepts per-organization values for each agent-list surface', () => {
+  const scoped = {
+    'org-alpha': { agents: true, quickChat: false, attentionDesk: true },
+    'org-beta': { agents: false, quickChat: true, attentionDesk: false },
+  }
+  assert.deepEqual(preferencesPatch({ activeAgentsByOrg: scoped }), { activeAgentsByOrg: scoped })
+  assert.throws(() => preferencesPatch({ activeAgentsByOrg: { 'org-alpha': { agents: 'yes' } } }), /Invalid preference/)
+})
