@@ -52,6 +52,14 @@ Discovery skips malformed entries, linked bundles/resources, generated copies, `
 
 Discovery does not execute a skill, authenticate or change a native user configuration. Loading guidance does not itself authorize its scripts or external actions; apply the session's actual scope and instructions.
 
+## Snapshot retention
+
+Background cleanup is best effort. It keeps the current global snapshot, the newest other complete snapshot (including timestamp ties), and snapshots referenced by live sessions, working folders, explicit grants or managed CLI and keepalive launch folders. Warm processes retain their launch references. Startup, Refresh, successful launches and provider maintenance schedule the sweep; these events do not guarantee a disk-space reduction.
+
+Older sessions without a recorded snapshot binding defer cleanup. On their next resumed launch, all existing snapshot paths are conservatively associated with that session and can remain protected until the session is replaced or the agent retires. A new session does not inherit that legacy set. An engine restart alone therefore need not free disk space. Read errors and reference limits also defer cleanup rather than assume disuse.
+
+The sweep removes only owned, complete, link-free direct snapshots in the shared-skills namespace, plus unreferenced owned staging directories older than one hour. It does not scan arbitrary OS processes or prune each agent's `.agents` workspace copies. See the retention contract in `docs/rust-engine/shared-skills.md`; implementation: `providers/skills/retention.rs`.
+
 ## Native delivery contract
 
 | Harness | Native delivery |
