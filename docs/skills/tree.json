@@ -3237,8 +3237,7 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/canvas/modals.tsx#DraftScopeModal",
-    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet",
-    "apps/desktop/renderer/src/canvas/newproject.tsx#NewProjectModal"
+    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet"
    ],
    "ui_dynamic_labels": [
     {
