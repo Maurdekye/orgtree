@@ -119,4 +119,18 @@ mod tests {
         }
         assert_eq!(live_context(&json!({"context_used":71,"context_window":1000}), "other", false, true), Some((71,Some(1000))));
     }
+
+    #[test]
+    fn live_context_distinguishes_reported_zero_from_missing_or_invalid() {
+        assert_eq!(live_context(&json!({"input_tokens":0}), "claude", false, false), Some((0,None)));
+        assert_eq!(live_context(&json!({"input_tokens":12,"cache_read_input_tokens":-4}), "claude", false, false), None);
+        assert_eq!(live_context(&json!({"input_tokens":"12"}), "claude", false, false), None);
+        assert_eq!(live_context(&json!({"input_tokens":i64::MAX,"cache_read_input_tokens":1}), "claude", false, false), None);
+    }
+
+    #[test]
+    fn muse_direct_context_snapshot_takes_precedence_over_older_prompt() {
+        assert_eq!(live_context(&json!({"context_used":71,"last_prompt":40,"context_window":1000}), "muse", false, false), Some((71,Some(1000))));
+        assert_eq!(live_context(&json!({"context_used":0,"context_window":1000}), "muse", false, false), Some((0,Some(1000))));
+    }
 }
