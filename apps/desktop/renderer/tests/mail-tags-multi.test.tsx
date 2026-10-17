@@ -1,6 +1,8 @@
 import { inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { useState } from 'react'
 import { MailTagPicker } from '../src/canvas/mailtagpicker'
 import { MailList } from '../src/canvas/mail'
@@ -112,4 +114,27 @@ test('mail rows keep a compact tag preview and collapse additional tags into +N'
     const more=rendered.querySelector('.mail-tag-more');assert.ok(more,'extra tags need a count pill')
     assert.equal(more.textContent,'+2')
   }finally{await v.unmount()}
+})
+
+declare const __SRC_DIR__:string
+function replyRow(variant:string){
+  const fixture=JSON.parse(readFileSync(path.join(__SRC_DIR__,'../tests/fixtures/events',variant+'.json'),'utf8'))
+  return {id:variant,from:'coordinator',kind:'message',at:'2026-10-17T19:52:00Z',body:fixture.body,ev:fixture.private}
+}
+test('user inbox drops only the Mail reply labels while retaining its reply quote',async()=>{
+  const row=replyRow('reply.mail')
+  const v=await mountView(<MailList delivered={[row]}/>,el=>el)
+  try{
+    assert.match(v.el.querySelector('.mailrow')?.textContent??'',/Mail reply/,'positive control: typed reply label is present before opting in')
+    assert.match(v.el.querySelector('.reply-preview')?.textContent??'',/In reply to/,'positive control: the recorded quote is rendered')
+    await v.render(<MailList delivered={[row]} hideMailReplyKind/>)
+    assert.doesNotMatch(v.el.querySelector('.mailrow')?.textContent??'',/Mail reply/)
+    assert.doesNotMatch(v.el.querySelector('.mailer-head')?.textContent??'',/Mail reply/)
+    assert.match(v.el.querySelector('.reply-preview')?.textContent??'',/In reply to/)
+  }finally{await v.unmount()}
+})
+test('hiding Mail reply kind does not hide another typed kind label',async()=>{
+  const v=await mountView(<MailList delivered={[replyRow('reply.document')]} hideMailReplyKind/>,el=>el)
+  try{assert.match(v.el.querySelector('.mailrow')?.textContent??'',/Document reply/)}
+  finally{await v.unmount()}
 })
