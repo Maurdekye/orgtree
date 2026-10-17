@@ -102,6 +102,17 @@ test('§1a the project desk: the agent desk frame, the project\'s name, the agen
   assert.equal(el.querySelector('.cc-tabs button[data-tab="chat"]') === null, true, 'no chat tab')
 })
 
+test('§1c the presented tab counts the project\'s documents and its subtree\'s (review P2, docket point 8)', async (t) => {
+  const nd = project({ documents_count: 1, children: [
+    { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] },
+    { id: 'ui', title: 'ui', tier: 'project', kind: 'project', state: 'live', children: [
+      { id: 'dev2', title: 'dev2', tier: 'sonnet', state: 'live', documents_count: 4, children: [] },
+    ] },
+  ] } as never)
+  const el = await desk(t, { node: nd })
+  assert.equal(el.querySelector('.cc-tabs button[data-tab="presented"] .tab-count')?.textContent, '7')
+})
+
 const square = (focused: boolean) => mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
   focused={focused} dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
   toast={noop} zoom={8} hire={{}} seats={{}} tree={tree} map={new Map()} refs={refs}
