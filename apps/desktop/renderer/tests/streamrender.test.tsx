@@ -17,9 +17,9 @@ test('live tail updates reuse settled segmented message projections', async t =>
   function Probe() {
     const [tail, setTail] = useState('first')
     update = () => setTail('second')
-    return <TranscriptFlow messages={messages} now={[]} later={[]} live={<div>{tail}</div>}
+    return <TranscriptFlow messages={[...messages, {role:'assistant',text:tail}]} now={[]} later={[]} live={<div>{tail}</div>}
       hasLive divider={null} onToggle={() => {}} renderPending={() => null}
-      renderMessage={({ message }) => { seen.push(message); return <div>{message.text}</div> }} />
+      renderMessage={({ message }) => { if(message.role==='user') seen.push(message); return <div>{message.text}</div> }} />
   }
   const view = await mountView(<Probe />, h => h)
   t.after(() => view.unmount())
@@ -27,6 +27,23 @@ test('live tail updates reuse settled segmented message projections', async t =>
   await inAct(update)
   assert.equal(seen.at(-1) === before, true, 'unchanged projection must retain identity while live tail changes')
   assert.ok(view.el.textContent?.includes('second'))
+})
+
+test('mail carriers without chat replies ignore changing reply closures', async t => {
+  let reads = 0, update!: () => void
+  const row: ChatMessage = { role: 'user', text: 'carrier', segments: [{kind:'mail',rows:[{
+    id:'carrier',from:'@user',kind:'message',at:'2026-10-17T12:00:00Z',get body(){reads++;return 'Question'},
+  }]}] }
+  function Probe() {
+    const [,setTick]=useState(0)
+    update=()=>setTick(n=>n+1)
+    return <Msg m={row} slug="org" nid="agent" replyAvailable={()=>true} onLocateReply={()=>{}} />
+  }
+  const view=await mountView(<Probe />,h=>h)
+  t.after(()=>view.unmount())
+  const before=reads
+  await inAct(update)
+  assert.equal(reads,before,'ordinary mail must not reparse for an unused reply callback')
 })
 
 test('settled prose ignores reply callbacks it cannot use but still updates changed content', async t => {

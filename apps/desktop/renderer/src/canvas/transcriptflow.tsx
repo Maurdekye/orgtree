@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import type { ChatMessage, PendingMail } from '../types'
 import { SystemRuns, systemEntry, transcriptEntries, noticeMailKey } from '../events/systemruns'
 import type { SystemEntry, TranscriptEntry } from '../events/systemruns'
@@ -18,7 +18,17 @@ export function TranscriptFlow({ messages, now, later, live, hasLive, divider,
   renderPending: (mail: PendingMail) => ReactNode
   onToggle: () => void
 }) {
-  const projected = useMemo(() => transcriptEntries(messages), [messages])
+  // Another row may grow while the earlier mail carrier is unchanged. Keep
+  // its segmented message objects too, not just the outer list's projection.
+  const cache = useRef(new WeakMap<ChatMessage, { index: number; entries: TranscriptEntry[] }>())
+  const projected = useMemo(() => messages.flatMap((message, index) => {
+    let item = cache.current.get(message)
+    if (!item || item.index !== index) {
+      item = { index, entries: transcriptEntries([message], index) }
+      cache.current.set(message, item)
+    }
+    return item.entries
+  }), [messages])
   const entries: FlowEntry[] = projected.map(entry => ({
     ...entry, content: renderMessage(entry),
   }))

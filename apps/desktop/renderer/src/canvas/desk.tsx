@@ -2245,7 +2245,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   for (const m of chat?.messages ?? []) {
     if (m.event_id && m.native_event_id) durableOf.set(m.event_id, m.native_event_id)
   }
-  const locateReply = (r: ReplyContext) => {
+  const locateReplyNow = (r: ReplyContext) => {
     if (!sameReplyIdentity(r)) return
     const rows = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-reply-event]')]
     const durable = durableOf.get(r.eventId)
@@ -2261,6 +2261,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     }
     element?.scrollIntoView?.({ block: 'center' })
   }
+  const locateReplyHandler = useRef(locateReplyNow)
+  locateReplyHandler.current = locateReplyNow
+  const locateReply = useCallback((r: ReplyContext) => locateReplyHandler.current(r), [])
   const renderReply = (wire: unknown) => {
     const context = replyContext(wire)
     return context && <ReplyPreview reply={context} available={replyAvailable(context)} onLocate={() => locateReply(context)} />
@@ -4943,15 +4946,19 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     </div>
   )
 }, (a, b) => {
-  // Only mail segments consume these reply routes. Fresh desk closures must
-  // not invalidate every settled prose/tool row on each live token. Keep
-  // strict callback checks for mail so availability and clicks stay current.
-  const mail = a.m.role === 'user' && isSegments(a.m.segments, 'operator')
-    && a.m.segments.some(s => s.kind === 'mail')
-  return a.m === b.m && a.slug === b.slug && a.nid === b.nid
-    && a.systemPart === b.systemPart && a.refs === b.refs
-    && a.onMailLink === b.onMailLink && a.onWorkLink === b.onWorkLink
-    && (!mail || (a.replyAvailable === b.replyAvailable && a.onLocateReply === b.onLocateReply))
+  if (a.m !== b.m || a.slug !== b.slug || a.nid !== b.nid
+    || a.systemPart !== b.systemPart || a.refs !== b.refs
+    || a.onMailLink !== b.onMailLink || a.onWorkLink !== b.onWorkLink) return false
+  if (a.replyAvailable === b.replyAvailable && a.onLocateReply === b.onLocateReply) return true
+  // Mail carriers without chat replies consume neither callback. For actual
+  // replies compare rendered availability, retaining navigation identity so
+  // callers outside the desk cannot leave a stale click handler behind.
+  const replies = a.m.role === 'user' && isSegments(a.m.segments, 'operator')
+    ? a.m.segments.flatMap(s => s.kind === 'mail'
+      ? s.rows.flatMap(row => row.replies?.length ? row.replies : [row.reply_to]) : [])
+      .map(replyContext).filter((r): r is ReplyContext => !!r) : []
+  return !replies.length || (a.onLocateReply === b.onLocateReply && replies.every(r =>
+    Boolean(a.replyAvailable?.(r)) === Boolean(b.replyAvailable?.(r))))
 })
 
 function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {

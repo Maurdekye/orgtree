@@ -59,8 +59,9 @@ export function segmentEntries(segments: Segment[]): SegmentEntry[] {
 }
 
 export interface TranscriptEntry extends SystemEntry { message: ChatMessage; sourceIndex: number; first: boolean }
-export function transcriptEntries(messages: ChatMessage[]): TranscriptEntry[] {
-  return messages.flatMap((message, sourceIndex): TranscriptEntry[] => {
+export function transcriptEntries(messages: ChatMessage[], offset = 0): TranscriptEntry[] {
+  return messages.flatMap((message, index): TranscriptEntry[] => {
+    const sourceIndex = index + offset
     const key = String(message.assistant_id ?? message.native_event_id ?? message.row_id
       ?? message.event_id ?? message.seq ?? sourceIndex)
     if (message.role === 'user' && isSegments(message.segments, 'operator')) {
