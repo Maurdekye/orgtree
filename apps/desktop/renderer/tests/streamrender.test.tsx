@@ -31,8 +31,10 @@ test('live tail updates reuse settled segmented message projections', async t =>
 
 test('mail carriers without chat replies ignore changing reply closures', async t => {
   let reads = 0, update!: () => void
-  const row: ChatMessage = { role: 'user', text: 'carrier', segments: [{kind:'mail',rows:[{
-    id:'carrier',from:'@user',kind:'message',at:'2026-10-17T12:00:00Z',get body(){reads++;return 'Question'},
+  // The comparator validates segments too; count a field read only by Msg's
+  // render, rather than body reads performed during schema validation.
+  const row: ChatMessage = { role: 'user', text: 'carrier', get truncated(){reads++;return false},segments: [{kind:'mail',rows:[{
+    id:'carrier',from:'@user',kind:'message',at:'2026-10-17T12:00:00Z',body:'Question',
   }]}] }
   function Probe() {
     const [,setTick]=useState(0)
@@ -104,9 +106,9 @@ test('mail reply availability changes invalidate only when the rendered outcome 
   let update!: () => void, reads=0
   const locate=()=>{}
   const wire=replyWire({org:'org',agent:'agent',generation:0,eventId:'original',quote:'quoted'})
-  const row:ChatMessage={role:'user',text:'reply',segments:[{kind:'mail',rows:[{
+  const row:ChatMessage={role:'user',text:'reply',get truncated(){reads++;return false},segments:[{kind:'mail',rows:[{
     id:'mail',from:'peer',kind:'message',at:'2026-10-17T12:00:00Z',reply_to:wire,
-    get body(){reads++;return 'reply'},
+    body:'reply',
   }]}]}
   function Probe(){
     const [revision,setRevision]=useState(0)
