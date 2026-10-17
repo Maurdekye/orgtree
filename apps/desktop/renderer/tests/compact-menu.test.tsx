@@ -16,7 +16,8 @@ const handlers=(extra:Partial<AgentMenuHandlers>={}):AgentMenuHandlers=>({
   onInbox:noop,onSettings:noop,onHalt:noop,onRetireAsk:noop,...extra,
 })
 const entries=(n:CanvasNode,h=handlers())=>agentMenuEntries(n,h).filter(e=>e!=='sep')
-const button=(el:HTMLElement,label:string)=>[...el.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim().toLowerCase()===label.toLowerCase())
+const dialog=(el:HTMLElement)=>el.ownerDocument.querySelector<HTMLElement>('[role="dialog"]')
+const button=(el:HTMLElement,label:string)=>[...el.ownerDocument.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(b=>b.textContent?.trim().toLowerCase()===label.toLowerCase())
 const compact=(n=agent(),op:OpFn=async()=>({} as never),toast:(xs:string[])=>void=noop,close=noop)=>
   <CurrentOrg.Provider value="org"><AgentRetireConfirm kind="cheap-compact" node={n} op={op} toast={toast} close={close}/></CurrentOrg.Provider>
 
@@ -62,8 +63,8 @@ test('compact modal explains both choices and offers Cancel',async()=>{
     assert.ok(button(v.el,'Normal compact'))
     assert.ok(button(v.el,'Cheap compact'))
     assert.ok(button(v.el,'Cancel'))
-    assert.match(v.el.textContent??'',/harness/i)
-    assert.match(v.el.textContent??'',/handoff|summary/i)
+    assert.match(dialog(v.el)?.textContent??'',/harness/i)
+    assert.match(dialog(v.el)?.textContent??'',/handoff|summary/i)
   }finally{await v.unmount()}
 })
 test('unsupported normal compaction is disabled with a visible reason',async()=>{
@@ -72,7 +73,7 @@ test('unsupported normal compaction is disabled with a visible reason',async()=>
     const normal=button(v.el,'Normal compact')
     assert.ok(normal)
     assert.equal(normal.disabled,true)
-    assert.match(v.el.textContent??'',/Codex does not support/)
+    assert.match(dialog(v.el)?.textContent??'',/Codex does not support/)
     assert.equal(button(v.el,'Cheap compact')?.disabled,false)
   }finally{await v.unmount()}
 })
@@ -109,7 +110,7 @@ test('Cancel owns initial focus, Tab stays inside, Escape restores the opener',a
     const cancel=button(v.el,'cancel');assert.ok(cancel)
     assert.equal(document.activeElement===cancel,true)
     await inAct(()=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Tab',bubbles:true})))
-    assert.equal(v.el.contains(document.activeElement),true)
+    assert.equal(!!dialog(v.el)?.contains(document.activeElement),true)
     await inAct(()=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})))
     assert.equal(closed,1)
   }finally{await v.unmount()}
