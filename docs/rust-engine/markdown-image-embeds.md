@@ -25,3 +25,11 @@ The route uses the same per-launch desktop token as other API calls. The engine
 omits its query string from request and response logs because it contains
 absolute local paths or complete remote URLs. SVG is excluded rather than
 sanitized.
+
+For local images, the engine accepts only lexical absolute drive-letter paths,
+checks each path component without following symlinks or reparse points, and
+checks the opened handle's final path and regular-file type before reading.
+These checks reject crafted UNC/device paths and local junction aliases. A
+local attacker who can write to and replace path components may still race the
+component checks and open; this local-disk race is a known limitation and is
+outside the untrusted-Markdown threat addressed by this route.

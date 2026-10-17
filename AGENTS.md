@@ -3231,3 +3231,10 @@ Cold archived docket projections covered by the existing policy spec use its typ
   Generated oversized org/usage context stays in own scratch; handoff history is
   referenced, not copied. Limits and verification: [mail input budgets](docs/rust-engine/mail-input-budgets.md).
   [decided: coordinator 2026-10-15; verified: `engine/rs/orgtree-engine/src/runtime/prompt.rs`]
+
+- Markdown image local paths accept only absolute drive-letter syntax and reject
+  reparse-point components before opening; the opened handle must resolve to a
+  regular file on a drive-letter path before reading. A local disk writer can
+  still race component checks; this is a documented threat-model limit. See
+  [Markdown image embeds](docs/rust-engine/markdown-image-embeds.md).
+  [verified: `engine/rs/orgtree-engine/src/http/markdown_image.rs`, 2026-10-17]
