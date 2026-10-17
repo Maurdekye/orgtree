@@ -220,16 +220,19 @@ test('pasting a clipboard file into the inbox reply uploads and stages it, '
     { type: 'image/png' })
   const filePaste = new Event('paste', { bubbles: true, cancelable: true })
   Object.defineProperty(filePaste, 'clipboardData', { value: { files: [file] } })
-  await inAct(() => { textarea.dispatchEvent(filePaste) })
-  await flush(3)
+  await inAct(async () => {
+    textarea.dispatchEvent(filePaste)
+    await flush(3)
+  })
 
   assert.equal(filePaste.defaultPrevented, true,
     'a file paste is consumed so the image is attached instead of inserted as text')
   assert.equal(urls.length, 1, 'pasting one clipboard file makes one upload')
   assert.match(urls[0]!, /\/api\/orgs\/mine\/nodes\/alpha\/upload\?name=clipboard\.png$/)
-  const chip = view.el.querySelector('.attach-row .attach-chip')
-  assert.ok(chip, 'the uploaded clipboard file is staged on the reply')
-  assert.match(chip!.textContent ?? '', /clipboard\.png/)
+  await inAct(async () => { await flush(4) })
+  const thumb = view.el.querySelector<HTMLImageElement>('.attach-row img.attach-thumb')
+  assert.ok(thumb, 'the uploaded clipboard image is staged on the reply')
+  assert.equal(thumb!.alt, 'clipboard.png')
 
   const textPaste = new Event('paste', { bubbles: true, cancelable: true })
   Object.defineProperty(textPaste, 'clipboardData', { value: { files: [] } })

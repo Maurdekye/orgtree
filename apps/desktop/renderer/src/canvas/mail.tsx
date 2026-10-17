@@ -1050,6 +1050,12 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           title={enterKey.hint}
           placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
           onChange={(e) => setDraft(e.target.value)}
+          onPaste={(e) => {
+            if (attachable && e.clipboardData?.files?.length) {
+              e.preventDefault()
+              ;[...e.clipboardData.files].forEach(attach)
+            }
+          }}
           onKeyDown={(e) => {
             // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
             // the two can never race, and it returns rather than falling
