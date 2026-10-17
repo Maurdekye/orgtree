@@ -1322,7 +1322,7 @@ interface NodeSquareProps {
   /** FR-03: open a presented document in the in-page reader */
   onOpenDoc?: (id: string) => void
   /** open this agent's presentations in the shell's scoped modal */
-  onOpenAgentGallery?: (agentId: string) => void
+  onOpenAgentGallery?: (agentId: string, opts?: { team?: boolean }) => void
   onRecenter?: () => void
   onJump?: (id: string) => void
   /** create a project node under this agent (docs/rust-engine/PROJECT-NODES.md) */
@@ -1550,6 +1550,9 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onTeamDocket,
       onPresentations: onOpenAgentGallery
         ? () => onOpenAgentGallery(node.id) : undefined,
+      // the team's presentations, as on the Agents List row (user 2026-10-17 22:47Z)
+      onTeamPresentations: onOpenAgentGallery
+        ? () => onOpenAgentGallery(node.id, { team: true }) : undefined,
       onLineage,
       onSettings: onConfig,
       onToggleUserAudience: () => audienceAction(slug,
