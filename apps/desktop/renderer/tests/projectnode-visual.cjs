@@ -60,5 +60,14 @@ module.exports = async (page) => {
     [...box.querySelectorAll('.desk-nav')].map((row) =>
       [...row.querySelectorAll('button.desk-nav-chip')].map((b) => b.textContent.trim()))))
   screenshots.push(await page.screenshot(`${prefix}-jumps-1000x700`))
+  await page.goto('/?scene=activity')
+  await page.waitFor('.sq.project.norm', { timeout: 15000 })
+  await settle()
+  details.activity = await page.eval(() => [...document.querySelectorAll('.sq.project')].map((sq) => ({
+    activity: sq.querySelector('.project-last-activity') ? sq.querySelector('.project-last-activity').textContent : null,
+    chip: sq.querySelector('.project-activity .org-counts') ? sq.querySelector('.project-activity .org-counts').textContent : null,
+    hover: [...sq.querySelectorAll('.sq-actions button')].map((b) => b.className),
+  })))
+  screenshots.push(await page.screenshot(`${prefix}-activity-1000x700`))
   return { details, screenshots }
 }

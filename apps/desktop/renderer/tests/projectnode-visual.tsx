@@ -6,6 +6,8 @@
 //   row-end — the REAL canvas: boss with a1, a2 and a project at the row's end
 //             (no neighbour segment reaches the project);
 //   between — the REAL canvas: a1, a project, a2 (one line runs past it);
+//   activity — middle-zoom cards with Show agent card shortcuts on: one
+//             active, one quiet for 7m, with the hover row (points 21-22);
 //   jumps   — two real desks: dev2 (in project ui, in project site, under
 //             boss) and boss, showing the up and down jump card rows
 //             passing through projects (user 2026-10-17 22:13Z).
@@ -97,12 +99,34 @@ function Jumps() {
   return <main style={{ display: 'flex', gap: 16, padding: 12, background: 'var(--bg)' }}>{box(dev2)}{box(boss)}</main>
 }
 
+function Activity() {
+  const quietNode = {
+    ...projectNode('site', 'boss', [agent('dev3', 'site', {
+      turns: [{ at: new Date(Date.now() - 420_000).toISOString(), cost: 0, denials: 0 }], documents_count: 2 })]),
+    mail_pending: 2,
+  } as unknown as CanvasNode
+  const sq = (nd: CanvasNode, x: number) => <ProjectSquare node={nd} pos={{ x, y: 0 }} lod="norm"
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
+    zoom={1.2} hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop} onDocket={noop}
+    onOpenGallery={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <div style={{ position: 'absolute', left: 60, top: 120, transform: 'scale(2.4)', transformOrigin: '0 0' }}>
+        {sq(card, 0)}
+        {sq(quietNode, 170)}
+      </div>
+    </main>
+  )
+}
+
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
+if (scene === 'activity') { try { localStorage.setItem('orgtree-agent-shortcuts', '1') } catch { /* private mode */ } }
 const rows: Record<string, unknown[]> = {
   'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
 }
-createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps /> : (
+createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
+  : scene === 'activity' ? <Activity /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
     <OrgCanvas tree={tree(rows[scene]!)} slug="org" op={() => Promise.resolve({} as OpResult)}
