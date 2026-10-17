@@ -16,7 +16,7 @@ module.exports = async (page, { org, args }) => {
     let last = ''
     const frame = () => {
       p.frames++
-      const draft = [...host.querySelectorAll('.draft')].map(e => e.textContent).join('')
+      const draft = [...host.querySelectorAll('.draft, .msg.assistant .msgtext')].map(e => e.textContent).join('')
       const thinking = [...host.querySelectorAll('.thoughtbody.live')].map(e => e.textContent).join('')
       const text = thinking + '|' + draft
       if (text !== last) { p.paint.push({at:Date.now(),size:text.length,draft:draft.length,thinking:thinking.length,text}); last = text }
@@ -26,7 +26,7 @@ module.exports = async (page, { org, args }) => {
   })
   const started = Date.now()
   await Promise.all((args.agents || [args.agent]).map(agent => page.api('POST', `/api/orgs/${org}/nodes/${agent}/message`, { text: 'CADENCE-PROOF' })))
-  await page.waitFor(() => document.querySelector('.draft')?.textContent.includes('CADENCE_'))
+  await page.waitFor(() => document.querySelector('.msgs')?.textContent.includes('CADENCE_'))
   await page.eval(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   await page.sleep(60)
   await page.screenshot('streaming')
