@@ -1,5 +1,34 @@
 # Shared native skills and installed Claude plugins
 
+## Native Claude discovery and export aliases (2026-10-17)
+
+Claude's native catalog is separate from the shared export. `Registry::for_startup`
+uses the actual launch inputs at planning, idle checks and forecasts. Only Claude
+omits an identical shared bundle supplied by its native discovery. The launch
+config's `.claude.json` (personal default: `~/.claude.json`) supplies only
+`oauthAccount.organizationUuid`; matching `~/.claude/skills/synced/<orgUuid>_*`
+buckets provide native bundle identities. No credential/token file is read.
+Unknown org metadata and absent matching buckets retain the shared fallback.
+
+Installed plugin availability requires the launch config's installed registry,
+explicit `enabledPlugins: true`, and an applicable user/managed or cwd project/local
+installation. Profile settings and ancestor cwd `.claude/settings.json` and
+`settings.local.json` overrides are merged without writing any of them; malformed
+settings preserve fallback. Compare full bundle content, not names alone. An
+unrelated resource collision survives; native availability never removes another
+harness's copy or exposes a previously unselected foreign variant. Built-in
+category entries remain reserved. Claude's Codex-only `openai-docs`, `imagegen`
+and `skill-installer` families are excluded explicitly; the existing portable
+unpaired fallback rule otherwise remains.
+
+Evidence: a read-only native startup sample observed 14 namespaced/bare pairs;
+13 came from account-synced Anthropic skills, one from an enabled installed plugin.
+The 17 removable bare names (including three Codex-only names) occupied only 219
+rendered bytes. This corrects catalog ambiguity; it is not a large prompt-size
+reduction or a measured post-change provider-token saving. Native `prompt_snapshot`
+attachments are diagnostics, not extra model messages; rendered input is counted
+once, and provider usage shared across assistant blocks is not summed repeatedly.
+
 The engine discovers read-only skill bundles and selects a receiving harness's
 variants for Claude Code, Codex, Antigravity, Muse and OpenCode. No discovery operation starts
 a harness, executes a skill, authenticates, or changes a native user config.

@@ -48,6 +48,10 @@ At an agent's launch boundary, the shared inventory is filtered for its actual h
 
 Launch, idle refresh checks and next-turn forecasts use the same selected content digest. A change only to an unselected variant does not reset another harness's skill prefix; changed selected content still takes effect at the normal process boundary. Availability and a stable digest do not guarantee provider prompt-cache hits or that a model chooses a guide.
 
+Claude Code also discovers native skills independently of the synced export. A bare shared copy is omitted when identical bundle content is available in the launching account's native synced bucket, or through an enabled installed plugin for that profile and working directory. Account metadata selects the matching org bucket; missing or unknown metadata, absent buckets and disabled plugins keep the fallback. Different resource content remains distinct. Claude seats omit the Codex-only `openai-docs`, `imagegen` and `skill-installer` families; other unpaired portable skills remain available. User skill files and plugin settings are not changed.
+
+For startup diagnostics, a native `prompt_snapshot` records system and tool inputs; it is not an additional model-input message. Count a rendered attachment once, rather than both its structured and rendered copies. Repeated assistant blocks can share one provider usage record, and diagnostic tool descriptions may be clipped. Byte-based token estimates are not provider counts for individual components.
+
 Discovery skips malformed entries, linked bundles/resources, generated copies, `.git`, `.trash`, `.in_use` and `node_modules`. Bounds include 512 imported bundles, 64 MiB imported content, 8 MiB per file, 32 MiB per bundle and 2,048 entries per bundle, with bounded traversal depth. The public registry exposes aliases, source labels and a content digest; bodies, resources, native paths and plugin definitions remain private.
 
 Discovery does not execute a skill, authenticate or change a native user configuration. Loading guidance does not itself authorize its scripts or external actions; apply the session's actual scope and instructions.
