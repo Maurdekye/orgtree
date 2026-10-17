@@ -4,14 +4,18 @@
 // tabs for the various things you can view in them").
 //
 // WHAT THIS FILE HOLDS THE CODE TO:
-//   §1 a focused project card opens a desk in the agent desk's frame: its
-//      header names the project, its tabs are what a project holds (mail,
-//      docket, presented, members, about) and there is no chat, composer or
-//      turn state; an unfocused card has none;
-//   §2 mail: the fair-queue watchers on the project and the mail waiting;
-//   §3 members: the nodes directly under it, each one a jump;
-//   §4 about: the whole description, named as the standing charter of the
-//      agents under it, and the settings and folder actions;
+//   §1 a focused project card opens a desk in the agent desk's frame: the
+//      header names the project, the tabs are desk, inbox, docket and
+//      presented (the agent desk's three, user 20:07Z) and there is no chat
+//      or composer; an unfocused card has none;
+//   §2 the main tab: jump cards up to the parent and down to the members
+//      (the chat desk's NavChip), and the description editor: Markdown while
+//      not focused, monospace text while focused, saved by set_description on
+//      leaving it, dropped by Escape (user 20:06Z);
+//   §3 the header: active/hired agents under it, nested projects crossed but
+//      not counted, and the spinner while any is active (20:08Z);
+//   §4 halt all and dissolve project (20:09Z) open the agent paths' own
+//      confirmations; the gear opens settings (20:09:45Z);
 //   §5 bare (a pinned window) draws the same desk unscaled, and pin is offered
 //      only where a pin handler is given.
 //
@@ -23,7 +27,7 @@ import assert from 'node:assert/strict'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { ProjectSquare } from '../src/canvas/projectcard'
-import type { CanvasNode, OpResult } from '../src/canvas/shared'
+import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
 const noop = () => {}
@@ -32,26 +36,24 @@ const refs = { world: { org: 'org' }, onOpen: noop } as never
 function project(extra: Partial<CanvasNode> = {}): CanvasNode {
   return {
     id: 'website', title: 'website', kind: 'project', state: 'live', tier: 'project', model_id: '',
-    seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
-    charter: 'The company website.\nDeploy from main only.',
+    seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, parent: 'boss',
+    charter: '# The site\n\nDeploy from **main** only.',
     children: [
-      { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', children: [] },
-      { id: 'ui', title: 'ui', tier: 'project', kind: 'project', state: 'live', children: [] },
+      { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', busy: true, children: [] },
+      { id: 'ui', title: 'ui', tier: 'project', kind: 'project', state: 'live', children: [
+        { id: 'dev2', title: 'dev2', tier: 'sonnet', state: 'live', busy: false, children: [] },
+        { id: 'old', title: 'old', tier: 'haiku', state: 'archived', children: [] },
+      ] },
     ],
     lineage: [], turns: [], audiences_held: [], mail_pending: 2,
     last_status: null, occupancy: 0, context_window: 0, busy: false, activity: null,
     ...extra,
   } as unknown as CanvasNode
 }
+const boss = { id: 'boss', title: 'boss', tier: 'opus', state: 'live', children: [] } as unknown as CanvasNode
 
 const tree = {
   slug: 'org', roots: [],
-  watchdogs: [
-    { id: 'w1', owner: 'dev1', name: 'web-queue', kind: 'fair_queue', target: 'website', state: 'armed', interval_s: 0, at: '', fired: 0 },
-    { id: 'w2', owner: 'dev2', name: 'web-queue', kind: 'fair_queue', target: 'website', state: 'paused', interval_s: 0, at: '', fired: 0 },
-    { id: 'w3', owner: 'dev1', name: 'other', kind: 'fair_queue', target: 'docs', state: 'armed', interval_s: 0, at: '', fired: 0 },
-    { id: 'w4', owner: 'dev1', name: 'logs', kind: 'file', target: 'website', state: 'armed', interval_s: 0, at: '', fired: 0 },
-  ],
 } as unknown as TreePayload
 
 function serve(t: TestContext) {
@@ -60,36 +62,36 @@ function serve(t: TestContext) {
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
 }
 
-async function desk(t: TestContext, h: { jump?: (id: string) => void; settings?: () => void;
-  pin?: () => void; bare?: boolean } = {}) {
+async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: () => void;
+  pin?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[] } = {}) {
   serve(t)
-  const nd = project()
-  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd]])}
-    toast={noop} refs={refs} bare={h.bare} onJump={h.jump} onSettings={h.settings} onPin={h.pin} />, (el) => el)
+  const nd = h.node ?? project()
+  const ops = h.ops ?? []
+  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
+    op={(b) => { ops.push(b); return Promise.resolve({} as OpResult) }}
+    toast={noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} />, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
   return view.el
 }
 
 const tabs = (el: Element) => [...el.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab'))
-async function open(el: Element, tab: string) {
-  const b = el.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)
-  assert.ok(b, `a ${tab} tab`)
-  await inAct(() => { b.click() })
-  await flush(2)
+const setText = (box: HTMLTextAreaElement, text: string) => {
+  Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text)
+  box.dispatchEvent(new Event('input', { bubbles: true }))
 }
+const cancelDialog = () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'cancel')?.click()
 
 /* ─── §1 the desk ───────────────────────────────────────────────────────── */
 
-test('§1a the project desk: the agent desk frame, the project\'s name, its own tabs and no chat', async (t) => {
+test('§1a the project desk: the agent desk frame, the project\'s name, the agent desk\'s tabs and no chat', async (t) => {
   const el = await desk(t)
   assert.ok(el.querySelector('.desk-over .desk-inner.desk-body .cc-head'), 'the agent desk\'s frame and header')
   assert.equal(el.querySelector('.cc-head-left .name')?.textContent, 'website')
   assert.ok(el.querySelector('.cc-head-left .project-mark svg'), 'the folder mark')
-  assert.deepEqual(tabs(el), ['mail', 'docket', 'presented', 'members', 'about'])
-  assert.equal(el.querySelector('.cc-tabs button[data-tab="mail"]')?.classList.contains('on'), true, 'it opens on its mail')
-  assert.equal(el.querySelector('.cc-tabs button[data-tab="mail"] .tab-count')?.textContent, '2')
-  assert.equal(el.querySelector('textarea') === null, true, 'no composer: a project takes no turns')
+  assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented'])
+  assert.equal(el.querySelector('.cc-tabs button[data-tab="desk"]')?.classList.contains('on'), true, 'it opens on its main tab')
+  assert.equal(el.querySelector('.cc-tabs button[data-tab="inbox"] .tab-count')?.textContent, '2')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="chat"]') === null, true, 'no chat tab')
 })
 
@@ -111,45 +113,91 @@ test('§1b a focused project card is a desk; an unfocused one is a card', async 
   assert.equal(off.el.querySelector('.desk-over') === null, true, 'no desk on an unfocused card')
 })
 
-/* ─── §2 mail ───────────────────────────────────────────────────────────── */
+/* ─── §2 the main tab ───────────────────────────────────────────────────── */
 
-test('§2 mail: the fair-queue watchers on this project and the mail waiting for them', async (t) => {
-  const el = await desk(t)
-  const fq = el.querySelector('.project-fairqueue')
-  assert.ok(fq, 'the fair-queue line')
-  const text = fq.textContent ?? ''
-  assert.match(text, /2 waiting/)
-  assert.match(text, /dev1/)
-  assert.match(text, /dev2 \(paused\)/)
-  assert.equal(/other|logs/.test(text), false, 'only fair_queue dogs on THIS project')
-})
-
-/* ─── §3 members ────────────────────────────────────────────────────────── */
-
-test('§3 members: the nodes under it, each a jump', async (t) => {
+test('§2a jump cards up to the parent and down to its members', async (t) => {
   const jumped: string[] = []
   const el = await desk(t, { jump: (id) => jumped.push(id) })
-  await open(el, 'members')
-  const rows = [...el.querySelectorAll<HTMLButtonElement>('.project-members button.member')]
-  assert.deepEqual(rows.map((r) => r.dataset.member), ['dev1', 'ui'])
-  assert.ok(rows[1]!.querySelector('svg'), 'a nested project shows the folder mark')
-  await inAct(() => { rows[0]!.click() })
+  const navs = [...el.querySelectorAll('.desk-nav')]
+  assert.equal(navs.length, 2, 'one row up, one row down')
+  const names = (row: Element) => [...row.querySelectorAll('button.desk-nav-chip')].map((b) => b.getAttribute('data-copy-agent-name'))
+  assert.deepEqual(names(navs[0]!), ['boss'])
+  assert.deepEqual(names(navs[1]!), ['dev1', 'ui'])
+  await inAct(() => { navs[1]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
   assert.deepEqual(jumped, ['dev1'])
+  assert.equal(el.querySelector('textarea') === null, true, 'no composer, and the editor is not open yet')
 })
 
-/* ─── §4 about ──────────────────────────────────────────────────────────── */
+test('§2b the description: Markdown until focused, monospace while edited, saved on leaving', async (t) => {
+  const ops: OpRequest[] = []
+  const el = await desk(t, { ops })
+  const shown = el.querySelector<HTMLElement>('.project-description-md')!
+  assert.ok(shown.querySelector('h1'), 'Markdown: the heading renders')
+  assert.equal(shown.querySelector('strong')?.textContent, 'main')
+  await inAct(() => { shown.click() })
+  await flush(2)
+  const box = el.querySelector<HTMLTextAreaElement>('textarea.project-description-edit')!
+  assert.ok(box, 'focused, it is a text box')
+  assert.equal(box.value, '# The site\n\nDeploy from **main** only.', 'the raw text')
+  assert.equal(document.activeElement, box)
+  await inAct(() => { setText(box, '# The site\n\nShip it.') })
+  await inAct(() => { box.blur() })
+  await flush(2)
+  assert.deepEqual(ops, [{ op: 'set_description', node: 'website', description: '# The site\n\nShip it.' }])
+  assert.ok(el.querySelector('.project-description-md'), 'back to Markdown')
+})
 
-test('§4 about: the whole description as the standing charter, with settings', async (t) => {
-  let settings = 0
-  const el = await desk(t, { settings: () => { settings++ } })
-  await open(el, 'about')
-  const about = el.querySelector('.project-about')
-  assert.ok(about)
-  assert.equal(about.querySelector('.project-description')?.textContent, 'The company website.\nDeploy from main only.')
-  assert.match(about.textContent ?? '', /standing charter/)
-  const btn = [...about.querySelectorAll('button')].find((b) => /settings/i.test(b.textContent ?? ''))!
-  await inAct(() => { btn.click() })
-  assert.equal(settings, 1)
+test('§2c Escape drops an edit; an unchanged one saves nothing', async (t) => {
+  const ops: OpRequest[] = []
+  const el = await desk(t, { ops })
+  await inAct(() => { el.querySelector<HTMLElement>('.project-description-md')!.click() })
+  await flush(2)
+  const box = el.querySelector<HTMLTextAreaElement>('textarea.project-description-edit')!
+  await inAct(() => { setText(box, 'scrap') })
+  await inAct(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  await flush(2)
+  await inAct(() => { el.querySelector<HTMLElement>('.project-description-md')!.click() })
+  await flush(2)
+  const again = el.querySelector<HTMLTextAreaElement>('textarea.project-description-edit')!
+  assert.equal(again.value, '# The site\n\nDeploy from **main** only.', 'the edit was dropped')
+  await inAct(() => { again.blur() })
+  await flush(2)
+  assert.deepEqual(ops, [], 'nothing saved')
+})
+
+/* ─── §3 the header count ───────────────────────────────────────────────── */
+
+test('§3 active/hired agents under the project, nested crossed, projects not counted, spinner while active', async (t) => {
+  const el = await desk(t)
+  assert.equal(el.querySelector('.cc-head .project-counts')?.textContent, '1/2', 'dev1 active, dev1+dev2 hired')
+  assert.ok(el.querySelector('.cc-head .working-ct svg.cc-spin'), 'the spinner')
+  const idle = await desk(t, { node: project({ children: [{ id: 'dev1', tier: 'haiku', state: 'live', busy: false, children: [] }] as never }) })
+  assert.equal(idle.querySelector('.cc-head .project-counts')?.textContent, '0/1')
+  assert.equal(idle.querySelector('.cc-head .working-ct') === null, true, 'no spinner when nobody is active')
+})
+
+/* ─── §4 halt all, dissolve, gear ───────────────────────────────────────── */
+
+test('§4 halt all and dissolve project open the agent confirmations; the gear opens settings', async (t) => {
+  let config = 0
+  const el = await desk(t, { config: () => { config++ } })
+  const halt = el.querySelector<HTMLButtonElement>('button[data-action="halt-all"]')!
+  assert.equal(halt.textContent, 'halt all')
+  await inAct(() => { halt.click() })
+  await flush(2)
+  assert.match(document.body.textContent ?? '', /halt all agents under project website\?/)
+  assert.match(document.body.textContent ?? '', /Halt 2 live agents/)
+  await inAct(() => { cancelDialog() })
+  await flush(2)
+  const dissolve = el.querySelector<HTMLButtonElement>('button[data-action="dissolve"]')!
+  await inAct(() => { dissolve.click() })
+  await flush(2)
+  assert.match(document.body.textContent ?? '', /dissolve website\?/)
+  await inAct(() => { cancelDialog() })
+  await flush(2)
+  const gear = el.querySelector<HTMLButtonElement>('button.cc-icon[aria-label="settings for website"]')!
+  await inAct(() => { gear.click() })
+  assert.equal(config, 1)
 })
 
 /* ─── §5 bare and pin ───────────────────────────────────────────────────── */

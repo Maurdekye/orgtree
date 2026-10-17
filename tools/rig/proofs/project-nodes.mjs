@@ -238,6 +238,23 @@ export default async function (rig) {
   p.check('an agent in a nested project gets both descriptions, outer first', ui.ok && h5.ok && outer >= 0 && inner > outer,
     { ui: ui.ok || ui.error, dev5: h5.ok || h5.error, charters: dev5Prompt.match(/Standing charter from [^\n]*/g) ?? [] })
 
+  // ------------------------------------------------------------ editing a description (point 7, user 2026-10-17 20:06Z)
+  const edit = await opTry({ op: 'set_description', node: 'ui', description: 'The UI, rewritten.' })
+  p.check('the user edits a project description with set_description', edit.ok && rig.one(`SELECT charter FROM ot.agents WHERE id = ${node('ui').id}`).charter === 'The UI, rewritten.',
+    edit.ok ? edit.v : edit.error)
+  const dev5After = rig.turns('dev5').filter(t => t.ended_at).length
+  await rig.userMail('dev5', 'Hello again dev5.')
+  await rig.waitTurns('dev5', dev5After + 1).catch(() => {})
+  const dev5Again = identity('dev5')
+  p.check('the agents under it get the new description', dev5Again.includes('Standing charter from project ui: The UI, rewritten.'),
+    dev5Again.match(/Standing charter from [^\n]*/g) ?? [])
+  const fromBelow = await rig.tool('dev5', 'orgtree_project', { action: 'describe', name: 'ui', description: 'From below.' })
+  p.check('an agent under it edits it with orgtree_project describe', fromBelow.ok && rig.one(`SELECT charter FROM ot.agents WHERE id = ${node('ui').id}`).charter === 'From below.', said(fromBelow))
+  const beside = await rig.tool('alice', 'orgtree_project', { action: 'describe', name: 'ui', description: 'Nope.' })
+  p.check('an agent beside it cannot', !beside.ok, said(beside))
+  const onAgent = await opTry({ op: 'set_description', node: 'dev5', description: 'x' })
+  p.check('set_description refuses an agent', !onAgent.ok, onAgent.ok ? onAgent.v : onAgent.error)
+
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
   p.keep(rig, { agents: ['dev1', 'dev2', 'boss'], grep: /project|fair_queue|dispatch/i })
