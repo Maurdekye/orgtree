@@ -26,6 +26,10 @@ Keep a docket item or supervisor-owned file containing the question, members and
 
 **No member-to-member contact in any round.** The only shared material is the full set of previous-round answers distributed by the supervisor. Clarifying questions go to the supervisor, who gives the same clarification to all members. Do not grant or use a lateral audience to bypass this workflow's independence rule. The supervisor returns members' answers and clarifications without claiming that a peer message supplies new authority.
 
+On Orgtree 4.4, turn **Subordinates may message each other** off on the committee's actual parent: the supervisor's Agent settings › Charter tab, or the project's Settings when members are direct children of a project. This setting defaults on, applies only to that node's direct children and is not inherited. Set it on every actual parent used by the committee; cross-project reporting peers are unaffected. Off also hides those siblings' lateral connector lines.
+
+A directional audience can normally authorize mail through this block, and the nearest agent supervisor can grant one between its direct reporting siblings. **Do not grant or use that exception for committee member contact.** Requests and supervisor/subordinate communication remain available; send committee clarifications to the supervisor. The switch helps enforce the workflow, but an existing audience or a different actual parent can still permit mail technically. Check placement and audiences when staffing rather than treating Off as proof of complete isolation.
+
 At the round limit, if there is still no consensus, leave the answer **UNDETERMINED**. Explain where the members remain split and the assumptions or values behind each position. Identify ambiguity or missing constraints in the question and suggest how it could be re-posed. Do not choose a winner or merge incompatible proposals into a supposed decision.
 
 ## Supervise without repeated status queries
