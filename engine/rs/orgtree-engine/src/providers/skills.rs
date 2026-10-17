@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+pub(crate) mod retention;
 include!(concat!(env!("OUT_DIR"), "/builtin_skills.rs"));
 
 const MAX_FILES: usize = 2048;
@@ -831,7 +832,7 @@ mod tests {
     }
 
     #[cfg(any(unix, windows))]
-    fn directory_link(target: &Path, link: &Path) {
+    pub(super) fn directory_link(target: &Path, link: &Path) {
         #[cfg(unix)]
         std::os::unix::fs::symlink(target, link).unwrap();
         #[cfg(windows)]
