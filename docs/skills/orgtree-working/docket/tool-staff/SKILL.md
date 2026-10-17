@@ -31,6 +31,8 @@ The owner is determined by the new/restored seat, not an owner parameter. The st
 
 ## Seat parameters
 
+The schema follows the selected operation: a new seat needs `name`, `tier`, `grant`, `charter`, `index` and ordinary-hire `add_dirs`, `org_visibility`, `tools` (all five keys: `bash`, `web`, `edit`, `subagents`, `mcp`). A restored seat needs `node` and forbids `index`; its other omitted fields retain saved values. Superior insertion must omit inherited scope fields. Create requires `title` and `objective`; update requires `slug`. An incomplete request reports the missing docket and seat fields together before attempting the composite.
+
 | Parameter | Meaning/default |
 | --- | --- |
 | `staff_mode` | hire/rehire; node also selects rehire. |

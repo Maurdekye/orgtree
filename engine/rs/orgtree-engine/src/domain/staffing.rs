@@ -443,6 +443,7 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
 /// or rehired) in one call; the assignment mail starts the agent.
 #[logged]
 pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i32), args: &Value) -> Result<Value> {
+    super::hire_requirements::require_staff(args)?;
     let (my_id, my_name, my_gen) = me;
     let who = Who::Agent { id: my_id, name: my_name.to_string(), generation: my_gen };
     let action = args["action"].as_str().unwrap_or(if args["slug"].as_str().is_some() { "update" } else { "create" });
@@ -486,12 +487,6 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
             req["parent"] = json!(t);
         }
     } else {
-        if s("name").is_none() {
-            refuse!(BadRequest, "a hire needs a name");
-        }
-        if s("charter").is_none() {
-            refuse!(BadRequest, "a hire needs a charter: the agent's role and standing instructions, written in full");
-        }
         if s("hire_type") == Some("superior") {
             req["above"] = s("target").map_or(Value::Null, |t| json!(t));
         } else {

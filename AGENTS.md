@@ -2022,6 +2022,12 @@ measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
 
 ## Keep this file current
 
+- Agent-hire MCP schemas mirror the no-defaults rule: ordinary new hires require
+  explicit folders/visibility and all five tool keys including `mcp`; superior
+  insertion omits inherited scope, rehire requires `node` and forbids `index`.
+  Hire/staff refusals report missing fields together. [decided: user 2026-10-17;
+  verified: `domain/hire_requirements.rs`, `tools/defs.rs`]
+
 - OpenRouter key add/replace and language-server add/configure forms open in
   separate `ProviderDialog` surfaces above App settings; keep their API bindings,
   draft/save semantics and nested model browser intact. The dialog uses

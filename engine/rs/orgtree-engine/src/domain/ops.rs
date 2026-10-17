@@ -517,6 +517,7 @@ fn str_arg<'a>(req: &'a Value, k: &str) -> Option<&'a str> {
 #[logged]
 pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: &Value) -> Result<Value> {
     let op = req["op"].as_str().unwrap_or("").to_string();
+    if matches!(actor,Actor::Agent {..}) && op=="hire" { super::hire_requirements::require_hire(req)?; }
     prepare(engine, org, req).await?;
     let mut attempt = 0;
     loop {
@@ -865,24 +866,6 @@ async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&N
         refuse!(BadRequest, "permission_mode must be one of {} (got '{m}')", scope::levels_text(scope::PM_LEVELS));
     }
     let agent = matches!(actor, Actor::Agent { .. });
-    if agent {
-        let mut missing = Vec::new();
-        if !req["add_dirs"].is_array() {
-            missing.push("add_dirs (explicit list of {path, mode}; [] is valid)");
-        }
-        if !req["tools"].is_object() || ["bash", "web", "edit", "subagents", "mcp"].iter().any(|k| req["tools"].get(*k).is_none()) {
-            missing.push("tools (bash, web, edit, subagents, mcp — each stated explicitly)");
-        }
-        if str_arg(req, "org_visibility").is_none() {
-            missing.push("org_visibility (self|team|subtree|full)");
-        }
-        if str_arg(req, "charter").map(str::trim).filter(|c| !c.is_empty()).is_none() {
-            missing.push("charter (the hire's role and standing instructions — write it in full)");
-        }
-        if !missing.is_empty() {
-            refuse!(BadRequest, "agent hires have no defaults — specify exactly: {}", missing.join("; "));
-        }
-    }
     let holder = match parent {
         Some(p) => Some(capability(tx, p.id, &caps.settings).await?),
         None => None,
@@ -969,10 +952,8 @@ async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&N
 #[logged]
 async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let agent = matches!(actor, Actor::Agent { .. });
+    if agent { super::hire_requirements::require_hire(req)?; }
     ordering::index(req, agent)?;
-    if agent && (req["grant"].as_f64().is_none() || str_arg(req, "charter").is_none()) {
-        refuse!(BadRequest, "agent hires have no defaults — specify grant and charter explicitly");
-    }
     super::tool_groups::validate(&req["tools"])?;
     let name = valid_name(str_arg(req, "name").unwrap_or(""))?;
     let tier = str_arg(req, "tier").unwrap_or("").to_string();

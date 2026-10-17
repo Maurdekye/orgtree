@@ -10,6 +10,8 @@ Requires the `team` tool group. Use for a new role; first inspect archived exper
 
 ## Parameters
 
+The schema requires the complete ordinary-hire scope: `add_dirs`, `org_visibility` and `tools` with **all five** keys `bash`, `web`, `edit`, `subagents`, `mcp`. False flags and empty lists are valid explicit choices. New-hire `name`, `tier`, `grant`, `charter` and `index` are also required. Superior insertion inherits the target's scope and must omit scope fields. A refused incomplete request lists all missing fields together; supply the whole list before retrying.
+
 | Parameter | Meaning and default |
 | --- | --- |
 | `name` | Required, unique within the org among non-deleted agents: 1–64 ASCII letters/digits, `-`, `_`, `.`; first character alphanumeric. Reserved names user/system/engine/org/net are refused. |
