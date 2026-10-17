@@ -19,7 +19,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { modelSeries, seriesTitle, UsageHistoryModal } from '../src/usagehistory'
+import { modelSeries, seriesTitle, timeTicks, UsageHistoryModal } from '../src/usagehistory'
 import type { UsageHistory, UsageHistoryBucket, UsageHistorySeries } from '../src/api'
 
 const H = 3_600_000
@@ -247,4 +247,15 @@ test('§3.5 styles: the controls are compact and out-rank the roomy .settings si
   assert.match(rule('.uh-ranges .uh-range'), /padding:\s*2px 9px/)
   assert.match(rule('.uh-filters .uh-filter'), /padding:\s*3px 6px/)
   assert.match(rule('.uh-filters'), /grid-template-columns:\s*repeat\(auto-fit/, 'the filters wrap as a block when the window is narrow')
+})
+
+test('§3.6 a sub-day axis still gets its time labels, whatever hour it starts on', () => {
+  // local-time starts, so the hour is the same in every timezone; a 42 h span steps by 12 h
+  for (const [h, m] of [[16, 19], [3, 40], [22, 5]] as const) {
+    const from = new Date(2026, 9, 17, h, m).getTime()
+    const ticks = timeTicks(from, from + 42 * H)
+    assert.ok(ticks.length >= 3, `${h}:${m}: ${ticks.length} ticks`)
+    const step = (ticks[1]!.t - ticks[0]!.t) / H
+    assert.ok(ticks.every((k) => k.t >= from && new Date(k.t).getHours() % step === 0), 'on round hours')
+  }
 })
