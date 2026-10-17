@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Renderer document-level event handlers (native agent tooltip, Markdown image
+  fallback, copyCode/revealFile/lightbox) must be registered on EVERY owning
+  document, including adopted pop-out panels, with cleanup on redock/close;
+  binding only the global `document` silently breaks pop-outs. [verified:
+  `popout.tsx`, `agentnav.tsx`, `shared.ts`; coordinator 2026-10-17]
+
 - Orgtree tool cards keep call contracts and glossary pointers; procedures live
   in the named guides. Input schemas and mail shapes are unchanged. Twenty-three
   rare cards permit native Claude search, 22 common cards stay eager; the SDK
