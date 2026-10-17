@@ -4,13 +4,14 @@ import { DEFAULT_CONTRAST, isContrastTheme } from '../../../packages/contracts/c
 import { isAgentColorSource } from '../../../packages/contracts/agent-colors'
 import { DEFAULT_NOTIFICATIONS, NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { isAppPath } from '../../../packages/contracts/ui-route'
+import { DEFAULT_ACTIVITY_SOUNDS, ACTIVITY_SOUND_OPTIONS } from '../../../packages/contracts/activity-sounds'
 import { isStartupMode } from '../../../packages/contracts/desktop-window'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 import type { DesktopIdentity } from './build-channel'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', activeAgentsOnly: false, quickChatActiveAgentsOnly: false, attentionDeskActiveAgentsOnly: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, ...DEFAULT_ACTIVITY_SOUNDS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', activeAgentsOnly: false, quickChatActiveAgentsOnly: false, attentionDeskActiveAgentsOnly: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -65,7 +66,7 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       if (!clean) throw new Error('Invalid canvas background')
       result.canvasBackground = clean
     } else {
-      if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded', 'notificationsEnabled', ...NOTIFICATION_OPTIONS.map(o => o.key)].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
+      if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded', 'notificationsEnabled', ...NOTIFICATION_OPTIONS.map(o => o.key), ...ACTIVITY_SOUND_OPTIONS.map(o => o.key)].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key as 'exitOnClose' | 'startAtLogin' | 'automaticUpdates' | 'routineNotifications' | 'onboarded' | 'notificationsEnabled'] = val
     }
   }

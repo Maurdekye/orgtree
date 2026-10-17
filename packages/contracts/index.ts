@@ -14,9 +14,10 @@ import type { VisualTheme } from './visual-theme'
 import type { ContrastTheme } from './contrast-theme'
 import type { AgentColorSource } from './agent-colors'
 import type { NotificationPreferences } from './notifications'
+import type { ActivitySoundPreferences, ActivitySoundKind } from './activity-sounds'
 import type { CanvasBackgroundPreference } from './canvas-background'
 
-export interface DesktopPreferences extends NotificationPreferences {
+export interface DesktopPreferences extends NotificationPreferences, ActivitySoundPreferences {
   visualTheme: VisualTheme
   contrastTheme: ContrastTheme
   agentColorSource: AgentColorSource
@@ -160,6 +161,7 @@ export interface DesktopBridge {
   notify(notification: DesktopNotification): Promise<boolean>
   /** Close native alerts whose attention item no longer exists. */
   syncNotifications?(active: NotificationIdentity[]): Promise<void>
+  previewActivitySound?(kind: ActivitySoundKind): Promise<boolean>
   /** Everything still waiting on the user, across organizations, as opaque
    *  identities. The taskbar pulses for a new arrival and stops when the list
    *  empties; an unchanged list is not an event. */

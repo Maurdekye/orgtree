@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Query, State};
+use serde::{Deserialize, Serialize};
 use axum::response::Response;
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Map, Value};
@@ -21,21 +22,29 @@ use crate::util::iso_opt;
 
 pub struct AppFeed {
     tx: mpsc::UnboundedSender<Env>,
+    sounds: mpsc::Sender<SoundEnv>,
 }
 
 /// A message and the request that sent it.
 type Env = (Msg, Option<String>);
+type SoundEnv = (SoundKind, i64, String, Option<String>);
 
 /// The feed task's inbox, handed to `start` once.
-pub struct AppFeedInbox(mpsc::UnboundedReceiver<Env>);
+pub struct AppFeedInbox(mpsc::UnboundedReceiver<Env>, mpsc::Receiver<SoundEnv>);
+
+/// Live-only cues. Their payload carries no conversation or credential data.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SoundKind { Response, Task }
 
 enum Msg {
+    Sound(SoundKind, i64, String),
     Registry,
     Org(i64),
     Value(String, Value),
     Working(i64, i64),
     Snapshot(oneshot::Sender<Value>),
-    Open(SocketId, Out),
+    Open(SocketId, Out, bool),
     Close(SocketId),
     RegistryRead(Vec<Value>),
     OrgRead(i64, Option<(Value, Value, Value)>),
@@ -46,7 +55,8 @@ enum Msg {
 impl AppFeed {
     pub fn new() -> (Self, AppFeedInbox) {
         let (tx, rx) = mpsc::unbounded_channel();
-        (AppFeed { tx }, AppFeedInbox(rx))
+        let (sounds, sound_rx) = mpsc::channel(256);
+        (AppFeed { tx, sounds }, AppFeedInbox(rx, sound_rx))
     }
     /// The org list changed (create, delete, rename).
     pub fn registry_changed(&self) {
@@ -66,6 +76,12 @@ impl AppFeed {
     pub fn working(&self, org_id: i64, n: i64) {
         let _ = self.tx.send((Msg::Working(org_id, n), crate::trace::current_rq()));
     }
+    /// Only opted-in desktop sockets receive these; copies never replay them.
+    pub fn sound(&self, kind: SoundKind, org_id: i64, id: String) {
+        if self.sounds.try_send((kind, org_id, id, crate::trace::current_rq())).is_err() {
+            tracing::warn!(org_id, "desktop sound skipped: app queue is full or closed");
+        }
+    }
     /// Not logged: the snapshot carries every pushed value (see `set_value`).
     #[nolog]
     pub async fn snapshot(&self) -> Option<Value> {
@@ -80,6 +96,7 @@ impl AppFeed {
 #[logged]
 pub fn start(engine: &Arc<Engine>, inbox: AppFeedInbox) {
     let rx = inbox.0;
+    let sounds = inbox.1;
     let actor = Actor {
         engine: engine.clone(),
         epoch: engine.boot.id.clone(),
@@ -97,7 +114,7 @@ pub fn start(engine: &Arc<Engine>, inbox: AppFeedInbox) {
         flush_scheduled: false,
         tx: engine.app.tx.clone(),
     };
-    tokio::spawn(actor.run(rx));
+    tokio::spawn(actor.run(rx, sounds));
     engine.app.set_value("enter_key_behavior", json!(engine.settings.enter_key_behavior()));
     engine.app.registry_changed();
     for org in engine.orgs.all() {
@@ -121,7 +138,7 @@ struct Actor {
     notices: HashMap<i64, Entry>,
     values: HashMap<String, (u64, Value)>,
     working: HashMap<i64, (u64, i64)>,
-    sockets: HashMap<SocketId, Out>,
+    sockets: HashMap<SocketId, (Out, bool)>,
     dirty_orgs: HashSet<i64>,
     reading: HashSet<i64>,
     flush_scheduled: bool,
@@ -130,9 +147,14 @@ struct Actor {
 
 #[logged]
 impl Actor {
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Env>) {
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Env>, mut sounds: mpsc::Receiver<SoundEnv>) {
         self.app_uuid = app_uuid(&self.engine).await.unwrap_or_else(|_| "00000000-0000-0000-0000-000000000000".into());
-        while let Some((msg, cause)) = rx.recv().await {
+        loop {
+            let message = tokio::select! {
+                message = rx.recv() => message,
+                sound = sounds.recv() => sound.map(|(kind, org, id, cause)| (Msg::Sound(kind, org, id), cause)),
+            };
+            let Some((msg, cause)) = message else { break };
             // each message is its own request (the flush timer excepted)
             let span = if matches!(msg, Msg::Flush) {
                 tracing::Span::none()
@@ -155,10 +177,10 @@ impl Actor {
     #[nolog]
     fn broadcast(&mut self, frame: &Value) {
         let text: Arc<str> = Arc::from(frame.to_string());
-        self.sockets.retain(|_, out| !out.is_closed());
+        self.sockets.retain(|_, (out, _)| !out.is_closed());
         tracing::info!(kind = frame["type"].as_str().unwrap_or(""), seq = frame["seq"].as_u64(), windows = self.sockets.len(),
                        "app frame broadcast");
-        for out in self.sockets.values() {
+        for (out, _) in self.sockets.values() {
             let _ = out.try_send(text.clone());
         }
     }
@@ -203,6 +225,18 @@ impl Actor {
     #[nolog]
     fn handle(&mut self, msg: Msg) {
         match msg {
+            Msg::Sound(kind, org_id, id) => {
+                let seq = self.next();
+                let frame = json!({ "type": "activity_sound", "epoch": self.epoch, "seq": seq,
+                    "kind": kind, "org_id": org_id, "id": id });
+                let text: Arc<str> = Arc::from(frame.to_string());
+                self.sockets.retain(|_, (out, _)| !out.is_closed());
+                for (out, sounds) in self.sockets.values() {
+                    if *sounds && out.try_send(text.clone()).is_err() {
+                        tracing::warn!(org_id, "desktop sound skipped: socket queue is full");
+                    }
+                }
+            }
             Msg::Registry => {
                 let engine = self.engine.clone();
                 let tx = self.tx.clone();
@@ -305,10 +339,10 @@ impl Actor {
                 let s = self.snapshot();
                 let _ = reply.send(s);
             }
-            Msg::Open(id, out) => {
+            Msg::Open(id, out, sounds) => {
                 let s = self.snapshot();
                 let _ = out.try_send(Arc::from(s.to_string()));
-                self.sockets.insert(id, out);
+                self.sockets.insert(id, (out, sounds));
             }
             Msg::Close(id) => {
                 self.sockets.remove(&id);
@@ -391,9 +425,15 @@ async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value,
     Ok(Some((orgv, summary, Value::Array(notices))))
 }
 
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct AppSocketOptions {
+    #[serde(default)]
+    sounds: bool,
+}
+
 #[logged]
-pub async fn app_ws(State(engine): State<Arc<Engine>>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(move |socket| run_socket(engine, socket))
+pub async fn app_ws(State(engine): State<Arc<Engine>>, Query(options): Query<AppSocketOptions>, ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(move |socket| run_socket(engine, socket, options.sounds))
 }
 
 /// How many windows hold the app feed open right now. The usage loop reads it:
@@ -406,11 +446,11 @@ pub fn windows_open() -> usize {
 }
 
 #[logged]
-async fn run_socket(engine: Arc<Engine>, socket: WebSocket) {
+async fn run_socket(engine: Arc<Engine>, socket: WebSocket, sounds: bool) {
     WINDOWS.fetch_add(1, Ordering::Relaxed);
     let id = next_socket_id();
     let (out, mut rx) = mpsc::channel::<Arc<str>>(2048);
-    let _ = engine.app.tx.send((Msg::Open(id, out), crate::trace::current_rq()));
+    let _ = engine.app.tx.send((Msg::Open(id, out, sounds), crate::trace::current_rq()));
     let (mut sink, mut stream) = socket.split();
     let shutdown = engine.shutdown.clone();
     loop {

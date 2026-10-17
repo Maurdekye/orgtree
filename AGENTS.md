@@ -1,5 +1,10 @@
 # AGENTS.md — working on Orgtree
 
+- Response and task completion sounds are independent app-wide preferences.
+  Emit live cues after successful turn settlement or committed task changes;
+  never replay them from snapshots. Keep queues bounded and playback owned
+  by Electron main. See `docs/rust-engine/activity-sounds.md`.
+
 - The canvas Agents list, Quick chat superior picker and dynamic Attention desk
   each have an independent persisted active-only filter. Quick chat and desk
   default off; toggling one never changes another. [decided: user 2026-10-16;

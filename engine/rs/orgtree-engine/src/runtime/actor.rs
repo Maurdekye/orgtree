@@ -6805,6 +6805,11 @@ impl Actor {
                 ],
             )
             .await?;
+        // The reply really completed and its ledger/agent state are committed.
+        // Cancellation, failures, compaction and keepalive never reach this cue.
+        if succeeded {
+            self.engine.app.sound(crate::appfeed::SoundKind::Response, self.org_id, format!("turn:{}", turn.id));
+        }
         if let Some(acc) = &account_now {
             if cost > 0.0 {
                 let _ = client

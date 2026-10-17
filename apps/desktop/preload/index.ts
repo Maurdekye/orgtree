@@ -52,6 +52,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getWindowState: () => ipcRenderer.invoke('desktop:window-state'),
     getWindowControlsState: () => ipcRenderer.invoke('desktop:window-controls-state'),
     getPreferences: () => ipcRenderer.invoke('desktop:preferences'),
+    previewActivitySound: kind => ipcRenderer.invoke('desktop:preview-activity-sound', kind),
     setPreferences: patch => ipcRenderer.invoke('desktop:set-preferences', patch),
     setEffectiveTheme: theme => ipcRenderer.invoke('desktop:set-effective-theme', theme),
     showMainWindow: () => ipcRenderer.invoke('desktop:show'),

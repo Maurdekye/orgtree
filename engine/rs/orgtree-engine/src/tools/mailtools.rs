@@ -412,6 +412,17 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     let state = if status == "done" { "idle" } else { status };
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
+    // Repeated done reports in one turn share an identity at the desktop.
+    let completion = if status == "done" {
+        let turn = client.query_opt(
+            "SELECT id FROM ot.turns WHERE agent_id = $1 AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+            &[&me.id],
+        ).await?.map(|r| r.get::<_, i64>(0));
+        Some(match turn {
+            Some(id) => format!("status:{}:turn:{id}", me.id),
+            None => format!("status:{}:{}", me.id, uuid::Uuid::new_v4()),
+        })
+    } else { None };
     let rec = json!({ "status": state, "summary": summary, "at": iso(chrono::Utc::now()) });
     client
         .execute(
@@ -435,6 +446,9 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     let top_level = me.parent_id.is_none();
     drop(client);
     changes::notify_id(engine, me.org_id, vec![Change::Agent(me.id), Change::Events, Change::History(me.id)]);
+    if let Some(id) = completion {
+        engine.app.sound(crate::appfeed::SoundKind::Task, me.org_id, id);
+    }
     let mut told = String::new();
     if status == "done" || status == "blocked" {
         if let Some(sup) = superior {

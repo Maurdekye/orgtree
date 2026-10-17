@@ -8,6 +8,8 @@ release-private-alpha/
 __pycache__/
 *.pyc
 .env
+# Local desktop profiles contain conversations and provider credentials.
+/.orgtree-dev/
 *.log
 test-results/
 engine/runtime/

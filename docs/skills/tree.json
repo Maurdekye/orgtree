@@ -5,16 +5,16 @@
  "counts": {
   "categories": 2,
   "sections": 18,
-  "leaves": 165,
+  "leaves": 166,
   "tools": 44,
-  "total": 185
+  "total": 186
  },
  "leaves_per_writer": {
   "org-sol": 33,
   "comms-sol": 28,
   "runtime-sol": 33,
   "providers-sol": 33,
-  "skills-docs-sol": 13,
+  "skills-docs-sol": 14,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
   "hubchat-dm-sol": 1,
@@ -3486,6 +3486,7 @@
    "children": [
     "app-runtime-desktop",
     "app-notifications",
+    "app-activity-sounds",
     "app-quick-staff",
     "app-turn-limits",
     "app-concurrency-and-checkups",
@@ -3622,7 +3623,8 @@
     "packages/contracts/notifications.ts:3"
    ],
    "see_also": [
-    "reaching-the-user"
+    "reaching-the-user",
+    "app-activity-sounds"
    ],
    "writer": "skills-docs-sol",
    "status": "fixed",
@@ -3734,6 +3736,67 @@
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
      "component": "DesktopSettings",
      "label": "label"
+    }
+   ]
+  },
+  {
+   "path": "orgtree-app/app-settings/app-activity-sounds",
+   "name": "orgtree-app-activity-sounds",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "np:responseSound",
+    "np:taskSound",
+    "bridge:previewActivitySound"
+   ],
+   "purpose": "Runtime > Sounds: independent response and task completion switches and previews.",
+   "must_cover": [
+    "each switch and default",
+    "preview behavior",
+    "live delivery and operating-system audio limits"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+    "packages/contracts/activity-sounds.ts",
+    "apps/desktop/main/sound-player.ts"
+   ],
+   "see_also": [
+    "app-notifications"
+   ],
+   "writer": "skills-docs-sol",
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "packages/contracts/activity-sounds.ts",
+     "label": "Response sound"
+    },
+    {
+     "file": "packages/contracts/activity-sounds.ts",
+     "label": "Task completion sound"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "np:responseSound",
+     "file": "packages/contracts/activity-sounds.ts",
+     "needles": [
+      "responseSound"
+     ]
+    },
+    {
+     "key": "np:taskSound",
+     "file": "packages/contracts/activity-sounds.ts",
+     "needles": [
+      "taskSound"
+     ]
+    },
+    {
+     "key": "bridge:previewActivitySound",
+     "file": "apps/desktop/preload/index.ts",
+     "needles": [
+      "previewActivitySound"
+     ]
     }
    ]
   },

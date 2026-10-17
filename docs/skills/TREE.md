@@ -20,8 +20,8 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 |---|---|
 | Categories (level 1, registered) | 2 |
 | Sections (level 2) | 18 |
-| Leaves (level 3) | 165: 44 tool, 44 concept, 33 screen, 44 setting |
-| SKILL.md files in total | 185 |
+| Leaves (level 3) | 166: 44 tool, 44 concept, 33 screen, 45 setting |
+| SKILL.md files in total | 186 |
 | Bytes of the two registered `name` + `description` lines | 403 |
 
 ## 1. Shape and conventions
@@ -176,7 +176,7 @@ leaf in it.
 | comms-sol | working › mail, working › user, working › workspace, app › mailhub | 28 |
 | runtime-sol | working › runtime, working › watchdogs, working › inspection, app › app-shell | 33 |
 | providers-sol | working › accounts, app › providers, app › harnesses, app › desk | 33 |
-| skills-docs-sol | app › app-settings; plus the coverage guard, category pages and final source review | 13 |
+| skills-docs-sol | app › app-settings; plus the coverage guard, category pages and final source review | 14 |
 | orgsettings-sol | app › org-settings | 13 |
 | agentsettings-sol | app › agent-settings | 9 |
 | hubchat-dm-sol | working › team, `tool-org-logo` (4.3.1) | 1 |
@@ -485,7 +485,8 @@ App settings (Orgtree menu > App settings…): Runtime, Display, Default org set
 | Leaf | Kind | Covers | Purpose | Ground truth | See also |
 |---|---|---|---|---|---|
 | `app-runtime-desktop` | setting | `np:startAtLogin`, `np:exitOnClose`, `np:automaticUpdates`, `bridge:setRunAsAdministrator` | Runtime > desktop behavior: run on boot (where agents run), exit on close, automatic updates, run as administrator. Must cover: each switch, default and effect; restarting the background engine. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:50`<br>`apps/desktop/renderer/src/canvas/desktopsettings.tsx:107` | tray-and-windows |
-| `app-notifications` | setting | `np:notificationsEnabled`, `np:notifyQuestions`, `np:notifyUrgentMail`, `np:notifyTerminalFailures`, `np:notifyDocketAttention`, `np:notifyAllMail`, `np:notifyDocuments`, `np:notifyFrozen`, `np:notifyWhileFocused` | Runtime > Notifications: the master switch and each notification kind. Must cover: each kind and default. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:69`<br>`packages/contracts/notifications.ts:3` | reaching-the-user |
+| `app-notifications` | setting | `np:notificationsEnabled`, `np:notifyQuestions`, `np:notifyUrgentMail`, `np:notifyTerminalFailures`, `np:notifyDocketAttention`, `np:notifyAllMail`, `np:notifyDocuments`, `np:notifyFrozen`, `np:notifyWhileFocused` | Runtime > Notifications: the master switch and each notification kind. Must cover: each kind and default. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx:69`<br>`packages/contracts/notifications.ts:3` | reaching-the-user, app-activity-sounds |
+| `app-activity-sounds` | setting | `np:responseSound`, `np:taskSound`, `bridge:previewActivitySound` | Runtime > Sounds: independent response and task completion switches and previews. Must cover: each switch and default; preview behavior; live delivery and operating-system audio limits. | `apps/desktop/renderer/src/canvas/desktopsettings.tsx`<br>`packages/contracts/activity-sounds.ts`<br>`apps/desktop/main/sound-player.ts` | app-notifications |
 | `app-quick-staff` | setting | `rt:quick_staff_behavior` | Runtime > Quick staff behavior: request staffing vs staff immediately. Must cover: each choice. | `apps/desktop/renderer/src/canvas/quickstaffsetting.tsx:18` | tool-staff |
 | `app-turn-limits` | setting | `rt:turn_timeout_s`, `rt:turn_idle_s` | Runtime > Turn time limits: total and silence limits. Must cover: defaults and effect. | `apps/desktop/renderer/src/canvas/turnlimitssetting.tsx:84` | turns-and-wakes |
 | `app-concurrency-and-checkups` | setting | `rt:max_concurrent_turns`, `rt:working_checkups_enabled`, `rt:wait_for_mcp_tools_enabled`, `rt:idle_docket_reminders_enabled`, `rt:blocked_docket_reminders_enabled`, `rt:warming_enabled` | Runtime > Turns: concurrent turns, working checkups, MCP wait, docket reminders, process warming. Must cover: each switch and default. | `apps/desktop/renderer/src/canvas/accounts.tsx:636`<br>`apps/desktop/renderer/src/canvas/accounts.tsx:871-890` | checkups-and-reminders |
