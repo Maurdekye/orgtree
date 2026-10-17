@@ -123,7 +123,7 @@ test('§9 ⭐ unsupported and dangerous schemes never become local-file links', 
   for (const src of [
     '[x](javascript:alert(1))',
     '[x](data:text/html,<b>hi</b>)',
-    '[x](file:///C:/Windows/System32/cmd.exe)',
+    '[x](file://server/share/payload.exe)',
     '[x](vbscript:msgbox)',
     String.raw`[x](\\evil-server\share\payload.exe)`,
   ]) {
@@ -133,6 +133,16 @@ test('§9 ⭐ unsupported and dangerous schemes never become local-file links', 
     assert.ok(!/javascript:|vbscript:|^data:/i.test(a?.getAttribute('href') ?? ''),
       `${src} kept a dangerous href`)
   }
+})
+
+test('file URLs to local drive paths become reveal-only links', () => {
+  const uri = 'file:///C:/Users/Test%20User/AppData/AFKRaymarchBillboard.shader'
+  const a = parse(`[AFKRaymarchBillboard.shader](${uri})`)
+  assert.ok(a, 'the local file URL label did not render as an anchor')
+  assert.equal(a!.getAttribute('data-local-path'),
+    String.raw`C:\Users\Test User\AppData\AFKRaymarchBillboard.shader`)
+  assert.equal(a!.getAttribute('href'), '#', 'the file URL remained navigable')
+  assert.ok(a!.classList.contains('local-file'))
 })
 
 test('§10 existing link kinds are untouched', () => {
