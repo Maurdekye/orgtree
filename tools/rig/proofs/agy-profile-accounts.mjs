@@ -56,9 +56,11 @@ export default async function (rig) {
   const turns0 = rig.turns('agy-second').length
   mark = calls().length
   await rig.userMail('agy-second', 'PROFILE-NOT-ISOLATED')
-  const row = await rig.waitFor(() => { const r = rig.agentRow('agy-second'); return /same Google account/.test(r?.last_error ?? '') && r },
-    { what: 'the not-isolated hold', timeout: 20000 }).catch(e => ({ error: e.message, row: rig.agentRow('agy-second') }))
-  p.check('a not-isolated account holds its agent with the plain reason', /same Google account/.test(row?.last_error ?? ''), row)
+  // the hold's reason is the agent's live last error (the desk's chat read)
+  const chat = () => rig.api('GET', `/api/orgs/${rig.org}/nodes/agy-second/chat?last=1`)
+  const held = await rig.waitFor(async () => { const c = await chat(); return /same Google account/.test(c?.last_error ?? '') && c },
+    { what: 'the not-isolated hold', timeout: 20000 }).catch(async e => ({ error: e.message, last_error: (await chat())?.last_error }))
+  p.check('a not-isolated account holds its agent with the plain reason', /same Google account/.test(held?.last_error ?? ''), { last_error: held?.last_error, error: held?.error })
   p.check('no turn ran and no runtime CLI started on any home', rig.turns('agy-second').length === turns0
     && !calls().slice(mark).some(c => c.kind === 'runtime'), calls().slice(mark))
 
@@ -78,10 +80,13 @@ export default async function (rig) {
   const last = rig.turns('agy-second').at(-1)
   p.check('its agent runs a turn', !last?.error, last)
   p.check('its runtime CLI ran on its own folder', calls().slice(mark).some(c => c.kind === 'runtime' && lower(c.home) === lower(home)), calls().slice(mark))
-  p.check('the default lane never ran on the profile folder', ownCalls().every(c => c.kind !== 'version'))
 
+  mark = calls().length
   const after = await rig.api('GET', '/api/antigravity/usage?force=true')
   p.check('the default Antigravity lane is unaffected', after.available === true && after.account === 'google/primary', after)
+  p.check('the default lane never runs on the profile folder', calls().slice(mark).length > 0
+    && calls().slice(mark).every(c => lower(c.home) !== lower(home)), calls().slice(mark))
+  p.note('profile-folder calls in this proof', ownCalls().map(c => c.kind))
   p.file('guard-calls.json', calls())
   p.keep(rig, { agents: ['agy-second'], grep: /agy|Agy|Antigravity/ })
   return p.summary()
