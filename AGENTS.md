@@ -39,9 +39,13 @@
   no thought text in logs. A receipt and thought-before-response rows commit
   atomically, preventing replay/restart duplicates. WAL/journal visibility
   limits and synthetic checks: [AGY thinking](docs/rust-engine/antigravity-thinking.md).
+  Keep identity stamping, transcript page/notice restoration and chat HTTP
+  response bodies unlogged: nested logged arguments/returns can leak content
+  even when outer callers are unlogged. This also protects ordinary text.
   [decided: user 2026-10-17 17:10Z; verified: `runtime/agy_thinking.rs`,
-  `runtime/actor.rs`, `runtime/convo.rs`; 2026-10-17 author checks: 11 focused
-  tests and isolated PostgreSQL replay/reload/rollback proof pass; installed
+  `runtime/actor.rs`, `runtime/convo.rs`, `http/nodes.rs`; 2026-10-17 author
+  checks: 12 tests including real PostgreSQL replay/rollback and verbose-log
+  canaries through write/full/incremental reads pass after red controls; installed
   history visibility remains an alpha check]
 
 - State inspection memoizes effective ancestry only within its immutable

@@ -93,9 +93,8 @@ and synthetic content, without opening application diagnostics or live data.
 On red source `8fdabfc` rebased onto assigned `c89111b`, the test executed and
 failed at the expected thinking-canary assertion: raw Cargo exit 101, no
 signal, one failure, 45.69s compilation and 0.21s test time. The captured log
-contains the positive control and leaked canary. Green verification of the
-correction is queued; this closes the first review's only substantiated
-blocker and is submitted for the single allowed re-check after that passes.
+contains the positive control and leaked canary. The stamp-only green below
+then verified that write-path correction before the retrieval extension.
 
 The stamp-only correction at `ee13b79` passed all 12 focused tests, including
 the real receipt write and verbose canary capture: raw Cargo exit 0, no signal,
@@ -116,5 +115,21 @@ their older ordinary transcript-text leak too. Querying, notice restoration,
 page contents/cursors and HTTP response construction are unchanged; ordinary
 HTTP request/response metadata logging remains. The canary runs the real
 write, read and notice-restoration paths; the HTTP handler's change is the
-logging annotation only, not an end-to-end HTTP execution claim. Final green
-verification of the complete chain is queued before the single re-check.
+logging annotation only, not an end-to-end HTTP execution claim.
+
+The final correction was rebased cleanly onto stack-fix tip `9f53433` and
+tested at `fd208d9`: all 12 focused tests passed, none failed or were ignored,
+raw Cargo exit 0 with no signal. Compilation took 47.53s and tests took 0.21s
+under the 6144 MB Job with Cargo `-j 2`. The captured real engine log contains
+the verbose positive control, neither canary, and no stamp/read/notice-restorer
+body events. Persisted identities, full-page contents/cursor and incremental
+updates passed their assertions. The disposable cluster shut down cleanly.
+
+The preflight measured 86,966,255,287 bytes of build/installer outputs plus
+the 3,000,000,000-byte reserve, with 8.66 GiB free RAM. Raw logs/results and
+captured traces are retained as `privacy-{red,green}` and
+`retrieval-{red,green}` files in the evidence directory above. Migration 0028
+is unchanged, and the 43 extracted tool builders are preserved. Subsequent
+hand-in changes only update these verification notes and `AGENTS.md`; the
+engine source remains the tested source. The one consolidated correction
+goes to rig-sol-b and the coordinator for the single allowed re-check.
