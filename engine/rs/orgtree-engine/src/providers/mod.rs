@@ -793,7 +793,18 @@ fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
         .iter()
         .copied()
         .filter(|t| t.provider == provider && (legacy_ok || !t.legacy))
-        .map(|t| json!({ "tier": t.tier, "provider": t.provider, "seat": t.seat, "model": t.model, "letter": t.letter }))
+        .map(|t| {
+            let display_versions: std::collections::HashMap<&str, String> = t.versions.iter()
+                .filter_map(|(version, _)| catalog::display_name(t, Some(version))
+                    .map(|name| (*version, name)))
+                .collect();
+            json!({
+                "tier": t.tier, "provider": t.provider, "seat": t.seat,
+                "model": t.model, "letter": t.letter,
+                "display_name": catalog::display_name(t, None),
+                "display_versions": display_versions,
+            })
+        })
         .collect()
 }
 
@@ -1200,6 +1211,19 @@ pub fn start(engine: &Arc<Engine>) {
 #[cfg(test)]
 mod conditional_tests {
     use super::agy_offers;
+
+    #[test]
+    fn static_provider_tier_rows_include_catalog_display_names_and_versions() {
+        let opus = super::tier_rows(super::catalog::CLAUDE, false).into_iter()
+            .find(|row| row["tier"] == "opus").unwrap();
+        assert_eq!(opus["display_name"], "Claude Opus 5.5");
+        assert_eq!(opus["display_versions"]["5"], "Claude Opus 5");
+
+        let sol = super::tier_rows(super::catalog::OPENAI, false).into_iter()
+            .find(|row| row["tier"] == "sol").unwrap();
+        assert_eq!(sol["display_name"], "ChatGPT Sol 6.1");
+        assert_eq!(sol["display_versions"]["6"], "ChatGPT Sol 6");
+    }
 
     #[test]
     fn carbon_is_offered_only_while_agy_lists_it() {

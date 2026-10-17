@@ -206,6 +206,42 @@ pub fn tier(name: &str) -> Option<&'static Tier> {
     TIERS.iter().find(|t| t.tier == name)
 }
 
+/// Product and family names shown beside an agent's selected model. Keep
+/// these with the model catalog so every renderer uses the same vendor names.
+fn display_family(t: &Tier) -> Option<&'static str> {
+    Some(match (t.provider, t.tier) {
+        (CLAUDE, "fable") => "Claude Fable",
+        (CLAUDE, "opus") | (GOOGLE, "agy-opus") => "Claude Opus",
+        (CLAUDE, "sonnet") | (GOOGLE, "agy-sonnet") => "Claude Sonnet",
+        (CLAUDE, "haiku") => "Claude Haiku",
+        (OPENAI, "astra") => "ChatGPT Astra",
+        (OPENAI, "sol") => "ChatGPT Sol",
+        (OPENAI, "terra") => "ChatGPT Terra",
+        (OPENAI, "luna") => "ChatGPT Luna",
+        (OPENAI, "gpt-reserve") => "ChatGPT Reserve",
+        (GOOGLE, "flash") => "Gemini Flash",
+        (GOOGLE, "pro") => "Gemini Pro",
+        (GOOGLE, "argon") => "Antigravity Argon",
+        (GOOGLE, "barium") => "Antigravity Barium",
+        (GOOGLE, "carbon") => "Antigravity Carbon",
+        (MUSE, "wonder") => "Muse Wonder",
+        (MUSE, "wonder-full") => "Muse Wonder Full",
+        (MUSE, "spark") => "Muse Spark",
+        _ => return None,
+    })
+}
+
+/// The catalog's user-facing model name for a tier and optional pinned version.
+#[logged]
+pub fn display_name(t: &Tier, requested_version: Option<&str>) -> Option<String> {
+    let family = display_family(t)?;
+    let version = requested_version
+        .and_then(|wanted| t.versions.iter().find(|(v, _)| *v == wanted).map(|(v, _)| *v))
+        .or_else(|| t.versions.iter().find(|(_, model)| *model == t.model).map(|(v, _)| *v))
+        .or_else(|| t.versions.first().map(|(v, _)| *v));
+    Some(version.map_or_else(|| family.to_owned(), |v| format!("{family} {v}")))
+}
+
 /// The catalog in the order tiers are LISTED together (user 2026-10-13):
 /// providers in the order the catalog first names them, and within a
 /// provider the dearest seat first. The sort is stable, so equal seats keep

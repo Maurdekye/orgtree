@@ -4,16 +4,11 @@ import {
 } from '../src/canvas/agentnav'
 import type { AgentTooltipInfo } from '../src/canvas/agentnav'
 
-const info: AgentTooltipInfo = {
-  name: 'coordinator-opus',
-  provider: 'Codex',
-  model: 'GPT-6',
-  effort: 'xhigh',
-  account: 'openai/primary',
-}
+const id = 'coordinator-opus'
+const info: AgentTooltipInfo = { title: 'ChatGPT Sol 6.1 · high · openai-1' }
 
 function RegisterTooltip() {
-  useProvideAgentNav(() => [], id => id === info.name ? info : null)
+  useProvideAgentNav(() => [], target => target === id ? info : null)
   return null
 }
 
@@ -22,10 +17,10 @@ createRoot(document.getElementById('root')!).render(
     <RegisterTooltip />
     <main style={{ padding: 36 }}>
       <h1>Agent directory</h1>
-      <button id="agent-link" type="button" {...agentNavProps(info.name)}>
-        {info.name}
+      <button id="agent-link" type="button" {...agentNavProps(id)}>
+        {id}
       </button>
-      <p>Hover the linked agent to see its current identity.</p>
+      <p>Hover or focus the linked agent to inspect its native title.</p>
     </main>
   </AgentNavProvider>,
 )
