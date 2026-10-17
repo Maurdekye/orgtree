@@ -54,7 +54,7 @@ interface ProjectSquareProps {
   hire: HireProviders
   seats: Record<string, number>
   onHire: (tier: string) => void
-  /** "New project here…" and its project token: a draft project card under it */
+  /** "New project…" and its project token: a draft project card under it */
   onNewProject: () => void
   onInbox: () => void
   onSettings?: () => void

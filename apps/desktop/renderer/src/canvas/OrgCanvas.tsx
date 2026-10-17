@@ -3180,7 +3180,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
       onHalt: () => { void toggleAgentHalt(slug, n.id, n.halt?.phase, toast) },
       onHire: (tier) => spawn(n.id, tier),
-      // the card's "New project here…" too: the row and the card are one menu
+      // the card's "New project…" too: the row and the card are one menu
       onNewProject: () => spawnProject(n.id),
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
@@ -3427,7 +3427,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
   // A project made by hand opens a DRAFT project card where it will go, which
   // the camera walks to, exactly like a manual hire (user 2026-10-17 19:14Z):
-  // under a node (the bottom token, "New project here…"), beside it (a side
+  // under a node (the bottom token, "New project…"), beside it (a side
   // token) or above it, holding it (the top token).
   const spawnProject = (parentId: string) =>
     openDraft({ parent: parentId === USER ? null : parentId, tier: PROJECT_DRAFT, project: true })

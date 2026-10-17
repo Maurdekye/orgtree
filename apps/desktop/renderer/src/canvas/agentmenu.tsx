@@ -312,7 +312,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     // directly under "Hire a subordinate" (user 2026-10-17 21:18Z); after
     // Focus when the agent offers no hire
     const at = entries.findIndex((e) => e !== 'sep' && e.label === 'Hire a subordinate')
-    entries.splice(at >= 0 ? at + 1 : 1, 0, { label: 'New project here…',
+    entries.splice(at >= 0 ? at + 1 : 1, 0, { label: 'New project…',
       title: `a project node under ${node.id}: its agents work on it and ${node.id} pays for them`,
       onSelect: h.onNewProject })
   }
@@ -361,7 +361,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     })
   }
   if (live && h.onNewProject) {
-    entries.push({ label: 'New project here…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })
+    entries.push({ label: 'New project…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })
   }
   if (!live && h.onDismiss) {
     const dismiss = h.onDismiss

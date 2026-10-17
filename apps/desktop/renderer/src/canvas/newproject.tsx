@@ -1,6 +1,6 @@
 // canvas/newproject.tsx — the DRAFT project card (docs/rust-engine/
 // PROJECT-NODES.md; user 2026-10-17 19:14Z: making a project by hand works
-// like a manual hire). "New project here…" and the project hire tokens open a
+// like a manual hire). "New project…" and the project hire tokens open a
 // draft card where the project will go, the camera walks to it, and the user
 // gives it a name and a description there. The description is the project's
 // standing charter: every agent under the project receives it.
