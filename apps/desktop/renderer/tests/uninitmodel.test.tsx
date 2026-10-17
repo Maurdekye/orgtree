@@ -27,8 +27,7 @@ async function type(el: Element | null, value: string) {
     el.dispatchEvent(new Event('input', { bubbles: true })); await flush()
   })
 }
-const menuItem = (tier: string) => [...document.querySelectorAll('button[role="menuitem"]')]
-  .find(b => b.textContent?.startsWith(tier)) ?? null
+const menuItem = (tier: string) => document.querySelector(`.draft-model-picker .hsof button.t-${tier}`)
 
 test('draft model picker', { timeout: 30000 }, async t => {
   await t.test('icon selection reaches final canvas hire and preserves the draft form', async t => {
@@ -71,7 +70,7 @@ test('draft model picker', { timeout: 30000 }, async t => {
       document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
       await flush()
     })
-    assert.equal(document.querySelector('[role="menu"]') === null, true)
+    assert.equal(document.querySelector('.draft-model-picker') === null, true)
     assert.equal(cancelled, false, 'picker Escape must not cancel the draft')
   })
 
