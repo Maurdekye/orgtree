@@ -316,413 +316,673 @@ fn merge(mut a: Value, b: Value) -> Value {
     a
 }
 
+// Keep tool literals in separate, non-inlined frames: constructing every card
+// in one debug frame overflows the default engine worker stack during admission.
 #[logged]
 fn all() -> Vec<Value> {
     let [message, notice] = mail_tools(MailShape::Split);
     vec![
         message,
         notice,
-        tool(
-            "orgtree_org_logo",
-            "Set/remove your org's Logo immediately; requires logo tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
+        build_tool_org_logo(),
+        build_tool_status(),
+        build_tool_next_turn(),
+        build_tool_session(),
+        build_tool_transfers(),
+        build_tool_inbox(),
+        build_tool_chart(),
+        build_tool_state_inspect(),
+        build_tool_usage(),
+        build_tool_list_tiers(),
+        build_tool_list_orgs(),
+        build_tool_read_transcript(),
+        build_tool_read_scratch(),
+        build_tool_interrupt(),
+        build_tool_halt(),
+        build_tool_unhalt(),
+        build_tool_unstick(),
+        build_tool_continue_on(),
+        build_tool_account_mark(),
+        build_tool_ask(),
+        build_tool_withdraw_ask(),
+        build_tool_present(),
+        build_tool_send_file(),
+        build_tool_hire(),
+        build_tool_project(),
+        build_tool_rehire(),
+        build_tool_retire(),
+        build_tool_dissolve(),
+        build_tool_retool(),
+        build_tool_switch_model(),
+        build_tool_move(),
+        build_tool_rename(),
+        build_tool_reorder(),
+        build_tool_reallocate(),
+        build_tool_cheap_compact(),
+        build_tool_request_credits(),
+        build_tool_request_scope(),
+        build_tool_audience(),
+        build_tool_watchdog(),
+        build_tool_work(),
+        build_tool_staff(),
+        build_tool_swap(),
+        build_tool_self_subjugate(),
+    ]
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_org_logo() -> Value {
+    tool(
+        "orgtree_org_logo",
+        "Set/remove your org's Logo immediately; requires logo tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
+        json!({
+            "action": {"type":"string", "enum":["set","remove"]},
+            "path": {"type":"string", "description":"set: local image file in your folders"},
+            "crop": {"type":"object", "additionalProperties":false, "properties":{
+                "x":{"type":"number","minimum":0,"maximum":1},
+                "y":{"type":"number","minimum":0,"maximum":1},
+                "size":{"type":"number","minimum":0.1,"maximum":1}
+            }, "required":["x","y","size"]}
+        }),
+        &["action"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_status() -> Value {
+    tool(
+        "orgtree_status",
+        "Report working/done/blocked/idle with a short summary. Required on finishing or blocking; done/blocked sends your superior a passive notice. done leaves you idle. To wake someone, send mail.",
+        json!({
+            "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
+            "summary": { "type": "string", "description": "one or two sentences" },
+        }),
+        &["status", "summary"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_next_turn() -> Value {
+    tool(
+        "orgtree_next_turn",
+        "Read your own next-turn prefix/namespace changes and compaction forecast. No writes, provider calls or permission needed. Baselines and thresholds can be unknown; the rest of the turn can change the result. No cache-hit guarantee.",
+        json!({}),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_session() -> Value {
+    tool(
+        "orgtree_session",
+        "Read sign-in state and current/next turn placement. Session 0 has no desktop. prefer changes placement preference; use selects one next-turn session id (0=Session 0). Self interrupt with restart applies it now when allowed. No args only reads.",
+        json!({
+            "prefer": { "type": "string", "description": "signed-in (default: any of the user's sessions), session0, console, remote, or an ordered list such as \"remote,console\"; Session 0 is always the fallback" },
+            "use": { "type": "integer", "description": "a session id from sessions for your next turn only; 0 for Session 0" },
+        }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_transfers() -> Value {
+    tool(
+        "orgtree_transfers",
+        "Inspect mail attachment transfers: list pages≤100, get by id. retry resumes failed/cancelled transfers; cancel stops the request and holds mail; remove omits a failed/cancelled outgoing file. Mail releases once every remaining file is ready. Success sends no notice.",
+        json!({"action":{"type":"string","enum":["list","get","retry","cancel","remove"]},"id":{"type":"string"},"cursor":{"type":"string"}}),
+        &["action"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_inbox() -> Value {
+    tool(
+        "orgtree_inbox",
+        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Reads do not change automatic delivery. project list/fetch reads reachable project mail without claiming it.",
+        json!({
+            "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
+            "project": { "type": "string", "description": "list/fetch: a project's name: its waiting (unread) mail, read-only" },
+            "peer": { "type": "string", "description": "conversation: an agent's name, 'user', '@org:<slug>' or '@net:<address>'" },
+            "limit": { "type": "integer", "description": "list: how many (default 50, max 200); conversation: default 20, max 100" },
+            "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: 1 to 20 IDs from list or conversation" },
+            "cursor": { "type": "string", "description": "list or conversation: next_cursor from the preceding page" },
+            "delivery_id": { "type": "string", "description": "chunk: delivery_id returned with this fetched message" },
+            "message_id": { "type": "string", "description": "chunk: the message ID" },
+            "chunk_index": { "type": "integer", "minimum": 0, "description": "chunk: zero-based index" },
+        }),
+        &["action"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_chart() -> Value {
+    tool(
+        "orgtree_chart",
+        "Read the org within your visibility: tiers, credits, status and age. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.",
+        json!({
+            "include_archived": { "type": "boolean" },
+            "include_standing_charter": { "type": "boolean", "description": "include team charters (default true)" },
+        }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_state_inspect() -> Value {
+    tool(
+        "orgtree_state_inspect",
+        "Inspect visible agents' structured folders, tools and permission mode, optionally archived. Excludes prompts, transcripts and mail.",
+        json!({
+            "node": { "type": "string" },
+            "nodes": { "type": "array", "items": { "type": "string" } },
+            "include_archived": { "type": "boolean" },
+        }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_usage() -> Value {
+    tool(
+        "orgtree_usage",
+        "Read cached provider usage with exact account/provider/window filters; missing/stale stays explicit. refresh needs inspection+runtime, one explicit active account; floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Account pages≤100, windows/account≤64; truncation explicit.",
+        json!({
+            "accounts":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
+            "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","muse","openrouter","langserver"]},"minItems":1,"maxItems":32},
+            "windows":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
+            "refresh":{"type":"boolean","description":"default false; exactly one explicit active account, runtime permission required"},
+            "limit":{"type":"integer","minimum":1,"maximum":100,"description":"account page size, default 20"},
+            "cursor":{"type":"string","description":"next_cursor from a previous cached account page"}
+        }), &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_list_tiers() -> Value {
+    tool("orgtree_list_tiers", "List hireable model tiers and seat prices in credits.", json!({}), &[])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_list_orgs() -> Value {
+    tool("orgtree_list_orgs", "List other local organizations (@org mail) and this org's connected hub peers (@net mail).", json!({}), &[])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_read_transcript() -> Value {
+    tool(
+        "orgtree_read_transcript",
+        "Read recent conversation rows of yourself or an agent below you; last defaults 30, maximum 80.",
+        json!({
+            "node": { "type": "string" },
+            "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 30)" },
+        }),
+        &["node"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_read_scratch() -> Value {
+    tool(
+        "orgtree_read_scratch",
+        "Browse/read your own or a descendant's working folder. Omit path to list it.",
+        json!({ "node": { "type": "string" }, "path": { "type": "string" } }),
+        &["node"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_interrupt() -> Value {
+    tool(
+        "orgtree_interrupt",
+        "Stop a descendant's turn with runtime permission, or your own turn without it. Self restart=true starts exactly one new turn using placement rules. Self-interrupt is refused while your CLI runs background work. Waiting mail can start a later turn; this does not retire anyone.",
+        json!({
+            "node": { "type": "string" },
+            "restart": { "type": "boolean", "description": "yourself only: start one new turn at once" },
+        }),
+        &["node"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_halt() -> Value {
+    tool(
+        "orgtree_halt",
+        "Halt agents below you until unhalt: stop their processes, preserve waiting mail and suppress wakes.",
+        json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_unhalt() -> Value {
+    tool(
+        "orgtree_unhalt",
+        "Unhalt agents below you; waiting mail starts their next turn.",
+        json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_unstick() -> Value {
+    tool(
+        "orgtree_unstick",
+        "Release a usage-limit freeze on an agent below you and let it continue.",
+        json!({ "node": { "type": "string" } }),
+        &["node"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_continue_on() -> Value {
+    tool(
+        "orgtree_continue_on",
+        "Move a frozen agent below you to another account of the same provider and release its freeze.",
+        json!({ "node": { "type": "string" }, "account": { "type": "string" } }),
+        &["node", "account"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_account_mark() -> Value {
+    tool(
+        "orgtree_account_mark",
+        "Inspect capacity marks or clear one using its exact expected values. A changed/missing mark writes nothing. Clearing is audited, adds no capacity and resumes nobody; frozen_here still needs unstick. Only org-visible accounts. reason required for clear.",
+        json!({
+            "action": { "type": "string", "enum": ["inspect", "clear"] },
+            "account": { "type": "string", "description": "inspect: account id or name. clear: the exact `account` of the mark entry" },
+            "source": { "type": "string", "enum": ["registry", "legacy-roster"], "description": "clear: the mark entry's `source`" },
+            "pool": { "type": "string", "description": "clear: the mark entry's `pool`" },
+            "expected": { "type": "object", "description": "clear: the mark entry's `expected`" },
+            "companion_expected": { "type": "object", "description": "clear, optional: the `companion.expected` of a pooled entry" },
+            "reason": { "type": "string", "description": "clear, required: why, kept in the audit (500 max)" },
+        }),
+        &["action", "account"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_ask() -> Value {
+    // ---- arriving with build step 5
+    tool(
+        "orgtree_ask",
+        "Ask up to 4 user questions with2-4 options or free text. One open request; later calls add/amend tabs. End your turn; answers arrive as mail. Without user audience/top-level authority, routes to your superior. Withdraw moot questions.",
+        json!({
+            "question": { "type": "string", "description": "the complete question (or use `questions`)" },
+            "header": { "type": "string", "description": "very short label chip (max ~12 chars)" },
+            "options": OPTIONS.clone(),
+            "multi": { "type": "boolean", "description": "several options may be selected" },
+            "work_item": { "type": "string", "description": "docket item slug this is about" },
+            "questions": { "type": "array", "minItems": 1, "maxItems": 4,
+                           "description": "1-4 questions as one tabbed card; overrides the single form",
+                           "items": { "type": "object", "properties": {
+                               "question": { "type": "string" }, "header": { "type": "string" },
+                               "options": OPTIONS.clone(), "multi": { "type": "boolean" },
+                               "work_item": { "type": "string" } }, "required": ["question"] } },
+        }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_withdraw_ask() -> Value {
+    tool("orgtree_withdraw_ask", "Withdraw your open question card.", json!({}), &[])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_present() -> Value {
+    tool(
+        "orgtree_present",
+        "Present documents the user should READ (reports, plans, Markdown); requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. project places it under a reachable project. Otherwise send to your superior.",
+        json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
+                "replaces": { "type": "string" },
+                "project": { "type": "string", "description": "a project's name: present under that project" } }),
+        &["title"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_send_file() -> Value {
+    tool(
+        "orgtree_send_file",
+        "Deliver a wanted FILE (installer, log, export, image, archive), with relative paths from your working folder. Documents to READ, including Markdown, use orgtree_present. Reuse delivery_id for the same delivery after a lost response.",
+        json!({ "path": { "type": "string" }, "note": { "type": "string" },
+            "delivery_id": { "type": "string", "description": "Reuse for the same delivery after a lost response; new ID for a new delivery" } }),
+        &["path"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_hire() -> Value {
+    tool(
+        "orgtree_hire",
+        "Hire a report (target in your team) or insert a superior. index is zero-based among live siblings, 0..count, excluding a superior's target. Seat+grant must fit; above yourself spends your free credits with fixed external budget. Ordinary hire needs explicit scope; superior insertion inherits its target's scope. kickoff sends first mail.",
+        merge(
             json!({
-                "action": {"type":"string", "enum":["set","remove"]},
-                "path": {"type":"string", "description":"set: local image file in your folders"},
-                "crop": {"type":"object", "additionalProperties":false, "properties":{
-                    "x":{"type":"number","minimum":0,"maximum":1},
-                    "y":{"type":"number","minimum":0,"maximum":1},
-                    "size":{"type":"number","minimum":0.1,"maximum":1}
-                }, "required":["x","y","size"]}
+                "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
+                "charter": { "type": "string" }, "parent": { "type": "string" }, "target": { "type": "string" },
+                "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
+                "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
+                "kickoff": { "type": "string", "description": "first message to send it" },
+                "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode"],
+                             "description": "OpenRouter tiers only: pins this seat to the harness; omitted, it follows its key's harness" },
+                "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
             }),
-            &["action"],
+            seat_scope_props(DIRS_HIRE),
         ),
-        tool(
-            "orgtree_status",
-            "Report working/done/blocked/idle with a short summary. Required on finishing or blocking; done/blocked sends your superior a passive notice. done leaves you idle. To wake someone, send mail.",
-            json!({
-                "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
-                "summary": { "type": "string", "description": "one or two sentences" },
-            }),
-            &["status", "summary"],
+        &["name", "tier", "grant", "charter", "index"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_project() -> Value {
+    tool(
+        "orgtree_project",
+        "Create a project node, or edit its description: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you. The description is the standing charter of every agent under it; describe (name, description) replaces it.",
+        json!({
+            "action": { "type": "string", "enum": ["create", "describe"] },
+            "name": { "type": "string" }, "parent": { "type": "string" },
+            "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
+            "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
+        }),
+        &["action", "name"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_rehire() -> Value {
+    tool(
+        "orgtree_rehire",
+        "Restore a retired agent with its context. Supplied folder list replaces the old list; omitted fields retain saved values. kickoff sends first mail. Credit and placement limits still apply.",
+        merge(
+            json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
+                    "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
+                    "charter": { "type": "string" }, "kickoff": { "type": "string" },
+                    "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" } }),
+            seat_scope_props(DIRS_REHIRE),
         ),
-        tool(
-            "orgtree_next_turn",
-            "Read your own next-turn prefix/namespace changes and compaction forecast. No writes, provider calls or permission needed. Baselines and thresholds can be unknown; the rest of the turn can change the result. No cache-hit guarantee.",
-            json!({}),
-            &[],
-        ),
-        tool(
-            "orgtree_session",
-            "Read sign-in state and current/next turn placement. Session 0 has no desktop. prefer changes placement preference; use selects one next-turn session id (0=Session 0). Self interrupt with restart applies it now when allowed. No args only reads.",
-            json!({
-                "prefer": { "type": "string", "description": "signed-in (default: any of the user's sessions), session0, console, remote, or an ordered list such as \"remote,console\"; Session 0 is always the fallback" },
-                "use": { "type": "integer", "description": "a session id from sessions for your next turn only; 0 for Session 0" },
-            }),
-            &[],
-        ),
-        tool(
-            "orgtree_transfers",
-            "Inspect mail attachment transfers: list pages≤100, get by id. retry resumes failed/cancelled transfers; cancel stops the request and holds mail; remove omits a failed/cancelled outgoing file. Mail releases once every remaining file is ready. Success sends no notice.",
-            json!({"action":{"type":"string","enum":["list","get","retry","cancel","remove"]},"id":{"type":"string"},"cursor":{"type":"string"}}),
-            &["action"],
-        ),
-        tool(
-            "orgtree_inbox",
-            "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Reads do not change automatic delivery. project list/fetch reads reachable project mail without claiming it.",
-            json!({
-                "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
-                "project": { "type": "string", "description": "list/fetch: a project's name: its waiting (unread) mail, read-only" },
-                "peer": { "type": "string", "description": "conversation: an agent's name, 'user', '@org:<slug>' or '@net:<address>'" },
-                "limit": { "type": "integer", "description": "list: how many (default 50, max 200); conversation: default 20, max 100" },
-                "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: 1 to 20 IDs from list or conversation" },
-                "cursor": { "type": "string", "description": "list or conversation: next_cursor from the preceding page" },
-                "delivery_id": { "type": "string", "description": "chunk: delivery_id returned with this fetched message" },
-                "message_id": { "type": "string", "description": "chunk: the message ID" },
-                "chunk_index": { "type": "integer", "minimum": 0, "description": "chunk: zero-based index" },
-            }),
-            &["action"],
-        ),
-        tool(
-            "orgtree_chart",
-            "Read the org within your visibility: tiers, credits, status and age. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.",
-            json!({
-                "include_archived": { "type": "boolean" },
-                "include_standing_charter": { "type": "boolean", "description": "include team charters (default true)" },
-            }),
-            &[],
-        ),
-        tool(
-            "orgtree_state_inspect",
-            "Inspect visible agents' structured folders, tools and permission mode, optionally archived. Excludes prompts, transcripts and mail.",
-            json!({
-                "node": { "type": "string" },
-                "nodes": { "type": "array", "items": { "type": "string" } },
-                "include_archived": { "type": "boolean" },
-            }),
-            &[],
-        ),
-        tool(
-            "orgtree_usage",
-            "Read cached provider usage with exact account/provider/window filters; missing/stale stays explicit. refresh needs inspection+runtime, one explicit active account; floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Account pages≤100, windows/account≤64; truncation explicit.",
-            json!({
-                "accounts":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
-                "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","muse","openrouter","langserver"]},"minItems":1,"maxItems":32},
-                "windows":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
-                "refresh":{"type":"boolean","description":"default false; exactly one explicit active account, runtime permission required"},
-                "limit":{"type":"integer","minimum":1,"maximum":100,"description":"account page size, default 20"},
-                "cursor":{"type":"string","description":"next_cursor from a previous cached account page"}
-            }), &[],
-        ),
-        tool("orgtree_list_tiers", "List hireable model tiers and seat prices in credits.", json!({}), &[]),
-        tool("orgtree_list_orgs", "List other local organizations (@org mail) and this org's connected hub peers (@net mail).", json!({}), &[]),
-        tool(
-            "orgtree_read_transcript",
-            "Read recent conversation rows of yourself or an agent below you; last defaults 30, maximum 80.",
-            json!({
-                "node": { "type": "string" },
-                "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 30)" },
-            }),
-            &["node"],
-        ),
-        tool(
-            "orgtree_read_scratch",
-            "Browse/read your own or a descendant's working folder. Omit path to list it.",
-            json!({ "node": { "type": "string" }, "path": { "type": "string" } }),
-            &["node"],
-        ),
-        tool(
-            "orgtree_interrupt",
-            "Stop a descendant's turn with runtime permission, or your own turn without it. Self restart=true starts exactly one new turn using placement rules. Self-interrupt is refused while your CLI runs background work. Waiting mail can start a later turn; this does not retire anyone.",
-            json!({
-                "node": { "type": "string" },
-                "restart": { "type": "boolean", "description": "yourself only: start one new turn at once" },
-            }),
-            &["node"],
-        ),
-        tool(
-            "orgtree_halt",
-            "Halt agents below you until unhalt: stop their processes, preserve waiting mail and suppress wakes.",
-            json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
-            &[],
-        ),
-        tool(
-            "orgtree_unhalt",
-            "Unhalt agents below you; waiting mail starts their next turn.",
-            json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
-            &[],
-        ),
-        tool(
-            "orgtree_unstick",
-            "Release a usage-limit freeze on an agent below you and let it continue.",
-            json!({ "node": { "type": "string" } }),
-            &["node"],
-        ),
-        tool(
-            "orgtree_continue_on",
-            "Move a frozen agent below you to another account of the same provider and release its freeze.",
-            json!({ "node": { "type": "string" }, "account": { "type": "string" } }),
-            &["node", "account"],
-        ),
-        tool(
-            "orgtree_account_mark",
-            "Inspect capacity marks or clear one using its exact expected values. A changed/missing mark writes nothing. Clearing is audited, adds no capacity and resumes nobody; frozen_here still needs unstick. Only org-visible accounts. reason required for clear.",
-            json!({
-                "action": { "type": "string", "enum": ["inspect", "clear"] },
-                "account": { "type": "string", "description": "inspect: account id or name. clear: the exact `account` of the mark entry" },
-                "source": { "type": "string", "enum": ["registry", "legacy-roster"], "description": "clear: the mark entry's `source`" },
-                "pool": { "type": "string", "description": "clear: the mark entry's `pool`" },
-                "expected": { "type": "object", "description": "clear: the mark entry's `expected`" },
-                "companion_expected": { "type": "object", "description": "clear, optional: the `companion.expected` of a pooled entry" },
-                "reason": { "type": "string", "description": "clear, required: why, kept in the audit (500 max)" },
-            }),
-            &["action", "account"],
-        ),
-        // ---- arriving with build step 5
-        tool(
-            "orgtree_ask",
-            "Ask up to 4 user questions with2-4 options or free text. One open request; later calls add/amend tabs. End your turn; answers arrive as mail. Without user audience/top-level authority, routes to your superior. Withdraw moot questions.",
-            json!({
-                "question": { "type": "string", "description": "the complete question (or use `questions`)" },
-                "header": { "type": "string", "description": "very short label chip (max ~12 chars)" },
-                "options": OPTIONS.clone(),
-                "multi": { "type": "boolean", "description": "several options may be selected" },
-                "work_item": { "type": "string", "description": "docket item slug this is about" },
-                "questions": { "type": "array", "minItems": 1, "maxItems": 4,
-                               "description": "1-4 questions as one tabbed card; overrides the single form",
-                               "items": { "type": "object", "properties": {
-                                   "question": { "type": "string" }, "header": { "type": "string" },
-                                   "options": OPTIONS.clone(), "multi": { "type": "boolean" },
-                                   "work_item": { "type": "string" } }, "required": ["question"] } },
-            }),
-            &[],
-        ),
-        tool("orgtree_withdraw_ask", "Withdraw your open question card.", json!({}), &[]),
-        tool(
-            "orgtree_present",
-            "Present documents the user should READ (reports, plans, Markdown); requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. project places it under a reachable project. Otherwise send to your superior.",
-            json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
-                    "replaces": { "type": "string" },
-                    "project": { "type": "string", "description": "a project's name: present under that project" } }),
-            &["title"],
-        ),
-        tool(
-            "orgtree_send_file",
-            "Deliver a wanted FILE (installer, log, export, image, archive), with relative paths from your working folder. Documents to READ, including Markdown, use orgtree_present. Reuse delivery_id for the same delivery after a lost response.",
-            json!({ "path": { "type": "string" }, "note": { "type": "string" },
-                "delivery_id": { "type": "string", "description": "Reuse for the same delivery after a lost response; new ID for a new delivery" } }),
-            &["path"],
-        ),
-        tool(
-            "orgtree_hire",
-            "Hire a report (target in your team) or insert a superior. index is zero-based among live siblings, 0..count, excluding a superior's target. Seat+grant must fit; above yourself spends your free credits with fixed external budget. Ordinary hire needs explicit scope; superior insertion inherits its target's scope. kickoff sends first mail.",
-            merge(
-                json!({
+        &["node"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_retire() -> Value {
+    tool("orgtree_retire", "Retire an agent below you; it can be rehired with its context.", json!({ "node": { "type": "string" } }), &["node"])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_dissolve() -> Value {
+    tool("orgtree_dissolve", "Retire an agent below you and its whole team.", json!({ "node": { "type": "string" } }), &["node"])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_retool() -> Value {
+    tool(
+        "orgtree_retool",
+        "Change a descendant's supplied scope/charter fields. Folder additions preserve others; removing/restricting folders also restricts descendants. Unspecified fields stay unchanged.",
+        merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" },
+                      "remove_dirs": { "type": "array", "items": { "type": "string" },
+                                       "description": "folders it holds to remove" } }),
+              scope_props(DIRS_RETOOL)),
+        &["node"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_switch_model() -> Value {
+    tool(
+        "orgtree_switch_model",
+        "Move an agent below you to another tier at its next turn boundary.",
+        json!({ "node": { "type": "string" }, "tier": { "type": "string" } }),
+        &["node", "tier"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_move() -> Value {
+    tool(
+        "orgtree_move",
+        "Move descendants within your subtree. Use node/new_parent or moves[{node,new_parent}]; a batch is all-or-nothing.",
+        json!({ "node": { "type": "string" }, "new_parent": { "type": "string" },
+                "moves": { "type": "array", "items": { "type": "object" },
+                           "description": "several {node, new_parent} moves as one all-or-nothing act" } }),
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_rename() -> Value {
+    tool("orgtree_rename", "Rename an agent below you.", json!({ "node": { "type": "string" }, "name": { "type": "string" } }), &["node", "name"])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_reorder() -> Value {
+    tool(
+        "orgtree_reorder",
+        "Move a live descendant to a zero-based final sibling index (remove first, then 0..remaining_count). Parent/scope/credits unchanged; self, superior, peers and unrelated agents refused. state_inspect returns sibling counts.",
+        json!({ "node": { "type": "string" }, "index": { "type": "integer", "minimum": 0 } }),
+        &["node", "index"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_reallocate() -> Value {
+    tool(
+        "orgtree_reallocate",
+        "Adjust a report's credits: positive delta grants; negative takes unused credits back.",
+        json!({ "node": { "type": "string" }, "delta": { "type": "integer" } }),
+        &["node", "delta"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_cheap_compact() -> Value {
+    tool("orgtree_cheap_compact", "Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_request_credits() -> Value {
+    tool(
+        "orgtree_request_credits",
+        "Ask the user for a larger credit grant with a reason.",
+        json!({ "new_limit": { "type": "integer" }, "reason": { "type": "string" } }),
+        &["new_limit", "reason"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_request_scope() -> Value {
+    tool(
+        "orgtree_request_scope",
+        "Request more folders, tools or permissions (1-8 items) with a reason. A request grants nothing until approved.",
+        json!({ "items": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "object", "properties": {
+                    "kind": { "type": "string", "enum": ["dir", "tool", "mcp", "permission_mode"] },
+                    "path": { "type": "string", "description": "dir: the absolute folder path" },
+                    "mode": { "type": "string", "description": "dir: ro|rw; permission_mode: the mode" },
+                    "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents", "orgtree.docket", "orgtree.team", "orgtree.messaging", "orgtree.inspection", "orgtree.watchdogs", "orgtree.runtime", "orgtree.user", "orgtree.logo"] },
+                    "server": { "type": "string", "description": "mcp: the server name" } }, "required": ["kind"] } },
+                "reason": { "type": "string" } }),
+        &["items", "reason"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_audience() -> Value {
+    tool(
+        "orgtree_audience",
+        "Manage permission to write outside your chain: request target, grant from, deny requester, revoke grantee. Grants/revokes are limited by your authority; target can name another permitted grantor. Answers arrive as mail; requests do not grant access. External mail reaches org-inbox holders only.",
+        json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
+                "target": { "type": "string", "description": "request: whom you seek; grant/revoke: the grantor when not you" },
+                "from": { "type": "string", "description": "grant: who receives it; deny: the requester" },
+                "grantee": { "type": "string", "description": "revoke: who holds it" },
+                "reason": { "type": "string" } }),
+        &["action"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_watchdog() -> Value {
+    tool(
+        "orgtree_watchdog",
+        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher. Event/count/silence semantics and catalog are in the guide. No added authority.",
+        json!({
+            "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
+            "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
+            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "fair_queue"] },
+            "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
+            "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
+            "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
+            "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
+            "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue) project name, or (event) dotted event name/prefix ending in .*" },
+            "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },
+            "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
+            "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
+            "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
+            "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
+            "id": { "type": "string", "description": "pause/resume/remove: the watchdog's id as `list` shows it (owner/id for a team member's dog)" },
+            "reason": { "type": "string", "description": "remove: why (optional)" },
+        }),
+        &["action"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_work() -> Value {
+    tool(
+        "orgtree_work",
+        "Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. Project items are co-owned by agents above/below. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.",
+        json!({
+            "action": { "type": "string", "enum": ["list", "get", "create", "update", "accept", "assign", "handoff",
+                                                  "participants", "evidence", "archive", "supersede", "move", "delete"] },
+            "slug": { "type": "string", "description": "the item's readable name (every action but list/create)" },
+            "include_archived": { "type": "boolean" }, "include_backlogged": { "type": "boolean" },
+            "projection": { "type": "string", "enum": ["summary", "compact", "full"],
+                            "description": "list/get: summary (list default), compact (get default), full" },
+            "fields": { "type": "array", "items": { "type": "string" }, "description": "list/get: return only these fields" },
+            "title": { "type": "string", "description": "create/update: short concrete title (max 200)" },
+            "objective": { "type": "string", "description": "create (REQUIRED) / update: the description and scope" },
+            "objective_append": { "type": "string", "description": "update: text added to the end of the description" },
+            "kind": { "type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log" },
+            "owner": { "type": "string", "description": "create/assign: the owner (you or a subordinate) · update: the CURRENT owner, to leave it with them" },
+            "reviewer": { "type": "string", "description": "update: the agent that checks the work at review (never the owner)" },
+            "status": { "type": "string", "description": "backlogged|open|in_progress|blocked|review|approved|deploy_ready|done|dropped" },
+            "blocked_reason": { "type": "string", "description": "REQUIRED to enter blocked (max 2000)" },
+            "dropped_reason": { "type": "string", "description": "REQUIRED to end as dropped (max 1500)" },
+            "attention": { "type": "boolean", "description": "update: true raises the flag (needs attention_reason); false takes yours down" },
+            "attention_reason": { "type": "string", "description": "the concrete thing the user must see (max 1500)" },
+            "attention_amend": { "type": "boolean", "description": "update: edit the standing flag's reason without re-raising it" },
+            "reopen": { "type": "boolean", "description": "update: resume a closed or archived item (with the new status)" },
+            "done_so_far": { "type": "array", "items": { "type": "string" }, "description": "what is complete, one entry each (max 500 chars, 40 entries)" },
+            "working_on_next": { "type": "array", "items": { "type": "string" }, "description": "current and next steps, one entry each" },
+            "keep_done": { "type": "boolean" }, "keep_next": { "type": "boolean" },
+            "done_append": { "type": "array", "items": { "type": "string" } },
+            "next_append": { "type": "array", "items": { "type": "string" } },
+            "expected_rev": { "type": "integer", "description": "update: refuse if the item moved since you read it" },
+            "participants": { "type": "array", "items": { "type": "string" }, "description": "create: collaborators" },
+            "add": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to add" },
+            "remove": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to drop" },
+            "dependencies": { "type": "array", "items": { "type": "string" }, "description": "create: items this one depends on" },
+            "parent": { "type": "string", "description": "create/move: the parent item (move with no parent un-nests)" },
+            "project": { "type": "string", "description": "create/update: attach the item to a project node you are above or below (every agent under it co-owns the item); \"\" detaches (owner rights)" },
+            "by": { "type": "string", "description": "supersede: the item that replaces this one" },
+            "target": { "type": "string", "description": "handoff: who should take it (default your superior)" },
+            "reason": { "type": "string", "description": "handoff: why" },
+            "ref": { "type": "string", "description": "evidence: path/url/sha/log (max 500)" },
+            "note": { "type": "string", "description": "evidence / accept: free text" },
+            "items": { "type": "array", "items": { "type": "object" }, "description": "evidence: a batch of {kind, ref, note}" },
+        }),
+        &["action"],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_staff() -> Value {
+    tool(
+        "orgtree_staff",
+        "Create/update a docket item and hire/rehire its owner atomically; assignment mail starts work. parent is the WORK ITEM; target/hire_type place the seat. Live agent: use work assign. Requires docket+team permissions; credit/scope limits match hire/rehire. Omitted progress keeps stored lists. Read guide before assigning.",
+        merge(
+            json!({ "action": { "type": "string", "enum": ["create", "update"] }, "slug": { "type": "string" },
+                    "title": { "type": "string" }, "objective": { "type": "string" },
+                    "staff_mode": { "type": "string", "enum": ["hire", "rehire"] }, "node": { "type": "string" },
                     "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
-                    "charter": { "type": "string" }, "parent": { "type": "string" }, "target": { "type": "string" },
+                    "charter": { "type": "string" }, "kickoff": { "type": "string" },
+                    "kind": { "type": "string", "enum": ["code", "non-code"] },
+                    "status": { "type": "string" }, "blocked_reason": { "type": "string" },
+                    "attention": { "type": "boolean" }, "attention_reason": { "type": "string" },
+                    "attention_amend": { "type": "boolean" }, "reopen": { "type": "boolean" },
+                    "done_so_far": { "type": "array", "items": { "type": "string" } },
+                    "working_on_next": { "type": "array", "items": { "type": "string" } },
+                    "participants": { "type": "array", "items": { "type": "string" } },
+                    "dependencies": { "type": "array", "items": { "type": "string" } },
+                    "parent": { "type": "string", "description": "parent WORK ITEM" },
+                    "target": { "type": "string", "description": "seat destination" },
                     "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
-                    "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
-                    "kickoff": { "type": "string", "description": "first message to send it" },
+                    "index": { "type": "integer", "minimum": 0, "description": "REQUIRED for a new hire: zero-based live sibling insertion position (superior insertion excludes target); rehire retains existing placement" },
                     "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode"],
                                  "description": "OpenRouter tiers only: pins this seat to the harness; omitted, it follows its key's harness" },
-                    "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
-                }),
-                seat_scope_props(DIRS_HIRE),
-            ),
-            &["name", "tier", "grant", "charter", "index"],
+                    "kickoff_kind": { "type": "string", "enum": KINDS } }),
+            seat_scope_props(DIRS_HIRE),
         ),
-        tool(
-            "orgtree_project",
-            "Create a project node, or edit its description: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you. The description is the standing charter of every agent under it; describe (name, description) replaces it.",
-            json!({
-                "action": { "type": "string", "enum": ["create", "describe"] },
-                "name": { "type": "string" }, "parent": { "type": "string" },
-                "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
-                "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
-            }),
-            &["action", "name"],
-        ),
-        tool(
-            "orgtree_rehire",
-            "Restore a retired agent with its context. Supplied folder list replaces the old list; omitted fields retain saved values. kickoff sends first mail. Credit and placement limits still apply.",
-            merge(
-                json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
-                        "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
-                        "charter": { "type": "string" }, "kickoff": { "type": "string" },
-                        "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" } }),
-                seat_scope_props(DIRS_REHIRE),
-            ),
-            &["node"],
-        ),
-        tool("orgtree_retire", "Retire an agent below you; it can be rehired with its context.", json!({ "node": { "type": "string" } }), &["node"]),
-        tool("orgtree_dissolve", "Retire an agent below you and its whole team.", json!({ "node": { "type": "string" } }), &["node"]),
-        tool(
-            "orgtree_retool",
-            "Change a descendant's supplied scope/charter fields. Folder additions preserve others; removing/restricting folders also restricts descendants. Unspecified fields stay unchanged.",
-            merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" },
-                          "remove_dirs": { "type": "array", "items": { "type": "string" },
-                                           "description": "folders it holds to remove" } }),
-                  scope_props(DIRS_RETOOL)),
-            &["node"],
-        ),
-        tool(
-            "orgtree_switch_model",
-            "Move an agent below you to another tier at its next turn boundary.",
-            json!({ "node": { "type": "string" }, "tier": { "type": "string" } }),
-            &["node", "tier"],
-        ),
-        tool(
-            "orgtree_move",
-            "Move descendants within your subtree. Use node/new_parent or moves[{node,new_parent}]; a batch is all-or-nothing.",
-            json!({ "node": { "type": "string" }, "new_parent": { "type": "string" },
-                    "moves": { "type": "array", "items": { "type": "object" },
-                               "description": "several {node, new_parent} moves as one all-or-nothing act" } }),
-            &[],
-        ),
-        tool("orgtree_rename", "Rename an agent below you.", json!({ "node": { "type": "string" }, "name": { "type": "string" } }), &["node", "name"]),
-        tool(
-            "orgtree_reorder",
-            "Move a live descendant to a zero-based final sibling index (remove first, then 0..remaining_count). Parent/scope/credits unchanged; self, superior, peers and unrelated agents refused. state_inspect returns sibling counts.",
-            json!({ "node": { "type": "string" }, "index": { "type": "integer", "minimum": 0 } }),
-            &["node", "index"],
-        ),
-        tool(
-            "orgtree_reallocate",
-            "Adjust a report's credits: positive delta grants; negative takes unused credits back.",
-            json!({ "node": { "type": "string" }, "delta": { "type": "integer" } }),
-            &["node", "delta"],
-        ),
-        tool("orgtree_cheap_compact", "Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"]),
-        tool(
-            "orgtree_request_credits",
-            "Ask the user for a larger credit grant with a reason.",
-            json!({ "new_limit": { "type": "integer" }, "reason": { "type": "string" } }),
-            &["new_limit", "reason"],
-        ),
-        tool(
-            "orgtree_request_scope",
-            "Request more folders, tools or permissions (1-8 items) with a reason. A request grants nothing until approved.",
-            json!({ "items": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "object", "properties": {
-                        "kind": { "type": "string", "enum": ["dir", "tool", "mcp", "permission_mode"] },
-                        "path": { "type": "string", "description": "dir: the absolute folder path" },
-                        "mode": { "type": "string", "description": "dir: ro|rw; permission_mode: the mode" },
-                        "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents", "orgtree.docket", "orgtree.team", "orgtree.messaging", "orgtree.inspection", "orgtree.watchdogs", "orgtree.runtime", "orgtree.user", "orgtree.logo"] },
-                        "server": { "type": "string", "description": "mcp: the server name" } }, "required": ["kind"] } },
-                    "reason": { "type": "string" } }),
-            &["items", "reason"],
-        ),
-        tool(
-            "orgtree_audience",
-            "Manage permission to write outside your chain: request target, grant from, deny requester, revoke grantee. Grants/revokes are limited by your authority; target can name another permitted grantor. Answers arrive as mail; requests do not grant access. External mail reaches org-inbox holders only.",
-            json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
-                    "target": { "type": "string", "description": "request: whom you seek; grant/revoke: the grantor when not you" },
-                    "from": { "type": "string", "description": "grant: who receives it; deny: the requester" },
-                    "grantee": { "type": "string", "description": "revoke: who holds it" },
-                    "reason": { "type": "string" } }),
-            &["action"],
-        ),
-        tool(
-            "orgtree_watchdog",
-            "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher. Event/count/silence semantics and catalog are in the guide. No added authority.",
-            json!({
-                "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
-                "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
-                "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "fair_queue"] },
-                "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
-                "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
-                "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
-                "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
-                "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue) project name, or (event) dotted event name/prefix ending in .*" },
-                "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },
-                "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
-                "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
-                "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
-                "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
-                "id": { "type": "string", "description": "pause/resume/remove: the watchdog's id as `list` shows it (owner/id for a team member's dog)" },
-                "reason": { "type": "string", "description": "remove: why (optional)" },
-            }),
-            &["action"],
-        ),
-        tool(
-            "orgtree_work",
-            "Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. Project items are co-owned by agents above/below. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.",
-            json!({
-                "action": { "type": "string", "enum": ["list", "get", "create", "update", "accept", "assign", "handoff",
-                                                      "participants", "evidence", "archive", "supersede", "move", "delete"] },
-                "slug": { "type": "string", "description": "the item's readable name (every action but list/create)" },
-                "include_archived": { "type": "boolean" }, "include_backlogged": { "type": "boolean" },
-                "projection": { "type": "string", "enum": ["summary", "compact", "full"],
-                                "description": "list/get: summary (list default), compact (get default), full" },
-                "fields": { "type": "array", "items": { "type": "string" }, "description": "list/get: return only these fields" },
-                "title": { "type": "string", "description": "create/update: short concrete title (max 200)" },
-                "objective": { "type": "string", "description": "create (REQUIRED) / update: the description and scope" },
-                "objective_append": { "type": "string", "description": "update: text added to the end of the description" },
-                "kind": { "type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log" },
-                "owner": { "type": "string", "description": "create/assign: the owner (you or a subordinate) · update: the CURRENT owner, to leave it with them" },
-                "reviewer": { "type": "string", "description": "update: the agent that checks the work at review (never the owner)" },
-                "status": { "type": "string", "description": "backlogged|open|in_progress|blocked|review|approved|deploy_ready|done|dropped" },
-                "blocked_reason": { "type": "string", "description": "REQUIRED to enter blocked (max 2000)" },
-                "dropped_reason": { "type": "string", "description": "REQUIRED to end as dropped (max 1500)" },
-                "attention": { "type": "boolean", "description": "update: true raises the flag (needs attention_reason); false takes yours down" },
-                "attention_reason": { "type": "string", "description": "the concrete thing the user must see (max 1500)" },
-                "attention_amend": { "type": "boolean", "description": "update: edit the standing flag's reason without re-raising it" },
-                "reopen": { "type": "boolean", "description": "update: resume a closed or archived item (with the new status)" },
-                "done_so_far": { "type": "array", "items": { "type": "string" }, "description": "what is complete, one entry each (max 500 chars, 40 entries)" },
-                "working_on_next": { "type": "array", "items": { "type": "string" }, "description": "current and next steps, one entry each" },
-                "keep_done": { "type": "boolean" }, "keep_next": { "type": "boolean" },
-                "done_append": { "type": "array", "items": { "type": "string" } },
-                "next_append": { "type": "array", "items": { "type": "string" } },
-                "expected_rev": { "type": "integer", "description": "update: refuse if the item moved since you read it" },
-                "participants": { "type": "array", "items": { "type": "string" }, "description": "create: collaborators" },
-                "add": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to add" },
-                "remove": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to drop" },
-                "dependencies": { "type": "array", "items": { "type": "string" }, "description": "create: items this one depends on" },
-                "parent": { "type": "string", "description": "create/move: the parent item (move with no parent un-nests)" },
-                "project": { "type": "string", "description": "create/update: attach the item to a project node you are above or below (every agent under it co-owns the item); \"\" detaches (owner rights)" },
-                "by": { "type": "string", "description": "supersede: the item that replaces this one" },
-                "target": { "type": "string", "description": "handoff: who should take it (default your superior)" },
-                "reason": { "type": "string", "description": "handoff: why" },
-                "ref": { "type": "string", "description": "evidence: path/url/sha/log (max 500)" },
-                "note": { "type": "string", "description": "evidence / accept: free text" },
-                "items": { "type": "array", "items": { "type": "object" }, "description": "evidence: a batch of {kind, ref, note}" },
-            }),
-            &["action"],
-        ),
-        tool(
-            "orgtree_staff",
-            "Create/update a docket item and hire/rehire its owner atomically; assignment mail starts work. parent is the WORK ITEM; target/hire_type place the seat. Live agent: use work assign. Requires docket+team permissions; credit/scope limits match hire/rehire. Omitted progress keeps stored lists. Read guide before assigning.",
-            merge(
-                json!({ "action": { "type": "string", "enum": ["create", "update"] }, "slug": { "type": "string" },
-                        "title": { "type": "string" }, "objective": { "type": "string" },
-                        "staff_mode": { "type": "string", "enum": ["hire", "rehire"] }, "node": { "type": "string" },
-                        "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
-                        "charter": { "type": "string" }, "kickoff": { "type": "string" },
-                        "kind": { "type": "string", "enum": ["code", "non-code"] },
-                        "status": { "type": "string" }, "blocked_reason": { "type": "string" },
-                        "attention": { "type": "boolean" }, "attention_reason": { "type": "string" },
-                        "attention_amend": { "type": "boolean" }, "reopen": { "type": "boolean" },
-                        "done_so_far": { "type": "array", "items": { "type": "string" } },
-                        "working_on_next": { "type": "array", "items": { "type": "string" } },
-                        "participants": { "type": "array", "items": { "type": "string" } },
-                        "dependencies": { "type": "array", "items": { "type": "string" } },
-                        "parent": { "type": "string", "description": "parent WORK ITEM" },
-                        "target": { "type": "string", "description": "seat destination" },
-                        "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
-                        "index": { "type": "integer", "minimum": 0, "description": "REQUIRED for a new hire: zero-based live sibling insertion position (superior insertion excludes target); rehire retains existing placement" },
-                        "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode"],
-                                     "description": "OpenRouter tiers only: pins this seat to the harness; omitted, it follows its key's harness" },
-                        "kickoff_kind": { "type": "string", "enum": KINDS } }),
-                seat_scope_props(DIRS_HIRE),
-            ),
-            &[],
-        ),
-        tool("orgtree_swap", "Swap the seats of two agents below you.", json!({ "a": { "type": "string" }, "b": { "type": "string" } }), &["a", "b"]),
-        tool(
-            "orgtree_self_subjugate",
-            "Step down under one live descendant: target takes your seat under your superior, keeps its team, and you become its report with the rest of yours.",
-            json!({ "target": { "type": "string" } }),
-            &["target"],
-        ),
-    ]
+        &[],
+    )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_swap() -> Value {
+    tool("orgtree_swap", "Swap the seats of two agents below you.", json!({ "a": { "type": "string" }, "b": { "type": "string" } }), &["a", "b"])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_self_subjugate() -> Value {
+    tool(
+        "orgtree_self_subjugate",
+        "Step down under one live descendant: target takes your seat under your superior, keeps its team, and you become its report with the rest of yours.",
+        json!({ "target": { "type": "string" } }),
+        &["target"],
+    )
 }
 
 #[cfg(test)]
@@ -902,17 +1162,8 @@ mod effort_enum_tests {
 
 #[cfg(test)]
 mod builder_stack_tests {
-    /// One-shot capture while all() is still byte-for-byte the c89111b source.
-    /// Removed after capture; the checked-in fixture remains the regression guard.
-    #[test]
-    #[ignore = "explicit pre-refactor snapshot capture only"]
-    fn capture_all_before_builder_split() {
-        let output = std::env::var_os("ORGTREE_ALL_TOOLS_SNAPSHOT").expect("snapshot output path");
-        let bytes = serde_json::to_vec(&super::all()).unwrap();
-        std::fs::write(output, &bytes).unwrap();
-        println!("captured all() serialized bytes: {}", bytes.len());
-    }
-
+    /// Exact all() bytes captured from the unchanged c89111b constructor before
+    /// extraction, including field and tool order (serde_json preserve_order).
     #[test]
     fn all_tool_json_matches_pre_split_snapshot() {
         let bytes = serde_json::to_vec(&super::all()).unwrap();

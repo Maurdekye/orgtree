@@ -51,3 +51,26 @@ only top-level descriptions and metadata. This preserves schema descriptions,
 required fields, names and ordering too. Token figures use inferred `ceil(bytes/2)`
 for the requested comparison; they are not provider-token measurements. The
 separate live startup audit showed that this estimate overstates that sample.
+
+## Stack safety
+
+The original monolithic `all()` constructor overflowed the default debug engine
+worker stack when called during `Actor::plan` on the first synthetic Codex
+admission. The constructor alone could still run on a default test thread, so
+tool-card unit tests did not reproduce that nested admission failure. The
+unchanged c89111b constructor's debug assembly allocates 202,864 bytes in its
+logged inner function, excluding saved registers and called frames.
+
+Each non-mail tool literal now has its own `#[inline(never)]` builder. These pure
+helpers are `#[nolog]`; the existing outer logging boundary remains. `all()`
+assembles their values in the original order, and the two mail cards retain their
+existing builder. No global cache or stack-size override is introduced.
+
+`testdata/tool-cards-c89111b.json` in the engine crate contains the original
+44,780-byte serialized `all()` output, captured before extraction. Its SHA-256 is
+`2d6cf764fe869d9906a0197317216bcf26b65bfe75757269e85d1dbb16b1caed`.
+The regression compares exact bytes, including names, descriptions, schemas,
+metadata, property order and tool order. Intentional contract changes update the
+fixture alongside their source change. Stack verification separately runs a real
+debug fake-Codex admission with `RUST_MIN_STACK` absent. Assembly frame allocations
+are static measurements, not measured total stack use or remaining headroom.

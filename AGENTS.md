@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Tool-card JSON literals stay in separate `#[inline(never)]` pure builders:
+  a monolithic debug `defs::all()` frame overflows during default-stack actor
+  admission. Keep the outer logging boundary and serialized tool order/contracts;
+  the captured c89111b byte fixture guards them. Verify actual default-stack
+  fake-CLI admission rather than increasing stack sizes. See
+  [tool-card stack safety](docs/rust-engine/tool-cards.md#stack-safety).
+  [verified: `tools/defs.rs`, `main.rs`; 2026-10-17]
+
 - Committees without a dedicated manager use a project under their supervisor;
   large/complex committees may instead put members directly under a dedicated
   non-voting manager, with no committee project. Set the actual host's Subordinates
