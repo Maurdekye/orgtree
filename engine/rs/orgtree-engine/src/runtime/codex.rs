@@ -216,6 +216,11 @@ impl CodexProc {
             match hosted {
                 Ok(h) => started = Some(h),
                 Err(code) => {
+                    if engine.credential_bridge.placement_pending(session) {
+                        tracing::info!(agent=caller.agent_id,session,
+                            "host lease temporarily missing; deferring CLI start during placement debounce");
+                        return Err(session_host::PlacementPending.into());
+                    }
                     tracing::warn!(agent = caller.agent_id, reason = %code,
                         "the sign-in helper could not start Codex; starting it in Session 0 without the OS sandbox");
                     spec.sandbox = fallback;
