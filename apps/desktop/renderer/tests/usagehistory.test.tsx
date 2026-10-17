@@ -17,7 +17,7 @@
 //    account filter names every account with its provider.
 
 // §4 the projected-ahead slider (user 2026-10-17): 0-100 % of the graph's width,
-//    default = the old fixed layout (20 %), live (no refetch), remembered, the time
+//    default 20 %, live (no refetch), remembered, the time
 //    SCALE fixed (history slides off the left edge, never squeezed) and the thumb
 //    mirroring the now-line (rightmost = 0 % ahead).
 //
@@ -266,10 +266,7 @@ const TO = NOW + D * 0.25
 
 test('§4.1 the axis: a fixed time scale, the now-line sits `share` in from the right edge', () => {
   const ax = (share: number) => UH.aheadAxis(SINCE, NOW, share)
-  const span = TO - SINCE
-  const lin = (t: number) => (t - SINCE) / span
-  const d = ax(0.2)
-  for (const t of [SINCE, SINCE + D / 3, NOW, NOW + D / 8, TO]) assert.ok(Math.abs(d.at(t) - lin(t)) < 1e-9, `default is the old linear axis at ${t}`)
+  const span = D
   assert.equal(UH.AHEAD_DEFAULT, 20)
   for (const share of [0, 0.05, 0.2, 0.5, 0.95, 1]) {
     const a = ax(share)
@@ -277,13 +274,14 @@ test('§4.1 the axis: a fixed time scale, the now-line sits `share` in from the 
     assert.ok(Math.abs((a.at(NOW + D) - a.at(NOW)) - D / span) < 1e-9, `a week is the same width at share ${share}: no squeezing`)
   }
   assert.equal(ax(0).at(NOW), 1, '0 %: the now line is the right edge')
-  assert.ok(ax(0).at(SINCE) > 0, '0 %: the history no longer fills the plot, a blank strip is left of it')
+  assert.equal(ax(0).at(SINCE), 0, '0 %: the whole period of history fills the plot, no blank strip')
+  assert.ok(ax(0.2).at(SINCE) < 0 && Math.abs(ax(0.2).at(SINCE + 0.2 * D)) < 1e-9, '20 %: the oldest fifth is already off the left edge')
   const half = ax(0.5)
   assert.ok(half.at(SINCE) < 0, '50 %: the oldest history has slid off the left edge')
   assert.equal(half.left, NOW - 0.5 * span)
   const all = ax(1)
   assert.equal(all.at(NOW), 0, '100 %: the now line is the left edge')
-  assert.equal(all.right, NOW + span, '100 %: the pane ahead is a whole plot of time')
+  assert.equal(all.right, NOW + D, '100 %: the pane ahead is a whole period')
 })
 
 test('§4.2 the axis inverts: a pointer position reads back the time it was drawn at', () => {
@@ -490,7 +488,7 @@ test('§4.7 the projection runs as far as the pane ahead reaches', () => {
   const s7 = series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 12), bucket(NOW, 14)],
     { latest: { observed_at: iso(NOW), used_pct: 14, amount: null, resets_at: null } })
   const base = { now: NOW, since: SINCE, until: NOW, gapMs: 75 * 60_000 }
-  assert.equal(modelSeries(s7, [], base).projection!.to.t, NOW + D * 0.25, 'default horizon: a quarter of the period')
+  assert.equal(modelSeries(s7, [], base).projection!.to.t, NOW + D * 0.25, 'no horizon given: a quarter of the period')
   const wide = modelSeries(s7, [], { ...base, horizonMs: UH.aheadAxis(SINCE, NOW, 1).right - NOW })
-  assert.equal(wide.projection!.to.t, NOW + D * 1.25, 'at 100 % it runs the whole plot')
+  assert.equal(wide.projection!.to.t, NOW + D, 'at 100 % it runs the whole plot')
 })

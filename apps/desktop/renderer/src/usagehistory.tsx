@@ -262,16 +262,14 @@ function useWidth(): [(el: HTMLDivElement | null) => void, number] {
 }
 
 /** The time axis of one chart as fractions of its plot width. The SCALE is
- *  fixed: the plot always spans the period plus a quarter of it (the layout at
- *  the default share), so dragging the share only slides the "now" line, which
- *  sits `share` of the way in from the RIGHT edge. More share moves it left and
- *  pushes the history off the left edge (cropped, not squeezed); less share
- *  pulls it right (the oldest end of the history leaves a blank strip at the
- *  left once it no longer fills the plot). 0 = nothing ahead, 1 = the plot is
- *  all ahead. Pure, so it is tested alone. */
+ *  fixed: the plot always spans exactly the period, so dragging the share only
+ *  slides the "now" line, which sits `share` of the way in from the RIGHT edge.
+ *  More share moves it left and pushes the oldest history off the left edge
+ *  (cropped, not squeezed). 0 = the whole period of history fills the plot,
+ *  1 = the plot is all ahead. Pure, so it is tested alone. */
 export function aheadAxis(since: number, until: number, share: number) {
   const k = Math.min(1, Math.max(0, share))
-  const span = Math.max(1, (until - since) * (1 + FUTURE_SHARE))
+  const span = Math.max(1, until - since)
   const left = until - (1 - k) * span
   return {
     nowAt: 1 - k,
