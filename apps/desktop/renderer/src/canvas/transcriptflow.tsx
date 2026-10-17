@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 import type { ChatMessage, PendingMail } from '../types'
 import { SystemRuns, systemEntry, transcriptEntries, noticeMailKey } from '../events/systemruns'
 import type { SystemEntry, TranscriptEntry } from '../events/systemruns'
@@ -17,7 +18,8 @@ export function TranscriptFlow({ messages, now, later, live, hasLive, divider,
   renderPending: (mail: PendingMail) => ReactNode
   onToggle: () => void
 }) {
-  const entries: FlowEntry[] = transcriptEntries(messages).map(entry => ({
+  const projected = useMemo(() => transcriptEntries(messages), [messages])
+  const entries: FlowEntry[] = projected.map(entry => ({
     ...entry, content: renderMessage(entry),
   }))
   let divided = false

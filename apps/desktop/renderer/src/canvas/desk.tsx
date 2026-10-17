@@ -2910,21 +2910,23 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   //
   // The order below matches the JSX exactly, and it is what tells the two
   // rules apart: within a list the newest snapshot wins, across lists the
-  // earlier source does. Nothing is cached between renders, so a row that
-  // grows keeps growing. The rules and their reasons are in events/dedup.ts.
+  // earlier source does. Only immutable message-list projections are reused;
+  // replacing a growing row invalidates them. The claim pass is always fresh.
+  // The rules and their reasons are in events/dedup.ts.
   //
   // A row with NO id is never collapsed — missing is "unknown", not "same".
   // Nothing here compares text: two events that say the same words are two
   // events and both render. See events/dedup.ts.
   const dedup = eventDedup()
   // the DURABLE id decides — events/dedup.ts says why the reply id cannot
-  const viewMessages = dedup.list(mergeAssistantRows(chat?.messages ?? []),
-    (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id))
+  const viewMessages = useMemo(() => eventDedup().list(mergeAssistantRows(chat?.messages ?? []),
+    (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id)), [chat?.messages])
   // …and each surviving row OWNS the other names it answers to: its reply id,
   // and the tool_use_id of every chip it carries. A live tool row and its
   // durable chip have always shared that id, but nothing here claimed it, so
   // one the server's sweep missed drew beside its own chip.
   for (const m of viewMessages) {
+    dedup.claim(eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id))
     dedup.claim(eventKey(m.event_id))
     dedup.claim(eventKey(m.native_event_id))
     // a merged thinking row answers to every record it absorbed, not only the
@@ -4940,6 +4942,16 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       {m.oracle && <div className="tools"><SparkIcon fontSize="inherit" /> oracle exchange — not retained by the node</div>}
     </div>
   )
+}, (a, b) => {
+  // Only mail segments consume these reply routes. Fresh desk closures must
+  // not invalidate every settled prose/tool row on each live token. Keep
+  // strict callback checks for mail so availability and clicks stay current.
+  const mail = a.m.role === 'user' && isSegments(a.m.segments, 'operator')
+    && a.m.segments.some(s => s.kind === 'mail')
+  return a.m === b.m && a.slug === b.slug && a.nid === b.nid
+    && a.systemPart === b.systemPart && a.refs === b.refs
+    && a.onMailLink === b.onMailLink && a.onWorkLink === b.onWorkLink
+    && (!mail || (a.replyAvailable === b.replyAvailable && a.onLocateReply === b.onLocateReply))
 })
 
 function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {

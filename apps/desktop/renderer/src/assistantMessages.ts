@@ -4,14 +4,20 @@ import type { ChatMessage } from './types'
  * mutate cached source rows: the original card may leave the current window. */
 export function uniqueFileCards(rows: readonly ChatMessage[]): ChatMessage[] {
   const seen = new Set<string>()
-  return rows.map(row => ({ ...row, tools: row.tools?.map(tool => {
-    if (!tool) return tool
-    const id = tool.file?.delivery_id
-    if (!id) return tool
-    if (seen.has(id)) return { ...tool, file: undefined }
-    seen.add(id)
-    return tool
-  }) }))
+  return rows.map(row => {
+    let changed = false
+    const tools = row.tools?.map(tool => {
+      if (!tool) return tool
+      const id = tool.file?.delivery_id
+      if (!id) return tool
+      if (seen.has(id)) { changed = true; return { ...tool, file: undefined } }
+      seen.add(id)
+      return tool
+    })
+    // A token/commit must not replace every settled row's identity merely
+    // because file-card deduplication ran again. Only duplicates change.
+    return changed ? { ...row, tools } : row
+  })
 }
 
 export function assistantIds(row: ChatMessage): string[] {

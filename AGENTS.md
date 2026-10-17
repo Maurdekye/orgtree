@@ -101,6 +101,12 @@
   `Change::UserMail`; sender history, other mailbox copies and attachment files
   remain. See [mail tags](docs/rust-engine/mail-tags.md#deleting-a-user-inbox-message-440).
   [decided: user 2026-10-17; verified: `http/mailbox.rs`, `canvas/mail.tsx`, `App.tsx`]
+- Live token updates retain unchanged settled transcript row identities and
+  segmented projections. Rebuild duplicate claims for live rows every render;
+  changed content/routes still invalidate Msg, and mail segments always retain
+  fresh reply callbacks. File-card dedup must clone only rows it changes.
+  [verified: `assistantMessages.ts`, `canvas/{desk,transcriptflow}.tsx`;
+  2026-10-17; diagnostics: `docs/rust-engine/stream-cadence.md`]
 
 - Per-node **Subordinates may message each other** defaults ON. OFF gates
   all agent mail between the same actual parent's direct children unless the
