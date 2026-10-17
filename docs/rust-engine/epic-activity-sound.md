@@ -64,7 +64,12 @@ assumes the most recently received source state over the elapsed interval.
 under the existing node cards. World positions come from their existing
 translation styles without per-node DOM or per-node layout measurements.
 Pan and zoom are inherited from the same parent, so they never relocate heat
-within the grid. Domain changes resample the existing field at fixed world
+within the grid. The complete borrowed layout and card sizes define the grid
+domain, including virtualized edge cards; mounting/unmounting cards while
+panning, zooming or animating the camera cannot resize or resample it. DOM
+bounds are a fallback only for cards absent from that layout. This uses the
+existing 15 Hz layout pass, with no camera listener or extra frame loop.
+Actual world-layout domain changes resample the existing field at fixed world
 positions. One offscreen colour upload and one blit paint each 15 Hz frame,
 with a warm ramp at 22% layer opacity. With reduced motion the steady baseline
 field is shown statically and transient impulses are ignored. Stop removes

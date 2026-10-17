@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- EPIC heat's world grid bounds use the complete borrowed canvas layout,
+  including virtualized edge cards. Never derive those bounds from only mounted
+  cards: camera pan/zoom would regrid and resample temperatures. Heat inherits
+  the cards' `.space` transform without a camera loop. [decided: user 2026-10-17
+  12:58Z; verified: `epic/heatmap.ts`; contract:
+  [EPIC heat](docs/rust-engine/epic-activity-sound.md#heat-equation)]
+
 - Per-node **Subordinates may message each other** defaults ON. OFF gates
   all agent mail between the same actual parent's direct children unless the
   sender holds an active directional audience. Projects remain transparent for

@@ -1,5 +1,11 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**EPIC heat camera lock, user 2026-10-17 12:58Z:** heat stays attached to
+the cards during pan, zoom and animated camera movement. Diffusion remains
+in canvas coordinates; the shared `.space` transform moves both. Grid bounds
+come from complete world layout, so camera virtualization never resamples
+temperatures. 4.4.0 only. See [EPIC heat](epic-activity-sound.md#heat-equation).
+
 **Direct-child peer mail, user 2026-10-17 11:24Z/11:27Z:** a manager or project
 may turn OFF **Subordinates may message each other** (default ON). Direct
 siblings then need a directional audience; neighbour connector lines disappear

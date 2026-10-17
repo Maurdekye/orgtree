@@ -83,15 +83,21 @@ export class SoundHeatmap {
       this.space = space; this.field = null; space.prepend(this.canvas, this.transport)
     }
     this.positions.clear()
-    // Virtualized cards still heat their source cells, using existing layout.
+    let minX = 0, minY = 0, maxX = Math.max(512, parseFloat(space.style.width) || 0), maxY = Math.max(512, parseFloat(space.style.height) || 0)
+    const include = (x: number, y: number, w: number, h: number) => {
+      minX = Math.min(minX, x - 64); minY = Math.min(minY, y - 64)
+      maxX = Math.max(maxX, x + w + 64); maxY = Math.max(maxY, y + h + 64)
+    }
+    // The full world layout owns both sources and domain. Camera virtualization
+    // must never resize/resample the field as edge cards mount or disappear.
     const geometry = epicCanvasNow()
     for (const [id, p] of geometry?.positions ?? []) {
       const size = geometry!.size(id)
       this.positions.set(id, { x: p.x + size.w / 2, y: p.y + size.h / 2 })
+      include(p.x, p.y, size.w, size.h)
     }
     const active = new Map(this.sources.map(s => [s.id, s.layer]))
     const seen = new Set<HTMLElement>()
-    let minX = 0, minY = 0, maxX = Math.max(512, parseFloat(space.style.width) || 0), maxY = Math.max(512, parseFloat(space.style.height) || 0)
     for (const card of space.querySelectorAll<HTMLElement>('[data-first-use-agent], .sq[data-copy-agent-name]')) {
       const match = /translate\(\s*([-\d.]+)px,\s*([-\d.]+)px\)/.exec(card.style.transform)
       if (!match) continue
@@ -112,8 +118,9 @@ export class SoundHeatmap {
         { duration: durations[layer ?? ''] ?? 1400, iterations: Infinity })
         this.machines.set(card, { layer, animation })
       }
-      minX = Math.min(minX, x - 64); minY = Math.min(minY, y - 64)
-      maxX = Math.max(maxX, x + w + 64); maxY = Math.max(maxY, y + h + 64)
+      // DOM-only hosts retain their fallback; mounted dimensions cannot change
+      // the domain of cards already covered by the complete canvas geometry.
+      if (!geometry?.positions.has(id)) include(x, y, w, h)
     }
     for (const [card, m] of this.machines) if (!seen.has(card)) { m.animation.cancel(); this.machines.delete(card) }
     // Quantise the domain so small drag/spring movements do not regrid it.
