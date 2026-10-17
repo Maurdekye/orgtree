@@ -5407,7 +5407,8 @@
    "writer": "agentsettings-sol",
    "status": "fixed",
    "components": [
-    "apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView"
+    "apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView",
+    "apps/desktop/renderer/src/canvas/historyview.tsx#AgentHistoryView"
    ]
   },
   {
