@@ -86,6 +86,23 @@ test('§3 every row names the agent that presented it, also under a project', as
     'the presenting agents, not the project')
 })
 
+test('§3b the presenter is a LINK: a click focuses that agent and does not select the row (review of a590555)', async (t) => {
+  stubDocuments(t, [doc('d1', 'website', 'boss', 'Website plan'), doc('d2', 'dev5', 'dev5', 'UI sketch')])
+  const focused: string[] = []
+  const view = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} team
+    onFocusAgent={(id) => { focused.push(id) }} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  const selected = () => [...view.el.querySelectorAll('.doc-gallery-row.on')].length
+  const before = selected()
+  const link = view.el.querySelectorAll<HTMLButtonElement>('.doc-gallery-row .l2 button.cc-name-jump')[1]
+  assert.ok(link, 'the second row\'s presenter is a button')
+  assert.equal(link.textContent, 'dev5')
+  await inAct(() => { link.click() })
+  assert.deepEqual(focused, ['dev5'], 'focuses the presenting agent')
+  assert.equal(selected(), before, 'the row selection did not change')
+})
+
 /* ─── §4 a project's presentation chips ─────────────────────────────────── */
 
 const withDocs = () => ({
