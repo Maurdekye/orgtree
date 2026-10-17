@@ -800,6 +800,14 @@
   lane proofs; do not increase stack limits or suppress lints to hide it.
   [verified: round 434 own-tip failure; `providers/agy_auth.rs`, 2026-10-14]
 
+- Antigravity admission/launch repeats an inconclusive silent check once after
+  500 ms (Unavailable/Timeout only), reacquiring metadata and the guard each
+  time. SignedOut, NotIsolated and OutputLimit never retry; exhausted admission
+  leaves mail pending without signed-out evidence. Diagnostics name fixed
+  stages/reasons only, never captured output. [decided: coordinator 2026-10-17;
+  verified: `providers/agy_auth.rs`, `runtime/actor.rs`; contract:
+  `docs/rust-engine/antigravity-background-auth.md`]
+
 - Antigravity keeps ONE sign-in per Windows user (Credential Manager target
   `gemini:antigravity`): a separate `USERPROFILE` folder still reads it, with or
   without `.gemini\antigravity-keyring-unavailable` (two user-approved probes,

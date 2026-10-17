@@ -57,6 +57,37 @@ only silent revalidation after at least five minutes; actual usage/model/turn
 commands remain forbidden until a check succeeds (coordinator, 2026-10-14).
 This platform path is source-reviewed, not measured against a real CLI here.
 
+## Transient wake checks (2026-10-17)
+
+An inconclusive silent check must not require a second user message when a
+brief retry can recover. Agent admission and process launch each retry at most
+once after 500 ms for `Unavailable` or `Timeout`. Both attempts perform the full
+guard again on the same account; the delay holds neither the guard mutex nor a
+database transaction. Metadata-only gates defer transient failures to that
+full check. A known signed-out or not-isolated account still stops immediately,
+and output-limit failures do not retry. Background usage and identity reads
+keep their previous single-check behavior and cadence.
+
+If both admission attempts fail, the error remains visible and the mail stays
+unclaimed. No transient failure writes a sign-out latch or becomes signed-out
+usage evidence. The existing check/use race and prompt protections still apply.
+Each subprocess keeps its eight-second bound; this change does not authorize
+an interactive sign-in or infer that an unavailable account is authenticated.
+
+Warnings contain fixed stage names and failure classes only: spawn, pipe/read,
+wait, timeout, credential metadata before/after the check, a changed stamp, or
+profile identity validation. They never contain stdout, stderr, an email, a
+token or an OS error string. The retry warning records its fixed 500 ms delay.
+
+`agy-auth-wake` uses a disposable fake fixture whose first check hangs and
+whose next check succeeds. Red `6a2175f` against pre-fix engine `6f98248` had
+three expected recovery failures and four passing timeout/signed-out controls.
+Focused units cover both transient classes, success, hard refusals and the
+two-attempt ceiling. Exact green results are recorded in the docket. These
+author runs disclose `RUST_MIN_STACK=16777216` for the separately tracked debug
+tool-catalog overflow; production stack settings are unchanged, and the
+combined hardening round owns default-stack debug/release checks.
+
 ## Version query (the one unchecked launch)
 
 Settings → Harnesses needs the installed version whatever the sign-in state, so
