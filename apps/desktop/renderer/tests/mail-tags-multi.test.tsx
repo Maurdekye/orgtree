@@ -6,6 +6,8 @@ import path from 'node:path'
 import { useState } from 'react'
 import { MailTagPicker } from '../src/canvas/mailtagpicker'
 import { MailList } from '../src/canvas/mail'
+import { projectUserInbox } from '../src/recordpanels'
+import type { RecordTable } from '../src/recordfeed'
 import { mailMatchesTags, mailTagHue } from '../src/canvas/mailtags'
 
 const choices=['Alpha Build','Progress','Review']
@@ -137,4 +139,14 @@ test('hiding Mail reply kind does not hide another typed kind label',async()=>{
   const v=await mountView(<MailList delivered={[replyRow('reply.document')]} hideMailReplyKind/>,el=>el)
   try{assert.match(v.el.querySelector('.mailrow')?.textContent??'',/Document reply/)}
   finally{await v.unmount()}
+})
+
+test('a pushed mail revision survives an unchanged bounded inbox window',()=>{
+  // Old tagged mail can disappear outside the 200-row archive window.
+  // The catalog must still refresh without refetching on unrelated turn/cost records.
+  const records:RecordTable=new Map([['org',new Map([['user_mail_revision',{revision:'boot:9'}]])]])
+  const box=projectUserInbox(records)
+  assert.deepEqual(box.pending,[])
+  assert.deepEqual(box.delivered,[])
+  assert.equal((box as typeof box & {mail_revision?:string}).mail_revision,'boot:9')
 })
