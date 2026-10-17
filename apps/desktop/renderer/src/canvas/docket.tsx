@@ -23,7 +23,7 @@
 // look up and for the "who is asking" header — never to answer directly.
 
 import { beginOpen, useOpenCommit } from '../opentiming'
-import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useDocketWindow } from './docketwindow'
 import { usePanelSteps } from './panelsteps'
 import { usePendingAttention } from '../pending-attention'
@@ -2745,6 +2745,15 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
 }) {
   const refIndex = useProseAgentIndex(slug, item, panelIndex)
   const attention = flaggedForUser(item)
+  const didInitialAttentionScroll = useRef(false)
+  const paneHead = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (didInitialAttentionScroll.current) return
+    didInitialAttentionScroll.current = true
+    if (!attention) return
+    const detail = paneHead.current?.closest<HTMLElement>('.mailer-read')
+    if (detail) detail.scrollTop = detail.scrollHeight
+  }, [attention])
   const label = attention ? 'Needs attention' : statusLabel(item.status)
   const canDismiss = item.attention_sources.includes('manual')
   const assignee = item.owner
@@ -2805,7 +2814,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
     <>
       {/* THE ONLY PLACE THE FULL DESCRIPTIVE TITLE IS PRINTED (user
           2026-09-05) — the list is named by slug alone. */}
-      <div className="mailer-head docket-pane-head" data-copy-ticket-title={item.title}>
+      <div ref={paneHead} className="mailer-head docket-pane-head" data-copy-ticket-title={item.title}>
         <b>{item.title || '(untitled)'}</b>
         <span className="spacer" />
         

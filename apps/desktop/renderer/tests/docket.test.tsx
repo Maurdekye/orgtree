@@ -435,7 +435,7 @@ uiTest('an attention ticket opens at the bottom of the detail pane', async (moun
     },
   })
   mockWorkItems([ordinary, attention])
-  const { el } = await mount(docketModal())
+  const { el, render } = await mount(docketModal())
   const detail = pane(el) as HTMLElement
   Object.defineProperty(detail, 'scrollHeight', { configurable: true, value: 900 })
   await flush()
@@ -444,6 +444,11 @@ uiTest('an attention ticket opens at the bottom of the detail pane', async (moun
   await inAct(() => rowFor(el, 'needs-attention').click())
   await flush()
   assert.equal(detail.scrollTop, 900, 'the attention reason and reply are in view')
+
+  detail.scrollTop = 120
+  await render(docketModal())
+  await flush()
+  assert.equal(detail.scrollTop, 120, 'a later render leaves the reader at their chosen position')
 })
 
 uiTest('§9 question box renders attached AskCard and clickable asker', async (mount) => {
