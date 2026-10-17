@@ -172,6 +172,8 @@ While EPIC Mode is off, a window holds:
   theme, contrast and Rainbow syncs hold;
 - a borrowed reference to the App's latest tree, assigned at its existing
   publication sites, so enabling mid-turn can seed activity immediately;
+- borrowed references to the canvas's existing wire/layout geometry, for
+  factory link pulses and virtualized heat sources (4.4.0);
 - null checks: `epic?.frame` in App.tsx, `epic?.tree` inside that tree
   publication helper, and `epic?.refused` in `req`'s failure path. `interruptNode` checks `epic`
   once and, while it is null, returns the request untouched.

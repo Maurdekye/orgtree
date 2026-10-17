@@ -3689,7 +3689,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // instead, with no commit at all.
   useLayoutEffect(() => {
     committedViewRef.current = view
-    publishEpicCanvas(wiresRef.current, targetRef.current)
+    publishEpicCanvas(wiresRef.current, targetRef.current, sizeOf)
     const layer = glWires.layerRef.current
     if (!glWires.active || !layer) { glDrawRef.current = null; return }
     const svg = edgesSvgRef.current

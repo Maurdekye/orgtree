@@ -28,10 +28,10 @@ export interface EpicTaps {
 export let epic: EpicTaps | null = null
 let latestTree: TreePayload | null = null
 export interface EpicWire { key: string; seg: { kind: 'l' | 'c'; pts: readonly { x: number; y: number }[] }; frac?: number }
-let canvas: { wires: readonly EpicWire[]; positions: ReadonlyMap<string, { x: number; y: number }> } | null = null
+let canvas: { wires: readonly EpicWire[]; positions: ReadonlyMap<string, { x: number; y: number }>; size: (id: string) => { w: number; h: number } } | null = null
 /** Borrow geometry for both SVG and WebGL links. No additional reader. */
-export function publishEpicCanvas(wires: readonly EpicWire[], positions: ReadonlyMap<string, { x: number; y: number }>): void {
-  canvas = { wires, positions }
+export function publishEpicCanvas(wires: readonly EpicWire[], positions: ReadonlyMap<string, { x: number; y: number }>, size = (_id: string) => ({ w: 200, h: 100 })): void {
+  canvas = { wires, positions, size }
 }
 export function epicCanvasNow() { return canvas }
 

@@ -84,7 +84,11 @@ export class SoundHeatmap {
     }
     this.positions.clear()
     // Virtualized cards still heat their source cells, using existing layout.
-    for (const [id, p] of epicCanvasNow()?.positions ?? []) this.positions.set(id, { x: p.x + 100, y: p.y + 50 })
+    const geometry = epicCanvasNow()
+    for (const [id, p] of geometry?.positions ?? []) {
+      const size = geometry!.size(id)
+      this.positions.set(id, { x: p.x + size.w / 2, y: p.y + size.h / 2 })
+    }
     const active = new Map(this.sources.map(s => [s.id, s.layer]))
     const seen = new Set<HTMLElement>()
     let minX = 0, minY = 0, maxX = Math.max(512, parseFloat(space.style.width) || 0), maxY = Math.max(512, parseFloat(space.style.height) || 0)
