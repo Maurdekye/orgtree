@@ -10,7 +10,7 @@ Presented documents are reading surfaces. File-delivery cards provide downloadab
 
 ## Collections and reader
 
-The org gallery groups documents from currently hired agents first, with Show retired to include retained retired/deleted-agent presentations. The agent gallery and desk Presented tab narrow to that agent. Selection uses document identity, not a row index; exact document references can locate older entries beyond the first loaded window.
+The org gallery groups documents from currently hired agents first, with Show retired to include retained retired/deleted-agent presentations. The agent gallery and desk Presented tab narrow to that agent. The agent menu's Open team presentations widens the same view to the agent and everyone below it, passing through projects; a project's gallery (its desk's presented tab) always holds the project's documents and its subtree's. Every row and the reader name the agent that presented the document, also for one presented under a project. Selection uses document identity, not a row index; exact document references can locate older entries beyond the first loaded window.
 
 Open a card to read its Markdown or HTML preview. The reader identifies title/author/time and supported references, plus applicable reply/dismiss/download controls. A missing/failed load says so instead of manufacturing an empty document. An HTML card offers its explicit prototype/new-tab route; previewing content does not grant it an agent's tool authority.
 

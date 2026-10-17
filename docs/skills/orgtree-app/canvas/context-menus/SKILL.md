@@ -21,6 +21,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Open → Open team scratch folder | Immediately after personal scratch; the team this agent leads, keyed by its numeric id even with no reports. Creates a missing managed folder on demand; supported native shells only. |
 | Open → Open docket | Agent-scoped work view when supported. |
 | Open → Open team docket | Work assigned to that agent or its descendants when supported. |
+| Open → Open team presentations | Right after the team docket: the documents presented by that agent or by anyone below it, passing through projects, paged like the agent gallery; each row names the presenting agent. |
 | Open → Open presentations | Offered when the agent has presented documents and the opener exists. |
 | Continue on <account> | Engine-supplied eligible alternatives for a live frozen agent; no invented account choices from the menu. |
 | Dismiss | Hide an explicitly revealed retired card again, where the surface supports that action. |

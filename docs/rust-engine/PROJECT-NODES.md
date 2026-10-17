@@ -162,6 +162,16 @@ agents under the project".
   desk header and on the middle-zoom card beside the activity chip; none if nobody ever ran one.
 - **Hover row** [user 2026-10-17 22:21Z]: with Show agent card shortcuts on, the card shows the
   agent card's docket, mailbox (waiting count) and presented (subtree document count) buttons.
+- **Team presentations** [user 2026-10-17 22:47Z]: the agent menu's Open → Open team presentations
+  (after Open team docket) opens the agent gallery in team scope: `GET documents?node=<agent>&team=1`
+  lists the agent's documents and every descendant's, recursing through projects (`subtree_members`
+  in `http/docs.rs`, the same read a project's gallery uses), paged, counted and located like the
+  agent gallery. Team and project galleries skip the client's `node === nid` row filter.
+- **Presenter on every row** [user 2026-10-17 22:47:51Z]: list rows carry `presented_by` (the
+  agent that presented it, the node for older rows) and `presenter_tier`; the gallery rows and the
+  reader show that agent, so a document presented under a project names its author.
+- **Project presentation chips** [user 2026-10-17 22:47:29Z]: the project card and the desk header
+  carry chips for the project's own documents and its subtree's, newest first (`subtreeDocs`).
 - **Menus** [user 2026-10-17 22:23Z] take every agent/switchboard entry that applies: Focus; Open >
   mailbox, folder, presentations, project docket, pin / show pinned window; Hire under this
   project; New project…; Settings; Cheap-compact all agents under it…; Halt/Unhalt all agents

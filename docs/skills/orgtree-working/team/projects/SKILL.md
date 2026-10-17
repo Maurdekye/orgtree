@@ -40,7 +40,7 @@ A project's docket lists every item owned by an agent under the project, nested 
 
 ## Presentations
 
-`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab) also lists every document presented by the agents below it, nested projects included.
+`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab) also lists every document presented by the agents below it, nested projects included, and so do the presentation chips on its card and desk header. Each row names the agent that presented it. An agent's "Open team presentations" covers its whole team the same way, through projects.
 
 ## See also
 
