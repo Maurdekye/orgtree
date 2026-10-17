@@ -58,3 +58,20 @@ pub fn view(w: &Value, owner: &str) -> Value {
     }
     Value::Object(o)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn watchdog_view_keeps_durable_deadlines_separate_from_actual_progress() {
+        let raw=json!({"uid":"clock","kind":"command","state":"armed","created_at":"2026-01-01T00:00:00Z",
+            "last_check":"2026-01-01T07:00:00Z","next_check_at":"2026-01-01T12:00:00Z",
+            "last_fired":"2026-01-01T07:00:00Z","next_silence_at":"2026-01-01T12:00:00Z"});
+        let projected=view(&raw,"boss");
+        assert_eq!(projected["next_check_at"],ts(&raw["next_check_at"]));
+        assert_eq!(projected["next_silence_at"],ts(&raw["next_silence_at"]));
+        assert_eq!(projected["last_check"],ts(&raw["last_check"]));
+        assert_ne!(projected["next_check_at"],projected["last_check"]);
+        assert!(view(&json!({"uid":"legacy"}),"boss").get("next_check_at").is_none());
+    }
+}
