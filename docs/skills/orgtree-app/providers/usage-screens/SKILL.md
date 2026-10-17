@@ -22,11 +22,11 @@ Muse Refresh remains visible, dimmed and disabled because Muse supplies observat
 
 ## Usage history
 
-The initial period is seven days; buttons offer 24 hours, 7, 30 and 90 days. Provider, Account, Window and Model scope filters narrow the displayed series. Each chart is one account/window/model-scope series, grouped by account, with its own percent or monetary units.
+The compact header and its period controls stay sticky above the charts while you scroll; the filters occupy their own row. The initial period is seven days; buttons offer 24 hours, 7, 30 and 90 days. Provider, Account, Window and Model scope filters narrow the displayed series. Account choices include the provider name before the account name. Each chart is one account/window/model-scope series, grouped by account, with its own percent or monetary units.
 
 Actual retained readings form the line. Missing observations are omitted and neighboring valid points can be connected; they are not zero consumption. Recorded resets break the line and have solid markers. The shaded right-hand future pane contains a dashed, labeled trend projection and dotted reported reset marker. A projection is a fit to recorded points, not a promised exhaustion time.
 
-No-history, no-series-in-period, unavailable-account and no-filter-match states are explicit. The view states retained date bounds/retention and truncation when returned. Changing display filters does not change stored observations.
+Changing the period keeps the previous charts in place and dimmed until the new data arrives, preserving the current scroll position. No-history, no-series-in-period, unavailable-account and no-filter-match states are explicit. The view states retained date bounds/retention and truncation when returned. Changing display filters does not change stored observations.
 
 CSV/JSONL exports on a series save the recorded points supplied for that chart and their metadata, rather than its projection or aggregate statistics. The history response can be downsampled; this is not a promise of a complete raw observation archive. Reading-history refreshes while the window is open; an engine not running cannot backfill provider observations it never recorded.
 

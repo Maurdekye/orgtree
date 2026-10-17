@@ -20,7 +20,7 @@ Selecting an item opens its full pane. Read the description as authoritative sco
 
 Manual attention is visibly separate from an open question. Dismiss attention clears that user flag; it does not answer a question or approve an agent's implementation by implication. Linked question cards retain their own answer flow.
 
-User replies go through the ticket's reply UI with owner/participant recipient state, exact item context and supported attachment/notice controls. Retired/unavailable recipients are shown rather than silently treated as current live holders. A local composed reply is not a saved scope change until the appropriate operation actually records it.
+User replies go through the ticket's reply UI with exact item context and supported attachment/notice controls. The owner and participants can receive replies; while an attention flag is active, its raiser is also an available recipient and is the default. Without an active attention flag, the owner remains the default. A reply to the attention raiser does not assign the item or grant docket access. Retired/unavailable recipients are shown rather than silently treated as current live holders. A local composed reply is not a saved scope change until the appropriate operation actually records it.
 
 Do not interpret “review” as waiting for the user: status policy lives in `orgtree-docket-statuses` (orgtree-working › docket). For item mutations/actions, parameters and evidence use `orgtree-tool-work` there. This page describes the viewing surfaces, not another set of workflow rules.
 
