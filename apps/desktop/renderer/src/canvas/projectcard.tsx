@@ -1,12 +1,16 @@
 // canvas/projectcard.tsx — the canvas card of a PROJECT NODE
 // (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16): a node that stands
 // for one project and is not an agent. It runs no turns and holds no
-// credits, so it has no desk, model, credit bar or turn state. The card shows
-// its name, description, the mail waiting in its mailbox and its documents;
-// a click opens its mailbox, and its menu (projectMenuEntries, shared with
-// the Agents List) reaches its presentations, folder, hires and nested
-// projects under it, and its retirement. Agents and projects hang under it
-// like under any card; dropping a card on it moves that card in.
+// credits, so it has no model, credit bar or turn state. Zoomed out it is a
+// large folder; at middle zoom it shows its name, the activity chip (active /
+// hired agents under it), its description and its documents, with the mailbox
+// button only under "Show agent card shortcuts". A click or zooming in walks
+// to its PROJECT DESK (projectdesk.tsx; user 2026-10-17 19:38Z, 20:04Z), never
+// a modal. It has an agent card's four hire strips, and its menu
+// (projectMenuEntries, shared with the Agents List) reaches its mailbox,
+// folder, presentations, settings, hires and nested projects, and its
+// retirement. Agents and projects hang under it like under any card; dropping
+// a card on it moves that card in.
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
