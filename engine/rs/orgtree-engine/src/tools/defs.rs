@@ -532,14 +532,14 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_project",
-            "Create a project node: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you; description is its charter.",
+            "Create a project node, or edit its description: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you. The description is the standing charter of every agent under it; describe (name, description) replaces it.",
             json!({
-                "action": { "type": "string", "enum": ["create"] },
+                "action": { "type": "string", "enum": ["create", "describe"] },
                 "name": { "type": "string" }, "parent": { "type": "string" },
                 "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
                 "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
             }),
-            &["action", "name", "index"],
+            &["action", "name"],
         ),
         tool(
             "orgtree_rehire",

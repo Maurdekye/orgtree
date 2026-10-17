@@ -701,6 +701,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "delete" => delete(org, &tx, actor, req, fx).await?,
         "move" => move_node(engine, org, &tx, actor, req, fx).await?,
         "rename" => rename(org, &tx, actor, req, fx, false).await?,
+        "set_description" => set_description(org, &tx, actor, req, fx).await?,
         "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
         "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
         "reorder" => reorder(org, &tx, actor, req, fx).await?,
@@ -1936,6 +1937,26 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         extra: Some(json!({ "was": n.name })),
     });
     Ok(json!({ "renamed": true, "was": n.name, "node": new }))
+}
+
+/// Replace a project's description, the standing charter of every agent
+/// under it (user 2026-10-17 19:14Z, 20:06Z). Whoever controls the project
+/// may: the user and the agents above or below it.
+#[logged]
+async fn set_description(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: set_description edits a project's description (an agent's charter changes with retool)", n.name);
+    }
+    authorize(tx, actor, &n, "describe").await?;
+    let text = str_arg(req, "description").unwrap_or("").trim().to_string();
+    tx.execute("UPDATE ot.agents SET charter = $2, row_version = row_version + 1 WHERE id = $1",
+        &[&n.id, &(!text.is_empty()).then_some(text.clone())]).await?;
+    event(tx, org.id, "set_description", actor, Some(n.id), json!({ "node": n.name }), fx).await?;
+    fx.agents.insert(n.id);
+    // the agents under it carry the description in their instructions
+    fx.reconfigure.extend(subtree(tx, n.id).await?);
+    Ok(json!({ "node": n.name, "description": text }))
 }
 
 #[logged]
