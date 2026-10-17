@@ -890,7 +890,7 @@ fn build_tool_watchdog() -> Value {
 fn build_tool_work() -> Value {
     tool(
         "orgtree_work",
-        "Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. Project items are co-owned by agents above/below. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.",
+        "Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.",
         json!({
             "action": { "type": "string", "enum": ["list", "get", "create", "update", "accept", "assign", "handoff",
                                                   "participants", "evidence", "archive", "supersede", "move", "delete"] },
@@ -923,7 +923,6 @@ fn build_tool_work() -> Value {
             "remove": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to drop" },
             "dependencies": { "type": "array", "items": { "type": "string" }, "description": "create: items this one depends on" },
             "parent": { "type": "string", "description": "create/move: the parent item (move with no parent un-nests)" },
-            "project": { "type": "string", "description": "create/update: attach the item to a project node you are above or below (every agent under it co-owns the item); \"\" detaches (owner rights)" },
             "by": { "type": "string", "description": "supersede: the item that replaces this one" },
             "target": { "type": "string", "description": "handoff: who should take it (default your superior)" },
             "reason": { "type": "string", "description": "handoff: why" },
