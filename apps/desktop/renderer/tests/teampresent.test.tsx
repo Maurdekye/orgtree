@@ -97,7 +97,7 @@ const withDocs = () => ({
   lineage: [], turns: [], audiences_held: [], mail_pending: 0,
 } as unknown as CanvasNode)
 
-test('§4a the project card carries chips for its own and its subtree\\'s presentations', async (t) => {
+test('§4a the project card carries chips for its own and its subtree\'s presentations', async (t) => {
   stubDocuments(t, [])
   const view = await mountView(<ProjectSquare node={withDocs()} pos={{ x: 0, y: 0 }} lod="norm" dragging={false}
     isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={1.2} hire={{}} seats={{}}
