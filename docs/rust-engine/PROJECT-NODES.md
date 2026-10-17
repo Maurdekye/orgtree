@@ -157,6 +157,17 @@ agents under the project".
 - **Neighbour lines** [user 2026-10-17 21:23Z]: `peerLinkPairs` joins consecutive AGENT siblings
   only, so a project at a row's end has no neighbour segment and agents on either side of a project
   are joined by one line running past it; message sparks follow the same lines.
+- **Last activity** [user 2026-10-17 22:21Z]: "active now" while any live agent under the project
+  runs a turn, else "quiet for <age>" of the newest turn end under it (nested included), on the
+  desk header and on the middle-zoom card beside the activity chip; none if nobody ever ran one.
+- **Hover row** [user 2026-10-17 22:21Z]: with Show agent card shortcuts on, the card shows the
+  agent card's docket, mailbox (waiting count) and presented (subtree document count) buttons.
+- **Menus** [user 2026-10-17 22:23Z] take every agent/switchboard entry that applies: Focus; Open >
+  mailbox, folder, presentations, project docket, pin / show pinned window; Hire under this
+  project; New project…; Settings; Cheap-compact all agents under it…; Halt/Unhalt all agents
+  under it…; Retire project…. Left out: model, account and continue-on entries, audiences,
+  credits, the popout window and the temporary desk (agent-desk surfaces), team scratch folder
+  and team docket (the project folder and docket already are the team's), retire-all-subordinates.
 - **Desk jump cards pass through projects** [user 2026-10-17 22:13Z]: an agent desk's up row has its
   nearest agent superior and every project between them (superior first, then outermost to
   innermost; `upJumpTargets`); its down row lists each report and, for a project, its live members,
