@@ -244,7 +244,7 @@ test('§3.5 styles: the controls are compact and out-rank the roomy .settings si
   const size = (selector: string) => Number(/font-size:\s*([\d.]+)px/.exec(rule(selector))?.[1])
   assert.ok(size('.uh-ranges .uh-range') <= 13, 'period buttons <= 13px (was the 14px .settings button)')
   assert.ok(size('.uh-filters .uh-filter') <= 13, 'filter selects <= 13px (was the 14.5px .settings select)')
-  assert.match(rule('.uh-ranges .uh-range'), /padding:\s*3px 9px/)
+  assert.match(rule('.uh-ranges .uh-range'), /padding:\s*2px 9px/)
   assert.match(rule('.uh-filters .uh-filter'), /padding:\s*3px 6px/)
   assert.match(rule('.uh-filters'), /grid-template-columns:\s*repeat\(auto-fit/, 'the filters wrap as a block when the window is narrow')
 })
