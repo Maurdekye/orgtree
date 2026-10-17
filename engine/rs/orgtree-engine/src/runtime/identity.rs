@@ -63,7 +63,7 @@ pub struct Identity<'a> {
 /// the trimmed instructions; every other seat keeps the full text (user approval
 /// 2026-10-15 12:41Z: the trim lands with the library, lane by verified lane).
 // Synthetic native-binding/read receipts: instructions-trim-skills, 37/37,
-// 2026-10-16. The proof's fake agents open both categories, a section and a leaf;
+// 2026-10-16. The proof's fake agents opened the original two categories, a section and a leaf;
 // this does not assert real-model skill selection or every native CLI version.
 pub const SKILL_LANES: &[Lane] = &[
     Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode,
@@ -201,7 +201,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
         s.push_str(&scope_request_guidance(if bypass { GATE_BYPASS } else { GATE_GATED }, tools));
     }
 
-    s.push_str("The built-in Orgtree skill library is also called the glossary or Orgtree Encyclopaedia (encyclopedia). These names mean the same library. Open its orgtree-working category for tools and workflows, or orgtree-app for screens and settings, then follow the section links to the guide you need. ");
+    s.push_str("The built-in Orgtree skill library is also called the glossary or Orgtree Encyclopaedia (encyclopedia). These names mean the same library. Open orgtree-working for tools and rules, orgtree-app for screens and settings, or orgtree-workflows for suggested team workflows; follow the section links. ");
 
     // ---- tools ----
     let off: Vec<&str> = [("bash", "the terminal"), ("web", "web access"), ("edit", "file editing"), ("subagents", "subagents")]
@@ -1273,10 +1273,7 @@ respect normal turn-admission limits; they are not a precise timer or a guarante
 const TRIM_LIVE_STATE: &str = "Your reports, peers, chart, credits and any open question are LIVE STATE in the \
 [ORG STATE] block at the top of each turn; read them there, not here.\n";
 
-const TRIM_SKILLS_POINTER: &str = "HOW-TO LIVES IN SKILLS. Two built-in skills hold every Orgtree procedure: \
-orgtree-working (each orgtree tool; hiring, mail, the docket, turns, watchdogs, accounts, your folders) and orgtree-app \
-(each screen and setting, harnesses and providers). The rules below are always in force; when one names a skill page, \
-open that page before you first act in its area in a session.\n";
+const TRIM_SKILLS_POINTER: &str = "HOW-TO LIVES IN SKILLS. orgtree-working covers tools and rules; orgtree-app, screens and settings; orgtree-workflows, suggested team workflows. Read a named page before first acting in its area this session. Inline rules always apply.\n";
 
 const TRIM_CACHE: &str = "CACHE: a provider, account, model or session switch starts a new prompt-cache namespace, \
 and rewriting your prompt, charter, tools or history changes the prefix. Avoid such changes when they are unnecessary, \
@@ -1419,7 +1416,7 @@ mod trim_tests {
     #[test]
     fn trimmed_text_keeps_the_always_in_force_rules() {
         let s = render(&all_on(), Lane::Claude, true, true);
-        assert!(s.contains("HOW-TO LIVES IN SKILLS") && s.contains("orgtree-working") && s.contains("orgtree-app"));
+        assert!(s.contains("HOW-TO LIVES IN SKILLS") && s.contains("orgtree-working") && s.contains("orgtree-app") && s.contains("orgtree-workflows"));
         assert!(s.contains(EXTERNAL_AUTHORITY.trim()) && s.contains(BACKGROUND));
         assert!(s.contains("ALWAYS answer with orgtree_message to that @net: address"));
         assert!(s.contains("HIRING ALONE STARTS NO ONE"));

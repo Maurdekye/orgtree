@@ -28,7 +28,7 @@ pub fn observe(cwd: &Path, roots: &[PathBuf]) {
             let result = (|| -> std::io::Result<_> {
                 let text = std::fs::read_to_string(&file)?;
                 let name = text.lines().find_map(|s| s.strip_prefix("name: ")).unwrap_or("");
-                if !["orgtree-working", "orgtree-app"].contains(&name) { return Ok(None); }
+                if !["orgtree-working", "orgtree-app", "orgtree-workflows"].contains(&name) { return Ok(None); }
                 let section = child_link(&file, true)?;
                 let section_text = std::fs::read_to_string(&section)?;
                 let leaf = child_link(&section, false)?;
