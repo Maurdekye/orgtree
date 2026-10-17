@@ -576,6 +576,19 @@ pub(crate) async fn apply_user_scope_in_tx(
     let peer_mail = b.get("peer_mail").map(|value| value.as_bool()
         .ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("peer_mail must be a boolean".into())))).transpose()?;
     let before: Value = row.get(0);
+    // A speed-only save is node-local and never reconfigures a warm process.
+    if let Some(value) = b.get("fast_mode").filter(|_| b.as_object().is_some_and(|o|
+        o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "fast_mode")))) {
+        let enabled = crate::providers::fast_mode::validate(&e.providers.state.load(), &row.get::<_,String>(3),
+            before["model_version"].as_str(), value)?;
+        let mut next = before.clone();
+        next["fast_mode"] = json!(enabled);
+        tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&next]).await?;
+        tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'scope','@user',$2,$3)",
+            &[&org.id,&a.id,&json!({"node":a.name,"change":{"fast_mode":enabled}})]).await?;
+        return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids:vec![],fields:vec!["fast_mode".into()],
+            effort_change:None,structural:false,org_folders_changed:false,out:json!({"ok":true,"cascaded":[]}) });
+    }
     // A node-local policy is not a permission grant. Preserve a project's
     // transparent scope and do not cascade default tools up to its ancestors.
     if let Some(enabled) = peer_mail.filter(|_| b.as_object().is_some_and(|o|
@@ -624,6 +637,10 @@ pub(crate) async fn apply_user_scope_in_tx(
     };
     let view = e.accounts.view();
     let seat_login = login.as_deref().and_then(|id| view.get(id)).filter(|a| a.provider == crate::providers::catalog::MUSE);
+    if let Some(value) = b.get("fast_mode") {
+        let enabled = crate::providers::fast_mode::validate(&e.providers.state.load(), &tier, version.as_deref(), value)?;
+        obj.insert("fast_mode".into(), json!(enabled));
+    }
     if let Some(v) = b.get("effort") {
         let level = v.as_str().unwrap_or("").to_string();
         // the agent's own harness and model name its levels (user 2026-10-12)
@@ -746,7 +763,7 @@ pub(crate) async fn apply_user_scope_in_tx(
     Ok(ScopeEffects {
         agent_id: a.id, subtree, effort_change, notice_ids,
         fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier","session","peer_mail"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
-        structural: b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false),
+        structural: b.as_object().map(|o| o.keys().any(|k| k != "effort" && k != "fast_mode")).unwrap_or(false),
         org_folders_changed,
         out: json!({ "ok": true, "cascaded": cascaded }),
     })

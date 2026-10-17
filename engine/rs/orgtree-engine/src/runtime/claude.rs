@@ -92,6 +92,31 @@ pub struct ClaudeProc {
 
 static REQ: AtomicU64 = AtomicU64::new(1);
 
+#[cfg(test)]
+mod fast_mode_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fast_mode_control_preserves_conversation_and_surfaces_refusal() {
+        for (enabled,success) in [(true,true),(false,true),(true,false)] {
+            let (stdin,mut sent)=mpsc::unbounded_channel::<String>();
+            let (waiters,mut replies)=mpsc::unbounded_channel::<(String,oneshot::Sender<Value>)>();
+            let proc=ClaudeProc { pid:0,process:uuid::Uuid::nil(),stdin,stdin_close:None,waiters,child:None,job:None,session_id:"same-session".into() };
+            let response=async {
+                let frame:Value=serde_json::from_str(&sent.recv().await.unwrap()).unwrap();
+                assert_eq!(frame["type"],"control_request");
+                assert_eq!(frame["request"],json!({"subtype":"apply_flag_settings","settings":{"fastMode":enabled}}));
+                let (_,reply)=replies.recv().await.unwrap();
+                reply.send(if success { json!({"subtype":"success"}) } else { json!({"subtype":"error","error":"not eligible"}) }).unwrap();
+            };
+            let (applied,())=tokio::join!(proc.set_fast_mode(enabled),response);
+            assert_eq!(applied.is_ok(),success);
+            if !success { assert!(applied.unwrap_err().to_string().contains("not eligible")); }
+            assert_eq!(proc.session_id,"same-session");
+        }
+    }
+}
+
 #[logged]
 fn req_id(prefix: &str) -> String {
     format!("{prefix}_{}", REQ.fetch_add(1, Ordering::Relaxed))
@@ -292,6 +317,16 @@ impl ClaudeProc {
 
     pub async fn mcp_status(&self) -> Option<Value> {
         self.request(json!({ "subtype": "mcp_status" }), Duration::from_secs(10)).await.ok()
+    }
+
+    /// Apply only flag settings: `/fast` can switch models and is never used.
+    pub async fn set_fast_mode(&self, enabled: bool) -> Result<()> {
+        let response = self.request(json!({ "subtype": "apply_flag_settings", "settings": { "fastMode": enabled } }), Duration::from_secs(15)).await?;
+        if response["subtype"] == "error" {
+            return Err(anyhow!("fast mode refused: {}", response["error"].as_str().unwrap_or("provider rejected settings")));
+        }
+        if response["subtype"] != "success" { return Err(anyhow!("fast mode control returned an invalid response")); }
+        Ok(())
     }
 
     pub async fn kill(&mut self) {

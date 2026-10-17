@@ -8,6 +8,12 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{ChildStdin, ChildStdout, Command};
 
+#[derive(Default)]
+pub struct Capabilities {
+    pub efforts: BTreeMap<String, Vec<String>>,
+    pub fast_modes: BTreeMap<String, String>,
+}
+
 #[logged]
 async fn request(
     input: &mut ChildStdin,
@@ -46,7 +52,7 @@ async fn request(
 /// Same model/list source as 3.x, including hidden rows and pagination. This
 /// reads capabilities only: no thread, agent turn or inference is started.
 #[logged]
-pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
+pub async fn probe(exe: &Path) -> Result<Capabilities> {
     let mut cmd = Command::new(exe);
     cmd.arg("app-server")
         .stdin(std::process::Stdio::piped())
@@ -96,7 +102,7 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
         input
             .write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}\n")
             .await?;
-        let mut models = BTreeMap::new();
+        let mut models = Capabilities::default();
         let mut cursor: Option<String> = None;
         let mut seen = HashSet::new();
         for page in 0..20 {
@@ -130,7 +136,10 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
                     })
                     .map(|e| (*e).to_string())
                     .collect();
-                models.insert(id.to_string(), efforts);
+                models.efforts.insert(id.to_string(), efforts);
+                if let Some(tier) = super::fast_mode::advertised_tier(row) {
+                    models.fast_modes.insert(id.to_string(), tier);
+                }
             }
             cursor = v["nextCursor"]
                 .as_str()

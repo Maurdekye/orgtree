@@ -417,14 +417,16 @@ impl CodexProc {
     }
 
     /// Start a turn on the thread; returns the turn id.
-    pub async fn start_turn(&self, text: &str, images: Vec<Value>) -> Result<String> {
+    pub async fn start_turn(&self, text: &str, images: Vec<Value>, service_tier: Option<&str>) -> Result<String> {
         let mut input = vec![json!({ "type": "text", "text": text })];
         input.extend(images);
+        let mut params = json!({ "threadId": self.session_id, "input": input, "model": self.model,
+            "effort": self.effort, "cwd": self.cwd, "summary": "auto" });
+        if let Some(tier) = service_tier { params["serviceTierForTurn"] = json!(tier); }
         let r = self
             .request(
                 "turn/start",
-                json!({ "threadId": self.session_id, "input": input, "model": self.model, "effort": self.effort,
-                        "cwd": self.cwd, "summary": "auto" }),
+                params,
                 Duration::from_secs(120),
             )
             .await?;
@@ -919,5 +921,34 @@ mod sandbox_tests {
         // bypass already ran unsandboxed: nothing changes, nothing to log
         let b = sandbox(true, "bypassPermissions", true);
         assert_eq!((b.approval, b.session0), ("on-request", false));
+    }
+}
+
+#[cfg(test)]
+mod fast_mode_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fast_mode_sends_turn_override_without_changing_thread_or_model() {
+        for tier in [Some("priority"),Some("default"),None] {
+            let (out,mut sent)=mpsc::unbounded_channel::<String>();
+            let (waiters,mut replies)=mpsc::unbounded_channel::<(i64,oneshot::Sender<Value>)>();
+            let proc=CodexProc { pid:0,process:uuid::Uuid::nil(),out,who:"fixture".into(),stdin_close:None,waiters,
+                next:AtomicI64::new(1),child:None,hosted:None,job:None,session_id:"same-thread".into(),model:"same-model".into(),
+                effort:Some("high".into()),cwd:"fixture".into(),home:PathBuf::new(),rollout_path:None };
+            let response=async {
+                let frame:Value=serde_json::from_str(&sent.recv().await.unwrap()).unwrap();
+                assert_eq!(frame["method"],"turn/start");
+                assert_eq!(frame["params"]["threadId"],"same-thread");
+                assert_eq!(frame["params"]["model"],"same-model");
+                assert_eq!(frame["params"]["effort"],"high");
+                assert!(frame["params"].get("serviceTier").is_none());
+                assert_eq!(frame["params"].get("serviceTierForTurn").and_then(Value::as_str),tier);
+                let (_,reply)=replies.recv().await.unwrap();
+                reply.send(json!({"result":{"turn":{"id":"next"}}})).unwrap();
+            };
+            let (started,())=tokio::join!(proc.start_turn("hello",vec![],tier),response);
+            assert_eq!(started.unwrap(),"next");
+        }
     }
 }

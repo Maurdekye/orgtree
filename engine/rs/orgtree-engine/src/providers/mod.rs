@@ -4,6 +4,7 @@
 
 pub mod agy_models;
 pub mod catalog;
+pub mod fast_mode;
 pub mod agy_auth;
 mod codex_models;
 pub mod muse_models;
@@ -45,6 +46,7 @@ pub struct State {
     /// models the Antigravity account lists (conditional tiers)
     pub agy_models: Vec<String>,
     pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
+    pub codex_fast_modes: std::collections::BTreeMap<String, String>,
     pub codex_efforts_error: Option<String>,
     pub muse: CliStatus,
     /// OpenCode is offered only after its installed ACP entrypoint negotiates.
@@ -328,7 +330,10 @@ pub async fn discover(engine: &Engine) {
         let (connected, email, kind) = codex_identity(None);
         if connected {
             match codex_models::probe(&p).await {
-                Ok(efforts) => st.codex_efforts = efforts,
+                Ok(capabilities) => {
+                    st.codex_efforts = capabilities.efforts;
+                    st.codex_fast_modes = capabilities.fast_modes;
+                },
                 Err(e) => st.codex_efforts_error = Some(format!("Codex model capabilities unavailable: {e}")),
             }
         } else {
@@ -817,7 +822,14 @@ fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
 pub fn payload(engine: &Engine) -> Value {
     let st = engine.providers.state.load();
     let settings = engine.settings.get();
-    let entry = |id: &str, label: &str, cli: &str, s: &CliStatus, tiers: Vec<Value>| {
+    let entry = |id: &str, label: &str, cli: &str, s: &CliStatus, mut tiers: Vec<Value>| {
+        for row in &mut tiers {
+            let tier = row["tier"].as_str().unwrap_or("").to_string();
+            row["fast_mode"] = json!(fast_mode::supported(&st, &tier, None));
+            let versions: std::collections::BTreeMap<&str, bool> = catalog::tier(&tier)
+                .map(|t| t.versions.iter().map(|(v,_)| (*v,fast_mode::supported(&st,&tier,Some(v)))).collect()).unwrap_or_default();
+            row["fast_mode_versions"] = json!(versions);
+        }
         let enabled = engine.settings.provider_enabled(id);
         let hire = s.installed && s.connected && enabled;
         let reason = if !s.installed {

@@ -2558,7 +2558,13 @@ impl Actor {
         };
         std::fs::create_dir_all(&ctx.scratch)?;
         let (identity_file, settings_file, mcp_file) =
-            claude::write_launch_files(&ctx.scratch, &plan.identity, &plan.settings, &plan.mcp)?;
+            claude::write_launch_files(&ctx.scratch, &plan.identity, &{
+                let mut settings = plan.settings.clone();
+                if ctx.provider == catalog::CLAUDE && crate::providers::fast_mode::claude_model(&ctx.model) {
+                    settings["fastMode"] = json!(ctx.effective["fast_mode"].as_bool().unwrap_or(false));
+                }
+                settings
+            }, &plan.mcp)?;
         // Essential-traffic mode (decision 53): agents share the user's global
         // CLI, so none of them checks for or applies an update mid-run. It also
         // turns off the CLI's server-side feature flags. Those are read from the
@@ -4103,10 +4109,21 @@ impl Actor {
         };
         let mut codex_turn: Option<String> = None;
         let mut refused: Option<String> = None;
+        let fast = ctx.effective["fast_mode"].as_bool().unwrap_or(false);
+        let service_tier = if ctx.provider == catalog::OPENAI {
+            crate::providers::fast_mode::codex_tier(&self.engine.providers.state.load(), &ctx.model, fast)
+        } else { None };
         let sent = match self.proc.as_ref() {
-            Some(Proc::Claude(p)) => p.send_user(&text, images_for(&mails)),
+            Some(Proc::Claude(p)) => {
+                if ctx.provider == catalog::CLAUDE && crate::providers::fast_mode::claude_model(&ctx.model) {
+                    match Box::pin(p.set_fast_mode(fast)).await {
+                        Ok(()) => p.send_user(&text, images_for(&mails)),
+                        Err(e) => { refused = Some(e.to_string()); false },
+                    }
+                } else { p.send_user(&text, images_for(&mails)) }
+            },
             Some(Proc::Agy(p)) => p.send_user(&text),
-            Some(Proc::Codex(p)) => match p.start_turn(&text, codex_images(&mails)).await {
+            Some(Proc::Codex(p)) => match p.start_turn(&text, codex_images(&mails), service_tier.as_deref()).await {
                 Ok(t) => {
                     codex_turn = Some(t);
                     true
