@@ -741,6 +741,16 @@ fn skill_folders(ctx: &Ctx) -> Vec<PathBuf> {
     folders
 }
 
+/// Use the actual receiving CLI, including custom-provider harness routes.
+#[nolog]
+fn skill_lane(ctx: &Ctx) -> prompt::Lane {
+    if ctx.harness.as_deref() == Some("opencode") { prompt::Lane::OpenCode }
+    else if ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli") { prompt::Lane::Codex }
+    else if ctx.provider == catalog::GOOGLE { prompt::Lane::Antigravity }
+    else if ctx.provider == catalog::MUSE { prompt::Lane::Muse }
+    else { prompt::Lane::Claude }
+}
+
 #[derive(Default)]
 struct McpState {
     waiting: bool,
@@ -769,7 +779,7 @@ struct Actor {
     /// keepalive reads that CLI's prefix, not the file as it is now
     proc_notes: Option<String>,
     /// the startup files of the last forecast, and when they were last re-read
-    startup_seen: Option<(startup::Inputs, Vec<PathBuf>, String)>,
+    startup_seen: Option<(startup::Inputs, Vec<PathBuf>, prompt::Lane, String)>,
     startup_checked: Instant,
     proc_effort: Option<String>,
     pending_effort: Option<String>,
@@ -1131,8 +1141,8 @@ impl Actor {
         // respawns through the fingerprint instead.
         if self.turn.is_none() && self.keepalive.is_none() && self.startup_checked.elapsed() >= STARTUP_RECHECK {
             self.startup_checked = Instant::now();
-            if let Some((inputs, folders, seen)) = self.startup_seen.clone() {
-                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders);
+            if let Some((inputs, folders, lane, seen)) = self.startup_seen.clone() {
+                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders).for_lane(lane);
                 let now = shared_startup_digest(&startup::digest(&inputs), &skills);
                 // stale against what the parked CLI was LAUNCHED with, which
                 // an edit during the last turn leaves behind the forecast's
@@ -1966,18 +1976,7 @@ impl Actor {
     /// agent's own and its granted folders' AGENTS.md and legacy CLAUDE.md; no side effects.
     #[nolog] // snapshot and return value contain private instruction text
     fn identity(&self, ctx: &Ctx, external: &[String], own_notes: &startup::Notes, folder_notes: &startup::Notes) -> (String, String) {
-        let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
-        let lane = if ctx.harness.as_deref() == Some("opencode") {
-            prompt::Lane::OpenCode
-        } else if codex {
-            prompt::Lane::Codex
-        } else if ctx.provider == catalog::GOOGLE {
-            prompt::Lane::Antigravity
-        } else if ctx.provider == catalog::MUSE {
-            prompt::Lane::Muse
-        } else {
-            prompt::Lane::Claude
-        };
+        let lane = skill_lane(ctx);
         let tools = &ctx.effective["tools"];
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
         let may_write = tools.get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
@@ -2052,7 +2051,7 @@ impl Actor {
         for (path, _, text) in &ctx.team_notes {
             if let Some(text) = text { instructions.text(path, "team_scratch", text); }
         }
-        let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders(ctx));
+        let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders(ctx)).for_lane(skill_lane(ctx));
         // the org's shared notes as read now, last in the prompt. A CLI keeps
         // the copy it started with: the text stays out of the system prompt
         // part, so another agent's edit never respawns a warm CLI
@@ -7332,9 +7331,10 @@ impl Actor {
                     .map(|_| ctx.effort.clone());
                 let inputs = self.startup_inputs(&ctx);
                 let folders = skill_folders(&ctx);
-                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders);
+                let lane = skill_lane(&ctx);
+                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders).for_lane(lane);
                 let digest = shared_startup_digest(&startup::digest(&inputs), &skills);
-                self.startup_seen = Some((inputs, folders, digest));
+                self.startup_seen = Some((inputs, folders, lane, digest));
                 self.forecast_for(&ctx)
             },
             Err(_) => Value::Null,

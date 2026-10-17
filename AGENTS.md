@@ -3011,6 +3011,15 @@ Cold archived docket projections covered by the existing policy spec use its typ
   owned stages need an age over one hour. No live profile/OS-process scan.
   [verified: `providers/skills/retention.rs`, `runtime/actor.rs`; decided:
   coordinator 2026-10-17; details: `docs/rust-engine/shared-skills.md`]
+
+- Per-harness skill variants are selected only for each agent's export, preserving
+  the complete inventory and user source files. Declared harness suffixes and
+  native provenance choose the preferred family member; unpaired guides and
+  equally preferred same-source resource collisions remain available. Launch,
+  idle checks and forecasts share the selected digest. See
+  [variant selection](docs/rust-engine/shared-skills.md#per-harness-variants-2026-10-17).
+  [decided: user 2026-10-17; verified: `providers/skills.rs`, `runtime/actor.rs`]
+
 - Skill discovery reads installed native roots and recorded Claude plugin installs,
   never marketplace listings or generated copies. Whole bundles deduplicate by
   content; differing names receive suffixes, with built-in names taking priority.
