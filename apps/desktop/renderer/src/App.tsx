@@ -2939,7 +2939,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             : box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
-              ? <MailList pending={[...unreadMail, ...askPending]}
+              ? <MailList hideMailReplyKind pending={[...unreadMail, ...askPending]}
                   tagFilter={{selected:mailTag,choices:tagChoices.labels,onChange:setMailTag,onSearch:setTagQuery,
                     onLoadMore:tagChoices.loadMore,hasMore:!!tagChoices.cursor,loading:tagChoices.loading,error:tagChoices.error,onRetry:tagChoices.retry}}
                   hasMore={!!mailTag.length&&!!taggedMail.box.next_cursor} loadingMore={taggedMail.loading}

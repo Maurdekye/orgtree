@@ -1,3 +1,5 @@
+// Electron probes must launch in browser mode even under an inherited Node-mode parent.
+delete process.env.ELECTRON_RUN_AS_NODE
 // Run this entire command (including bundling) under tests/joblimit.ps1.
 // Resolve real dependencies without copying or linking node_modules.
 import { createRequire } from 'node:module'

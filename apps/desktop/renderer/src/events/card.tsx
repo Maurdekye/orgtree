@@ -87,6 +87,7 @@ export interface EventCardProps extends ContentProps {
   actor?: (id: string) => ReactNode
   part?: "header" | "body"
   headerMeta?: ReactNode
+  hideKind?: boolean
   embedded?: boolean
   foldKey?: string | readonly string[]
 }
@@ -101,7 +102,7 @@ export function eventSurface(row: unknown, profile: EventProfile) {
 }
 /** A single presentation path for mailbox, pending/live and settled transcript rows.
  *  Envelope time, delivery badges, attachments and existing actions stay with callers. */
-export function EventCard({ row, profile, org, preview = false, actor, part, headerMeta, embedded = false, foldKey, ...content }: EventCardProps) {
+export function EventCard({ row, profile, org, preview = false, actor, part, headerMeta, hideKind = false, embedded = false, foldKey, ...content }: EventCardProps) {
   const keys = foldKey ?? (row && typeof row === 'object' ? mailFoldKeys(row as MailFoldable) : undefined)
   const decoded = decodeEventRow(row, profile)
   if (decoded.kind !== 'known') {
@@ -146,8 +147,8 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     {event.variant === 'answer.batch' && <ResolvedSections event={event} />}
     <Fields fields={body} {...content} profile={profile} org={org} actor={actor} /></div>
   const heading = <>
-      <span className="event-family" aria-label={FAMILY_MARK[view.family]} title={FAMILY_MARK[view.family]}>{FAMILY_ICON[view.family]}</span>
-      <strong>{view.title}</strong>
+      {!hideKind && <><span className="event-family" aria-label={FAMILY_MARK[view.family]} title={FAMILY_MARK[view.family]}>{FAMILY_ICON[view.family]}</span>
+      <strong>{view.title}</strong></>}
       <span className="event-actor" data-actor-kind={event.actor.kind}>
         {selfStatus || selfDog ? <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />
           : event.actor.kind === 'agent' && actor ? actor(event.actor.id)

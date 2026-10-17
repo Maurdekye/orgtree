@@ -173,7 +173,7 @@ const MAIL_WINDOW = 40
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
   outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
-  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore }: MailListProps) {
+  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -218,6 +218,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
           world={refs?.world} onOpen={refs?.onOpen} />
       : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
+          hideKind={hideMailReplyKind && decoded.kind === 'known' && decoded.event.variant === 'reply.mail'}
           org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
           world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, m)} /></div>
   }
@@ -569,7 +570,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           const m = g[0]!
           const view = typedView(m)
           return (
-          <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view}
+          <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
             party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>{if(!tagFilter.selected.some(t=>mailTagKey(t)===mailTagKey(tag)))tagFilter.onChange([...tagFilter.selected,tag])}:undefined}
@@ -614,7 +615,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         </div>)}
         {replyTargets.length > 0 && <button className="link" onClick={() => setReplyTargets([])}>Cancel all replies</button>}
         {cur && (
-          <MailReadPane cur={cur} members={curPile} org={org} refs={refs}
+          <MailReadPane cur={cur} members={curPile} org={org} refs={refs} hideMailReplyKind={hideMailReplyKind}
             mdBase={mdBase} fileHref={fileHref} sender={S} outgoing={outgoing}
             customSender={customS} waitLabel={waitLabel} custom={custom}
             party={displayParty(cur)!}
@@ -685,7 +686,8 @@ const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s
  *  `MailList` renders its rows through it; `pile` is the size of a folded run
  *  of system notices (1 = a single message). */
 export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
-  onRetract, onClick, onContextMenu, rowRef, onTag }: {
+  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind }: {
+  hideMailReplyKind?: boolean
   m: MailRow
   onTag?: (tag:string)=>void
   pile?: number
@@ -755,6 +757,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         </span>
         {!m._ask && view && view.event.variant !== 'ordinary.message'
           && view.event.variant !== 'ordinary.notice'
+          && !(hideMailReplyKind && view.event.variant === 'reply.mail')
           && <span className="event-row-kind">{view.title}</span>}
         {m._ask && <span className="askkind">{m.kind ?? 'ask'}</span>}
         {/* Plain notices are unmarked. A folded run keeps its existing
@@ -802,7 +805,8 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, toast, onTag }: {
+  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind }: {
+  hideMailReplyKind?: boolean
   cur: MailRow
   onTag?: (tag:string)=>void
   /** a folded run of system notices, newest first; one entry = no run */
@@ -847,6 +851,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
     <>
       <div className="mailer-head event-head">
         {!run && <EventCard part="header" row={cur} profile={profile}
+          hideKind={hideMailReplyKind && typed(cur)?.event.variant === 'reply.mail'}
           org={org ?? refs?.world.org ?? ""} world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, cur)} />}
         {outgoing && !customSender && <span className="dim">to</span>}
         {(outgoing || !typed(cur)) && S(party, cur)}
