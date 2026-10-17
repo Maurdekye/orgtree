@@ -91,7 +91,7 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
 
 fn line(r: &Row, busy: bool) -> String {
     let mut s = r.name.clone();
-    s.push_str(if r.peer_mail { " ? subordinate peer mail ON" } else { " ? subordinate peer mail OFF (audiences required)" });
+    s.push_str(if r.peer_mail { "; subordinate peer mail ON" } else { "; subordinate peer mail OFF (audiences required)" });
     if !r.title.is_empty() {
         s.push_str(&format!(" — {}", r.title));
     }

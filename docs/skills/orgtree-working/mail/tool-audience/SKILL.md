@@ -34,6 +34,7 @@ Send the request and end your turn if its answer blocks further work. Requests n
 
 - With yourself: grant to a descendant, or to an agent whose audience request waits on you.
 - With a live peer or your direct superior: grant to a descendant in your subtree.
+- Between two direct tree siblings: their shared nearest agent superior may grant `from=A target=B`. This includes agents directly under one project. The grant permits A to write to B, including when their parent has turned peer mail OFF; a reverse route needs a separate audience.
 - With `user`: only a top-level agent can grant this to its descendants. A top-level agent already has direct user access and need not request it.
 - With `extern`: a top-level agent can grant to itself, descendants, or a live requester whose audience request waits on it, including one outside its subtree. A lower existing holder can pass extern only to descendants. A lower non-holder cannot grant itself outside access.
 

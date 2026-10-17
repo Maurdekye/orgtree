@@ -304,6 +304,11 @@ toast saying this engine does not support it.
 
 ### B. Organizations and canvas
 
+Peer-mail setting (user 2026-10-17, 4.4.0): each manager/project can turn OFF
+**Subordinates may message each other**. Direct children then need directional
+audiences and their lateral canvas connectors disappear; hierarchy reach/links
+stay. Default ON, node-local and durable. See [peer mail](peer-mail.md).
+
 Windows taskbar addition (user 2026-10-16, 4.4.0): the icon's right-click
 jump list has Home, New org and current organizations. Org entries use the
 existing per-org window route; the native app feed updates names and membership.

@@ -22,6 +22,8 @@ The form warns that personal instructions restart the agent and team instruction
 
 Suggest personal instructions when the agent's own objective or constraints need clarification. Suggest team instructions when a standing rule should follow the whole subtree. Avoid copying an organization-wide rule into every personal charter; use its appropriate instruction home.
 
+**Subordinates may message each other** is a separate node-local switch on this tab, ON by default. OFF requires directional audiences between direct siblings and hides their neighbour lines. A peer-only save applies immediately without restarting processes or changing scope grants. It does not inherit down the tree. See `orgtree-peer-mail` (orgtree-working › team) for project settings and audience exceptions.
+
 ## See also
 
 - `orgtree-charters` (orgtree-working › team).

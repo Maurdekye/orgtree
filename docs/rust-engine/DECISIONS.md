@@ -1,5 +1,13 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Direct-child peer mail, user 2026-10-17 11:24Z/11:27Z:** a manager or project
+may turn OFF **Subordinates may message each other** (default ON). Direct
+siblings then need a directional audience; neighbour connector lines disappear
+in GL/SVG at every zoom. The coordinator confirmed the actual-parent boundary
+and shared nearest-agent-superior delegation between those siblings at 11:26Z.
+Different physical groups retain existing reach. See [peer mail](peer-mail.md).
+4.4.0 only.
+
 **EPIC tray mute, user 2026-10-17 11:06Z:** the tray's right-click menu shows
 a checkable "Mute EPIC sounds" only while EPIC is enabled. All audio fades
 out/in; heat and motion continue. Coordinator defaults retain mute across

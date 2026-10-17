@@ -16,6 +16,10 @@ The user, every agent **above** the project and every agent **below** it reach i
 
 The agents under a project **report to the nearest agent above it**: that is "your superior" in their instructions, where their status notices go, and whom the superior/peer mail rules use. Agents under a top-level project are top-level agents. Credits are transparent too: the agent above the project pays for every agent under it, so only an agent above a project can hire under it. See [orgtree-credits](../credits/SKILL.md).
 
+## Peer mail among direct members
+
+Project Settings has [Subordinates may message each other](../peer-mail/SKILL.md), ON by default. OFF requires an active directional audience between agents directly under this project and hides their ordinary neighbour connector lines. It does not change the project's mailbox or fair queue, the reporting superior, deeper teams, chart visibility or docket access.
+
 ## Folder and AGENTS.md
 
 A project's folder is `<data>\scratch\<org>\_teams\<project id>`. Every agent under it holds that folder and gets its `AGENTS.md` at session start, labelled as the project's, the way team notes arrive. Every agent above it holds the folder too (its instructions list the projects below it) but does not get the notes.

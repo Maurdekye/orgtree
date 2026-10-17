@@ -213,7 +213,7 @@ const handlers = (extra: Partial<AgentMenuHandlers> = {}): AgentMenuHandlers => 
 test('§3a a live project\'s menu: open its mailbox or folder, hire or nest a project under it, retire it', () => {
   const nd = project()
   assert.deepEqual(labels(projectMenuEntries(nd, handlers(), { claudeHire: offer })),
-    ['Open', 'Hire under this project', 'New project here…', 'sep', 'Retire project…'])
+    ['Open', 'Settings', 'Hire under this project', 'New project here…', 'sep', 'Retire project…'])
   const open = projectMenuEntries(nd, handlers(), { claudeHire: offer })[0]
   assert.ok(open !== 'sep')
   assert.deepEqual(open.children?.map((c) => c === 'sep' ? 'sep' : c.label),
@@ -224,7 +224,8 @@ test('§3b agentMenuEntries gives a project the project menu, never an agent\'s'
   const nd = project()
   const got = labels(agentMenuEntries(nd, handlers(), { claudeHire: offer }))
   assert.deepEqual(got, labels(projectMenuEntries(nd, handlers(), { claudeHire: offer })))
-  for (const agentOnly of ['Settings…', 'Halt', 'Cheap compact…', 'Change model', 'Desk']) {
+  assert.ok(got.includes('Settings'), 'project settings expose peer-mail policy')
+  for (const agentOnly of ['Halt', 'Cheap compact…', 'Change model', 'Desk']) {
     assert.equal(got.includes(agentOnly), false, `no "${agentOnly}" on a project`)
   }
 })

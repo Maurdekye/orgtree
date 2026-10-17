@@ -11,6 +11,10 @@ Start with [ordinary recipient reach](../tool-message/SKILL.md): your direct sup
 
 An audience opens a direction of communication; it does not move an agent or delegate folder, tool or decision authority. A granted route is useful when a specialist needs to talk directly to a reviewer outside its reporting line. Keep the task owner and superior informed according to the assignment rather than treating a new route as a change of responsibility.
 
+## Peer-mail setting
+
+A visible reporting peer may be unreachable when the actual common parent's [peer-mail switch](../../team/peer-mail/SKILL.md) is OFF. The rule affects only direct tree siblings, applies equally under a manager or project, and requires a directional audience. Audience requests remain allowed; a shared nearest agent superior may grant between those direct siblings. A manager's switch does not propagate to deeper levels or to separate physical project groups.
+
 ## Request, decide, then use
 
 If the route is missing, use [orgtree_audience](../tool-audience/SKILL.md). That page is the home for request/grant/deny/revoke parameters, pending-request exceptions, who may grant on whose behalf, and automatic reply audiences. Request only the route the work needs, with a reason the recipient can decide. End the turn if you cannot progress without the answer; an unanswered request is not a grant.

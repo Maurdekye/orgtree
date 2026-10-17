@@ -20,6 +20,8 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-scope-and-permissions](scope-and-permissions/SKILL.md): What an agent may touch: folders, tool groups, native tools, MCP servers, permission modes and the sensitive-path gate.
 - [orgtree-projects](projects/SKILL.md): Project nodes: free tree nodes that run no turns, with a folder, a mailbox shared through the fair queue, and presentations.
 
+- [orgtree-peer-mail](peer-mail/SKILL.md): Default-on, node-local peer-mail switch for direct children; audience exceptions and canvas neighbour lines.
+
 ## Tools
 
 - [orgtree-tool-org-logo](tool-org-logo/SKILL.md): Set or remove your own organization's Logo immediately, with logging and undo history.

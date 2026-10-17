@@ -46,6 +46,9 @@ Use actual agent names and authorized addresses in real calls.
 
 ## Recipient reach and fan-out
 
+Peer reach is conditional on [Subordinates may message each other](../../team/peer-mail/SKILL.md). If the actual common parent's switch is OFF, direct siblings need an active audience in the sending direction for every mail kind and for notices. Requests for an audience are still allowed. Different physical project groups retain existing reporting-peer reach; superior/descendant and outside-mail routes are unchanged.
+
+
 You may write to your direct superior, descendants, peers sharing your parent, and anyone who granted you an audience. Writing to a non-child descendant gives that descendant an audience to reply. You cannot write to yourself. Top-level agents and live, unpaused user-audience holders may write to `user`; others should send results to their superior or use [orgtree_audience](../tool-audience/SKILL.md).
 
 Outside `@org:`/`@net:` sends require the org-inbox audience, `extern`. A live top-level agent sending outside can acquire it automatically; a lower agent must already hold it. A user audience does not imply an outside-mail audience. `@org:<your-own-slug>` refuses: use an agent name inside your org. The source and destination org inboxes must be enabled for local cross-org delivery; the sender's inbox must be enabled for hub mail.

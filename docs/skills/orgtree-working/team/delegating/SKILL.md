@@ -16,6 +16,8 @@ Use your superior for decisions outside your remit unless the user directly addr
 
 When you need the superior to act, send a concrete message with the docket slug, evidence and requested decision. For FYI progress, prefer a passive notice. On completion or a blocker, update the item and report status; avoid repeated status questions while the worker's existing evidence already answers them.
 
+For independent committee work, the user can turn OFF [Subordinates may message each other](../peer-mail/SKILL.md) on the shared manager or project. Direct siblings then need directional audiences; their chart and docket visibility stays. A manager may grant a specific route between its direct reporting siblings without opening all peer mail.
+
 ## See also
 
 - [orgtree-reading-reports](../../inspection/reading-reports/SKILL.md)

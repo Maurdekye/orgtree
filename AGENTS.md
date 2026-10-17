@@ -1,5 +1,16 @@
 # AGENTS.md — working on Orgtree
 
+- Per-node **Subordinates may message each other** defaults ON. OFF gates
+  all agent mail between the same actual parent's direct children unless the
+  sender holds an active directional audience. Projects remain transparent for
+  reporting; separate physical groups retain reporting-peer reach. Their shared
+  nearest agent superior may grant between direct siblings. Stored `scope.peer_mail`
+  is node-local, never inherited; peer-only user saves retain project transparency,
+  support undo and do not restart CLIs. The live envelope reports current policy;
+  the shared wire list hides lateral links for both GL/SVG at every zoom.
+  See [peer mail](docs/rust-engine/peer-mail.md). [decided: user/coordinator
+  2026-10-17; verified: `domain/peer_mail.rs`, `domain/mail.rs`, `canvas/OrgCanvas.tsx`]
+
 - EPIC tray mute (4.4.0) is the optional native boolean `epicMuted`, persisted
   and broadcast with `epicMode`; its checkbox is visible only while EPIC is on
   and refreshes even in an open native menu. A 300ms final master gain fade

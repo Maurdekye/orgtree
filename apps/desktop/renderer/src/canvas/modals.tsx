@@ -1002,8 +1002,8 @@ function ProjectConfig({node,slug,toast,close}:NodeConfigProps) {
   const [busy,setBusy] = useState(false)
   const on = edit ?? node.peer_mail ?? node.configured_scope?.peer_mail ?? true
   return <PinFrame kind="node-config" restore={{agent:node.id,generation:node.generation}}
-    title={`${node.id} ? project settings`} panel="settings cfg" close={close}>
-    <h3>{node.id} ? project settings</h3>
+    title={`${node.id}: project settings`} panel="settings cfg" close={close}>
+    <h3>{node.id}: project settings</h3>
     <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
       hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />
     <div className="row"><button disabled={busy} onClick={()=>{

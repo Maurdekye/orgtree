@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 171,
+  "leaves": 95,
   "tools": 45,
-  "concepts": 49,
-  "total": 193
+  "concepts": 50,
+  "total": 194
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -24,7 +24,8 @@
   "skills-docs-sol": 13,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
-  "skilltree-opus": 2
+  "skilltree-opus": 2,
+  "compaction-cmds-sol": 1
  },
  "nodes": [
   {
@@ -106,7 +107,8 @@
     "charters",
     "scope-and-permissions",
     "projects",
-    "tool-org-logo"
+    "tool-org-logo",
+    "peer-mail"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -629,11 +631,13 @@
     "chain of command and who you may address",
     "read transcript/scratch before asking",
     "escalate decisions upward; the user is reached only by top-level agents or audience holders",
-    "when to keep work vs hand it down"
+    "when to keep work vs hand it down",
+    "direct-child peer-mail setting and directional audience exception"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/runtime/identity.rs READ_REPORTS, l.226",
-    "engine/rs/orgtree-engine/src/tools/orgview.rs"
+    "engine/rs/orgtree-engine/src/tools/orgview.rs",
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
    ],
    "see_also": [
     "reading-reports",
@@ -767,13 +771,15 @@
     "reporting and transparent credits through a project",
     "the project folder and its AGENTS.md",
     "the mailbox, the fair_queue watchdog and inspection without claiming",
-    "presentations under a project"
+    "presentations under a project",
+    "direct-child peer-mail setting and directional audience exception"
    ],
    "sources": [
     "docs/rust-engine/PROJECT-NODES.md",
     "engine/rs/orgtree-engine/src/domain/projects.rs",
     "engine/rs/orgtree-engine/src/runtime/watchdogs.rs run_fair_queue",
-    "engine/rs/orgtree-engine/migrations/0025_project_nodes.sql"
+    "engine/rs/orgtree-engine/migrations/0025_project_nodes.sql",
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
    ],
    "see_also": [
     "tool-project",
@@ -1011,12 +1017,14 @@
     "every parameter/action with defaults and limits from the definition",
     "refusals and error texts agents hit",
     "top-level vs. non-top-level differences",
-    "a minimal correct example call"
+    "a minimal correct example call",
+    "direct-child peer-mail setting and directional audience exception"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs:170",
     "engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,false)",
-    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()",
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
    ],
    "writer": "comms-sol",
    "status": "fixed",
@@ -1109,12 +1117,14 @@
     "every parameter/action with defaults and limits from the definition",
     "refusals and error texts agents hit",
     "top-level vs. non-top-level differences",
-    "a minimal correct example call"
+    "a minimal correct example call",
+    "direct-child peer-mail setting and directional audience exception"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs:556",
     "engine/rs/orgtree-engine/src/tools/mod.rs audience_tool -> domain/audiences.rs",
-    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()"
+    "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()",
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
    ],
    "writer": "comms-sol",
    "status": "fixed",
@@ -1235,11 +1245,13 @@
     "default reach",
     "audience request/grant lifecycle",
     "user and extern audiences",
-    "top-level special cases"
+    "top-level special cases",
+    "direct-child peer-mail setting and directional audience exception"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/domain/audiences.rs",
-    "engine/rs/orgtree-engine/src/tools/mod.rs:377"
+    "engine/rs/orgtree-engine/src/tools/mod.rs:377",
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
    ],
    "see_also": [
     "tool-audience",
@@ -5415,13 +5427,15 @@
    ],
    "purpose": "Charter tab: instructions and team instructions.",
    "must_cover": [
-    "delivery to the agent"
+    "delivery to the agent",
+    "node-local default-on peer-mail setting"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/modals.tsx:1337-1340"
    ],
    "see_also": [
-    "charters"
+    "charters",
+    "peer-mail"
    ],
    "writer": "agentsettings-sol",
    "status": "fixed",
@@ -6972,6 +6986,54 @@
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/peer-mail",
+   "name": "orgtree-peer-mail",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [],
+   "purpose": "Per-node default-on peer-mail setting, actual direct-child boundary, audience routes and hidden neighbour connectors.",
+   "must_cover": [
+    "default ON and noninheritance",
+    "actual common parent only and moves",
+    "directional audiences and shared superior delegation",
+    "project settings and chart/team state",
+    "neighbour lines hidden in both renderers at all zooms"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs",
+    "engine/rs/orgtree-engine/src/domain/mail.rs",
+    "engine/rs/orgtree-engine/src/domain/audiences.rs",
+    "engine/rs/orgtree-engine/src/http/nodes.rs",
+    "apps/desktop/renderer/src/canvas/modals.tsx",
+    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx",
+    "docs/rust-engine/peer-mail.md"
+   ],
+   "see_also": [
+    "tool-message",
+    "tool-audience",
+    "projects",
+    "delegating"
+   ],
+   "writer": "compaction-cmds-sol",
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Subordinates may message each other"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "scope.peer_mail",
+     "sources": [
+      "engine/rs/orgtree-engine/src/http/nodes.rs",
+      "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
+     ]
+    }
+   ]
   }
  ],
  "exempt": {
