@@ -186,12 +186,17 @@ fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts:
 /// A missing/mismatched registered id never falls back to the native login.
 #[nolog]
 pub(crate) fn freeze_reading(engine: &Engine, provider: &str, account_id: Option<&str>) -> Option<Value> {
-    use crate::providers::catalog;
     let view = engine.accounts.view();
     let account = match account_id {
         Some(id) => Some(view.get(id).filter(|a| a.provider == provider && !a.is_apikey())?),
         None => None,
     };
+    freeze_cached(&engine.usage, provider, account)
+}
+
+#[nolog]
+fn freeze_cached(usage: &Usage, provider: &str, account: Option<&crate::accounts::AccountInfo>) -> Option<Value> {
+    use crate::providers::catalog;
     let folder = account.and_then(|a| a.config_dir.as_deref());
     let key = match provider {
         catalog::CLAUDE => claude_key(folder),
@@ -200,7 +205,7 @@ pub(crate) fn freeze_reading(engine: &Engine, provider: &str, account_id: Option
         catalog::MUSE => muse_key(folder),
         _ => return None,
     };
-    let reading = engine.usage.fresh(&key, PEEK_MAX)?;
+    let reading = usage.fresh(&key, PEEK_MAX)?;
     Some(json!({"available":reading["available"], "error":reading["error"],
         "reauth_required":reading["reauth_required"], "observed_at":reading["observed_at"], "limits":reading["limits"]}))
 }
@@ -2343,5 +2348,38 @@ mod room_tests {
         assert!(!room_in("muse", "wonder-full", &wonder, now), "Wonder's windows prove nothing for Full");
         assert!(!room_in("muse", "wonder", &[w("session", 100.0, None), w("weekly_all", 20.0, None)], now));
         assert!(!room_in("muse", "wonder", &[w("session", 10.0, None)], now), "no weekly reading, no proof");
+    }
+}
+
+
+#[cfg(test)]
+mod freeze_cache_tests {
+    use super::*;
+    use crate::accounts::AccountInfo;
+
+    fn profile(id: &str) -> AccountInfo {
+        AccountInfo { id:id.into(), provider:"google".into(), kind:"subscription".into(), label:id.into(),
+            email:None, tint_ordinal:0, auth:"authenticated".into(), config_dir:Some(format!("synthetic/{id}")),
+            enabled:true, origin_org:None, marks:Default::default(), ord:0, ambient:false, credential:0, harness:None }
+    }
+
+    #[test]
+    fn registered_agy_freeze_uses_only_its_own_cached_reset() {
+        let usage=Usage::default();
+        let now=Utc::now();
+        let reading=|hours| json!({"available":true,"observed_at":iso(now),"limits":[
+            {"kind":"weekly_all","group":"3p-weekly","percent":100,"resets_at":iso(now+chrono::Duration::hours(hours))}]});
+        usage.put("agy",&reading(24));
+        usage.put("agy:synthetic-a",&reading(5));
+        let a=profile("synthetic-a");
+        let r=freeze_cached(&usage,"google",Some(&a)).unwrap();
+        assert_eq!(crate::runtime::usage_reset::cached_reset("google","agy-opus",Some("weekly_all"),&r,now,now),
+            Some(now+chrono::Duration::hours(5)));
+        assert!(freeze_cached(&usage,"google",Some(&profile("synthetic-b"))).is_none(),
+            "missing profile evidence must never borrow the native login's full window");
+        let mut ambient=a;ambient.ambient=true;
+        assert_eq!(freeze_cached(&usage,"google",Some(&ambient)).unwrap()["limits"],reading(24)["limits"]);
+        ambient.ambient=false;ambient.config_dir=None;
+        assert_eq!(freeze_cached(&usage,"google",Some(&ambient)).unwrap()["limits"],reading(24)["limits"]);
     }
 }
