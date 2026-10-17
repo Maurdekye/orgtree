@@ -224,8 +224,8 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     assert.deepEqual(have, [
       // User 2026-09-30: only Focus and Open desk swap; all other slots stay.
       // 4.2: the entries group under branches (Open ▸, Hire a subordinate ▸); '· ' marks a branch's entry
-      // USER 2026-10-17 21:18Z: "New project here…" directly under "Hire a subordinate"
-      'Copy agent name', 'Focus', 'Hire a subordinate ▸', 'New project here…',
+      // USER 2026-10-17 21:18Z: "New project…" directly under "Hire a subordinate"
+      'Copy agent name', 'Focus', 'Hire a subordinate ▸', 'New project…',
       'Open ▸', '· Open desk', '· Open desk in a new window', '· Pin desk as a window',
       '· Open inbox', '· Open docket', '· Open team docket',
       'Settings', 'Acquire audience', 'Cheap compact…', 'Halt…', 'Retire…',
@@ -655,7 +655,7 @@ uiTest('§6c a click on a project card walks to its project desk and opens no mo
   assert.ok(cardFor(c.el, 'site')?.classList.contains('desk'), 'and its project desk is open')
 })
 
-uiTest('§6b New project here… from a row opens a draft project card, like a hire, and create makes it',
+uiTest('§6b New project… from a row opens a draft project card, like a hire, and create makes it',
   async (t) => {
     // USER 2026-10-17 19:14Z: manual project creation has the manual hire's UX
     const c = await mountCanvas(t, [mkNode('worker'), mkNode('other')])
@@ -663,7 +663,7 @@ uiTest('§6b New project here… from a row opens a draft project card, like a h
     const camera = () => (c.el.querySelector('.space') as HTMLElement).style.transform
     const before = camera()
     await rightClick(rowFor(c.el, 'other')!)
-    await pick('New project here…')
+    await pick('New project…')
     await advance(600, 30); await flush(4)
     const card = c.el.querySelector<HTMLElement>('.sq.draft.project')
     assert.ok(card, 'a draft project card opened on the canvas')

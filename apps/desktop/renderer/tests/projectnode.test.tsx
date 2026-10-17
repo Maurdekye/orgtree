@@ -250,7 +250,7 @@ const handlers = (extra: Partial<AgentMenuHandlers> = {}): AgentMenuHandlers => 
 test('§3a a live project\'s menu: open its mailbox or folder, hire or nest a project under it, retire it', () => {
   const nd = project()
   assert.deepEqual(labels(projectMenuEntries(nd, handlers(), { claudeHire: offer })),
-    ['Open', 'Settings', 'Hire under this project', 'New project here…', 'sep', 'Retire project…'])
+    ['Open', 'Settings', 'Hire under this project', 'New project…', 'sep', 'Retire project…'])
   const open = projectMenuEntries(nd, handlers(), { claudeHire: offer })[0]
   assert.ok(open !== 'sep')
   assert.deepEqual(open.children?.map((c) => c === 'sep' ? 'sep' : c.label),
