@@ -71,3 +71,39 @@ the tested normalizer, and normal non-SAFE_START runtime startup calls recovery.
 Not measured: a paid provider probe or live release behavior. The original
 incident's logs establish the parser failure; they do not establish the org's
 historical auto-resume setting. No new engine fix was necessary for this report.
+
+
+## Refusal reset selection (2026-10-17)
+
+A new refusal is current evidence. The former anchor-once rule reused an old
+wall for an identical countdown, then replaced it with a five-minute probe once
+that wall expired. Read-only incident logs showed a repeated 16,525-second
+Antigravity countdown taking that branch twice. A fresh refusal now anchors its
+reported duration again and retains an older deadline only if it is later.
+
+`runtime/usage_reset.rs` chooses the latest valid future reset from relative
+h/m/s combinations, ISO timestamps with UTC/offset, a Claude-style local clock,
+legacy pipe epoch, Claude `resetsAt`, Codex exhausted primary/secondary windows,
+and Muse's typed millisecond quota reset. Local clock times that passed today
+roll to tomorrow; an ambiguous local clock chooses the later instant. Named
+IANA zones are unsupported; no timezone dependency was added. Malformed or
+missing times retain the previous generic one-hour limit fallback, and Muse's
+generic failures retain their separate recovery path.
+
+Structured events belong to the active turn, not the actor's next login. A
+cache-only lookup uses its captured serving account/provider/tier, rejects a
+missing or mismatched registered account, and never probes the provider. Only a
+successful available observation newer than the refusal, on an applicable full
+window, may extend the deadline. Unrelated model pools, failed/stale/future-dated
+readings and shorter resets cannot shorten or replace the parsed refusal.
+
+The freeze record stores the selected reset for its held-until notice;
+`freeze::wake_at` still adds 60 seconds before automatic wake/replay. No changes
+were made to manual unstick, continue-on, halt/unhalt, timer compare-and-clear,
+or the auto-resume setting. Their existing overrides and guards remain.
+
+Author verification: eight regression tests at the red checkpoint executed with
+seven expected failures and one unchanged fallback pass. Focused green tests
+cover the incident countdown, typed reset units, ISO offset and local rollover,
+later-evidence selection, grace, malformed input, and failed/unrelated cached
+windows. No live writes, provider calls, installation or restart were used.
