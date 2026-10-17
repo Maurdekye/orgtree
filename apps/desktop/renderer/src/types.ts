@@ -420,6 +420,8 @@ export interface TreeNode {
    *  a compaction reports the drop immediately, but nothing measures the new
    *  session until the agent's next turn, which clears this */
   occupancy_est?: boolean
+  /** Agent-scoped runtime input/context observation for the current turn. */
+  context_live?: boolean
   /** a §8 split landed and this agent has not run since — its session holds
    *  only the summary, so the compact button is not offered (the endpoint
    *  refuses it) */
@@ -984,6 +986,13 @@ export interface ToolChip {
 // supervisor.py read_chat message rows — several producers, optional beyond
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
+export interface ToolTokenCount {
+  id: string
+  output_tokens: number
+  output_tokens_estimated: boolean
+  output_tokens_sampled?: boolean
+}
+
 export interface ChatMessage {
   replies?: MailReplyWire[]
   /** Rust conversation revision; a delayed poll must not replace a newer stream commit. */
@@ -1196,6 +1205,8 @@ export interface ChatPayload {
   /** the transcript's own reading is an estimate: this session was compacted
    *  and no turn has measured what the summary left behind yet */
   occupancy_estimated?: boolean
+  context_window?: number | null
+  tool_tokens?: ToolTokenCount[]
   messages: ChatMessage[]
   /** THE DRAFT'S SUPERSESSION, AS STATE. An opaque token that changes whenever
    *  a turn's streamed text becomes durable (supervisor.draft_epoch). The desk

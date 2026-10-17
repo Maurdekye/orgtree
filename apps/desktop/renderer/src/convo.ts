@@ -29,6 +29,8 @@ import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
 import { useCallback, useContext, useEffect, useSyncExternalStore } from 'react'
 import { OrgRecordContext } from './recordsession'
 import { watchNode } from './streamrooms'
+import { readToolTokens } from './tokenmetrics'
+import type { ToolTokenCount } from './types'
 
 /** Only the newest CHAT_WINDOW rows are fetched and rendered; scrolling to the
  *  top pages another window in. The cost that bites is DOM size — every row
@@ -178,6 +180,7 @@ function legacyGhostVisible(c: ChatPayload, g: PendingGhost): boolean {
 }
 
 export interface Convo {
+  toolTokens?: Record<string, ToolTokenCount>
   chat: ChatPayload | null
   /** the server's live tail (chat.live), mirrored here so a render need not
    *  reach through a nullable payload. NOT accumulated locally — P2: the
@@ -216,6 +219,7 @@ type HistoryRetry = { kind: 'initial' | 'refresh' } | { kind: 'page'; before: st
   | { kind: 'growth'; win: number }
 
 interface Entry {
+  tokenAt?: number
   historyRetry?: HistoryRetry
   historyTimer?: ReturnType<typeof setTimeout>
   eventDriven?: boolean
@@ -1241,7 +1245,9 @@ export function refreshConvo(slug: string, nid: string,
     if (changedConversation || e.historyRetry?.kind === 'initial' || e.historyRetry?.kind === 'refresh'
       || (grew && !stalledGrowth)) cancelHistoryRetry(e)
     if (stalledGrowth) retryHistory(e, slug, nid, { kind: 'growth', win: askedWin })
-    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
+    const toolTokens = !c.busy ? {} : changedConversation ? readToolTokens(c.tool_tokens)
+      : startedAt >= (e.tokenAt ?? 0) && Array.isArray(c.tool_tokens) ? readToolTokens(c.tool_tokens) : e.s.toolTokens
+    patchEntry(e, { chat: c, toolTokens, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
     // request remains to own it
@@ -1570,6 +1576,17 @@ function drainAssistantGaps(e: Entry, id: string, row: ChatMessage): ChatMessage
 export function ingestStream(slug: string, ev: StreamEvent): void {
   const k = key(slug, ev.node)
   const e = entry(k)
+  if (ev.kind === 'tool_tokens') {
+    const start = Date.parse(ev.turn_started_at ?? '')
+    const current = Date.parse(e.s.chat?.turn_started_at ?? '')
+    if (Number.isFinite(start) && Number.isFinite(current) && start < current) return
+    const counts = readToolTokens(ev.tool_tokens)
+    if (Object.keys(counts).length) {
+      e.tokenAt = Date.now()
+      patch(k, { toolTokens: { ...e.s.toolTokens, ...counts } })
+    }
+    return // never retire partials or issue a transcript/tree refresh for counts
+  }
   // ⚠ ANYTHING THAT IS NOT LIVE TEXT PUBLISHES THE BUFFER FIRST. The
   // supersession rules below all read and write `e.s` — `staleDraft`, the
   // epoch counters, the snapshot that blanks the draft — and they must see
@@ -1726,7 +1743,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     // partial can still be streaming; legacy phase heuristics must not retire
     // it when the completed row's HTTP reconciliation returns.
     if (ev.kind === 'text') e.textSeen += 1
-    nudge(slug, ev.node)
+    if (ev.kind !== 'token_counts') nudge(slug, ev.node)
     return
   }
   // A durable row landed (text / tool / sticky output): the thinking phase is
@@ -1775,6 +1792,7 @@ export function ingestPulse(slug: string, ev: PulseEvent): void {
   // every token that arrived before it
   flushLive(e)
   if (ev.event === 'turn_done') {
+    patch(k, { toolTokens: {} })
     // the live tail is cleared server-side (sticky rows survive there); here
     // only the sub-second scaffolding needs resetting — and by the same rule as
     // ingestStream, it retires on the FETCH below rather than right now, or the

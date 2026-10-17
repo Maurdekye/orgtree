@@ -1259,6 +1259,8 @@ export interface CanvasScope {
 /** the app-level event feeds OrgCanvas rides (produced by App's WS handler) */
 export interface PulseEvent { node: string; event: string; t: number }
 export interface StreamEvent {
+  tool_tokens?: import('../types').ToolTokenCount[]
+  turn_started_at?: string | null
   stream_order?: number
   convo_rows?: import('../types').ChatMessage[]
   draft_clear?: boolean

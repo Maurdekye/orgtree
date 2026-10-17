@@ -1,4 +1,8 @@
 import { DataUsageIcon } from '../icons'
+import { createContext } from 'react'
+import type { ToolTokenCount } from '../types'
+
+export const LiveTokenContext = createContext<Record<string, ToolTokenCount>>({})
 
 /** Counts are supplied by the engine; rendering never tokenizes transcript text. */
 export function TokenCount({ count, estimated = false, thinking = false, sampled = false }:

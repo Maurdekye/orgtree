@@ -10,7 +10,8 @@ import { ToolInputDetails } from './toolinput'
 import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
-import { TokenCount } from './tokencount'
+import { LiveTokenContext, TokenCount } from './tokencount'
+import { contextReading } from '../tokenmetrics'
 import { CompactingLine, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
@@ -3208,16 +3209,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
 
   const liveKids = node.children.some((c) => c.state === 'live')
   const lastTurn = node.turns?.[node.turns.length - 1]
-  const contextOccupancy = chat?.occupancy ?? node.occupancy
-  const contextEstimated = chat?.occupancy != null
-    ? chat.occupancy_estimated : node.occupancy_est
+  const { used: contextOccupancy, estimated: contextEstimated, window: contextWindow } = contextReading(node, chat)
   // measured fill as a fraction of the window, for the mid-turn banner's
   // gate; null (not 0) when there is nothing trustworthy to gate on, so the
   // gate stays shut rather than reading "empty" as "below the floor"
   const contextRatio = (!contextEstimated
     && typeof contextOccupancy === 'number' && contextOccupancy > 0
-    && typeof node.context_window === 'number' && node.context_window > 0)
-    ? contextOccupancy / node.context_window : null
+    && typeof contextWindow === 'number' && contextWindow > 0)
+    ? contextOccupancy / contextWindow : null
   const turnBannerState: TurnBannerState = deriveTurnState({
     ...node,
     busy: Boolean(node.busy || chat?.busy),
@@ -3254,7 +3253,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // acquire a dead compact button: the endpoint still requires real context.
   const canCompactContext = live && !node.bearer_state && !node.compacted_unrun
     && typeof contextOccupancy === 'number' && contextOccupancy > 0
-    && typeof node.context_window === 'number' && node.context_window > 0
+    && typeof contextWindow === 'number' && contextWindow > 0
   // The metadata subscription is patched by the node-stream event. Chat is a
   // slower reconciliation payload and must not mask a newer gate transition.
   const mcpReadinessWaiting = Boolean(node.mcp_readiness_waiting)
@@ -3388,7 +3387,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               : (node.charter || '').split('\n')[0] || node.id}
             onFocus={onJump ? (id: string) => onJump(id) : undefined} />
           <span className="cc-context-seat">
-            <ContextWheel occ={contextOccupancy} cw={node.context_window}
+            <ContextWheel occ={contextOccupancy} cw={contextWindow}
               est={contextEstimated} compactAt={compactAt} persistent
               onCompact={canCompactContext ? () => setAskCompact(true) : undefined} />
           </span>
@@ -4252,6 +4251,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   return (
     <TurnActiveContext.Provider value={turnActive}>
     <RunningTurnContext.Provider value={turnStart}>
+    <LiveTokenContext.Provider value={convo.toolTokens ?? {}}>
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
       // ESCAPE CANCELS A PREPARED REPLY, exactly as its × does (user
       // 2026-10-13). It bubbles, so anything that already took this Escape —
@@ -4301,6 +4301,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       }}>
       <div className={(bare || surface?.detached ? 'desk-body eye-chat' : 'desk-inner desk-body') + providerClass + processClass}>{content}</div>
     </div></fieldset>
+    </LiveTokenContext.Provider>
     </RunningTurnContext.Provider>
     </TurnActiveContext.Provider>
   )

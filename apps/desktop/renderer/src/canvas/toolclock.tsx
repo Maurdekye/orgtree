@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { EditIcon, ArrowRightIcon } from '../icons'
 import type { ToolChip } from '../types'
-import { TokenCount } from './tokencount'
+import { LiveTokenContext, TokenCount } from './tokencount'
 
 /** Whether the desk this transcript belongs to has a turn running. A tool call
  *  with no result only counts up while its own turn runs (`RunningTurnContext`):
@@ -96,6 +96,8 @@ export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?:
 }
 
 export function ToolTimes({ tool }: { tool: ToolChip }) {
+  const tokens = useContext(LiveTokenContext)
+  const count = (!tool.ended_at && tool.result === undefined && tool.id && tokens[tool.id]) || tool
   const live = useLiveCall(tool.started_at)
   const writing = typeof tool.writing_secs === 'number' ? formatDuration(tool.writing_secs * 1000) : ''
   const ran = executionTime(tool.started_at, tool.ended_at)
@@ -110,7 +112,7 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
         ? <RunningTimer startedAt={tool.started_at} />
         : !tool.writing_started_at && (finished || tool.started_at)
           ? <span className="dim tool-exec-time" title="Execution time was not observed for this call" aria-label="execution time unavailable">{' · '}<ArrowRightIcon fontSize="inherit" /> —</span> : null}
-    <TokenCount count={tool.output_tokens} estimated={tool.output_tokens_estimated !== false} sampled={tool.output_tokens_sampled} />
+    <TokenCount count={count.output_tokens} estimated={count.output_tokens_estimated !== false} sampled={count.output_tokens_sampled} />
   </>
 }
 
