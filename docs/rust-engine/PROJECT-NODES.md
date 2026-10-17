@@ -194,9 +194,9 @@ co-owns the item with full owner rights.
   places the project the way a hire is placed: under the card, beside it (create, then the side
   hire's reorder) or above it, holding it (`above`). Spaces in the typed name become hyphens,
   as in a hire (`normalizeUserEnteredName`). There is no separate form.
-- Menus: agents get "New project here…" on the card and the Agents List row alike, and the eye
+- Menus: agents get "New project…" on the card and the Agents List row alike, and the eye
   card gets "New project…". Each opens the same draft project card. A project's own menu offers Open (mailbox, folder, presentations),
-  Hire under this project, New project here… and Retire project….
+  Hire under this project, New project… and Retire project….
 - `orgtree_chart` and `orgtree_state_inspect` list projects with `kind: project`. How a project
   should look in the chart and on the docket is still with the user; this is provisional.
 

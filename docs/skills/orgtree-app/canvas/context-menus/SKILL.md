@@ -12,7 +12,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | --- | --- |
 | Focus | Navigate to the agent; present but disabled when this surface has no focus handler. |
 | Hire a subordinate | Opens a tier's existing draft form, creating no seat until confirmation; offered for an eligible live card with free hire edges, not a pile front. |
-| New project here… | Directly under Hire a subordinate (after Focus when no hire is offered): opens a draft project card under the agent, creating nothing until create. |
+| New project… | Directly under Hire a subordinate (after Focus when no hire is offered): opens a draft project card under the agent, creating nothing until create. |
 | Open → Open desk | Temporary desk glance without changing focused agent/layout. |
 | Open → Open desk in a new window / Show desk window | Detach a desk, or raise its existing native window. |
 | Open → Pin desk as a window / Show pinned window | Pin or raise its canvas window. |
