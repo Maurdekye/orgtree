@@ -366,7 +366,8 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     let (caller_id, caller_name) = (caller.agent_id, caller.name.clone());
     // The snapshot is coherent and owned. CPU work and verbose scope logging
     // cannot occupy a Tokio async worker or retain a database-pool client.
-    tokio::task::spawn_blocking(move || inspection_projection(caller_id, caller_name, archived, names, scopes, records, ceiling)).await?
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || span.in_scope(|| inspection_projection(caller_id, caller_name, archived, names, scopes, records, ceiling))).await?
 }
 
 #[logged]

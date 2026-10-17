@@ -106,3 +106,33 @@ fn session_scope_folder_list_optimization_preserves_overlap_and_path_semantics()
     let out=crate::domain::scope::clamp_dirs(dirs.as_array().unwrap(),ceiling.as_array().unwrap());
     assert_eq!(out,json!([{"path":"D:/synthetic/a/../b/child","mode":"rw"},{"path":"D:/synthetic/b/ro","mode":"ro"}]).as_array().unwrap().clone());
 }
+
+#[test]
+fn session_scope_folder_lists_match_preoptimization_for_roots_modes_and_order() {
+    fn legacy(dirs:&[Value],ceiling:&[Value])->Vec<Value> {
+        let mut out=Vec::new();
+        for d in dirs {
+            let Some(path)=d.get("path").and_then(Value::as_str) else {continue};
+            let mode=d.get("mode").and_then(Value::as_str).unwrap_or("rw");
+            let mut best=None;
+            for c in ceiling {
+                let Some(cp)=c.get("path").and_then(Value::as_str) else {continue};
+                if crate::domain::scope::path_within(path,cp){
+                    let cm=c.get("mode").and_then(Value::as_str).unwrap_or("rw");
+                    best=Some(match best{Some("rw")=>"rw",_=>cm});
+                }
+            }
+            if let Some(cm)=best{out.push(json!({"path":path,"mode":if mode=="ro"||cm=="ro"{"ro"}else{"rw"}}));}
+        }
+        out
+    }
+    let paths=["","D:/","D:/synthetic/b/child","d:\\SYNTHETIC\\b","D:/synthetic/boundary","D:/synthetic/../outside",r"\\server\share\child","a/../b"];
+    let dirs:Vec<Value>=paths.iter().flat_map(|path|["ro","rw","other"].map(|mode|json!({"path":path,"mode":mode}))).chain([json!({}),json!({"path":7})]).collect();
+    for mode in ["ro","rw","other"] {
+        let mut ceiling=vec![json!({"path":"D:/synthetic","mode":mode}),json!({"path":"D:/synthetic/b/child","mode":"rw"}),json!({"path":r"\\server\share","mode":"ro"}),json!({"path":"D:/","mode":"ro"}),json!({})];
+        for _ in 0..2 {
+            assert_eq!(crate::domain::scope::clamp_dirs(&dirs,&ceiling),legacy(&dirs,&ceiling));
+            ceiling.reverse();
+        }
+    }
+}

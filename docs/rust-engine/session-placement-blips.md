@@ -51,10 +51,20 @@ state markers were retained in derived evidence; no live state was changed.
 
 Coordinator follow-up at 13:51Z and approval at 13:52Z require debounce first,
 then a synthetic measurement, then a contained optimization if warranted.
-Inspection currently re-evaluates each node's entire ancestor chain and
-normalizes both folder paths for every child-by-ceiling pair, synchronously
-on the async worker after the read-only transaction commits. `norm_path` itself
-uses only string operations. Verbose logging amplifies each repeated call.
+Before the follow-up, inspection re-evaluated each node's entire ancestor chain
+and normalized both folder paths for every child-by-ceiling pair, synchronously
+on the async worker after the read-only transaction committed. The measured
+baseline was 154,368 actual normalization calls and 154,368 logged normalization
+spans in the fixture below (716.3745 ms with a span counter, no file logger).
+
+The separate follow-up pre-normalizes each folder-list entry once per clamp,
+memoizes effective ancestor scopes within this immutable request snapshot, and
+moves the CPU projection into `spawn_blocking` after releasing the database
+client. The blocking task retains the request's tracing span. Depth checks
+include cached ancestor depth, so memoization cannot hide an overlong chain.
+Pure `norm_path` and `path_within` helpers are `#[nolog]`; outer
+`inspection_scope` calls and aggregate snapshot/evaluated/returned counts remain
+logged. No filesystem operation, global cache or new lock is involved.
 
 The focused product fixture has 35 agents, a three-node shared ancestor chain,
 32 reports and 24 folders per scope. A test-only thread-local counter measures
@@ -63,7 +73,9 @@ of hot-helper logging cannot masquerade as reduced computation. Timing uses a
 span counter without a file logger and must not be presented as reproduction
 of the live 15.5-second delay. The follow-up must preserve scope containment,
 mode precedence, visibility and cycle/depth/missing-ancestor refusals; no global
-cache or lock is authorized.
+cache or lock is authorized. Final before/after counts, focused permission and
+ancestry parity checks, and the exact tested SHA are recorded in the separate
+docket `bound-inspection-scope-work-and-remove-hot-norma`.
 
 ## Verification
 

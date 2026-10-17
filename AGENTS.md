@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- State inspection memoizes effective ancestry only within its immutable
+  request snapshot, retaining the total 1024-node ancestry cap and visibility
+  refusals. Folder clamps normalize each list entry once; pure path helpers
+  are unlogged. Snapshot projection runs on a blocking worker after releasing
+  the read-only database client, with its request tracing span and outer
+  scope/count logs preserved. See [scope follow-up](docs/rust-engine/session-placement-blips.md#scope-inspection-follow-up).
+  [decided: coordinator 2026-10-17; verified: `tools/orgview.rs`, `domain/scope.rs`]
+
 - Session-placement loss requires three two-second misses; recovery is immediate.
   Overdue ticks are skipped and each recovered blip logs once. A per-engine
   placement hint keeps turn selection stable during debounce without extending
