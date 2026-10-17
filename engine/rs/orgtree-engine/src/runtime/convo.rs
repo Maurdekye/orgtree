@@ -487,7 +487,87 @@ mod recovery_command_tests {
             ("coordinator-opus".to_string(), "notice-time".to_string(), "agent notice".to_string()),
             ("user".to_string(), "reply-time".to_string(), "user reply".to_string()),
         ]);
+        assert_eq!(
+            recovery_user_entries(&json!({
+                "role": "user",
+                "ts": "legacy-time",
+                "text": "legacy body"
+            })),
+            vec![(
+                "mail".to_string(),
+                "legacy-time".to_string(),
+                "legacy body".to_string()
+            )]
+        );
     }
+}
+
+/// Split a batched user turn into its individually authored recovery entries.
+/// Legacy rows without usable segments retain the previous whole-row view.
+#[nolog]
+fn recovery_user_entries(body: &Value) -> Vec<(String, String, String)> {
+    let message_ts = body["ts"].as_str().unwrap_or("");
+    let mut entries = Vec::new();
+    if let Some(segments) = body["segments"].as_array() {
+        for segment in segments {
+            match segment["kind"].as_str().unwrap_or("") {
+                "mail" => {
+                    if let Some(rows) = segment["rows"].as_array() {
+                        for row in rows {
+                            let Some(text) = row["body"].as_str() else {
+                                continue;
+                            };
+                            let from = row["from"].as_str().unwrap_or("mail");
+                            let from = match from {
+                                "@user" | "user" => "user",
+                                "@system" | "system" => "system",
+                                other => other,
+                            };
+                            let ts = row["at"].as_str().unwrap_or(message_ts);
+                            entries.push((from.to_string(), ts.to_string(), text.to_string()));
+                        }
+                    }
+                }
+                "text" => {
+                    if let Some(text) = segment["text"].as_str() {
+                        entries.push(("user".to_string(), message_ts.to_string(), text.to_string()));
+                    }
+                }
+                "notices" => {
+                    if let Some(rows) = segment["rows"].as_array() {
+                        for row in rows {
+                            let Some(text) = row["text"].as_str().or_else(|| row["body"].as_str()) else {
+                                continue;
+                            };
+                            let from = row["from"].as_str().unwrap_or("system");
+                            let from = match from {
+                                "@user" | "user" => "user",
+                                "@system" | "system" => "system",
+                                other => other,
+                            };
+                            let ts = row["at"].as_str().unwrap_or(message_ts);
+                            entries.push((from.to_string(), ts.to_string(), text.to_string()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        let from = body
+            .pointer("/segments/0/rows/0/from")
+            .and_then(Value::as_str)
+            .unwrap_or("mail");
+        let from = if from == "@user" { "user" } else { from };
+        entries.push((
+            from.to_string(),
+            message_ts.to_string(),
+            body["text"].as_str().unwrap_or("").to_string(),
+        ));
+    }
+    entries
 }
 
 /// A plain-text digest of the recent conversation, including bounded commands.
@@ -500,16 +580,14 @@ pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, 
         let inputs: Value = r.get(1);
         let native: Value = r.get(2);
         let role = b["role"].as_str().unwrap_or("");
-        let text = crate::util::gist(b["text"].as_str().unwrap_or(""), 1200);
         match role {
             "user" => {
-                let from = b
-                    .pointer("/segments/0/rows/0/from")
-                    .and_then(Value::as_str)
-                    .unwrap_or("mail");
-                parts.push(format!("[{from}] {text}"));
+                for (from, _, text) in recovery_user_entries(&b) {
+                    parts.push(format!("[{from}] {}", crate::util::gist(&text, 1200)));
+                }
             }
             "assistant" => {
+                let text = crate::util::gist(b["text"].as_str().unwrap_or(""), 1200);
                 let tools: Vec<String> = b["tools"]
                     .as_array()
                     .map(|a| {
@@ -550,8 +628,10 @@ pub async fn save_history(client: &Client, agent_id: i64, dir: &std::path::Path)
         let text = b["text"].as_str().unwrap_or("");
         match b["role"].as_str().unwrap_or("") {
             "user" => {
-                let from = b.pointer("/segments/0/rows/0/from").and_then(Value::as_str).unwrap_or("mail");
-                out.push_str(&format!("## From {from} · {ts}\n\n{text}\n\n"));
+                for (from, entry_ts, entry_text) in recovery_user_entries(&b) {
+                    let entry_ts = if entry_ts.is_empty() { ts } else { &entry_ts };
+                    out.push_str(&format!("## From {from} · {entry_ts}\n\n{entry_text}\n\n"));
+                }
             }
             "assistant" => {
                 out.push_str(&format!("## You · {ts}\n\n"));
