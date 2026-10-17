@@ -33,7 +33,7 @@ import { agentMenuEntries, projectMenuEntries } from '../src/canvas/agentmenu'
 import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
 import { agentItems } from '../src/canvas/docket'
 import type { WorkItem } from '../src/types'
-import { DRAFT, setAgentShortcutsOn, withDraftTree } from '../src/canvas/shared'
+import { DRAFT, peerLinkPairs, setAgentShortcutsOn, withDraftTree } from '../src/canvas/shared'
 import type { CanvasNode, DraftState, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -302,4 +302,19 @@ test('§4b the project docket lists the items attached to it, and only those', (
   assert.deepEqual(agentItems(data, 'website')!.map((i) => i.slug), ['attached'])
   assert.deepEqual(agentItems(data, 'dev1')!.map((i) => i.slug), ['attached', 'elsewhere', 'plain'],
     'the owner still sees every item it owns')
+})
+
+/* ─── §5 sibling connector lines ────────────────────────────────────────── */
+// USER 2026-10-17 21:23Z: "project nodes shouldnt have lines connecting them
+// to their neigbors (unless they have agents on both sides"
+
+test('§5 neighbour lines skip project nodes; agents either side of one stay joined, past it', () => {
+  const kinds: Record<string, string | undefined> = { a: undefined, p: 'project', b: undefined, q: 'project', r: 'project' }
+  const isProj = (id: string) => kinds[id] === 'project'
+  assert.deepEqual(peerLinkPairs(['p', 'a', 'b'], isProj), [['a', 'b']], 'a project at the start: no segment to it')
+  assert.deepEqual(peerLinkPairs(['a', 'b', 'p'], isProj), [['a', 'b']], 'a project at the end: no segment to it')
+  assert.deepEqual(peerLinkPairs(['a', 'p', 'b'], isProj), [['a', 'b']], 'between agents: one line from a to b, past p')
+  assert.deepEqual(peerLinkPairs(['a', 'q', 'r', 'b'], isProj), [['a', 'b']], 'past a run of projects too')
+  assert.deepEqual(peerLinkPairs(['p', 'q'], isProj), [], 'projects alone: no lines')
+  assert.deepEqual(peerLinkPairs(['a', 'b', 'c'], () => false), [['a', 'b'], ['b', 'c']], 'agents only: unchanged')
 })
