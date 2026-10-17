@@ -268,8 +268,8 @@ export default async function (rig) {
     && node('carol')?.parent_id === rev2?.id, over.ok ? { lead, review: rev2 } : over.error)
   p.check('the project above carol stays free and transparent under its new superior', rev2?.seat === 0 && free('review') === 0,
     { seat: rev2?.seat, free: free('review') })
-  p.check('boss pays the new agents\' seats and nothing for the project', Math.abs((bossFree2 - free('boss')) - 2) < 1e-6,
-    { before: bossFree2, after: free('boss') })
+  p.check('boss pays the new agents\' seats and nothing for the project', Math.abs((bossFree2 - free('boss')) - (node('peer1').seat + node('lead1').seat)) < 1e-6,
+    { before: bossFree2, after: free('boss'), seats: node('peer1').seat + node('lead1').seat })
 
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
