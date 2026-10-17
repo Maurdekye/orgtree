@@ -49,7 +49,10 @@ fn round2(x: f64) -> f64 {
 /// One turn-ledger row → the card's `TurnStat`.
 fn turn_stat(t: &Value) -> Value {
     let mut o = Map::new();
-    o.insert("at".into(), ts(&t["started_at"]));
+    // The idle clock measures completion, including killed turns. Open or
+    // legacy rows without an end retain their existing admission fallback.
+    let at = t.get("ended_at").filter(|v| !v.is_null()).unwrap_or(&t["started_at"]);
+    o.insert("at".into(), ts(at));
     o.insert("cost".into(), json!(f(&t["cost_usd"])));
     o.insert("ms".into(), t.get("ms").cloned().unwrap_or(Value::Null));
     o.insert("denials".into(), json!(t["denials"].as_i64().unwrap_or(0)));
