@@ -22,7 +22,7 @@ async function setup(t: TestContext, initial = [account('existing-claude'), acco
       id, label: ['Claude', 'Codex', 'Antigravity'][i], cli: id, status: { installed: true, connected: true }, tiers: [], hire_enabled: true,
     })) }
     else if (String(url).endsWith('/identity')) body = { auth: 'unauthenticated' }
-    else if (method === 'POST') {
+    else if (String(url) === '/api/accounts' && method === 'POST') {
       if (state.failPost) return new Response(JSON.stringify({ detail: 'Folder does not exist' }), { status: 422 })
       const input = JSON.parse(String(init?.body))
       const row = account('new-' + input.provider, input.provider, 'unauthenticated')
@@ -69,7 +69,7 @@ test('creating a managed Codex account renders in Codex with sign-in and closes 
   const { state, calls } = await setup(t)
   await open('openai')
   await inAct(async () => { button(dialog(), 'Create managed account').click(); await flush() })
-  assert.deepEqual(JSON.parse(calls.find(c => c.method === 'POST')!.body), { provider: 'openai', kind: 'managed' })
+  assert.deepEqual(JSON.parse(calls.find(c => c.url === '/api/accounts' && c.method === 'POST')!.body), { provider: 'openai', kind: 'managed' })
   assert.equal(dialog(), null)
   assert.equal(state.closed, false)
   const row = [...lane('openai').querySelectorAll('.account-row')].find(r => r.textContent?.includes('new-openai'))!
@@ -145,7 +145,7 @@ test('folder import retains input on failure and creates its row in the selected
   assert.equal(dialog().querySelector('input')!.value, '  C:/existing-profile  ')
   state.failPost = false
   await inAct(async () => { button(dialog(), 'Import folder').click(); await flush() })
-  assert.deepEqual(JSON.parse(calls.filter(c => c.method === 'POST').at(-1)!.body), { provider: 'claude', kind: 'imported', path: 'C:/existing-profile' })
+  assert.deepEqual(JSON.parse(calls.filter(c => c.url === '/api/accounts' && c.method === 'POST').at(-1)!.body), { provider: 'claude', kind: 'imported', path: 'C:/existing-profile' })
   assert.equal(dialog(), null)
   assert.match(lane('claude').textContent!, /new-claude/)
 })
