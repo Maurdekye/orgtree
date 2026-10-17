@@ -594,7 +594,7 @@ test('§2c Normal card preservation: non-limit frozen, legacy waiting/error clas
   }
 })
 
-test('far-zoom halted cards keep the visible status label beside the stop icon', async () => {
+test('far-zoom halted cards show only the stop icon', async () => {
   const normView = await renderCard(makeNode('norm-halted', { halt: { phase: 'halted' } }), 'norm')
   try {
     const status = normView.el.querySelector('.sq-workstate .sq-halt-status')
@@ -610,8 +610,9 @@ test('far-zoom halted cards keep the visible status label beside the stop icon',
   try {
     const card = view.el.querySelector('.sq')!
     const status = card.querySelector('.sq-far-status.halted')
-    assert.ok(status, 'far-zoom halted state has a dedicated visible status label')
-    assert.equal(status.lastElementChild?.textContent?.trim(), 'Halted', 'label matches the Agents list')
+    assert.ok(status, 'far-zoom halted state keeps its dedicated stop icon')
+    assert.equal(status.querySelector(':scope > span') !== null, false,
+      'far zoom omits the tiny halted caption')
     assert.ok(status.querySelector('.sq-far-icon.halted'), 'stop glyph remains in the status treatment')
   } finally {
     await view.unmount()
