@@ -271,6 +271,22 @@ export default async function (rig) {
   p.check('boss pays the new agents\' seats and nothing for the project', Math.abs((bossFree2 - free('boss')) - (node('peer1').seat + node('lead1').seat)) < 1e-6,
     { before: bossFree2, after: free('boss'), seats: node('peer1').seat + node('lead1').seat })
 
+  // ------------------------------------------------------------ a project's Presented gallery (review finding, docket point 8)
+  // USER 2026-10-17 20:07:52Z: the project's presentations plus those of the agents in its subtree
+  const nested = await rig.tool('dev5', 'orgtree_present', { title: 'UI sketch', body: '# UI\n\nnested', })
+  const unrelated = await rig.tool('alice', 'orgtree_present', { title: 'Alice notes', body: '# Alice' })
+  const gallery = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=50`)
+  const titles = (gallery.documents ?? []).map(d => d.title)
+  p.check('the project gallery holds its own documents and a nested descendant\'s, not an unrelated agent\'s',
+    nested.ok && unrelated.ok && titles.includes('Website plan') && titles.includes('UI sketch') && !titles.includes('Alice notes')
+    && gallery.total === titles.length, { titles, total: gallery.total })
+  const paged = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1`)
+  p.check('it pages: one card, the full total, a next offset', (paged.documents ?? []).length === 1 && paged.total === gallery.total
+    && paged.next_offset === 1, { n: (paged.documents ?? []).length, total: paged.total, next: paged.next_offset })
+  const agentGallery = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5&limit=50`)
+  p.check('an agent\'s gallery is still its own documents only', (agentGallery.documents ?? []).every(d => d.node === 'dev5')
+    && (agentGallery.documents ?? []).some(d => d.title === 'UI sketch'), (agentGallery.documents ?? []).map(d => [d.node, d.title]))
+
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
   p.keep(rig, { agents: ['dev1', 'dev2', 'boss'], grep: /project|fair_queue|dispatch/i })
