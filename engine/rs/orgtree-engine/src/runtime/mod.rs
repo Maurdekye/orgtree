@@ -8,6 +8,7 @@ pub mod actor;
 pub mod acp;
 pub mod acp_scope;
 pub mod agy;
+pub mod agy_thinking;
 pub mod claude;
 pub mod codex;
 pub mod convo;
